@@ -25,7 +25,7 @@ interface ScoreDetail {
     reasoning?: string
 }
 
-// The worker (ats-worker/ats_worker/pipeline.py) writes score_detail as
+// The worker (apps/worker/ats_worker/pipeline.py) writes score_detail as
 // { matched_keywords, missing_keywords, reasoning }. Normalize to a stable
 // shape here, tolerating the legacy { matched, missing } keys too.
 function parseScoreDetail(raw?: string | null): ScoreDetail | null {

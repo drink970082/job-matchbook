@@ -7,12 +7,12 @@ db/
 screenshots/
 
 # Worker secrets, user-provided resume sources, and tailored-PDF output volume
-ats-worker/.env
-ats-worker/.venv
-ats-worker/resume/*
-!ats-worker/resume/README.md
+apps/worker/.env
+apps/worker/.venv
+apps/worker/resume/*
+!apps/worker/resume/README.md
 # Ship template resume files so a clean clone runs out of the box. Keep YOUR
 # edits private with: git update-index --skip-worktree resume/master.tex resume/resume.txt
-!ats-worker/resume/master.tex
-!ats-worker/resume/resume.txt
+!apps/worker/resume/master.tex
+!apps/worker/resume/resume.txt
 resumes/

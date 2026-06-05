@@ -9,21 +9,63 @@ A self-hosted job-application tracker built with **Next.js 14**, **Prisma**, and
   <img src="docs/images/dashboard.png" alt="Full dashboard view" width="900">
 </p>
 
-The working app lives in [`ats-next/`](./ats-next). The SQLite database lives in [`db/applications.db`](./db) and is symlinked from `ats-next/prisma/applications.db` so it can be bind-mounted by the container.
+This repo is **one project made of two cooperating services** that share a
+single SQLite database:
 
-> **New: semi-automated job-hunt pipeline.** A separate Python worker
-> ([`ats-worker/`](./ats-worker)) sits *in front* of the tracker — it scans
-> company ATS boards, scores each posting against your resume with a local LLM,
-> auto-tailors a one-page resume for the best matches, and pings you on Telegram.
-> You review/apply by hand, then one-click "Mark Applied" turns a posting into a
-> tracked application. See [**docs/SETUP.md**](./docs/SETUP.md) for the full setup
-> and [`docs/pipeline-design.md`](./docs/pipeline-design.md) for the design.
+- [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
+- [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker:
+  it scans company ATS boards, scores each posting against your resume with a
+  local LLM, auto-tailors a one-page resume for the best matches, and pings you
+  on Telegram. You review/apply by hand, then one-click "Mark Applied" turns a
+  posting into a tracked application.
+
+See [**docs/SETUP.md**](./docs/SETUP.md) for full setup and
+[`docs/pipeline-design.md`](./docs/pipeline-design.md) for the design.
 
 ---
 
 ## Why
 
 Job hunting generates a lot of state per application: which company, which role, when applied, current status, how many interview rounds, when it stalled, what category (SWE / MLE / DS / Quant / etc.). A spreadsheet handles the first two columns fine but falls over once you want to ask "what's my offer rate by category?" or "where do most of my applications die?" This app is the spreadsheet plus the answers.
+
+---
+
+## Architecture
+
+Two services, one shared SQLite database. The **worker** discovers and prepares
+jobs; the **web app** is where you triage and track them. They never call each
+other directly — the database (and a shared folder of tailored PDFs) is the only
+contract between them.
+
+```
+            ATS boards          Ollama (host GPU)   Claude API      Telegram
+          Greenhouse/Lever/Ashby      │                 │              ▲
+                  │                    │                 │              │
+                  ▼                    ▼                 ▼              │
+   ┌───────────────────────────────────────────────────────────────────┐
+   │  apps/worker  (Python, scheduled)                                  │
+   │     fetch ──► score ──► tailor (1-page PDF) ──► notify             │
+   └───────────────┬───────────────────────────────────┬───────────────┘
+                   │ writes job_postings rows           │ writes PDFs
+                   ▼                                     ▼
+            ┌────────────┐                        ┌────────────┐
+            │   db/      │   shared SQLite        │  resumes/  │  shared volume
+            │ (WAL mode) │◄──────────────────────►│  (PDFs)    │
+            └─────┬──────┘                        └─────┬──────┘
+                  │ reads postings / writes applications │ serves PDFs
+                  ▼                                       ▼
+   ┌───────────────────────────────────────────────────────────────────┐
+   │  apps/web  (Next.js)                                               │
+   │   Discovered Jobs tab  ──"Mark Applied"──►  Applications + charts  │
+   └───────────────────────────────────────────────────────────────────┘
+                  ▲
+                  │  you (browser): triage, apply by hand, track
+```
+
+Both run together with one `docker compose up` from the repo root; the database
+is mounted as a **directory** so SQLite's WAL sidecars are shared across both
+containers. The worker invests nothing in auto-apply — a human is always in the
+loop.
 
 ---
 
@@ -72,7 +114,7 @@ Click the clock icon on any row to open a modal showing every status this applic
 
 ### Discovered Jobs (semi-automated pipeline)
 
-A second tab next to **Applications**. The [`ats-worker/`](./ats-worker) worker
+A second tab next to **Applications**. The [`apps/worker`](./apps/worker) worker
 populates a `job_postings` table on a schedule; the UI is where you triage it:
 
 - **Scored queue** — postings sorted by an LLM match score (0–100), filterable by
@@ -121,13 +163,13 @@ Everything stacks vertically below ~640px. Table remains scrollable; charts shri
 ### Local dev
 
 ```bash
-cd ats-next
+cd apps/web
 npm install
 npx prisma generate
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. (Or from the repo root: `make install && make dev`.)
 
 If `db/applications.db` does not exist yet, create it with:
 
@@ -139,10 +181,10 @@ npx prisma db push
 
 The container does **not** ship with a database — the host's `db/` directory is bind-mounted so your data survives image rebuilds and lives where you can back it up.
 
-The root [`docker-compose.yml`](./docker-compose.yml) defines **two** services: `ats` (web) and `ats-worker` (the pipeline). Run everything **from the repo root**. To start **only the web app**:
+The root [`docker-compose.yml`](./docker-compose.yml) defines **two** services: `web` and `worker` (the pipeline). Run everything **from the repo root**. To start **only the web app**:
 
 ```bash
-UID=$(id -u) GID=$(id -g) docker compose up ats --build -d
+UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 ```
 
 That starts the app on http://localhost:3000 with the host `db/` directory mounted at `/data`.
@@ -161,12 +203,12 @@ Or the web app without compose:
 docker build \
   --build-arg UID=$(id -u) \
   --build-arg GID=$(id -g) \
-  -t ats-next:local ats-next
+  -t ats-web:local apps/web
 
-docker run -d --name ats-next -p 3000:3000 \
+docker run -d --name ats-web -p 3000:3000 \
   -e DATABASE_URL="file:/data/applications.db" \
   -v "$PWD/db:/data" \
-  ats-next:local
+  ats-web:local
 ```
 
 > **Note:** the database is mounted as a **directory** (`db/` → `/data`), not a single file. This is required so SQLite's WAL `-wal`/`-shm` sidecar files are shared between the web and worker containers; a single-file mount silently breaks cross-process WAL. The `UID`/`GID` build args make the container user own the bind-mounted files so writes work without `chmod 777`.
@@ -177,10 +219,10 @@ docker run -d --name ats-next -p 3000:3000 \
 
 The **web app** needs one environment variable; the **pipeline worker** needs a few (see [docs/SETUP.md](./docs/SETUP.md)). Things to know:
 
-- **`DATABASE_URL`** — the Prisma datasource is now `env("DATABASE_URL")`. Locally it's set in [`ats-next/.env`](./ats-next/.env) to `file:./applications.db` (resolves to the `prisma/applications.db` symlink). In Docker, `docker-compose.yml` overrides it to an absolute path on the shared volume (`file:/data/applications.db`). This indirection is what lets the same schema serve both local dev and the directory-mounted container db.
+- **`DATABASE_URL`** — the Prisma datasource is now `env("DATABASE_URL")`. Locally it's set in [`apps/web/.env`](./apps/web/.env) to `file:./applications.db` (resolves to the `prisma/applications.db` symlink). In Docker, `docker-compose.yml` overrides it to an absolute path on the shared volume (`file:/data/applications.db`). This indirection is what lets the same schema serve both local dev and the directory-mounted container db.
 - **Time zone** — the heatmap uses the server's local "today" as its reference. If you deploy on a server in a different TZ from where you live, set `TZ` on the container.
 - **Static / dynamic** — the root page is marked `export const dynamic = 'force-dynamic'` so it always reads from the live database; there is no stale-cache problem.
-- **Worker secrets** — `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` live in `ats-worker/.env` (gitignored). See [docs/SETUP.md](./docs/SETUP.md).
+- **Worker secrets** — `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` live in `apps/worker/.env` (gitignored). See [docs/SETUP.md](./docs/SETUP.md).
 
 ---
 
@@ -208,7 +250,7 @@ model status_history {
   applications   applications @relation(fields: [application_id], references: [id], onDelete: Cascade)
 }
 
-// Populated by the ats-worker pipeline; triaged in the Discovered Jobs tab.
+// Populated by the apps/worker pipeline; triaged in the Discovered Jobs tab.
 model job_postings {
   id              Int           @id @default(autoincrement())
   source          String        // greenhouse | lever | ashby
@@ -247,7 +289,7 @@ Plus terminal states: `Rejected`, `Withdrew`, `Ghosted`.
 
 `SWE`, `MLE`, `DS`, `DA`, `Quant Dev`, `Quant Analyst`, `Quant Trader`, `AI Engineer`, `Others`.
 
-Both lists live in [`src/lib/constants.ts`](./ats-next/src/lib/constants.ts) — edit there to extend.
+Both lists live in [`apps/web/src/lib/constants.ts`](./apps/web/src/lib/constants.ts) — edit there to extend.
 
 ---
 
@@ -267,48 +309,45 @@ ats/
 │   └── applications.db              # shared SQLite database (gitignored)
 ├── resumes/                         # tailored PDF output volume (gitignored)
 │
-├── ats-next/                        # ── Next.js web app ──
-│   ├── .env                         # DATABASE_URL for local dev
-│   ├── prisma/
-│   │   ├── schema.prisma            # applications + status_history + job_postings
-│   │   └── applications.db          # symlink → ../../db/applications.db
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── page.tsx             # dashboard entry; SSR + force-dynamic
-│   │   │   └── api/resume/[id]/route.ts  # streams tailored PDFs (only API route)
-│   │   ├── components/
-│   │   │   ├── Dashboard.tsx        # Applications ↔ Discovered Jobs tabs
-│   │   │   ├── ApplicationTable.tsx
-│   │   │   ├── DiscoveredJobsTable.tsx    # the scored pipeline queue
-│   │   │   ├── JobDetailModal.tsx         # JD + score-detail dialog
-│   │   │   ├── StatusHistoryModal.tsx
-│   │   │   ├── KPIGrid.tsx / TimelineHeatmap.tsx / CategoryDonut.tsx
-│   │   │   ├── StatusFunnel.tsx / SankeyChart.tsx / AddApplicationForm.tsx
-│   │   │   ├── ui/                  # Radix-based primitives (shadcn-style)
-│   │   │   └── __tests__/           # component tests
-│   │   ├── lib/
-│   │   │   ├── actions.ts           # Server Actions (+ getJobPostings/markJobApplied/discard)
-│   │   │   ├── db.ts                # Prisma client singleton
-│   │   │   └── constants.ts / utils.ts
-│   │   └── __tests__/actions.test.ts
-│   ├── e2e/                         # Playwright browser verification + screenshots
-│   └── Dockerfile
-│
-└── ats-worker/                      # ── Python pipeline worker ──
-    ├── config.yaml                  # company list + filters + thresholds (you edit)
-    ├── .env.example                 # → copy to .env (API keys, Telegram, Ollama)
-    ├── resume/                      # master.tex + resume.txt (you provide, gitignored)
-    ├── ats_worker/
-    │   ├── fetch/{greenhouse,lever,ashby}.py  # board adapters → unified dict
-    │   ├── config.py                # load/validate config.yaml
-    │   ├── db.py                    # SQLite: WAL pragmas, dedup upsert, state writes
-    │   ├── score.py                 # Ollama scoring (local, GPU)
-    │   ├── tailor.py                # Claude + tectonic single-page loop
-    │   ├── notify.py                # Telegram alert + PDF
-    │   ├── pipeline.py              # fetch→score→tailor→notify state machine
-    │   └── run.py                   # APScheduler entrypoint (--once for a test pass)
-    ├── tests/                       # pytest (fully mocked; no network needed)
-    └── Dockerfile                   # python:3.11-slim + tectonic (bundle prewarmed)
+└── apps/                            # the two cooperating services
+    │
+    ├── web/                         # ── Next.js web app (service: web) ──
+    │   ├── .env                     # DATABASE_URL for local dev
+    │   ├── prisma/
+    │   │   ├── schema.prisma        # applications + status_history + job_postings
+    │   │   └── applications.db      # symlink → ../../../db/applications.db
+    │   ├── src/
+    │   │   ├── app/
+    │   │   │   ├── page.tsx         # dashboard entry; SSR + force-dynamic
+    │   │   │   └── api/resume/[id]/route.ts  # streams tailored PDFs (only API route)
+    │   │   ├── components/
+    │   │   │   ├── Dashboard.tsx    # Applications ↔ Discovered Jobs tabs
+    │   │   │   ├── DiscoveredJobsTable.tsx    # the scored pipeline queue
+    │   │   │   ├── JobDetailModal.tsx         # JD + score-detail dialog
+    │   │   │   ├── ApplicationTable.tsx / StatusHistoryModal.tsx
+    │   │   │   ├── KPIGrid.tsx / TimelineHeatmap.tsx / CategoryDonut.tsx
+    │   │   │   ├── StatusFunnel.tsx / SankeyChart.tsx / AddApplicationForm.tsx
+    │   │   │   ├── ui/              # Radix-based primitives (shadcn-style)
+    │   │   │   └── __tests__/       # component tests
+    │   │   └── lib/                 # actions.ts (Server Actions), db.ts, constants.ts
+    │   ├── e2e/                     # Playwright browser verification + screenshots
+    │   └── Dockerfile
+    │
+    └── worker/                      # ── Python pipeline worker (service: worker) ──
+        ├── config.yaml              # company list + filters + thresholds (you edit)
+        ├── .env.example             # → copy to .env (API keys, Telegram, Ollama)
+        ├── resume/                  # master.tex + resume.txt (you provide, gitignored)
+        ├── ats_worker/
+        │   ├── fetch/{greenhouse,lever,ashby}.py  # board adapters → unified dict
+        │   ├── config.py            # load/validate config.yaml
+        │   ├── db.py                # SQLite: WAL pragmas, dedup upsert, state writes
+        │   ├── score.py             # Ollama scoring (local, GPU)
+        │   ├── tailor.py            # Claude + tectonic single-page loop
+        │   ├── notify.py            # Telegram alert + PDF
+        │   ├── pipeline.py          # fetch→score→tailor→notify state machine
+        │   └── run.py               # APScheduler entrypoint (--once for a test pass)
+        ├── tests/                   # pytest (fully mocked; no network needed)
+        └── Dockerfile               # python:3.11-slim + tectonic (bundle prewarmed)
 ```
 
 ---
@@ -316,27 +355,27 @@ ats/
 ## Testing
 
 ```bash
-cd ats-next
-npm test
+make test            # both suites from the repo root
+# or individually:
+make test-web        # cd apps/web && npm test
+make test-worker     # cd apps/worker && python -m pytest
 ```
 
-The suite covers:
+The **web** suite covers:
 
-- Server actions in `src/lib/actions.ts` — CRUD on applications, status history, KPI aggregations, CSV import/export, plus the discovered-jobs actions (`getJobPostings` / `markJobApplied` / `discardJobPosting`), with Prisma mocked via `jest-mock-extended`
+- Server actions in `apps/web/src/lib/actions.ts` — CRUD on applications, status history, KPI aggregations, CSV import/export, plus the discovered-jobs actions (`getJobPostings` / `markJobApplied` / `discardJobPosting`), with Prisma mocked via `jest-mock-extended`
 - Component behaviour on the tables, the add form, and the modals
 
-The **pipeline worker** has its own test suite (no network / Ollama / Claude / tectonic needed — everything is dependency-injected):
-
-```bash
-cd ats-worker
-python -m pytest          # fetch adapters, dedup/WAL db layer, scoring, single-page tailor loop, pipeline state machine
-```
+The **pipeline worker** suite needs no network / Ollama / Claude / tectonic —
+everything is dependency-injected — and covers the fetch adapters, the dedup/WAL
+db layer, scoring, the single-page tailor loop, and the pipeline state machine.
 
 ---
 
 ## Scripts
 
-Run from `ats-next/`:
+The root `Makefile` wraps everything (`make help` to list targets). The web
+scripts run from `apps/web/`:
 
 | Command         | What it does                              |
 | --------------- | ----------------------------------------- |
@@ -350,8 +389,8 @@ Run from `ats-next/`:
 
 ## Notes & design choices
 
-- **Server Actions, not REST.** All mutations go through Next.js Server Actions in `src/lib/actions.ts`. The single exception is `GET /api/resume/[id]`, which streams a tailored PDF (binary file responses don't fit the Server Action model).
+- **Server Actions, not REST.** All mutations go through Next.js Server Actions in `apps/web/src/lib/actions.ts`. The single exception is `GET /api/resume/[id]`, which streams a tailored PDF (binary file responses don't fit the Server Action model).
 - **Two processes, one database.** The web app and the Python worker co-write `db/applications.db`. SQLite WAL + `busy_timeout` make this safe; the worker writes `job_postings`, the app mostly reads them and writes `applications`. The schema is owned solely by Prisma — the worker issues no DDL.
-- **One Prisma client.** `src/lib/db.ts` exports a process-singleton so Next.js's dev hot-reload doesn't leak connections.
+- **One Prisma client.** `apps/web/src/lib/db.ts` exports a process-singleton so Next.js's dev hot-reload doesn't leak connections.
 - **Charts are mostly hand-rolled SVG.** The heatmap, funnel, and Sankey are written directly so they look exactly right on dark backgrounds without per-chart-library theming. Only the category donut uses Recharts.
 - **The Sankey palette is desaturated on purpose.** Each stage gets a tone (sky / indigo / amber / gold / emerald / rose / stone / slate) at low saturation so the flow geometry leads, not the colour.

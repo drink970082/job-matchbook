@@ -2,8 +2,8 @@
 # Thin wrappers over the per-package commands — no new tooling required.
 
 .DEFAULT_GOAL := help
-WEB    := ats-next
-WORKER := ats-worker
+WEB    := apps/web
+WORKER := apps/worker
 
 .PHONY: help install dev build lint test test-web test-worker up down db-push
 

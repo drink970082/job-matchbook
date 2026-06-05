@@ -1,5 +1,12 @@
 # 半自動 Job-Hunt Pipeline 整合進 personal-ats
 
+> **Note (historical design doc).** This is the original design write-up. Paths
+> have since changed: the web app moved to `apps/web/` (was `ats-next/`), the
+> worker to `apps/worker/` (was `ats-worker/`), and `docker-compose.yml` now
+> lives at the repo root and defines two services, `web` and `worker`. References
+> to `ats-next/` / `ats-worker/` below should be read accordingly. See the root
+> README's Architecture section and [`SETUP.md`](./SETUP.md) for the current layout.
+
 ## Context（為什麼做這個）
 
 現在的 personal-ats 是一個**事後記錄**工具：你手動投完履歷，再把每筆 application 記進去看圖表。

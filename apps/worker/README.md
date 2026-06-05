@@ -1,10 +1,11 @@
-# ats-worker
+# worker (ats-worker)
 
-Semi-automated job-hunt pipeline that feeds the `personal-ats` app. On a schedule
-it: **fetch** postings from company ATS boards → **score** each against your
-resume (local Ollama) → **tailor** a one-page LaTeX resume for high scorers
-(Claude + tectonic) → **notify** you on Telegram. You still apply by hand, then
-one-click "Mark Applied" in the web UI.
+The Python pipeline service of the ATS project — one of two services in this
+repo (the other is the [`../web`](../web) app). On a schedule it: **fetch**
+postings from company ATS boards → **score** each against your resume (local
+Ollama) → **tailor** a one-page LaTeX resume for high scorers (Claude +
+tectonic) → **notify** you on Telegram. You still apply by hand, then one-click
+"Mark Applied" in the web UI.
 
 ```
 fetch ──► score ──► tailor ──► notify

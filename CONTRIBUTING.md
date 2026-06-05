@@ -5,8 +5,8 @@ one SQLite database:
 
 | Service        | What it is                          | Stack                          |
 | -------------- | ----------------------------------- | ------------------------------ |
-| [`ats-next/`](./ats-next)     | The web app (tracker + dashboard)   | Next.js 14, Prisma, SQLite     |
-| [`ats-worker/`](./ats-worker) | The semi-automated pipeline worker  | Python 3.11, pytest            |
+| [`apps/web/`](./apps/web)       | The web app (tracker + dashboard)   | Next.js 14, Prisma, SQLite     |
+| [`apps/worker/`](./apps/worker) | The semi-automated pipeline worker  | Python 3.11, pytest            |
 
 See [`README.md`](./README.md) for the product overview and
 [`docs/SETUP.md`](./docs/SETUP.md) for full environment setup.
@@ -25,16 +25,16 @@ make db-push        # create/sync the SQLite schema
 make dev            # http://localhost:3000
 ```
 
-`make help` lists every target. Each wraps the underlying per-package command,
-so you can always drop into `ats-next/` or `ats-worker/` and run npm/pytest
+`make help` lists every target. Each wraps the underlying per-service command,
+so you can always drop into `apps/web/` or `apps/worker/` and run npm/pytest
 directly.
 
 ## Running the tests
 
 ```bash
 make test           # both suites
-make test-web       # Jest  (cd ats-next && npm test)
-make test-worker    # pytest (cd ats-worker && python -m pytest)
+make test-web       # Jest  (cd apps/web && npm test)
+make test-worker    # pytest (cd apps/worker && python -m pytest)
 ```
 
 The worker suite is **fully dependency-injected** — every external service
@@ -46,12 +46,12 @@ CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 ## Conventions
 
 - **TypeScript / React**: 2-space indent; follow the existing component and
-  Server-Action patterns in `ats-next/src/`. Run `make lint` before pushing.
+  Server-Action patterns in `apps/web/src/`. Run `make lint` before pushing.
 - **Python**: 4-space indent; keep modules pure and inject externals (the test
   suite depends on this). Wiring to real services lives only in
   `ats_worker/run.py`.
 - **Database schema** is owned solely by Prisma
-  (`ats-next/prisma/schema.prisma`). The worker reads/writes rows but issues no
+  (`apps/web/prisma/schema.prisma`). The worker reads/writes rows but issues no
   DDL. Change the schema there, then `make db-push`.
 - **Commits**: short imperative subject, optional `type(scope):` prefix
   (e.g. `feat(worker): ...`, `fix(web): ...`). Keep each commit self-consistent
@@ -64,9 +64,9 @@ clone runs out of the box. Replace them with your real resume locally, but keep
 your edits out of git:
 
 ```bash
-cd ats-worker
+cd apps/worker
 git update-index --skip-worktree resume/master.tex resume/resume.txt
 ```
 
-Secrets (`ats-worker/.env`), the database (`db/`), and tailored output
+Secrets (`apps/worker/.env`), the database (`db/`), and tailored output
 (`resumes/`) are gitignored — never commit them.

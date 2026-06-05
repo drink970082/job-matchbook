@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- **Semi-automated job-hunt pipeline** (`ats-worker/`): a Python worker that
+- **Semi-automated job-hunt pipeline** (`apps/worker/`): a Python worker that
   scans Greenhouse / Lever / Ashby boards, scores each posting against your
   resume with a local Ollama model, auto-tailors a one-page resume for high
   scorers (Claude + `tectonic`), and notifies you on Telegram.

@@ -1,7 +1,7 @@
 -- Faithful copy of the Prisma-generated schema for the tables the worker
 -- touches. Prisma OWNS the real schema (`prisma db push`); this file exists
 -- ONLY so tests can spin up an equivalent in-memory/temp database. Keep in
--- sync with ats-next/prisma/schema.prisma.
+-- sync with apps/web/prisma/schema.prisma.
 
 CREATE TABLE "applications" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

@@ -59,7 +59,7 @@ def resume_out_dir(base: str, posting) -> str:
     return os.path.join(base, f"{posting['source']}_{posting['external_id']}")
 
 
-def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../resumes",
+def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../resumes",
              ollama_model=DEFAULT_OLLAMA_MODEL,
              anthropic_model=DEFAULT_ANTHROPIC_MODEL) -> None:
     """Run fetch -> score -> tailor -> notify exactly once.
@@ -142,7 +142,7 @@ def _read_text(path: str) -> str:
     except OSError as exc:
         raise SystemExit(
             f"Could not read required resume file {path!r}: {exc}.\n"
-            f"Provide your resume in ats-worker/resume/ (see resume/README.md)."
+            f"Provide your resume in apps/worker/resume/ (see resume/README.md)."
         ) from exc
 
 
@@ -154,9 +154,9 @@ def main(argv=None) -> None:
     # DB_PATH / RESUME_DIR are set by docker-compose to the shared-volume paths;
     # the defaults target a local (non-Docker) checkout layout.
     parser.add_argument("--db",
-                        default=os.environ.get("DB_PATH", "../ats-next/prisma/applications.db"))
+                        default=os.environ.get("DB_PATH", "../web/prisma/applications.db"))
     parser.add_argument("--resume-dir",
-                        default=os.environ.get("RESUME_DIR", "../resumes"))
+                        default=os.environ.get("RESUME_DIR", "../../resumes"))
     parser.add_argument("--resume", default="resume/resume.txt")
     parser.add_argument("--master-tex", default="resume/master.tex")
     args = parser.parse_args(argv)

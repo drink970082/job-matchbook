@@ -1,15 +1,15 @@
 services:
-  ats:
+  web:
     build:
-      context: ./ats-next
+      context: ./apps/web
       dockerfile: Dockerfile
       args:
         # Match the host user that owns ./db and ./resumes so bind-mount writes
         # work without chmod 777.
         UID: ${UID:-1000}
         GID: ${GID:-1000}
-    image: ats-next:local
-    container_name: ats-next
+    image: ats-web:local
+    container_name: ats-web
     ports:
       - "3000:3000"
     environment:
@@ -25,9 +25,9 @@ services:
       - ./resumes:/resumes:ro # web app only reads the PDFs
     restart: unless-stopped
 
-  ats-worker:
+  worker:
     build:
-      context: ./ats-worker
+      context: ./apps/worker
       dockerfile: Dockerfile
       args:
         UID: ${UID:-1000}
@@ -47,9 +47,9 @@ services:
     volumes:
       - ./db:/data                               # SAME shared db directory (co-write)
       - ./resumes:/resumes                       # worker WRITES tailored PDFs here
-      - ./ats-worker/config.yaml:/app/config.yaml:ro
-      - ./ats-worker/.env:/app/.env:ro           # secrets + OLLAMA_HOST
-      - ./ats-worker/resume:/app/resume:ro       # master.tex + resume.txt
+      - ./apps/worker/config.yaml:/app/config.yaml:ro
+      - ./apps/worker/.env:/app/.env:ro          # secrets + OLLAMA_HOST
+      - ./apps/worker/resume:/app/resume:ro      # master.tex + resume.txt
     depends_on:
-      - ats
+      - web
     restart: unless-stopped

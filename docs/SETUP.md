@@ -1,8 +1,8 @@
 # Full Environment Setup
 
 This guide sets up the **entire** system end to end: the Next.js web app
-(`ats-next/`) **and** the semi-automated job-hunt pipeline worker
-(`ats-worker/`). If you only want the application tracker without the pipeline,
+(`apps/web/`) **and** the semi-automated job-hunt pipeline worker
+(`apps/worker/`). If you only want the application tracker without the pipeline,
 skip to [Web app only](#option-a--web-app-only).
 
 ```
@@ -57,11 +57,11 @@ If you don't want the pipeline yet:
 
 ```bash
 # from the repo root
-docker compose up ats --build -d      # starts ONLY the web service
+docker compose up web --build -d      # starts ONLY the web service
 ```
 
 Open <http://localhost:3000>. The worker service is defined but not started.
-(For local dev without Docker, see [`ats-next/README.md`](../ats-next/README.md).)
+(For local dev without Docker, see [`apps/web/README.md`](../apps/web/README.md).)
 
 To add the pipeline later, continue below.
 
@@ -71,11 +71,11 @@ To add the pipeline later, continue below.
 
 ### 3. Provide the three config-time inputs
 
-These live in `ats-worker/` and are **gitignored** (they're personal / secret).
+These live in `apps/worker/` and are **gitignored** (they're personal / secret).
 
 #### 3a. `config.yaml` — which boards to scan
 
-Edit [`ats-worker/config.yaml`](../ats-worker/config.yaml):
+Edit [`apps/worker/config.yaml`](../apps/worker/config.yaml):
 
 ```yaml
 companies:
@@ -104,7 +104,7 @@ A bad `source` or missing field is caught at startup with a clear error.
 
 #### 3b. Your resume — two files
 
-Put both in `ats-worker/resume/` (see [`resume/README.md`](../ats-worker/resume/README.md)):
+Put both in `apps/worker/resume/` (see [`resume/README.md`](../apps/worker/resume/README.md)):
 
 - `master.tex` — your **one-page** LaTeX master resume. Claude tailors a copy per
   high-scoring job (only reorders / rephrases — **never fabricates**), then
@@ -114,7 +114,7 @@ Put both in `ats-worker/resume/` (see [`resume/README.md`](../ats-worker/resume/
 #### 3c. `.env` — secrets
 
 ```bash
-cp ats-worker/.env.example ats-worker/.env
+cp apps/worker/.env.example apps/worker/.env
 ```
 
 Fill in:
@@ -162,8 +162,8 @@ UID=$(id -u) GID=$(id -g) docker compose up --build
 ```
 
 This starts:
-- **ats** (web) on <http://localhost:3000>
-- **ats-worker** — runs one pass immediately, then every `schedule_hours`
+- **web** on <http://localhost:3000>
+- **worker** — runs one pass immediately, then every `schedule_hours`
 
 Both mount the **`./db` directory** (so SQLite WAL works across both containers)
 and the **`./resumes` volume** (worker writes tailored PDFs; the web app's
@@ -173,7 +173,7 @@ and the **`./resumes` volume** (worker writes tailored PDFs; the web app's
 
 ```bash
 # One-off test pass without waiting for the schedule (run inside the worker):
-docker compose run --rm ats-worker python -m ats_worker.run --once \
+docker compose run --rm worker python -m ats_worker.run --once \
   --config /app/config.yaml --env /app/.env
 ```
 
@@ -192,7 +192,7 @@ Then:
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| `docker compose up` errors mounting `ats-worker/.env` | You skipped step 3c. The file must exist (compose mounts it read-only). |
+| `docker compose up` errors mounting `apps/worker/.env` | You skipped step 3c. The file must exist (compose mounts it read-only). |
 | Worker logs `Connection refused` to Ollama | `ollama serve` isn't running on the host, or `OLLAMA_HOST` is wrong. On Linux confirm `host.docker.internal` resolves — the compose `extra_hosts: host-gateway` handles it. |
 | First tailoring hangs for a long time | `tectonic` is downloading its package bundle. The worker image **prewarms** it at build, so this should only happen if you changed the LaTeX to need new packages. |
 | Resume download 404/403 in the web UI | `resume_path` must resolve under `RESUME_DIR` (`/resumes`). Confirm both services mount the same `./resumes`. |
@@ -205,11 +205,11 @@ Then:
 
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
-| Next.js web app | `ats` container | shared SQLite (read postings, write applications) |
-| fetch / score / tailor / notify | `ats-worker` container | board APIs, host Ollama, Anthropic API, Telegram API |
+| Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
+| fetch / score / tailor / notify | `worker` service (`ats-worker` container) | board APIs, host Ollama, Anthropic API, Telegram API |
 | Ollama | **host** (GPU) | — |
 | SQLite db | `./db` (bind-mounted into both) | — |
 | Tailored PDFs | `./resumes` (bind-mounted into both) | — |
 
 See [`pipeline-design.md`](./pipeline-design.md) for the original design and
-[`ats-worker/README.md`](../ats-worker/README.md) for worker internals.
+[`apps/worker/README.md`](../apps/worker/README.md) for worker internals.
