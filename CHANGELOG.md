@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-08
+
 ### Added
 - **Semi-automated job-hunt pipeline** (`apps/worker/`): a Python worker that
   scans Greenhouse / Lever / Ashby boards, scores each posting against your
@@ -26,6 +28,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Moved `SETUP.md` and the pipeline design doc under `docs/`.
 - Prisma datasource is now driven by `DATABASE_URL` so the same schema serves
   local dev and the directory-mounted Docker volume shared with the worker.
+
+### Fixed
+- Web `lint` step (and therefore CI) failed before running: the flat
+  `eslint.config.mjs` used Next 15 / ESLint 9 imports (`eslint/config`,
+  `eslint-config-next/typescript`) incompatible with the pinned Next 14 /
+  ESLint 8 toolchain. Replaced with a standard `.eslintrc.json`
+  (`next/core-web-vitals`) run via `next lint`.
 
 ## [0.1.0] — initial tracker
 
