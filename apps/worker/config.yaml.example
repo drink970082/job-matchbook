@@ -1,0 +1,18 @@
+# Worker configuration. Loaded by ats_worker.run at startup.
+# Source must be one of: greenhouse, lever, ashby.
+
+companies:
+  - { source: greenhouse, slug: acme, name: "Acme Inc" }
+  - { source: lever, slug: foobar, name: "Foobar" }
+  # - { source: ashby, slug: example, name: "Example Co" }
+
+filters:
+  # A posting is kept if its title/description contains ANY keyword AND
+  # (if locations are given) its location matches ANY of them. Both are
+  # case-insensitive substring matches. Leave a list empty to match all.
+  keywords: ["engineer", "developer"]
+  locations: ["remote", "san francisco"]
+
+threshold: 75              # minimum Ollama score (0-100) required to tailor
+schedule_hours: 24         # cron interval for the background scheduler
+max_single_page_rounds: 3  # max Claude retries to squeeze the resume to 1 page

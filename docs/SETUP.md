@@ -71,11 +71,17 @@ To add the pipeline later, continue below.
 
 ### 3. Provide the three config-time inputs
 
-These live in `apps/worker/` and are **gitignored** (they're personal / secret).
+These live in `apps/worker/` and are **gitignored** (personal / secret). The repo
+ships only `*.example` templates — copy each to its real filename and fill in your
+own, so no personal data (resume, target companies, keys) is ever committed.
 
 #### 3a. `config.yaml` — which boards to scan
 
-Edit [`apps/worker/config.yaml`](../apps/worker/config.yaml):
+Copy the template to your private (gitignored) copy, then edit it:
+
+```bash
+cp apps/worker/config.yaml.example apps/worker/config.yaml
+```
 
 ```yaml
 companies:
@@ -104,12 +110,19 @@ A bad `source` or missing field is caught at startup with a clear error.
 
 #### 3b. Your resume — two files
 
-Put both in `apps/worker/resume/` (see [`resume/README.md`](../apps/worker/resume/README.md)):
+Copy the templates to their real (gitignored) filenames, then replace the
+content with your own (see [`resume/README.md`](../apps/worker/resume/README.md)):
+
+```bash
+cp apps/worker/resume/master.tex.example apps/worker/resume/master.tex
+cp apps/worker/resume/resume.txt.example apps/worker/resume/resume.txt
+```
 
 - `master.tex` — your **one-page** LaTeX master resume. Claude tailors a copy per
   high-scoring job (only reorders / rephrases — **never fabricates**), then
   `tectonic` compiles it to PDF.
-- `resume.txt` — plain-text version, fed to the Ollama scorer (saves tokens).
+- `resume.txt` — plain-text version, fed to the Ollama scorer (saves tokens). You
+  can derive it from `master.tex` rather than maintaining it by hand.
 
 #### 3c. `.env` — secrets
 
@@ -142,16 +155,19 @@ OLLAMA_HOST=http://host.docker.internal:11434   # leave as-is for Docker
 
 ```bash
 # Install: https://ollama.com/download  (or `curl -fsSL https://ollama.com/install.sh | sh`)
-ollama pull qwen2.5:7b        # ~4.7GB Q4; fits 8GB VRAM. llama3.1:8b also works.
+ollama pull qwen3.5:4b        # ~3GB; runs 100% on an 8GB GPU, ~2s/posting
 ollama serve                  # leave running (systemd unit does this automatically)
 
 # sanity check it answers:
 curl http://localhost:11434/api/tags
 ```
 
-> The default scoring model is `llama3.1` (see `run.py` `DEFAULT_OLLAMA_MODEL`).
-> If you pulled `qwen2.5:7b` instead, either also `ollama pull llama3.1` or change
-> that default.
+> The default scoring model is `qwen3.5:4b` (see `run.py` `DEFAULT_OLLAMA_MODEL`).
+> Override it with `--model <tag>` or the `OLLAMA_MODEL` env var. The 4b fits an
+> 8GB card fully and is plenty for scoring; the 9b (6.6GB) spills to CPU on 8GB
+> (~100s/call) so avoid it unless you have ≥12GB VRAM. Scoring sends
+> `think: false` so reasoning models return JSON in `response` rather than an
+> empty body — any Ollama chat model works.
 
 ### 6. Launch everything
 

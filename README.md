@@ -334,9 +334,9 @@ ats/
     │   └── Dockerfile
     │
     └── worker/                      # ── Python pipeline worker (service: worker) ──
-        ├── config.yaml              # company list + filters + thresholds (you edit)
+        ├── config.yaml.example      # → copy to config.yaml (companies, filters, thresholds)
         ├── .env.example             # → copy to .env (API keys, Telegram, Ollama)
-        ├── resume/                  # master.tex + resume.txt (you provide, gitignored)
+        ├── resume/                  # *.example → copy to master.tex + resume.txt (gitignored)
         ├── ats_worker/
         │   ├── fetch/{greenhouse,lever,ashby}.py  # board adapters → unified dict
         │   ├── config.py            # load/validate config.yaml

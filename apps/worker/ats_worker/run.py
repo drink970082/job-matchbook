@@ -20,7 +20,11 @@ from .notify import notify_posting
 from .score import score_posting
 from .tailor import make_claude, pypdf_count, tailor_resume, tectonic_compile
 
-DEFAULT_OLLAMA_MODEL = "llama3.1"
+# qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
+# ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
+# CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
+# with --model or the OLLAMA_MODEL env var.
+DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8"
 
 
@@ -159,6 +163,9 @@ def main(argv=None) -> None:
                         default=os.environ.get("RESUME_DIR", "../../resumes"))
     parser.add_argument("--resume", default="resume/resume.txt")
     parser.add_argument("--master-tex", default="resume/master.tex")
+    parser.add_argument("--model",
+                        default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
+                        help="Ollama model tag used for scoring")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -168,7 +175,8 @@ def main(argv=None) -> None:
 
     def once():
         run_once(cfg, db_path=args.db, resume_text=resume_text,
-                 master_tex=master_tex, env=env, resume_dir=args.resume_dir)
+                 master_tex=master_tex, env=env, resume_dir=args.resume_dir,
+                 ollama_model=args.model)
 
     if args.once:
         once()

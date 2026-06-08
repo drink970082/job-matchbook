@@ -62,6 +62,8 @@ def test_happy_path_returns_normalized_dict():
     assert body["format"] == "json"
     assert body["stream"] is False
     assert body["model"] == "llama3"
+    # Thinking must be off, else reasoning models leave `response` empty.
+    assert body["think"] is False
     # prompt embeds the resume and the JD text
     assert RESUME in body["prompt"]
     assert "Django" in body["prompt"]

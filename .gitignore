@@ -6,13 +6,16 @@ logs/
 db/
 screenshots/
 
-# Worker secrets, user-provided resume sources, and tailored-PDF output volume
+# Per-user secrets & config. The repo ships ONLY *.example templates; each user
+# copies them to the real filename (which stays gitignored), so no personal data
+# — resume, target companies, API keys, chat id — is ever committed/pushed.
 apps/worker/.env
 apps/worker/.venv
+apps/worker/config.yaml
+# Ignore the CONTENTS of resume/ (not the dir itself, so the re-includes below
+# work — a dir-level ignore would suppress them).
 apps/worker/resume/*
 !apps/worker/resume/README.md
-# Ship template resume files so a clean clone runs out of the box. Keep YOUR
-# edits private with: git update-index --skip-worktree resume/master.tex resume/resume.txt
-!apps/worker/resume/master.tex
-!apps/worker/resume/resume.txt
+!apps/worker/resume/master.tex.example
+!apps/worker/resume/resume.txt.example
 resumes/

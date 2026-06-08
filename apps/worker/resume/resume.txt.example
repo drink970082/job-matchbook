@@ -1,0 +1,25 @@
+TEMPLATE plain-text resume — REPLACE with your own content.
+
+This plain-text version is fed to the local Ollama scorer instead of the LaTeX
+(saves tokens, no markup noise). Keep it in sync with master.tex.
+
+To keep personal edits out of git:
+  git update-index --skip-worktree resume/master.tex resume/resume.txt
+
+Your Name
+your.email@example.com | City, Country | github.com/you
+
+SUMMARY
+One- or two-line summary of who you are and what you do.
+
+EXPERIENCE
+Job Title — Company (Month Year – Month Year)
+- Accomplishment with a concrete, quantified result.
+- Another accomplishment, ideally with metrics.
+
+SKILLS
+Languages: Python, TypeScript, ...
+Tools: Docker, Postgres, ...
+
+EDUCATION
+Degree, Institution (Year)

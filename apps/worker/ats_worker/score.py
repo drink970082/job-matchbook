@@ -66,6 +66,11 @@ def score_posting(
             "model": model,
             "prompt": prompt,
             "format": "json",
+            # Disable "thinking" mode. Reasoning models (Qwen3/Qwen3.5, etc.)
+            # otherwise route their output to a separate `thinking` field and
+            # leave `response` EMPTY under format=json, so parsing fails on every
+            # posting. Ollama ignores this flag for non-thinking models.
+            "think": False,
             "stream": False,
         },
         timeout=timeout,
