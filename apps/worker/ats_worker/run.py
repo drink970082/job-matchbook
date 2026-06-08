@@ -25,7 +25,11 @@ from .tailor import make_claude, pypdf_count, tailor_resume, tectonic_compile
 # CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
 # with --model or the OLLAMA_MODEL env var.
 DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
-DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-8"
+# Sonnet 4.6 for tailoring: it only reorders/rephrases existing resume content
+# (never fabricates), so the cheaper tier is plenty and far more cost-effective
+# than Opus for a step that may run several rounds per high-scoring job.
+# Override with --anthropic-model or the ANTHROPIC_MODEL env var.
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 
 
 def load_env(path: str) -> dict:
@@ -166,6 +170,9 @@ def main(argv=None) -> None:
     parser.add_argument("--model",
                         default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
                         help="Ollama model tag used for scoring")
+    parser.add_argument("--anthropic-model",
+                        default=os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+                        help="Anthropic model used for resume tailoring")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -176,7 +183,7 @@ def main(argv=None) -> None:
     def once():
         run_once(cfg, db_path=args.db, resume_text=resume_text,
                  master_tex=master_tex, env=env, resume_dir=args.resume_dir,
-                 ollama_model=args.model)
+                 ollama_model=args.model, anthropic_model=args.anthropic_model)
 
     if args.once:
         once()
