@@ -13,6 +13,17 @@ filters:
   keywords: ["engineer", "developer"]
   locations: ["remote", "san francisco"]
 
+candidate:
+  # Fed to the LOCAL LLM so it can DISQUALIFY (discard) postings that conflict
+  # with your hard constraints — judged semantically, not by keyword match, so
+  # vague wording like "no sponsorship" is handled by reasoning. Leave both empty
+  # to disable disqualification entirely.
+  profile: "Entry-level (0-2 years experience), Master's degree, requires visa sponsorship."
+  dealbreakers:
+    - "requires significantly more experience than entry-level (Senior/Staff/Principal, or 5+ years)"
+    - "requires a PhD"
+    - "does not offer visa sponsorship (e.g. 'no sponsorship', 'must be authorized to work without sponsorship', US citizenship or clearance required)"
+
 threshold: 75              # minimum Ollama score (0-100) required to tailor
 schedule_hours: 24         # cron interval for the background scheduler
 max_single_page_rounds: 3  # max Claude retries to squeeze the resume to 1 page

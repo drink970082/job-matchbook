@@ -194,3 +194,25 @@ def test_run_notify_failure_isolated(db_path):
     }
     assert statuses["1"] == "failed"
     assert statuses["2"] == "notified"
+
+
+def test_run_score_disqualified_is_discarded_with_reason(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+
+    def score_fn(posting):
+        if posting["external_id"] == "1":
+            return {"score": 88, "matched_keywords": [], "missing_keywords": [],
+                    "reasoning": "strong", "disqualified": True,
+                    "disqualification_reason": "requires a PhD"}
+        return {"score": 80, "disqualified": False}
+
+    pipeline.run_score(conn, "resume", now=NOW, score_fn=score_fn)
+    rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert rows["1"]["pipeline_status"] == "discarded"
+    assert rows["2"]["pipeline_status"] == "scored"
+    assert rows["1"]["score"] == 88  # score kept even when discarded
+    import json as _json
+    detail = _json.loads(rows["1"]["score_detail"])
+    assert detail["disqualified"] is True
+    assert detail["disqualification_reason"] == "requires a PhD"

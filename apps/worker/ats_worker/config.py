@@ -42,9 +42,20 @@ class Filters:
 
 
 @dataclass(frozen=True)
+class Candidate:
+    """Who the candidate is + hard dealbreakers, fed to the LLM scorer so it can
+    semantically DISQUALIFY postings that conflict (handles vague wording like
+    "no sponsorship" by reasoning, not a brittle keyword list). Empty = the
+    scorer is never asked to disqualify (back-compatible)."""
+    profile: str = ""
+    dealbreakers: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class Config:
     companies: list[Company] = field(default_factory=list)
     filters: Filters = field(default_factory=Filters)
+    candidate: Candidate = field(default_factory=Candidate)
     threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
     max_single_page_rounds: int = DEFAULT_MAX_SINGLE_PAGE_ROUNDS
@@ -78,10 +89,12 @@ def load_config(source) -> Config:
 
     companies = _parse_companies(data.get("companies") or [])
     filters = _parse_filters(data.get("filters") or {})
+    candidate = _parse_candidate(data.get("candidate") or {})
 
     return Config(
         companies=companies,
         filters=filters,
+        candidate=candidate,
         threshold=int(data.get("threshold", DEFAULT_THRESHOLD)),
         schedule_hours=int(data.get("schedule_hours", DEFAULT_SCHEDULE_HOURS)),
         max_single_page_rounds=int(
@@ -116,3 +129,11 @@ def _parse_filters(raw) -> Filters:
     keywords = [str(k) for k in (raw.get("keywords") or [])]
     locations = [str(l) for l in (raw.get("locations") or [])]
     return Filters(keywords=keywords, locations=locations)
+
+
+def _parse_candidate(raw) -> Candidate:
+    if not isinstance(raw, dict):
+        raise ConfigError("`candidate` must be a mapping")
+    profile = str(raw.get("profile") or "")
+    dealbreakers = [str(d) for d in (raw.get("dealbreakers") or []) if str(d).strip()]
+    return Candidate(profile=profile, dealbreakers=dealbreakers)

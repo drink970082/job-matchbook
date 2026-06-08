@@ -91,11 +91,15 @@ def _update(conn: sqlite3.Connection, posting_id: int, sets: dict) -> None:
     conn.commit()
 
 
-def save_score(conn, posting_id: int, *, score: int, score_detail, now: str) -> None:
+def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
+               status: str = "scored") -> None:
+    # status is normally 'scored'; the scorer can route a disqualified posting
+    # straight to 'discarded' (see pipeline.run_score) while still keeping its
+    # score + reason for the UI.
     _update(conn, posting_id, {
         "score": score,
         "score_detail": json.dumps(score_detail),
-        "pipeline_status": "scored",
+        "pipeline_status": status,
         "updated_at": now,
     })
 

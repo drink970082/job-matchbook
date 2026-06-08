@@ -54,18 +54,27 @@ def run_fetch(conn, companies, filters, *, now, fetch_fn=fetch_company) -> int:
 # --- score ----------------------------------------------------------------
 
 def run_score(conn, resume_text, *, now, score_fn) -> None:
-    """Score every 'new' posting and advance it to 'scored'."""
+    """Score every 'new' posting -> 'scored', or 'discarded' when the scorer flags
+    it disqualified (conflicts with a candidate dealbreaker). Score + reason are
+    kept either way so the UI can show why something was dropped."""
     for row in db.get_by_status(conn, "new"):
         posting = _row_to_dict(row)
         try:
             result = score_fn(posting)
+            disqualified = bool(result.get("disqualified"))
             detail = {
                 "matched_keywords": result.get("matched_keywords", []),
                 "missing_keywords": result.get("missing_keywords", []),
                 "reasoning": result.get("reasoning", ""),
             }
-            db.save_score(conn, row["id"], score=int(result["score"]),
-                          score_detail=detail, now=now)
+            if disqualified:
+                detail["disqualified"] = True
+                detail["disqualification_reason"] = result.get("disqualification_reason", "")
+            db.save_score(
+                conn, row["id"], score=int(result["score"]),
+                score_detail=detail, now=now,
+                status="discarded" if disqualified else "scored",
+            )
         except Exception as exc:  # noqa: BLE001
             db.mark_failed(conn, row["id"], error=str(exc), now=now)
 

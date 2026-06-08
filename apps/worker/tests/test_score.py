@@ -104,3 +104,29 @@ def test_absent_score_key_raises_not_silently_zero():
     http = FakeHttp(json.dumps({"matched_keywords": ["python"], "reasoning": "ok"}))
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+
+
+def test_candidate_constraints_reach_prompt_and_disqualify_passes_through():
+    inner = json.dumps({"score": 70, "matched_keywords": [], "missing_keywords": [],
+                        "reasoning": "ok", "disqualified": True,
+                        "disqualification_reason": "requires a PhD"})
+    http = FakeHttp(inner)
+    out = score.score_posting(
+        POSTING, RESUME, model="m", http=http, ollama_host="h",
+        candidate={"profile": "entry level", "dealbreakers": ["requires a PhD"]},
+    )
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "requires a PhD"
+    body = http.calls[0][1]["json"]
+    assert "requires a PhD" in body["prompt"]   # dealbreaker reached the model
+    assert "disqualified" in body["prompt"]      # extra key was requested
+
+
+def test_no_candidate_means_no_disqualify_block_and_defaults_false():
+    http = FakeHttp(json.dumps({"score": 70}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+    assert out["disqualified"] is False
+    assert out["disqualification_reason"] == ""
+    body = http.calls[0][1]["json"]
+    assert "CANDIDATE CONSTRAINTS" not in body["prompt"]
+    assert "disqualified" not in body["prompt"]

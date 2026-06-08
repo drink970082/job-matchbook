@@ -88,11 +88,17 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
 
         pipeline.run_fetch(conn, companies, filters, now=now)
 
+        candidate = {
+            "profile": cfg.candidate.profile,
+            "dealbreakers": list(cfg.candidate.dealbreakers),
+        }
+
         def score_fn(posting):
             return score_posting(
                 posting, resume_text,
                 model=ollama_model,
                 ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
+                candidate=candidate,
             )
 
         pipeline.run_score(conn, resume_text, now=now, score_fn=score_fn)

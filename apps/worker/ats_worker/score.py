@@ -17,7 +17,7 @@ import json
 
 import requests
 
-_PROMPT = """\
+_PROMPT_HEADER = """\
 You are an expert technical recruiter. Score how well the candidate's resume \
 matches the job description below.
 
@@ -26,13 +26,48 @@ Return ONLY a JSON object with EXACTLY these keys:
   "matched_keywords": list of strings (skills/requirements the resume DOES cover),
   "missing_keywords": list of strings (skills/requirements the resume LACKS),
   "reasoning": short string explaining the score.
-
-=== RESUME ===
-{resume}
-
-=== JOB: {title} at {company} ===
-{description}
 """
+
+# Requested ONLY when candidate constraints are configured, so default behaviour
+# (no candidate block) is unchanged.
+_DISQUALIFY_KEYS = """\
+  "disqualified": boolean — true ONLY if the role conflicts with a hard candidate \
+constraint below,
+  "disqualification_reason": short string (empty when not disqualified).
+"""
+
+
+def _candidate_block(candidate) -> str:
+    """Render the candidate-constraints section, or '' if none configured."""
+    if not candidate:
+        return ""
+    profile = str(candidate.get("profile") or "").strip()
+    dealbreakers = [str(d) for d in (candidate.get("dealbreakers") or []) if str(d).strip()]
+    if not profile and not dealbreakers:
+        return ""
+    lines = ["", "=== CANDIDATE CONSTRAINTS ==="]
+    if profile:
+        lines.append(f"Profile: {profile}")
+    if dealbreakers:
+        lines.append("Set disqualified=true if ANY of these apply to the role:")
+        lines += [f"  - {d}" for d in dealbreakers]
+    lines.append(
+        "Judge the job's MEANING, not exact words (e.g. 'must be authorized to "
+        "work without sponsorship' conflicts with needing sponsorship). If "
+        "genuinely unclear, do NOT disqualify."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _build_prompt(resume_text: str, posting: dict, candidate=None) -> str:
+    block = _candidate_block(candidate)
+    extra = _DISQUALIFY_KEYS if block else ""
+    return (
+        _PROMPT_HEADER + extra + block
+        + f"\n=== RESUME ===\n{resume_text}\n\n"
+        + f"=== JOB: {posting.get('job_title', '')} at {posting.get('company_name', '')} ===\n"
+        + f"{posting.get('description', '')}\n"
+    )
 
 
 class ScoreError(RuntimeError):
@@ -47,6 +82,7 @@ def score_posting(
     http=requests,
     ollama_host: str,
     timeout: int = 120,
+    candidate: dict | None = None,
 ) -> dict:
     """Ask Ollama to score `posting` against `resume_text`.
 
@@ -54,12 +90,7 @@ def score_posting(
     "missing_keywords": [...], "reasoning": str}. Raises ScoreError on
     unparseable model output.
     """
-    prompt = _PROMPT.format(
-        resume=resume_text,
-        title=posting.get("job_title", ""),
-        company=posting.get("company_name", ""),
-        description=posting.get("description", ""),
-    )
+    prompt = _build_prompt(resume_text, posting, candidate)
     resp = http.post(
         f"{ollama_host}/api/generate",
         json={
@@ -106,6 +137,8 @@ def _normalize(data: dict) -> dict:
         "matched_keywords": _as_str_list(data.get("matched_keywords")),
         "missing_keywords": _as_str_list(data.get("missing_keywords")),
         "reasoning": str(data.get("reasoning") or ""),
+        "disqualified": bool(data.get("disqualified", False)),
+        "disqualification_reason": str(data.get("disqualification_reason") or ""),
     }
 
 
