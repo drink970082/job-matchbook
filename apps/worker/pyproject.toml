@@ -17,6 +17,9 @@ source = ["ats_worker"]
 branch = true
 
 [tool.coverage.report]
+# Enforced everywhere coverage is measured (local `make test-coverage` AND CI),
+# so a regression fails the same way in both. Ratchet up as coverage grows.
+fail_under = 85
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

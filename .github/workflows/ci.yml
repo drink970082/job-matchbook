@@ -46,8 +46,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      # Fully dependency-injected suite: dev deps are just pytest + pytest-cov
-      # (none of the heavy runtime deps: anthropic / pypdf / apscheduler / tectonic).
+      # Fully dependency-injected suite — requirements-dev.txt is test-only
+      # (pytest, pytest-cov, requests, PyYAML); none of the heavy runtime deps
+      # (anthropic / pypdf / apscheduler / tectonic) are needed or installed.
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=85
       - uses: actions/upload-artifact@v4

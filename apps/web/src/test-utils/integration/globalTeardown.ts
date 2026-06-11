@@ -9,4 +9,7 @@ export default async function globalTeardown() {
     } catch {
         // nothing to clean up
     }
+    // Remove the pointer too, so a crashed prior run can't leave setEnv aiming at
+    // a since-deleted temp path on the next invocation.
+    rmSync(POINTER, { force: true })
 }

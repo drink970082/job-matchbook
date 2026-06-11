@@ -23,7 +23,7 @@ const config: Config = {
     // Baseline floor set a few points under the first measurement; ratchet UP as
     // component tests are added, never down. Catches regressions immediately.
     coverageThreshold: {
-        global: { statements: 48, branches: 73, functions: 45, lines: 48 },
+        global: { statements: 58, branches: 78, functions: 52, lines: 58 },
     },
 }
 
