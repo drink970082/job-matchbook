@@ -8,6 +8,24 @@ requires-python = ">=3.11"
 testpaths = ["tests"]
 addopts = "-q"
 pythonpath = ["."]
+markers = [
+    "integration: full run_once end-to-end over a temp SQLite (deselect with -m 'not integration')",
+]
+
+[tool.coverage.run]
+source = ["ats_worker"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    # Lazy real-adapter bodies / cron path that need network or extra deps and
+    # are exercised only in production, not the hermetic test suite.
+    "from apscheduler",
+    "import anthropic",
+]
 
 [tool.setuptools.packages.find]
 include = ["ats_worker*"]

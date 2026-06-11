@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from ats_worker.fetch import ashby, greenhouse, lever, pinpoint
-from ats_worker.fetch import filter_postings
+from ats_worker.fetch import fetch_company, filter_postings
 from ats_worker.util import POSTING_FIELDS
 from tests._helpers import FakeSession
 
@@ -148,3 +148,16 @@ def test_fetch_wrapper_propagates_http_error(module):
     sess = FakeSession(payload={}, raise_exc=requests.HTTPError("404"))
     with pytest.raises(requests.HTTPError):
         module.fetch("nope", "X", session=sess)
+
+
+# --- fetch_company dispatcher ---------------------------------------------
+
+def test_fetch_company_dispatches_to_the_right_adapter():
+    sess = FakeSession(payload=load("greenhouse.json"))
+    out = fetch_company("greenhouse", "acme", "Acme", session=sess)
+    assert out and all(p["source"] == "greenhouse" for p in out)
+
+
+def test_fetch_company_unknown_source_raises():
+    with pytest.raises(ValueError, match="unknown source"):
+        fetch_company("monster", "x", "X")

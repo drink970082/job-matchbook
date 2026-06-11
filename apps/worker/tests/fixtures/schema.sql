@@ -38,5 +38,13 @@ CREATE TABLE "job_postings" (
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
+CREATE TABLE "status_history" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "application_id" INTEGER NOT NULL,
+    "status" TEXT NOT NULL,
+    "timestamp" TEXT NOT NULL,
+    CONSTRAINT "status_history_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");
