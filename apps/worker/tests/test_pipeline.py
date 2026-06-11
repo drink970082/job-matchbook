@@ -6,22 +6,13 @@ The critical invariant: one bad row must never abort a batch — it is marked
 from __future__ import annotations
 
 from ats_worker import db, pipeline
-
-NOW = "2026-06-04T08:00:00.000Z"
-
-
-def _posting(external_id, **over):
-    base = {
-        "source": "greenhouse",
-        "external_id": external_id,
-        "company_name": "Acme",
-        "job_title": "Software Engineer",
-        "location": "Remote",
-        "job_url": f"https://example.com/jobs/{external_id}",
-        "description": "Build things with Python.",
-    }
-    base.update(over)
-    return base
+from tests._helpers import (
+    NOW,
+    make_posting as _posting,
+    seed_new as _seed_new,
+    seed_scored as _seed_scored,
+    seed_tailored as _seed_tailored,
+)
 
 
 # --- run_fetch ------------------------------------------------------------
@@ -59,10 +50,6 @@ def test_run_fetch_one_company_failing_does_not_abort(db_path):
 
 
 # --- run_score ------------------------------------------------------------
-
-def _seed_new(conn, ids):
-    db.upsert_postings(conn, [_posting(i) for i in ids], now=NOW)
-
 
 def test_run_score_only_new_and_one_failure_isolated(db_path):
     conn = db.connect(db_path)
@@ -102,14 +89,6 @@ def test_run_score_skips_non_new(db_path):
 
 
 # --- run_tailor -----------------------------------------------------------
-
-def _seed_scored(conn, scores):
-    """scores: dict external_id -> score. Leaves rows in 'scored'."""
-    _seed_new(conn, list(scores))
-    for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
-        db.save_score(conn, r["id"], score=scores[r["external_id"]],
-                      score_detail={"missing_keywords": ["aws"]}, now=NOW)
-
 
 def test_run_tailor_gates_on_threshold(db_path):
     conn = db.connect(db_path)
@@ -151,13 +130,6 @@ def test_run_tailor_failure_isolated(db_path):
 
 
 # --- run_notify -----------------------------------------------------------
-
-def _seed_tailored(conn, ids):
-    _seed_scored(conn, {i: 90 for i in ids})
-    for r in conn.execute("SELECT id FROM job_postings").fetchall():
-        db.save_resume(conn, r["id"], resume_tex="T",
-                       resume_path=f"resumes/{r['id']}.pdf", resume_pages=1, now=NOW)
-
 
 def test_run_notify_only_tailored_and_advances(db_path):
     conn = db.connect(db_path)

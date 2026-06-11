@@ -4,23 +4,7 @@ from __future__ import annotations
 import json
 
 from ats_worker import db
-
-NOW = "2026-06-04T08:00:00.000Z"
-LATER = "2026-06-04T09:00:00.000Z"
-
-
-def posting(external_id="1", source="greenhouse", **over):
-    base = {
-        "source": source,
-        "external_id": external_id,
-        "company_name": "Acme",
-        "job_title": "Software Engineer",
-        "location": "Remote",
-        "job_url": "https://example.com/jobs/1",
-        "description": "Build things with Python.",
-    }
-    base.update(over)
-    return base
+from tests._helpers import LATER, NOW, make_posting as posting
 
 
 # --- connection / pragmas -------------------------------------------------
