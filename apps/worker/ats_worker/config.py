@@ -117,12 +117,22 @@ def load_config(source) -> Config:
         companies=companies,
         title_filter=title_filter,
         candidate=candidate,
-        threshold=int(data.get("threshold", DEFAULT_THRESHOLD)),
-        schedule_hours=int(data.get("schedule_hours", DEFAULT_SCHEDULE_HOURS)),
-        max_single_page_rounds=int(
-            data.get("max_single_page_rounds", DEFAULT_MAX_SINGLE_PAGE_ROUNDS)
+        threshold=_int_field(data, "threshold", DEFAULT_THRESHOLD),
+        schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
+        max_single_page_rounds=_int_field(
+            data, "max_single_page_rounds", DEFAULT_MAX_SINGLE_PAGE_ROUNDS
         ),
     )
+
+
+def _int_field(data: dict, key: str, default: int) -> int:
+    """Coerce a top-level int field, raising ConfigError (not a bare ValueError)
+    on a non-numeric value so a typo is caught at startup with a clear message."""
+    raw = data.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{key} must be an integer, got {raw!r}") from exc
 
 
 def _parse_companies(raw) -> list[Company]:

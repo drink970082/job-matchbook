@@ -17,7 +17,9 @@ POSTING_FIELDS = (
 )
 
 _TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"[ \t\f\v]+")
+# Include U+00A0 (the unescaped &nbsp;) so non-breaking spaces collapse to a
+# normal space rather than leaking into descriptions.
+_WS_RE = re.compile(r"[ \t\f\v\xa0]+")
 _BLANKS_RE = re.compile(r"\n\s*\n\s*\n+")
 
 

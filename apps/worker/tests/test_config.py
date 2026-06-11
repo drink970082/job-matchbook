@@ -153,3 +153,12 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
         "  dealbreakers: []\n"
     )
     assert cfg.candidate.is_empty() is True
+
+
+@pytest.mark.parametrize("key", ["threshold", "schedule_hours", "max_single_page_rounds"])
+def test_non_numeric_numeric_fields_raise_config_error(key):
+    # The module contract is "fail loud with a ConfigError at startup", not an
+    # opaque ValueError from int(). Mirrors years_experience handling.
+    bad = f"companies: []\n{key}: not-a-number\n"
+    with pytest.raises(config.ConfigError, match="must be an integer"):
+        config.load_config(bad)
