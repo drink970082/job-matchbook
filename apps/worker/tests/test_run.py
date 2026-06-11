@@ -1,7 +1,12 @@
 """TDD for the entrypoint: --once runs the four stages in order, env plumbing."""
 from __future__ import annotations
 
+import json
+
+from ats_worker import config as cfgmod
+from ats_worker import db as dbmod
 from ats_worker import run
+from tests._helpers import bootstrap_db, make_posting
 
 
 def test_load_env_reads_file(tmp_path):
@@ -133,3 +138,70 @@ def test_run_once_calls_four_stages_in_order(monkeypatch):
         },
     )
     assert order == ["fetch", "score", "tailor", "notify"]
+
+
+# --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---
+
+def _run_once_capturing_score(monkeypatch, tmp_path, cfg, env):
+    """Drive the REAL run_score over one 'new' row, capturing the kwargs the wired
+    score_fn passes to score_posting. fetch/tailor/notify are stubbed so no network
+    or Claude/Telegram is touched."""
+    captured = {}
+
+    def fake_score_posting(posting, resume_text, **kwargs):
+        captured["kwargs"] = kwargs
+        captured["posting"] = posting
+        return {"score": 70}
+
+    monkeypatch.setattr(run, "score_posting", fake_score_posting)
+    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_tailor", lambda *a, **k: None)
+    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
+
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    conn = dbmod.connect(str(dbfile))
+    dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
+    conn.close()
+
+    run.run_once(cfg, db_path=str(dbfile), resume_text="r", master_tex="m", env=env)
+    return captured
+
+
+def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
+    cfg = cfgmod.load_config(
+        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
+        "candidate:\n"
+        "  years_experience: 2\n"
+        "  highest_degree: \"Master's\"\n"
+        "  locations: ['remote', 'USA']\n"
+        "  dealbreakers: ['no internships']\n"
+    )
+    env = {"OLLAMA_NUM_CTX": "4096", "OLLAMA_HOST": "http://ol:11434",
+           "ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
+    kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
+    cand = kw["candidate"]
+    assert cand["years_experience"] == 2
+    assert cand["highest_degree"] == "Master's"
+    assert cand["locations"] == ["remote", "USA"]
+    assert cand["dealbreakers"] == ["no internships"]
+    assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
+    assert kw["ollama_host"] == "http://ol:11434"
+
+
+def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
+           "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
+    kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
+    assert kw["candidate"] is None                     # is_empty() -> no SCREEN call
+    assert kw["num_ctx"] == 8192                        # default when env omits it
+
+
+def test_missing_keywords_parsing():
+    assert run._missing_keywords(
+        {"score_detail": json.dumps({"missing_keywords": ["aws", "k8s"]})}
+    ) == ["aws", "k8s"]
+    assert run._missing_keywords({"score_detail": None}) == []
+    assert run._missing_keywords({"score_detail": "not json {{{"}) == []
+    assert run._missing_keywords({}) == []

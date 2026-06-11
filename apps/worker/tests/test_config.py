@@ -162,3 +162,34 @@ def test_non_numeric_numeric_fields_raise_config_error(key):
     bad = f"companies: []\n{key}: not-a-number\n"
     with pytest.raises(config.ConfigError, match="must be an integer"):
         config.load_config(bad)
+
+
+def test_root_not_a_mapping_raises():
+    with pytest.raises(config.ConfigError, match="mapping"):
+        config.load_config("- a\n- b\n")
+
+
+def test_companies_not_a_list_raises():
+    with pytest.raises(config.ConfigError, match="must be a list"):
+        config.load_config("companies: 42\n")
+
+
+def test_candidate_not_a_mapping_raises():
+    with pytest.raises(config.ConfigError, match="mapping"):
+        config.load_config("companies: []\ncandidate: [1, 2]\n")
+
+
+def test_slug_and_name_coerced_to_str():
+    cfg = config.load_config(
+        "companies:\n  - { source: greenhouse, slug: 12345, name: 678 }\n"
+    )
+    assert cfg.companies[0].slug == "12345"
+    assert cfg.companies[0].name == "678"
+
+
+def test_load_from_plain_string_path(tmp_path):
+    # A filename (no newline/colon) must be read from disk, not parsed as YAML.
+    p = tmp_path / "cfg.yaml"
+    p.write_text("companies: []\nthreshold: 88\n")
+    cfg = config.load_config(str(p))
+    assert cfg.threshold == 88

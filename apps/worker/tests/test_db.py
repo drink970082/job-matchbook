@@ -132,3 +132,99 @@ def test_discard(db_path):
     pid = _one(conn)["id"]
     db.discard(conn, pid, now=LATER)
     assert _one(conn)["pipeline_status"] == "discarded"
+
+
+EVEN_LATER = "2026-06-04T10:00:00.000Z"
+
+
+# --- the dedup invariant: a re-fetch must not clobber an in-flight posting --
+
+def test_refetch_does_not_clobber_scored_posting(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1", job_title="Original")], now=NOW)
+    pid = _one(conn)["id"]
+    db.save_score(conn, pid, score=88, score_detail={"k": 1}, now=LATER)  # -> scored
+    # The fetcher sees the same (source, external_id) again next run.
+    inserted = db.upsert_postings(conn, [posting("1", job_title="Changed")], now=EVEN_LATER)
+    row = _one(conn)
+    assert inserted == 0
+    assert row["pipeline_status"] == "scored"   # not reset to 'new'
+    assert row["score"] == 88                    # score survives
+    assert row["job_title"] == "Original"        # not overwritten
+    assert row["created_at"] == NOW              # original insert time kept
+
+
+def test_insert_leaves_updated_at_null_and_attempts_zero(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1")], now=NOW)
+    row = _one(conn)
+    assert row["updated_at"] is None
+    assert row["attempts"] == 0
+
+
+def test_null_location_round_trips(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1", location=None)], now=NOW)
+    assert _one(conn)["location"] is None
+
+
+# --- mutator field isolation ---------------------------------------------
+
+def test_mark_failed_keeps_score_and_save_score_keeps_attempts(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1")], now=NOW)
+    pid = _one(conn)["id"]
+    db.save_score(conn, pid, score=77, score_detail={}, now=LATER)
+    db.mark_failed(conn, pid, error="boom", now=EVEN_LATER)
+    row = _one(conn)
+    assert row["pipeline_status"] == "failed"
+    assert row["score"] == 77          # mark_failed must not wipe the score
+    assert row["attempts"] == 1
+    # a later save_score must not reset the attempts counter
+    db.save_score(conn, pid, score=80, score_detail={}, now=EVEN_LATER)
+    assert _one(conn)["attempts"] == 1
+
+
+# --- save_score status override (disqualify -> discarded) -----------------
+
+def test_save_score_status_override_to_discarded(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1")], now=NOW)
+    pid = _one(conn)["id"]
+    detail = {"disqualified": True, "disqualification_reason": "needs PhD"}
+    db.save_score(conn, pid, score=42, score_detail=detail, now=LATER, status="discarded")
+    row = _one(conn)
+    assert row["pipeline_status"] == "discarded"
+    assert row["score"] == 42                       # score kept for the UI
+    assert json.loads(row["score_detail"]) == detail
+
+
+# --- get_by_status ordering / limit / min_score boundary / NULL-excluded --
+
+def _seed_scored_ids(conn, scores):
+    """scores: dict external_id -> score, inserted in dict order (ids ascending)."""
+    db.upsert_postings(conn, [posting(eid) for eid in scores], now=NOW)
+    for r in conn.execute("SELECT id, external_id FROM job_postings ORDER BY id").fetchall():
+        db.save_score(conn, r["id"], score=scores[r["external_id"]], score_detail={}, now=LATER)
+
+
+def test_get_by_status_orders_by_score_then_id(db_path):
+    conn = db.connect(db_path)
+    _seed_scored_ids(conn, {"a": 90, "b": 90, "c": 40})
+    rows = db.get_by_status(conn, "scored")
+    assert [r["external_id"] for r in rows] == ["a", "b", "c"]  # 90s by id, then 40
+
+
+def test_get_by_status_min_score_is_inclusive_and_limited(db_path):
+    conn = db.connect(db_path)
+    _seed_scored_ids(conn, {"a": 90, "b": 90, "c": 40})
+    assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=75)] == ["a", "b"]
+    # boundary: score == min_score is included (>= not >)
+    assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=90)] == ["a", "b"]
+    assert [r["external_id"] for r in db.get_by_status(conn, "scored", limit=1)] == ["a"]
+
+
+def test_get_by_status_null_score_excluded_by_min_score(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1")], now=NOW)  # 'new', score is NULL
+    assert db.get_by_status(conn, "new", min_score=75) == []

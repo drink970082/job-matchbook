@@ -54,16 +54,25 @@ def seed_new(conn, ids):
 
 
 def seed_scored(conn, scores, *, detail=None):
-    """scores: dict external_id -> score. Leaves rows in 'scored'."""
+    """scores: dict external_id -> score. Leaves those rows in 'scored'.
+
+    Only touches the rows it seeds (matched by external_id), so it composes with
+    other seed helpers in the same db without clobbering their rows.
+    """
     seed_new(conn, list(scores))
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
+        if r["external_id"] not in scores:
+            continue
         db.save_score(conn, r["id"], score=scores[r["external_id"]],
                       score_detail=detail or {"missing_keywords": ["aws"]}, now=NOW)
 
 
 def seed_tailored(conn, ids):
+    ids = set(ids)
     seed_scored(conn, {i: 90 for i in ids})
-    for r in conn.execute("SELECT id FROM job_postings").fetchall():
+    for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
+        if r["external_id"] not in ids:
+            continue
         db.save_resume(conn, r["id"], resume_tex="T",
                        resume_path=f"resumes/{r['id']}.pdf", resume_pages=1, now=NOW)
 

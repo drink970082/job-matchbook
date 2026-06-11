@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 import pytest
+import requests
 
 from ats_worker import score
 
@@ -500,3 +501,179 @@ def test_long_resume_is_truncated():
     assert "[resume truncated to fit context]" in prompt
     assert len(prompt) < len(big_resume)                     # actually shortened
     assert "Django" in prompt                                # JD still present
+
+
+# --- transport / envelope failures (the realistic production failure modes) --
+
+class _RawHttp:
+    """Returns a RAW Ollama envelope (or raises) so the SCORE call's transport
+    and envelope-parsing branches are exercised (FakeHttp always wraps in a valid
+    {"response": ...} and never raises)."""
+
+    def __init__(self, envelope=None, *, raise_exc=None):
+        self._envelope = envelope
+        self._raise_exc = raise_exc
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        raise_exc, env = self._raise_exc, self._envelope
+
+        class _Resp:
+            def raise_for_status(self):
+                if raise_exc is not None:
+                    raise raise_exc
+
+            def json(self):
+                return env
+
+        return _Resp()
+
+
+def test_raise_for_status_error_bubbles_up():
+    http = _RawHttp(raise_exc=requests.HTTPError("ollama 500"))
+    with pytest.raises(requests.HTTPError):
+        score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+
+
+def test_envelope_missing_response_key_raises_score_error():
+    http = _RawHttp({"done": True})  # no "response" -> inner "" -> unparseable
+    with pytest.raises(score.ScoreError):
+        score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+
+
+def test_envelope_not_a_dict_raises_score_error():
+    http = _RawHttp("not an object")
+    with pytest.raises(score.ScoreError):
+        score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+
+
+def test_empty_completion_raises_score_error():
+    http = _RawHttp({"response": ""})  # the empty-completion (think-mode) failure
+    with pytest.raises(score.ScoreError):
+        score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
+
+
+# --- the core safety invariant: empty/garbled extraction never disqualifies --
+
+@pytest.mark.parametrize("gate,candidate", [
+    ("experience", {"years_experience": 1}),
+    ("degree", {"highest_degree": "Master's"}),
+    ("authorization", {"work_authorization": "needs visa sponsorship"}),
+    ("clearance", {"security_clearance": "none"}),
+    ("location", {"locations": ["USA"]}),
+])
+def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
+    # Each gate is CONFIGURED, but the model returns an empty fact for it. The
+    # design never discards on absent data, so disqualified must be False.
+    http = FakeHttp(SCORE_OK, _screen_resp({gate: {}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate=candidate)
+    assert out["disqualified"] is False, gate
+
+
+def test_non_dict_gate_entry_is_treated_as_empty():
+    # A garbled (non-dict) extraction for a configured gate must not crash or fail.
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": "nonsense"}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is False
+
+
+# --- numeric boundaries (off-by-one mutation killers) --------------------
+
+@pytest.mark.parametrize("years,disq", [(4, True), (5, False)])
+def test_senior_title_years_threshold_boundary(years, disq):
+    # SENIOR_TITLE_MIN_YEARS = 5: below it a senior title disqualifies, at/above passes.
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"senior": True, "min_years_required": None}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": years})
+    assert out["disqualified"] is disq
+
+
+def test_experience_gap_of_three_passes_pinning_the_four_year_threshold():
+    # gap = min_req - cand = 4 - 1 = 3, which is < 4, so it must PASS (pins `>= 4`).
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 4, "senior": False}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is False
+
+
+def test_equal_required_degree_passes_pinning_greater_than():
+    # required == candidate (master's) must PASS — pins `>` (not `>=`) in the gate.
+    http = FakeHttp(SCORE_OK, _screen_resp({"degree": {"required_degree": "master's"}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"highest_degree": "Master's"})
+    assert out["disqualified"] is False
+
+
+# --- authorization negation + clearance holder ----------------------------
+
+def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
+    posting = {**POSTING, "description": "We do not offer visa sponsorship."}
+    http = FakeHttp(SCORE_OK, _screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"work_authorization": "no sponsorship needed"})
+    assert out["disqualified"] is False
+
+
+def test_candidate_holding_clearance_passes_when_role_requires_one():
+    http = FakeHttp(SCORE_OK, _screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"security_clearance": "Secret"})
+    assert out["disqualified"] is False
+
+
+# --- multi-gate failure reason join --------------------------------------
+
+def test_multiple_failing_gates_join_reasons():
+    http = FakeHttp(SCORE_OK, _screen_resp({
+        "degree": {"required_degree": "phd"},
+        "location": {"country": "Singapore", "remote": False},
+    }))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"highest_degree": "Master's", "locations": ["USA"]})
+    assert out["disqualified"] is True
+    reason = out["disqualification_reason"]
+    assert "degree" in reason and "location" in reason
+    assert "; " in reason  # joined, not a single failure
+
+
+# --- pure-function units (precise coercion coverage) ---------------------
+
+@pytest.mark.parametrize("value", ["true", "yes", "1", "remote", "required", "TRUE", 1, True, 2.5])
+def test_flag_truthy_tokens(value):
+    assert score._flag(value) is True
+
+
+@pytest.mark.parametrize("value", ["no", "false", "maybe", "", None, 0, False])
+def test_flag_falsy_tokens(value):
+    assert score._flag(value) is False
+
+
+@pytest.mark.parametrize("text,rank", [
+    ("none", 0), ("no degree", 0), ("", 0),
+    ("High School Diploma", 1), ("GED", 1),
+    ("Associate", 2), ("Bachelor's or higher", 3),
+    ("Master's", 4), ("PhD", 5), ("Doctorate", 5),
+])
+def test_degree_rank_ladder(text, rank):
+    assert score._degree_rank(text) == rank
+
+
+@pytest.mark.parametrize("auth,needs", [
+    ("needs visa sponsorship", True),
+    ("requires sponsorship", True),
+    ("no sponsorship needed", False),
+    ("without sponsorship", False),
+    ("US citizen", False),
+    ("permanent resident", False),
+])
+def test_needs_sponsorship(auth, needs):
+    assert score._needs_sponsorship(auth) is needs
+
+
+def test_truncate_boundary_and_disabled():
+    assert score._truncate("abcde", 5) == "abcde"          # exact length: not cut
+    assert "truncated" in score._truncate("abcdef", 5)     # one over: cut
+    assert score._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled

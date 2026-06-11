@@ -73,6 +73,27 @@ def test_workday_parse_job_builds_canonical():
     assert "<" not in p["description"]
 
 
+def test_workday_parse_job_falls_back_to_reqid_when_no_guid():
+    # No globally-unique `id` in the detail: fall back to jobReqId rather than
+    # emitting an empty external_id (which would collide under dedup).
+    detail = {"jobPostingInfo": {
+        "jobReqId": "R999", "title": "X", "location": "NYC",
+        "externalUrl": "https://x.wd5.myworkdayjobs.com/s/job/X_R999",
+        "jobDescription": "<p>d</p>",
+    }}
+    assert workday.parse_job(detail, "Co")["external_id"] == "R999"
+
+
+def test_pinpoint_location_string_or_null():
+    payload = {"data": [
+        {"id": "1", "title": "A", "url": "https://x/1", "description": "d", "location": "Remote"},
+        {"id": "2", "title": "B", "url": "https://x/2", "description": "d", "location": None},
+    ]}
+    out = pinpoint.parse_jobs(payload, "Co")
+    assert out[0]["location"] == "Remote"   # bare string passes through
+    assert out[1]["location"] is None       # null -> None
+
+
 def test_workday_slug_must_have_three_parts():
     with pytest.raises(ValueError):
         workday.fetch("justtenant", "X", session=object())

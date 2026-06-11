@@ -6,9 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.fetch import ashby, greenhouse, lever
+import requests
+
+from ats_worker.fetch import ashby, greenhouse, lever, pinpoint
 from ats_worker.fetch import filter_postings
 from ats_worker.util import POSTING_FIELDS
+from tests._helpers import FakeSession
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -95,3 +98,53 @@ def test_filter_keywords_are_case_insensitive_and_any_match():
     postings = greenhouse.parse_jobs(load("greenhouse.json"), company_name="Acme")
     kept = filter_postings(postings, ["ENGINEER", "manager"])
     assert len(kept) == 2  # "Senior Software Engineer, Backend" + "Office Manager" titles
+
+
+def test_filter_drops_empty_keyword():
+    # An empty-string keyword must NOT match every title (it would filter nothing).
+    postings = greenhouse.parse_jobs(load("greenhouse.json"), company_name="Acme")
+    assert filter_postings(postings, ["", "manager"]) == filter_postings(postings, ["manager"])
+
+
+def test_filter_tolerates_none_title():
+    posts = [{"job_title": None}, {"job_title": "Engineer"}]
+    assert filter_postings(posts, ["engineer"]) == [{"job_title": "Engineer"}]
+
+
+# --- every posting in the payload is parsed (not just [0]) ----------------
+
+@pytest.mark.parametrize(
+    "module,fixture", [(greenhouse, "greenhouse.json"), (lever, "lever.json"), (ashby, "ashby.json")],
+)
+def test_adapter_parses_all_postings_with_distinct_ids(module, fixture):
+    # Guards against a loop bug that emits the first posting's id for every row,
+    # which would silently collapse the company to one posting under dedup.
+    postings = module.parse_jobs(load(fixture), company_name="Acme")
+    assert len(postings) == 2
+    assert len({p["external_id"] for p in postings}) == 2
+
+
+# --- fetch() HTTP wrappers (URL/params/raise_for_status/company_name) -----
+
+@pytest.mark.parametrize("module,fixture,host,params", [
+    (greenhouse, "greenhouse.json", "boards-api.greenhouse.io", {"content": "true"}),
+    (lever, "lever.json", "api.lever.co", {"mode": "json"}),
+    (ashby, "ashby.json", "api.ashbyhq.com", {"includeCompensation": "true"}),
+    (pinpoint, "pinpoint.json", "pinpointhq.com", None),
+])
+def test_fetch_wrapper_hits_endpoint_and_passes_company(module, fixture, host, params):
+    sess = FakeSession(payload=load(fixture))
+    out = module.fetch("acme", "Acme Co", session=sess, timeout=20)
+    method, url, kwargs = sess.calls[0]
+    assert method == "GET"
+    assert "acme" in url and host in url
+    if params is not None:
+        assert kwargs.get("params") == params
+    assert out and all(p["company_name"] == "Acme Co" for p in out)
+
+
+@pytest.mark.parametrize("module", [greenhouse, lever, ashby, pinpoint])
+def test_fetch_wrapper_propagates_http_error(module):
+    sess = FakeSession(payload={}, raise_exc=requests.HTTPError("404"))
+    with pytest.raises(requests.HTTPError):
+        module.fetch("nope", "X", session=sess)
