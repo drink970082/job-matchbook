@@ -72,4 +72,76 @@ describe('ApplicationTable', () => {
         expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ search: 'Google' }))
     })
   })
+
+  it('calls onStatusChange with the row id and the newly selected status', async () => {
+    const onStatusChange = jest.fn()
+    render(
+      <ApplicationTable
+        data={mockApps}
+        total={2}
+        page={0}
+        size={10}
+        onPageChange={jest.fn()}
+        onFilterChange={jest.fn()}
+        onStatusChange={onStatusChange}
+        onDelete={jest.fn()}
+        onHistory={jest.fn()}
+      />
+    )
+
+    // Each row has a native <select> for its status. The filter dropdowns are
+    // Radix triggers (also role=combobox), so narrow to real <select> elements;
+    // first native select belongs to row id 1.
+    const nativeSelects = screen
+      .getAllByRole('combobox')
+      .filter((el): el is HTMLSelectElement => el.tagName === 'SELECT')
+    expect(nativeSelects.length).toBe(2)
+    await userEvent.selectOptions(nativeSelects[0], 'Offer')
+
+    expect(onStatusChange).toHaveBeenCalledWith(1, 'Offer')
+  })
+
+  it('calls onDelete with the row id when the Delete button is clicked', async () => {
+    const onDelete = jest.fn()
+    render(
+      <ApplicationTable
+        data={mockApps}
+        total={2}
+        page={0}
+        size={10}
+        onPageChange={jest.fn()}
+        onFilterChange={jest.fn()}
+        onStatusChange={jest.fn()}
+        onDelete={onDelete}
+        onHistory={jest.fn()}
+      />
+    )
+
+    const deleteButtons = screen.getAllByRole('button', { name: /delete/i })
+    await userEvent.click(deleteButtons[0])
+
+    expect(onDelete).toHaveBeenCalledWith(1)
+  })
+
+  it('calls onHistory with the row id when the History button is clicked', async () => {
+    const onHistory = jest.fn()
+    render(
+      <ApplicationTable
+        data={mockApps}
+        total={2}
+        page={0}
+        size={10}
+        onPageChange={jest.fn()}
+        onFilterChange={jest.fn()}
+        onStatusChange={jest.fn()}
+        onDelete={jest.fn()}
+        onHistory={onHistory}
+      />
+    )
+
+    const historyButtons = screen.getAllByRole('button', { name: /history/i })
+    await userEvent.click(historyButtons[0])
+
+    expect(onHistory).toHaveBeenCalledWith(1)
+  })
 })

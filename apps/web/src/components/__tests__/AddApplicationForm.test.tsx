@@ -3,7 +3,7 @@ import { AddApplicationForm } from '@/components/AddApplicationForm'
 import userEvent from '@testing-library/user-event'
 
 describe('AddApplicationForm', () => {
-  it('should submit valid data', async () => {
+  it('should submit valid data and reset the form afterward', async () => {
     const onSubmit = jest.fn()
     render(<AddApplicationForm onSubmit={onSubmit} />)
 
@@ -27,6 +27,12 @@ describe('AddApplicationForm', () => {
         }),
       )
     })
+
+    // handleSubmit calls form.reset(), so the text inputs return to empty.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/company name/i)).toHaveValue('')
+      expect(screen.getByPlaceholderText(/job title/i)).toHaveValue('')
+    })
   })
 
   it('should show validation error for missing fields', async () => {
@@ -43,5 +49,11 @@ describe('AddApplicationForm', () => {
     })
 
     expect(onSubmit).not.toHaveBeenCalled()
+
+    // The zod resolver surfaces the messages through <FormMessage />.
+    await waitFor(() => {
+      expect(screen.getByText(/company name is required/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/job title is required/i)).toBeInTheDocument()
   })
 })

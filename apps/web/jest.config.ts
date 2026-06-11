@@ -13,8 +13,9 @@ const config: Config = {
         '^@/(.*)$': '<rootDir>/src/$1',
     },
     // Integration tests (*.int.test.ts) run under the node-env project in
-    // jest.integration.config.ts (real DB), not the fast jsdom unit run.
-    testPathIgnorePatterns: ['/node_modules/', '\\.int\\.test\\.ts$'],
+    // jest.integration.config.ts; Playwright e2e specs (e2e/*.spec.ts) run under
+    // Playwright, not Jest. Exclude both from the fast jsdom unit run.
+    testPathIgnorePatterns: ['/node_modules/', '/e2e/', '\\.int\\.test\\.ts$'],
 }
 
 export default createJestConfig(config)

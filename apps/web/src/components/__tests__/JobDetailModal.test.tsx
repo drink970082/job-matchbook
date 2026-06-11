@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { JobDetailModal } from '../JobDetailModal'
+import userEvent from '@testing-library/user-event'
 
 // Regression guard: the worker writes score_detail with matched_keywords /
 // missing_keywords (NOT matched / missing). The modal must render those, or the
@@ -108,5 +109,42 @@ describe('JobDetailModal score_detail rendering', () => {
         expect(screen.getByText('experience')).toBeInTheDocument()
         expect(screen.getByText('location')).toBeInTheDocument()
         expect(screen.getAllByText(/on-site in Singapore/).length).toBeGreaterThanOrEqual(1)
+    })
+})
+
+describe('JobDetailModal actions', () => {
+    it('calls onMarkApplied with the job id when Mark Applied is clicked', async () => {
+        const user = userEvent.setup()
+        const onMarkApplied = jest.fn()
+        render(<JobDetailModal {...props} onMarkApplied={onMarkApplied} />)
+
+        await user.click(screen.getByRole('button', { name: /mark applied/i }))
+        expect(onMarkApplied).toHaveBeenCalledWith(1)
+    })
+
+    it('calls onDiscard with the job id for a non-discarded job', async () => {
+        const user = userEvent.setup()
+        const onDiscard = jest.fn()
+        // workerShapedJob defaults to pipeline_status 'scored' (not discarded).
+        render(<JobDetailModal {...props} onDiscard={onDiscard} />)
+
+        expect(screen.queryByRole('button', { name: /reopen/i })).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: /discard/i }))
+        expect(onDiscard).toHaveBeenCalledWith(1)
+    })
+
+    it('calls onReopen with the job id for a discarded job', async () => {
+        const user = userEvent.setup()
+        const onReopen = jest.fn()
+        const discarded = {
+            ...props,
+            job: { ...workerShapedJob, pipeline_status: 'discarded' },
+        }
+        render(<JobDetailModal {...discarded} onReopen={onReopen} />)
+
+        // Discarded jobs swap Discard for a Reopen action.
+        expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument()
+        await user.click(screen.getByRole('button', { name: /reopen/i }))
+        expect(onReopen).toHaveBeenCalledWith(1)
     })
 })
