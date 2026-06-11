@@ -11,30 +11,23 @@ ADAPTERS = {
 }
 
 
-def filter_postings(
-    postings: list[dict],
-    keywords: list[str] | None,
-    locations: list[str] | None,
-) -> list[dict]:
-    """Keep postings matching ANY keyword (in title or description) AND, if
-    locations are given, ANY location substring. Both checks are
-    case-insensitive. A criterion that is None/empty is treated as "match all".
+def filter_postings(postings: list[dict], title_filter: list[str] | None) -> list[dict]:
+    """Keep postings whose TITLE contains ANY keyword (case-insensitive).
+    None/empty keeps everything.
+
+    This is only a cheap coarse pre-filter to avoid scoring obviously-irrelevant
+    roles; the LLM scorer does the real relevance judging. Title-only (not
+    description) on purpose — matching the description makes common words like
+    "engineer" match almost every JD, which filters nothing. Geography is handled
+    semantically by the scorer via candidate.locations, not here.
     """
-    kws = [k.lower() for k in (keywords or []) if k]
-    locs = [l.lower() for l in (locations or []) if l]
-
-    def keep(p: dict) -> bool:
-        if kws:
-            haystack = f"{p.get('job_title', '')}\n{p.get('description', '')}".lower()
-            if not any(k in haystack for k in kws):
-                return False
-        if locs:
-            loc = (p.get("location") or "").lower()
-            if not any(l in loc for l in locs):
-                return False
-        return True
-
-    return [p for p in postings if keep(p)]
+    kws = [k.lower() for k in (title_filter or []) if k]
+    if not kws:
+        return list(postings)
+    return [
+        p for p in postings
+        if any(k in (p.get("job_title") or "").lower() for k in kws)
+    ]
 
 
 def fetch_company(source: str, slug: str, company_name: str, **kwargs) -> list[dict]:

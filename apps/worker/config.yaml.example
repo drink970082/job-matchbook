@@ -6,23 +6,29 @@ companies:
   - { source: lever, slug: foobar, name: "Foobar" }
   # - { source: ashby, slug: example, name: "Example Co" }
 
-filters:
-  # A posting is kept if its title/description contains ANY keyword AND
-  # (if locations are given) its location matches ANY of them. Both are
-  # case-insensitive substring matches. Leave a list empty to match all.
-  keywords: ["engineer", "developer"]
-  locations: ["remote", "san francisco"]
+# OPTIONAL coarse pre-filter, applied at fetch time BEFORE the LLM scorer. Keep a
+# posting only if its TITLE contains ANY of these (case-insensitive substring).
+# Title-only on purpose — matching the description would let almost every JD
+# through. It exists only to avoid scoring obviously-irrelevant roles at high-volume
+# companies; the scorer does the real relevance judging, so leave it empty unless a
+# company floods you with off-target postings. Geography is NOT handled here — use
+# candidate.locations below (the LLM understands a New York role satisfies "USA").
+title_filter: []              # e.g. ["engineer", "developer"]
 
 candidate:
-  # Fed to the LOCAL LLM so it can DISQUALIFY (discard) postings that conflict
-  # with your hard constraints — judged semantically, not by keyword match, so
-  # vague wording like "no sponsorship" is handled by reasoning. Leave both empty
-  # to disable disqualification entirely.
-  profile: "Entry-level (0-2 years experience), Master's degree, requires visa sponsorship."
-  dealbreakers:
-    - "requires significantly more experience than entry-level (Senior/Staff/Principal, or 5+ years)"
-    - "requires a PhD"
-    - "does not offer visa sponsorship (e.g. 'no sponsorship', 'must be authorized to work without sponsorship', US citizenship or clearance required)"
+  # Your HARD requirements — the ONLY things that DISQUALIFY (discard) a posting.
+  # The LLM screens each field below pass/fail per posting (judged semantically, so
+  # "no sponsorship" or "USA covers New York" work by meaning, not keyword match).
+  # A missing skill/technology is NOT here — that only lowers the fit score; your
+  # skills live in the résumé. EVERY field is optional — leave one blank to not
+  # screen on it; leave everything blank to disable disqualification entirely.
+  years_experience: 1                 # years of relevant professional experience
+  highest_degree: "Master's"          # none | High School | Associate | Bachelor's | Master's | PhD
+  work_authorization: "needs visa sponsorship"   # citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
+  security_clearance: "none"          # none | confidential | secret | top secret
+  locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
+  dealbreakers:                       # freeform extra HARD constraints the fields above don't cover
+    - "requires an active US security clearance"   # example — delete or replace with your own
 
 threshold: 75              # minimum Ollama score (0-100) required to tailor
 schedule_hours: 24         # cron interval for the background scheduler

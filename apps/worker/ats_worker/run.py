@@ -81,17 +81,20 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
         companies = [
             {"source": c.source, "slug": c.slug, "name": c.name} for c in cfg.companies
         ]
-        filters = {
-            "keywords": cfg.filters.keywords,
-            "locations": cfg.filters.locations,
-        }
 
-        pipeline.run_fetch(conn, companies, filters, now=now)
+        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now)
 
         candidate = {
-            "profile": cfg.candidate.profile,
+            "years_experience": cfg.candidate.years_experience,
+            "highest_degree": cfg.candidate.highest_degree,
+            "work_authorization": cfg.candidate.work_authorization,
+            "security_clearance": cfg.candidate.security_clearance,
+            "locations": list(cfg.candidate.locations),
             "dealbreakers": list(cfg.candidate.dealbreakers),
         }
+        # num_ctx is set explicitly (Ollama's default is small enough to truncate
+        # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
+        num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
         def score_fn(posting):
             return score_posting(
@@ -99,6 +102,7 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                 model=ollama_model,
                 ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
                 candidate=candidate,
+                num_ctx=num_ctx,
             )
 
         pipeline.run_score(conn, resume_text, now=now, score_fn=score_fn)

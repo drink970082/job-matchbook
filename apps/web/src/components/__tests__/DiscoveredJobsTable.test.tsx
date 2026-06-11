@@ -41,6 +41,7 @@ describe('DiscoveredJobsTable', () => {
         onFilterChange={jest.fn()}
         onMarkApplied={jest.fn()}
         onDiscard={jest.fn()}
+        onReopen={jest.fn()}
         onViewJD={jest.fn()}
       />
     )
@@ -59,6 +60,7 @@ describe('DiscoveredJobsTable', () => {
         onFilterChange={jest.fn()}
         onMarkApplied={jest.fn()}
         onDiscard={jest.fn()}
+        onReopen={jest.fn()}
         onViewJD={jest.fn()}
       />
     )
@@ -75,6 +77,7 @@ describe('DiscoveredJobsTable', () => {
         onFilterChange={jest.fn()}
         onMarkApplied={jest.fn()}
         onDiscard={jest.fn()}
+        onReopen={jest.fn()}
         onViewJD={jest.fn()}
       />
     )
@@ -94,6 +97,7 @@ describe('DiscoveredJobsTable', () => {
         onFilterChange={jest.fn()}
         onMarkApplied={onMarkApplied}
         onDiscard={jest.fn()}
+        onReopen={jest.fn()}
         onViewJD={jest.fn()}
       />
     )
@@ -111,9 +115,32 @@ describe('DiscoveredJobsTable', () => {
         onFilterChange={jest.fn()}
         onMarkApplied={jest.fn()}
         onDiscard={jest.fn()}
+        onReopen={jest.fn()}
         onViewJD={jest.fn()}
       />
     )
     expect(screen.getByText(/no results/i)).toBeInTheDocument()
+  })
+
+  it('shows a Reopen control for discarded rows and calls onReopen', () => {
+    const onReopen = jest.fn()
+    const discarded = [{ ...mockJobs[0], pipeline_status: 'discarded' }]
+    render(
+      <DiscoveredJobsTable
+        data={discarded}
+        total={1}
+        onFilterChange={jest.fn()}
+        onMarkApplied={jest.fn()}
+        onDiscard={jest.fn()}
+        onReopen={onReopen}
+        onViewJD={jest.fn()}
+      />
+    )
+
+    // Discard is replaced by Reopen for a discarded row.
+    expect(screen.queryByTitle(/discard/i)).not.toBeInTheDocument()
+    const reopen = screen.getByTitle(/reopen/i)
+    fireEvent.click(reopen)
+    expect(onReopen).toHaveBeenCalledWith(1)
   })
 })

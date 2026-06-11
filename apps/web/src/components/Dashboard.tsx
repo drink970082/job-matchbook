@@ -19,6 +19,7 @@ import {
     getJobPostings,
     markJobApplied,
     discardJobPosting,
+    reopenJobPosting,
 } from '@/lib/actions'
 import { ApplicationTable } from './ApplicationTable'
 import { DiscoveredJobsTable } from './DiscoveredJobsTable'
@@ -294,6 +295,18 @@ export function Dashboard({
         }
     }
 
+    const handleReopenJob = async (id: number) => {
+        const result = await reopenJobPosting(id)
+        if (result.success) {
+            toast.success('Job reopened')
+            setIsJobDetailOpen(false)
+            setSelectedJob(null)
+            await refreshJobPostings()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
     return (
         <div className="space-y-6">
             {/* Header + KPIs */}
@@ -362,6 +375,7 @@ export function Dashboard({
                             onFilterChange={handleJobFilterChange}
                             onMarkApplied={handleMarkApplied}
                             onDiscard={handleDiscardJob}
+                            onReopen={handleReopenJob}
                             onViewJD={handleViewJD}
                         />
                     </CardContent>
@@ -450,6 +464,7 @@ export function Dashboard({
                     job={selectedJob}
                     onMarkApplied={handleMarkApplied}
                     onDiscard={handleDiscardJob}
+                    onReopen={handleReopenJob}
                 />
             )}
 

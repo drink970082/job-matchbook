@@ -73,31 +73,25 @@ def test_ashby_parsing():
 
 def test_filter_by_keyword_matches_title():
     postings = greenhouse.parse_jobs(load("greenhouse.json"), company_name="Acme")
-    kept = filter_postings(postings, keywords=["engineer"], locations=None)
+    kept = filter_postings(postings, ["engineer"])
     assert [p["job_title"] for p in kept] == ["Senior Software Engineer, Backend"]
 
 
-def test_filter_by_location_substring():
-    postings = lever.parse_jobs(load("lever.json"), company_name="Acme")
-    kept = filter_postings(postings, keywords=None, locations=["remote"])
-    assert len(kept) == 1
-    assert kept[0]["location"] == "Remote - US"
-
-
-def test_filter_keyword_also_searches_description():
+def test_filter_keyword_ignores_description():
     postings = ashby.parse_jobs(load("ashby.json"), company_name="Acme")
-    # "pytorch" only appears in the description of the ML role.
-    kept = filter_postings(postings, keywords=["pytorch"], locations=None)
-    assert len(kept) == 1
-    assert kept[0]["job_title"] == "Machine Learning Engineer"
+    # "pytorch" appears only in the description of the ML role, never in a title,
+    # so a title-only filter must NOT keep it.
+    kept = filter_postings(postings, ["pytorch"])
+    assert kept == []
 
 
 def test_filter_no_criteria_keeps_all():
     postings = ashby.parse_jobs(load("ashby.json"), company_name="Acme")
-    assert filter_postings(postings, keywords=None, locations=None) == postings
+    assert filter_postings(postings, None) == postings
+    assert filter_postings(postings, []) == postings
 
 
 def test_filter_keywords_are_case_insensitive_and_any_match():
     postings = greenhouse.parse_jobs(load("greenhouse.json"), company_name="Acme")
-    kept = filter_postings(postings, keywords=["ENGINEER", "manager"], locations=None)
-    assert len(kept) == 2  # one matches engineer, one matches manager
+    kept = filter_postings(postings, ["ENGINEER", "manager"])
+    assert len(kept) == 2  # "Senior Software Engineer, Backend" + "Office Manager" titles

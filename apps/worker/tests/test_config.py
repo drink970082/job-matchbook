@@ -10,22 +10,19 @@ FULL = """
 companies:
   - { source: greenhouse, slug: acme, name: "Acme Inc" }
   - { source: lever, slug: foobar, name: "Foobar" }
-filters:
-  keywords: ["engineer", "developer"]
-  locations: ["remote", "san francisco"]
+title_filter: ["engineer", "developer"]
 threshold: 80
 schedule_hours: 12
 max_single_page_rounds: 5
 """
 
 
-def test_load_parses_companies_and_filters():
+def test_load_parses_companies_and_title_filter():
     cfg = config.load_config(FULL)
     assert [c.source for c in cfg.companies] == ["greenhouse", "lever"]
     assert cfg.companies[0].slug == "acme"
     assert cfg.companies[0].name == "Acme Inc"
-    assert cfg.filters.keywords == ["engineer", "developer"]
-    assert cfg.filters.locations == ["remote", "san francisco"]
+    assert cfg.title_filter == ["engineer", "developer"]
     assert cfg.threshold == 80
     assert cfg.schedule_hours == 12
     assert cfg.max_single_page_rounds == 5
@@ -38,9 +35,8 @@ def test_defaults_applied_when_omitted():
     assert cfg.threshold == 75
     assert cfg.schedule_hours == 24
     assert cfg.max_single_page_rounds == 3
-    # empty filters allowed
-    assert cfg.filters.keywords == []
-    assert cfg.filters.locations == []
+    # empty title_filter allowed
+    assert cfg.title_filter == []
 
 
 def test_empty_companies_allowed():
@@ -51,6 +47,12 @@ def test_empty_companies_allowed():
 def test_invalid_source_raises():
     bad = "companies:\n  - { source: workday, slug: x, name: X }\n"
     with pytest.raises(config.ConfigError):
+        config.load_config(bad)
+
+
+def test_old_filters_key_raises_migration_error():
+    bad = "companies: []\nfilters:\n  keywords: ['engineer']\n"
+    with pytest.raises(config.ConfigError, match="title_filter"):
         config.load_config(bad)
 
 
@@ -68,20 +70,47 @@ def test_missing_company_fields_raise():
         config.load_config(bad)
 
 
-def test_load_parses_candidate():
+def test_load_parses_candidate_dealbreakers():
     cfg = config.load_config(
         "companies: []\n"
         "candidate:\n"
-        "  profile: 'Entry level (0-2y), Master, needs sponsorship'\n"
         "  dealbreakers:\n"
         "    - 'requires a PhD'\n"
         "    - 'no visa sponsorship'\n"
     )
-    assert cfg.candidate.profile == "Entry level (0-2y), Master, needs sponsorship"
     assert cfg.candidate.dealbreakers == ["requires a PhD", "no visa sponsorship"]
+    assert not cfg.candidate.is_empty()
 
 
 def test_candidate_defaults_empty_when_absent():
     cfg = config.load_config("companies: []\n")
-    assert cfg.candidate.profile == ""
     assert cfg.candidate.dealbreakers == []
+    assert cfg.candidate.is_empty()
+
+
+def test_load_parses_structured_candidate():
+    cfg = config.load_config(
+        "companies: []\n"
+        "candidate:\n"
+        "  years_experience: 1\n"
+        "  highest_degree: \"Master's\"\n"
+        "  work_authorization: 'needs visa sponsorship'\n"
+        "  security_clearance: none\n"
+        "  locations: ['remote', 'New York']\n"
+        "  dealbreakers:\n"
+        "    - 'requires an active clearance'\n"
+    )
+    c = cfg.candidate
+    assert c.years_experience == 1.0
+    assert c.highest_degree == "Master's"
+    assert c.work_authorization == "needs visa sponsorship"
+    assert c.security_clearance == "none"
+    assert c.locations == ["remote", "New York"]
+    assert c.dealbreakers == ["requires an active clearance"]
+    assert not c.is_empty()
+
+
+def test_candidate_years_experience_non_numeric_raises():
+    bad = "companies: []\ncandidate:\n  years_experience: 'a lot'\n"
+    with pytest.raises(config.ConfigError):
+        config.load_config(bad)

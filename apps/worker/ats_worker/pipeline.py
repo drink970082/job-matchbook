@@ -31,20 +31,17 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 # --- fetch ----------------------------------------------------------------
 
-def run_fetch(conn, companies, filters, *, now, fetch_fn=fetch_company) -> int:
-    """Fetch every company, filter, and upsert. Returns rows inserted.
+def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> int:
+    """Fetch every company, title-filter, and upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
     nothing is in the db), so the remaining companies still ingest.
     """
-    keywords = (filters or {}).get("keywords")
-    locations = (filters or {}).get("locations")
-
     inserted = 0
     for c in companies:
         try:
             postings = fetch_fn(c["source"], c["slug"], c["name"])
-            kept = filter_postings(postings, keywords, locations)
+            kept = filter_postings(postings, title_filter)
             inserted += db.upsert_postings(conn, kept, now=now)
         except Exception:  # noqa: BLE001 — one bad board must not abort the rest
             continue
@@ -67,6 +64,10 @@ def run_score(conn, resume_text, *, now, score_fn) -> None:
                 "missing_keywords": result.get("missing_keywords", []),
                 "reasoning": result.get("reasoning", ""),
             }
+            # Per-requirement screen verdicts (which hard requirements passed/failed)
+            # — kept for transparency so the UI can show why something was dropped.
+            if result.get("screen"):
+                detail["screen"] = result["screen"]
             if disqualified:
                 detail["disqualified"] = True
                 detail["disqualification_reason"] = result.get("disqualification_reason", "")

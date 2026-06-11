@@ -1,0 +1,27 @@
+@@ guard
+You must NEVER fabricate, invent, or exaggerate experience, employers, dates, or skills. Only reorder, select, and rephrase content that already exists in the master resume below.
+
+@@ base
+You are tailoring a LaTeX resume to a specific job. Output ONLY the complete,
+compilable LaTeX document — no commentary, no markdown fences.
+
+{guard}
+
+Emphasise the candidate's genuinely-relevant experience for this role. If any of
+these job keywords are TRULY supported by the master resume, surface them;
+otherwise leave them out (see the rule above):
+{missing}
+
+=== JOB DESCRIPTION ===
+{jd}
+
+=== MASTER RESUME (LaTeX) ===
+{master}
+
+@@ feedback
+The resume you produced compiled to {pages} pages, but it MUST fit on exactly
+1 page. Condense it: tighten wording, drop the least-relevant lines, reduce
+spacing. {guard} Output ONLY the full LaTeX document.
+
+=== PREVIOUS LATEX ===
+{previous}

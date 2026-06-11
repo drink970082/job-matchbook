@@ -19,7 +19,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { FileText, Download, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
     id: number
@@ -42,6 +42,7 @@ interface DiscoveredJobsTableProps {
     onFilterChange: (filters: { status?: string; minScore?: number; search?: string }) => void
     onMarkApplied: (id: number) => void
     onDiscard: (id: number) => void
+    onReopen: (id: number) => void
     onViewJD: (id: number) => void
 }
 
@@ -61,6 +62,7 @@ export function DiscoveredJobsTable({
     onFilterChange,
     onMarkApplied,
     onDiscard,
+    onReopen,
     onViewJD,
 }: DiscoveredJobsTableProps) {
     const [search, setSearch] = useState('')
@@ -204,15 +206,27 @@ export function DiscoveredJobsTable({
                                                 >
                                                     <CheckCircle2 className="h-3.5 w-3.5" />
                                                 </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    onClick={() => onDiscard(job.id)}
-                                                    title="Discard"
-                                                    className="h-7 w-7 text-destructive hover:text-destructive"
-                                                >
-                                                    <XCircle className="h-3.5 w-3.5" />
-                                                </Button>
+                                                {job.pipeline_status === 'discarded' ? (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => onReopen(job.id)}
+                                                        title="Reopen"
+                                                        className="h-7 w-7"
+                                                    >
+                                                        <RotateCcw className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                ) : (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => onDiscard(job.id)}
+                                                        title="Discard"
+                                                        className="h-7 w-7 text-destructive hover:text-destructive"
+                                                    >
+                                                        <XCircle className="h-3.5 w-3.5" />
+                                                    </Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                     </TableRow>

@@ -31,9 +31,12 @@ and registering it in `fetch/ADAPTERS`.
 
 ## Config-time inputs (you provide)
 
-1. `config.yaml` — company list + keyword/location filters + score threshold +
-   schedule. See the committed sample.
-2. `resume/master.tex` and `resume/resume.txt` — see `resume/README.md`.
+1. `config.yaml` — company list + an optional `title_filter` (title-keyword
+   pre-filter) + the `candidate` screening block (experience / degree / work
+   authorization / clearance / locations + freeform dealbreakers; auto-discards
+   conflicting postings) + score threshold + schedule. See the committed sample.
+2. `resume/master.tex` and `resume/resume.txt` — your résumé content, used for
+   keyword/fit scoring and tailoring. See `resume/README.md`.
 3. `.env` — copy `.env.example` → `.env` and fill in `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`.
 

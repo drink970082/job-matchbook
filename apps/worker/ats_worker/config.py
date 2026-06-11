@@ -36,25 +36,39 @@ class Company:
 
 
 @dataclass(frozen=True)
-class Filters:
-    keywords: list[str] = field(default_factory=list)
-    locations: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class Candidate:
-    """Who the candidate is + hard dealbreakers, fed to the LLM scorer so it can
-    semantically DISQUALIFY postings that conflict (handles vague wording like
-    "no sponsorship" by reasoning, not a brittle keyword list). Empty = the
-    scorer is never asked to disqualify (back-compatible)."""
-    profile: str = ""
+    """The candidate's standard application-screening facts, fed to the LLM scorer
+    so it can semantically SCREEN each posting against the candidate's hard
+    requirements (handles vague wording like "no sponsorship" by reasoning, not a
+    brittle keyword list). Each structured field maps 1:1 to a `screen` requirement
+    the model gives a pass/fail verdict for; `dealbreakers` adds freeform extras.
+    Everything empty = the scorer is never asked to screen (no disqualification).
+    Skills/identity for FIT scoring live in the résumé, not here."""
+    years_experience: float | None = None
+    highest_degree: str = ""
+    work_authorization: str = ""
+    security_clearance: str = ""
+    locations: list[str] = field(default_factory=list)
     dealbreakers: list[str] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        """True when nothing is configured, so screening stays disabled."""
+        return not any((
+            self.years_experience is not None,
+            self.highest_degree.strip(),
+            self.work_authorization.strip(),
+            self.security_clearance.strip(),
+            self.locations,
+            self.dealbreakers,
+        ))
 
 
 @dataclass(frozen=True)
 class Config:
     companies: list[Company] = field(default_factory=list)
-    filters: Filters = field(default_factory=Filters)
+    # Optional coarse pre-filter: keep a posting only if its TITLE contains one of
+    # these (case-insensitive). Empty = keep all and let the scorer decide.
+    title_filter: list[str] = field(default_factory=list)
     candidate: Candidate = field(default_factory=Candidate)
     threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
@@ -87,13 +101,21 @@ def load_config(source) -> Config:
     if not isinstance(data, dict):
         raise ConfigError("config root must be a mapping")
 
+    if "filters" in data:
+        # Replaced by a flat `title_filter` (location filtering removed in favour of
+        # candidate.locations). Fail loud so an old config isn't silently ignored.
+        raise ConfigError(
+            "`filters` was replaced by a top-level `title_filter` list (a posting is "
+            "kept only if its TITLE contains one of these). Location filtering was "
+            "removed — use `candidate.locations` for geography. See config.yaml.example."
+        )
     companies = _parse_companies(data.get("companies") or [])
-    filters = _parse_filters(data.get("filters") or {})
+    title_filter = _parse_title_filter(data.get("title_filter") or [])
     candidate = _parse_candidate(data.get("candidate") or {})
 
     return Config(
         companies=companies,
-        filters=filters,
+        title_filter=title_filter,
         candidate=candidate,
         threshold=int(data.get("threshold", DEFAULT_THRESHOLD)),
         schedule_hours=int(data.get("schedule_hours", DEFAULT_SCHEDULE_HOURS)),
@@ -123,17 +145,30 @@ def _parse_companies(raw) -> list[Company]:
     return out
 
 
-def _parse_filters(raw) -> Filters:
-    if not isinstance(raw, dict):
-        raise ConfigError("`filters` must be a mapping")
-    keywords = [str(k) for k in (raw.get("keywords") or [])]
-    locations = [str(l) for l in (raw.get("locations") or [])]
-    return Filters(keywords=keywords, locations=locations)
+def _parse_title_filter(raw) -> list[str]:
+    if not isinstance(raw, list):
+        raise ConfigError("`title_filter` must be a list of title keywords")
+    return [str(k) for k in raw if str(k).strip()]
 
 
 def _parse_candidate(raw) -> Candidate:
     if not isinstance(raw, dict):
         raise ConfigError("`candidate` must be a mapping")
-    profile = str(raw.get("profile") or "")
+    years = raw.get("years_experience")
+    if years is not None:
+        try:
+            years = float(years)
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"candidate.years_experience must be a number, got {years!r}"
+            ) from exc
+    locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
     dealbreakers = [str(d) for d in (raw.get("dealbreakers") or []) if str(d).strip()]
-    return Candidate(profile=profile, dealbreakers=dealbreakers)
+    return Candidate(
+        years_experience=years,
+        highest_degree=str(raw.get("highest_degree") or "").strip(),
+        work_authorization=str(raw.get("work_authorization") or "").strip(),
+        security_clearance=str(raw.get("security_clearance") or "").strip(),
+        locations=locations,
+        dealbreakers=dealbreakers,
+    )

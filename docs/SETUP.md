@@ -89,9 +89,16 @@ companies:
   - { source: lever,      slug: ramp,      name: "Ramp" }
   - { source: ashby,      slug: linear,    name: "Linear" }
 
-filters:
-  keywords:  ["engineer", "ml", "backend"]   # keep if title/JD contains ANY
-  locations: ["remote", "new york"]          # AND location contains ANY (or empty = all)
+title_filter: ["engineer", "ml", "backend"]  # optional: keep only titles containing ANY (empty = all)
+
+candidate:                  # who you are — see "Candidate screening" below
+  years_experience: 1
+  highest_degree: "Master's"
+  work_authorization: "needs visa sponsorship"
+  security_clearance: "none"
+  locations: ["remote"]
+  dealbreakers:
+    - "requires an active US security clearance"
 
 threshold: 75              # min Ollama score (0–100) before we tailor a resume
 schedule_hours: 24         # how often the worker re-scans
@@ -107,6 +114,23 @@ The **`slug`** is the company's handle in the board URL:
 | Ashby | `jobs.ashbyhq.com/linear` | `linear` |
 
 A bad `source` or missing field is caught at startup with a clear error.
+
+**Candidate screening (`candidate:`)** — your standard application-screening facts,
+in one place. The local scorer uses them to (1) anchor the fit score and (2) **auto-
+discard** postings that conflict with a hard constraint, judged *semantically* — e.g.
+`work_authorization: needs visa sponsorship` discards roles that say "no sponsorship",
+`security_clearance: none` discards clearance-required roles, and an entry-level
+`years_experience` discards Senior/Staff/5+-year roles. You rarely need to hand-write
+`dealbreakers` — that list is just for niche constraints the fields don't cover.
+
+- **Every field is optional** — leave one blank to not screen on it; leave the whole
+  block empty to disable disqualification entirely.
+- `candidate.locations` is the place for geography — it discards on-site-elsewhere
+  roles *semantically* (the LLM knows a New York role satisfies `"USA"`). The fetch-time
+  `title_filter` is title-keywords only; there is no location filter (it was a brittle
+  substring match that this supersedes).
+- A discarded posting isn't gone: it shows under the **discarded** status filter in the
+  web UI with its reason, and a **Reopen** button puts it back in the queue.
 
 #### 3b. Your resume — two files
 

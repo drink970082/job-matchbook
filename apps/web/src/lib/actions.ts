@@ -108,6 +108,21 @@ export async function discardJobPosting(id: number) {
     }
 }
 
+// Reverse a discard (whether user-initiated or an LLM disqualification): send the
+// posting back into the actionable queue. The stored score_detail — including any
+// disqualification_reason — is kept, so the override stays explainable.
+export async function reopenJobPosting(id: number) {
+    try {
+        await prisma.job_postings.update({
+            where: { id },
+            data: { pipeline_status: 'scored', updated_at: new Date().toISOString() },
+        })
+        return { success: true }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
 export async function markJobApplied(id: number) {
     try {
         const posting = await prisma.job_postings.findUnique({ where: { id } })

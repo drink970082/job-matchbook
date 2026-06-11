@@ -6,6 +6,7 @@ import {
   getKPIs,
   getJobPostings,
   discardJobPosting,
+  reopenJobPosting,
   markJobApplied,
 } from '@/lib/actions'
 import { mockDeep, mockReset } from 'jest-mock-extended'
@@ -277,6 +278,31 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
 
       const result = await discardJobPosting(99)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('boom')
+    })
+  })
+
+  describe('reopenJobPosting', () => {
+    it('should set pipeline_status back to scored', async () => {
+      mockPrisma.job_postings.update.mockResolvedValue({ id: 1 } as any)
+
+      const result = await reopenJobPosting(1)
+
+      expect(result.success).toBe(true)
+      expect(mockPrisma.job_postings.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 1 },
+          data: expect.objectContaining({ pipeline_status: 'scored' }),
+        })
+      )
+    })
+
+    it('should return error on failure', async () => {
+      mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
+
+      const result = await reopenJobPosting(99)
 
       expect(result.success).toBe(false)
       expect(result.error).toBe('boom')

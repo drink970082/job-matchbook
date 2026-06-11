@@ -18,40 +18,7 @@ from __future__ import annotations
 
 import tempfile
 
-# The non-negotiable instruction: select / reorder / rephrase the candidate's
-# REAL experience only. Asserted by the tests so it can never be silently lost.
-_FABRICATION_GUARD = (
-    "You must NEVER fabricate, invent, or exaggerate experience, employers, "
-    "dates, or skills. Only reorder, select, and rephrase content that already "
-    "exists in the master resume below."
-)
-
-_BASE_PROMPT = """\
-You are tailoring a LaTeX resume to a specific job. Output ONLY the complete,
-compilable LaTeX document — no commentary, no markdown fences.
-
-{guard}
-
-Emphasise the candidate's genuinely-relevant experience for this role. If any of
-these job keywords are TRULY supported by the master resume, surface them;
-otherwise leave them out (see the rule above):
-{missing}
-
-=== JOB DESCRIPTION ===
-{jd}
-
-=== MASTER RESUME (LaTeX) ===
-{master}
-"""
-
-_FEEDBACK_PROMPT = """\
-The resume you produced compiled to {pages} pages, but it MUST fit on exactly
-1 page. Condense it: tighten wording, drop the least-relevant lines, reduce
-spacing. {guard} Output ONLY the full LaTeX document.
-
-=== PREVIOUS LATEX ===
-{previous}
-"""
+from ats_worker.prompts import BASE_PROMPT, FABRICATION_GUARD, FEEDBACK_PROMPT
 
 
 def tailor_resume(
@@ -74,8 +41,8 @@ def tailor_resume(
     work_dir = out_dir or tempfile.mkdtemp(prefix="tailor-")
     missing = ", ".join(missing_keywords) if missing_keywords else "(none)"
 
-    prompt = _BASE_PROMPT.format(
-        guard=_FABRICATION_GUARD,
+    prompt = BASE_PROMPT.format(
+        guard=FABRICATION_GUARD,
         missing=missing,
         jd=jd,
         master=master_tex,
@@ -86,9 +53,9 @@ def tailor_resume(
     pages = 0
     for round_no in range(max_rounds):
         if round_no > 0:
-            prompt = _FEEDBACK_PROMPT.format(
+            prompt = FEEDBACK_PROMPT.format(
                 pages=pages,
-                guard=_FABRICATION_GUARD,
+                guard=FABRICATION_GUARD,
                 previous=tex,
             )
         tex = claude(prompt)

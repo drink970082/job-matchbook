@@ -36,8 +36,7 @@ def test_run_fetch_inserts_filtered_postings(db_path):
         ]
 
     companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
-    filters = {"keywords": ["engineer"], "locations": ["remote"]}
-    inserted = pipeline.run_fetch(conn, companies, filters, now=NOW, fetch_fn=fetch_fn)
+    inserted = pipeline.run_fetch(conn, companies, ["engineer"], now=NOW, fetch_fn=fetch_fn)
     assert inserted == 1
     rows = db.get_by_status(conn, "new")
     assert [r["external_id"] for r in rows] == ["1"]
@@ -55,7 +54,7 @@ def test_run_fetch_one_company_failing_does_not_abort(db_path):
         {"source": "greenhouse", "slug": "bad", "name": "Bad"},
         {"source": "lever", "slug": "good", "name": "Good"},
     ]
-    inserted = pipeline.run_fetch(conn, companies, {}, now=NOW, fetch_fn=fetch_fn)
+    inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
     assert inserted == 1
 
 
