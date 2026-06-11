@@ -66,10 +66,20 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         data = resp.json()
         stubs = parse_listing(data)
         for stub in stubs:
-            detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
-            detail.raise_for_status()
-            out.append(parse_job(detail.json(), company_name))
-        offset += PAGE
-        if not stubs or offset >= (data.get("total") or 0):
+            try:
+                detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
+                detail.raise_for_status()
+                posting = parse_job(detail.json(), company_name)
+            except Exception:
+                continue  # m1: skip one bad posting, don't abort the company
+            if not posting["external_id"]:
+                continue  # m3: empty id would collide under (source, external_id) dedup
+            out.append(posting)
+        # M2: advance by rows actually returned so a short page never skips rows.
+        offset += len(stubs)
+        # M1: terminate on an empty page OR an honest total we've reached; never
+        # on `total or 0` (a null/absent total must not stop us after page 1).
+        total = data.get("total")
+        if not stubs or (isinstance(total, int) and offset >= total):
             break
     return out

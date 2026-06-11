@@ -22,6 +22,9 @@ def parse_jobs(payload: dict, company_name: str) -> list[dict]:
     jobs = payload.get("data", []) if isinstance(payload, dict) else []
     out: list[dict] = []
     for j in jobs:
+        url = j.get("url") or ""
+        if not url:
+            continue  # m2: a linkless posting is an unclickable record; drop it
         loc = j.get("location") or {}
         location = loc.get("name") if isinstance(loc, dict) else loc
         body = "\n\n".join(j[k] for k in _DESC_PARTS if j.get(k))
@@ -32,7 +35,7 @@ def parse_jobs(payload: dict, company_name: str) -> list[dict]:
                 "company_name": company_name,
                 "job_title": (j.get("title") or "").strip(),
                 "location": location or None,
-                "job_url": j.get("url") or "",
+                "job_url": url,
                 "description": html_to_text(body),
             }
         )
