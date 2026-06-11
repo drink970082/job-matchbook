@@ -17,7 +17,7 @@ import yaml
 
 # Must match fetch.ADAPTERS — but importing fetch here would pull in `requests`
 # at config-load time, so we keep an explicit local allowlist instead.
-VALID_SOURCES = ("greenhouse", "lever", "ashby")
+VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint")
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24

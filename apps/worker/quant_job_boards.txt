@@ -1,0 +1,144 @@
+QUANT SHOP JOB BOARDS — classified by board type
+Source: github.com/northwesternfintech/2027QuantInternships (+ web verification)
+A = live board on a searchable third-party ATS | B = self-hosted / in-house | C = no live board
+
+STATUS MARKERS (column 1) — pipeline supports: greenhouse, lever, ashby
+[x] = added to apps/worker/config.yaml AND verified live via the pipeline adapters on 2026-06-10 (role count shown)
+[!] = supported ATS but board NOT reachable on the public API (left out — discuss)
+[~] = supported ATS but board slug not confirmed from the URL (needs lookup — discuss)
+[ ] = ATS not yet supported by the pipeline (needs a new adapter — discuss)
+
+================================================================
+GROUP A — LIVE BOARD ON A THIRD-PARTY ATS
+================================================================
+
+-- Greenhouse --  (supported)
+[x] Akuna Capital | Greenhouse | https://job-boards.greenhouse.io/akunacapital  (30 roles)
+[x] Aquatic | Greenhouse | https://boards.greenhouse.io/aquaticcapitalmanagement  (9 roles)
+[x] Blackedge Capital | Greenhouse | https://boards.greenhouse.io/blackedgecapital  (board live, 0 roles now)
+[x] Bridgewater | Greenhouse | https://job-boards.greenhouse.io/bridgewater89  (28 roles; using full board bridgewater89 instead of campus-only bridgewatercampusrecruiting)
+[x] Chicago Trading Co (CTC) | Greenhouse | https://job-boards.greenhouse.io/chicagotradingcampus  (4 roles)
+[x] Cubist / Point72 | Greenhouse | https://job-boards.greenhouse.io/point72  (248 roles)
+[x] DRW | Greenhouse | https://job-boards.greenhouse.io/drweng  (148 roles)
+[x] Five Rings | Greenhouse | https://job-boards.greenhouse.io/fiveringsllc  (14 roles)
+[x] Flow Traders | Greenhouse | https://job-boards.greenhouse.io/flowtraders  (30 roles)
+[x] Geneva Trading | Greenhouse | https://job-boards.greenhouse.io/genevatrading  (13 roles)
+[x] GSA Capital | Greenhouse | https://job-boards.greenhouse.io/gsacapital  (9 roles)
+[x] Hudson River Trading | Greenhouse | https://boards.greenhouse.io/wehrtyou  (73 roles)
+[x] IMC | Greenhouse | https://job-boards.eu.greenhouse.io/imc  (129 roles; EU front-end, resolves on global boards-api)
+[x] Jump Trading | Greenhouse | https://boards.greenhouse.io/jumptrading  (63 roles)
+[x] Mako | Greenhouse | https://job-boards.greenhouse.io/mako  (7 roles)
+[x] Marshall Wace | Greenhouse | https://job-boards.greenhouse.io/mwinternshipprogram  (board live, 0 roles now)
+[x] Maven Securities | Greenhouse | https://job-boards.greenhouse.io/mavensecuritiesholdingltd  (37 roles)
+[x] Old Mission | Greenhouse | https://boards.greenhouse.io/oldmissioncapital  (30 roles)
+[x] Optiver | Greenhouse | https://job-boards.greenhouse.io/optiverus  (182 roles)
+[x] PDT Partners | Greenhouse | https://job-boards.greenhouse.io/pdtpartners  (14 roles)
+[x] Radix Trading (campus) | Greenhouse | https://job-boards.greenhouse.io/radixuniversity  (8 roles)
+[x] Radix Trading (experienced) | Greenhouse | https://job-boards.greenhouse.io/radixexperienced  (6 roles; distinct board from radixuniversity)
+[x] Schonfeld | Greenhouse | https://job-boards.greenhouse.io/schonfeld  (61 roles)
+[!] Seven Eight Capital | Greenhouse | https://boards.greenhouse.io/seveneightcapital  (boards-api 404 — not public / 0 open roles; left out)
+[x] Squarepoint | Greenhouse | https://job-boards.greenhouse.io/squarepointcapital  (81 roles)
+[x] Tower Research | Greenhouse | https://job-boards.greenhouse.io/towerresearchcapital  (66 roles; slug confirmed via embed for=towerresearchcapital)
+[x] TransMarket Group | Greenhouse | https://job-boards.greenhouse.io/transmarketgroup  (13 roles)
+[x] Tudor Investment Group | Greenhouse | https://job-boards.greenhouse.io/tudorgroup  (5 roles)
+[x] Vatic Labs | Greenhouse | https://job-boards.greenhouse.io/vaticlabs  (10 roles)
+[x] Virtu Financial | Greenhouse | https://job-boards.greenhouse.io/virtu  (38 roles)
+[x] WorldQuant | Greenhouse | https://job-boards.greenhouse.io/worldquant  (100 roles)
+[x] XTX Markets | Greenhouse | https://job-boards.greenhouse.io/xtxmarketstechnologies  (11 roles)
+
+-- Lever --  (supported)
+[x] Ansatz Capital | Lever | https://jobs.lever.co/ansatzcapital  (5 roles)
+[x] Belvedere Trading | Lever | https://jobs.lever.co/belvederetrading  (12 roles)
+[x] Valkyrie Trading | Lever | https://jobs.lever.co/valkyrietrading  (5 roles)
+[x] Voleon | Lever | https://jobs.lever.co/voleon  (board live, 0 roles now)
+[x] Wolverine | Pinpoint (NOT Lever) | https://wolve.pinpointhq.com/postings.json  (14 roles incl. quant/C++; pinpoint adapter built, slug=wolve)
+
+-- Workday --  (workday adapter built; slug = "tenant/dc/site")
+[x] Arrowstreet | Workday | slug arrowstreetcapital/wd5/Campus_Careers  (3 roles, verified live)
+[x] Millennium | Workday | slug mlp/wd5/mlpcareers  (board valid, 0 roles now)
+[!] AQR | NOT Workday | https://careers.aqr.com  (custom careers.aqr.com/api/jobs, ~44 roles — needs its own adapter)
+[!] Peak6 | NOT Workday | https://careers.peak6.com  (Ongig, token-gated — hard; deferred)
+
+-- Other ATS --  (NOT supported — each needs its own adapter)
+[ ] SIG | iCIMS | https://careers-sig.icims.com/jobs/search
+[ ] Two Sigma | Avature | https://careers.twosigma.com
+[ ] Trexquant | Workable | https://apply.workable.com/trexquant/
+[ ] Quantlab | Jobvite | https://jobs.jobvite.com/careers/quantlab/jobs
+[ ] Campbell & Company | ADP | https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=2de708e1-c847-43b1-bf0d-0bad30aca014&ccId=19000101_000001&type=MP&lang=en_US
+
+================================================================
+GROUP B — SELF-HOSTED / IN-HOUSE (no third-party ATS board)  (NOT supported — would need bespoke scrapers)
+================================================================
+[ ] Citadel / Citadel Securities | self-hosted (WordPress) | https://www.citadelsecurities.com/careers/open-opportunities/
+[ ] DE Shaw | self-hosted (Next.js) | https://www.deshaw.com/careers  (73 regular roles; adapter feasible but DEFERRED — single-firm, brittle __NEXT_DATA__ scrape)
+[ ] G-Research | self-hosted | https://www.gresearch.com/vacancies/  (JSON-LD; medium effort, not yet built)
+[ ] Jane Street | self-hosted (JSON feed) | https://www.janestreet.com/jobs/main.json  (209 roles; adapter feasible but DEFERRED — single-firm scraper)
+[ ] Renaissance | self-hosted (custom, Struts) | https://www.rentec.com/Careers.action?jobs=true
+[x] TGS | Lever (fronts jobs.lever.co/tgsmc) | https://jobs.lever.co/tgsmc  (board valid, 0 roles now; uses existing lever adapter)
+
+================================================================
+GROUP C — NO LIVE BOARD
+================================================================
+[ ] Headlands Technologies | no board — email resume | recruiter@headlandstech.com
+
+================================================================
+NOTES / CAVEATS
+================================================================
+- Verification (2026-06-10): each [x] slug was fetched through the pipeline's own adapters
+  (ats_worker.fetch.fetch_company); role counts above are the live counts at that time.
+- Bridgewater: switched from the campus-only board (bridgewatercampusrecruiting, 2 roles) to the
+  full board bridgewater89 (28 roles) — better fit for an experienced candidate.
+- Radix: radixuniversity (campus) and radixexperienced are two separate boards; both are tracked.
+- Seven Eight Capital: slug seveneightcapital returns 404 on boards-api (board not public / no open
+  roles). Re-check later or find the correct slug.
+- Tower Research / Wolverine: confirmed Greenhouse / Lever respectively, but the public board slug is
+  not in the listed URL. Find the boards.greenhouse.io / jobs.lever.co slug, then they can be added.
+- Two Sigma: confirmed hosted Avature-style board; ~90% confident the vendor is Avature specifically.
+- Group A "Greenhouse" firms may also run a front-end careers page on their own domain; the ATS board
+  above is the canonical application link.
+
+================================================================
+FEASIBILITY FINDINGS (researched 2026-06-10, verified against live endpoints)
+================================================================
+BUILT this session (adapters + tests, verified live): workday, pinpoint  (REUSABLE vendor APIs).
+  -> added to config: Arrowstreet, Millennium (workday); Wolverine (pinpoint).
+DECISION: build only reusable multi-firm ATS adapters; SKIP single-firm self-hosted scrapers
+  (Jane Street, DE Shaw) — low reuse + brittle (DE Shaw scrapes Next.js HTML). Feasible if ever needed.
+Still open below: AQR/Peak6 (not Workday), Jane Street + DE Shaw (single-firm, deferred by choice),
+  G-Research+Rentec (JSON-LD), Citadel (Playwright), SimplifyJobs discovery, other unsupported ATS.
+
+WORKDAY adapter — feasible, ~50 lines, public CXS API (POST /wday/cxs/{tenant}/{site}/jobs),
+  no auth/anti-bot. Slug = "tenant/dc/site". CAVEAT: description needs an N+1 detail call per
+  posting. Of the 4 Workday firms only ARROWSTREET is live (arrowstreetcapital/wd5/Campus_Careers,
+  3 roles); MILLENNIUM (mlp/wd5/mlpcareers) is a valid board but empty now. AQR is NOT Workday
+  (custom careers.aqr.com/api/jobs, ~44 roles — needs its own small adapter). PEAK6 is NOT Workday
+  (Ongig, token-gated — hard).
+
+PINPOINT adapter — Wolverine uses Pinpoint, not Lever: GET https://wolve.pinpointhq.com/postings.json
+  (clean JSON, 14 roles incl. quant/C++). Trivial adapter, mirrors greenhouse/lever shape.
+
+SELF-HOSTED (Group B) — NOT one general scraper. It's per-site enumerators + 1 shared schema.org
+  JSON-LD detail extractor. Tiers:
+   - Easy, clean JSON, no new deps:  Jane Street (https://www.janestreet.com/jobs/main.json, 209 roles);
+     DE Shaw (__NEXT_DATA__ in page HTML, 73 roles).
+   - Medium, needs an HTML parser (selectolax/bs4) + shared JSON-LD extractor:  G-Research (61);
+     Renaissance/Rentec (8).
+   - Hard, needs Playwright (Cloudflare + JS-rendered):  Citadel Securities (59). Defer.
+   - Skip:  Headlands (email only, recruiter@headlandstech.com).
+
+GITHUB AGGREGATORS:
+   - SimplifyJobs/New-Grad-Positions — rich JSON feed (raw .../dev/.github/scripts/listings.json,
+     ~2,001 active+visible; "Quant" category ~129 active). Best as DISCOVERY mode: extract ATS+slug
+     from each row's url (~26% route to our greenhouse/lever/ashby adapters) and fetch real
+     descriptions via existing adapters. Direct-ingest is NOT viable (feed has no job description ->
+     scorer/screen break). LICENSE CAVEAT: repo is unlicensed (default copyright), commercial product;
+     discovery mode is the cleanest posture (descriptions re-fetched from each ATS's own public API).
+   - jobright-ai/2026-Software-Engineer-New-Grad — README-only, links to gated jobright.ai pages
+     (no ATS exposed, no descriptions). NOT feasible. Skip.
+
+STILL UNSUPPORTED ATS (need adapters, not yet researched in depth):
+   - iCIMS (SIG), Avature (Two Sigma), Workable (Trexquant), Jobvite (Quantlab), ADP (Campbell).
+
+OTHER:
+   - Seven Eight Capital — re-check slug later (boards-api 404 today).
+   - AQR — custom JSON API (careers.aqr.com/api/jobs), separate small adapter if wanted.

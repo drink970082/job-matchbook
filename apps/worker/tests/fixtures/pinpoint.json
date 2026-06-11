@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "id": "445793",
+      "title": "Quantitative Analyst",
+      "url": "https://careers.example.com/en/postings/71814bfd-aaaa",
+      "path": "/en/postings/71814bfd-aaaa",
+      "location": {"id": "66266", "city": "Chicago", "name": "Chicago, IL"},
+      "employment_type_text": "Full Time",
+      "description": "<div>We are seeking a <strong>Quantitative Analyst</strong> to research systematic trading strategies.</div>",
+      "key_responsibilities": "<ul><li>Build statistical models in Python</li><li>Backtest signals</li></ul>",
+      "skills_knowledge_expertise": "<ul><li>Strong C++ and Python</li><li>Probability &amp; statistics</li></ul>"
+    },
+    {
+      "id": "445794",
+      "title": "Office Manager",
+      "url": "https://careers.example.com/en/postings/82925cge-bbbb",
+      "path": "/en/postings/82925cge-bbbb",
+      "location": {"id": "66267", "city": "New York", "name": "New York, NY"},
+      "employment_type_text": "Full Time",
+      "description": "<p>Manage the New York office operations.</p>",
+      "key_responsibilities": "<p>Coordinate facilities and vendors.</p>",
+      "skills_knowledge_expertise": "<p>Excellent organization.</p>"
+    }
+  ]
+}

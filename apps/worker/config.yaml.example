@@ -1,10 +1,16 @@
 # Worker configuration. Loaded by ats_worker.run at startup.
-# Source must be one of: greenhouse, lever, ashby.
+# Source must be one of: greenhouse, lever, ashby, workday, pinpoint.
+# The `slug` is the board identifier in each board's URL. Most sources take a
+# single token; workday is special (see comment below).
 
 companies:
-  - { source: greenhouse, slug: acme, name: "Acme Inc" }
-  - { source: lever, slug: foobar, name: "Foobar" }
-  # - { source: ashby, slug: example, name: "Example Co" }
+  - { source: greenhouse, slug: acme, name: "Acme Inc" }       # job-boards.greenhouse.io/{slug}
+  - { source: lever, slug: foobar, name: "Foobar" }            # jobs.lever.co/{slug}
+  # - { source: ashby, slug: example, name: "Example Co" }     # jobs.ashbyhq.com/{slug}
+  # - { source: pinpoint, slug: acme, name: "Acme" }           # {slug}.pinpointhq.com/postings.json
+  # Workday slug packs three parts as "tenant/datacenter/site" (from the board URL
+  # {tenant}.{dc}.myworkdayjobs.com/{site}). Quote it because of the slashes:
+  # - { source: workday, slug: "acme/wd5/External_Careers", name: "Acme" }
 
 # OPTIONAL coarse pre-filter, applied at fetch time BEFORE the LLM scorer. Keep a
 # posting only if its TITLE contains ANY of these (case-insensitive substring).

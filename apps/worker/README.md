@@ -25,9 +25,15 @@ Set per company in `config.yaml`. `slug` is the handle in the board's public URL
 | `greenhouse` | `boards-api.greenhouse.io/v1/boards/{slug}/jobs` | `boards.greenhouse.io/acme` → `acme` |
 | `lever` | `api.lever.co/v0/postings/{slug}` | `jobs.lever.co/foobar` → `foobar` |
 | `ashby` | `api.ashbyhq.com/posting-api/job-board/{slug}` | `jobs.ashbyhq.com/example` → `example` |
+| `workday` | CXS list + per-job detail (N+1) | `acme.wd5.myworkdayjobs.com/External_Careers` → `acme/wd5/External_Careers` |
+| `pinpoint` | `{slug}.pinpointhq.com/postings.json` | `acme.pinpointhq.com` → `acme` |
+
+Most sources take a single-token `slug`. `workday` packs three parts as
+`tenant/datacenter/site` (it does a cheap list call then one detail call per
+posting for the description).
 
 Add a board by writing one `fetch/<source>.py` adapter (`parse_jobs` + `fetch`)
-and registering it in `fetch/ADAPTERS`.
+and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 
 ## Config-time inputs (you provide)
 

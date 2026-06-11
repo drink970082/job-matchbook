@@ -45,9 +45,18 @@ def test_empty_companies_allowed():
 
 
 def test_invalid_source_raises():
-    bad = "companies:\n  - { source: workday, slug: x, name: X }\n"
+    bad = "companies:\n  - { source: notarealats, slug: x, name: X }\n"
     with pytest.raises(config.ConfigError):
         config.load_config(bad)
+
+
+def test_new_board_sources_are_valid():
+    cfg = config.load_config(
+        "companies:\n"
+        "  - { source: workday, slug: 'tenant/wd5/site', name: WD }\n"
+        "  - { source: pinpoint, slug: wolve, name: Pin }\n"
+    )
+    assert [c.source for c in cfg.companies] == ["workday", "pinpoint"]
 
 
 def test_old_filters_key_raises_migration_error():

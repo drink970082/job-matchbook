@@ -1,0 +1,19 @@
+{
+  "total": 2,
+  "jobPostings": [
+    {
+      "title": "Quantitative Developer",
+      "externalPath": "/job/Boston/Quantitative-Developer_R1433",
+      "locationsText": "Boston",
+      "postedOn": "Posted 30+ Days Ago",
+      "bulletFields": ["R1433"]
+    },
+    {
+      "title": "Research Engineer",
+      "externalPath": "/job/NYC/Research-Engineer_R1500",
+      "locationsText": "New York",
+      "postedOn": "Posted Today",
+      "bulletFields": ["R1500"]
+    }
+  ]
+}
