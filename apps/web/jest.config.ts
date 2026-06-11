@@ -12,6 +12,9 @@ const config: Config = {
     moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
     },
+    // Integration tests (*.int.test.ts) run under the node-env project in
+    // jest.integration.config.ts (real DB), not the fast jsdom unit run.
+    testPathIgnorePatterns: ['/node_modules/', '\\.int\\.test\\.ts$'],
 }
 
 export default createJestConfig(config)
