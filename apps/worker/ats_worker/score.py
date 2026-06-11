@@ -50,6 +50,12 @@ from ats_worker.prompts import (
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
+# Below this many years of experience a Senior/Staff/Principal/Lead title is treated
+# as out of reach; at or above it (or when the candidate's years are unknown) a senior
+# title alone never disqualifies — the safe direction, since an experienced candidate
+# plausibly fits a senior role and we never discard on absent data.
+SENIOR_TITLE_MIN_YEARS = 5
+
 # The 4B model tends to invent the "convenient" value for facts a JD leaves unstated
 # — it guesses offers_sponsorship="no" and remote=true out of silence. We only honour
 # those two claims if the posting text actually contains the relevant language; this
@@ -74,14 +80,15 @@ class ScoreError(RuntimeError):
     """The model returned output we could not parse into a valid score."""
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    """Cap a board-controlled blob so it can't blow the context window.
+def _truncate(text: str, max_chars: int, label: str = "description") -> str:
+    """Cap a blob so it can't blow the context window.
 
     Ollama silently drops tokens past num_ctx; a visible marker is better than a
-    half-read JD scored as if complete.
+    half-read JD (or résumé) scored as if complete. `label` names what was cut so a
+    truncated résumé and a truncated JD are distinguishable in the prompt.
     """
     if max_chars > 0 and len(text) > max_chars:
-        return text[:max_chars] + "\n\n…[description truncated to fit context]"
+        return text[:max_chars] + f"\n\n…[{label} truncated to fit context]"
     return text
 
 
@@ -170,20 +177,28 @@ def score_posting(
     }
     job = _job_block(posting, num_ctx * 2)
 
-    # 1. SCORE — fit only (rubric + résumé + job). Always runs.
+    # 1. SCORE — fit only (rubric + résumé + job). Always runs. The résumé is capped
+    # the same way as the JD so an oversized résumé can't push the JD out of context.
+    resume_text = _truncate(resume_text, num_ctx * 2, label="resume")
     score_prompt = SCORE_HEADER + f"\n=== RESUME ===\n{resume_text}\n\n" + job
     result = _normalize_score(
         _post(http, ollama_host, model, score_prompt, options=options, timeout=timeout)
     )
 
     # 2. SCREEN — hard requirements only (job + checklist, NO résumé). Skipped when
-    # nothing is configured, so disqualification stays disabled.
+    # nothing is configured, so disqualification stays disabled. A SCREEN-call parse
+    # failure must NOT discard the posting (or fail the whole row) — the design errs
+    # toward keep on garbled extraction — so we fall back to scored-but-not-screened
+    # and keep the already-computed fit score.
     checklist = _candidate_block(candidate)
     if checklist:
-        screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
-                            options=options, timeout=timeout)
-        description = str(posting.get("description") or "")
-        result.update(_screen_verdict(screen_data, candidate or {}, description))
+        try:
+            screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
+                                options=options, timeout=timeout)
+            description = str(posting.get("description") or "")
+            result.update(_screen_verdict(screen_data, candidate or {}, description))
+        except ScoreError:
+            result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
     else:
         result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
     return result
@@ -300,13 +315,16 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
 
 def _check_experience(entry: dict, cand_years) -> tuple[bool, str]:
-    """Fail a clearly-too-senior role: a Senior/Staff/Principal/Lead title, or a
-    required minimum at least 4 years beyond the candidate's experience."""
-    cand = _to_num(cand_years) or 0.0
-    if _flag(entry.get("senior")):
+    """Fail a clearly-too-senior role: a Senior/Staff/Principal/Lead title when the
+    candidate is plausibly too junior (known years below SENIOR_TITLE_MIN_YEARS), or
+    a required minimum at least 4 years beyond the candidate's experience. An
+    experienced or unknown-years candidate is never failed on title seniority alone
+    (safe direction)."""
+    cand = _to_num(cand_years)
+    if _flag(entry.get("senior")) and cand is not None and cand < SENIOR_TITLE_MIN_YEARS:
         return False, "senior-level role"
     min_req = _to_num(entry.get("min_years_required"))
-    if min_req is not None and min_req - cand >= 4:
+    if min_req is not None and min_req - (cand or 0.0) >= 4:
         return False, f"requires ~{_fmt_num(min_req)}+ years"
     return True, ""
 
@@ -350,21 +368,28 @@ def _check_clearance(entry: dict, cand_clearance) -> tuple[bool, str]:
 def _check_location(
     entry: dict, allowed_locations: list, description: str = ""
 ) -> tuple[bool, str]:
-    """Pass if the role is remote (and remote is allowed) OR its country is an allowed
-    location. The LLM did the geography (city → country); this is exact membership, so
-    a US city always matches an allowed 'USA'. A model remote=true is only trusted if
-    the JD actually mentions remote work (the model otherwise marks on-site foreign
-    roles remote). Missing country → pass."""
+    """Pass if the role is remote (and remote is allowed) OR any candidate-allowed
+    location matches any of the posting's extracted {city, region, country}. The LLM
+    did the geography (free-form city/region/country); this is exact membership over
+    those discrete fields (NOT a substring scan of the whole JD), so a candidate city
+    matches a city posting and country aliasing still lets a US city match an allowed
+    'USA'. A model remote=true is only trusted if the JD actually mentions remote work
+    (the model otherwise marks on-site foreign roles remote). No extracted location
+    fields → pass."""
     allowed = {_norm_loc(l) for l in allowed_locations if str(l).strip()}
+    city = str(entry.get("city") or "").strip()
+    region = str(entry.get("region") or entry.get("state") or "").strip()
     country = str(entry.get("country") or "").strip()
+    where = country or city or region  # most specific available label for the note
     remote = _flag(entry.get("remote")) and _mentions(description, _REMOTE_HINTS)
     if "remote" in allowed and remote:
-        return True, f"{country} (remote)" if country else "remote"
-    if not country:
+        return True, f"{where} (remote)" if where else "remote"
+    fields = [f for f in (city, region, country) if f]
+    if not fields:
         return True, ""
-    if _norm_loc(country) in allowed:
-        return True, country
-    return False, f"on-site in {country}"
+    if any(_norm_loc(f) in allowed for f in fields):
+        return True, where
+    return False, f"on-site in {where}"
 
 
 # --- value coercion helpers ----------------------------------------------
@@ -446,11 +471,19 @@ def _flag(value) -> bool:
 
 
 def _passed(value) -> bool:
-    """Interpret a dealbreakers `pass` field. Missing (None) → pass (benefit of the
-    doubt — never disqualify on absent data); everything except false/no/0 is a pass."""
+    """Interpret a dealbreakers `pass` field. Fail ONLY on an explicit false/no/0
+    token; everything else — None (benefit of the doubt), unrecognized values
+    ("maybe", "") — passes. This errs toward keep, matching the other gates: a
+    garbled verdict must never disqualify."""
     if value is None:
         return True
-    return _flag(value) or (isinstance(value, str) and value.strip().lower() == "pass")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "no", "0"}
+    return True
 
 
 def _as_str_list(value) -> list[str]:

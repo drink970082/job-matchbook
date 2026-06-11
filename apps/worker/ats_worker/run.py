@@ -84,14 +84,20 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
 
         pipeline.run_fetch(conn, companies, cfg.title_filter, now=now)
 
-        candidate = {
-            "years_experience": cfg.candidate.years_experience,
-            "highest_degree": cfg.candidate.highest_degree,
-            "work_authorization": cfg.candidate.work_authorization,
-            "security_clearance": cfg.candidate.security_clearance,
-            "locations": list(cfg.candidate.locations),
-            "dealbreakers": list(cfg.candidate.dealbreakers),
-        }
+        # Build the screening checklist only when the candidate actually configured
+        # hard requirements; an empty candidate skips the SCREEN call entirely (no
+        # disqualification), so don't pay for a second Ollama call per posting.
+        if cfg.candidate.is_empty():
+            candidate = None
+        else:
+            candidate = {
+                "years_experience": cfg.candidate.years_experience,
+                "highest_degree": cfg.candidate.highest_degree,
+                "work_authorization": cfg.candidate.work_authorization,
+                "security_clearance": cfg.candidate.security_clearance,
+                "locations": list(cfg.candidate.locations),
+                "dealbreakers": list(cfg.candidate.dealbreakers),
+            }
         # num_ctx is set explicitly (Ollama's default is small enough to truncate
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))

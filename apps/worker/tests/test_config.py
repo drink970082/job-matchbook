@@ -123,3 +123,33 @@ def test_candidate_years_experience_non_numeric_raises():
     bad = "companies: []\ncandidate:\n  years_experience: 'a lot'\n"
     with pytest.raises(config.ConfigError):
         config.load_config(bad)
+
+
+def test_is_empty_false_when_any_single_field_set():
+    # run.py uses is_empty() to decide whether to build the screen checklist at all,
+    # so ANY one configured hard requirement must flip it to False (screening on).
+    cases = (
+        "candidate:\n  years_experience: 0\n",       # 0 years is still "configured"
+        "candidate:\n  highest_degree: \"Bachelor's\"\n",
+        "candidate:\n  work_authorization: 'US citizen'\n",
+        "candidate:\n  security_clearance: 'Secret'\n",
+        "candidate:\n  locations: ['remote']\n",
+        "candidate:\n  dealbreakers: ['no internships']\n",
+    )
+    for body in cases:
+        cfg = config.load_config("companies: []\n" + body)
+        assert cfg.candidate.is_empty() is False, body
+
+
+def test_is_empty_true_for_blank_and_whitespace_only_fields():
+    # Whitespace-only strings and empty lists must NOT count as configured, so an
+    # effectively-blank candidate still skips screening.
+    cfg = config.load_config(
+        "companies: []\n"
+        "candidate:\n"
+        "  highest_degree: '   '\n"
+        "  work_authorization: ''\n"
+        "  locations: []\n"
+        "  dealbreakers: []\n"
+    )
+    assert cfg.candidate.is_empty() is True

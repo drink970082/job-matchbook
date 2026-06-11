@@ -143,6 +143,22 @@ def test_no_candidate_means_one_call_and_not_disqualified():
     assert "HARD REQUIREMENTS" not in http.calls[0][1]["json"]["prompt"]
 
 
+def test_screen_parse_failure_falls_back_to_scored_not_screened():
+    # A garbled SCREEN response must NOT discard the posting: the design errs toward
+    # keep on garbled extraction. The already-computed fit score is retained and the
+    # posting is left scored & not disqualified (so run_score won't mark it failed).
+    http = FakeHttp(SCORE_OK, "this is not json {{{")
+    out = score.score_posting(
+        POSTING, RESUME, model="m", http=http, ollama_host="h",
+        candidate={"dealbreakers": ["no internships"]},
+    )
+    assert out["score"] == 60                     # the SCORE call still landed
+    assert out["disqualified"] is False
+    assert out["disqualification_reason"] == ""
+    assert out["screen"] == {}
+    assert len(http.calls) == 2                    # SCORE then the (failed) SCREEN
+
+
 # --- determinism / Ollama options ----------------------------------------
 
 def test_request_sends_deterministic_options():
@@ -188,6 +204,8 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     assert "offers_sponsorship" in prompt
     assert "requires_clearance" in prompt
     assert '"country"' in prompt
+    assert '"city"' in prompt                                 # extractor returns city
+    assert '"region"' in prompt                               # ...and region/state
     assert '"screen"' in prompt
     assert RESUME not in prompt                               # no résumé in the screen call
 
@@ -260,6 +278,41 @@ def test_remote_role_passes_location_when_jd_says_remote():
     assert out["disqualified"] is False
 
 
+def test_candidate_city_matches_city_field_and_keeps_role():
+    # Candidate allows "New York"; an extracted city of "New York" must keep the
+    # role even though the candidate token isn't a country.
+    http = FakeHttp(SCORE_OK, _screen_resp(
+        {"location": {"city": "New York", "region": "New York", "country": "United States",
+                      "remote": False}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"locations": ["New York"]})
+    assert out["disqualified"] is False
+    assert out["screen"]["location"]["pass"] is True
+
+
+def test_candidate_city_discards_other_city():
+    # Candidate allows only "New York"; a London role must be discarded — tokens
+    # match against the posting's location fields, not loosely against everything.
+    http = FakeHttp(SCORE_OK, _screen_resp(
+        {"location": {"city": "London", "region": "England", "country": "United Kingdom",
+                      "remote": False}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"locations": ["New York"]})
+    assert out["disqualified"] is True
+    assert "location" in out["disqualification_reason"]
+
+
+def test_candidate_country_still_matches_via_alias():
+    # Country aliasing is preserved: "USA" still keeps a US role even when a
+    # non-matching city is also extracted.
+    http = FakeHttp(SCORE_OK, _screen_resp(
+        {"location": {"city": "Austin", "region": "Texas", "country": "United States",
+                      "remote": False}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"locations": ["USA"]})
+    assert out["disqualified"] is False
+
+
 def test_remote_claim_ignored_when_jd_never_mentions_remote():
     # The model loves to mark on-site foreign roles remote=true; if the JD never
     # mentions remote, we don't trust it, so the foreign country fails.
@@ -304,10 +357,30 @@ def test_modest_experience_passes():
 
 
 def test_senior_title_disqualifies_experience():
+    # Early-career (years=1): a Senior title screens the candidate out.
     http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": None, "senior": True}}))
     out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
                               candidate={"years_experience": 1})
     assert out["disqualified"] is True
+
+
+def test_senior_title_does_not_disqualify_experienced_candidate():
+    # An experienced candidate (years=8) is NOT screened out of a senior role just
+    # because the title is senior — they plausibly qualify.
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": None, "senior": True}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 8})
+    assert out["disqualified"] is False
+
+
+def test_senior_title_does_not_disqualify_when_years_unknown():
+    # Unknown candidate experience: a senior title alone must not disqualify (safe
+    # direction — don't discard on absent data).
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": None, "senior": True}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": None, "highest_degree": "Master's"})
+    assert out["disqualified"] is False
+    assert "experience" not in out["screen"]
 
 
 # authorization: LLM extracts offers_sponsorship, code checks against candidate need
@@ -366,6 +439,24 @@ def test_dealbreaker_fail_disqualifies():
     assert out["disqualification_reason"] == "dealbreakers: internship role"
 
 
+def test_passed_fails_only_on_explicit_negative_token():
+    # Fail ONLY on an explicit false/no/0; everything else (incl. None and any
+    # unrecognized value) passes — the safe direction, matching the other gates.
+    for ok in ("maybe", "", None, "pass", "yes", "true", 1, True):
+        assert score._passed(ok) is True, repr(ok)
+    for bad in ("no", "false", "0", False, 0):
+        assert score._passed(bad) is False, repr(bad)
+
+
+def test_unrecognized_dealbreaker_verdict_does_not_disqualify():
+    # An LLM dealbreaker verdict that isn't a clean true/false (here "maybe") must
+    # NOT disqualify — err toward keep on a garbled judgment.
+    http = FakeHttp(SCORE_OK, _screen_resp({"dealbreakers": {"pass": "maybe", "note": "unclear"}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"dealbreakers": ["no internships"]})
+    assert out["disqualified"] is False
+
+
 def test_skill_gap_and_unknown_keys_do_not_disqualify():
     # An invented key (skills) is ignored; a passing experience fact doesn't fail.
     http = FakeHttp(SCORE_OK, _screen_resp({"skills": {"pass": False, "note": "no C++"},
@@ -397,3 +488,15 @@ def test_long_description_is_truncated():
     prompt = http.calls[0][1]["json"]["prompt"]
     assert "[description truncated to fit context]" in prompt
     assert len(prompt) < len(big)                             # actually shortened
+
+
+def test_long_resume_is_truncated():
+    # A huge résumé must not push the JD out of the context window — cap it too.
+    big_resume = "skill " * 20000                             # ~120k chars
+    http = FakeHttp(json.dumps({"score": 70}))
+    score.score_posting(POSTING, big_resume, model="m", http=http, ollama_host="h",
+                        num_ctx=2048)
+    prompt = http.calls[0][1]["json"]["prompt"]
+    assert "[resume truncated to fit context]" in prompt
+    assert len(prompt) < len(big_resume)                     # actually shortened
+    assert "Django" in prompt                                # JD still present
