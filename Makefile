@@ -5,7 +5,8 @@
 WEB    := apps/web
 WORKER := apps/worker
 
-.PHONY: help install dev build lint test test-web test-worker up down db-push
+.PHONY: help install dev build lint test test-web test-worker \
+        test-integration test-e2e test-coverage check-schema up down db-push
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -30,6 +31,20 @@ test-web: ## Run the web (Jest) suite
 
 test-worker: ## Run the worker (pytest) suite
 	cd $(WORKER) && python -m pytest
+
+test-integration: ## Run the integration tiers (worker run_once + web server actions)
+	cd $(WORKER) && python -m pytest -m integration
+	cd $(WEB) && npm run test:integration
+
+test-e2e: ## Run the Playwright e2e suite (builds web, seeds a throwaway DB)
+	cd $(WEB) && npm run test:e2e
+
+test-coverage: ## Run both suites with coverage (gated by thresholds)
+	cd $(WORKER) && python -m pytest --cov --cov-report=term-missing
+	cd $(WEB) && npm run test:coverage
+
+check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
+	node tools/check_schema_drift.mjs
 
 db-push: ## Sync the Prisma schema into the SQLite db
 	cd $(WEB) && npx prisma db push
