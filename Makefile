@@ -4,6 +4,7 @@
 .DEFAULT_GOAL := help
 WEB    := apps/web
 WORKER := apps/worker
+PY     := python3   # the host ships python3, not a bare `python`
 
 .PHONY: help install dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema up down db-push
@@ -30,17 +31,17 @@ test-web: ## Run the web (Jest) suite
 	cd $(WEB) && npm test
 
 test-worker: ## Run the worker (pytest) suite
-	cd $(WORKER) && python -m pytest
+	cd $(WORKER) && $(PY) -m pytest
 
 test-integration: ## Run the integration tiers (worker run_once + web server actions)
-	cd $(WORKER) && python -m pytest -m integration
+	cd $(WORKER) && $(PY) -m pytest -m integration
 	cd $(WEB) && npm run test:integration
 
 test-e2e: ## Run the Playwright e2e suite (builds web, seeds a throwaway DB)
 	cd $(WEB) && npm run test:e2e
 
 test-coverage: ## Run both suites with coverage (gated by thresholds)
-	cd $(WORKER) && python -m pytest --cov --cov-report=term-missing
+	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma

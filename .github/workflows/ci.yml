@@ -50,7 +50,9 @@ jobs:
       # (pytest, pytest-cov, requests, PyYAML); none of the heavy runtime deps
       # (anthropic / pypdf / apscheduler / tectonic) are needed or installed.
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+      # Coverage floor (fail_under=85) lives in pyproject [tool.coverage.report] so
+      # local and CI enforce the same threshold from one place — no --cov-fail-under here.
+      - run: python -m pytest --cov --cov-report=xml --cov-report=term-missing
       - uses: actions/upload-artifact@v4
         if: always()
         with:

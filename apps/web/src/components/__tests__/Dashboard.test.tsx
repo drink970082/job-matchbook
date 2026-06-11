@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Dashboard } from '@/components/Dashboard'
+import * as actions from '@/lib/actions'
 
 // Smoke test of Dashboard's own wiring (tabs, KPI grid, the two table views).
 // Stub the server actions (no real Prisma) and the recharts-based charts (jsdom
@@ -10,6 +11,14 @@ jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-test
 jest.mock('@/components/StatusFunnel', () => ({ StatusFunnel: () => <div data-testid="funnel" /> }))
 jest.mock('@/components/TimelineHeatmap', () => ({ TimelineHeatmap: () => <div data-testid="heatmap" /> }))
 jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-testid="donut" /> }))
+
+// The mounted tables fire a debounced fetch on mount; give those actions a real
+// resolved shape so Dashboard's `await getJobPostings()`/`getApplications()`
+// destructure doesn't throw an unhandled rejection after the test.
+beforeEach(() => {
+    ;(actions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(actions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+})
 
 const props = {
     initialApps: [],

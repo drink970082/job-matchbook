@@ -59,12 +59,15 @@ def seed_scored(conn, scores, *, detail=None):
     Only touches the rows it seeds (matched by external_id), so it composes with
     other seed helpers in the same db without clobbering their rows.
     """
+    # `detail is not None` (not `detail or ...`) so a caller can pass an
+    # intentionally-empty {} without silently getting the default.
+    detail = detail if detail is not None else {"missing_keywords": ["aws"]}
     seed_new(conn, list(scores))
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
         if r["external_id"] not in scores:
             continue
         db.save_score(conn, r["id"], score=scores[r["external_id"]],
-                      score_detail=detail or {"missing_keywords": ["aws"]}, now=NOW)
+                      score_detail=detail, now=NOW)
 
 
 def seed_tailored(conn, ids):

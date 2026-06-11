@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from ats_worker import db
-from tests._helpers import LATER, NOW, make_posting as posting
+from tests._helpers import LATER, NOW, make_posting as posting, seed_scored
 
 
 # --- connection / pragmas -------------------------------------------------
@@ -201,23 +201,16 @@ def test_save_score_status_override_to_discarded(db_path):
 
 # --- get_by_status ordering / limit / min_score boundary / NULL-excluded --
 
-def _seed_scored_ids(conn, scores):
-    """scores: dict external_id -> score, inserted in dict order (ids ascending)."""
-    db.upsert_postings(conn, [posting(eid) for eid in scores], now=NOW)
-    for r in conn.execute("SELECT id, external_id FROM job_postings ORDER BY id").fetchall():
-        db.save_score(conn, r["id"], score=scores[r["external_id"]], score_detail={}, now=LATER)
-
-
 def test_get_by_status_orders_by_score_then_id(db_path):
     conn = db.connect(db_path)
-    _seed_scored_ids(conn, {"a": 90, "b": 90, "c": 40})
+    seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
     rows = db.get_by_status(conn, "scored")
     assert [r["external_id"] for r in rows] == ["a", "b", "c"]  # 90s by id, then 40
 
 
 def test_get_by_status_min_score_is_inclusive_and_limited(db_path):
     conn = db.connect(db_path)
-    _seed_scored_ids(conn, {"a": 90, "b": 90, "c": 40})
+    seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
     assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=75)] == ["a", "b"]
     # boundary: score == min_score is included (>= not >)
     assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=90)] == ["a", "b"]

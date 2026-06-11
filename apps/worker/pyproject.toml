@@ -17,17 +17,16 @@ source = ["ats_worker"]
 branch = true
 
 [tool.coverage.report]
-# Enforced everywhere coverage is measured (local `make test-coverage` AND CI),
-# so a regression fails the same way in both. Ratchet up as coverage grows.
+# Single source of truth for the coverage floor: both `make test-coverage` and CI
+# read it (CI does NOT pass --cov-fail-under), so the gate is identical and the
+# ratchet lives in one place. Bump as coverage grows. (run.main()/cron + the lazy
+# real-adapter bodies in tailor.py are legitimately uncovered by the hermetic
+# suite — they just count as missing; the floor sits well under the real total.)
 fail_under = 85
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
-    # Lazy real-adapter bodies / cron path that need network or extra deps and
-    # are exercised only in production, not the hermetic test suite.
-    "from apscheduler",
-    "import anthropic",
 ]
 
 [tool.setuptools.packages.find]
