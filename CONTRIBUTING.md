@@ -8,8 +8,9 @@ one SQLite database:
 | [`apps/web/`](./apps/web)       | The web app (tracker + dashboard)   | Next.js 14, Prisma, SQLite     |
 | [`apps/worker/`](./apps/worker) | The semi-automated pipeline worker  | Python 3.11, pytest            |
 
-See [`README.md`](./README.md) for the product overview and
-[`docs/SETUP.md`](./docs/SETUP.md) for full environment setup.
+See [`docs/SPEC.md`](./docs/SPEC.md) for the authoritative system spec
+(architecture, data model, conventions, setup) and [`README.md`](./README.md) for
+the product overview.
 
 ## Prerequisites
 
