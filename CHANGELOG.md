@@ -7,6 +7,37 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+- Two more board adapters — **Workday** (CXS list + per-job detail; the `slug`
+  packs `tenant/datacenter/site`) and **Pinpoint** — bringing supported sources
+  to five.
+- **Hard-constraint candidate screening**: an optional `candidate` block in
+  `config.yaml` (years of experience, degree, work authorization, security
+  clearance, locations, plus freeform dealbreakers). The local scorer screens each
+  posting *semantically* and auto-discards conflicting roles, keeping the reason and
+  per-requirement verdicts for the UI; a **Reopen** action reverses a discard.
+- Integration test tiers (worker `run_once` over a temp SQLite; web Server Actions
+  over a real throwaway Prisma DB) and a **Playwright** end-to-end suite.
+
+### Changed
+- Default scoring model is now **`qwen3.5:4b`** (local Ollama) and default
+  resume-tailoring model is **Claude `claude-sonnet-4-6`** — both overridable via
+  CLI flag or env var.
+- The repo ships only `*.example` templates; the real resume, `config.yaml`, and
+  secrets stay gitignored.
+- CI now gates coverage on both suites, runs a schema-drift guard (worker SQL
+  fixture vs. `prisma/schema.prisma`), and runs a gated Playwright e2e job.
+
+### Fixed
+- Workday pagination and adapter robustness; hardened hard-constraint screening;
+  HTML-to-text now collapses non-breaking spaces; config errors surface clearly.
+
+### Documentation
+- Added an authoritative system spec ([`docs/SPEC.md`](./docs/SPEC.md)), a progress
+  tracker ([`docs/PROGRESS.md`](./docs/PROGRESS.md)), and an auto-loaded `CLAUDE.md`;
+  slimmed the README and reduced `docs/SETUP.md` / `docs/pipeline-design.md` to
+  pointers.
+
 ## [0.2.0] — 2026-06-08
 
 ### Added

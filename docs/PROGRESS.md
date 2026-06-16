@@ -8,8 +8,8 @@
 **Current phase:** v0.2.0, **post-hardening checkpoint.** Both services are
 feature-complete and stable; the last development push was entirely
 testing / audit / CI hardening (coverage gates, integration + Playwright e2e,
-schema-drift guard). Active work right now is this **documentation reset** (SPEC +
-this tracker + auto-loaded `CLAUDE.md`), not application features.
+schema-drift guard). The **documentation system** (SPEC + this tracker + auto-loaded
+`CLAUDE.md`) is now in place; no application features are in flight.
 
 Legend: ✅ done & stable · 🚧 in progress · ⛔ not started
 
@@ -65,7 +65,7 @@ Legend: ✅ done & stable · 🚧 in progress · ⛔ not started
 | Worker tests (pytest, fully mocked) | ✅ | `fail_under = 85` |
 | CI (GitHub Actions) | ✅ | both suites, coverage gates, schema-drift guard, gated e2e |
 | Schema-drift guard | ✅ | `tools/check_schema_drift.mjs` |
-| Documentation system (SPEC + PROGRESS + CLAUDE.md) | 🚧 | this change |
+| Documentation system (SPEC + PROGRESS + CLAUDE.md) | ✅ | committed 2026-06-16 |
 
 ---
 
@@ -75,9 +75,6 @@ Lightweight and **uncommitted** — surfaced from the code and history, not a ro
 
 - **Auto-retry for `failed` postings.** The `attempts` counter is written on
   failure but nothing re-processes failed rows; they sit until manually handled.
-- **CHANGELOG is behind the code.** Workday + Pinpoint adapters and the
-  hard-constraint screening landed after v0.2.0 but aren't in `CHANGELOG.md`
-  (its `[Unreleased]` section is empty). Worth a v0.3.0 entry.
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` +
   `ADAPTERS` + `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a
   possible fallback aggregator.
