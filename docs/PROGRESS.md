@@ -73,8 +73,22 @@ Legend: ✅ done & stable · 🚧 in progress · ⛔ not started
 
 Lightweight and **uncommitted** — surfaced from the code and history, not a roadmap.
 
-- **Auto-retry for `failed` postings.** The `attempts` counter is written on
-  failure but nothing re-processes failed rows; they sit until manually handled.
+- **`failed` is a dead-end; transient notify failure buries tailored work.** Any
+  stage exception marks a row `failed` and nothing transitions it back; `attempts` is
+  recorded but never acted on. Worse, a transient Telegram error marks an
+  *already-tailored* posting `failed`, hiding it from the default queue with no
+  re-notify. Options: notify failure leaves the row at `tailored` (retried next pass);
+  a "needs attention" view for `failed`; wire the auto-retry the `attempts` column
+  anticipates. (SPEC §9.)
+- **No output-level fabrication check.** "Never fabricates" is prompt-instructed
+  (`FABRICATION_GUARD`) + human-verified only — no deterministic gate. A defensible
+  check could warn on numbers / years / proper nouns present in the tailored resume
+  but absent from `master.tex` (warn, not hard-block — "new fact" is fuzzy). (SPEC §9.)
+- **Untested path-traversal guard.** The resume route's 403 guard
+  (`api/resume/[id]/route.ts`) has no automated test. (SPEC §9 traceability.)
+- **No schema migration path.** `prisma db push` keeps no migration history, so a
+  destructive schema change can lose retained data — back up `db/applications.db`
+  first. (SPEC §8.)
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` +
   `ADAPTERS` + `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a
   possible fallback aggregator.

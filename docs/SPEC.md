@@ -17,6 +17,7 @@
 
 ## Table of contents
 
+0. [How to read this spec: contract vs. snapshot](#how-to-read-this-spec-contract-vs-snapshot)
 1. [Overview](#1-overview)
 2. [Problem and motivation](#2-problem-and-motivation)
 3. [Users and principles](#3-users-and-principles)
@@ -31,6 +32,28 @@
 12. [Setup and deployment](#12-setup-and-deployment)
 13. [Testing and quality](#13-testing-and-quality)
 14. [References](#14-references)
+
+---
+
+## How to read this spec: contract vs. snapshot
+
+This document is the authoritative source of truth, but not every statement is
+authoritative in the same way. Clauses fall into two classes that resolve
+disagreements with the code differently:
+
+- **Contract — spec wins.** Normative clauses the code must satisfy: **Goals and
+  non-goals (§4)** and **Behaviors and invariants (§9)**. If the code and a contract
+  clause disagree, the *code* is the bug — fix the code (and its guarding test). Each
+  contract clause should be covered by a test; §9 carries the invariant → test
+  traceability (and flags the ones that currently aren't).
+- **Snapshot — code wins.** Descriptive clauses recording how the system is
+  *currently* built: **System overview (§5)**, **Architecture (§6)**, **Component
+  specifications (§7)**, **Data model (§8)**, and **Setup and deployment (§12)** —
+  including details like "the only API route" or a module's name. If the code and a
+  snapshot clause disagree, the *spec* is stale — update the spec to match reality.
+
+The product-context preamble (§1–§3) and the supporting material (§10–§11, §13–§14)
+are explanatory. Each section is tagged with its class under its heading.
 
 ---
 
@@ -88,11 +111,15 @@ Two pains, addressed by the two services:
 
 ## 4. Goals and non-goals
 
+*Class: **Contract** — code must satisfy these; disagreements are code bugs.*
+
 **Goals**
 
 - Track applications end-to-end with status history and visual analytics.
 - Discover and pre-qualify jobs from company ATS boards on a schedule.
-- Tailor a one-page resume per high-scoring role, faithfully (never fabricated).
+- Tailor a one-page resume per high-scoring role. Faithfulness (no fabricated
+  experience) is prompt-instructed and verified by the human before applying — not a
+  checked guarantee (see §9, "Unenforced clauses").
 - Keep the two services safely co-writing one SQLite database.
 - Stay runnable on a single host with one `docker compose up`.
 
@@ -109,6 +136,8 @@ Two pains, addressed by the two services:
 ---
 
 ## 5. System overview
+
+*Class: **Snapshot** — current build; if code disagrees, update this spec.*
 
 The two-phase workflow:
 
@@ -132,6 +161,8 @@ phases: it promotes a `job_postings` row into an `applications` row.
 ---
 
 ## 6. Architecture
+
+*Class: **Snapshot** — current build; if code disagrees, update this spec.*
 
 ```
             ATS boards          Ollama (host GPU)   Claude API      Telegram
@@ -194,6 +225,8 @@ on Linux Compose).
 
 ## 7. Component specifications
 
+*Class: **Snapshot** — current build; if code disagrees, update this spec.*
+
 Each unit below lists *what it does · inputs/outputs · what it depends on*. The
 worker modules are pure and dependency-injected; real services are wired only in
 `run.py` (`ats_worker/`).
@@ -232,10 +265,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   return `disqualified` + `disqualification_reason` + per-requirement `screen`
   verdicts.
 - **`tailor.py` — `tailor_resume` + helpers** (`make_claude`, `tectonic_compile`,
-  `pypdf_count`). Claude reorders/rephrases `master.tex` for the JD (**never
-  fabricates**), `tectonic` compiles to PDF, `pypdf` counts pages; if > 1 page,
-  feed "now N pages, cut to 1" back to Claude and recompile, up to
-  `max_single_page_rounds` (default 3). Returns `{tex, pdf_path, pages, ok}`.
+  `pypdf_count`). Claude reorders/rephrases `master.tex` for the JD; a
+  `FABRICATION_GUARD` instruction is injected every round telling it never to invent
+  experience — **prompt-level only**; the sole deterministic gate in the loop is page
+  count (see §9). `tectonic` compiles to PDF, `pypdf` counts pages; if > 1 page, feed
+  "now N pages, cut to 1" back to Claude and recompile, up to `max_single_page_rounds`
+  (default 3). Returns `{tex, pdf_path, pages, ok}`.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link) + `sendDocument` (tailored PDF). Degrades to message-only if the
   PDF is missing.
@@ -278,6 +313,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 ---
 
 ## 8. Data model
+
+*Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
 Three tables, owned solely by `apps/web/prisma/schema.prisma`. Dates are stored as
 **ISO-8601 strings** for sortability and timezone-independence (`date_applied` as
@@ -348,9 +385,18 @@ on `(source, external_id)`.
 - **Categories:** SWE, MLE, DS, DA, Quant Dev, Quant Analyst, Quant Trader, AI
   Engineer, Others.
 
+**Schema changes and migrations.** The schema is applied with `prisma db push`
+(`make db-push`), so there is **no migration history**. This is a deliberate tradeoff
+for a single-user, rebuildable tool, but it has a real edge: a *destructive* change
+(dropping or renaming a column) has no migration/backfill path and can lose retained
+`applications` / `status_history` data with no rollback. Back up `db/applications.db`
+before schema changes — additive changes are low-risk, destructive ones are not.
+
 ---
 
 ## 9. Behaviors and invariants
+
+*Class: **Contract** — verify the code against these; see the traceability table at the end of this section.*
 
 The checkable contracts. These are the facts the code must satisfy; verify against
 them when changing behavior.
@@ -422,15 +468,72 @@ reads/writes rows but issues **no DDL**. The worker's test fixture
 (`apps/worker/tests/fixtures/schema.sql`) is kept in sync with `schema.prisma` by a
 CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
+**Failure handling and recovery limits:**
+
+- **`failed` is terminal.** No stage or action transitions a row *out* of `failed`
+  (`run_score`←`new`, `run_tailor`←`scored`, `run_notify`←`tailored`;
+  `reopenJobPosting` only writes `scored`). `mark_failed` increments `attempts`, but
+  **auto-retry is not implemented** — `attempts` is recorded, not acted on.
+- **Notify failure buries finished work.** `run_notify` wraps the whole send in
+  try/except → `mark_failed`, so a *transient* Telegram error on an already-tailored
+  posting (PDF written, `resume_path` set) marks it `failed`. Because the default
+  Discovered-Jobs queue is `{scored, tailored, notified}`, that posting then disappears
+  from the default view and is never re-notified. Recovery is manual (filter to
+  `failed`/`all`; a manual reopen routes it to `scored`, which re-tailors and
+  re-notifies). This conflates a transient notification failure with a genuine pipeline
+  failure. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Known gaps.)*
+
+**Unenforced clauses (asserted, not checked).** Two contract-flavored claims have no
+deterministic gate; treat them as *intentions backed by the human in the loop*, not
+guarantees:
+
+- **"Never fabricates" (resume tailoring)** is enforced only by the `FABRICATION_GUARD`
+  prompt injected each round; the sole deterministic gate in the loop is page count.
+  `test_tailor.py::test_first_prompt_forbids_fabrication` asserts the guard text is in
+  the *prompt* — **not** that the output is faithful. The human reviewing the PDF
+  before applying is the actual backstop.
+- **Hard-constraint screening** (work authorization / clearance / location) is an LLM
+  *semantic* judgment, not a rule check — a misjudgment wastes a tailor or discards an
+  applicable role. The kept `disqualification_reason` + `reopenJobPosting` let a human
+  override.
+
+### Invariant → test traceability
+
+Grounds the "verifiable" claim. ⚠ marks an invariant with **no** (or only indirect)
+automated coverage — those rely on code review or the human in the loop, not a test.
+
+| Invariant | Test(s) |
+|-----------|---------|
+| Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
+| Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
+| WAL + `busy_timeout` pragmas on connect | `test_db.py` |
+| Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
+| `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
+| One-page loop (≤ `max_rounds`; `ok` iff 1 page) | `test_tailor.py` |
+| ⚠ Non-fabrication of resume content | `test_tailor.py::test_first_prompt_forbids_fabrication` — **prompt wiring only**, not output |
+| Discovered-jobs default queue `{scored,tailored,notified}`, `score desc` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts` |
+| `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
+| `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
+| `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded` | `actions.test.ts` |
+| `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
+| KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
+| CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
+| ⚠ Resume API path-traversal guard (403) | **none** — guard is code-only in `route.ts` |
+| Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
+
 ---
 
 ## 10. Design decisions and rationale
 
 - **Two processes, one database.** The web app and worker co-write
-  `db/applications.db`. SQLite **WAL + `busy_timeout`** make concurrent access safe
-  (worker mostly writes `job_postings`; app mostly reads them and writes
-  `applications` — low conflict). The db is mounted as a **directory** so WAL
-  sidecars are shared; a single-file mount breaks this silently.
+  `db/applications.db`. SQLite **WAL + `busy_timeout=5000`** (ms; `db.py:connect`)
+  make concurrent access safe **under low write-contention** — WAL permits concurrent
+  readers with a single serialized writer, and brief lock contention blocks-and-retries
+  for up to 5 s instead of raising `database is locked`. It is not unconditional: the
+  worker mostly writes `job_postings` while the app mostly reads them and writes
+  `applications` (low conflict), but sustained simultaneous writes from both could
+  still exhaust the timeout. The db is mounted as a **directory** so WAL sidecars are
+  shared; a single-file mount breaks this silently.
 - **Prisma owns the schema.** One source of truth; the worker aligns its columns
   and issues no DDL. A CI schema-drift guard keeps the worker's SQL fixture honest.
 - **Server Actions, not REST.** All mutations go through Server Actions; the lone
@@ -439,9 +542,10 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 - **Local + cloud LLM split.** Scoring is high-frequency (every posting) → local
   Ollama on the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card,
   ~2 s/posting, `think:false` so reasoning models still return JSON). Tailoring is
-  low-frequency (only high scorers) → Claude `claude-sonnet-4-6`, which reorders
-  existing resume content faithfully; Sonnet is plenty (and cost-effective) for a
-  step that may run several rounds per job.
+  low-frequency (only high scorers) → Claude `claude-sonnet-4-6`, prompted (via
+  `FABRICATION_GUARD`) to reorder existing resume content only — faithfulness is
+  prompt-instructed and human-verified, not enforced (see §9). Sonnet is plenty (and
+  cost-effective) for a step that may run several rounds per job.
 - **One-page resume loop.** Single-page can't be guaranteed in one shot, so compile
   → count pages → feed back "cut to 1 page" up to `max_single_page_rounds`, then
   store the last version and flag `resume_pages` for a UI warning.
@@ -469,9 +573,14 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   out of git with `git update-index --skip-worktree`.
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the row is marked `failed` with its error and processing continues. The
-  scorer returning junk JSON marks that row `failed` rather than crashing.
-- **Concurrency safety:** WAL + `busy_timeout` (+ the directory mount) prevent
-  `database is locked` across the two containers.
+  scorer returning junk JSON marks that row `failed` rather than crashing. Caveat:
+  `failed` is terminal and not auto-retried, so a *transient* failure (notably at the
+  notify step) can bury an already-tailored posting — see §9, "Failure handling and
+  recovery limits."
+- **Concurrency safety:** WAL + `busy_timeout=5000`ms (+ the directory mount) keep the
+  two containers from hitting `database is locked` **under low write-contention**
+  (concurrent readers + one serialized writer; brief contention blocks-and-retries up
+  to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** scoring ~2 s/posting locally on an 8 GB GPU; tailoring (Claude +
   compile) runs only for `score ≥ threshold`. The root page is `force-dynamic` (no
   stale cache); the resume route is `Cache-Control: private`.
@@ -483,6 +592,8 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 ---
 
 ## 12. Setup and deployment
+
+*Class: **Snapshot** — current build; if code disagrees, update this spec.*
 
 Full prerequisites and step-by-step (Telegram bot, Ollama, troubleshooting) were
 historically in `docs/SETUP.md`; this section is now authoritative.
