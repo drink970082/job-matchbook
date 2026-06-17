@@ -1,108 +1,100 @@
 # ATS — Progress Tracker
 
 > Living status of the project. Pairs with [`SPEC.md`](./SPEC.md) (what the system
-> *is*); this file is what's **done, in flight, and open**. Update it in the same
-> change as the work it describes — see [How to update](#how-to-update) at the
-> bottom.
+> *is* — the authoritative capability map) and [`../CHANGELOG.md`](../CHANGELOG.md)
+> (what landed *when*). **This file is only the delta:** what's in flight and what's
+> still open. It carries no completed-feature inventory — that lives in SPEC, and a
+> finished item *leaves* this file to land in SPEC + CHANGELOG. Update it in the same
+> change as the work it describes — see [How to update](#how-to-update) at the bottom.
 
-**Current phase:** v0.2.0, **post-hardening checkpoint.** Both services are
-feature-complete and stable; the last development push was entirely
-testing / audit / CI hardening (coverage gates, integration + Playwright e2e,
-schema-drift guard). The **documentation system** (SPEC + this tracker + auto-loaded
-`CLAUDE.md`) is now in place; no application features are in flight.
+**Current phase:** v0.2.0. Feature-set complete; testing/CI hardened (coverage
+gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
+test/CI hardening, not security hardening** — several known reliability/security
+gaps remain open (see [Open work](#open-work)), including one shipped data-loss
+defect and an untested security guard. Nothing is in flight right now.
 
-Legend: ✅ done & stable · 🚧 in progress · ⛔ not started
-
----
-
-## Feature status
-
-### Web app (`apps/web`)
-
-| Feature | Status | Notes |
-|---------|:---:|-------|
-| Applications table (paginated, filterable, searchable) | ✅ | filters: status, historical status, category, free-text |
-| Inline status editing + status history | ✅ | each change appends a `status_history` row |
-| KPI strip | ✅ | Applied / Active / Assessment / Interviewing / Rejected / Offer |
-| Status history modal (add/edit/delete entries) | ✅ | delete recomputes current status |
-| Activity heatmap | ✅ | 365-day GitHub-style, hand-rolled SVG |
-| Category donut | ✅ | Recharts |
-| Status funnel | ✅ | hand-rolled SVG, count + % |
-| Status flow (Sankey) | ✅ | reconstructed from `status_history`, desaturated palette |
-| CSV import / export | ✅ | hand-rolled RFC-4180 parser; enum validation; dedup |
-| Discovered Jobs tab (scored queue + triage) | ✅ | default queue = scored/tailored/notified |
-| JD + score-detail dialog | ✅ | matched/missing keywords, reasoning, screen verdicts |
-| Tailored resume download | ✅ | `GET /api/resume/[id]`, path-traversal guarded |
-| Mark Applied (promote posting → application) | ✅ | atomic transaction + back-link |
-| Discard / Reopen posting | ✅ | reopen → `scored`, keeps disqualification reason |
-| Responsive / mobile layout | ✅ | stacks below ~640px |
-
-### Worker pipeline (`apps/worker`)
-
-| Feature | Status | Notes |
-|---------|:---:|-------|
-| Fetch — Greenhouse / Lever / Ashby | ✅ | public board APIs |
-| Fetch — Workday | ✅ | CXS list + per-job detail (N+1); slug = tenant/datacenter/site |
-| Fetch — Pinpoint | ✅ | `{slug}.pinpointhq.com/postings.json` |
-| Title pre-filter (fetch-time) | ✅ | optional, title-substring only |
-| Score (local Ollama) | ✅ | `qwen3.5:4b`, JSON score + keywords + reasoning |
-| Hard-constraint screening | ✅ | inside score; semantic; disqualified → `discarded` |
-| Tailor (Claude + tectonic, one-page loop) | ✅ | `claude-sonnet-4-6`, ≤ `max_single_page_rounds` |
-| Notify (Telegram message + PDF) | ✅ | degrades to message-only if PDF missing |
-| Pipeline state machine | ✅ | new→scored/discarded→tailored→notified; failures isolated |
-| Scheduler (APScheduler) | ✅ | immediate pass + every `schedule_hours`; `--once` for tests |
-| Config load/validate (`config.yaml`) | ✅ | validates source, candidate block, thresholds |
-| Auto-retry of `failed` postings | ⛔ | `attempts` is recorded on failure but no retry loop exists |
-
-### Infrastructure & quality
-
-| Area | Status | Notes |
-|------|:---:|-------|
-| Docker Compose (web + worker) | ✅ | shared db directory mount, UID/GID passthrough |
-| Shared SQLite (WAL, cross-container) | ✅ | directory mount + busy_timeout |
-| Web tests (Jest unit + integration) | ✅ | coverage-gated |
-| Web e2e (Playwright) | ✅ | seeded throwaway DB; gated CI job |
-| Worker tests (pytest, fully mocked) | ✅ | `fail_under = 85` |
-| CI (GitHub Actions) | ✅ | both suites, coverage gates, schema-drift guard, gated e2e |
-| Schema-drift guard | ✅ | `tools/check_schema_drift.mjs` |
-| Documentation system (SPEC + PROGRESS + CLAUDE.md) | ✅ | committed 2026-06-16 |
+For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
+(components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
 
 ---
 
-## Known gaps / possible next steps
+## In flight
 
-Lightweight and **uncommitted** — surfaced from the code and history, not a roadmap.
+🚧 Nothing in flight. (Starting work → add a line here; see
+[How to update](#how-to-update).)
 
-- **`failed` is a dead-end; transient notify failure buries tailored work.** Any
-  stage exception marks a row `failed` and nothing transitions it back; `attempts` is
-  recorded but never acted on. Worse, a transient Telegram error marks an
-  *already-tailored* posting `failed`, hiding it from the default queue with no
-  re-notify. Options: notify failure leaves the row at `tailored` (retried next pass);
-  a "needs attention" view for `failed`; wire the auto-retry the `attempts` column
-  anticipates. (SPEC §9.)
-- **No output-level fabrication check.** "Never fabricates" is prompt-instructed
-  (`FABRICATION_GUARD`) + human-verified only — no deterministic gate. A defensible
-  check could warn on numbers / years / proper nouns present in the tailored resume
-  but absent from `master.tex` (warn, not hard-block — "new fact" is fuzzy). (SPEC §9.)
-- **Untested path-traversal guard.** The resume route's 403 guard
-  (`api/resume/[id]/route.ts`) has no automated test. (SPEC §9 traceability.)
+---
+
+## Open work
+
+Surfaced from the code and history — observations, not a roadmap. **Graded by
+severity:** a shipped defect that silently loses prepared work is a different kind of
+thing from an unbuilt nice-to-have, and the two should not read at the same weight.
+
+### Defects — shipped behavior that is wrong (should fix)
+
+- **`failed` is a dead-end, and a transient notify failure buries already-tailored
+  work.** Any stage exception marks a row `failed`, and nothing transitions it back.
+  Worse: `run_notify` wraps the whole Telegram send in try/except, so a *transient*
+  send error on an *already-tailored* posting (PDF written, `resume_path` set) marks
+  it `failed` — and because the default Discovered-Jobs queue is
+  `{scored, tailored, notified}`, that high-score posting vanishes from the default
+  view and is never re-notified. **This is data loss of prepared work from the
+  user's default view;** recovery is manual (filter to `failed`/`all`, reopen →
+  re-tailor → re-notify). The `attempts` column is incremented on failure but
+  **auto-retry is not implemented** — `attempts` is recorded, never acted on. The fix
+  is one of: wire the auto-retry `attempts` anticipates; let notify failure leave the
+  row at `tailored` (retried next pass); or add a "needs attention" view for
+  `failed`. (SPEC §9, "Failure handling and recovery limits.")
+
+### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
+
+- **Path-traversal guard has no automated test.** The 403 guard in
+  `api/resume/[id]/route.ts` is code-only; no test exercises it. (SPEC §9
+  traceability, marked ⚠.)
+- **Stale-mount auto-recovery is unverified end-to-end.** The `/api/health` probe,
+  Docker `healthcheck`, and `autoheal` sidecar are wired and the *healthy* path is
+  confirmed (`ats-web` reports `healthy`, the sidecar monitors), but recovery from an
+  *actual* WSL2 stale-bind-mount event has not been observed, and `/api/health` has
+  no automated test. (SPEC §6.)
+- **Chart-data actions have no automated test.** `getStatusFlow`,
+  `getTimelineData`, and `getCategoryData` (`lib/actions.ts`, feeding the
+  Sankey / heatmap / donut) are exercised by no unit, integration, or e2e test —
+  only their components render. A regression in the aggregation would pass CI.
+- **Resume non-fabrication has no deterministic gate.** "Never fabricates" is
+  enforced only by the `FABRICATION_GUARD` prompt plus the human reviewing the PDF;
+  the sole deterministic gate in the tailor loop is page count. A defensible check
+  could *warn* (not hard-block) on numbers / years / proper nouns present in the
+  tailored resume but absent from `master.tex`. (SPEC §9, marked ⚠.)
 - **No schema migration path.** `prisma db push` keeps no migration history, so a
-  destructive schema change can lose retained data — back up `db/applications.db`
-  first. (SPEC §8.)
-- **More board adapters.** The adapter pattern (`fetch/<source>.py` +
-  `ADAPTERS` + `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a
-  possible fallback aggregator.
-- **Deployment / monitoring.** No health checks, metrics, or alerting beyond the
-  per-job Telegram notification; failures are only visible in the DB / logs.
-- **Batch / smarter tailoring.** Tailoring is per-posting and serial; no batching
-  or caching of near-identical JDs.
+  *destructive* schema change (drop/rename a column) has no backfill or rollback and
+  can lose retained `applications` / `status_history` data. Back up
+  `db/applications.db` before schema changes. (SPEC §8.)
+
+### Enhancements — not built, optional
+
+- **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
+  `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a possible fallback
+  aggregator.
+- **Deployment / monitoring.** `ats-web` now has a DB-reachability healthcheck +
+  `autoheal` auto-restart (SPEC §6), but there are still no metrics or alerting
+  beyond the per-job Telegram notification, and the **worker** has no healthcheck;
+  failures there are visible only in the DB / logs.
+- **Batch / smarter tailoring.** Tailoring is per-posting and serial; no batching or
+  caching of near-identical JDs.
 
 ---
 
 ## How to update
 
-- When you finish a feature or change behavior, flip its row here **and** update the
-  relevant section of [`SPEC.md`](./SPEC.md) in the same commit.
-- Add a `CHANGELOG.md` entry for anything user-visible.
-- Keep "Known gaps" honest: move items to the status tables once built; add new
-  ones as you discover them. This section is observations, not promises.
+This file tracks only *movement*; it should never accumulate a wall of finished
+items. When state changes:
+
+- **Starting work** → add a 🚧 line under [In flight](#in-flight).
+- **Closing a gap / shipping a feature** → remove its line here, add a
+  [`CHANGELOG.md`](../CHANGELOG.md) entry (history), and update the matching section
+  of [`SPEC.md`](./SPEC.md) (the capability map / behavior) — **all in the same
+  commit**.
+- **Discovering a new gap** → add it to [Open work](#open-work) in the right severity
+  bucket. Keep the ordering honest: defects (broken) above unverified properties
+  above enhancements (optional).

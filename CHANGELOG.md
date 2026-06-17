@@ -18,6 +18,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   per-requirement verdicts for the UI; a **Reopen** action reverses a discard.
 - Integration test tiers (worker `run_once` over a temp SQLite; web Server Actions
   over a real throwaway Prisma DB) and a **Playwright** end-to-end suite.
+- **Container self-healing for the WSL2 stale-bind-mount failure.** A new `GET
+  /api/health` route opens the DB (`SELECT 1`) behind a Docker `healthcheck`, and an
+  **`autoheal`** sidecar restarts `ats-web` whenever Docker marks it unhealthy —
+  recovering from the `SQLITE_CANTOPEN` (Error code 14) a stale bind mount causes
+  after the WSL2 VM suspends/resumes. (SPEC §6.)
+- **`make seed-dev`** (`apps/web/prisma/seed-dev.mjs`) — appends a realistic spread
+  of sample applications (varied statuses, categories, dates, and `status_history`
+  trails) to the local DB for populating the dashboard. Unlike the e2e fixture it
+  **never clears** existing rows, so it is safe to run against a DB holding real
+  worker `job_postings`.
 
 ### Changed
 - Default scoring model is now **`qwen3.5:4b`** (local Ollama) and default
@@ -37,6 +47,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   tracker ([`docs/PROGRESS.md`](./docs/PROGRESS.md)), and an auto-loaded `CLAUDE.md`;
   slimmed the README and reduced `docs/SETUP.md` / `docs/pipeline-design.md` to
   pointers.
+- Separated the three docs by role: **SPEC** = the current capability map ·
+  **PROGRESS** = live delta only (in-flight + open work, graded by severity) ·
+  **CHANGELOG** = chronological history. PROGRESS dropped its completed-feature
+  tables (the capability inventory now lives solely in SPEC), recalibrated its
+  summary (no "feature-complete and stable"), and surfaces the shipped notify
+  data-loss defect as a graded defect rather than one bullet among nice-to-haves.
+- Added a user-facing **Feature status** matrix to the README with an honest
+  *Tested* axis (✅ / ⚠ / —) that distinguishes shipped from verified — fixing the
+  old all-`✅` over-claim. Building it surfaced an untested gap: the chart-data
+  actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
+  coverage (now tracked in SPEC §9 and PROGRESS).
 
 ## [0.2.0] — 2026-06-08
 

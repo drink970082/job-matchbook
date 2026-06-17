@@ -24,8 +24,9 @@ SQLite database**:
   posting into a tracked application. A human is always in the loop — no auto-apply.
 
 > 📖 **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
-> system spec (architecture, data model, behaviors, setup, testing).
-> [`docs/PROGRESS.md`](./docs/PROGRESS.md) tracks what's done and what's open.
+> system spec (architecture, data model, behaviors, setup, testing) and the current
+> capability map. [`docs/PROGRESS.md`](./docs/PROGRESS.md) tracks only open work
+> (in-flight + known gaps).
 
 ---
 
@@ -50,6 +51,44 @@ above.
 
 The pipeline: **fetch** (5 board APIs) → **score + screen** (local Ollama, GPU) →
 **tailor** (Claude + `tectonic` → single-page PDF) → **notify** (Telegram).
+
+---
+
+## Feature status
+
+At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
+**Tested:** ✅ automated tests · ⚠ shipped but unverified or with a known caveat
+(see note) · — UI, not separately tested. The authoritative invariant→test map is
+[`SPEC.md` §9](./docs/SPEC.md#9-behaviors-and-invariants); open items live in
+[`PROGRESS.md`](./docs/PROGRESS.md).
+
+| Feature | Status | Tested | Notes |
+|---------|:---:|:---:|-------|
+| Applications table — paginate / filter / search | ✅ | ✅ | |
+| Inline status editing + status history | ✅ | ✅ | each change appends a history row |
+| Status history modal (add / edit / delete) | ✅ | ✅ | delete recomputes current status |
+| KPI strip | ✅ | ✅ | |
+| Dashboards — heatmap · donut · funnel · Sankey | ✅ | ⚠ | render shipped; **chart-data actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test** |
+| CSV import / export | ✅ | ✅ | RFC-4180, enum validation, dedup |
+| Discovered Jobs queue + triage | ✅ | ✅ | unit + Playwright e2e |
+| JD + score-detail dialog | ✅ | ✅ | keywords, reasoning, screen verdicts |
+| Tailored resume download (`/api/resume/[id]`) | ✅ | ⚠ | download works; **path-traversal guard has no test** |
+| Mark Applied (posting → application) | ✅ | ✅ | atomic transaction + dedup |
+| Discard / Reopen posting | ✅ | ✅ | reopen keeps disqualification reason |
+| Responsive / mobile layout | ✅ | — | stacks below ~640px |
+| Fetch — Greenhouse / Lever / Ashby / Workday / Pinpoint | ✅ | ✅ | dedup on `(source, external_id)` |
+| Title pre-filter (fetch-time) | ✅ | ✅ | |
+| Score — local Ollama | ✅ | ✅ | |
+| Hard-constraint screening | ✅ | ✅ | disqualified → `discarded` |
+| Tailor — one-page loop | ✅ | ✅ | page-count gate |
+| Tailor — faithfulness (no fabrication) | ✅ | ⚠ | **prompt + human review only; no deterministic gate** |
+| Notify — Telegram message + PDF | ✅ | ✅ | ⚠ transient failure can bury tailored work → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
+| Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
+| Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
+| Config load / validate | ✅ | ✅ | |
+| Auto-retry of `failed` postings | ⛔ | — | not built → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
+| Docker Compose · shared SQLite (WAL) | ✅ | ✅ | |
+| CI · coverage gates · schema-drift guard | ✅ | ✅ | |
 
 ---
 
@@ -97,8 +136,8 @@ Jest + Playwright + pytest · Docker Compose. Details in
 
 | Doc | What |
 |-----|------|
-| [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec** — architecture, components, data model, behaviors, setup, testing |
-| [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live status: what's done, in flight, and open |
+| [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec + capability map** — architecture, components, data model, behaviors, setup, testing |
+| [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — what's in flight and open (capabilities → SPEC, history → CHANGELOG) |
 | [`docs/SETUP.md`](./docs/SETUP.md) | Setup pointer (→ spec §12) |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release history |

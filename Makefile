@@ -5,9 +5,11 @@
 WEB    := apps/web
 WORKER := apps/worker
 PY     := python3   # the host ships python3, not a bare `python`
+DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: make seed-dev DB=...)
+COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install dev build lint test test-web test-worker \
-        test-integration test-e2e test-coverage check-schema up down db-push
+        test-integration test-e2e test-coverage check-schema up down db-push seed-dev
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,6 +51,9 @@ check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 
 db-push: ## Sync the Prisma schema into the SQLite db
 	cd $(WEB) && npx prisma db push
+
+seed-dev: ## Append realistic sample applications to the local db (vars: DB, COUNT)
+	node apps/web/prisma/seed-dev.mjs "$(DB)" $(COUNT)
 
 up: ## Build + start the full stack (web + worker) via Docker Compose
 	UID=$$(id -u) GID=$$(id -g) docker compose up --build -d

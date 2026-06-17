@@ -49,7 +49,7 @@ disagreements with the code differently:
 - **Snapshot — code wins.** Descriptive clauses recording how the system is
   *currently* built: **System overview (§5)**, **Architecture (§6)**, **Component
   specifications (§7)**, **Data model (§8)**, and **Setup and deployment (§12)** —
-  including details like "the only API route" or a module's name. If the code and a
+  including details like a route's path or a module's name. If the code and a
   snapshot clause disagree, the *spec* is stale — update the spec to match reality.
 
 The product-context preamble (§1–§3) and the supporting material (§10–§11, §13–§14)
@@ -182,7 +182,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
                   │ reads postings / writes applications │ serves PDFs
                   ▼                                       ▼
    ┌───────────────────────────────────────────────────────────────────┐
-   │  apps/web  (Next.js 14, Server Actions + 1 API route)             │
+   │  apps/web  (Next.js 14, Server Actions + 2 API routes)            │
    │   Discovered Jobs tab  ──"Mark Applied"──►  Applications + charts  │
    └───────────────────────────────────────────────────────────────────┘
                   ▲
@@ -206,6 +206,20 @@ single-file mount silently breaks cross-container WAL. Ollama runs on the host
 because GPU pass-through into a container under WSL2 is fiddly; the worker reaches
 it via `host.docker.internal:11434` (`extra_hosts: host-gateway` makes this work
 on Linux Compose).
+
+**Resilience: stale bind mount → autoheal.** On WSL2, Docker bind mounts ride the
+WSL2 VM's filesystem share; when the VM suspends/resumes, a *long-running*
+container can end up with a stale view of `./db` while the host and freshly-started
+containers see it fine. Prisma then fails with `SQLITE_CANTOPEN` (Error code 14) —
+the browser shows only a Next.js error digest; the real stack trace is in
+`docker logs ats-web` — even though permissions, ownership, disk, and the mount
+config are all correct. The cure is to recreate the container. To make this
+self-healing, `web` exposes `GET /api/health`, which actually opens the DB
+(`SELECT 1` → `200`, else `503`), wired to a Docker `healthcheck`; the `autoheal`
+sidecar (watches the `autoheal=true` label via the mounted Docker socket) restarts
+any container Docker marks **unhealthy**. Plain Compose does *not* restart on
+unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
+the sidecar is what closes the loop.
 
 **Stack**
 
@@ -284,8 +298,11 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
   'force-dynamic'` so it always reads the live db.
-- **`app/api/resume/[id]/route.ts`** — the **only** API route. `GET` streams a
-  tailored PDF for a `job_postings.id`. Contract in §[9](#9-behaviors-and-invariants).
+- **`app/api/resume/[id]/route.ts`** — `GET` streams a tailored PDF for a
+  `job_postings.id`. Contract in §[9](#9-behaviors-and-invariants).
+- **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
+  `GET` runs `SELECT 1` (`200 {status:"ok"}`, else `503`) so a stale bind mount is
+  caught and the `autoheal` sidecar can restart the container (§6).
 - **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
   shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical
@@ -481,7 +498,7 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   from the default view and is never re-notified. Recovery is manual (filter to
   `failed`/`all`; a manual reopen routes it to `scored`, which re-tailors and
   re-notifies). This conflates a transient notification failure with a genuine pipeline
-  failure. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Known gaps.)*
+  failure. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Open work → Defects.)*
 
 **Unenforced clauses (asserted, not checked).** Two contract-flavored claims have no
 deterministic gate; treat them as *intentions backed by the human in the loop*, not
@@ -517,6 +534,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded` | `actions.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
+| ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | ⚠ Resume API path-traversal guard (403) | **none** — guard is code-only in `route.ts` |
 | Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
@@ -536,9 +554,10 @@ automated coverage — those rely on code review or the human in the loop, not a
   shared; a single-file mount breaks this silently.
 - **Prisma owns the schema.** One source of truth; the worker aligns its columns
   and issues no DDL. A CI schema-drift guard keeps the worker's SQL fixture honest.
-- **Server Actions, not REST.** All mutations go through Server Actions; the lone
-  exception is `GET /api/resume/[id]`, because binary file streaming doesn't fit the
-  Server Action model.
+- **Server Actions, not REST.** All mutations go through Server Actions; the
+  exceptions are the two `GET` routes — `/api/resume/[id]` (binary PDF streaming
+  doesn't fit the Server Action model) and `/api/health` (an HTTP-status probe the
+  Docker healthcheck can call).
 - **Local + cloud LLM split.** Scoring is high-frequency (every posting) → local
   Ollama on the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card,
   ~2 s/posting, `think:false` so reasoning models still return JSON). Tailoring is
@@ -584,6 +603,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Performance:** scoring ~2 s/posting locally on an 8 GB GPU; tailoring (Claude +
   compile) runs only for `score ≥ threshold`. The root page is `force-dynamic` (no
   stale cache); the resume route is `Cache-Control: private`.
+- **Responsive UI:** the web layout is responsive and stacks to a single column
+  below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
 - **Security:** the resume route guards against path traversal; secrets live only

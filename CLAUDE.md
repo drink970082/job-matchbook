@@ -7,14 +7,17 @@ automatically every session — keep it lean.
 
 Before any substantive work, read these two — they are the source of truth:
 
-- **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is* (architecture,
-  components, data model, behaviors & invariants, setup, testing).
-- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — what's done, in flight, and open.
+- **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is*, including the current
+  capability map (architecture, components, data model, behaviors & invariants,
+  setup, testing).
+- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — only the *delta*: what's **in flight
+  and open** (defects, unverified properties, enhancements). Completed capabilities
+  live in `SPEC.md`; release history in `CHANGELOG.md`.
 
-Keep both current: when you change behavior, update the matching section of
-`SPEC.md` and the relevant row of `PROGRESS.md` **in the same commit**. History
-lives in [`CHANGELOG.md`](./CHANGELOG.md); conventions in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Keep them current: when you change behavior, in the **same commit** update the
+matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the gap
+or add an in-flight entry), and [`CHANGELOG.md`](./CHANGELOG.md) (history) as
+applicable. Conventions in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## What this is
 

@@ -24,6 +24,34 @@ services:
       - ./db:/data            # shared SQLite directory (db + WAL sidecars)
       - ./resumes:/resumes:ro # web app only reads the PDFs
     restart: unless-stopped
+    # Probe DB reachability, NOT just the HTTP port: the WSL2 stale-bind-mount
+    # failure leaves the server up but Prisma unable to open /data/applications.db
+    # (SQLITE_CANTOPEN). On repeated failures the container is marked unhealthy and
+    # the autoheal sidecar restarts it (which re-establishes the mount). See SPEC §6.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - autoheal=true # watched by the autoheal sidecar below
+
+  # Watches for containers labeled autoheal=true and restarts any that Docker
+  # marks "unhealthy" (plain Compose does NOT auto-restart on unhealthy by
+  # itself). Needs the Docker socket to issue the restart; local-only, no network
+  # exposure. This is what actually recovers ats-web from a stale bind mount.
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: ats-autoheal
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal # restart only containers labeled autoheal=true
+      AUTOHEAL_INTERVAL: 10              # poll health every 10s
+      AUTOHEAL_START_PERIOD: 30          # grace before first check
+      CURL_TIMEOUT: 30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
 
   worker:
     build:
