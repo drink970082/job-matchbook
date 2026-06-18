@@ -17,11 +17,17 @@ import yaml
 
 # Must match fetch.ADAPTERS — but importing fetch here would pull in `requests`
 # at config-load time, so we keep an explicit local allowlist instead.
-VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint")
+VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint", "smartrecruiters")
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24
 DEFAULT_MAX_SINGLE_PAGE_ROUNDS = 3
+
+# Discovery feeds (broad listing streams resolved back to boards). Only Simplify
+# is wired in v1. The keep-list drops Product/Hardware; the LLM screen still
+# judges sponsorship/location from the JD (the feed's flags are too sparse).
+VALID_FEEDS = ("simplify",)
+DEFAULT_FEED_CATEGORIES = ("Software", "AI/ML/Data", "Quant")
 
 
 class ConfigError(ValueError):
@@ -64,12 +70,23 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class Feed:
+    """A discovery feed. `categories` is the cheap pre-filter keep-list; an empty
+    `url` means use the adapter's default listings URL."""
+    name: str
+    enabled: bool = False
+    categories: list[str] = field(default_factory=lambda: list(DEFAULT_FEED_CATEGORIES))
+    url: str = ""
+
+
+@dataclass(frozen=True)
 class Config:
     companies: list[Company] = field(default_factory=list)
     # Optional coarse pre-filter: keep a posting only if its TITLE contains one of
     # these (case-insensitive). Empty = keep all and let the scorer decide.
     title_filter: list[str] = field(default_factory=list)
     candidate: Candidate = field(default_factory=Candidate)
+    feeds: list[Feed] = field(default_factory=list)
     threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
     max_single_page_rounds: int = DEFAULT_MAX_SINGLE_PAGE_ROUNDS
@@ -112,11 +129,13 @@ def load_config(source) -> Config:
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
     candidate = _parse_candidate(data.get("candidate") or {})
+    feeds = _parse_feeds(data.get("feeds"))
 
     return Config(
         companies=companies,
         title_filter=title_filter,
         candidate=candidate,
+        feeds=feeds,
         threshold=_int_field(data, "threshold", DEFAULT_THRESHOLD),
         schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
         max_single_page_rounds=_int_field(
@@ -152,6 +171,38 @@ def _parse_companies(raw) -> list[Company]:
                 f"must be one of {VALID_SOURCES}"
             )
         out.append(Company(source=source, slug=str(c["slug"]), name=str(c["name"])))
+    return out
+
+
+def _parse_feeds(raw) -> list[Feed]:
+    """Parse the optional `feeds:` mapping (feed-name -> settings). Omitted or
+    empty = no feeds. An unknown feed name is a startup error."""
+    if not raw:
+        return []
+    if not isinstance(raw, dict):
+        raise ConfigError("`feeds` must be a mapping of feed-name -> settings")
+    out: list[Feed] = []
+    for name, cfg in raw.items():
+        if name not in VALID_FEEDS:
+            raise ConfigError(
+                f"unknown feed {name!r}; must be one of {VALID_FEEDS}"
+            )
+        cfg = cfg or {}
+        if not isinstance(cfg, dict):
+            raise ConfigError(f"feeds.{name} must be a mapping")
+        cats_raw = cfg.get("categories")
+        if cats_raw is None:
+            categories = list(DEFAULT_FEED_CATEGORIES)
+        elif isinstance(cats_raw, list):
+            categories = [str(c) for c in cats_raw if str(c).strip()]
+        else:
+            raise ConfigError(f"feeds.{name}.categories must be a list")
+        out.append(Feed(
+            name=name,
+            enabled=bool(cfg.get("enabled", False)),
+            categories=categories,
+            url=str(cfg.get("url") or ""),
+        ))
     return out
 
 

@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
     getApplications,
     addApplication,
@@ -20,9 +20,17 @@ import {
     markJobApplied,
     discardJobPosting,
     reopenJobPosting,
+    getWatchedCompanies,
+    addWatchedCompany,
+    removeWatchedCompany,
 } from '@/lib/actions'
+import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
+import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { ApplicationTable } from './ApplicationTable'
 import { DiscoveredJobsTable } from './DiscoveredJobsTable'
+import { WatchlistTable } from './WatchlistTable'
+import { PromotionSuggestions } from './PromotionSuggestions'
+import { UnresolvedFeedsTable } from './UnresolvedFeedsTable'
 import { JobDetailModal } from './JobDetailModal'
 import { KPIGrid } from './KPIGrid'
 import { AddApplicationForm } from './AddApplicationForm'
@@ -57,7 +65,12 @@ export function Dashboard({
     initialJobPostings = [],
     totalJobPostings = 0,
 }: DashboardProps) {
-    const [activeTab, setActiveTab] = useState<'applications' | 'discovered'>('applications')
+    const [activeTab, setActiveTab] = useState<'applications' | 'discovered' | 'watchlist' | 'unresolved'>('applications')
+
+    // Watchlist + promotion-suggestion + unresolved-feed state (loaded client-side)
+    const [watchlist, setWatchlist] = useState<any[]>([])
+    const [promotions, setPromotions] = useState<any[]>([])
+    const [unresolved, setUnresolved] = useState<any[]>([])
 
     // Discovered Jobs state
     const [jobPostings, setJobPostings] = useState<any[]>(initialJobPostings)
@@ -255,6 +268,69 @@ export function Dashboard({
         setTotalJobs(total)
     }
 
+    const refreshWatchlist = async () => {
+        const { data } = await getWatchedCompanies()
+        setWatchlist(data)
+    }
+
+    const refreshPromotions = async () => {
+        const { data } = await getPromotionSuggestions()
+        setPromotions(data)
+    }
+
+    const refreshUnresolved = async () => {
+        const { data } = await getUnresolvedFeeds()
+        setUnresolved(data)
+    }
+
+    // Load the watchlist, promotion suggestions, and unresolved backlog on mount.
+    useEffect(() => {
+        refreshWatchlist()
+        refreshPromotions()
+        refreshUnresolved()
+    }, [])
+
+    const handleAddWatched = async (c: { source: string; slug: string; name: string }) => {
+        const result = await addWatchedCompany(c)
+        if (result.success) {
+            toast.success(`Watching ${c.name}`)
+            refreshWatchlist()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
+    const handleRemoveWatched = async (id: number) => {
+        const result = await removeWatchedCompany(id)
+        if (result.success) {
+            toast.success('Removed from watchlist')
+            refreshWatchlist()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
+    // Approve a suggestion = add it to the watchlist (reuses addWatchedCompany);
+    // it then drops out of suggestions (now watchlisted).
+    const handleApproveSuggestion = async (c: { source: string; slug: string; name: string }) => {
+        const result = await addWatchedCompany(c)
+        if (result.success) {
+            toast.success(`Promoted ${c.name} to the watchlist`)
+            await Promise.all([refreshWatchlist(), refreshPromotions()])
+        } else {
+            toast.error(result.error)
+        }
+    }
+
+    const handleDismissSuggestion = async (source: string, slug: string) => {
+        const result = await dismissPromotion(source, slug)
+        if (result.success) {
+            refreshPromotions()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
     const handleJobFilterChange = async (newFilters: any) => {
         setJobFilters(newFilters)
         const { data, total } = await getJobPostings(newFilters)
@@ -361,6 +437,38 @@ export function Dashboard({
                         </span>
                     )}
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('watchlist')}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        activeTab === 'watchlist'
+                            ? 'bg-background shadow-sm text-foreground'
+                            : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                    Watchlist
+                    {watchlist.length > 0 && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-primary text-primary-foreground">
+                            {watchlist.length}
+                        </span>
+                    )}
+                    {promotions.length > 0 && (
+                        <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-600 text-white" title={`${promotions.length} promotion suggestion(s)`}>
+                            +{promotions.length}
+                        </span>
+                    )}
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('unresolved')}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        activeTab === 'unresolved'
+                            ? 'bg-background shadow-sm text-foreground'
+                            : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                    Unresolved
+                </button>
             </div>
 
             {activeTab === 'discovered' ? (
@@ -378,6 +486,57 @@ export function Dashboard({
                             onReopen={handleReopenJob}
                             onViewJD={handleViewJD}
                         />
+                    </CardContent>
+                </Card>
+            ) : activeTab === 'watchlist' ? (
+                <div className="space-y-6">
+                    {promotions.length > 0 && (
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-lg">Suggested companies</CardTitle>
+                                <p className="text-sm text-muted-foreground">
+                                    Non-watchlisted companies whose feed-discovered roles keep
+                                    scoring well or getting applied to. Approve to track them in
+                                    full, or dismiss.
+                                </p>
+                            </CardHeader>
+                            <CardContent>
+                                <PromotionSuggestions
+                                    data={promotions}
+                                    onApprove={handleApproveSuggestion}
+                                    onDismiss={handleDismissSuggestion}
+                                />
+                            </CardContent>
+                        </Card>
+                    )}
+                    <Card>
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-lg">Watchlist</CardTitle>
+                            <p className="text-sm text-muted-foreground">
+                                Companies the worker fetches in full each run. Seeded once from
+                                the worker config; manage it here.
+                            </p>
+                        </CardHeader>
+                        <CardContent>
+                            <WatchlistTable
+                                data={watchlist}
+                                onAdd={handleAddWatched}
+                                onRemove={handleRemoveWatched}
+                            />
+                        </CardContent>
+                    </Card>
+                </div>
+            ) : activeTab === 'unresolved' ? (
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-lg">Unresolved feed listings</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                            Feed listings whose apply URL couldn&apos;t be mapped to a supported
+                            board — the backlog for expanding feed coverage.
+                        </p>
+                    </CardHeader>
+                    <CardContent>
+                        <UnresolvedFeedsTable data={unresolved} />
                     </CardContent>
                 </Card>
             ) : (

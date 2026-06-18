@@ -73,6 +73,11 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Enhancements — not built, optional
 
+- **Remaining feed coverage (mine the `feed_unresolved` backlog).** **Workday** and
+  **SmartRecruiters** now resolve (feed coverage ~⅓ → ~⅔). What's left is the long tail:
+  **embedded greenhouse** (`gh_jid` with no slug — needs board-token recovery) and
+  assorted custom ATS hosts (iCIMS, Jobvite, Oracle Cloud, bespoke career sites). The
+  `feed_unresolved` table (visible in the **Unresolved** tab) is the prioritised worklist.
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
   `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a possible fallback
   aggregator.

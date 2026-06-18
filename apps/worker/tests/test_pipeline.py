@@ -31,6 +31,8 @@ def test_run_fetch_inserts_filtered_postings(db_path):
     assert inserted == 1
     rows = db.get_by_status(conn, "new")
     assert [r["external_id"] for r in rows] == ["1"]
+    # run_fetch stamps the company's slug onto each ingested posting before upsert.
+    assert rows[0]["company_slug"] == "acme"
 
 
 def test_run_fetch_one_company_failing_does_not_abort(db_path):

@@ -2,11 +2,15 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Dashboard } from '@/components/Dashboard'
 import * as actions from '@/lib/actions'
+import * as promotionActions from '@/lib/promotion-actions'
+import * as unresolvedActions from '@/lib/unresolved-actions'
 
-// Smoke test of Dashboard's own wiring (tabs, KPI grid, the two table views).
+// Smoke test of Dashboard's own wiring (tabs, KPI grid, the table views).
 // Stub the server actions (no real Prisma) and the recharts-based charts (jsdom
 // has no layout, so ResponsiveContainer renders nothing).
 jest.mock('@/lib/actions')
+jest.mock('@/lib/promotion-actions')
+jest.mock('@/lib/unresolved-actions')
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
 jest.mock('@/components/StatusFunnel', () => ({ StatusFunnel: () => <div data-testid="funnel" /> }))
 jest.mock('@/components/TimelineHeatmap', () => ({ TimelineHeatmap: () => <div data-testid="heatmap" /> }))
@@ -18,6 +22,9 @@ jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-
 beforeEach(() => {
     ;(actions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(actions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(actions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(promotionActions.getPromotionSuggestions as jest.Mock).mockResolvedValue({ data: [] })
+    ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })
 })
 
 const props = {
@@ -46,4 +53,13 @@ test('switching to the Discovered Jobs tab shows the discovered view', async () 
     expect(screen.getAllByText('Discovered Jobs').length).toBeGreaterThanOrEqual(2)
     // The discovered table's search box (distinct "...or job titles" placeholder).
     expect(screen.getByPlaceholderText(/job titles/i)).toBeInTheDocument()
+})
+
+test('switching to the Watchlist tab shows the watchlist add form', async () => {
+    const user = userEvent.setup()
+    render(<Dashboard {...props} />)
+    await user.click(screen.getByRole('button', { name: /Watchlist/i }))
+    // The watchlist add row's distinctive inputs.
+    expect(screen.getByPlaceholderText(/board slug/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Add$/i })).toBeInTheDocument()
 })

@@ -27,8 +27,20 @@ export const CATEGORIES = [
   'Others',
 ] as const
 
+// Board sources the worker can fetch — must match the worker's
+// config.VALID_SOURCES / fetch.ADAPTERS. Used by the Watchlist add-company form.
+export const VALID_SOURCES = [
+  'greenhouse',
+  'lever',
+  'ashby',
+  'workday',
+  'pinpoint',
+  'smartrecruiters',
+] as const
+
 export type Status = (typeof STATUSES)[number]
 export type Category = (typeof CATEGORIES)[number]
+export type Source = (typeof VALID_SOURCES)[number]
 
 /** Statuses that end the application lifecycle (don't count as Active). */
 export const TERMINAL_STATUSES: readonly Status[] = [

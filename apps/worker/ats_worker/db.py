@@ -32,10 +32,10 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 
 _INSERT = """
 INSERT INTO job_postings
-    (source, external_id, company_name, job_title, location, job_url,
+    (source, external_id, company_slug, company_name, job_title, location, job_url,
      description, pipeline_status, attempts, created_at)
 VALUES
-    (:source, :external_id, :company_name, :job_title, :location, :job_url,
+    (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
      :description, 'new', 0, :created_at)
 ON CONFLICT(source, external_id) DO NOTHING
 """
@@ -53,6 +53,7 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
             {
                 "source": p["source"],
                 "external_id": p["external_id"],
+                "company_slug": p.get("company_slug"),
                 "company_name": p["company_name"],
                 "job_title": p["job_title"],
                 "location": p.get("location"),
@@ -64,6 +65,71 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
         inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
     conn.commit()
     return inserted
+
+
+# --- watchlist ------------------------------------------------------------
+# The watchlist is DB-owned (table `watched_companies`), so the web UI manages it
+# and a future promotion step can append to it. The worker reads it here instead
+# of config.yaml; config is seeded in once (see import_watchlist / run.py).
+
+def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT source, slug, name FROM watched_companies ORDER BY id ASC"
+    ).fetchall()
+    return [{"source": r["source"], "slug": r["slug"], "name": r["name"]} for r in rows]
+
+
+def count_watchlist(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
+
+
+def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
+    """Idempotently seed watched_companies (dedup on (source, slug)). Returns rows
+    inserted. Used for the one-time migration of config.yaml `companies:`."""
+    inserted = 0
+    for c in companies:
+        cur = conn.execute(
+            "INSERT INTO watched_companies (source, slug, name, created_at) "
+            "VALUES (:source, :slug, :name, :created_at) "
+            "ON CONFLICT(source, slug) DO NOTHING",
+            {"source": c["source"], "slug": c["slug"], "name": c["name"], "created_at": now},
+        )
+        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    conn.commit()
+    return inserted
+
+
+# --- feed bookkeeping -----------------------------------------------------
+
+def record_unresolved(conn: sqlite3.Connection, *, feed: str, url: str,
+                      company_name: str, job_title: str, host: str, reason: str,
+                      now: str) -> None:
+    """Record a feed listing whose URL couldn't be mapped to a supported board.
+    Upsert on `url` so repeated passes refresh `updated_at` instead of piling up.
+    """
+    conn.execute(
+        "INSERT INTO feed_unresolved "
+        "(feed, url, company_name, job_title, host, reason, created_at) "
+        "VALUES (:feed, :url, :company_name, :job_title, :host, :reason, :now) "
+        "ON CONFLICT(url) DO UPDATE SET updated_at=:now, reason=:reason, host=:host",
+        {"feed": feed, "url": url, "company_name": company_name,
+         "job_title": job_title, "host": host, "reason": reason, "now": now},
+    )
+    conn.commit()
+
+
+def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str]:
+    """The subset of `ids` already present for `source` — lets run_feed skip a
+    board fetch when every surfaced posting is already ingested."""
+    ids = list(ids)
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT external_id FROM job_postings WHERE source=? AND external_id IN ({placeholders})",
+        [source, *ids],
+    ).fetchall()
+    return {r["external_id"] for r in rows}
 
 
 # --- queries --------------------------------------------------------------

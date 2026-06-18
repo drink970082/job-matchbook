@@ -3,6 +3,11 @@
 # The `slug` is the board identifier in each board's URL. Most sources take a
 # single token; workday is special (see comment below).
 
+# NOTE: the watchlist now lives in the DB (table `watched_companies`), managed in
+# the web app's Watchlist tab. This `companies:` list is a ONE-TIME SEED: it's
+# imported into the DB on the first run when the watchlist is empty (or on demand
+# via `python -m ats_worker.run --import-companies`). After seeding, edits here
+# are ignored — add/remove companies in the web UI instead.
 companies:
   - { source: greenhouse, slug: acme, name: "Acme Inc" }       # job-boards.greenhouse.io/{slug}
   - { source: lever, slug: foobar, name: "Foobar" }            # jobs.lever.co/{slug}
@@ -11,6 +16,19 @@ companies:
   # Workday slug packs three parts as "tenant/datacenter/site" (from the board URL
   # {tenant}.{dc}.myworkdayjobs.com/{site}). Quote it because of the slashes:
   # - { source: workday, slug: "acme/wd5/External_Careers", name: "Acme" }
+
+# OPTIONAL discovery feeds: a broad listing stream (a public GitHub data file —
+# NOT a scraped board) whose apply URLs are resolved back to the boards above and
+# fetched with the same adapters. Off by default. Only the SimplifyJobs new-grad
+# feed is supported in v1; it resolves lever/ashby/greenhouse-direct listings and
+# records the rest (Workday, custom ATSes) in `feed_unresolved` for a next step.
+feeds:
+  simplify:
+    enabled: false              # set true to pull the feed each pass
+    # Cheap keep-list applied to the feed's own `category` before any fetch/score
+    # (drops Product/Hardware). Sponsorship/location are still judged by the LLM.
+    categories: ["Software", "AI/ML/Data", "Quant"]
+    # url: ""                   # optional override of the listings.json URL
 
 # OPTIONAL coarse pre-filter, applied at fetch time BEFORE the LLM scorer. Keep a
 # posting only if its TITLE contains ANY of these (case-insensitive substring).

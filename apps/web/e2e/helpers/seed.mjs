@@ -6,7 +6,7 @@ import { DATABASE_URL } from './db-path.mjs'
 
 export const POSTINGS = [
     {
-        source: 'greenhouse', external_id: 'e2e-1', company_name: 'Acme Robotics',
+        source: 'greenhouse', external_id: 'e2e-1', company_slug: 'acme', company_name: 'Acme Robotics',
         job_title: 'Backend Engineer', location: 'Remote',
         job_url: 'https://acme.example/jobs/1',
         description: 'Build backend systems with Python and AWS.',
@@ -20,7 +20,7 @@ export const POSTINGS = [
         pipeline_status: 'scored', created_at: '2026-01-01T00:00:00.000Z',
     },
     {
-        source: 'lever', external_id: 'e2e-2', company_name: 'Globex Analytics',
+        source: 'lever', external_id: 'e2e-2', company_slug: 'globex', company_name: 'Globex Analytics',
         job_title: 'ML Engineer', location: 'NYC',
         job_url: 'https://globex.example/jobs/2', description: 'Train models.',
         score: 78, score_detail: null,
@@ -28,12 +28,28 @@ export const POSTINGS = [
         pipeline_status: 'tailored', created_at: '2026-01-01T00:00:00.000Z',
     },
     {
-        source: 'ashby', external_id: 'e2e-3', company_name: 'Initech Cloud',
+        source: 'ashby', external_id: 'e2e-3', company_slug: 'initech', company_name: 'Initech Cloud',
         job_title: 'Platform Engineer', location: 'Austin',
         job_url: 'https://initech.example/jobs/3', description: 'Run the platform.',
         score: 65, score_detail: null,
         resume_path: null, resume_pages: null,
         pipeline_status: 'scored', created_at: '2026-01-01T00:00:00.000Z',
+    },
+]
+
+// A couple of recorded unresolved feed listings so the Unresolved tab renders.
+export const FEED_UNRESOLVED = [
+    {
+        feed: 'simplify', url: 'https://careers.bigco.com/job/1?gh_jid=1',
+        company_name: 'BigCo', job_title: 'Software Engineer',
+        host: 'careers.bigco.com', reason: 'embedded_greenhouse',
+        created_at: '2026-01-01T00:00:00.000Z',
+    },
+    {
+        feed: 'simplify', url: 'https://jobs.jobvite.com/foocorp/job/2',
+        company_name: 'FooCorp', job_title: 'Engineer',
+        host: 'jobs.jobvite.com', reason: 'unsupported_host',
+        created_at: '2026-01-01T00:00:00.000Z',
     },
 ]
 
@@ -44,6 +60,11 @@ export const EXISTING_APPLICATION = {
     last_updated: '2026-01-02T00:00:00.000Z',
 }
 
+export const WATCHED_COMPANIES = [
+    { source: 'greenhouse', slug: 'acme', name: 'Acme Robotics', created_at: '2026-01-01T00:00:00.000Z' },
+    { source: 'lever', slug: 'globex', name: 'Globex Analytics', created_at: '2026-01-01T00:00:00.000Z' },
+]
+
 function client(url) {
     return new PrismaClient({ datasourceUrl: url })
 }
@@ -52,6 +73,9 @@ async function clear(prisma) {
     await prisma.status_history.deleteMany()
     await prisma.job_postings.deleteMany()
     await prisma.applications.deleteMany()
+    await prisma.watched_companies.deleteMany()
+    await prisma.feed_unresolved.deleteMany()
+    await prisma.promotion_dismissed.deleteMany()
 }
 
 export async function seed(url = DATABASE_URL) {
@@ -60,6 +84,8 @@ export async function seed(url = DATABASE_URL) {
         await clear(prisma)
         await prisma.applications.create({ data: EXISTING_APPLICATION })
         for (const p of POSTINGS) await prisma.job_postings.create({ data: p })
+        for (const c of WATCHED_COMPANIES) await prisma.watched_companies.create({ data: c })
+        for (const u of FEED_UNRESOLVED) await prisma.feed_unresolved.create({ data: u })
     } finally {
         await prisma.$disconnect()
     }

@@ -8,6 +8,34 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Feed coverage expansion + promotion suggestions + unresolved viewer.** Building on
+  the discovery feed: (1) **Workday** feed resolution (the feed exposes the per-tenant
+  `jobReqId`, matched as a substring of the board's `externalUrl` since the adapter keys
+  on the GUID) and a new **SmartRecruiters** board adapter (two-step list+detail), lifting
+  feed coverage from ~⅓ to ~⅔ of the filtered-active feed; (2) **promotion suggestions** —
+  non-watchlisted companies whose feed-discovered postings repeatedly pass threshold
+  (`tailored`/`notified`/`applied`) or get applied to are surfaced in the Watchlist tab
+  with **Approve** (→ add to watchlist) / **Dismiss** (→ `promotion_dismissed`); (3) a
+  read-only **Unresolved** tab grouping the `feed_unresolved` backlog by host + reason.
+  Postings now carry a `company_slug` (set at ingest) so promotion grouping needs no URL
+  re-parsing. Sources supported: six (added `smartrecruiters`).
+- **Discovery feed (SimplifyJobs) + DB-backed watchlist.** A new opt-in feed path
+  ingests the SimplifyJobs `New-Grad-Positions/listings.json` (a public GitHub data
+  file, *not* a scraped board): it pre-filters cheaply on the feed's own metadata
+  (`active`, `category` keep-list, explicit-no-`sponsorship`), resolves each apply
+  URL back to its board `(source, slug, external_id)`, and **reuses the existing
+  board adapters** to fetch the JD — keeping only the feed-surfaced postings so the
+  score/tailor/notify pipeline runs unchanged. v1 resolves
+  `lever`/`ashby`/`greenhouse`-direct (~⅓ of the filtered-active feed); the rest
+  (Workday, SmartRecruiters, embedded-greenhouse, other ATSes) is recorded in a new
+  `feed_unresolved` table as a prioritised backlog, never silently dropped. New
+  worker package `ats_worker/feed/` (`simplify`/`prefilter`/`resolve`), pipeline
+  stage `run_feed`, and an optional `feeds:` config block. (SPEC §5–§9.)
+- **Watchlist moved into the database** (`watched_companies`) and is now managed in
+  a new **Watchlist** tab in the web app (list / add / remove). The worker reads its
+  watchlist from the DB and **auto-seeds it once** from `config.yaml`'s `companies:`
+  when the table is empty (`--import-companies` forces a re-seed); `companies:` is
+  now a one-time seed rather than the live source.
 - Two more board adapters — **Workday** (CXS list + per-job detail; the `slug`
   packs `tenant/datacenter/site`) and **Pinpoint** — bringing supported sources
   to five.

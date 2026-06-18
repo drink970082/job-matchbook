@@ -16,6 +16,7 @@ import time
 
 from . import config as config_mod
 from . import db, pipeline
+from .feed import simplify
 from .notify import notify_posting
 from .score import score_posting
 from .tailor import make_claude, pypdf_count, tailor_resume, tectonic_compile
@@ -78,11 +79,26 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
     conn = db.connect(db_path)
     try:
         now = _now()
-        companies = [
-            {"source": c.source, "slug": c.slug, "name": c.name} for c in cfg.companies
-        ]
+        # The watchlist is DB-owned. Seed it once from config.yaml `companies:`
+        # when the table is empty; thereafter the DB (web-managed) is authoritative.
+        if db.count_watchlist(conn) == 0 and cfg.companies:
+            seeded = db.import_watchlist(conn, _companies_as_dicts(cfg), now=now)
+            print(f"seeded watchlist from config: {seeded} companies")
+        companies = db.get_watchlist(conn)
 
         pipeline.run_fetch(conn, companies, cfg.title_filter, now=now)
+
+        # Discovery feeds: broad listing streams resolved back to boards. Runs
+        # before scoring so feed-discovered 'new' rows are scored this same pass.
+        for feed in cfg.feeds:
+            if not feed.enabled:
+                continue
+            if feed.name == "simplify":
+                pipeline.run_feed(
+                    conn, now=now,
+                    feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
+                    keep_categories=feed.categories, feed_name=feed.name,
+                )
 
         # Build the screening checklist only when the candidate actually configured
         # hard requirements; an empty candidate skips the SCREEN call entirely (no
@@ -147,6 +163,10 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
         conn.close()
 
 
+def _companies_as_dicts(cfg) -> list[dict]:
+    return [{"source": c.source, "slug": c.slug, "name": c.name} for c in cfg.companies]
+
+
 def _missing_keywords(posting) -> list[str]:
     import json
 
@@ -173,6 +193,8 @@ def _read_text(path: str) -> str:
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
+    parser.add_argument("--import-companies", action="store_true",
+                        help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--env", default=".env")
     # DB_PATH / RESUME_DIR are set by docker-compose to the shared-volume paths;
@@ -192,6 +214,19 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
+
+    # Force-seed the DB watchlist from config and exit (idempotent). Useful to
+    # push newly-added config companies into the table; the normal run also
+    # auto-seeds when the watchlist is empty.
+    if args.import_companies:
+        conn = db.connect(args.db)
+        try:
+            seeded = db.import_watchlist(conn, _companies_as_dicts(cfg), now=_now())
+        finally:
+            conn.close()
+        print(f"imported {seeded} companies into the watchlist")
+        return
+
     env = load_env(args.env)
     resume_text = _read_text(args.resume)
     master_tex = _read_text(args.master_tex)

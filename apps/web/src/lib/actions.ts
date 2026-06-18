@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -651,6 +651,60 @@ export async function importApplicationsCSV(csvText: string) {
         }
 
         return { success: true, added, skipped, errors }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+// --- Watchlist (DB-backed; the worker fetches these companies in full) ------
+// The watchlist moved out of the worker's config.yaml into the DB so it can be
+// managed here. A future step adds promotion suggestions (feed -> watchlist);
+// for now this is manual list / add / remove.
+
+export async function getWatchedCompanies() {
+    const [data, total] = await Promise.all([
+        prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
+        prisma.watched_companies.count(),
+    ])
+    return { data, total }
+}
+
+export async function addWatchedCompany(input: {
+    source: string
+    slug: string
+    name: string
+}) {
+    try {
+        const source = (input.source || '').trim()
+        const slug = (input.slug || '').trim()
+        const name = (input.name || '').trim()
+        if (!source || !slug || !name) {
+            return { success: false, error: 'source, slug, and name are required' }
+        }
+        if (!(VALID_SOURCES as readonly string[]).includes(source)) {
+            return { success: false, error: `Unknown source: ${source}` }
+        }
+
+        const existing = await prisma.watched_companies.findFirst({
+            where: { source, slug },
+        })
+        if (existing) {
+            return { success: false, error: `${source}/${slug} is already on the watchlist` }
+        }
+
+        const created = await prisma.watched_companies.create({
+            data: { source, slug, name, created_at: new Date().toISOString() },
+        })
+        return { success: true, data: created }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+export async function removeWatchedCompany(id: number) {
+    try {
+        await prisma.watched_companies.delete({ where: { id } })
+        return { success: true }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

@@ -19,6 +19,7 @@ CREATE TABLE "job_postings" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "source" TEXT NOT NULL,
     "external_id" TEXT NOT NULL,
+    "company_slug" TEXT,
     "company_name" TEXT NOT NULL,
     "job_title" TEXT NOT NULL,
     "location" TEXT,
@@ -46,5 +47,36 @@ CREATE TABLE "status_history" (
     CONSTRAINT "status_history_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 
+CREATE TABLE "watched_companies" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "source" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "created_at" TEXT NOT NULL
+);
+
+CREATE TABLE "feed_unresolved" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "feed" TEXT NOT NULL,
+    "url" TEXT NOT NULL,
+    "company_name" TEXT NOT NULL,
+    "job_title" TEXT NOT NULL,
+    "host" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "created_at" TEXT NOT NULL,
+    "updated_at" TEXT
+);
+
+CREATE TABLE "promotion_dismissed" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "source" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "created_at" TEXT NOT NULL
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");
+CREATE UNIQUE INDEX "watched_companies_source_slug_key" ON "watched_companies"("source", "slug");
+CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");
+CREATE INDEX "feed_unresolved_reason_idx" ON "feed_unresolved"("reason");
+CREATE UNIQUE INDEX "promotion_dismissed_source_slug_key" ON "promotion_dismissed"("source", "slug");

@@ -119,6 +119,11 @@ def test_run_once_calls_four_stages_in_order(monkeypatch):
             pass
 
     monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    # The watchlist now comes from the DB; stub the reads so this stage-order test
+    # doesn't need a real connection (feeds are off, so run_feed isn't called).
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
 
     from ats_worker import config as cfgmod
     cfg = cfgmod.load_config(
@@ -138,6 +143,58 @@ def test_run_once_calls_four_stages_in_order(monkeypatch):
         },
     )
     assert order == ["fetch", "score", "tailor", "notify"]
+
+
+# --- watchlist bootstrap + feed wiring ------------------------------------
+
+_ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
+        "TELEGRAM_CHAT_ID": "c", "OLLAMA_HOST": "h"}
+
+
+def _stub_stages(monkeypatch):
+    for stage in ("run_fetch", "run_score", "run_tailor", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
+
+
+def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
+    _stub_stages(monkeypatch)
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    cfg = cfgmod.load_config(
+        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
+        "  - { source: lever, slug: b, name: B }\n"
+    )
+    run.run_once(cfg, db_path=str(dbfile), resume_text="r", master_tex="m", env=_ENV)
+
+    conn = dbmod.connect(str(dbfile))
+    assert dbmod.get_watchlist(conn) == [
+        {"source": "greenhouse", "slug": "a", "name": "A"},
+        {"source": "lever", "slug": "b", "name": "B"},
+    ]
+    # a second pass does not duplicate (watchlist no longer empty)
+    run.run_once(cfg, db_path=str(dbfile), resume_text="r", master_tex="m", env=_ENV)
+    assert dbmod.count_watchlist(dbmod.connect(str(dbfile))) == 2
+
+
+def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
+    _stub_stages(monkeypatch)
+    calls = []
+    monkeypatch.setattr(run.pipeline, "run_feed",
+                        lambda conn, *, now, feed_fn, keep_categories, feed_name, **k:
+                        calls.append((feed_name, keep_categories)) or 0)
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+
+    cfg_on = cfgmod.load_config(
+        "companies: []\nfeeds:\n  simplify:\n    enabled: true\n    categories: [Software]\n"
+    )
+    run.run_once(cfg_on, db_path=str(dbfile), resume_text="r", master_tex="m", env=_ENV)
+    assert calls == [("simplify", ["Software"])]
+
+    calls.clear()
+    cfg_off = cfgmod.load_config("companies: []\nfeeds:\n  simplify:\n    enabled: false\n")
+    run.run_once(cfg_off, db_path=str(dbfile), resume_text="r", master_tex="m", env=_ENV)
+    assert calls == []
 
 
 # --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---

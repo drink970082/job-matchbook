@@ -1,0 +1,11 @@
+[
+  {"url": "https://jobs.ashbyhq.com/acme/aaaa-1111", "company_name": "Acme", "title": "Software Engineer", "locations": ["Remote"], "category": "Software", "sponsorship": "Other", "active": true},
+  {"url": "https://jobs.lever.co/foobar/bbbb-2222", "company_name": "Foobar", "title": "ML Engineer", "locations": ["NYC"], "category": "AI/ML/Data", "sponsorship": "Other", "active": true},
+  {"url": "https://boards.greenhouse.io/acmegh/jobs/3333", "company_name": "AcmeGH", "title": "Quant Developer", "locations": ["Chicago"], "category": "Quant", "sponsorship": "Offers Sponsorship", "active": true},
+  {"url": "https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer_R123", "company_name": "Workday Co", "title": "Software Engineer", "locations": ["Boston"], "category": "Software", "sponsorship": "Other", "active": true},
+  {"url": "https://careers.qualtrics.com/careers/job/7340628?gh_jid=7340628", "company_name": "Qualtrics", "title": "Software Engineer", "locations": ["Seattle"], "category": "Software", "sponsorship": "Other", "active": true},
+  {"url": "https://jobs.smartrecruiters.com/Acme/12345", "company_name": "SmartCo", "title": "Software Engineer", "locations": ["Remote"], "category": "Software", "sponsorship": "Other", "active": true},
+  {"url": "https://jobs.lever.co/inactive/zzzz", "company_name": "Inactive Co", "title": "Software Engineer", "locations": ["Remote"], "category": "Software", "sponsorship": "Other", "active": false},
+  {"url": "https://jobs.ashbyhq.com/hw/hw-1", "company_name": "Hardware Co", "title": "FPGA Engineer", "locations": ["Austin"], "category": "Hardware", "sponsorship": "Other", "active": true},
+  {"url": "https://jobs.ashbyhq.com/nospon/ns-1", "company_name": "NoSpon Co", "title": "Software Engineer", "locations": ["Remote"], "category": "Software", "sponsorship": "Does Not Offer Sponsorship", "active": true}
+]

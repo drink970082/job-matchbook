@@ -48,3 +48,13 @@ export function makeStatusHistory(over: Record<string, unknown> = {}) {
         ...over,
     }
 }
+
+export function makeWatchedCompany(over: Record<string, unknown> = {}) {
+    return {
+        source: 'greenhouse',
+        slug: 'acme',
+        name: 'Acme',
+        created_at: '2026-01-01T00:00:00.000Z',
+        ...over,
+    }
+}

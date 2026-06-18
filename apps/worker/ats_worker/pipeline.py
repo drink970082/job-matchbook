@@ -23,6 +23,8 @@ import sqlite3
 
 from . import db
 from .fetch import fetch_company, filter_postings
+from .feed import prefilter as _prefilter
+from .feed import resolve as _resolve
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -42,7 +44,83 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> 
         try:
             postings = fetch_fn(c["source"], c["slug"], c["name"])
             kept = filter_postings(postings, title_filter)
+            for p in kept:
+                p["company_slug"] = c["slug"]
             inserted += db.upsert_postings(conn, kept, now=now)
+        except Exception:  # noqa: BLE001 — one bad board must not abort the rest
+            continue
+    return inserted
+
+
+# --- feed (discovery) -----------------------------------------------------
+
+def _feed_match_fn(source: str, wanted: set[str]):
+    """Return a predicate `posting -> bool` for keeping feed-surfaced postings.
+
+    For greenhouse/lever/ashby/smartrecruiters the wanted set holds the exact
+    external_id the adapter emits, so exact membership. WORKDAY is special: the
+    feed surfaces the per-tenant jobReqId but the adapter emits the GUID as
+    external_id and carries the jobReqId inside posting['job_url'] (externalUrl),
+    so we keep a workday posting if ANY wanted value is a substring of its
+    job_url.
+    """
+    if source == "workday":
+        return lambda p: any(w and w in (p.get("job_url") or "") for w in wanted)
+    return lambda p: p.get("external_id") in wanted
+
+
+def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
+             prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
+             classify_fn=_resolve.classify_reason, fetch_fn=fetch_company,
+             record_unresolved_fn=db.record_unresolved) -> int:
+    """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
+    its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
+    feed-surfaced postings. Returns rows inserted.
+
+    A feed is a transport, not a source: resolved postings carry the underlying
+    board's (source, external_id), so they dedup against the watchlist and across
+    feeds. Listings we can't resolve are recorded (feed_unresolved) as a
+    next-step backlog, never silently dropped. Mirrors run_fetch's resilience:
+    one bad board never aborts the batch.
+    """
+    # 1. cheap metadata gate, then 2. resolve -> group wanted ids by (source, slug)
+    wanted: dict[tuple[str, str], set[str]] = {}
+    names: dict[tuple[str, str], str] = {}
+    for x in prefilter_fn(feed_fn(), keep_categories):
+        url = x.get("url")
+        if not url:
+            continue
+        r = resolve_fn(url)
+        if r is None:
+            host, reason = classify_fn(url)
+            record_unresolved_fn(
+                conn, feed=feed_name, url=url,
+                company_name=x.get("company_name") or "",
+                job_title=x.get("title") or "", host=host, reason=reason, now=now,
+            )
+            continue
+        source, slug, external_id = r
+        wanted.setdefault((source, slug), set()).add(external_id)
+        names.setdefault((source, slug), x.get("company_name") or slug)
+
+    # 3. per company: skip already-ingested, else fetch the board and keep only
+    #    the surfaced ids. Per-group try/except so one bad board is skipped.
+    inserted = 0
+    for (source, slug), ids in wanted.items():
+        try:
+            # existing_external_ids prunes groups already fully ingested. It is a
+            # no-op for workday (the feed surfaces jobReqIds, the DB stores GUIDs —
+            # different id spaces — so the lookup never matches and the group always
+            # re-fetches; dedup-on-upsert prevents dupes). That's intentional.
+            missing = ids - db.existing_external_ids(conn, source, ids)
+            if not missing:
+                continue
+            match = _feed_match_fn(source, missing)
+            postings = fetch_fn(source, slug, names[(source, slug)])
+            keep = [p for p in postings if match(p)]
+            for p in keep:
+                p["company_slug"] = slug
+            inserted += db.upsert_postings(conn, keep, now=now)
         except Exception:  # noqa: BLE001 — one bad board must not abort the rest
             continue
     return inserted

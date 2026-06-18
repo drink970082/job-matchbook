@@ -32,6 +32,7 @@ model job_postings {
   id              Int           @id @default(autoincrement())
   source          String // greenhouse | lever | ashby
   external_id     String // id returned by the board
+  company_slug    String? // board slug this posting came from (for promotion grouping; null on legacy rows)
   company_name    String
   job_title       String
   location        String?
@@ -60,4 +61,48 @@ model status_history {
   status         String
   timestamp      String
   applications   applications @relation(fields: [application_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+// The watchlist of companies the worker fetches in full, one board per row.
+// DB-owned (not config.yaml) so the web UI can manage it and a future
+// promotion-suggestion step can append to it. Seeded once from config.yaml's
+// `companies:` when empty; thereafter this table is authoritative.
+model watched_companies {
+  id         Int    @id @default(autoincrement())
+  source     String // greenhouse | lever | ashby | workday | pinpoint
+  slug       String // board identifier (workday packs tenant/datacenter/site)
+  name       String // display name
+  created_at String
+
+  @@unique([source, slug]) // dedup key
+}
+
+// "Record fail instances for next step": feed listings whose apply URL the
+// resolver could not map to a supported board+slug (workday deferred, embedded
+// greenhouse without a slug, or an unsupported ATS host). A prioritised backlog
+// for expanding feed coverage — written by the worker, not yet surfaced in the UI.
+model feed_unresolved {
+  id           Int     @id @default(autoincrement())
+  feed         String // which feed surfaced it, e.g. "simplify"
+  url          String // the unresolvable apply URL
+  company_name String
+  job_title    String
+  host         String // parsed hostname, for prioritising (e.g. myworkdayjobs.com)
+  reason       String // workday_deferred | embedded_greenhouse | unsupported_host
+  created_at   String
+  updated_at   String?
+
+  @@unique([url]) // upsert key — no pile-up across passes
+  @@index([reason])
+}
+
+// Companies the user dismissed from the promotion-suggestion list (feed →
+// watchlist). A dismissed (source, slug) is filtered out of future suggestions.
+model promotion_dismissed {
+  id         Int    @id @default(autoincrement())
+  source     String
+  slug       String
+  created_at String
+
+  @@unique([source, slug])
 }

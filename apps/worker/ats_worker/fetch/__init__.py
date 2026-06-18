@@ -1,7 +1,7 @@
 """Fetch adapters and shared post-processing for board APIs."""
 from __future__ import annotations
 
-from . import ashby, greenhouse, lever, pinpoint, workday
+from . import ashby, greenhouse, lever, pinpoint, smartrecruiters, workday
 
 # source name -> adapter module (each exposes parse_jobs + fetch)
 ADAPTERS = {
@@ -10,6 +10,7 @@ ADAPTERS = {
     ashby.SOURCE: ashby,
     workday.SOURCE: workday,
     pinpoint.SOURCE: pinpoint,
+    smartrecruiters.SOURCE: smartrecruiters,
 }
 
 
@@ -43,5 +44,5 @@ def fetch_company(source: str, slug: str, company_name: str, **kwargs) -> list[d
 
 __all__ = [
     "ADAPTERS", "filter_postings", "fetch_company",
-    "ashby", "greenhouse", "lever", "workday", "pinpoint",
+    "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
 ]

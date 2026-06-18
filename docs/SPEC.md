@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 · **Spec last updated:** 2026-06-16 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist) · **Spec last updated:** 2026-06-17 · **License:** MIT
 
 ---
 
@@ -128,7 +128,10 @@ Two pains, addressed by the two services:
 - **No auto-apply / auto-submit.** A human always performs the application.
 - **No multi-tenant SaaS, no user accounts, no public hosting.** Single-user, self-hosted.
 - **No scraping of LinkedIn / Indeed.** Only official company ATS board APIs
-  (anti-scraping + ToS risk avoided).
+  (anti-scraping + ToS risk avoided). The optional discovery feed reads a **public
+  GitHub data file** (SimplifyJobs `listings.json`) — not a scraped UI — and still
+  fetches every JD from the official board the listing's URL resolves to; aggregator
+  *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
 - **No cloud dependency** beyond the three external APIs the worker calls
   (Anthropic Claude, the host's Ollama, Telegram).
 - **The worker issues no schema DDL** — Prisma owns the schema.
@@ -143,7 +146,10 @@ The two-phase workflow:
 
 ```
 Phase 1 — Discovery & scoring (apps/worker, scheduled)
-  companies ─► fetch (Greenhouse/Lever/Ashby/Workday/Pinpoint)
+  watchlist (DB) ─► fetch (Greenhouse/Lever/Ashby/Workday/Pinpoint) ─┐
+  feed (Simplify) ─► prefilter ─► resolve URL→board ─► fetch (reuse) ─┤
+                    (unresolvable URL → feed_unresolved backlog)      │
+            (both paths upsert job_postings, deduped on source+id) ◄──┘
             ─► score + screen (local Ollama)
             ─► tailor one-page resume (Claude + tectonic)   [only score ≥ threshold]
             ─► notify (Telegram message + PDF)
@@ -153,6 +159,12 @@ Phase 2 — Triage & tracking (apps/web, browser)
             ─► you apply by hand ─► one-click "Mark Applied"
             ─► becomes a tracked application ─► flows into KPIs + charts
 ```
+
+Two ingestion paths feed the same `job_postings` table: the **watchlist** (companies
+you curate, fetched in full) and an optional **discovery feed** (a broad listing
+stream resolved back to boards, JD fetched with the same adapters). Both dedup on
+`(source, external_id)` of the underlying board, so the feed is a *transport*, never
+a `source`.
 
 A posting moves through a `pipeline_status` state machine in the database
 (§[9](#9-behaviors-and-invariants)). "Mark Applied" is the seam between the two
@@ -252,12 +264,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--resume-dir` (`RESUME_DIR`, default `../../resumes`), `--resume`,
   `--master-tex`, `--model` (`OLLAMA_MODEL`), `--anthropic-model`
-  (`ANTHROPIC_MODEL`). Defaults: scoring `qwen3.5:4b`, tailoring
-  `claude-sonnet-4-6`. The only module that knows about secrets/external services.
+  (`ANTHROPIC_MODEL`), `--import-companies` (seed the DB watchlist from config and
+  exit). Defaults: scoring `qwen3.5:4b`, tailoring `claude-sonnet-4-6`. Each pass
+  **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
+  reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
+  `run_feed` for each enabled feed. The only module that knows about
+  secrets/external services.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
-  ({greenhouse, lever, ashby, workday, pinpoint}); exposes `companies`,
-  `title_filter`, `candidate` (with `is_empty()`), `threshold`, `schedule_hours`,
-  `max_single_page_rounds`. Bad source / missing field → clear startup error.
+  ({greenhouse, lever, ashby, workday, pinpoint, smartrecruiters}); exposes `companies`,
+  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold`,
+  `schedule_hours`, `max_single_page_rounds`. Bad source / missing field → clear
+  startup error. `feeds` is an optional mapping of feed-name → settings (only
+  `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
+  `companies` is now consumed only by the one-time watchlist import (see `run.py`).
 - **`fetch/` — board adapters.** One thin module per source, each exposing
   `parse_jobs` + `fetch`, registered in `fetch/ADAPTERS`. Each returns a unified
   dict (`title`, `location`, `url`, full JD `description`, `external_id`). Sources:
@@ -266,11 +285,28 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `ashby` — `api.ashbyhq.com/posting-api/job-board/{slug}`
   - `workday` — CXS list call + per-job detail (N+1); slug packs `tenant/datacenter/site`
   - `pinpoint` — `{slug}.pinpointhq.com/postings.json`
+  - `smartrecruiters` — `api.smartrecruiters.com/v1/companies/{slug}/postings` list +
+    per-job `/postings/{id}` detail (N+1, like workday)
   - `filter_postings(postings, title_filter)` — optional case-insensitive
     title-substring pre-filter (title only; geography is handled by the scorer).
+- **`feed/` — discovery-feed package.** Ingests a broad listing stream and resolves
+  it back to boards (a feed is a *transport*, not a `source`). Pure parts:
+  - `simplify` — `fetch` the SimplifyJobs `listings.json` (a public GitHub data
+    file) over injected HTTP; returns raw listing dicts (no JD text).
+  - `prefilter` — cheap metadata gate: keep `active` listings whose `category` is in
+    the configured keep-list and whose `sponsorship` is not an explicit "no".
+  - `resolve` — `resolve_url` maps an apply URL → `(source, slug, external_id)` for
+    `lever`/`ashby`/`greenhouse`-direct/`smartrecruiters` (external_ids match the
+    adapters exactly) and `workday` (returns the `jobReqId`, matched downstream as a
+    substring of the posting's `job_url`); else `None`. `classify_reason` labels the
+    residual unresolvable ones (an *unparseable* `workday` URL → `workday_deferred`,
+    `embedded_greenhouse`, `unsupported_host`) for the `feed_unresolved` backlog.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
-  (dedup on `(source, external_id)`), `get_by_status` (optionally `min_score`),
-  `save_score`, `save_resume`, `mark_notified`, `mark_failed`. Issues no DDL.
+  (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
+  (optionally `min_score`), `save_score`, `save_resume`, `mark_notified`,
+  `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
+  `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
+  `existing_external_ids`. Issues no DDL.
 - **`score.py` — `score_posting`.** Calls host Ollama (`think: false`,
   `num_ctx` from `OLLAMA_NUM_CTX`, default 8192) with `resume.txt` + JD → JSON
   `{score 0-100, matched_keywords, missing_keywords, reasoning}`. When a non-empty
@@ -290,9 +326,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   PDF is missing.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
-  `run_fetch` → `run_score` → `run_tailor` → `run_notify`. Every stage wraps each
-  item in try/except: one bad posting is recorded via `db.mark_failed` and the
-  batch continues. Stage gating in §[9](#9-behaviors-and-invariants).
+  `run_fetch` → (`run_feed`) → `run_score` → `run_tailor` → `run_notify`. Every stage
+  wraps each item in try/except: one bad posting/company is recorded (via
+  `db.mark_failed` or skipped) and the batch continues. `run_feed` (optional) runs
+  the feed: prefilter → resolve → record-unresolved, then groups survivors by
+  `(source, slug)`, skips ids already ingested (`existing_external_ids`), fetches each
+  board via the existing adapter, and upserts **only** the feed-surfaced postings
+  (per-source match: exact `external_id` for most boards; `jobReqId`-substring-of-`job_url`
+  for workday), stamping each with its `company_slug`. Stage gating in
+  §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
 
@@ -315,17 +357,27 @@ worker modules are pure and dependency-injected; real services are wired only in
     `getCategoryData` (donut).
   - *Discovered jobs:* `getJobPostings` (default queue = `scored|tailored|notified`,
     `score desc`), `discardJobPosting`, `reopenJobPosting`, `markJobApplied`.
+  - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
+    `source ∈ VALID_SOURCES`, dedups `(source, slug)`), `removeWatchedCompany`.
+  - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
+    `lib/unresolved-actions.ts`, not `actions.ts`): `getPromotionSuggestions` (raw-SQL
+    aggregate over `job_postings` by `(source, company_slug)`, excluding watched +
+    dismissed; signal in §9), `dismissPromotion`; `getUnresolvedFeeds` (groups
+    `feed_unresolved` by host + reason). Approve reuses `addWatchedCompany`.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status/category against enums; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
   connection leaks).
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
-  `getStatusColor`. **Edit here to extend statuses/categories.**
-- **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs tabs),
-  `ApplicationTable` (inline status edit), `KPIGrid`, `StatusHistoryModal`,
-  `AddApplicationForm`, `DiscoveredJobsTable`, `JobDetailModal` (JD + score
-  detail), and the four charts `TimelineHeatmap` / `CategoryDonut` / `StatusFunnel`
-  / `SankeyChart`, plus Radix-based `ui/` primitives.
+  `VALID_SOURCES` (6, mirrors the worker), `getStatusColor`. **Edit here to extend
+  statuses/categories/sources.**
+- **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
+  Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable`, `WatchlistTable`
+  (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
+  watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
+  backlog), `JobDetailModal` (JD + score detail), and the four charts `TimelineHeatmap` /
+  `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
 
 ---
 
@@ -333,10 +385,11 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Three tables, owned solely by `apps/web/prisma/schema.prisma`. Dates are stored as
-**ISO-8601 strings** for sortability and timezone-independence (`date_applied` as
-`YYYY-MM-DD`; timestamps as full ISO with millisecond precision to match Prisma /
-the worker's `_now()`).
+Six tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+`status_history`, `job_postings`, `watched_companies`, `feed_unresolved`,
+`promotion_dismissed`). Dates are stored as **ISO-8601 strings** for sortability and
+timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
+millisecond precision to match Prisma / the worker's `_now()`).
 
 ```prisma
 model applications {
@@ -364,8 +417,9 @@ model status_history {
 
 model job_postings {
   id              Int           @id @default(autoincrement())
-  source          String        // greenhouse | lever | ashby | workday | pinpoint
+  source          String        // greenhouse | lever | ashby | workday | pinpoint | smartrecruiters
   external_id     String        // id returned by the board
+  company_slug    String?       // board slug this posting came from (promotion grouping; null on legacy rows)
   company_name    String
   job_title       String
   location        String?
@@ -386,6 +440,37 @@ model job_postings {
 
   @@unique([source, external_id])  // dedup key
   @@index([pipeline_status])
+}
+
+model watched_companies {        // the DB-owned watchlist (web-managed)
+  id          Int    @id @default(autoincrement())
+  source      String // greenhouse | lever | ashby | workday | pinpoint
+  slug        String // board identifier (workday packs tenant/datacenter/site)
+  name        String
+  created_at  String
+  @@unique([source, slug])       // dedup key
+}
+
+model feed_unresolved {          // feed listings not resolvable to a board (backlog)
+  id           Int     @id @default(autoincrement())
+  feed         String  // e.g. "simplify"
+  url          String
+  company_name String
+  job_title    String
+  host         String  // parsed hostname, for prioritising
+  reason       String  // workday_deferred | embedded_greenhouse | unsupported_host
+  created_at   String
+  updated_at   String?
+  @@unique([url])                // upsert key — no pile-up across passes
+  @@index([reason])
+}
+
+model promotion_dismissed {      // companies the user dismissed from suggestions
+  id          Int    @id @default(autoincrement())
+  source      String
+  slug        String
+  created_at  String
+  @@unique([source, slug])
 }
 ```
 
@@ -422,6 +507,7 @@ them when changing behavior.
 
 ```
 fetch:   (new posting)            → new
+feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
 score:   new                      → scored        (default)
                                   → discarded      (candidate hard-constraint fail)
 tailor:  scored, score ≥ threshold → tailored      (below threshold: stay scored, untouched)
@@ -441,6 +527,44 @@ any stage, on exception           → failed         (pipeline_error set; batch 
 - **Tailored PDFs** are written to `{resume_dir}/{source}_{external_id}/` — unique
   per posting so concurrent tailors never clobber each other; rooted at the shared
   volume so `resume_path` is web-readable.
+
+**Feed ingestion** (`run_feed`, optional):
+
+- **A feed is a transport, never a `source`.** Each surfaced listing is resolved to
+  its underlying board `(source, slug, external_id)` and ingested under that board's
+  source, so dedup on `(source, external_id)` holds across the feed, the watchlist,
+  and repeated passes. The resolver's id matches the adapter exactly for
+  `lever`/`ashby` (uuid), `greenhouse` (numeric), and `smartrecruiters` (posting id);
+  **workday is special** — the feed exposes the per-tenant `jobReqId` but the adapter
+  keys on the GUID, so the resolver returns the `jobReqId` and the keep-filter matches
+  it as a **substring of the posting's `job_url`** (the `externalUrl`).
+- **Pre-filter then resolve then keep-only-surfaced.** Listings are gated on
+  `active` + `category` keep-list + non-explicit-`sponsorship` *before* any fetch;
+  survivors are grouped by `(source, slug)`, ids already present are skipped, and the
+  board is fetched with the existing adapter keeping **only** the surfaced postings
+  (a feed company is never ingested in full like a watchlist company). Each kept
+  posting is stamped with its resolved `company_slug`.
+- **Unresolvable listings are recorded, not dropped.** A URL the resolver can't map
+  to a supported board+slug (an *unparseable* workday URL, embedded greenhouse,
+  unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on
+  `url`. One bad board never aborts the batch (per-group try/except, mirroring `run_fetch`).
+
+**Watchlist** (`watched_companies`):
+
+- **DB-owned, single source of truth.** The worker reads its watchlist from the DB,
+  not `config.yaml`. On a pass where `watched_companies` is empty, it is **seeded
+  once** from `config.companies` (idempotent); thereafter config edits are ignored
+  (`--import-companies` forces a re-seed). Dedup on `(source, slug)`.
+
+**Promotion suggestions** (`lib/promotion-actions.ts`):
+
+- **Suggest, never auto-promote.** `getPromotionSuggestions` groups `job_postings` by
+  `(source, company_slug)` (non-null slug only), **excluding** companies already in
+  `watched_companies` or `promotion_dismissed`, and surfaces those with
+  `count(pipeline_status ∈ {tailored,notified,applied}) ≥ 2` **or**
+  `count(applied) ≥ 1`, ranked by applied then high-score count. Approve is the user
+  calling `addWatchedCompany`; `dismissPromotion` records `(source, slug)` (idempotent)
+  to suppress it. The watchlist only ever grows by an explicit human action.
 
 **Web ↔ pipeline seam** (`lib/actions.ts`):
 
@@ -537,6 +661,16 @@ automated coverage — those rely on code review or the human in the loop, not a
 | ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | ⚠ Resume API path-traversal guard (403) | **none** — guard is code-only in `route.ts` |
+| Feed resolve (URL→board incl. workday/smartrecruiters) + classify-reason | `test_feed_resolve.py` |
+| SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |
+| Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
+| `run_feed` keeps only surfaced ids (workday substring match), records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
+| Promotion suggestions (signal, exclude watched/dismissed) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
+| Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |
+| Watchlist DB helpers (import idempotent, record_unresolved upsert, existing ids) | `test_watchlist_db.py` |
+| Watchlist auto-seed-on-empty + feed wiring in `run_once` | `test_run.py` |
+| `feeds:` config parsing + defaults | `test_feed_config.py` |
+| Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 
 ---
