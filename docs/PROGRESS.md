@@ -22,8 +22,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 Nothing in flight. (Starting work → add a line here; see
-[How to update](#how-to-update).)
+🚧 **Tier-2 feed adapters (step 2).** The detail-fetch robustness framework has
+landed (validate + record silent scrape failures, see SPEC §7.1/§9); next is fanning
+out the three deferred scraping sources against it — **iCIMS** (`fetch_one`,
+`window._jibe`), **ByteDance/TikTok** (`fetch_one`, bespoke), and **embedded
+greenhouse** (an *enriching-resolve* seam — scrape the board token, reuse greenhouse).
+Each is its own adapter built by a subagent, then a single integration pass wires the
+shared files (`resolve.py`, `fetch/__init__.py`, SPEC §7.1 matrix). Plan:
+`~/.claude/plans/tidy-watching-whisper.md`.
 
 ---
 
@@ -81,7 +87,10 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   (2026-06-18, live `listings.json`):** 18,207 raw → 1,394 after prefilter; 460
   unresolved by platform — Oracle 116 ✅, ByteDance/TikTok 85, iCIMS 42, greenhouse
   EU-host 23 ✅, embedded-greenhouse 54, greenhouse embed-token 17, Jobvite 14 ✅,
-  Workable 7 ✅, long-tail bespoke ~remaining. **Deferred** (need fragile scraping):
+  Workable 7 ✅, long-tail bespoke ~remaining. The **detail-fetch robustness framework**
+  (validate scraped postings; record raise/`None`/invalid failures to `feed_unresolved`
+  as `detail_fetch_failed`; collapse warning) has landed so these scrapers fail *loudly*
+  — see the 🚧 [In flight](#in-flight) step-2 line. **Deferred** (need fragile scraping):
   **iCIMS** (`window._jibe`), **embedded greenhouse** (scrape board token from the
   custom-domain embed page → reuse the greenhouse adapter), **ByteDance/TikTok**
   (bespoke single-employer). **Dropped:** greenhouse embed-token (URL has only a job

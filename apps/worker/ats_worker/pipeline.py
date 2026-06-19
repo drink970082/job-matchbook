@@ -20,6 +20,7 @@ Stage gating:
 from __future__ import annotations
 
 import sqlite3
+from urllib.parse import urlparse
 
 from . import db
 from .fetch import DETAIL_SOURCES, fetch_company, fetch_one_company, filter_postings
@@ -69,18 +70,36 @@ def _feed_match_fn(source: str, wanted: set[str]):
     return lambda p: p.get("external_id") in wanted
 
 
-def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids, name: str) -> list[dict]:
+# A scraped posting is only usable if it carries an id, a title, AND a body. An
+# empty description means the scrape silently lost the JD (a moved selector) —
+# the #1 way a detail/scraping adapter breaks without raising. ponytail: detail
+# sources only; the stable list path keeps inserting postings with empty JDs.
+_REQUIRED_FIELDS = ("external_id", "job_title", "description")
+
+
+def _valid_posting(p: dict) -> bool:
+    return all(str((p or {}).get(k) or "").strip() for k in _REQUIRED_FIELDS)
+
+
+def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,
+                  name: str) -> tuple[list[dict], list[str]]:
     """Fetch each surfaced id one at a time, for sources with no board-list endpoint.
-    One bad listing is skipped (mirroring the list adapters' per-item isolation)."""
-    out: list[dict] = []
+    Returns (kept, failed_ids): a failure is a raise, a None, or an invalid posting
+    (so a silently-broken scraper is surfaced, not swallowed). One bad listing is
+    isolated, mirroring the list adapters' per-item resilience."""
+    kept: list[dict] = []
+    failed: list[str] = []
     for ext in ids:
         try:
             posting = detail_fetch_fn(source, slug, ext, name)
         except Exception:  # noqa: BLE001 — skip one bad listing, keep the rest
+            failed.append(ext)
             continue
-        if posting:
-            out.append(posting)
-    return out
+        if posting and _valid_posting(posting):
+            kept.append(posting)
+        else:
+            failed.append(ext)
+    return kept, failed
 
 
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
@@ -98,9 +117,9 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     next-step backlog, never silently dropped. Mirrors run_fetch's resilience:
     one bad board never aborts the batch.
     """
-    # 1. cheap metadata gate, then 2. resolve -> group wanted ids by (source, slug)
-    wanted: dict[tuple[str, str], set[str]] = {}
-    names: dict[tuple[str, str], str] = {}
+    # 1. cheap metadata gate, then 2. resolve -> group wanted ids by (source, slug),
+    #    keeping each id's listing meta so a detail-fetch failure can be recorded.
+    wanted: dict[tuple[str, str], dict[str, dict]] = {}
     for x in prefilter_fn(feed_fn(), keep_categories):
         url = x.get("url")
         if not url:
@@ -115,13 +134,18 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             )
             continue
         source, slug, external_id = r
-        wanted.setdefault((source, slug), set()).add(external_id)
-        names.setdefault((source, slug), x.get("company_name") or slug)
+        wanted.setdefault((source, slug), {}).setdefault(external_id, {
+            "url": url,
+            "company_name": x.get("company_name") or "",
+            "job_title": x.get("title") or "",
+        })
 
     # 3. per company: skip already-ingested, else fetch the board and keep only
     #    the surfaced ids. Per-group try/except so one bad board is skipped.
     inserted = 0
-    for (source, slug), ids in wanted.items():
+    for (source, slug), meta in wanted.items():
+        ids = set(meta)
+        name = next(iter(meta.values()))["company_name"] or slug
         try:
             # existing_external_ids prunes groups already fully ingested. It is a
             # no-op for workday (the feed surfaces jobReqIds, the DB stores GUIDs —
@@ -132,12 +156,27 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
                 continue
             if source in detail_sources:
                 # No board-list endpoint: fetch each surfaced id directly. external_id
-                # is exactly what we fetched, so no keep-filter is needed.
-                keep = _detail_fetch(detail_fetch_fn, source, slug, missing,
-                                     names[(source, slug)])
+                # is exactly what we fetched, so no keep-filter is needed. Failed ids
+                # (raise / None / invalid) are recorded so a silently-broken scraper
+                # surfaces on the unresolved board instead of vanishing.
+                keep, failed = _detail_fetch(detail_fetch_fn, source, slug, missing, name)
+                for fid in failed:
+                    m = meta[fid]
+                    record_unresolved_fn(
+                        conn, feed=feed_name, url=m["url"],
+                        company_name=m["company_name"], job_title=m["job_title"],
+                        host=(urlparse(m["url"]).hostname or ""),
+                        reason="detail_fetch_failed", now=now,
+                    )
+                # Resolved some ids but kept NONE = the scraper likely broke (a
+                # genuinely-empty board never reaches here — missing is non-empty).
+                # The recorded rows are the durable signal; this is the live one.
+                if not keep:
+                    print(f"[feed] {source}: detail-fetch collapse — "
+                          f"0/{len(missing)} resolved (scraper may be broken)")
             else:
                 match = _feed_match_fn(source, missing)
-                postings = fetch_fn(source, slug, names[(source, slug)])
+                postings = fetch_fn(source, slug, name)
                 keep = [p for p in postings if match(p)]
             for p in keep:
                 p["company_slug"] = slug

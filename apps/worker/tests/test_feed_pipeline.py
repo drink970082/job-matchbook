@@ -209,6 +209,10 @@ def test_run_feed_detail_isolates_a_bad_listing(db_path):
     )
     assert inserted == 1
     assert {r["external_id"] for r in db.get_by_status(conn, "new")} == {"good"}
+    # the bad listing is recorded on the unresolved board, not silently dropped.
+    rows = conn.execute("SELECT host, reason FROM feed_unresolved").fetchall()
+    assert [(r["host"], r["reason"]) for r in rows] == [
+        ("jpmc.fa.oraclecloud.com", "detail_fetch_failed")]
 
 
 def test_run_feed_detail_skips_none_result(db_path):
@@ -223,6 +227,54 @@ def test_run_feed_detail_skips_none_result(db_path):
     )
     assert inserted == 0
     assert db.get_by_status(conn, "new") == []
+    # a None result is a failure now — recorded on the board, not vanished.
+    rows = conn.execute("SELECT host, reason FROM feed_unresolved").fetchall()
+    assert [(r["host"], r["reason"]) for r in rows] == [
+        ("jobs.jobvite.com", "detail_fetch_failed")]
+
+
+def test_run_feed_detail_records_invalid_posting(db_path):
+    # A scraper that returns a posting with NO description silently lost the JD;
+    # it must be rejected (not inserted) and recorded as a detail-fetch failure.
+    conn = db.connect(db_path)
+    listings = [{
+        "url": "https://jobs.jobvite.com/acme/job/xyz", "company_name": "Acme",
+        "title": "SWE", "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=lambda s, sl, ext, n: _posting(ext, source=s, description=""),
+    )
+    assert inserted == 0
+    assert db.get_by_status(conn, "new") == []
+    assert conn.execute(
+        "SELECT reason FROM feed_unresolved").fetchone()["reason"] == "detail_fetch_failed"
+
+
+def test_run_feed_detail_collapse_warns(db_path, capsys):
+    # Every surfaced id fails -> a collapse line is printed (the live "scraper
+    # broke" signal), distinct from a board that genuinely had 0 new jobs.
+    conn = db.connect(db_path)
+    listings = [
+        {"url": f"https://jobs.jobvite.com/acme/job/{i}", "company_name": "Acme",
+         "title": "SWE", "category": "Software", "sponsorship": "Other", "active": True}
+        for i in ("a", "b")
+    ]
+    pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=lambda *a: None,
+    )
+    out = capsys.readouterr().out
+    assert "detail-fetch collapse" in out and "jobvite" in out
+
+
+def test_valid_posting_requires_id_title_description():
+    good = _posting("1")
+    assert pipeline._valid_posting(good)
+    for blank in ("external_id", "job_title", "description"):
+        assert not pipeline._valid_posting({**good, blank: ""})
+        assert not pipeline._valid_posting({**good, blank: None})
 
 
 def test_run_feed_skips_listing_without_url(db_path):

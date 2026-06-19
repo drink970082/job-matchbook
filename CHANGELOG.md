@@ -8,6 +8,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Detail-fetch robustness (prep for Tier-2 scrapers).** Silently-broken scrapers are
+  now made visible: a fetched detail posting is validated (non-empty
+  `external_id`/`job_title`/`description`) before it counts, and any failed surfaced id
+  (a raise, a `None`, or an invalid posting) is recorded in `feed_unresolved` as
+  `detail_fetch_failed` — appearing on the existing unresolved board, grouped by host —
+  instead of vanishing into `run_feed`'s swallowed per-listing exception. A detail source
+  that resolves ids but keeps none also prints a one-line collapse warning. Source-agnostic
+  (lives in `pipeline.run_feed`/`_detail_fetch`); no adapter changes, no schema change.
+  Canary self-tests and proactive Telegram/banner alerting are deferred.
 - **Feed coverage Tier 1 — Oracle / Workable / Jobvite + Greenhouse-EU host.** Lifts feed
   resolution from ~⅔ to ~78% of the filtered-active feed (measured against the live
   `listings.json`: 460 → ~300 unresolved). New: a **per-listing detail-fetch path** in

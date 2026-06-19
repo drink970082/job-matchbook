@@ -371,7 +371,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   `external_id` for most boards; `jobReqId`-substring-of-`job_url` for workday);
   **detail sources** (`fetch.DETAIL_SOURCES`, e.g. oracle/jobvite — no board-list
   endpoint) fetch each surfaced id directly via `fetch_one_company` (per-id try/except,
-  so one bad listing is skipped). Each kept posting is stamped with its `company_slug`.
+  so one bad listing is skipped). A fetched posting is **validated** (`_valid_posting`:
+  non-empty `external_id` + `job_title` + `description`) before it counts — an empty JD
+  means a scrape silently lost the body, the main way an HTML/JS scraper breaks without
+  raising. Any failed id (raise / `None` / invalid) is recorded in `feed_unresolved`
+  (`reason="detail_fetch_failed"`, host from the listing URL) so a broken scraper
+  surfaces on the unresolved board instead of vanishing; a source that resolves ids but
+  keeps **none** also prints a one-line collapse warning. Each kept posting is stamped
+  with its `company_slug`.
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -591,7 +598,14 @@ any stage, on exception           → failed         (pipeline_error set; batch 
   board-list endpoint (`fetch.DETAIL_SOURCES`, e.g. `oracle`, `jobvite`) is ingested by
   fetching each surfaced id directly via `fetch_one` (per-id try/except → one bad
   listing skipped), not by listing-then-filtering; its `external_id` is exactly the
-  resolved id, so no keep-filter is needed. These sources are **feed-only**: they
+  resolved id, so no keep-filter is needed.
+- **Silently-broken scrapers are made visible.** A detail-fetch failure — a raise, a
+  `None`, or a posting failing `_valid_posting` (non-empty id/title/description) — is
+  recorded in `feed_unresolved` (`reason="detail_fetch_failed"`) like an unresolvable
+  URL, so it shows on the unresolved board rather than vanishing into the swallowed
+  per-listing exception. A source that resolves ids but keeps none additionally prints a
+  collapse warning. (Canary self-tests and proactive Telegram/banner alerting are
+  deferred — see PROGRESS.) These sources are **feed-only**: they
   cannot enumerate a board, so they are absent from `VALID_SOURCES` (not
   watch-listable) and excluded from promotion suggestions.
 
