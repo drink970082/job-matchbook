@@ -24,7 +24,11 @@ from __future__ import annotations
 
 from urllib.parse import unquote, urlparse, parse_qs
 
-_GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
+_GREENHOUSE_HOSTS = {
+    "boards.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",  # EU data-residency host; same path + same boards-api
+}
 
 
 def _path_parts(parsed) -> list[str]:
@@ -69,10 +73,49 @@ def resolve_url(url: str | None) -> tuple[str, str, str] | None:
             return ("smartrecruiters", unquote(parts[0]), parts[1])
         return None
 
+    if host == "apply.workable.com":
+        # apply.workable.com/{slug}/j/{shortcode}[/apply]
+        if len(parts) >= 3 and parts[1] == "j":
+            return ("workable", unquote(parts[0]), parts[2])
+        return None
+
+    if host == "jobs.jobvite.com":
+        # jobs.jobvite.com/{slug}/job/{id} — id is the segment after `job`.
+        if len(parts) >= 3 and parts[1] == "job":
+            return ("jobvite", unquote(parts[0]), parts[2])
+        return None
+
+    if host.endswith(".oraclecloud.com"):
+        return _resolve_oracle(host, parts)
+
     if host.endswith("myworkdayjobs.com"):
         return _resolve_workday(host, parts)
 
     return None
+
+
+def _resolve_oracle(host: str, parts: list[str]) -> tuple[str, str, str] | None:
+    """Map an Oracle CandidateExperience URL to ("oracle", "{host}/{site}", reqId).
+
+    Example:
+      jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210706680
+        host  = jpmc.fa.oraclecloud.com (kept whole — the detail API lives on it),
+        site  = the segment after `sites` (CX_1001),
+        reqId = the segment after the LAST `job` (210706680).
+
+    Returns None if the `sites`/`job` segments or their ids are missing — the
+    detail fetch needs both, so never guess (the caller records it).
+    """
+    if "sites" not in parts or "job" not in parts:
+        return None
+    site_idx = parts.index("sites")
+    job_idx = len(parts) - 1 - parts[::-1].index("job")  # last `job` segment
+    if site_idx + 1 >= len(parts) or job_idx + 1 >= len(parts):
+        return None
+    site, req_id = parts[site_idx + 1], parts[job_idx + 1]
+    if not site or not req_id:
+        return None
+    return ("oracle", f"{host}/{site}", req_id)
 
 
 def _resolve_workday(host: str, parts: list[str]) -> tuple[str, str, str] | None:

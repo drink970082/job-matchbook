@@ -21,6 +21,22 @@ from ats_worker.feed import resolve
     # greenhouse direct: boards.greenhouse.io/{slug}/jobs/{id}
     ("https://boards.greenhouse.io/acme/jobs/4012345", ("greenhouse", "acme", "4012345")),
     ("https://job-boards.greenhouse.io/acme/jobs/4012345", ("greenhouse", "acme", "4012345")),
+    # greenhouse EU data-residency host: identical {slug}/jobs/{id} path
+    ("https://job-boards.eu.greenhouse.io/imc/jobs/4608591101",
+     ("greenhouse", "imc", "4608591101")),
+    # workable: apply.workable.com/{slug}/j/{shortcode}[/apply]
+    ("https://apply.workable.com/scitec/j/301788B4BF/apply",
+     ("workable", "scitec", "301788B4BF")),
+    ("https://apply.workable.com/coldquanta/j/00EC28A7E5",
+     ("workable", "coldquanta", "00EC28A7E5")),
+    # jobvite: jobs.jobvite.com/{slug}/job/{id}
+    ("https://jobs.jobvite.com/isoftstone/job/ouBLzfw9",
+     ("jobvite", "isoftstone", "ouBLzfw9")),
+    # oracle: host kept whole; site after `sites`; reqId after `job`
+    ("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210706680",
+     ("oracle", "jpmc.fa.oraclecloud.com/CX_1001", "210706680")),
+    ("https://hdhe.fa.em3.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2/job/999/Some-Title",
+     ("oracle", "hdhe.fa.em3.oraclecloud.com/CX_2", "999")),
     # smartrecruiters: jobs.smartrecruiters.com/{slug}/{id}[...] — id is 2nd segment
     ("https://jobs.smartrecruiters.com/Acme/12345", ("smartrecruiters", "Acme", "12345")),
     ("https://jobs.smartrecruiters.com/Acme/12345/some-job-slug",
@@ -55,8 +71,18 @@ def test_resolves_supported_boards(url, expected):
     "https://jobs.smartrecruiters.com/Acme",
     # greenhouse host but not a /jobs/{id} path
     "https://boards.greenhouse.io/acme",
+    # greenhouse embed-token: a job id but NO board slug -> unrecoverable
+    "https://boards.greenhouse.io/embed/job_app?token=6099883",
     # lever host but missing the id segment
     "https://jobs.lever.co/acme",
+    # workable host but missing the /j/{shortcode} segment
+    "https://apply.workable.com/scitec",
+    # jobvite host but missing the /job/{id} segment
+    "https://jobs.jobvite.com/isoftstone",
+    # oracle with `job` but no `sites` segment
+    "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/job/123",
+    # oracle with `sites` but no `job` segment
+    "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
 ])
 def test_unresolvable_returns_none(url):
     assert resolve.resolve_url(url) is None

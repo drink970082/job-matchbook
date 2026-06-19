@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 (unreleased: feed + DB watchlist) · **Spec last updated:** 2026-06-17 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-06-18 · **License:** MIT
 
 ---
 
@@ -146,9 +146,10 @@ The two-phase workflow:
 
 ```
 Phase 1 — Discovery & scoring (apps/worker, scheduled)
-  watchlist (DB) ─► fetch (Greenhouse/Lever/Ashby/Workday/Pinpoint) ─┐
-  feed (Simplify) ─► prefilter ─► resolve URL→board ─► fetch (reuse) ─┤
-                    (unresolvable URL → feed_unresolved backlog)      │
+  watchlist (DB) ─► fetch (GH/Lever/Ashby/Workday/Pinpoint/SmartRecruiters/Workable) ─┐
+  feed (Simplify) ─► prefilter ─► resolve URL→board ─► fetch/fetch_one (reuse) ────────┤
+                    (per-listing detail sources: Oracle/Jobvite)                       │
+                    (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
             ─► score + screen (local Ollama)
             ─► tailor one-page resume (Claude + tectonic)   [only score ≥ threshold]
@@ -271,24 +272,56 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_feed` for each enabled feed. The only module that knows about
   secrets/external services.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
-  ({greenhouse, lever, ashby, workday, pinpoint, smartrecruiters}); exposes `companies`,
+  (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
+  smartrecruiters, workable} — feed-only sources oracle/jobvite are intentionally
+  excluded); exposes `companies`,
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold`,
   `schedule_hours`, `max_single_page_rounds`. Bad source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
-- **`fetch/` — board adapters.** One thin module per source, each exposing
-  `parse_jobs` + `fetch`, registered in `fetch/ADAPTERS`. Each returns a unified
-  dict (`title`, `location`, `url`, full JD `description`, `external_id`). Sources:
-  - `greenhouse` — `boards-api.greenhouse.io/v1/boards/{slug}/jobs`
-  - `lever` — `api.lever.co/v0/postings/{slug}`
-  - `ashby` — `api.ashbyhq.com/posting-api/job-board/{slug}`
-  - `workday` — CXS list call + per-job detail (N+1); slug packs `tenant/datacenter/site`
-  - `pinpoint` — `{slug}.pinpointhq.com/postings.json`
-  - `smartrecruiters` — `api.smartrecruiters.com/v1/companies/{slug}/postings` list +
-    per-job `/postings/{id}` detail (N+1, like workday)
+- **`fetch/` — board adapters.** One thin module per source, registered in
+  `fetch/ADAPTERS`. Each returns the unified posting dict (`title`, `location`,
+  `url`, full JD `description`, `external_id`). Two shapes:
+  - **Per-board** adapters expose `fetch(slug, …)` — list a whole board. These are
+    **watchlist-capable** (the watchlist enumerates a company's board).
+  - **Per-listing** adapters expose `fetch_one(slug, external_id, …)` — fetch ONE
+    job by id, for boards with no public list endpoint. These are **feed-only**
+    (you can't enumerate a board, so they can't be watch-listed) and are routed by
+    `fetch.DETAIL_SOURCES` / `fetch_one_company`.
   - `filter_postings(postings, title_filter)` — optional case-insensitive
     title-substring pre-filter (title only; geography is handled by the scorer).
+
+  **Source coverage matrix** (the at-a-glance support map — keep it current when a
+  source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps
+  the host; *watchlist* = enumerable per-board source (in `VALID_SOURCES`). These
+  capabilities come apart — e.g. Pinpoint has an adapter + watchlist but no feed
+  router:
+
+  | Platform | Host(s) | Adapter | Feed router | Watchlist |
+  |---|---|---|---|---|
+  | Greenhouse | `boards.greenhouse.io`, `job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io` | list | ✅ | ✅ |
+  | Lever | `jobs.lever.co` | list | ✅ | ✅ |
+  | Ashby | `jobs.ashbyhq.com` | list | ✅ | ✅ |
+  | Workday | `*.myworkdayjobs.com` | list, N+1 | ✅ (jobReqId substring) | ✅ |
+  | SmartRecruiters | `jobs.smartrecruiters.com` | list, N+1 | ✅ | ✅ |
+  | Pinpoint | `{slug}.pinpointhq.com` | list | ❌ | ✅ |
+  | Workable | `apply.workable.com` | list | ✅ | ✅ |
+  | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
+  | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
+
+  Endpoints: greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs` (the US
+  api host serves EU boards too); lever `api.lever.co/v0/postings/{slug}`; ashby
+  `api.ashbyhq.com/posting-api/job-board/{slug}`; workday CXS list + per-job detail,
+  slug packs `tenant/datacenter/site`; pinpoint `{slug}.pinpointhq.com/postings.json`;
+  smartrecruiters `api.smartrecruiters.com/v1/companies/{slug}/postings` + `/{id}`
+  detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
+  oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
+  (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
+  JobPosting JSON-LD.
+  *Backlog (in `feed_unresolved`, not yet routed):* iCIMS, embedded greenhouse
+  (`?gh_jid` on custom domains), greenhouse embed-token (no recoverable slug),
+  ByteDance/TikTok. See [`PROGRESS.md`](./PROGRESS.md).
 - **`feed/` — discovery-feed package.** Ingests a broad listing stream and resolves
   it back to boards (a feed is a *transport*, not a `source`). Pure parts:
   - `simplify` — `fetch` the SimplifyJobs `listings.json` (a public GitHub data
@@ -296,11 +329,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `prefilter` — cheap metadata gate: keep `active` listings whose `category` is in
     the configured keep-list and whose `sponsorship` is not an explicit "no".
   - `resolve` — `resolve_url` maps an apply URL → `(source, slug, external_id)` for
-    `lever`/`ashby`/`greenhouse`-direct/`smartrecruiters` (external_ids match the
-    adapters exactly) and `workday` (returns the `jobReqId`, matched downstream as a
-    substring of the posting's `job_url`); else `None`. `classify_reason` labels the
-    residual unresolvable ones (an *unparseable* `workday` URL → `workday_deferred`,
-    `embedded_greenhouse`, `unsupported_host`) for the `feed_unresolved` backlog.
+    `lever`/`ashby`/`greenhouse`-direct (incl. the EU host)/`smartrecruiters`/`workable`
+    (external_ids match the adapters exactly), `workday` (returns the `jobReqId`,
+    matched downstream as a substring of the posting's `job_url`), and the per-listing
+    detail sources `oracle` (slug packs `{host}/{site}`) and `jobvite`; else `None`.
+    `classify_reason` labels the residual unresolvable ones (an *unparseable* `workday`
+    URL → `workday_deferred`, `embedded_greenhouse`, `unsupported_host`) for the
+    `feed_unresolved` backlog.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
   (optionally `min_score`), `save_score`, `save_resume`, `mark_notified`,
@@ -330,11 +365,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   wraps each item in try/except: one bad posting/company is recorded (via
   `db.mark_failed` or skipped) and the batch continues. `run_feed` (optional) runs
   the feed: prefilter → resolve → record-unresolved, then groups survivors by
-  `(source, slug)`, skips ids already ingested (`existing_external_ids`), fetches each
-  board via the existing adapter, and upserts **only** the feed-surfaced postings
-  (per-source match: exact `external_id` for most boards; `jobReqId`-substring-of-`job_url`
-  for workday), stamping each with its `company_slug`. Stage gating in
-  §[9](#9-behaviors-and-invariants).
+  `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
+  the surfaced postings via one of two paths: **per-board** sources fetch the whole
+  board via the existing adapter and keep **only** the surfaced ids (match: exact
+  `external_id` for most boards; `jobReqId`-substring-of-`job_url` for workday);
+  **detail sources** (`fetch.DETAIL_SOURCES`, e.g. oracle/jobvite — no board-list
+  endpoint) fetch each surfaced id directly via `fetch_one_company` (per-id try/except,
+  so one bad listing is skipped). Each kept posting is stamped with its `company_slug`.
+  Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
 
@@ -361,16 +399,17 @@ worker modules are pure and dependency-injected; real services are wired only in
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`), `removeWatchedCompany`.
   - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
     `lib/unresolved-actions.ts`, not `actions.ts`): `getPromotionSuggestions` (raw-SQL
-    aggregate over `job_postings` by `(source, company_slug)`, excluding watched +
-    dismissed; signal in §9), `dismissPromotion`; `getUnresolvedFeeds` (groups
+    aggregate over `job_postings` by `(source, company_slug)`, watchlist-capable sources
+    only, excluding watched + dismissed; signal in §9), `dismissPromotion`;
+    `getUnresolvedFeeds` (groups
     `feed_unresolved` by host + reason). Approve reuses `addWatchedCompany`.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status/category against enums; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
   connection leaks).
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
-  `VALID_SOURCES` (6, mirrors the worker), `getStatusColor`. **Edit here to extend
-  statuses/categories/sources.**
+  `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
+  are not listed), `getStatusColor`. **Edit here to extend statuses/categories/sources.**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable`, `WatchlistTable`
@@ -417,7 +456,7 @@ model status_history {
 
 model job_postings {
   id              Int           @id @default(autoincrement())
-  source          String        // greenhouse | lever | ashby | workday | pinpoint | smartrecruiters
+  source          String        // greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable|oracle|jobvite
   external_id     String        // id returned by the board
   company_slug    String?       // board slug this posting came from (promotion grouping; null on legacy rows)
   company_name    String
@@ -444,7 +483,7 @@ model job_postings {
 
 model watched_companies {        // the DB-owned watchlist (web-managed)
   id          Int    @id @default(autoincrement())
-  source      String // greenhouse | lever | ashby | workday | pinpoint
+  source      String // watchlist-capable boards: greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable
   slug        String // board identifier (workday packs tenant/datacenter/site)
   name        String
   created_at  String
@@ -548,6 +587,13 @@ any stage, on exception           → failed         (pipeline_error set; batch 
   to a supported board+slug (an *unparseable* workday URL, embedded greenhouse,
   unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on
   `url`. One bad board never aborts the batch (per-group try/except, mirroring `run_fetch`).
+- **Detail-fetch sources fetch one job per surfaced id.** A source with no public
+  board-list endpoint (`fetch.DETAIL_SOURCES`, e.g. `oracle`, `jobvite`) is ingested by
+  fetching each surfaced id directly via `fetch_one` (per-id try/except → one bad
+  listing skipped), not by listing-then-filtering; its `external_id` is exactly the
+  resolved id, so no keep-filter is needed. These sources are **feed-only**: they
+  cannot enumerate a board, so they are absent from `VALID_SOURCES` (not
+  watch-listable) and excluded from promotion suggestions.
 
 **Watchlist** (`watched_companies`):
 
@@ -559,8 +605,11 @@ any stage, on exception           → failed         (pipeline_error set; batch 
 **Promotion suggestions** (`lib/promotion-actions.ts`):
 
 - **Suggest, never auto-promote.** `getPromotionSuggestions` groups `job_postings` by
-  `(source, company_slug)` (non-null slug only), **excluding** companies already in
-  `watched_companies` or `promotion_dismissed`, and surfaces those with
+  `(source, company_slug)` (non-null slug only, and **only watchlist-capable sources**
+  — `source ∈ VALID_SOURCES`, so feed-only sources like oracle/jobvite are never
+  suggested, since approving one would be rejected by `addWatchedCompany`),
+  **excluding** companies already in `watched_companies` or `promotion_dismissed`, and
+  surfaces those with
   `count(pipeline_status ∈ {tailored,notified,applied}) ≥ 2` **or**
   `count(applied) ≥ 1`, ranked by applied then high-score count. Approve is the user
   calling `addWatchedCompany`; `dismissPromotion` records `(source, slug)` (idempotent)
@@ -661,11 +710,15 @@ automated coverage — those rely on code review or the human in the loop, not a
 | ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | ⚠ Resume API path-traversal guard (403) | **none** — guard is code-only in `route.ts` |
-| Feed resolve (URL→board incl. workday/smartrecruiters) + classify-reason | `test_feed_resolve.py` |
+| Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
 | SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |
+| Workable adapter (per-board list) | `test_workable.py` |
+| Oracle adapter (per-listing `fetch_one`) + Jobvite adapter (JSON-LD `fetch_one`) | `test_oracle.py`, `test_jobvite.py` |
+| `fetch_one_company` dispatcher (detail source / unknown / non-detail) | `test_fetch.py` |
+| `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
 | `run_feed` keeps only surfaced ids (workday substring match), records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
-| Promotion suggestions (signal, exclude watched/dismissed) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
+| Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |
 | Watchlist DB helpers (import idempotent, record_unresolved upsert, existing ids) | `test_watchlist_db.py` |
 | Watchlist auto-seed-on-empty + feed wiring in `run_once` | `test_run.py` |

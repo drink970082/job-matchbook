@@ -161,3 +161,25 @@ def test_fetch_company_dispatches_to_the_right_adapter():
 def test_fetch_company_unknown_source_raises():
     with pytest.raises(ValueError, match="unknown source"):
         fetch_company("monster", "x", "X")
+
+
+# --- fetch_one_company dispatcher (per-listing detail sources) -------------
+
+def test_fetch_one_company_dispatches_to_detail_adapter():
+    from ats_worker.fetch import fetch_one_company
+    sess = FakeSession(payload={"Title": "Role", "ExternalDescriptionStr": "x"})
+    p = fetch_one_company("oracle", "host.fa.oraclecloud.com/CX", "123", "Co", session=sess)
+    assert p["source"] == "oracle" and p["external_id"] == "123"
+
+
+def test_fetch_one_company_unknown_source_raises():
+    from ats_worker.fetch import fetch_one_company
+    with pytest.raises(ValueError, match="unknown source"):
+        fetch_one_company("monster", "x", "1", "X")
+
+
+def test_fetch_one_company_non_detail_source_raises():
+    # greenhouse is per-board (no fetch_one) -> explicit error, not AttributeError.
+    from ats_worker.fetch import fetch_one_company
+    with pytest.raises(ValueError, match="no per-listing"):
+        fetch_one_company("greenhouse", "acme", "1", "X")

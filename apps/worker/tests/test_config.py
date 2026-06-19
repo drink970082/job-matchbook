@@ -55,8 +55,17 @@ def test_new_board_sources_are_valid():
         "companies:\n"
         "  - { source: workday, slug: 'tenant/wd5/site', name: WD }\n"
         "  - { source: pinpoint, slug: wolve, name: Pin }\n"
+        "  - { source: workable, slug: acme, name: Workbl }\n"
     )
-    assert [c.source for c in cfg.companies] == ["workday", "pinpoint"]
+    assert [c.source for c in cfg.companies] == ["workday", "pinpoint", "workable"]
+
+
+def test_feed_only_sources_are_not_watchlist_valid():
+    # oracle/jobvite are per-listing (no board to enumerate) so they must NOT be
+    # accepted as a watchlist/config company source.
+    for src in ("oracle", "jobvite"):
+        with pytest.raises(config.ConfigError):
+            config.load_config(f"companies:\n  - {{ source: {src}, slug: x, name: X }}\n")
 
 
 def test_old_filters_key_raises_migration_error():

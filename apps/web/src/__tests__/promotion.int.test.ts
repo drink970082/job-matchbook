@@ -97,6 +97,18 @@ test('excludes watchlisted and dismissed companies', async () => {
     expect(data.map((c) => `${c.source}/${c.slug}`)).toEqual(['ashby/initech'])
 })
 
+test('excludes feed-only sources (not watchlist-capable)', async () => {
+    // oracle is a feed-only per-listing source (absent from VALID_SOURCES): a
+    // qualifying oracle company must NOT be suggested, because approving it would
+    // be rejected by addWatchedCompany. A watchlist-capable source (workable)
+    // alongside it still surfaces.
+    await seedPosting({ source: 'oracle', company_slug: 'jpmc.fa.oraclecloud.com/CX_1001', company_name: 'JPMC', pipeline_status: 'applied' })
+    await seedPosting({ source: 'workable', company_slug: 'scitec', company_name: 'SciTec', pipeline_status: 'applied' })
+
+    const { data } = await getPromotionSuggestions()
+    expect(data.map((c) => c.source)).toEqual(['workable'])
+})
+
 test('dismissPromotion excludes the company from later suggestions', async () => {
     await seedPosting({ source: 'greenhouse', company_slug: 'acme', company_name: 'Acme', pipeline_status: 'applied' })
 

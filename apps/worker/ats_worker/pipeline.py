@@ -22,7 +22,7 @@ from __future__ import annotations
 import sqlite3
 
 from . import db
-from .fetch import fetch_company, filter_postings
+from .fetch import DETAIL_SOURCES, fetch_company, fetch_one_company, filter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 
@@ -69,9 +69,24 @@ def _feed_match_fn(source: str, wanted: set[str]):
     return lambda p: p.get("external_id") in wanted
 
 
+def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids, name: str) -> list[dict]:
+    """Fetch each surfaced id one at a time, for sources with no board-list endpoint.
+    One bad listing is skipped (mirroring the list adapters' per-item isolation)."""
+    out: list[dict] = []
+    for ext in ids:
+        try:
+            posting = detail_fetch_fn(source, slug, ext, name)
+        except Exception:  # noqa: BLE001 — skip one bad listing, keep the rest
+            continue
+        if posting:
+            out.append(posting)
+    return out
+
+
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
              classify_fn=_resolve.classify_reason, fetch_fn=fetch_company,
+             detail_fetch_fn=fetch_one_company, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
@@ -115,9 +130,15 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             missing = ids - db.existing_external_ids(conn, source, ids)
             if not missing:
                 continue
-            match = _feed_match_fn(source, missing)
-            postings = fetch_fn(source, slug, names[(source, slug)])
-            keep = [p for p in postings if match(p)]
+            if source in detail_sources:
+                # No board-list endpoint: fetch each surfaced id directly. external_id
+                # is exactly what we fetched, so no keep-filter is needed.
+                keep = _detail_fetch(detail_fetch_fn, source, slug, missing,
+                                     names[(source, slug)])
+            else:
+                match = _feed_match_fn(source, missing)
+                postings = fetch_fn(source, slug, names[(source, slug)])
+                keep = [p for p in postings if match(p)]
             for p in keep:
                 p["company_slug"] = slug
             inserted += db.upsert_postings(conn, keep, now=now)

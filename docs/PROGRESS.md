@@ -11,7 +11,9 @@
 gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
 test/CI hardening, not security hardening** — several known reliability/security
 gaps remain open (see [Open work](#open-work)), including one shipped data-loss
-defect and an untested security guard. Nothing is in flight right now.
+defect and an untested security guard. Nothing is in flight right now. (Most recent
+change: feed-coverage Tier 1 — see [CHANGELOG](../CHANGELOG.md); remaining coverage in
+[Enhancements](#enhancements--not-built-optional).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -73,14 +75,23 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Enhancements — not built, optional
 
-- **Remaining feed coverage (mine the `feed_unresolved` backlog).** **Workday** and
-  **SmartRecruiters** now resolve (feed coverage ~⅓ → ~⅔). What's left is the long tail:
-  **embedded greenhouse** (`gh_jid` with no slug — needs board-token recovery) and
-  assorted custom ATS hosts (iCIMS, Jobvite, Oracle Cloud, bespoke career sites). The
-  `feed_unresolved` table (visible in the **Unresolved** tab) is the prioritised worklist.
+- **Remaining feed coverage (the `feed_unresolved` long tail).** Feed-coverage Tier 1
+  landed (greenhouse-EU host, Oracle, Workable, Jobvite + a per-listing detail-fetch
+  path), lifting resolution ~67% → ~78% of the filtered feed. **Measurement snapshot
+  (2026-06-18, live `listings.json`):** 18,207 raw → 1,394 after prefilter; 460
+  unresolved by platform — Oracle 116 ✅, ByteDance/TikTok 85, iCIMS 42, greenhouse
+  EU-host 23 ✅, embedded-greenhouse 54, greenhouse embed-token 17, Jobvite 14 ✅,
+  Workable 7 ✅, long-tail bespoke ~remaining. **Deferred** (need fragile scraping):
+  **iCIMS** (`window._jibe`), **embedded greenhouse** (scrape board token from the
+  custom-domain embed page → reuse the greenhouse adapter), **ByteDance/TikTok**
+  (bespoke single-employer). **Dropped:** greenhouse embed-token (URL has only a job
+  id, no recoverable board slug — verified no public endpoint); SuccessFactors (absent
+  from the feed). **Demoted:** a direct Workday CXS per-job fetch would fix the
+  `jobReqId`-substring fragility + whole-board N+1 but buys **0** coverage (Workday is
+  already fully resolved), so it's robustness-only.
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
-  `VALID_SOURCES`) makes new sources cheap; JobSpy was noted as a possible fallback
-  aggregator.
+  `VALID_SOURCES`; or `fetch_one` for a per-listing source in `DETAIL_SOURCES`) makes
+  new sources cheap; JobSpy was noted as a possible fallback aggregator.
 - **Deployment / monitoring.** `ats-web` now has a DB-reachability healthcheck +
   `autoheal` auto-restart (SPEC §6), but there are still no metrics or alerting
   beyond the per-job Telegram notification, and the **worker** has no healthcheck;

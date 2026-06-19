@@ -8,6 +8,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Feed coverage Tier 1 — Oracle / Workable / Jobvite + Greenhouse-EU host.** Lifts feed
+  resolution from ~⅔ to ~78% of the filtered-active feed (measured against the live
+  `listings.json`: 460 → ~300 unresolved). New: a **per-listing detail-fetch path** in
+  `run_feed` (a source exposes `fetch_one` and is listed in `fetch.DETAIL_SOURCES`) for
+  boards with no public list endpoint, alongside the existing per-board list adapters.
+  Adapters: **Oracle Cloud HCM** (`recruitingCEJobRequisitionDetails`, +116, feed-only),
+  **Jobvite** (schema.org JSON-LD, +14, feed-only), and **Workable** (widget list API,
+  +7, watchlist-capable → added to `VALID_SOURCES`). One-line **Greenhouse EU host**
+  (`job-boards.eu.greenhouse.io`) fix (+23). Feed-only sources can't be enumerated as a
+  watchlist company, so they stay out of `VALID_SOURCES` and are excluded from promotion
+  suggestions. Deferred (fragile scraping): iCIMS, embedded greenhouse, ByteDance/TikTok.
+  Added a source coverage matrix to SPEC §7.1.
 - **Feed coverage expansion + promotion suggestions + unresolved viewer.** Building on
   the discovery feed: (1) **Workday** feed resolution (the feed exposes the per-tenant
   `jobReqId`, matched as a substring of the board's `externalUrl` since the adapter keys

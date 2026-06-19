@@ -1,5 +1,7 @@
 # Worker configuration. Loaded by ats_worker.run at startup.
-# Source must be one of: greenhouse, lever, ashby, workday, pinpoint.
+# Source must be one of: greenhouse, lever, ashby, workday, pinpoint,
+# smartrecruiters, workable (the watchlist-capable boards). oracle and jobvite are
+# feed-resolution-only (no board to enumerate), so they can't be watch-listed here.
 # The `slug` is the board identifier in each board's URL. Most sources take a
 # single token; workday is special (see comment below).
 
@@ -13,15 +15,19 @@ companies:
   - { source: lever, slug: foobar, name: "Foobar" }            # jobs.lever.co/{slug}
   # - { source: ashby, slug: example, name: "Example Co" }     # jobs.ashbyhq.com/{slug}
   # - { source: pinpoint, slug: acme, name: "Acme" }           # {slug}.pinpointhq.com/postings.json
+  # - { source: smartrecruiters, slug: Acme, name: "Acme" }    # api.smartrecruiters.com/.../{slug}
+  # - { source: workable, slug: acme, name: "Acme" }           # apply.workable.com/{slug}
   # Workday slug packs three parts as "tenant/datacenter/site" (from the board URL
   # {tenant}.{dc}.myworkdayjobs.com/{site}). Quote it because of the slashes:
   # - { source: workday, slug: "acme/wd5/External_Careers", name: "Acme" }
 
 # OPTIONAL discovery feeds: a broad listing stream (a public GitHub data file —
-# NOT a scraped board) whose apply URLs are resolved back to the boards above and
-# fetched with the same adapters. Off by default. Only the SimplifyJobs new-grad
-# feed is supported in v1; it resolves lever/ashby/greenhouse-direct listings and
-# records the rest (Workday, custom ATSes) in `feed_unresolved` for a next step.
+# NOT a scraped board) whose apply URLs are resolved back to boards and fetched
+# with the same adapters. Off by default. Only the SimplifyJobs new-grad feed is
+# supported in v1; it resolves greenhouse (incl. EU), lever, ashby, workday,
+# smartrecruiters, workable, oracle, and jobvite listings (~⅔ of the filtered feed)
+# and records the rest (iCIMS, embedded greenhouse, bespoke ATSes) in
+# `feed_unresolved` for a next step.
 feeds:
   simplify:
     enabled: false              # set true to pull the feed each pass

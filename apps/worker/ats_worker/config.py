@@ -17,7 +17,11 @@ import yaml
 
 # Must match fetch.ADAPTERS — but importing fetch here would pull in `requests`
 # at config-load time, so we keep an explicit local allowlist instead.
-VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint", "smartrecruiters")
+# Watchlist-capable sources (boards we can enumerate). Feed-only per-listing
+# sources (oracle, jobvite) are intentionally absent — they can't be a watchlist
+# company. Must match the watchlist-capable subset of fetch.ADAPTERS.
+VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
+                 "smartrecruiters", "workable")
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24

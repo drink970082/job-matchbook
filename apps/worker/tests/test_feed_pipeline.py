@@ -162,6 +162,69 @@ def test_run_feed_record_unresolved_upserts_on_repeat(db_path):
     assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 1
 
 
+def test_run_feed_detail_source_fetches_each_surfaced_id(db_path):
+    # Oracle is a detail-fetch source (no board-list endpoint): run_feed must call
+    # detail_fetch_fn per surfaced id and stamp the resolved slug, no keep-filter.
+    conn = db.connect(db_path)
+    listings = [{
+        "url": ("https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/"
+                "en/sites/CX_1001/job/210706680"),
+        "company_name": "JPMC", "title": "Quant Researcher",
+        "category": "Quant", "sponsorship": "Other", "active": True,
+    }]
+    calls: list = []
+
+    def detail_fetch_fn(source, slug, external_id, name):
+        calls.append((source, slug, external_id, name))
+        return _posting(external_id, source=source, job_url=f"https://x/{external_id}")
+
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Quant"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=detail_fetch_fn,
+    )
+    assert inserted == 1
+    assert calls == [("oracle", "jpmc.fa.oraclecloud.com/CX_1001", "210706680", "JPMC")]
+    row = db.get_by_status(conn, "new")[0]
+    assert (row["source"], row["external_id"]) == ("oracle", "210706680")
+    assert row["company_slug"] == "jpmc.fa.oraclecloud.com/CX_1001"
+
+
+def test_run_feed_detail_isolates_a_bad_listing(db_path):
+    conn = db.connect(db_path)
+    listings = [
+        {"url": f"https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/job/{i}",
+         "company_name": "JPMC", "title": "Quant", "category": "Quant",
+         "sponsorship": "Other", "active": True}
+        for i in ("good", "bad")
+    ]
+
+    def detail_fetch_fn(source, slug, external_id, name):
+        if external_id == "bad":
+            raise RuntimeError("listing down")
+        return _posting(external_id, source=source)
+
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Quant"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=detail_fetch_fn,
+    )
+    assert inserted == 1
+    assert {r["external_id"] for r in db.get_by_status(conn, "new")} == {"good"}
+
+
+def test_run_feed_detail_skips_none_result(db_path):
+    conn = db.connect(db_path)
+    listings = [{
+        "url": "https://jobs.jobvite.com/acme/job/xyz", "company_name": "Acme",
+        "title": "SWE", "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=lambda *a: None,
+    )
+    assert inserted == 0
+    assert db.get_by_status(conn, "new") == []
+
+
 def test_run_feed_skips_listing_without_url(db_path):
     conn = db.connect(db_path)
     pipeline.run_feed(

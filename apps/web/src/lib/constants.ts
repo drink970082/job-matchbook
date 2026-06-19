@@ -27,8 +27,11 @@ export const CATEGORIES = [
   'Others',
 ] as const
 
-// Board sources the worker can fetch — must match the worker's
-// config.VALID_SOURCES / fetch.ADAPTERS. Used by the Watchlist add-company form.
+// Watchlist-capable board sources — must match the worker's config.VALID_SOURCES
+// (the per-board, enumerable subset of fetch.ADAPTERS). Feed-only per-listing
+// sources (oracle, jobvite) are intentionally absent: they can't be watch-listed,
+// and promotion suggestions are restricted to these (see promotion-actions.ts).
+// Used by the Watchlist add-company form.
 export const VALID_SOURCES = [
   'greenhouse',
   'lever',
@@ -36,6 +39,7 @@ export const VALID_SOURCES = [
   'workday',
   'pinpoint',
   'smartrecruiters',
+  'workable',
 ] as const
 
 export type Status = (typeof STATUSES)[number]
