@@ -277,6 +277,68 @@ def test_valid_posting_requires_id_title_description():
         assert not pipeline._valid_posting({**good, blank: None})
 
 
+def test_run_feed_embedded_greenhouse_fallback_resolves(db_path):
+    # An embedded-greenhouse listing can't resolve purely; the injected I/O resolver
+    # recovers the board token, and it ingests via the normal greenhouse list path.
+    conn = db.connect(db_path)
+    listings = [{
+        "url": "https://steelpoint-llc.com/careers/?gh_jid=7453484003",
+        "company_name": "Steel Point", "title": "Software Engineer",
+        "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+
+    def fetch_fn(source, slug, name):
+        assert (source, slug) == ("greenhouse", "steelpointsolutions")
+        return [_posting("7453484003", source="greenhouse"),
+                _posting("decoy", source="greenhouse")]  # decoy is dropped
+
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=fetch_fn,
+        resolve_embedded_fn=lambda url: ("greenhouse", "steelpointsolutions", "7453484003"),
+    )
+    assert inserted == 1
+    assert {(r["source"], r["external_id"]) for r in db.get_by_status(conn, "new")} == {
+        ("greenhouse", "7453484003")}
+    # resolved -> nothing left on the unresolved board
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
+
+
+def test_run_feed_embedded_greenhouse_none_stays_unresolved(db_path):
+    # The resolver returns None (token JS-injected) -> recorded as embedded_greenhouse.
+    conn = db.connect(db_path)
+    listings = [{
+        "url": "https://nuro.ai/careersitem?gh_jid=7351066", "company_name": "Nuro",
+        "title": "SWE", "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+    pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]), resolve_embedded_fn=lambda url: None,
+    )
+    assert conn.execute(
+        "SELECT reason FROM feed_unresolved").fetchone()["reason"] == "embedded_greenhouse"
+
+
+def test_run_feed_embedded_greenhouse_resolver_error_is_isolated(db_path):
+    # A failing company-page fetch never aborts the feed; the listing just stays
+    # unresolved (recorded as embedded_greenhouse), like any unresolvable URL.
+    conn = db.connect(db_path)
+    listings = [{
+        "url": "https://x.com/careers?gh_jid=999", "company_name": "X", "title": "SWE",
+        "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+
+    def boom(url):
+        raise RuntimeError("company page down")
+
+    pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]), resolve_embedded_fn=boom,
+    )
+    assert conn.execute(
+        "SELECT reason FROM feed_unresolved").fetchone()["reason"] == "embedded_greenhouse"
+
+
 def test_run_feed_skips_listing_without_url(db_path):
     conn = db.connect(db_path)
     pipeline.run_feed(

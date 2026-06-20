@@ -22,14 +22,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Tier-2 feed adapters (step 2).** The detail-fetch robustness framework has
-landed (validate + record silent scrape failures, see SPEC §7.1/§9); next is fanning
-out the three deferred scraping sources against it — **iCIMS** (`fetch_one`,
-`window._jibe`), **ByteDance/TikTok** (`fetch_one`, bespoke), and **embedded
-greenhouse** (an *enriching-resolve* seam — scrape the board token, reuse greenhouse).
-Each is its own adapter built by a subagent, then a single integration pass wires the
-shared files (`resolve.py`, `fetch/__init__.py`, SPEC §7.1 matrix). Plan:
-`~/.claude/plans/tidy-watching-whisper.md`.
+🚧 Nothing in flight. (Starting work → add a line here; see
+[How to update](#how-to-update).)
 
 ---
 
@@ -87,17 +81,21 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   (2026-06-18, live `listings.json`):** 18,207 raw → 1,394 after prefilter; 460
   unresolved by platform — Oracle 116 ✅, ByteDance/TikTok 85, iCIMS 42, greenhouse
   EU-host 23 ✅, embedded-greenhouse 54, greenhouse embed-token 17, Jobvite 14 ✅,
-  Workable 7 ✅, long-tail bespoke ~remaining. The **detail-fetch robustness framework**
-  (validate scraped postings; record raise/`None`/invalid failures to `feed_unresolved`
-  as `detail_fetch_failed`; collapse warning) has landed so these scrapers fail *loudly*
-  — see the 🚧 [In flight](#in-flight) step-2 line. **Deferred** (need fragile scraping):
-  **iCIMS** (`window._jibe`), **embedded greenhouse** (scrape board token from the
-  custom-domain embed page → reuse the greenhouse adapter), **ByteDance/TikTok**
-  (bespoke single-employer). **Dropped:** greenhouse embed-token (URL has only a job
-  id, no recoverable board slug — verified no public endpoint); SuccessFactors (absent
-  from the feed). **Demoted:** a direct Workday CXS per-job fetch would fix the
-  `jobReqId`-substring fragility + whole-board N+1 but buys **0** coverage (Workday is
-  already fully resolved), so it's robustness-only.
+  Workable 7 ✅, long-tail bespoke ~remaining. Two robustness/coverage steps then landed:
+  (1) the **detail-fetch robustness framework** (validate scraped postings; record
+  raise/`None`/invalid failures to `feed_unresolved` as `detail_fetch_failed`; collapse
+  warning) so scrapers fail *loudly*; (2) **embedded greenhouse** ✅ — an enriching
+  resolver scrapes the board token from the company page and reuses the greenhouse
+  adapter (recovers the server-side-embed subset; JS-injected embeds stay recorded).
+  **Deferred after recon proved them not feasible via `requests`:** **iCIMS** (~42 —
+  every request returns a "Human Verification" bot wall; needs a real browser, a heavy
+  dep that contradicts the requests-only worker) and **ByteDance/TikTok** (~85 — no
+  accessible clean API; the JD is rendered only inside fragile Next.js `__next_f` flight
+  data with unreliable location, a hack not worth shipping). Revisit only with a
+  headless-browser strategy. **Dropped:** greenhouse embed-token (URL has only a job id,
+  no recoverable board slug); SuccessFactors (absent from the feed). **Demoted:** a
+  direct Workday CXS per-job fetch would fix the `jobReqId`-substring fragility +
+  whole-board N+1 but buys **0** coverage, so it's robustness-only.
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
   `VALID_SOURCES`; or `fetch_one` for a per-listing source in `DETAIL_SOURCES`) makes
   new sources cheap; JobSpy was noted as a possible fallback aggregator.

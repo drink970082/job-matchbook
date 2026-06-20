@@ -16,7 +16,7 @@ import time
 
 from . import config as config_mod
 from . import db, pipeline
-from .feed import simplify
+from .feed import embedded_gh, simplify
 from .notify import notify_posting
 from .score import score_posting
 from .tailor import make_claude, pypdf_count, tailor_resume, tectonic_compile
@@ -98,6 +98,7 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                     conn, now=now,
                     feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
                     keep_categories=feed.categories, feed_name=feed.name,
+                    resolve_embedded_fn=embedded_gh.resolve_embedded,
                 )
 
         # Build the screening checklist only when the candidate actually configured

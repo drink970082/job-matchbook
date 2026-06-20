@@ -106,7 +106,8 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
              classify_fn=_resolve.classify_reason, fetch_fn=fetch_company,
              detail_fetch_fn=fetch_one_company, detail_sources=DETAIL_SOURCES,
-             record_unresolved_fn=db.record_unresolved) -> int:
+             record_unresolved_fn=db.record_unresolved,
+             resolve_embedded_fn=None) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
     feed-surfaced postings. Returns rows inserted.
@@ -127,12 +128,22 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         r = resolve_fn(url)
         if r is None:
             host, reason = classify_fn(url)
-            record_unresolved_fn(
-                conn, feed=feed_name, url=url,
-                company_name=x.get("company_name") or "",
-                job_title=x.get("title") or "", host=host, reason=reason, now=now,
-            )
-            continue
+            # Embedded greenhouse: the board token isn't in the URL but may be in
+            # the company page's static HTML — an injected I/O resolve step (real
+            # only in run.py) can recover it; else it stays unresolved as today.
+            # ponytail: no per-host token cache yet — add one if feed runtime bites.
+            if reason == "embedded_greenhouse" and resolve_embedded_fn is not None:
+                try:
+                    r = resolve_embedded_fn(url)
+                except Exception:  # noqa: BLE001 — a bad company page never aborts the feed
+                    r = None
+            if r is None:
+                record_unresolved_fn(
+                    conn, feed=feed_name, url=url,
+                    company_name=x.get("company_name") or "",
+                    job_title=x.get("title") or "", host=host, reason=reason, now=now,
+                )
+                continue
         source, slug, external_id = r
         wanted.setdefault((source, slug), {}).setdefault(external_id, {
             "url": url,

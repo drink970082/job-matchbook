@@ -309,6 +309,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | Workable | `apply.workable.com` | list | ✅ | ✅ |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
+  | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | ✅ enriching (I/O token scrape) | ❌ feed-only |
 
   Endpoints: greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs` (the US
   api host serves EU boards too); lever `api.lever.co/v0/postings/{slug}`; ashby
@@ -319,9 +320,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
   (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
   JobPosting JSON-LD.
-  *Backlog (in `feed_unresolved`, not yet routed):* iCIMS, embedded greenhouse
-  (`?gh_jid` on custom domains), greenhouse embed-token (no recoverable slug),
-  ByteDance/TikTok. See [`PROGRESS.md`](./PROGRESS.md).
+  *Backlog (in `feed_unresolved`, not routed):* iCIMS (bot-walled — "Human
+  Verification" on every request, needs a real browser), greenhouse embed-token (no
+  recoverable slug), ByteDance/TikTok (no clean API; JD only in fragile Next.js flight
+  data). See [`PROGRESS.md`](./PROGRESS.md).
 - **`feed/` — discovery-feed package.** Ingests a broad listing stream and resolves
   it back to boards (a feed is a *transport*, not a `source`). Pure parts:
   - `simplify` — `fetch` the SimplifyJobs `listings.json` (a public GitHub data
@@ -336,6 +338,14 @@ worker modules are pure and dependency-injected; real services are wired only in
     `classify_reason` labels the residual unresolvable ones (an *unparseable* `workday`
     URL → `workday_deferred`, `embedded_greenhouse`, `unsupported_host`) for the
     `feed_unresolved` backlog.
+  - `embedded_gh` — `resolve_embedded` is an *enriching* resolver for embedded
+    greenhouse: `resolve_url` stays pure, so when it returns None and the reason is
+    `embedded_greenhouse`, `run_feed` calls this (I/O) fallback to fetch the company
+    page and scrape the board token (`…/embed/job_board?for=<token>`), yielding
+    `("greenhouse", token, gh_jid)` — then the normal greenhouse list path ingests it
+    (dedups with direct greenhouse). Wired only in `run.py` (DI). Recovers only the
+    subset that embeds the token server-side; JS-injected embeds return None and stay
+    on the unresolved board.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
   (optionally `min_score`), `save_score`, `save_resume`, `mark_notified`,

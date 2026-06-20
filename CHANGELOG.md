@@ -8,6 +8,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Embedded-greenhouse feed resolution.** Companies that host greenhouse jobs on their
+  own domain with `?gh_jid=` apply URLs now resolve: a new *enriching resolver*
+  (`feed/embedded_gh.py`) fetches the company page, scrapes the greenhouse board token
+  (`…/embed/job_board?for=<token>`), and yields `("greenhouse", token, gh_jid)` so the
+  existing greenhouse adapter ingests it (dedups with direct greenhouse). It stays out
+  of the pure `resolve_url`; `run_feed` calls it as an injected I/O fallback (wired only
+  in `run.py`). Recovers the server-side-embed subset; JS-injected embeds return None and
+  stay recorded on the unresolved board. Recon deferred the other two Tier-2 sources:
+  iCIMS is bot-walled ("Human Verification") and ByteDance/TikTok exposes no clean API
+  (JD only in fragile Next.js flight data) — both need a headless browser, so they're
+  left recorded, not built.
 - **Detail-fetch robustness (prep for Tier-2 scrapers).** Silently-broken scrapers are
   now made visible: a fetched detail posting is validated (non-empty
   `external_id`/`job_title`/`description`) before it counts, and any failed surfaced id
