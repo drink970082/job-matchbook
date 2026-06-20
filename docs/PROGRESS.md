@@ -96,6 +96,15 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   no recoverable board slug); SuccessFactors (absent from the feed). **Demoted:** a
   direct Workday CXS per-job fetch would fix the `jobReqId`-substring fragility +
   whole-board N+1 but buys **0** coverage, so it's robustness-only.
+- **Headless-browser fetch (Playwright) — the next step to unlock iCIMS + ByteDance
+  (~127 listings).** Both deferred Tier-2 sources need a real browser: iCIMS gates every
+  request behind a "Human Verification" bot wall, and ByteDance/TikTok renders the JD
+  only client-side (no clean API; only fragile Next.js flight data server-side). Plan:
+  add an *optional* Playwright-backed `fetch_one` path (new dep + headless Chromium),
+  kept isolated and config-gated so the requests-only adapters and the core pipeline stay
+  dependency-light — render the page, then reuse the per-source extractors (iCIMS
+  `window._jibe`, ByteDance position data). The detail-fetch robustness framework already
+  makes these fail loudly, and each remains its own spec.
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
   `VALID_SOURCES`; or `fetch_one` for a per-listing source in `DETAIL_SOURCES`) makes
   new sources cheap; JobSpy was noted as a possible fallback aggregator.
