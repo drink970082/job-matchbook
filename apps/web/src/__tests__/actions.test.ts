@@ -311,15 +311,6 @@ describe('Backend Actions', () => {
         })
       )
     })
-
-    it('should return error on failure', async () => {
-      mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
-
-      const result = await discardJobPosting(99)
-
-      expect(result.success).toBe(false)
-      expect(result.error).toBe('boom')
-    })
   })
 
   describe('reopenJobPosting', () => {
@@ -336,15 +327,19 @@ describe('Backend Actions', () => {
         })
       )
     })
+  })
 
-    it('should return error on failure', async () => {
-      mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
+  // discard/reopen share the same try/catch error path
+  it.each([
+    ['discardJobPosting', discardJobPosting],
+    ['reopenJobPosting', reopenJobPosting],
+  ] as const)('%s returns { success: false, error } when the update throws', async (_name, fn) => {
+    mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
 
-      const result = await reopenJobPosting(99)
+    const result = await fn(99)
 
-      expect(result.success).toBe(false)
-      expect(result.error).toBe('boom')
-    })
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('boom')
   })
 
   describe('markJobApplied', () => {
