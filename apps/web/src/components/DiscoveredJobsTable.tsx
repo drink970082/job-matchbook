@@ -57,6 +57,9 @@ interface DiscoveredJobsTableProps {
     onDiscard: (id: number) => void
     onReopen: (id: number) => void
     onViewJD: (id: number) => void
+    onBulkRemove: (ids: number[]) => void
+    onBulkReopen: (ids: number[]) => void
+    onRemoveAllInView: () => void
 }
 
 const BUCKETS: { value: JobBucket; label: string }[] = [
@@ -102,6 +105,9 @@ export function DiscoveredJobsTable({
     onDiscard,
     onReopen,
     onViewJD,
+    onBulkRemove,
+    onBulkReopen,
+    onRemoveAllInView,
 }: DiscoveredJobsTableProps) {
     const [search, setSearch] = useState('')
     const [bucket, setBucket] = useState<JobBucket>('matched')
@@ -109,6 +115,21 @@ export function DiscoveredJobsTable({
     const [sort, setSort] = useState<JobSort>('score')
     // Discarded-only sub-filter — default to the near-miss band (the audit reframe).
     const [discardType, setDiscardType] = useState<'all' | DiscardType>('nearmiss')
+
+    const [selected, setSelected] = useState<Set<number>>(new Set())
+    // Whenever the visible row set changes (page / filter / post-action refresh),
+    // drop the selection — stale ids must never carry across views.
+    useEffect(() => { setSelected(new Set()) }, [data])
+
+    const allSelected = data.length > 0 && data.every((j) => selected.has(j.id))
+    const toggleAll = () => setSelected(allSelected ? new Set() : new Set(data.map((j) => j.id)))
+    const toggleOne = (id: number) =>
+        setSelected((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id); else next.add(id)
+            return next
+        })
+    const ids = () => [...selected]
 
     const stableFilterChange = useCallback(onFilterChange, [])
 
@@ -127,6 +148,19 @@ export function DiscoveredJobsTable({
 
     return (
         <div className="space-y-4">
+            {selected.size > 0 && (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <span className="font-medium">{selected.size} selected</span>
+                    {bucket === 'discarded' && (
+                        <Button variant="outline" size="sm" onClick={() => onBulkReopen(ids())}>
+                            Reopen selected
+                        </Button>
+                    )}
+                    <Button variant="destructive" size="sm" onClick={() => onBulkRemove(ids())}>
+                        Remove selected
+                    </Button>
+                </div>
+            )}
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                 <div className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
                     {BUCKETS.map((b) => (
@@ -171,16 +205,21 @@ export function DiscoveredJobsTable({
                     </SelectContent>
                 </Select>
                 {bucket === 'discarded' && (
-                    <Select value={discardType} onValueChange={(v) => setDiscardType(v as 'all' | DiscardType)}>
-                        <SelectTrigger className="w-[150px]" aria-label="Discard type">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="nearmiss">Near-miss</SelectItem>
-                            <SelectItem value="disqualified">Disqualified</SelectItem>
-                            <SelectItem value="all">All discarded</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <>
+                        <Select value={discardType} onValueChange={(v) => setDiscardType(v as 'all' | DiscardType)}>
+                            <SelectTrigger className="w-[150px]" aria-label="Discard type">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="nearmiss">Near-miss</SelectItem>
+                                <SelectItem value="disqualified">Disqualified</SelectItem>
+                                <SelectItem value="all">All discarded</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={onRemoveAllInView}>
+                            Remove all in view
+                        </Button>
+                    </>
                 )}
             </div>
 
@@ -188,6 +227,15 @@ export function DiscoveredJobsTable({
                 <Table className="table-fixed w-full">
                     <TableHeader>
                         <TableRow>
+                            <TableHead className="w-[4%]">
+                                <input
+                                    type="checkbox"
+                                    aria-label="Select all"
+                                    checked={allSelected}
+                                    onChange={toggleAll}
+                                    className="h-4 w-4 align-middle"
+                                />
+                            </TableHead>
                             <TableHead className="w-[18%] whitespace-normal">Company</TableHead>
                             <TableHead className="w-[26%] whitespace-normal">Job Title</TableHead>
                             <TableHead className="w-[10%] whitespace-normal">Score</TableHead>
@@ -199,7 +247,7 @@ export function DiscoveredJobsTable({
                     <TableBody>
                         {data.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                                     No results.
                                 </TableCell>
                             </TableRow>
@@ -209,6 +257,15 @@ export function DiscoveredJobsTable({
                                 const reason = discardLabel(job)
                                 return (
                                     <TableRow key={job.id}>
+                                        <TableCell>
+                                            <input
+                                                type="checkbox"
+                                                aria-label={`Select ${job.job_title}`}
+                                                checked={selected.has(job.id)}
+                                                onChange={() => toggleOne(job.id)}
+                                                className="h-4 w-4 align-middle"
+                                            />
+                                        </TableCell>
                                         <TableCell className="whitespace-normal font-medium text-sm" title={job.company_name}>
                                             {job.company_name}
                                         </TableCell>

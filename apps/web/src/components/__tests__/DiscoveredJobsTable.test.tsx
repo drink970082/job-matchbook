@@ -44,10 +44,24 @@ function renderTable(overrides: Partial<React.ComponentProps<typeof DiscoveredJo
     onDiscard: jest.fn(),
     onReopen: jest.fn(),
     onViewJD: jest.fn(),
+    onBulkRemove: jest.fn(),
+    onBulkReopen: jest.fn(),
+    onRemoveAllInView: jest.fn(),
     ...overrides,
   }
   render(<DiscoveredJobsTable {...props} />)
   return props
+}
+
+function renderWithRerender() {
+  const props = {
+    data: mockJobs, total: 2, page: 0, size: 25,
+    onPageChange: jest.fn(), onFilterChange: jest.fn(), onMarkApplied: jest.fn(),
+    onDiscard: jest.fn(), onReopen: jest.fn(), onViewJD: jest.fn(),
+    onBulkRemove: jest.fn(), onBulkReopen: jest.fn(), onRemoveAllInView: jest.fn(),
+  }
+  const utils = render(<DiscoveredJobsTable {...props} />)
+  return { rerender: (data: any[]) => utils.rerender(<DiscoveredJobsTable {...props} data={data} />) }
 }
 
 describe('DiscoveredJobsTable', () => {
@@ -228,5 +242,40 @@ describe('DiscoveredJobsTable', () => {
       jest.runOnlyPendingTimers()
       jest.useRealTimers()
     }
+  })
+
+  it('selecting a matched row reveals Remove selected and calls onBulkRemove with ids', () => {
+    const onBulkRemove = jest.fn()
+    renderTable({ onBulkRemove })
+    fireEvent.click(screen.getByLabelText('Select Backend Engineer'))
+    fireEvent.click(screen.getByRole('button', { name: /remove selected/i }))
+    expect(onBulkRemove).toHaveBeenCalledWith([1])
+  })
+
+  it('on the Discarded bucket, selected rows offer Reopen selected', () => {
+    const onBulkReopen = jest.fn()
+    renderTable({
+      data: [{ ...mockJobs[0], pipeline_status: 'discarded' }],
+      total: 1,
+      onBulkReopen,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
+    fireEvent.click(screen.getByLabelText('Select Backend Engineer'))
+    fireEvent.click(screen.getByRole('button', { name: /reopen selected/i }))
+    expect(onBulkReopen).toHaveBeenCalledWith([1])
+  })
+
+  it('select-all toggles every row on the page', () => {
+    renderTable()
+    fireEvent.click(screen.getByLabelText(/select all/i))
+    expect(screen.getByText(/2 selected/i)).toBeInTheDocument()
+  })
+
+  it('clears selection when the data set changes', () => {
+    const { rerender } = renderWithRerender()
+    fireEvent.click(screen.getByLabelText('Select Backend Engineer'))
+    expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
+    rerender([{ ...mockJobs[0], id: 99 }])
+    expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
   })
 })
