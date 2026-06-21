@@ -8,6 +8,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Changed
+- **Repo-wide over-engineering cleanup (behavior-preserving).** Removed dead code
+  (worker `db.discard`/`db.mark_applied` + their tests, the `_row_to_dict` helper —
+  `dict(row)` covers it, an unreachable `load_config` bytes branch, and the never-read
+  `run_score`/`run_tailor` params) and unused web exports (`TERMINAL_STATUSES`, the
+  `Status`/`Category`/`Source` type aliases). Dropped four web dependencies:
+  `date-fns` + `date-fns-tz` (zero imports) and the redundant *direct* declarations of
+  `playwright` + `@testing-library/dom` (kept transitively via `@playwright/test` and
+  `@testing-library/react`). Deduped three duplicated types (components now `import type`
+  them from their server-action modules), shared one `StageRow` renderer across
+  `StatusFunnel`'s two groups, reused `<Pagination>` in `ApplicationTable`, and tidied a
+  few test helpers. No capability change; worker + web suites and the coverage gate stay
+  green. (Several audit findings were deliberately *not* applied — see commit history.)
 - **Discovered Jobs UX: full pagination, debug filters, per-row reason, apply-time
   category.** (1) A proper paginator (first/last, numbered pages with ellipsis,
   go-to-page) replaces the bare Prev/Next (`components/Pagination.tsx`, reused by the
