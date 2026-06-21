@@ -50,6 +50,7 @@ model job_postings {
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String
   updated_at      String?
+  posted_at       String? // board-provided posting date, normalized to YYYY-MM-DD; null only on legacy rows pre-backfill
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])

@@ -36,6 +36,7 @@ CREATE TABLE "job_postings" (
     "application_id" INTEGER,
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,
+    "posted_at" TEXT,
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
