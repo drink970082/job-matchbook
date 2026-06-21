@@ -19,6 +19,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { Trash2, History } from 'lucide-react'
+import { Pagination } from './Pagination'
 import { STATUSES, CATEGORIES, getStatusColor } from '@/lib/constants'
 
 interface Application {
@@ -68,8 +69,6 @@ export function ApplicationTable({
         }, 300)
         return () => clearTimeout(timer)
     }, [search, statusFilter, historicalStatusFilter, categoryFilter, stableFilterChange])
-
-    const totalPages = Math.ceil(total / size)
 
     return (
         <div className="space-y-4">
@@ -201,29 +200,7 @@ export function ApplicationTable({
                 </Table>
             </div>
 
-            <div className="flex items-center justify-between py-4">
-                <div className="text-sm text-muted-foreground">
-                    Showing {page * size + 1}–{Math.min((page + 1) * size, total)} of {total}
-                </div>
-                <div className="flex gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onPageChange(page - 1)}
-                        disabled={page <= 0}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onPageChange(page + 1)}
-                        disabled={page >= totalPages - 1}
-                    >
-                        Next
-                    </Button>
-                </div>
-            </div>
+            <Pagination page={page} size={size} total={total} onPageChange={onPageChange} />
         </div>
     )
 }

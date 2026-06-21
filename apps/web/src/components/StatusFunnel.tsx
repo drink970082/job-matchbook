@@ -28,6 +28,28 @@ function getColor(name: string): string {
     return STATUS_COLORS[name] || '#6b7280'
 }
 
+type Stage = { name: string; count: number; color: string; isTerminal: boolean }
+
+function StageRow({ stage, maxCount }: { stage: Stage; maxCount: number }) {
+    const pct = (stage.count / maxCount) * 100
+    return (
+        <div>
+            <div className="flex justify-between items-center mb-0.5">
+                <span className="text-xs text-muted-foreground">{stage.name}</span>
+                <span className="text-xs font-semibold">
+                    {stage.count} <span className="text-muted-foreground font-normal">({pct.toFixed(1)}%)</span>
+                </span>
+            </div>
+            <div className="h-5 rounded bg-muted overflow-hidden">
+                <div
+                    className="h-full rounded transition-all duration-500"
+                    style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: stage.color }}
+                />
+            </div>
+        </div>
+    )
+}
+
 export function StatusFunnel({ data }: StatusFunnelProps) {
     const { stages, totalApplied } = useMemo(() => {
         if (!data || data.length === 0) return { stages: [], totalApplied: 0 }
@@ -60,7 +82,7 @@ export function StatusFunnel({ data }: StatusFunnelProps) {
         // Terminal statuses shown separately
         const terminalStatuses = ['No Response', 'Rejected', 'Withdrew', 'Ghosted']
 
-        const stages: { name: string; count: number; color: string; isTerminal: boolean }[] = []
+        const stages: Stage[] = []
 
         for (const name of stageOrder) {
             const count = statusCounts.get(name) || 0
@@ -84,6 +106,8 @@ export function StatusFunnel({ data }: StatusFunnelProps) {
     }
 
     const maxCount = totalApplied
+    const progression = stages.filter(s => !s.isTerminal)
+    const terminal = stages.filter(s => s.isTerminal)
 
     return (
         <div className="space-y-3">
@@ -97,54 +121,20 @@ export function StatusFunnel({ data }: StatusFunnelProps) {
             </div>
 
             {/* Progression stages */}
-            {stages.filter(s => !s.isTerminal).length > 0 && (
+            {progression.length > 0 && (
                 <div className="space-y-2 pl-4 border-l-2 border-border">
-                    {stages.filter(s => !s.isTerminal).map((stage) => {
-                        const pct = (stage.count / maxCount) * 100
-                        const conversionRate = ((stage.count / maxCount) * 100).toFixed(1)
-                        return (
-                            <div key={stage.name}>
-                                <div className="flex justify-between items-center mb-0.5">
-                                    <span className="text-xs text-muted-foreground">{stage.name}</span>
-                                    <span className="text-xs font-semibold">
-                                        {stage.count} <span className="text-muted-foreground font-normal">({conversionRate}%)</span>
-                                    </span>
-                                </div>
-                                <div className="h-5 rounded bg-muted overflow-hidden">
-                                    <div
-                                        className="h-full rounded transition-all duration-500"
-                                        style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: stage.color }}
-                                    />
-                                </div>
-                            </div>
-                        )
-                    })}
+                    {progression.map((stage) => (
+                        <StageRow key={stage.name} stage={stage} maxCount={maxCount} />
+                    ))}
                 </div>
             )}
 
             {/* Terminal statuses */}
-            {stages.filter(s => s.isTerminal).length > 0 && (
+            {terminal.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-border">
-                    {stages.filter(s => s.isTerminal).map((stage) => {
-                        const pct = (stage.count / maxCount) * 100
-                        const conversionRate = ((stage.count / maxCount) * 100).toFixed(1)
-                        return (
-                            <div key={stage.name}>
-                                <div className="flex justify-between items-center mb-0.5">
-                                    <span className="text-xs text-muted-foreground">{stage.name}</span>
-                                    <span className="text-xs font-semibold">
-                                        {stage.count} <span className="text-muted-foreground font-normal">({conversionRate}%)</span>
-                                    </span>
-                                </div>
-                                <div className="h-5 rounded bg-muted overflow-hidden">
-                                    <div
-                                        className="h-full rounded transition-all duration-500"
-                                        style={{ width: `${Math.max(pct, 2)}%`, backgroundColor: stage.color }}
-                                    />
-                                </div>
-                            </div>
-                        )
-                    })}
+                    {terminal.map((stage) => (
+                        <StageRow key={stage.name} stage={stage} maxCount={maxCount} />
+                    ))}
                 </div>
             )}
         </div>

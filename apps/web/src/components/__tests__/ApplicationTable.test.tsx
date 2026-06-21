@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { ApplicationTable } from '@/components/ApplicationTable'
 import userEvent from '@testing-library/user-event'
 
@@ -7,41 +8,32 @@ const mockApps = [
   { id: 2, company_name: 'Meta', job_title: 'MLE', status: 'Applied', category: 'MLE', date_applied: '2023-01-02', notes: '' },
 ]
 
+function renderTable(overrides: Partial<ComponentProps<typeof ApplicationTable>> = {}) {
+  const props: ComponentProps<typeof ApplicationTable> = {
+    data: mockApps,
+    total: 2,
+    page: 0,
+    size: 10,
+    onPageChange: jest.fn(),
+    onFilterChange: jest.fn(),
+    onStatusChange: jest.fn(),
+    onDelete: jest.fn(),
+    onHistory: jest.fn(),
+    ...overrides,
+  }
+  render(<ApplicationTable {...props} />)
+  return props
+}
+
 describe('ApplicationTable', () => {
   it('should render applications', () => {
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={2}
-        page={0}
-        size={10}
-        onPageChange={jest.fn()}
-        onFilterChange={jest.fn()}
-        onStatusChange={jest.fn()}
-        onDelete={jest.fn()}
-        onHistory={jest.fn()}
-      />
-    )
-
+    renderTable()
     expect(screen.getByText('Google')).toBeInTheDocument()
     expect(screen.getByText('Meta')).toBeInTheDocument()
   })
 
   it('should handle pagination', async () => {
-    const onPageChange = jest.fn()
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={20}
-        page={0}
-        size={10}
-        onPageChange={onPageChange}
-        onFilterChange={jest.fn()}
-        onStatusChange={jest.fn()}
-        onDelete={jest.fn()}
-        onHistory={jest.fn()}
-      />
-    )
+    const { onPageChange } = renderTable({ total: 20 })
 
     const nextButton = screen.getByRole('button', { name: /next/i })
     await userEvent.click(nextButton)
@@ -50,20 +42,7 @@ describe('ApplicationTable', () => {
   })
 
   it('should handle search input', async () => {
-    const onFilterChange = jest.fn()
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={2}
-        page={0}
-        size={10}
-        onPageChange={jest.fn()}
-        onFilterChange={onFilterChange}
-        onStatusChange={jest.fn()}
-        onDelete={jest.fn()}
-        onHistory={jest.fn()}
-      />
-    )
+    const { onFilterChange } = renderTable()
 
     const searchInput = screen.getByPlaceholderText(/search/i)
     await userEvent.type(searchInput, 'Google')
@@ -74,20 +53,7 @@ describe('ApplicationTable', () => {
   })
 
   it('calls onStatusChange with the row id and the newly selected status', async () => {
-    const onStatusChange = jest.fn()
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={2}
-        page={0}
-        size={10}
-        onPageChange={jest.fn()}
-        onFilterChange={jest.fn()}
-        onStatusChange={onStatusChange}
-        onDelete={jest.fn()}
-        onHistory={jest.fn()}
-      />
-    )
+    const { onStatusChange } = renderTable()
 
     // Each row has a native <select> for its status. The filter dropdowns are
     // Radix triggers (also role=combobox), so narrow to real <select> elements;
@@ -102,20 +68,7 @@ describe('ApplicationTable', () => {
   })
 
   it('calls onDelete with the row id when the Delete button is clicked', async () => {
-    const onDelete = jest.fn()
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={2}
-        page={0}
-        size={10}
-        onPageChange={jest.fn()}
-        onFilterChange={jest.fn()}
-        onStatusChange={jest.fn()}
-        onDelete={onDelete}
-        onHistory={jest.fn()}
-      />
-    )
+    const { onDelete } = renderTable()
 
     const deleteButtons = screen.getAllByRole('button', { name: /delete/i })
     await userEvent.click(deleteButtons[0])
@@ -124,20 +77,7 @@ describe('ApplicationTable', () => {
   })
 
   it('calls onHistory with the row id when the History button is clicked', async () => {
-    const onHistory = jest.fn()
-    render(
-      <ApplicationTable
-        data={mockApps}
-        total={2}
-        page={0}
-        size={10}
-        onPageChange={jest.fn()}
-        onFilterChange={jest.fn()}
-        onStatusChange={jest.fn()}
-        onDelete={jest.fn()}
-        onHistory={onHistory}
-      />
-    )
+    const { onHistory } = renderTable()
 
     const historyButtons = screen.getAllByRole('button', { name: /history/i })
     await userEvent.click(historyButtons[0])
