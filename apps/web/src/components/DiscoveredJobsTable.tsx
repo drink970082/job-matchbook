@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
 import { MATCH_SCORE_THRESHOLD } from '@/lib/constants'
+import type { JobBucket, DiscardType } from '@/lib/actions'
 import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
@@ -37,9 +38,6 @@ export interface JobPosting {
     resume_pages?: number | null
     pipeline_status?: string
 }
-
-type JobBucket = 'matched' | 'discarded' | 'failed'
-type DiscardType = 'disqualified' | 'lowscore'
 
 interface DiscoveredJobsTableProps {
     data: JobPosting[]

@@ -8,12 +8,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table'
-
-export interface UnresolvedFeedGroup {
-    host: string
-    reason: string
-    count: number
-}
+import type { UnresolvedFeedGroup } from '@/lib/unresolved-actions'
 
 interface UnresolvedFeedsTableProps {
     data: UnresolvedFeedGroup[]

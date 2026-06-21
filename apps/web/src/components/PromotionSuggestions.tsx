@@ -11,15 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Check, X } from 'lucide-react'
-
-export interface PromotionSuggestion {
-    source: string
-    slug: string
-    name: string
-    applied: number
-    highScores: number
-    total: number
-}
+import type { PromotionSuggestion } from '@/lib/promotion-actions'
 
 interface PromotionSuggestionsProps {
     data: PromotionSuggestion[]

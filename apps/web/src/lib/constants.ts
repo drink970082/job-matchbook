@@ -47,19 +47,6 @@ export const VALID_SOURCES = [
 // shown under the Discarded view rather than Matched. See getJobPostings.
 export const MATCH_SCORE_THRESHOLD = 75
 
-export type Status = (typeof STATUSES)[number]
-export type Category = (typeof CATEGORIES)[number]
-export type Source = (typeof VALID_SOURCES)[number]
-
-/** Statuses that end the application lifecycle (don't count as Active). */
-export const TERMINAL_STATUSES: readonly Status[] = [
-  'Offer',
-  'Accepted',
-  'Rejected',
-  'Withdrew',
-  'Ghosted',
-] as const
-
 /** Map status to a display color class */
 export function getStatusColor(status: string) {
   if (status === 'Applied') return { bg: 'bg-blue-500/15', text: 'text-blue-700', dot: 'bg-blue-500' }

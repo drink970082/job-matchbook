@@ -22,7 +22,6 @@ export async function getUnresolvedFeeds(): Promise<{
     const rows = await prisma.feed_unresolved.groupBy({
         by: ['host', 'reason'],
         _count: { _all: true },
-        orderBy: { _count: { host: 'desc' } },
     })
 
     const data: UnresolvedFeedGroup[] = rows
