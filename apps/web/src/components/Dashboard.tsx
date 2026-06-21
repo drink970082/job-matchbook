@@ -20,6 +20,9 @@ import {
     markJobApplied,
     discardJobPosting,
     reopenJobPosting,
+    bulkRemove,
+    bulkReopen,
+    removeAllInView,
     getWatchedCompanies,
     addWatchedCompany,
     removeWatchedCompany,
@@ -403,6 +406,39 @@ export function Dashboard({
         }
     }
 
+    const handleBulkRemove = async (jobIds: number[]) => {
+        // ponytail: native confirm — same pattern as handleDeleteApplication.
+        if (!confirm(`Remove ${jobIds.length} job${jobIds.length === 1 ? '' : 's'}? They'll be hidden from all tabs.`)) return
+        const result = await bulkRemove(jobIds)
+        if (result.success) {
+            toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
+            await refreshJobPostings()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
+    const handleBulkReopen = async (jobIds: number[]) => {
+        const result = await bulkReopen(jobIds)
+        if (result.success) {
+            toast.success(`Reopened ${result.count} job${result.count === 1 ? '' : 's'}`)
+            await refreshJobPostings()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
+    const handleRemoveAllInView = async () => {
+        if (!confirm("Remove every job in this view? They'll be hidden from all tabs.")) return
+        const result = await removeAllInView(jobFilters)
+        if (result.success) {
+            toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
+            await refreshJobPostings()
+        } else {
+            toast.error(result.error)
+        }
+    }
+
     return (
         <div className="space-y-6">
             {/* Header + KPIs */}
@@ -508,6 +544,9 @@ export function Dashboard({
                             onDiscard={handleDiscardJob}
                             onReopen={handleReopenJob}
                             onViewJD={handleViewJD}
+                            onBulkRemove={handleBulkRemove}
+                            onBulkReopen={handleBulkReopen}
+                            onRemoveAllInView={handleRemoveAllInView}
                         />
                     </CardContent>
                 </Card>
