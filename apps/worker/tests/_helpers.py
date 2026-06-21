@@ -36,14 +36,10 @@ def make_posting(external_id="1", source="greenhouse", **over):
 
 # --- DB bootstrap + seed helpers -----------------------------------------
 
-def schema_sql() -> str:
-    return (FIXTURES / "schema.sql").read_text()
-
-
 def bootstrap_db(path) -> str:
     """Create a fresh SQLite file from the Prisma-mirrored fixture schema."""
     boot = sqlite3.connect(path)
-    boot.executescript(schema_sql())
+    boot.executescript((FIXTURES / "schema.sql").read_text())
     boot.commit()
     boot.close()
     return str(path)

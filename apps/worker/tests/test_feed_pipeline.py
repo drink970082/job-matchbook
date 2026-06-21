@@ -25,10 +25,6 @@ def _listings():
     return json.loads((FIXTURES / "simplify_listings.json").read_text())
 
 
-def _feed_fn():
-    return _listings()
-
-
 def _make_fetch_fn(calls, raise_for=None):
     def fetch_fn(source, slug, name):
         calls.append((source, slug, name))
@@ -49,7 +45,7 @@ def test_run_feed_keeps_only_surfaced_ids_and_records_unresolved(db_path):
     conn = db.connect(db_path)
     calls: list = []
     inserted = pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
+        conn, now=NOW, feed_fn=_listings, keep_categories=["Software", "AI/ML/Data", "Quant"],
         fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
     )
 
@@ -90,7 +86,7 @@ def test_run_feed_workday_fetches_by_external_path_not_whole_board(db_path):
         return _posting(external_id, source=source)
 
     pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
+        conn, now=NOW, feed_fn=_listings, keep_categories=["Software", "AI/ML/Data", "Quant"],
         fetch_fn=_make_fetch_fn([]), detail_fetch_fn=detail,
     )
     # exactly one workday fetch, by the surfaced externalPath
@@ -104,7 +100,7 @@ def test_run_feed_persists_company_slug(db_path):
     # The resolved group slug is stamped onto each ingested posting before upsert.
     conn = db.connect(db_path)
     pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn,
+        conn, now=NOW, feed_fn=_listings,
         keep_categories=["Software", "AI/ML/Data", "Quant"], fetch_fn=_make_fetch_fn([]),
         detail_fetch_fn=_detail_serves,
     )
@@ -127,7 +123,7 @@ def test_run_feed_skips_boards_whose_surfaced_ids_already_exist(db_path):
 
     calls: list = []
     inserted = pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
+        conn, now=NOW, feed_fn=_listings, keep_categories=["Software", "AI/ML/Data", "Quant"],
         fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
     )
 
@@ -143,7 +139,7 @@ def test_run_feed_isolates_a_failing_board(db_path):
     conn = db.connect(db_path)
     calls: list = []
     inserted = pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
+        conn, now=NOW, feed_fn=_listings, keep_categories=["Software", "AI/ML/Data", "Quant"],
         fetch_fn=_make_fetch_fn(calls, raise_for="greenhouse"), detail_fetch_fn=_detail_serves,
     )
     # greenhouse aborts; ashby + lever + smartrecruiters + workday still ingest.
@@ -157,7 +153,7 @@ def test_run_feed_record_unresolved_upserts_on_repeat(db_path):
     calls: list = []
     for _ in range(2):
         pipeline.run_feed(
-            conn, now=NOW, feed_fn=_feed_fn,
+            conn, now=NOW, feed_fn=_listings,
             keep_categories=["Software", "AI/ML/Data", "Quant"],
             fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
         )

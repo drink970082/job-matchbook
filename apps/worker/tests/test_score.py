@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -601,51 +602,38 @@ def test_long_resume_is_truncated():
 
 # --- transport / envelope failures (the realistic production failure modes) --
 
-class _RawHttp:
-    """Returns a RAW Ollama envelope (or raises) so the SCORE call's transport
-    and envelope-parsing branches are exercised (FakeHttp always wraps in a valid
-    {"response": ...} and never raises)."""
-
-    def __init__(self, envelope=None, *, raise_exc=None):
-        self._envelope = envelope
-        self._raise_exc = raise_exc
-        self.calls = []
-
-    def post(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        raise_exc, env = self._raise_exc, self._envelope
-
-        class _Resp:
-            def raise_for_status(self):
-                if raise_exc is not None:
-                    raise raise_exc
-
-            def json(self):
-                return env
-
-        return _Resp()
+def _raw_http(envelope=None, *, raise_exc=None):
+    """An http stub whose POST returns a RAW Ollama envelope (or raises), so the
+    SCORE call's transport and envelope-parsing branches are exercised (FakeHttp
+    always wraps in a valid {"response": ...} and never raises)."""
+    resp = Mock()
+    resp.raise_for_status.side_effect = raise_exc
+    resp.json.return_value = envelope
+    http = Mock()
+    http.post.return_value = resp
+    return http
 
 
 def test_raise_for_status_error_bubbles_up():
-    http = _RawHttp(raise_exc=requests.HTTPError("ollama 500"))
+    http = _raw_http(raise_exc=requests.HTTPError("ollama 500"))
     with pytest.raises(requests.HTTPError):
         score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
 
 
 def test_envelope_missing_response_key_raises_score_error():
-    http = _RawHttp({"done": True})  # no "response" -> inner "" -> unparseable
+    http = _raw_http({"done": True})  # no "response" -> inner "" -> unparseable
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
 
 
 def test_envelope_not_a_dict_raises_score_error():
-    http = _RawHttp("not an object")
+    http = _raw_http("not an object")
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
 
 
 def test_empty_completion_raises_score_error():
-    http = _RawHttp({"response": ""})  # the empty-completion (think-mode) failure
+    http = _raw_http({"response": ""})  # the empty-completion (think-mode) failure
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h")
 

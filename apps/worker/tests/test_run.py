@@ -6,7 +6,7 @@ import json
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
 from ats_worker import run
-from tests._helpers import bootstrap_db, make_posting
+from tests._helpers import bootstrap_db, make_posting, seed_scored
 
 
 def test_feed_session_is_per_thread():
@@ -80,20 +80,11 @@ def test_run_once_tailor_writes_pdf_under_resume_dir(monkeypatch, tmp_path):
 
     real_run_tailor = run.pipeline.run_tailor
 
-    schema = (
-        __import__("pathlib").Path(__file__).parent / "fixtures" / "schema.sql"
-    ).read_text()
     dbfile = tmp_path / "applications.db"
-    import sqlite3
-    boot = sqlite3.connect(dbfile)
-    boot.executescript(schema)
-    boot.execute(
-        "INSERT INTO job_postings (source, external_id, company_name, job_title, "
-        "job_url, description, score, pipeline_status, created_at) VALUES "
-        "('greenhouse','77','Acme','Eng','http://x','jd',90,'scored','2026-01-01')"
-    )
-    boot.commit()
-    boot.close()
+    bootstrap_db(dbfile)
+    conn = dbmod.connect(str(dbfile))
+    seed_scored(conn, {"77": 90}, detail={})  # one greenhouse/77 row, scored >= threshold
+    conn.close()
 
     run.run_once(
         cfgmod_minimal(), db_path=str(dbfile), resume_text="r", master_tex="m",
