@@ -7,6 +7,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+- **`apply-loop` e2e now confirms the Mark-Applied dialog.** The spec clicked the
+  row's Mark-Applied icon but never confirmed the `ApplyCategoryDialog` the
+  discovered-jobs overhaul (`d4b46ea`) added, so it timed out with the dialog open. It
+  now clicks the dialog's confirm button; the Playwright suite is back to **4/4**.
+
 ### Changed
 - **Repo-wide over-engineering cleanup (behavior-preserving).** Removed dead code
   (worker `db.discard`/`db.mark_applied` + their tests, the `_row_to_dict` helper —

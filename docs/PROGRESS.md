@@ -48,22 +48,9 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   is one of: wire the auto-retry `attempts` anticipates; let notify failure leave the
   row at `tailored` (retried next pass); or add a "needs attention" view for
   `failed`. (SPEC §9, "Failure handling and recovery limits.")
-- **A worker test intermittently mutates the tracked `prompts/score.txt`.** Observed:
-  after a `pytest` run the file came back dirty with a stray glyph replacing an empty
-  line (`git restore` clears it; it did not recur on a later run). A test is writing to
-  a tracked source file instead of a tmp copy — a test-isolation leak that can corrupt a
-  prompt and sneak into a commit. Find the test that opens `prompts/score.txt` for write
-  and point it at a fixture/tmp path.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
-- **The apply-loop e2e is stale and fails — that flow is effectively untested.**
-  `e2e/apply-loop.spec.ts` clicks the row's **Mark Applied** icon and immediately
-  asserts the row left the queue, but the discovered-jobs overhaul (`d4b46ea`) made
-  that icon open the `ApplyCategoryDialog` confirmation; the test never clicks the
-  dialog's confirm button, so it times out (the dialog stays open). Fix: have the spec
-  select a category and click the dialog's **Mark Applied**. Until then the
-  discovered→applied promotion has no passing e2e. (3/4 e2e specs pass.)
 - **Path-traversal guard has no automated test.** The 403 guard in
   `api/resume/[id]/route.ts` is code-only; no test exercises it. (SPEC §9
   traceability, marked ⚠.)

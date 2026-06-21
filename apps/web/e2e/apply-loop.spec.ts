@@ -12,6 +12,10 @@ test('marking a discovered job applied moves it into Applications', async ({ pag
     const acme = page.locator('tr', { hasText: 'Acme Robotics' })
     await acme.getByTitle('Mark Applied').click()
 
+    // Confirm in the category dialog (defaults to the first category). Scope to the
+    // dialog: the row's icon button also has the accessible name "Mark Applied".
+    await page.getByRole('dialog').getByRole('button', { name: 'Mark Applied' }).click()
+
     // It leaves the actionable queue...
     await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(0)
 
