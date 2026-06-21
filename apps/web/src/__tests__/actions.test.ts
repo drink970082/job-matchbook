@@ -129,7 +129,9 @@ describe('Backend Actions', () => {
       const newStatus = 'Interviewing: 1st round'
       
       mockPrisma.applications.findUnique.mockResolvedValue({ id: appId, status: 'Applied' } as any)
-      mockPrisma.$transaction.mockImplementation(async (callback) => await callback(mockPrisma))
+      // $transaction is overloaded (batch array + interactive callback); only `any`
+      // satisfies both overloads for mockImplementation. Explicit, not implicit.
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
 
       const result = await updateApplicationStatus(appId, newStatus)
 
