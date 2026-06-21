@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
 import { MATCH_SCORE_THRESHOLD } from '@/lib/constants'
-import type { JobBucket, DiscardType } from '@/lib/actions'
+import type { JobBucket, DiscardType, JobSort } from '@/lib/actions'
 import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
@@ -37,6 +37,7 @@ export interface JobPosting {
     resume_path?: string | null
     resume_pages?: number | null
     pipeline_status?: string
+    posted_at?: string | null
 }
 
 interface DiscoveredJobsTableProps {
@@ -50,6 +51,7 @@ interface DiscoveredJobsTableProps {
         search: string
         minScore?: number
         discardType?: DiscardType
+        sort: JobSort
     }) => void
     onMarkApplied: (id: number) => void
     onDiscard: (id: number) => void
@@ -104,8 +106,9 @@ export function DiscoveredJobsTable({
     const [search, setSearch] = useState('')
     const [bucket, setBucket] = useState<JobBucket>('matched')
     const [minScore, setMinScore] = useState('')
-    // Discarded-only sub-filter for debugging/human-check: all | disqualified | lowscore
-    const [discardType, setDiscardType] = useState<'all' | DiscardType>('all')
+    const [sort, setSort] = useState<JobSort>('score')
+    // Discarded-only sub-filter — default to the near-miss band (the audit reframe).
+    const [discardType, setDiscardType] = useState<'all' | DiscardType>('nearmiss')
 
     const stableFilterChange = useCallback(onFilterChange, [])
 
@@ -116,10 +119,11 @@ export function DiscoveredJobsTable({
                 bucket,
                 minScore: minScore === '' ? undefined : Number(minScore),
                 discardType: bucket === 'discarded' && discardType !== 'all' ? discardType : undefined,
+                sort,
             })
         }, 300)
         return () => clearTimeout(timer)
-    }, [search, bucket, minScore, discardType, stableFilterChange])
+    }, [search, bucket, minScore, discardType, sort, stableFilterChange])
 
     return (
         <div className="space-y-4">
@@ -157,15 +161,24 @@ export function DiscoveredJobsTable({
                     className="w-[110px]"
                     aria-label="Minimum score"
                 />
+                <Select value={sort} onValueChange={(v) => setSort(v as JobSort)}>
+                    <SelectTrigger className="w-[150px]" aria-label="Sort by">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="score">Best match</SelectItem>
+                        <SelectItem value="posted">Newest posted</SelectItem>
+                    </SelectContent>
+                </Select>
                 {bucket === 'discarded' && (
                     <Select value={discardType} onValueChange={(v) => setDiscardType(v as 'all' | DiscardType)}>
                         <SelectTrigger className="w-[150px]" aria-label="Discard type">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All discarded</SelectItem>
+                            <SelectItem value="nearmiss">Near-miss</SelectItem>
                             <SelectItem value="disqualified">Disqualified</SelectItem>
-                            <SelectItem value="lowscore">Low score</SelectItem>
+                            <SelectItem value="all">All discarded</SelectItem>
                         </SelectContent>
                     </Select>
                 )}
@@ -200,7 +213,14 @@ export function DiscoveredJobsTable({
                                             {job.company_name}
                                         </TableCell>
                                         <TableCell className="whitespace-normal text-sm text-muted-foreground" title={job.job_title}>
-                                            {job.job_title}
+                                            <a
+                                                href={job.job_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="hover:underline text-foreground"
+                                            >
+                                                {job.job_title}
+                                            </a>
                                             {reason && (
                                                 <div className={`mt-0.5 text-[11px] font-medium ${reason.cls}`} title={reason.text}>
                                                     {reason.text}

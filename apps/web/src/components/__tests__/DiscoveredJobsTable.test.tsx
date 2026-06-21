@@ -131,7 +131,7 @@ describe('DiscoveredJobsTable', () => {
         jest.advanceTimersByTime(300)
       })
 
-      expect(onFilterChange).toHaveBeenCalledWith({ search: 'Acme', bucket: 'matched' })
+      expect(onFilterChange).toHaveBeenCalledWith({ search: 'Acme', bucket: 'matched', sort: 'score' })
     } finally {
       jest.runOnlyPendingTimers()
       jest.useRealTimers()
@@ -150,7 +150,7 @@ describe('DiscoveredJobsTable', () => {
         jest.advanceTimersByTime(300)
       })
 
-      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'discarded' })
+      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'discarded', discardType: 'nearmiss', sort: 'score' })
     } finally {
       jest.runOnlyPendingTimers()
       jest.useRealTimers()
@@ -205,5 +205,28 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getByRole('button', { name: /previous/i })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /next/i }))
     expect(onPageChange).toHaveBeenCalledWith(1)
+  })
+
+  it('renders the job title as a link to the live posting', () => {
+    renderTable()
+    const link = screen.getByRole('link', { name: 'Backend Engineer' })
+    expect(link).toHaveAttribute('href', 'https://acme.example/jobs/1')
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  it('sends the chosen sort in the filter payload', () => {
+    jest.useFakeTimers()
+    try {
+      const onFilterChange = jest.fn()
+      renderTable({ onFilterChange })
+      fireEvent.click(screen.getByLabelText(/sort by/i))
+      fireEvent.click(screen.getByText('Newest posted'))
+      onFilterChange.mockClear()
+      act(() => { jest.advanceTimersByTime(300) })
+      expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: 'posted' }))
+    } finally {
+      jest.runOnlyPendingTimers()
+      jest.useRealTimers()
+    }
   })
 })
