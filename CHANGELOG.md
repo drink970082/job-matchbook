@@ -80,6 +80,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   SPEC §7.1.)
 
 ### Added
+- **Discovered Jobs: sort by Best match or Newest posted (new `posted_at`, captured
+  from greenhouse/lever/ashby/workday); bulk Remove (terminal, hidden + worker-inert)
+  on Matched & Discarded, bulk Reopen + "Remove all in view" on Discarded; Discarded
+  reframed as a near-miss audit view (default 60–74); job titles link to the posting.**
 - **Embedded-greenhouse feed resolution.** Companies that host greenhouse jobs on their
   own domain with `?gh_jid=` apply URLs now resolve: a new *enriching resolver*
   (`feed/embedded_gh.py`) fetches the company page, scrapes the greenhouse board token

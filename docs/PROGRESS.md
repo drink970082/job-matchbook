@@ -110,6 +110,9 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   dependency-light — render the page, then reuse the per-source extractors (iCIMS
   `window._jibe`, ByteDance position data). The detail-fetch robustness framework already
   makes these fail loudly, and each remains its own spec.
+- **`posted_at` board coverage.** The posting date is captured for
+  greenhouse/lever/ashby/workday; Pinpoint exposes no board date, so `posted_at` falls
+  back to the scrape date for Pinpoint rows (and any other dateless row).
 - **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
   `VALID_SOURCES`; or `fetch_one` for a per-listing source in `DETAIL_SOURCES`) makes
   new sources cheap; JobSpy was noted as a possible fallback aggregator.

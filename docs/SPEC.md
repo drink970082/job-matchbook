@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-06-18 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-06-21 · **License:** MIT
 
 ---
 
@@ -432,11 +432,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
   - *Discovered jobs:* `getJobPostings` (score-aware `bucket` ∈ matched/discarded/
-    failed, default matched; `score desc`; paginated `page`/`size`; optional `minScore`
-    filter and, for the discarded bucket, a `discardType` ∈ disqualified/lowscore
-    debug filter), `discardJobPosting`, `reopenJobPosting`, `markJobApplied(id, category)`
+    failed, default matched; sort `JobSort` ∈ score/posted, default score; paginated
+    `page`/`size`; optional `minScore` filter and, for the discarded bucket, a
+    `discardType` ∈ disqualified/nearmiss/all sub-filter). `discardJobPosting`,
+    `reopenJobPosting`, `bulkRemove(ids)` (terminal `removed`, UI-only hide, worker-inert),
+    `bulkReopen(ids)`, `removeAllInView(bucket, filters)`, `markJobApplied(id, category)`
     (category chosen at apply time, validated against `CATEGORIES`, default `Others`).
-    Bucket definitions in §9.
+    Bucket definitions and `removed` semantics in §9.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`), `removeWatchedCompany`.
   - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
@@ -452,14 +454,16 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/discarded
-  cutoff, mirrors the worker's tailoring threshold), `getStatusColor`. **Edit here to
-  extend statuses/categories/sources.**
+  cutoff, mirrors the worker's tailoring threshold), `NEAR_MISS_FLOOR` (60; the lower
+  bound of the near-miss sub-band in the Discarded view), `getStatusColor`. **Edit here
+  to extend statuses/categories/sources.**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
-  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (buckets + score/
-  discard-type filters + per-row discard reason), `Pagination` (reusable: first/last,
-  numbered pages, go-to), `ApplyCategoryDialog` (category picker on Mark Applied),
-  `WatchlistTable`
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (buckets + sort
+  toggle Best match/Newest posted + score/discard-type filters + per-row discard reason
+  + bulk Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
+  `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
+  (category picker on Mark Applied), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
   backlog), `JobDetailModal` (JD + score detail), and the four charts `TimelineHeatmap` /
@@ -516,7 +520,8 @@ model job_postings {
   resume_tex      String?       // tailored LaTeX source
   resume_path     String?       // tailored PDF path on the shared volume
   resume_pages    Int?          // page count after compile (1 = good)
-  pipeline_status String        @default("new") // new|scored|tailored|notified|applied|discarded|failed
+  posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
+  pipeline_status String        @default("new") // new|scored|tailored|notified|applied|discarded|failed|removed
   pipeline_error  String?       // last error when pipeline_status='failed'
   attempts        Int           @default(0)     // recorded on failure (auto-retry not implemented)
   application_id  Int?          // back-link once marked applied
@@ -599,7 +604,10 @@ score:   new                      → scored        (default)
 tailor:  scored, score ≥ threshold → tailored      (below threshold: stay scored, untouched)
 notify:  tailored                 → notified
 any stage, on exception           → failed         (pipeline_error set; batch continues)
+UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
+
+- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView`; the worker never writes it and never transitions away from it (`run_score`/`run_tailor`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
 - **Stage gating is strict:** `run_score` processes only `new`; `run_tailor` only
   `scored` with `score ≥ threshold`; `run_notify` only `tailored`. A failure in one
@@ -674,13 +682,16 @@ any stage, on exception           → failed         (pipeline_error set; batch 
 - **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, discarded,
   failed}, default `matched`). Score-aware, since the live tabs are about scoring:
   **matched** = `{scored, tailored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
-  (default 75, mirrors the worker's tailoring threshold); **discarded** =
-  `pipeline_status='discarded'` **or** `{scored, tailored, notified}` with
-  `score < threshold` (a weak match); **failed** = `pipeline_status='failed'`. Each is
-  ordered `score desc, id asc` and **paginated** (`page`/`size`, default 25) so the
-  view never loads the whole table. Optional filters: a `minScore` floor (any bucket)
-  and, within discarded, a `discardType` ∈ {disqualified, lowscore} for review/debug
-  (disqualified = `pipeline_status='discarded'` with the screen's `disqualified:true`).
+  (default 75, mirrors the worker's tailoring threshold); **discarded** = a near-miss
+  audit view: `pipeline_status='discarded'` **or** `{scored, tailored, notified}` with
+  `score < threshold` (default band: `NEAR_MISS_FLOOR` 60 ≤ score < 75);
+  **failed** = `pipeline_status='failed'`. All buckets exclude `removed` rows. Each is
+  **paginated** (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`,
+  default `score desc`; `posted` orders by `posted_at desc nulls last, id asc`). Optional
+  filters: a `minScore` floor (any bucket) and, within discarded, a `discardType` ∈
+  {disqualified, nearmiss, all} sub-filter (disqualified = `pipeline_status='discarded'`
+  with the screen's `disqualified:true`; nearmiss = `NEAR_MISS_FLOOR ≤ score < threshold`
+  live rows; all = both).
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
   application (`status='Applied'`, `category` chosen by the user at apply time —
@@ -690,6 +701,14 @@ any stage, on exception           → failed         (pipeline_error set; batch 
 - **`reopenJobPosting(id)`** reverses a discard (user- or LLM-initiated) back to
   `scored`, preserving `score_detail`.
 - **`discardJobPosting(id)`** sets `pipeline_status='discarded'`.
+- **`bulkRemove(ids)`** sets `pipeline_status='removed'` for the given ids (terminal;
+  available in Matched and Discarded buckets).
+- **`bulkReopen(ids)`** sets `pipeline_status='scored'` for the given ids (available in
+  Discarded bucket, including near-miss rows; reverses a prior discard or bulk-remove back
+  to scored).
+- **`removeAllInView(bucket, filters)`** applies `bulkRemove` to every row matching the
+  current bucket + filter (available in Discarded bucket; respects `discardType` +
+  `minScore`).
 
 **Application invariants:**
 
@@ -763,10 +782,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
 | One-page loop (≤ `max_rounds`; `ok` iff 1 page) | `test_tailor.py` |
 | ⚠ Non-fabrication of resume content | `test_tailor.py::test_first_prompt_forbids_fabrication` — **prompt wiring only**, not output |
-| Discovered-jobs score-aware buckets (matched/discarded/failed) + pagination, `score desc` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
+| Discovered-jobs score-aware buckets (matched/discarded/failed) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
-| `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded` | `actions.test.ts` |
+| `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded`, `bulkRemove`→`removed`, `bulkReopen`→`scored`, `removeAllInView` | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
 | ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
