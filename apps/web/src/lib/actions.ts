@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, NEAR_MISS_FLOOR } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -58,34 +58,34 @@ const ACTIVE_PIPELINE_STATUSES = ['scored', 'tailored', 'notified'] as const
 //   failed    — pipeline failure, for monitoring
 export type JobBucket = 'matched' | 'discarded' | 'failed'
 
-// Within the Discarded bucket you can narrow to either kind, for debugging/review:
-//   disqualified — LLM hard-constraint failures (the screen marked it disqualified)
-//   lowscore     — live but below the match threshold (a weak fit, not disqualified)
-export type DiscardType = 'disqualified' | 'lowscore'
+// Within the Discarded audit view you narrow to one slice (default near-miss):
+//   nearmiss     — live, NEAR_MISS_FLOOR ≤ score < threshold (where false-negatives hide)
+//   disqualified — LLM hard-constraint failures
+export type DiscardType = 'disqualified' | 'nearmiss'
 
-export async function getJobPostings(params: {
+// Sort for the discovered queue: best match (score) or freshest posting.
+export type JobSort = 'score' | 'posted'
+
+function buildJobWhere(params: {
     bucket?: JobBucket
     search?: string
-    page?: number
-    size?: number
     minScore?: number
     discardType?: DiscardType
-}) {
+}): Prisma.job_postingsWhereInput {
     const bucket = params.bucket ?? 'matched'
     const search = params.search || ''
-    const page = params.page ?? 0
-    const size = params.size ?? 25
     const minScore = params.minScore
 
     const belowThreshold: Prisma.job_postingsWhereInput = {
         pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
         score: { lt: MATCH_SCORE_THRESHOLD },
     }
+    const nearMiss: Prisma.job_postingsWhereInput = {
+        pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
+        score: { gte: NEAR_MISS_FLOOR, lt: MATCH_SCORE_THRESHOLD },
+    }
     const disqualified: Prisma.job_postingsWhereInput = {
         pipeline_status: 'discarded',
-        // Substring-match the score_detail JSON. Tolerate both Python's json.dumps
-        // spacing ("disqualified": true) and compact JSON ("disqualified":true) so the
-        // filter doesn't silently break if the serializer changes.
         OR: [
             { score_detail: { contains: '"disqualified": true' } },
             { score_detail: { contains: '"disqualified":true' } },
@@ -98,8 +98,8 @@ export async function getJobPostings(params: {
     } else if (bucket === 'discarded') {
         if (params.discardType === 'disqualified') {
             bucketFilter = disqualified
-        } else if (params.discardType === 'lowscore') {
-            bucketFilter = belowThreshold
+        } else if (params.discardType === 'nearmiss') {
+            bucketFilter = nearMiss
         } else {
             bucketFilter = { OR: [{ pipeline_status: 'discarded' }, belowThreshold] }
         }
@@ -110,28 +110,36 @@ export async function getJobPostings(params: {
         }
     }
 
-    const where: Prisma.job_postingsWhereInput = {
+    return {
         AND: [
             bucketFilter,
             minScore != null ? { score: { gte: minScore } } : {},
             search
-                ? {
-                    OR: [
-                        { company_name: { contains: search } },
-                        { job_title: { contains: search } },
-                    ],
-                }
+                ? { OR: [{ company_name: { contains: search } }, { job_title: { contains: search } }] }
                 : {},
         ],
     }
+}
+
+export async function getJobPostings(params: {
+    bucket?: JobBucket
+    search?: string
+    page?: number
+    size?: number
+    minScore?: number
+    discardType?: DiscardType
+    sort?: JobSort
+}) {
+    const page = params.page ?? 0
+    const size = params.size ?? 25
+    const where = buildJobWhere(params)
+    const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
+        params.sort === 'posted'
+            ? [{ posted_at: 'desc' }, { id: 'desc' }]
+            : [{ score: 'desc' }, { id: 'asc' }]
 
     const [data, total] = await Promise.all([
-        prisma.job_postings.findMany({
-            where,
-            orderBy: [{ score: 'desc' }, { id: 'asc' }],
-            skip: page * size,
-            take: size,
-        }),
+        prisma.job_postings.findMany({ where, orderBy, skip: page * size, take: size }),
         prisma.job_postings.count({ where }),
     ])
 

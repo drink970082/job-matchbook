@@ -47,6 +47,11 @@ export const VALID_SOURCES = [
 // shown under the Discarded view rather than Matched. See getJobPostings.
 export const MATCH_SCORE_THRESHOLD = 75
 
+// Floor of the "near-miss" band shown by default in the Discarded audit view:
+// NEAR_MISS_FLOOR ≤ score < MATCH_SCORE_THRESHOLD. The only slice where a real
+// false-negative hides; deeper-junk rows are reachable via the "All" sub-filter.
+export const NEAR_MISS_FLOOR = 60
+
 /** Map status to a display color class */
 export function getStatusColor(status: string) {
   if (status === 'Applied') return { bg: 'bg-blue-500/15', text: 'text-blue-700', dot: 'bg-blue-500' }

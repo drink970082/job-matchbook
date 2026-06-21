@@ -168,17 +168,29 @@ test('getJobPostings paginates', async () => {
 
 test('getJobPostings discardType narrows the discarded bucket', async () => {
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 50, pipeline_status: 'scored' }) })             // below threshold
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'man', score: 88, pipeline_status: 'discarded', score_detail: null }) }) // manual discard (not disqualified)
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'near', score: 70, pipeline_status: 'scored' }) })  // 60..74 -> near-miss
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'deep', score: 40, pipeline_status: 'scored' }) })  // below the floor
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'man', score: 88, pipeline_status: 'discarded', score_detail: null }) })  // manual discard
 
     const dq = await getJobPostings({ bucket: 'discarded', discardType: 'disqualified' })
     expect(dq.data.map((d) => d.external_id)).toEqual(['dq'])
 
-    const lo = await getJobPostings({ bucket: 'discarded', discardType: 'lowscore' })
-    expect(lo.data.map((d) => d.external_id)).toEqual(['lo'])
+    const near = await getJobPostings({ bucket: 'discarded', discardType: 'nearmiss' })
+    expect(near.data.map((d) => d.external_id)).toEqual(['near'])   // excludes deep(40) and man(88)
 
     const all = await getJobPostings({ bucket: 'discarded' })
-    expect(all.data.map((d) => d.external_id).sort()).toEqual(['dq', 'lo', 'man'])
+    expect(all.data.map((d) => d.external_id).sort()).toEqual(['deep', 'dq', 'man', 'near'])
+})
+
+test('getJobPostings sort=posted orders by posted_at desc', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', score: 80, pipeline_status: 'scored', posted_at: '2026-01-01' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', score: 80, pipeline_status: 'scored', posted_at: '2026-06-01' }) })
+
+    const byScore = await getJobPostings({ bucket: 'matched' })                  // default: score desc, id asc
+    expect(byScore.data.map((d) => d.external_id)).toEqual(['old', 'new'])       // tie score -> id asc
+
+    const byPosted = await getJobPostings({ bucket: 'matched', sort: 'posted' })
+    expect(byPosted.data.map((d) => d.external_id)).toEqual(['new', 'old'])      // newest posted first
 })
 
 test('the (source, external_id) unique constraint is enforced', async () => {
