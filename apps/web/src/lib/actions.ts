@@ -87,6 +87,7 @@ function buildJobWhere(params: {
     const disqualified: Prisma.job_postingsWhereInput = {
         pipeline_status: 'discarded',
         OR: [
+            // Substring-match the score_detail JSON; tolerate json.dumps spacing ("disqualified": true) and compact ("disqualified":true).
             { score_detail: { contains: '"disqualified": true' } },
             { score_detail: { contains: '"disqualified":true' } },
         ],

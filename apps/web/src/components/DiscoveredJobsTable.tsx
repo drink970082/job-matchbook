@@ -59,7 +59,7 @@ interface DiscoveredJobsTableProps {
     onViewJD: (id: number) => void
     onBulkRemove: (ids: number[]) => void
     onBulkReopen: (ids: number[]) => void
-    onRemoveAllInView: () => void
+    onRemoveAllInView: (filter: { bucket: JobBucket; search: string; minScore?: number; discardType?: DiscardType }) => void
 }
 
 const BUCKETS: { value: JobBucket; label: string }[] = [
@@ -216,7 +216,16 @@ export function DiscoveredJobsTable({
                                 <SelectItem value="all">All discarded</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Button variant="outline" size="sm" onClick={onRemoveAllInView}>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onRemoveAllInView({
+                                bucket,
+                                search,
+                                minScore: minScore === '' ? undefined : Number(minScore),
+                                discardType: bucket === 'discarded' && discardType !== 'all' ? discardType : undefined,
+                            })}
+                        >
                             Remove all in view
                         </Button>
                     </>

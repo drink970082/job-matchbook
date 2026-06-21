@@ -687,7 +687,7 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   `score < threshold` (default band: `NEAR_MISS_FLOOR` 60 ≤ score < 75);
   **failed** = `pipeline_status='failed'`. All buckets exclude `removed` rows. Each is
   **paginated** (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`,
-  default `score desc`; `posted` orders by `posted_at desc nulls last, id asc`). Optional
+  default `score desc`; `posted` orders by `posted_at desc, id desc`). Optional
   filters: a `minScore` floor (any bucket) and, within discarded, a `discardType` ∈
   {disqualified, nearmiss, all} sub-filter (disqualified = `pipeline_status='discarded'`
   with the screen's `disqualified:true`; nearmiss = `NEAR_MISS_FLOOR ≤ score < threshold`

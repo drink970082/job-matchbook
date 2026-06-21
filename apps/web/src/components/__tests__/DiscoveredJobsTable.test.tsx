@@ -278,4 +278,14 @@ describe('DiscoveredJobsTable', () => {
     rerender([{ ...mockJobs[0], id: 99 }])
     expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
   })
+
+  it('Remove all in view passes the live (non-debounced) discarded filter', () => {
+    const onRemoveAllInView = jest.fn()
+    renderTable({ onRemoveAllInView })
+    fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
+    fireEvent.click(screen.getByRole('button', { name: /remove all in view/i }))
+    expect(onRemoveAllInView).toHaveBeenCalledWith(
+      expect.objectContaining({ bucket: 'discarded', discardType: 'nearmiss', search: '' })
+    )
+  })
 })

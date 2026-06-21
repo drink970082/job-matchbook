@@ -428,9 +428,9 @@ export function Dashboard({
         }
     }
 
-    const handleRemoveAllInView = async () => {
-        if (!confirm("Remove every job in this view? They'll be hidden from all tabs.")) return
-        const result = await removeAllInView(jobFilters)
+    const handleRemoveAllInView = async (filter: any) => {
+        if (!confirm(`Remove all ${totalJobs} job${totalJobs === 1 ? '' : 's'} in this view? They'll be hidden from all tabs.`)) return
+        const result = await removeAllInView(filter)
         if (result.success) {
             toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
             await refreshJobPostings()
