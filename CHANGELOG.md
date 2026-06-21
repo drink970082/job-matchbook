@@ -8,6 +8,35 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Changed
+- **Discovered Jobs UX: full pagination, debug filters, per-row reason, apply-time
+  category.** (1) A proper paginator (first/last, numbered pages with ellipsis,
+  go-to-page) replaces the bare Prev/Next (`components/Pagination.tsx`, reused by the
+  Discovered table). (2) New filters for review/debug: a **Min score** input (all
+  buckets) and, in the Discarded bucket, a **type** filter (All / Disqualified /
+  Low score) — `getJobPostings` gains `minScore` + `discardType`. (3) Each discarded
+  row shows its reason inline (red `✕ <disqualification reason>`, amber `low score`,
+  or `discarded manually`) so you don't open each one. (4) **Mark Applied** now opens
+  a category picker (`ApplyCategoryDialog`); `markJobApplied(id, category)` records the
+  chosen category instead of always `Others`. (SPEC §7.2, §9.)
+- **Discovered Jobs collapsed to three score-aware buckets + pagination.** While
+  scoring is the focus, the per-status (`queue/all/scored/tailored/…`) and min-score
+  dropdowns were too granular. The table now has three buckets: **Matched** (live +
+  score ≥ `MATCH_SCORE_THRESHOLD`, default 75 — mirrors the worker's tailoring
+  threshold), **Discarded** (explicitly discarded *or* live-but-below-threshold), and
+  **Failed** (pipeline failures, for monitoring). `getJobPostings` now takes a
+  `bucket` instead of `status`/`minScore` and is **paginated** (`page`/`size`, default
+  25) — previously it loaded every row into one page, which could exhaust browser
+  memory. (SPEC §7.2, §9.)
+- **Experience screen is now strict — but only on a *hard-required* minimum.** A role
+  whose hard-required minimum exceeds the candidate's years is screened out (was: only
+  when ≥4 years beyond). With 1 YoE, "2-3"/"2-5 years" *required* roles (lower-bound 2)
+  are now disqualified; "0-2"/"1-3" still pass. To avoid false-discards on early-career
+  roles, the extraction prompt now reports `null` when the years are merely *preferred*
+  / "a plus" / "or equivalent", or are a **cap** ("no more than 3 years", early-career)
+  rather than a floor; and a deterministic keep-guard never discards on years when the
+  JD welcomes early-career candidates (new grads / entry-level / "graduates will be
+  considered"). The senior-title check is not relaxed by the guard.
+  (`score._check_experience` + `_EARLY_CAREER_HINTS`, `prompts/score.txt`; SPEC §7.1.)
 - **Feed performance: a full pass dropped from ~tens of minutes to ~1 minute.** Profiling
   showed the feed was network-bound and dominated by N+1 boards. Two fixes: (1) the feed
   now fetches **SmartRecruiters and Workday per surfaced job** (their new `fetch_one`)
@@ -20,6 +49,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   reads/writes kept on the main thread; `run.py` gives each worker thread its own
   `requests.Session` (keep-alive) and a shorter timeout. Measured: a fresh full feed pass
   went from ~47 min to ~47 s.
+
+### Fixed
+- **Internship/co-op roles now reliably screened out, via an explicit config flag.**
+  The "no internships/co-op" case was a free-text LLM dealbreaker the 4B model often
+  missed, leaking internships into the queue. It is now a first-class structured
+  constraint — `candidate.exclude_internships: true` — decided deterministically from
+  the job title (whole-word `intern`/`internship`/`co-op`, so "internal"/
+  "international" don't match), independent of the LLM and of free-text dealbreakers.
+  Same philosophy as the other hard-constraint gates (the 4B model is unreliable, so
+  decide in code). (`score._is_internship`, `config.Candidate.exclude_internships`;
+  SPEC §7.1.)
 
 ### Added
 - **Embedded-greenhouse feed resolution.** Companies that host greenhouse jobs on their

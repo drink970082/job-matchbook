@@ -350,11 +350,60 @@ def test_too_senior_experience_disqualifies():
     assert "experience" in out["disqualification_reason"]
 
 
-def test_modest_experience_passes():
+def test_min_years_above_candidate_disqualifies():
+    # Strict: a role whose stated minimum (lower bound of a range) exceeds the
+    # candidate's years is screened out — "3-5 years" (min 3) vs 1 YoE.
     http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 3, "senior": False}}))
     out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
                               candidate={"years_experience": 1})
+    assert out["disqualified"] is True
+    assert "experience" in out["disqualification_reason"]
+
+
+def test_min_years_at_candidate_passes():
+    # min == candidate (2 vs 2) must PASS — the strict gate is `>`, not `>=`.
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 2, "senior": False}}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 2})
     assert out["disqualified"] is False
+
+
+# early-career / grad-friendly guard: never discard a 1-YoE candidate from a role
+# that welcomes new grads, even when the model misreports a 'preferred'/cap figure.
+def test_preferred_years_with_grads_welcome_not_disqualified():
+    # Virtu: "2+ years preferred but talented graduates will be considered".
+    posting = {**POSTING, "description": "2+ years preferred but talented graduates will be considered."}
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 2, "senior": False}}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is False
+
+
+def test_early_career_cap_not_disqualified():
+    # Aquatic: an "Early Career" role with "No more than 3 years" — a CAP, not a floor.
+    posting = {**POSTING, "description": "As an Early Career engineer ... No more than 3 years of experience."}
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 3, "senior": False}}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is False
+
+
+def test_early_career_guard_does_not_save_a_senior_title():
+    # The guard relaxes only the years minimum, NOT a senior title.
+    posting = {**POSTING, "description": "Entry level friendly. New grads welcome."}
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": None, "senior": True}}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is True
+
+
+def test_genuine_required_minimum_still_disqualifies():
+    # No grad-friendly language: a hard "requires 5 years" still discards a 1-YoE cand.
+    posting = {**POSTING, "description": "Requires a minimum of 5 years of experience."}
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 5, "senior": False}}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is True
 
 
 def test_senior_title_disqualifies_experience():
@@ -458,10 +507,57 @@ def test_unrecognized_dealbreaker_verdict_does_not_disqualify():
     assert out["disqualified"] is False
 
 
+# internships/co-op: decided deterministically from the title via the
+# exclude_internships flag (a structured constraint), not by the 4B model.
+def test_exclude_internships_disqualifies_intern_title():
+    posting = {**POSTING, "job_title": "Software Engineer Intern"}
+    http = FakeHttp(SCORE_OK, _screen_resp({}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"exclude_internships": True})
+    assert out["disqualified"] is True
+    assert "internship/co-op role" in out["disqualification_reason"]
+
+
+def test_exclude_internships_passes_non_intern_title():
+    http = FakeHttp(SCORE_OK, _screen_resp({}))
+    out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"exclude_internships": True})
+    assert out["disqualified"] is False
+
+
+def test_intern_title_not_excluded_without_the_flag():
+    # No exclude_internships -> an intern title is not auto-disqualified.
+    posting = {**POSTING, "job_title": "Software Engineer Intern"}
+    http = FakeHttp(SCORE_OK, _screen_resp({}))
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"years_experience": 1})
+    assert out["disqualified"] is False
+
+
+def test_exclude_internships_only_makes_no_screen_call():
+    # The flag is deterministic (title-only), so a candidate that sets ONLY it does
+    # not trigger a second (SCREEN) Ollama call.
+    posting = {**POSTING, "job_title": "Backend Intern"}
+    http = FakeHttp(SCORE_OK)
+    out = score.score_posting(posting, RESUME, model="m", http=http, ollama_host="h",
+                              candidate={"exclude_internships": True})
+    assert len(http.calls) == 1
+    assert out["disqualified"] is True
+
+
+def test_is_internship_whole_word_matching():
+    # Real intern/co-op titles match; "internal"/"international" must not.
+    assert score._is_internship("Software Engineer Intern")
+    assert score._is_internship("2026 Summer Internship")
+    assert score._is_internship("Data Science Co-op")
+    assert not score._is_internship("Internal Tools Engineer")
+    assert not score._is_internship("International Sales Lead")
+
+
 def test_skill_gap_and_unknown_keys_do_not_disqualify():
     # An invented key (skills) is ignored; a passing experience fact doesn't fail.
     http = FakeHttp(SCORE_OK, _screen_resp({"skills": {"pass": False, "note": "no C++"},
-                                            "experience": {"min_years_required": 2, "senior": False}}))
+                                            "experience": {"min_years_required": 1, "senior": False}}))
     out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
                               candidate={"years_experience": 1})
     assert out["disqualified"] is False
@@ -471,7 +567,7 @@ def test_skill_gap_and_unknown_keys_do_not_disqualify():
 def test_unconfigured_requirement_is_not_checked():
     # Candidate sets only experience; a stray degree extraction must be ignored.
     http = FakeHttp(SCORE_OK, _screen_resp({"degree": {"required_degree": "phd"},
-                                            "experience": {"min_years_required": 2, "senior": False}}))
+                                            "experience": {"min_years_required": 1, "senior": False}}))
     out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
                               candidate={"years_experience": 1})
     assert out["disqualified"] is False
@@ -591,12 +687,14 @@ def test_senior_title_years_threshold_boundary(years, disq):
     assert out["disqualified"] is disq
 
 
-def test_experience_gap_of_three_passes_pinning_the_four_year_threshold():
-    # gap = min_req - cand = 4 - 1 = 3, which is < 4, so it must PASS (pins `>= 4`).
-    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": 4, "senior": False}}))
+@pytest.mark.parametrize("min_req,disq", [(1, False), (2, True)])
+def test_min_years_strict_boundary(min_req, disq):
+    # Candidate has 1 YoE: min_req == cand passes, min_req == cand+1 disqualifies
+    # (pins the strict `min_req > cand`).
+    http = FakeHttp(SCORE_OK, _screen_resp({"experience": {"min_years_required": min_req, "senior": False}}))
     out = score.score_posting(POSTING, RESUME, model="m", http=http, ollama_host="h",
                               candidate={"years_experience": 1})
-    assert out["disqualified"] is False
+    assert out["disqualified"] is disq
 
 
 def test_equal_required_degree_passes_pinning_greater_than():

@@ -366,7 +366,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   `candidate` is supplied, also screens each hard requirement (experience, degree,
   work authorization, clearance, locations, dealbreakers) *semantically* and may
   return `disqualified` + `disqualification_reason` + per-requirement `screen`
-  verdicts.
+  verdicts. Two decisions are deterministic in code rather than left to the 4B model:
+  **experience** disqualifies when the role's *hard-required* minimum (the model
+  extracts the lower bound of a range; `preferred`/cap/"graduates welcome" → null)
+  strictly exceeds the candidate's years — with a deterministic keep-guard
+  (`_EARLY_CAREER_HINTS`) that never discards on years when the JD welcomes
+  early-career candidates (new grads / entry-level / a years cap), so a misread
+  `preferred`/cap figure can't false-discard an early-career role; and when
+  `candidate.exclude_internships` is set, intern/co-op roles are disqualified by a
+  whole-word match on the job title (no LLM call — runs even when no other screen
+  clause is configured).
 - **`tailor.py` — `tailor_resume` + helpers** (`make_claude`, `tectonic_compile`,
   `pypdf_count`). Claude reorders/rephrases `master.tex` for the JD; a
   `FABRICATION_GUARD` instruction is injected every round telling it never to invent
@@ -422,8 +431,12 @@ worker modules are pure and dependency-injected; real services are wired only in
     remaining history), `getKPIs`.
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
-  - *Discovered jobs:* `getJobPostings` (default queue = `scored|tailored|notified`,
-    `score desc`), `discardJobPosting`, `reopenJobPosting`, `markJobApplied`.
+  - *Discovered jobs:* `getJobPostings` (score-aware `bucket` ∈ matched/discarded/
+    failed, default matched; `score desc`; paginated `page`/`size`; optional `minScore`
+    filter and, for the discarded bucket, a `discardType` ∈ disqualified/lowscore
+    debug filter), `discardJobPosting`, `reopenJobPosting`, `markJobApplied(id, category)`
+    (category chosen at apply time, validated against `CATEGORIES`, default `Others`).
+    Bucket definitions in §9.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`), `removeWatchedCompany`.
   - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
@@ -438,10 +451,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   connection leaks).
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
-  are not listed), `getStatusColor`. **Edit here to extend statuses/categories/sources.**
+  are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/discarded
+  cutoff, mirrors the worker's tailoring threshold), `getStatusColor`. **Edit here to
+  extend statuses/categories/sources.**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
-  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable`, `WatchlistTable`
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (buckets + score/
+  discard-type filters + per-row discard reason), `Pagination` (reusable: first/last,
+  numbered pages, go-to), `ApplyCategoryDialog` (category picker on Mark Applied),
+  `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
   backlog), `JobDetailModal` (JD + score detail), and the four charts `TimelineHeatmap` /
@@ -653,13 +671,21 @@ any stage, on exception           → failed         (pipeline_error set; batch 
 
 **Web ↔ pipeline seam** (`lib/actions.ts`):
 
-- **Discovered-jobs queue** (`getJobPostings`, no explicit status) shows only the
-  actionable set `{scored, tailored, notified}`, ordered `score desc, id asc`.
-  `status: 'all'` removes the filter; an explicit status narrows to one.
-- **`markJobApplied(id)`** runs in a `$transaction`: it refuses if an application
-  with the same `(company_name, job_title)` exists, else creates the application
-  (`status='Applied'`, `category='Others'`, url from `job_url`) and atomically sets
-  the posting to `pipeline_status='applied'` + `application_id`. Application and
+- **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, discarded,
+  failed}, default `matched`). Score-aware, since the live tabs are about scoring:
+  **matched** = `{scored, tailored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
+  (default 75, mirrors the worker's tailoring threshold); **discarded** =
+  `pipeline_status='discarded'` **or** `{scored, tailored, notified}` with
+  `score < threshold` (a weak match); **failed** = `pipeline_status='failed'`. Each is
+  ordered `score desc, id asc` and **paginated** (`page`/`size`, default 25) so the
+  view never loads the whole table. Optional filters: a `minScore` floor (any bucket)
+  and, within discarded, a `discardType` ∈ {disqualified, lowscore} for review/debug
+  (disqualified = `pipeline_status='discarded'` with the screen's `disqualified:true`).
+- **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
+  application with the same `(company_name, job_title)` exists, else creates the
+  application (`status='Applied'`, `category` chosen by the user at apply time —
+  validated against `CATEGORIES`, default `Others` — url from `job_url`) and atomically
+  sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
 - **`reopenJobPosting(id)`** reverses a discard (user- or LLM-initiated) back to
   `scored`, preserving `score_detail`.
@@ -737,7 +763,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
 | One-page loop (≤ `max_rounds`; `ok` iff 1 page) | `test_tailor.py` |
 | ⚠ Non-fabrication of resume content | `test_tailor.py::test_first_prompt_forbids_fabrication` — **prompt wiring only**, not output |
-| Discovered-jobs default queue `{scored,tailored,notified}`, `score desc` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts` |
+| Discovered-jobs score-aware buckets (matched/discarded/failed) + pagination, `score desc` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded` | `actions.test.ts` |

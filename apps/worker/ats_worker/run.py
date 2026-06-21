@@ -138,6 +138,7 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                 "security_clearance": cfg.candidate.security_clearance,
                 "locations": list(cfg.candidate.locations),
                 "dealbreakers": list(cfg.candidate.dealbreakers),
+                "exclude_internships": cfg.candidate.exclude_internships,
             }
         # num_ctx is set explicitly (Ollama's default is small enough to truncate
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.

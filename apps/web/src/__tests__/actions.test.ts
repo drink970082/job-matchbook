@@ -170,7 +170,7 @@ describe('Backend Actions', () => {
   })
 
   describe('getJobPostings', () => {
-    it('should default-filter to the actionable queue and order by score desc then id', async () => {
+    it('should default to the matched bucket (actionable + score>=75), score desc then id', async () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
@@ -183,57 +183,95 @@ describe('Backend Actions', () => {
             AND: expect.arrayContaining([
               expect.objectContaining({
                 pipeline_status: { in: ['scored', 'tailored', 'notified'] },
+                score: { gte: 75 },
               }),
             ]),
           }),
           orderBy: [{ score: 'desc' }, { id: 'asc' }],
+          skip: 0,
+          take: 25,
         })
       )
     })
 
-    it('should allow an explicit status override', async () => {
+    it('discarded bucket = explicitly discarded OR live-but-below-threshold', async () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ status: 'applied' })
+      await getJobPostings({ bucket: 'discarded' })
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             AND: expect.arrayContaining([
-              expect.objectContaining({ pipeline_status: 'applied' }),
+              expect.objectContaining({
+                OR: [
+                  { pipeline_status: 'discarded' },
+                  {
+                    pipeline_status: { in: ['scored', 'tailored', 'notified'] },
+                    score: { lt: 75 },
+                  },
+                ],
+              }),
             ]),
           }),
         })
       )
     })
 
-    it("should not constrain pipeline_status when status='all'", async () => {
+    it('failed bucket filters to pipeline_status=failed', async () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ status: 'all' })
+      await getJobPostings({ bucket: 'failed' })
+
+      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({ pipeline_status: 'failed' }),
+            ]),
+          }),
+        })
+      )
+    })
+
+    it('paginates with skip/take', async () => {
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ page: 2, size: 10 })
+
+      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 })
+      )
+    })
+
+    it('applies a minScore filter', async () => {
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ minScore: 60 })
+
+      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([expect.objectContaining({ score: { gte: 60 } })]),
+          }),
+        })
+      )
+    })
+
+    it('discardType=disqualified narrows to disqualified rows', async () => {
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ bucket: 'discarded', discardType: 'disqualified' })
 
       const call = mockPrisma.job_postings.findMany.mock.calls[0][0] as any
       const serialized = JSON.stringify(call.where)
-      expect(serialized).not.toContain('pipeline_status')
-    })
-
-    it('should apply minScore filter', async () => {
-      mockPrisma.job_postings.findMany.mockResolvedValue([])
-      mockPrisma.job_postings.count.mockResolvedValue(0)
-
-      await getJobPostings({ minScore: 80 })
-
-      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            AND: expect.arrayContaining([
-              expect.objectContaining({ score: { gte: 80 } }),
-            ]),
-          }),
-        })
-      )
+      expect(serialized).toContain('"pipeline_status":"discarded"')
+      expect(serialized).toContain('disqualified')
     })
 
     it('should support search over company_name and job_title', async () => {
@@ -347,6 +385,26 @@ describe('Backend Actions', () => {
             application_id: 42,
           }),
         })
+      )
+    })
+
+    it('uses the chosen category, falling back to Others for an invalid one', async () => {
+      const posting = { id: 7, company_name: 'Acme', job_title: 'Backend Engineer', job_url: 'u', pipeline_status: 'scored' }
+      mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
+      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.create.mockResolvedValue({ id: 42 } as any)
+      mockPrisma.job_postings.update.mockResolvedValue({} as any)
+
+      await markJobApplied(7, 'MLE')
+      expect(mockPrisma.applications.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'MLE' }) })
+      )
+
+      mockPrisma.applications.create.mockClear()
+      await markJobApplied(7, 'NotACategory')
+      expect(mockPrisma.applications.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) })
       )
     })
 

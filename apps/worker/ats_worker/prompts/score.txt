@@ -20,7 +20,7 @@ Return ONLY this JSON object (no markdown, no extra prose), one entry per requir
 === HARD REQUIREMENTS ===
 
 @@ c_experience
-- experience: report {"min_years_required": <the MINIMUM years of professional experience the role requires, as a number — for a range like "3-5 years" use the lower number; null if none is stated>, "senior": <true if the title or level is Senior/Staff/Principal/Lead, else false>}.
+- experience: report {"min_years_required": <the minimum years of professional experience the role HARD-REQUIRES, as a number; null if none is truly required. Count it ONLY for a firm floor ("requires", "minimum", "at least", "must have N years"); for a hard range like "3-5 years required" use the lower number. Report null when the years are merely PREFERRED / "a plus" / "nice to have" / "or equivalent", when the posting welcomes early-career candidates (new grads, entry level, recent graduates, "talented graduates will be considered"), OR when the figure is a MAXIMUM/cap rather than a floor ("no more than N years", "up to N years", "early career", "0-N years") — a cap is the opposite of a minimum, so it is NOT a requirement>, "senior": <true if the title or level is Senior/Staff/Principal/Lead, else false>}.
 
 @@ c_degree
 - degree: report {"required_degree": "<the MINIMUM degree the role requires — one of: none, high school, associate, bachelor's, master's, phd. Use 'none' if no specific degree is required, and the lower bound for 'X or higher'>"}.

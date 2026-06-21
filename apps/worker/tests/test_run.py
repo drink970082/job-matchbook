@@ -256,6 +256,7 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     assert cand["highest_degree"] == "Master's"
     assert cand["locations"] == ["remote", "USA"]
     assert cand["dealbreakers"] == ["no internships"]
+    assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
     assert kw["ollama_host"] == "http://ol:11434"
 

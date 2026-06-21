@@ -32,6 +32,7 @@ import { WatchlistTable } from './WatchlistTable'
 import { PromotionSuggestions } from './PromotionSuggestions'
 import { UnresolvedFeedsTable } from './UnresolvedFeedsTable'
 import { JobDetailModal } from './JobDetailModal'
+import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
 import { AddApplicationForm } from './AddApplicationForm'
 import { StatusHistoryModal } from './StatusHistoryModal'
@@ -43,6 +44,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Download, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+
+// Page size for the Discovered Jobs table (must match page.tsx's initial load,
+// which calls getJobPostings with the action's default size).
+const JOB_PAGE_SIZE = 25
 
 interface DashboardProps {
     initialApps: any[]
@@ -76,8 +81,10 @@ export function Dashboard({
     const [jobPostings, setJobPostings] = useState<any[]>(initialJobPostings)
     const [totalJobs, setTotalJobs] = useState(totalJobPostings)
     const [jobFilters, setJobFilters] = useState<any>({})
+    const [jobPage, setJobPage] = useState(0)
     const [selectedJob, setSelectedJob] = useState<any>(null)
     const [isJobDetailOpen, setIsJobDetailOpen] = useState(false)
+    const [applyJob, setApplyJob] = useState<any>(null)
     const [apps, setApps] = useState(initialApps)
     const [kpis, setKpis] = useState(initialKpis)
     const [total, setTotal] = useState(totalApps)
@@ -262,8 +269,8 @@ export function Dashboard({
         refreshData()
     }
 
-    const refreshJobPostings = async (filters = jobFilters) => {
-        const { data, total } = await getJobPostings(filters)
+    const refreshJobPostings = async (filters = jobFilters, page = jobPage) => {
+        const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
         setJobPostings(data)
         setTotalJobs(total)
     }
@@ -333,9 +340,13 @@ export function Dashboard({
 
     const handleJobFilterChange = async (newFilters: any) => {
         setJobFilters(newFilters)
-        const { data, total } = await getJobPostings(newFilters)
-        setJobPostings(data)
-        setTotalJobs(total)
+        setJobPage(0)
+        await refreshJobPostings(newFilters, 0)
+    }
+
+    const handleJobPageChange = async (newPage: number) => {
+        setJobPage(newPage)
+        await refreshJobPostings(jobFilters, newPage)
     }
 
     const handleViewJD = (id: number) => {
@@ -346,11 +357,20 @@ export function Dashboard({
         }
     }
 
-    const handleMarkApplied = async (id: number) => {
-        const result = await markJobApplied(id)
+    // Mark Applied now opens a dialog to pick the application category (instead of
+    // always defaulting to 'Others'). The actual apply happens on confirm.
+    const handleMarkApplied = (id: number) => {
+        const job = jobPostings.find((j: any) => j.id === id) || { id }
+        setApplyJob(job)
+        setIsJobDetailOpen(false)
+    }
+
+    const handleConfirmApply = async (category: string) => {
+        if (!applyJob) return
+        const result = await markJobApplied(applyJob.id, category)
         if (result.success) {
             toast.success('Marked as applied')
-            setIsJobDetailOpen(false)
+            setApplyJob(null)
             setSelectedJob(null)
             await refreshJobPostings()
             await refreshData()
@@ -480,6 +500,9 @@ export function Dashboard({
                         <DiscoveredJobsTable
                             data={jobPostings}
                             total={totalJobs}
+                            page={jobPage}
+                            size={JOB_PAGE_SIZE}
+                            onPageChange={handleJobPageChange}
                             onFilterChange={handleJobFilterChange}
                             onMarkApplied={handleMarkApplied}
                             onDiscard={handleDiscardJob}
@@ -626,6 +649,15 @@ export function Dashboard({
                     onReopen={handleReopenJob}
                 />
             )}
+
+            {/* Apply category picker */}
+            <ApplyCategoryDialog
+                open={!!applyJob}
+                companyName={applyJob?.company_name}
+                jobTitle={applyJob?.job_title}
+                onConfirm={handleConfirmApply}
+                onClose={() => setApplyJob(null)}
+            />
 
             {/* History Modal */}
             {selectedApp && (

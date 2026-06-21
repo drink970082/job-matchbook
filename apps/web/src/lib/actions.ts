@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -48,32 +48,72 @@ export async function getApplications(params: {
     return { data, total }
 }
 
-// Pipeline statuses that make up the actionable "discovered jobs" queue.
-const ACTIONABLE_PIPELINE_STATUSES = ['scored', 'tailored', 'notified'] as const
+// Pipeline statuses still "live" in the discovered queue (scored, not yet applied
+// or discarded). Score then sorts them into the Matched vs Discarded buckets.
+const ACTIVE_PIPELINE_STATUSES = ['scored', 'tailored', 'notified'] as const
+
+// Discovered Jobs collapses to three score-aware buckets (we're testing scoring):
+//   matched   — live + score ≥ threshold (the actionable set)
+//   discarded — explicitly discarded OR live but below threshold (weak match)
+//   failed    — pipeline failure, for monitoring
+export type JobBucket = 'matched' | 'discarded' | 'failed'
+
+// Within the Discarded bucket you can narrow to either kind, for debugging/review:
+//   disqualified — LLM hard-constraint failures (the screen marked it disqualified)
+//   lowscore     — live but below the match threshold (a weak fit, not disqualified)
+export type DiscardType = 'disqualified' | 'lowscore'
 
 export async function getJobPostings(params: {
-    minScore?: number
-    status?: string
+    bucket?: JobBucket
     search?: string
+    page?: number
+    size?: number
+    minScore?: number
+    discardType?: DiscardType
 }) {
-    const minScore = params.minScore
+    const bucket = params.bucket ?? 'matched'
     const search = params.search || ''
+    const page = params.page ?? 0
+    const size = params.size ?? 25
+    const minScore = params.minScore
 
-    // Default: show only the actionable queue (scored/tailored/notified).
-    // An explicit status filters to that one status; 'all' removes the filter.
-    let statusFilter: Prisma.job_postingsWhereInput = {}
-    if (params.status === 'all') {
-        statusFilter = {}
-    } else if (params.status) {
-        statusFilter = { pipeline_status: params.status }
+    const belowThreshold: Prisma.job_postingsWhereInput = {
+        pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
+        score: { lt: MATCH_SCORE_THRESHOLD },
+    }
+    const disqualified: Prisma.job_postingsWhereInput = {
+        pipeline_status: 'discarded',
+        // Substring-match the score_detail JSON. Tolerate both Python's json.dumps
+        // spacing ("disqualified": true) and compact JSON ("disqualified":true) so the
+        // filter doesn't silently break if the serializer changes.
+        OR: [
+            { score_detail: { contains: '"disqualified": true' } },
+            { score_detail: { contains: '"disqualified":true' } },
+        ],
+    }
+
+    let bucketFilter: Prisma.job_postingsWhereInput
+    if (bucket === 'failed') {
+        bucketFilter = { pipeline_status: 'failed' }
+    } else if (bucket === 'discarded') {
+        if (params.discardType === 'disqualified') {
+            bucketFilter = disqualified
+        } else if (params.discardType === 'lowscore') {
+            bucketFilter = belowThreshold
+        } else {
+            bucketFilter = { OR: [{ pipeline_status: 'discarded' }, belowThreshold] }
+        }
     } else {
-        statusFilter = { pipeline_status: { in: [...ACTIONABLE_PIPELINE_STATUSES] } }
+        bucketFilter = {
+            pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
+            score: { gte: MATCH_SCORE_THRESHOLD },
+        }
     }
 
     const where: Prisma.job_postingsWhereInput = {
         AND: [
-            statusFilter,
-            minScore !== undefined && minScore !== null ? { score: { gte: minScore } } : {},
+            bucketFilter,
+            minScore != null ? { score: { gte: minScore } } : {},
             search
                 ? {
                     OR: [
@@ -89,6 +129,8 @@ export async function getJobPostings(params: {
         prisma.job_postings.findMany({
             where,
             orderBy: [{ score: 'desc' }, { id: 'asc' }],
+            skip: page * size,
+            take: size,
         }),
         prisma.job_postings.count({ where }),
     ])
@@ -123,13 +165,18 @@ export async function reopenJobPosting(id: number) {
     }
 }
 
-export async function markJobApplied(id: number) {
+export async function markJobApplied(id: number, category?: string) {
     try {
         const posting = await prisma.job_postings.findUnique({ where: { id } })
         if (!posting) {
             return { success: false, error: 'Job posting not found' }
         }
 
+        // Category is chosen by the user at apply time; fall back to 'Others' for an
+        // unknown/missing value (and old callers that pass nothing).
+        const cat = category && (CATEGORIES as readonly string[]).includes(category)
+            ? category
+            : 'Others'
         const today = new Date().toISOString().split('T')[0]
 
         // Create the application and backfill the job_postings link atomically so we
@@ -154,7 +201,7 @@ export async function markJobApplied(id: number) {
                     job_title: posting.job_title,
                     application_url: posting.job_url || '',
                     date_applied: today,
-                    category: 'Others',
+                    category: cat,
                     status: 'Applied',
                     notes: '',
                     last_updated: new Date().toISOString(),

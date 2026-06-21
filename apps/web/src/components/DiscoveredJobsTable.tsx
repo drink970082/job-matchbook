@@ -19,6 +19,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
+import { Pagination } from './Pagination'
+import { MATCH_SCORE_THRESHOLD } from '@/lib/constants'
 import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
@@ -36,18 +38,32 @@ export interface JobPosting {
     pipeline_status?: string
 }
 
+type JobBucket = 'matched' | 'discarded' | 'failed'
+type DiscardType = 'disqualified' | 'lowscore'
+
 interface DiscoveredJobsTableProps {
     data: JobPosting[]
     total: number
-    onFilterChange: (filters: { status?: string; minScore?: number; search?: string }) => void
+    page: number
+    size: number
+    onPageChange: (page: number) => void
+    onFilterChange: (filters: {
+        bucket: JobBucket
+        search: string
+        minScore?: number
+        discardType?: DiscardType
+    }) => void
     onMarkApplied: (id: number) => void
     onDiscard: (id: number) => void
     onReopen: (id: number) => void
     onViewJD: (id: number) => void
 }
 
-// Pipeline statuses surfaced in the filter dropdown.
-const PIPELINE_STATUSES = ['scored', 'tailored', 'notified', 'new', 'applied', 'discarded', 'failed'] as const
+const BUCKETS: { value: JobBucket; label: string }[] = [
+    { value: 'matched', label: 'Matched' },
+    { value: 'discarded', label: 'Discarded' },
+    { value: 'failed', label: 'Failed' },
+]
 
 function scoreVariant(score?: number | null): 'default' | 'secondary' | 'destructive' | 'outline' {
     if (score == null) return 'outline'
@@ -56,9 +72,31 @@ function scoreVariant(score?: number | null): 'default' | 'secondary' | 'destruc
     return 'destructive'
 }
 
+// Why a discarded posting is here, at a glance (so you don't open each one):
+// a hard disqualification (with its reason) vs. just a below-threshold score.
+function discardLabel(job: JobPosting): { text: string; cls: string } | null {
+    let detail: any = null
+    if (job.score_detail) {
+        try { detail = JSON.parse(job.score_detail) } catch { /* ignore bad JSON */ }
+    }
+    if (detail?.disqualified) {
+        return { text: `✕ ${detail.disqualification_reason || 'disqualified'}`, cls: 'text-red-600' }
+    }
+    if (job.score != null && job.score < MATCH_SCORE_THRESHOLD) {
+        return { text: `low score (< ${MATCH_SCORE_THRESHOLD})`, cls: 'text-amber-600' }
+    }
+    if (job.pipeline_status === 'discarded') {
+        return { text: 'discarded manually', cls: 'text-muted-foreground' }
+    }
+    return null
+}
+
 export function DiscoveredJobsTable({
     data,
     total,
+    page,
+    size,
+    onPageChange,
     onFilterChange,
     onMarkApplied,
     onDiscard,
@@ -66,8 +104,10 @@ export function DiscoveredJobsTable({
     onViewJD,
 }: DiscoveredJobsTableProps) {
     const [search, setSearch] = useState('')
-    const [statusFilter, setStatusFilter] = useState('queue')
-    const [minScoreFilter, setMinScoreFilter] = useState('all')
+    const [bucket, setBucket] = useState<JobBucket>('matched')
+    const [minScore, setMinScore] = useState('')
+    // Discarded-only sub-filter for debugging/human-check: all | disqualified | lowscore
+    const [discardType, setDiscardType] = useState<'all' | DiscardType>('all')
 
     const stableFilterChange = useCallback(onFilterChange, [])
 
@@ -75,17 +115,33 @@ export function DiscoveredJobsTable({
         const timer = setTimeout(() => {
             stableFilterChange({
                 search,
-                // 'queue' = default actionable queue (omit status so the action applies its default)
-                status: statusFilter === 'queue' ? undefined : statusFilter,
-                minScore: minScoreFilter === 'all' ? undefined : Number(minScoreFilter),
+                bucket,
+                minScore: minScore === '' ? undefined : Number(minScore),
+                discardType: bucket === 'discarded' && discardType !== 'all' ? discardType : undefined,
             })
         }, 300)
         return () => clearTimeout(timer)
-    }, [search, statusFilter, minScoreFilter, stableFilterChange])
+    }, [search, bucket, minScore, discardType, stableFilterChange])
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                <div className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
+                    {BUCKETS.map((b) => (
+                        <button
+                            key={b.value}
+                            type="button"
+                            onClick={() => setBucket(b.value)}
+                            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                                bucket === b.value
+                                    ? 'bg-background shadow-sm text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                            {b.label}
+                        </button>
+                    ))}
+                </div>
                 <div className="flex-1">
                     <Input
                         placeholder="Search companies or job titles..."
@@ -93,30 +149,28 @@ export function DiscoveredJobsTable({
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                <Select value={minScoreFilter} onValueChange={setMinScoreFilter}>
-                    <SelectTrigger className="w-[140px]">
-                        <SelectValue placeholder="Min Score" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Any Score</SelectItem>
-                        <SelectItem value="90">90+</SelectItem>
-                        <SelectItem value="80">80+</SelectItem>
-                        <SelectItem value="70">70+</SelectItem>
-                        <SelectItem value="50">50+</SelectItem>
-                    </SelectContent>
-                </Select>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[160px]">
-                        <SelectValue placeholder="Pipeline Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="queue">Queue (actionable)</SelectItem>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        {PIPELINE_STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>{s}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="Min score"
+                    value={minScore}
+                    onChange={(e) => setMinScore(e.target.value)}
+                    className="w-[110px]"
+                    aria-label="Minimum score"
+                />
+                {bucket === 'discarded' && (
+                    <Select value={discardType} onValueChange={(v) => setDiscardType(v as 'all' | DiscardType)}>
+                        <SelectTrigger className="w-[150px]" aria-label="Discard type">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All discarded</SelectItem>
+                            <SelectItem value="disqualified">Disqualified</SelectItem>
+                            <SelectItem value="lowscore">Low score</SelectItem>
+                        </SelectContent>
+                    </Select>
+                )}
             </div>
 
             <div className="rounded-md border overflow-hidden">
@@ -141,6 +195,7 @@ export function DiscoveredJobsTable({
                         ) : (
                             data.map((job) => {
                                 const multiPage = job.resume_pages != null && job.resume_pages > 1
+                                const reason = discardLabel(job)
                                 return (
                                     <TableRow key={job.id}>
                                         <TableCell className="whitespace-normal font-medium text-sm" title={job.company_name}>
@@ -148,6 +203,11 @@ export function DiscoveredJobsTable({
                                         </TableCell>
                                         <TableCell className="whitespace-normal text-sm text-muted-foreground" title={job.job_title}>
                                             {job.job_title}
+                                            {reason && (
+                                                <div className={`mt-0.5 text-[11px] font-medium ${reason.cls}`} title={reason.text}>
+                                                    {reason.text}
+                                                </div>
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-1">
@@ -237,11 +297,7 @@ export function DiscoveredJobsTable({
                 </Table>
             </div>
 
-            <div className="flex items-center justify-between py-2">
-                <div className="text-sm text-muted-foreground">
-                    {total} discovered job{total === 1 ? '' : 's'}
-                </div>
-            </div>
+            <Pagination page={page} size={size} total={total} onPageChange={onPageChange} />
         </div>
     )
 }

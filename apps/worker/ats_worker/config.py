@@ -60,6 +60,10 @@ class Candidate:
     security_clearance: str = ""
     locations: list[str] = field(default_factory=list)
     dealbreakers: list[str] = field(default_factory=list)
+    # Deterministic hard-constraint (decided in code from the job title, not the LLM):
+    # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
+    # this, but the title is a clean signal. See score._is_internship.
+    exclude_internships: bool = False
 
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
@@ -70,6 +74,7 @@ class Candidate:
             self.security_clearance.strip(),
             self.locations,
             self.dealbreakers,
+            self.exclude_internships,
         ))
 
 
@@ -236,4 +241,5 @@ def _parse_candidate(raw) -> Candidate:
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
         dealbreakers=dealbreakers,
+        exclude_internships=bool(raw.get("exclude_internships")),
     )

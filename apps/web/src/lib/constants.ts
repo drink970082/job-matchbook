@@ -42,6 +42,11 @@ export const VALID_SOURCES = [
   'workable',
 ] as const
 
+// Score at/above which a scored posting counts as a "match" (mirrors the worker's
+// default tailoring threshold). Below it, a scored posting is a weak match and is
+// shown under the Discarded view rather than Matched. See getJobPostings.
+export const MATCH_SCORE_THRESHOLD = 75
+
 export type Status = (typeof STATUSES)[number]
 export type Category = (typeof CATEGORIES)[number]
 export type Source = (typeof VALID_SOURCES)[number]

@@ -65,6 +65,22 @@ _SPONSOR_HINTS = ("sponsor", "visa", "citizen", "work authoriz", "authorized to 
 _REMOTE_HINTS = ("remote", "work from home", "work-from-home", "wfh", "work from anywhere",
                  "fully remote", "remotely", "location independent", "location-independent")
 
+# Internship/co-op detection is deterministic from the title (gated by the
+# candidate's exclude_internships flag): a 4B model is unreliable on this, but the
+# title makes it trivial. Whole-word so "internal"/"international"/"cooperation" never match.
+_INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
+
+# Early-career / grad-friendly JD signals. When present, a years MINIMUM is never
+# grounds to discard — a safe-keep guard for a candidate who qualifies as early
+# career, and a backstop against the 4B model misreading a "preferred" figure or a
+# cap ("no more than 3 years") as a hard floor. Substring match (lowercased).
+_EARLY_CAREER_HINTS = (
+    "early career", "early-career", "new grad", "new graduate", "recent grad",
+    "recent graduate", "graduates will be considered", "graduates are welcome",
+    "graduates encouraged", "entry level", "entry-level",
+    "no experience necessary", "no experience required",
+)
+
 # Country aliases normalised so the LLM's free-form country ("United States") and
 # the candidate's config ("USA") compare equal. Only the common multi-spelling
 # countries need entries; everything else compares on its lowercased name.
@@ -191,16 +207,29 @@ def score_posting(
     # toward keep on garbled extraction — so we fall back to scored-but-not-screened
     # and keep the already-computed fit score.
     checklist = _candidate_block(candidate)
+    description = str(posting.get("description") or "")
     if checklist:
         try:
             screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
                                 options=options, timeout=timeout)
-            description = str(posting.get("description") or "")
             result.update(_screen_verdict(screen_data, candidate or {}, description))
         except ScoreError:
             result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
     else:
         result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
+
+    # Deterministic intern/co-op exclusion — title-only, so it runs regardless of the
+    # LLM screen (a candidate that sets ONLY this flag makes no SCREEN call). The 4B
+    # model is unreliable here; the title is a clean signal. Merges a hard fail in.
+    if candidate and candidate.get("exclude_internships") and _is_internship(
+        str(posting.get("job_title") or "")
+    ):
+        result.setdefault("screen", {})["internships"] = {"pass": False, "note": "internship/co-op role"}
+        prior = result.get("disqualification_reason") or ""
+        result["disqualified"] = True
+        result["disqualification_reason"] = (
+            f"{prior}; internship/co-op role" if prior else "internship/co-op role"
+        )
     return result
 
 
@@ -289,7 +318,7 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     entry = lambda k: screen.get(k) if isinstance(screen.get(k), dict) else {}
 
     gate("experience", candidate.get("years_experience") is not None,
-         *_check_experience(entry("experience"), candidate.get("years_experience")))
+         *_check_experience(entry("experience"), candidate.get("years_experience"), description))
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
@@ -300,7 +329,9 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     gate("location", bool(candidate.get("locations")),
          *_check_location(entry("location"), candidate.get("locations") or [], description))
 
-    # dealbreakers: free-text, so the LLM keeps the pass/fail judgment here.
+    # dealbreakers: free-text, so the LLM keeps the pass/fail judgment here. (The
+    # common "no internships/co-op" case is handled deterministically by the
+    # exclude_internships flag in score_posting, not by the model.)
     if candidate.get("dealbreakers"):
         db = entry("dealbreakers")
         passed = _passed(db.get("pass"))
@@ -314,17 +345,23 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     }
 
 
-def _check_experience(entry: dict, cand_years) -> tuple[bool, str]:
-    """Fail a clearly-too-senior role: a Senior/Staff/Principal/Lead title when the
-    candidate is plausibly too junior (known years below SENIOR_TITLE_MIN_YEARS), or
-    a required minimum at least 4 years beyond the candidate's experience. An
-    experienced or unknown-years candidate is never failed on title seniority alone
-    (safe direction)."""
+def _check_experience(entry: dict, cand_years, description: str = "") -> tuple[bool, str]:
+    """Fail a too-senior role: a Senior/Staff/Principal/Lead title when the candidate
+    is plausibly too junior (known years below SENIOR_TITLE_MIN_YEARS), or a stated
+    minimum strictly above the candidate's years (the role's floor exceeds what they
+    have — for a range like "2-5 years" the model reports the lower bound, 2). An
+    unknown-years candidate is never failed on the minimum. A JD that explicitly
+    welcomes early-career candidates (new grads / entry-level / a years cap) is never
+    failed on the minimum either — the safe direction for someone who qualifies as
+    early career, and a backstop against the model misreading a 'preferred' figure or
+    a cap ("no more than 3 years") as a floor. The senior-title check is NOT relaxed
+    by this — a senior role is senior regardless of grad-friendly language."""
     cand = _to_num(cand_years)
     if _flag(entry.get("senior")) and cand is not None and cand < SENIOR_TITLE_MIN_YEARS:
         return False, "senior-level role"
     min_req = _to_num(entry.get("min_years_required"))
-    if min_req is not None and min_req - (cand or 0.0) >= 4:
+    if (min_req is not None and cand is not None and min_req > cand
+            and not _mentions(description, _EARLY_CAREER_HINTS)):
         return False, f"requires ~{_fmt_num(min_req)}+ years"
     return True, ""
 
@@ -415,6 +452,11 @@ def _mentions(description: str, hints: tuple[str, ...]) -> bool:
     sponsorship/remote guesses against the source)."""
     t = (description or "").lower()
     return any(h in t for h in hints)
+
+
+def _is_internship(title: str) -> bool:
+    """Whole-word intern/internship/co-op match on the job title."""
+    return bool(_INTERN_TITLE.search(title or ""))
 
 
 def _norm_simple(value) -> str:

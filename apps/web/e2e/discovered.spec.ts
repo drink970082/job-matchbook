@@ -7,13 +7,15 @@ test.beforeEach(async () => {
     await seed()
 })
 
-test('discovered jobs render with scores and the JD modal shows match details', async ({ page }) => {
+test('discovered jobs render in score buckets and the JD modal shows match details', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
 
+    // Default = Matched bucket: only high scorers (>=75).
     await expect(page.getByText('Acme Robotics')).toBeVisible()
     await expect(page.getByText('Globex Analytics')).toBeVisible()
-    await expect(page.getByText('Initech Cloud')).toBeVisible()
+    // Initech (score 65) is below the match threshold -> Discarded, not Matched.
+    await expect(page.getByText('Initech Cloud')).toHaveCount(0)
 
     // Exactly one multi-page warning badge (Globex has resume_pages = 2).
     await expect(page.locator('[title*="pages"]')).toHaveCount(1)
@@ -30,4 +32,10 @@ test('discovered jobs render with scores and the JD modal shows match details', 
     await expect(dialog.getByText('aws', { exact: true })).toBeVisible()
     await expect(dialog.getByText('kubernetes', { exact: true })).toBeVisible()
     await expect(dialog.getByText(/Strong backend match/i)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+
+    // The low scorer lives under the Discarded bucket.
+    await page.getByRole('button', { name: /^Discarded$/i }).click()
+    await expect(page.getByText('Initech Cloud')).toBeVisible()
 })

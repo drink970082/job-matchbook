@@ -117,6 +117,7 @@ def test_load_parses_structured_candidate():
         "  locations: ['remote', 'New York']\n"
         "  dealbreakers:\n"
         "    - 'requires an active clearance'\n"
+        "  exclude_internships: true\n"
     )
     c = cfg.candidate
     assert c.years_experience == 1.0
@@ -125,7 +126,13 @@ def test_load_parses_structured_candidate():
     assert c.security_clearance == "none"
     assert c.locations == ["remote", "New York"]
     assert c.dealbreakers == ["requires an active clearance"]
+    assert c.exclude_internships is True
     assert not c.is_empty()
+
+
+def test_exclude_internships_defaults_false():
+    cfg = config.load_config("companies: []\ncandidate:\n  years_experience: 1\n")
+    assert cfg.candidate.exclude_internships is False
 
 
 def test_candidate_years_experience_non_numeric_raises():
@@ -144,6 +151,7 @@ def test_is_empty_false_when_any_single_field_set():
         "candidate:\n  security_clearance: 'Secret'\n",
         "candidate:\n  locations: ['remote']\n",
         "candidate:\n  dealbreakers: ['no internships']\n",
+        "candidate:\n  exclude_internships: true\n",
     )
     for body in cases:
         cfg = config.load_config("companies: []\n" + body)

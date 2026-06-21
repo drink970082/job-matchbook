@@ -29,11 +29,12 @@ test('markJobApplied creates the application and links the posting', async () =>
     const jp = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'm1', company_name: 'Acme', job_title: 'Eng' }),
     })
-    const res = await markJobApplied(jp.id)
+    const res = await markJobApplied(jp.id, 'MLE')
     expect(res.success).toBe(true)
 
     const apps = await prisma.applications.findMany()
     expect(apps).toHaveLength(1)
+    expect(apps[0].category).toBe('MLE')                          // chosen category, not 'Others'
     const updated = await prisma.job_postings.findUnique({ where: { id: jp.id } })
     expect(updated!.pipeline_status).toBe('applied')
     expect(updated!.application_id).toBe(apps[0].id)
@@ -134,15 +135,50 @@ test('getApplications paginates (skip = page*size) and orders by date desc', asy
 })
 
 
-// --- getJobPostings: queue filter + ordering + unique constraint ----------
+// --- getJobPostings: score-aware buckets + ordering + unique constraint ----
 
-test('getJobPostings default returns only the actionable queue, score-ordered', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'q1', score: 90, pipeline_status: 'scored' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'q2', score: 95, pipeline_status: 'discarded' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'q3', score: 80, pipeline_status: 'notified' }) })
+test('getJobPostings buckets postings by score and status', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm1', score: 90, pipeline_status: 'scored' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm2', score: 80, pipeline_status: 'notified' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 60, pipeline_status: 'scored' }) })    // below threshold
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dx', score: 95, pipeline_status: 'discarded' }) }) // explicit discard
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'fx', score: 88, pipeline_status: 'failed' }) })
 
-    const res = await getJobPostings({})
-    expect(res.data.map((d) => d.external_id)).toEqual(['q1', 'q3'])  // discarded excluded; 90 before 80
+    const matched = await getJobPostings({ bucket: 'matched' })
+    expect(matched.data.map((d) => d.external_id)).toEqual(['m1', 'm2'])  // >=75, score desc
+
+    // discarded = explicitly discarded OR live-but-below-threshold, score desc
+    const discarded = await getJobPostings({ bucket: 'discarded' })
+    expect(discarded.data.map((d) => d.external_id)).toEqual(['dx', 'lo'])
+
+    const failed = await getJobPostings({ bucket: 'failed' })
+    expect(failed.data.map((d) => d.external_id)).toEqual(['fx'])
+})
+
+test('getJobPostings paginates', async () => {
+    for (let i = 0; i < 7; i++) {
+        await prisma.job_postings.create({ data: makeJobPosting({ external_id: `p${i}`, score: 90 - i, pipeline_status: 'scored' }) })
+    }
+    const p0 = await getJobPostings({ bucket: 'matched', page: 0, size: 5 })
+    expect(p0.data).toHaveLength(5)
+    expect(p0.total).toBe(7)
+    const p1 = await getJobPostings({ bucket: 'matched', page: 1, size: 5 })
+    expect(p1.data).toHaveLength(2)                       // skip 5 -> 2 remain
+})
+
+test('getJobPostings discardType narrows the discarded bucket', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 50, pipeline_status: 'scored' }) })             // below threshold
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'man', score: 88, pipeline_status: 'discarded', score_detail: null }) }) // manual discard (not disqualified)
+
+    const dq = await getJobPostings({ bucket: 'discarded', discardType: 'disqualified' })
+    expect(dq.data.map((d) => d.external_id)).toEqual(['dq'])
+
+    const lo = await getJobPostings({ bucket: 'discarded', discardType: 'lowscore' })
+    expect(lo.data.map((d) => d.external_id)).toEqual(['lo'])
+
+    const all = await getJobPostings({ bucket: 'discarded' })
+    expect(all.data.map((d) => d.external_id).sort()).toEqual(['dq', 'lo', 'man'])
 })
 
 test('the (source, external_id) unique constraint is enforced', async () => {
