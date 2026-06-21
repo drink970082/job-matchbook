@@ -198,3 +198,17 @@ def test_get_by_status_null_score_excluded_by_min_score(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)  # 'new', score is NULL
     assert db.get_by_status(conn, "new", min_score=75) == []
+
+
+def test_upsert_stores_board_posted_at(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1", posted_at="2026-04-17")], now=NOW)
+    row = db.get_by_status(conn, "new")[0]
+    assert row["posted_at"] == "2026-04-17"
+
+
+def test_upsert_falls_back_to_scrape_date_when_no_posted_at(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("2")], now=NOW)   # make_posting has no posted_at
+    row = db.get_by_status(conn, "new")[0]
+    assert row["posted_at"] == NOW[:10]                 # "2026-06-04"

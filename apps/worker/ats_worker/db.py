@@ -33,10 +33,10 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, pipeline_status, attempts, created_at)
+     description, posted_at, pipeline_status, attempts, created_at)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, 'new', 0, :created_at)
+     :description, :posted_at, 'new', 0, :created_at)
 ON CONFLICT(source, external_id) DO NOTHING
 """
 
@@ -59,6 +59,8 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
                 "location": p.get("location"),
                 "job_url": p["job_url"],
                 "description": p["description"],
+                # posted_at is date-only; fall back to the scrape day so it's never null.
+                "posted_at": (p.get("posted_at") or now)[:10],
                 "created_at": now,
             },
         )
