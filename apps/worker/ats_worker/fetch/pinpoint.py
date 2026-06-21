@@ -37,6 +37,7 @@ def parse_jobs(payload: dict, company_name: str) -> list[dict]:
                 "location": location or None,
                 "job_url": url,
                 "description": html_to_text(body),
+                "posted_at": None,
             }
         )
     return out

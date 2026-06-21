@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "workday"
 _CXS = "https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
@@ -46,6 +46,7 @@ def parse_job(detail_payload: dict, company_name: str) -> dict:
         "location": info.get("location") or None,
         "job_url": info.get("externalUrl", ""),
         "description": html_to_text(info.get("jobDescription")),
+        "posted_at": to_iso_date(info.get("startDate")),
     }
 
 

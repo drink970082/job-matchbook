@@ -60,6 +60,7 @@ def parse_job(detail_payload: dict, slug: str, external_id: str,
         "job_url": (f"https://{host}/hcmUI/CandidateExperience/en/sites/"
                     f"{site}/job/{external_id}"),
         "description": html_to_text("\n\n".join(blobs)),
+        "posted_at": None,
     }
 
 

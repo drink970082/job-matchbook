@@ -9,7 +9,22 @@ from __future__ import annotations
 
 import pytest
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
+
+
+def test_to_iso_date_keeps_iso_date_prefix():
+    assert to_iso_date("2026-04-17T05:58:03-04:00") == "2026-04-17"
+    assert to_iso_date("2026-04-17") == "2026-04-17"
+
+
+def test_to_iso_date_converts_epoch_millis():
+    assert to_iso_date(1553186035299) == "2019-03-21"   # lever createdAt (ms, UTC)
+
+
+def test_to_iso_date_none_or_garbage_is_none():
+    assert to_iso_date(None) is None
+    assert to_iso_date("") is None
+    assert to_iso_date("bad") is None
 
 
 def test_none_and_empty_become_empty_string():

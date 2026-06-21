@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import datetime, timezone
 
 # Canonical fields every adapter must produce. Aligned with the Prisma
 # job_postings model (worker writes a subset; score/tailor fill the rest).
@@ -14,7 +15,24 @@ POSTING_FIELDS = (
     "location",
     "job_url",
     "description",
+    "posted_at",
 )
+
+
+def to_iso_date(value) -> str | None:
+    """Normalize a board posting date to 'YYYY-MM-DD', or None.
+
+    Accepts ISO-8601 strings (greenhouse first_published, ashby publishedAt,
+    workday startDate — we keep the date prefix) and epoch-millisecond ints
+    (lever createdAt). Anything unparseable returns None.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        # ponytail: epoch-ms is the only numeric date any board sends (lever)
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+    s = str(value)
+    return s[:10] if len(s) >= 10 else None
 
 _TAG_RE = re.compile(r"<[^>]+>")
 # Include U+00A0 (the unescaped &nbsp;) so non-breaking spaces collapse to a

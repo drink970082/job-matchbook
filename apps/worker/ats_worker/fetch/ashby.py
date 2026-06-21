@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "ashby"
 API = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
@@ -27,6 +27,7 @@ def parse_jobs(payload: dict, company_name: str) -> list[dict]:
                 "location": (j.get("location") or None),
                 "job_url": j.get("jobUrl") or j.get("applyUrl", ""),
                 "description": description.strip(),
+                "posted_at": to_iso_date(j.get("publishedAt")),
             }
         )
     return out

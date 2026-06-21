@@ -183,3 +183,28 @@ def test_fetch_one_company_non_detail_source_raises():
     from ats_worker.fetch import fetch_one_company
     with pytest.raises(ValueError, match="no per-listing"):
         fetch_one_company("greenhouse", "acme", "1", "X")
+
+
+# --- per-adapter posted_at capture ----------------------------------------
+
+def test_greenhouse_captures_posted_at():
+    payload = {"jobs": [{"id": 1, "title": "X", "absolute_url": "http://x",
+                         "content": "y", "first_published": "2026-04-17T05:58:03-04:00"}]}
+    assert greenhouse.parse_jobs(payload, company_name="Acme")[0]["posted_at"] == "2026-04-17"
+
+
+def test_lever_captures_posted_at():
+    payload = [{"id": "1", "text": "X", "hostedUrl": "http://x",
+                "descriptionPlain": "y", "createdAt": 1553186035299}]
+    assert lever.parse_jobs(payload, company_name="Acme")[0]["posted_at"] == "2019-03-21"
+
+
+def test_ashby_captures_posted_at():
+    payload = {"jobs": [{"id": "1", "title": "X", "jobUrl": "http://x",
+                         "descriptionPlain": "y", "publishedAt": "2024-03-04T14:29:08.532+00:00"}]}
+    assert ashby.parse_jobs(payload, company_name="Acme")[0]["posted_at"] == "2024-03-04"
+
+
+def test_pinpoint_has_no_posted_at():
+    posting = pinpoint.parse_jobs(load("pinpoint.json"), company_name="Acme")[0]
+    assert posting["posted_at"] is None

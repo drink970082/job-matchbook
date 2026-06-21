@@ -353,3 +353,12 @@ def test_pinpoint_skips_linkless_postings():
     assert len(postings) == 1  # only the linked posting kept
     assert all(p["job_url"].startswith("http") for p in postings)
     assert postings[0]["external_id"] == "100"
+
+
+# --- workday posted_at capture --------------------------------------------
+
+def test_workday_captures_posted_at():
+    from ats_worker.fetch import workday
+    info = {"jobPostingInfo": {"id": "g1", "title": "X", "externalUrl": "http://x",
+                               "jobDescription": "y", "startDate": "2026-04-17"}}
+    assert workday.parse_job(info, "Acme")["posted_at"] == "2026-04-17"

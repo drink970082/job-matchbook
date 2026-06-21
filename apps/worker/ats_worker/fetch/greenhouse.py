@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "greenhouse"
 API = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
@@ -27,6 +27,7 @@ def parse_jobs(payload: dict, company_name: str) -> list[dict]:
                 "location": (loc.get("name") or None),
                 "job_url": j.get("absolute_url", ""),
                 "description": html_to_text(j.get("content")),
+                "posted_at": to_iso_date(j.get("first_published")),
             }
         )
     return out

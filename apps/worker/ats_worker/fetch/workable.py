@@ -38,6 +38,7 @@ def parse_jobs(payload: dict, slug: str, company_name: str) -> list[dict]:
             "location": _location(j),
             "job_url": f"https://apply.workable.com/{slug}/j/{code}",
             "description": html_to_text(j.get("description")),
+            "posted_at": None,
         })
     return out
 

@@ -14,7 +14,7 @@ import re
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "jobvite"
 PAGE = "https://jobs.jobvite.com/{slug}/job/{id}"
@@ -65,6 +65,7 @@ def parse_page(html_text: str, slug: str, external_id: str,
         "location": _location(ld),
         "job_url": PAGE.format(slug=slug, id=external_id),
         "description": html_to_text(ld.get("description")),
+        "posted_at": to_iso_date(ld.get("datePosted")),
     }
 
 

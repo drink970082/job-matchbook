@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "lever"
 API = "https://api.lever.co/v0/postings/{slug}"
@@ -28,6 +28,7 @@ def parse_jobs(payload: list, company_name: str) -> list[dict]:
                 "location": (categories.get("location") or None),
                 "job_url": j.get("hostedUrl") or j.get("applyUrl", ""),
                 "description": description.strip(),
+                "posted_at": to_iso_date(j.get("createdAt")),
             }
         )
     return out

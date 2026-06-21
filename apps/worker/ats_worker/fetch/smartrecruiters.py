@@ -66,6 +66,7 @@ def parse_job(detail_payload: dict, slug: str, company_name: str) -> dict:
         "location": _location(p.get("location")),
         "job_url": f"https://jobs.smartrecruiters.com/{slug}/{pid}",
         "description": _description(p),
+        "posted_at": None,
     }
 
 
