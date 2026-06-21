@@ -49,6 +49,24 @@ def parse_job(detail_payload: dict, company_name: str) -> dict:
     }
 
 
+def fetch_one(slug: str, external_id: str, company_name: str,
+              session: requests.Session | None = None,
+              timeout: int = 20) -> dict | None:
+    """Fetch ONE job by its external path (the `/job/...` segment the feed URL
+    carries). The feed routes Workday here so it pulls only the surfaced jobs —
+    listing the whole board (N+1, sometimes thousands of jobs) just to keep the
+    1-2 the feed wants is the dominant feed cost. parse_job emits the GUID as the
+    external_id, so it still dedups with the watchlist. fetch() lists the board."""
+    if not slug or not external_id:
+        return None
+    tenant, dc, site = _parts(slug)
+    http = session or requests
+    cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
+    resp = http.get(cxs + external_id, headers=_JSON, timeout=timeout)
+    resp.raise_for_status()
+    return parse_job(resp.json(), company_name)
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     tenant, dc, site = _parts(slug)

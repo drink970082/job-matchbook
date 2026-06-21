@@ -141,6 +141,48 @@ def test_workday_fetch_pages_and_enriches_via_detail():
     )
 
 
+def test_workday_fetch_one_pulls_only_the_surfaced_job():
+    # The feed routes workday here: ONE detail GET by externalPath, NO whole-board POST.
+    detail_payload = load("workday_detail.json")
+
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class FakeSession:
+        def __init__(self):
+            self.gets = []
+            self.posts = []
+
+        def get(self, url, headers=None, timeout=None):
+            self.gets.append(url)
+            return FakeResp(detail_payload)
+
+        def post(self, *a, **k):  # would be the list endpoint — must NEVER be called
+            self.posts.append(a)
+            return FakeResp({})
+
+    sess = FakeSession()
+    p = workday.fetch_one("arrowstreetcapital/wd5/Campus_Careers",
+                          "/job/Boston/Quantitative-Developer_R1433", "Arrowstreet", session=sess)
+    assert set(p.keys()) == set(POSTING_FIELDS) and p["source"] == "workday"
+    assert sess.posts == []  # the whole-board list POST is never made
+    assert sess.gets == [
+        "https://arrowstreetcapital.wd5.myworkdayjobs.com/wday/cxs/arrowstreetcapital/"
+        "Campus_Careers/job/Boston/Quantitative-Developer_R1433"]
+
+
+def test_workday_fetch_one_missing_args_returns_none():
+    assert workday.fetch_one("", "/job/x", "Co", session=object()) is None
+    assert workday.fetch_one("a/b/c", "", "Co", session=object()) is None
+
+
 # --- workday pagination + failure-isolation fakes -------------------------
 #
 # A configurable fake transport for the multi-page tests. `pages` is the list

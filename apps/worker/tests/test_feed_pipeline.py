@@ -29,28 +29,20 @@ def _feed_fn():
     return _listings()
 
 
-# The simplify fixture's workday listing resolves to (workday, "acme/wd5/External",
-# "R123"). Workday is special: the adapter emits a GUID as external_id and carries
-# the surfaced jobReqId inside job_url, so run_feed matches on job_url substring.
-# This fake serves one posting whose job_url contains R123 (the wanted reqId) plus
-# a decoy whose job_url contains a DIFFERENT reqId — only the right one is kept.
-_WORKDAY_POSTINGS = [
-    _posting("GUID-MATCH", source="workday",
-             job_url="https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer_R123"),
-    _posting("GUID-DECOY", source="workday",
-             job_url="https://acme.wd5.myworkdayjobs.com/External/job/Boston/Other_R999"),
-]
-
-
 def _make_fetch_fn(calls, raise_for=None):
     def fetch_fn(source, slug, name):
         calls.append((source, slug, name))
         if raise_for and source == raise_for:
             raise RuntimeError("board down")
-        if source == "workday":
-            return list(_WORKDAY_POSTINGS)
         return [_posting(i, source=source) for i in BOARD.get((source, slug), [])]
     return fetch_fn
+
+
+def _detail_serves(source, slug, external_id, name):
+    """Fake per-listing fetch: every surfaced id resolves to a valid posting.
+    SmartRecruiters AND Workday are feed DETAIL sources now (fetch only the surfaced
+    ids, not the whole board), so the board tests route them through here."""
+    return _posting(external_id, source=source)
 
 
 def test_run_feed_keeps_only_surfaced_ids_and_records_unresolved(db_path):
@@ -58,7 +50,7 @@ def test_run_feed_keeps_only_surfaced_ids_and_records_unresolved(db_path):
     calls: list = []
     inserted = pipeline.run_feed(
         conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
-        fetch_fn=_make_fetch_fn(calls),
+        fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
     )
 
     # 5 resolvable survivors ingested (ashby, lever, greenhouse, smartrecruiters,
@@ -68,9 +60,10 @@ def test_run_feed_keeps_only_surfaced_ids_and_records_unresolved(db_path):
     got = {(r["source"], r["external_id"]) for r in rows}
     assert got == {
         ("ashby", "aaaa-1111"), ("lever", "bbbb-2222"), ("greenhouse", "3333"),
+        # smartrecruiters + workday are fetched per-id (detail route); the fake echoes
+        # the surfaced id — workday surfaces the job's externalPath.
         ("smartrecruiters", "12345"),
-        # workday: the GUID is the external_id; the surfaced R123 lived in job_url.
-        ("workday", "GUID-MATCH"),
+        ("workday", "/job/Boston/Engineer_R123"),
     }
 
     # only the embedded-greenhouse survivor stays unresolved now (workday +
@@ -81,22 +74,30 @@ def test_run_feed_keeps_only_surfaced_ids_and_records_unresolved(db_path):
     assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 1
 
 
-def test_run_feed_workday_matches_reqid_substring_of_job_url(db_path):
-    # Workday surfaces the per-tenant jobReqId (R123); the adapter emits a GUID as
-    # external_id and carries R123 inside job_url. run_feed must keep the posting
-    # whose job_url contains R123 and DROP the decoy (R999).
+def test_run_feed_workday_fetches_by_external_path_not_whole_board(db_path):
+    # Workday is a feed DETAIL source: the feed surfaces the job's externalPath and
+    # fetch_one pulls ONLY that job (never the whole N+1 board). The adapter emits the
+    # GUID as external_id, so it dedups with the watchlist.
     conn = db.connect(db_path)
-    inserted = pipeline.run_feed(
-        conn, now=NOW, feed_fn=_feed_fn,
-        keep_categories=["Software", "AI/ML/Data", "Quant"], fetch_fn=_make_fetch_fn([]),
+    calls: list = []
+
+    def detail(source, slug, external_id, name):
+        if source == "workday":
+            calls.append((slug, external_id))
+            # mimic the adapter: in == externalPath, out external_id == the GUID
+            return _posting("GUID-123", source="workday",
+                            job_url=f"https://acme.wd5.myworkdayjobs.com/External{external_id}")
+        return _posting(external_id, source=source)
+
+    pipeline.run_feed(
+        conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=detail,
     )
-    assert inserted == 5
+    # exactly one workday fetch, by the surfaced externalPath
+    assert calls == [("acme/wd5/External", "/job/Boston/Engineer_R123")]
     wd = conn.execute(
-        "SELECT external_id, job_url FROM job_postings WHERE source='workday'"
-    ).fetchall()
-    assert len(wd) == 1
-    assert wd[0]["external_id"] == "GUID-MATCH"
-    assert "R123" in wd[0]["job_url"]
+        "SELECT external_id FROM job_postings WHERE source='workday'").fetchall()
+    assert len(wd) == 1 and wd[0]["external_id"] == "GUID-123"  # the GUID, not the path
 
 
 def test_run_feed_persists_company_slug(db_path):
@@ -105,6 +106,7 @@ def test_run_feed_persists_company_slug(db_path):
     pipeline.run_feed(
         conn, now=NOW, feed_fn=_feed_fn,
         keep_categories=["Software", "AI/ML/Data", "Quant"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves,
     )
     slugs = dict(conn.execute(
         "SELECT source, company_slug FROM job_postings"
@@ -126,13 +128,15 @@ def test_run_feed_skips_boards_whose_surfaced_ids_already_exist(db_path):
     calls: list = []
     inserted = pipeline.run_feed(
         conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
-        fetch_fn=_make_fetch_fn(calls),
+        fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
     )
 
     fetched_sources = {c[0] for c in calls}
     assert "ashby" not in fetched_sources           # fully satisfied -> board skipped
-    assert {"lever", "greenhouse", "smartrecruiters", "workday"} <= fetched_sources
-    assert inserted == 4    # lever + greenhouse + smartrecruiters + workday are new
+    # smartrecruiters + workday are now feed DETAIL sources (per-id), not board fetches.
+    assert {"lever", "greenhouse"} <= fetched_sources
+    assert not ({"smartrecruiters", "workday"} & fetched_sources)
+    assert inserted == 4    # lever + greenhouse + smartrecruiters(detail) + workday(detail)
 
 
 def test_run_feed_isolates_a_failing_board(db_path):
@@ -140,7 +144,7 @@ def test_run_feed_isolates_a_failing_board(db_path):
     calls: list = []
     inserted = pipeline.run_feed(
         conn, now=NOW, feed_fn=_feed_fn, keep_categories=["Software", "AI/ML/Data", "Quant"],
-        fetch_fn=_make_fetch_fn(calls, raise_for="greenhouse"),
+        fetch_fn=_make_fetch_fn(calls, raise_for="greenhouse"), detail_fetch_fn=_detail_serves,
     )
     # greenhouse aborts; ashby + lever + smartrecruiters + workday still ingest.
     assert inserted == 4
@@ -155,7 +159,7 @@ def test_run_feed_record_unresolved_upserts_on_repeat(db_path):
         pipeline.run_feed(
             conn, now=NOW, feed_fn=_feed_fn,
             keep_categories=["Software", "AI/ML/Data", "Quant"],
-            fetch_fn=_make_fetch_fn(calls),
+            fetch_fn=_make_fetch_fn(calls), detail_fetch_fn=_detail_serves,
         )
     # url is the upsert key -> still exactly 1 row after two passes (only the
     # embedded-greenhouse listing stays unresolved now).

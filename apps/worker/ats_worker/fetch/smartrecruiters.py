@@ -69,6 +69,21 @@ def parse_job(detail_payload: dict, slug: str, company_name: str) -> dict:
     }
 
 
+def fetch_one(slug: str, external_id: str, company_name: str,
+              session: requests.Session | None = None,
+              timeout: int = 20) -> dict | None:
+    """Fetch ONE posting by id. The feed routes SmartRecruiters here so it pulls
+    only the surfaced jobs — a big board (e.g. 1500 postings) would otherwise cost
+    a per-job detail call EACH (N+1) just to keep the 1-2 the feed wants. The
+    watchlist still uses fetch() to enumerate the whole board."""
+    http = session or requests
+    if not slug or not external_id:
+        return None
+    resp = http.get(f"{API.format(slug=slug)}/{external_id}", timeout=timeout)
+    resp.raise_for_status()
+    return parse_job(resp.json(), slug, company_name)
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     http = session or requests

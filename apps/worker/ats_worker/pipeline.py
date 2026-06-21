@@ -20,6 +20,7 @@ Stage gating:
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import db
@@ -55,21 +56,6 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> 
 
 # --- feed (discovery) -----------------------------------------------------
 
-def _feed_match_fn(source: str, wanted: set[str]):
-    """Return a predicate `posting -> bool` for keeping feed-surfaced postings.
-
-    For greenhouse/lever/ashby/smartrecruiters the wanted set holds the exact
-    external_id the adapter emits, so exact membership. WORKDAY is special: the
-    feed surfaces the per-tenant jobReqId but the adapter emits the GUID as
-    external_id and carries the jobReqId inside posting['job_url'] (externalUrl),
-    so we keep a workday posting if ANY wanted value is a substring of its
-    job_url.
-    """
-    if source == "workday":
-        return lambda p: any(w and w in (p.get("job_url") or "") for w in wanted)
-    return lambda p: p.get("external_id") in wanted
-
-
 # A scraped posting is only usable if it carries an id, a title, AND a body. An
 # empty description means the scrape silently lost the JD (a moved selector) —
 # the #1 way a detail/scraping adapter breaks without raising. ponytail: detail
@@ -102,12 +88,36 @@ def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,
     return kept, failed
 
 
+def _safe_call(fn, *args):
+    """Call fn, swallowing any exception to None — one bad fetch never aborts the
+    batch. Used to run injected I/O fns inside a worker thread."""
+    try:
+        return fn(*args)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
+                 detail_sources) -> tuple[list[dict], list[str]]:
+    """Network-only: fetch one (source, slug) group, returning (keep, failed_ids).
+    NO DB access — this runs in a worker thread (SQLite stays on the main thread).
+    Per-item isolation is preserved so one bad board/listing never aborts the rest."""
+    if source in detail_sources:
+        # No board-list endpoint (or a per-job feed route like smartrecruiters/
+        # workday): fetch each surfaced id directly — external_id is exactly what we
+        # fetched, so no keep-filter; _detail_fetch isolates per id.
+        return _detail_fetch(detail_fetch_fn, source, slug, missing, name)
+    # Board source: list the whole board, keep only the feed-surfaced ids.
+    postings = _safe_call(fetch_fn, source, slug, name) or []
+    return [p for p in postings if p.get("external_id") in missing], []
+
+
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
              classify_fn=_resolve.classify_reason, fetch_fn=fetch_company,
              detail_fetch_fn=fetch_one_company, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved,
-             resolve_embedded_fn=None) -> int:
+             resolve_embedded_fn=None, max_workers: int = 12) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
     feed-surfaced postings. Returns rows inserted.
@@ -118,82 +128,97 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     next-step backlog, never silently dropped. Mirrors run_fetch's resilience:
     one bad board never aborts the batch.
     """
-    # 1. cheap metadata gate, then 2. resolve -> group wanted ids by (source, slug),
-    #    keeping each id's listing meta so a detail-fetch failure can be recorded.
+    # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
+    # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
+    # stays on this thread — SQLite connections are not safe across threads. Pattern
+    # throughout: read (serial) -> fetch (parallel) -> write (serial).
+
+    # 1. cheap metadata gate + resolve. resolve_url is pure; embedded greenhouse
+    #    needs an I/O page-fetch, so those are collected and resolved concurrently.
     wanted: dict[tuple[str, str], dict[str, dict]] = {}
+    pending_embedded: list[tuple[str, dict, str]] = []  # (url, listing, host)
+
+    def _stash(r, url, listing):
+        source, slug, external_id = r
+        wanted.setdefault((source, slug), {}).setdefault(external_id, {
+            "url": url,
+            "company_name": listing.get("company_name") or "",
+            "job_title": listing.get("title") or "",
+        })
+
+    def _record(url, listing, host, reason):
+        record_unresolved_fn(
+            conn, feed=feed_name, url=url,
+            company_name=listing.get("company_name") or "",
+            job_title=listing.get("title") or "", host=host, reason=reason, now=now)
+
     for x in prefilter_fn(feed_fn(), keep_categories):
         url = x.get("url")
         if not url:
             continue
         r = resolve_fn(url)
-        if r is None:
-            host, reason = classify_fn(url)
-            # Embedded greenhouse: the board token isn't in the URL but may be in
-            # the company page's static HTML — an injected I/O resolve step (real
-            # only in run.py) can recover it; else it stays unresolved as today.
-            # ponytail: no per-host token cache yet — add one if feed runtime bites.
-            if reason == "embedded_greenhouse" and resolve_embedded_fn is not None:
-                try:
-                    r = resolve_embedded_fn(url)
-                except Exception:  # noqa: BLE001 — a bad company page never aborts the feed
-                    r = None
-            if r is None:
-                record_unresolved_fn(
-                    conn, feed=feed_name, url=url,
-                    company_name=x.get("company_name") or "",
-                    job_title=x.get("title") or "", host=host, reason=reason, now=now,
-                )
-                continue
-        source, slug, external_id = r
-        wanted.setdefault((source, slug), {}).setdefault(external_id, {
-            "url": url,
-            "company_name": x.get("company_name") or "",
-            "job_title": x.get("title") or "",
-        })
+        if r is not None:
+            _stash(r, url, x)
+            continue
+        host, reason = classify_fn(url)
+        # Embedded greenhouse: the board token isn't in the URL but may be in the
+        # company page's HTML — an injected I/O resolver (real only in run.py) can
+        # recover it. Defer to the concurrent pass below; else record as today.
+        if reason == "embedded_greenhouse" and resolve_embedded_fn is not None:
+            pending_embedded.append((url, x, host))
+        else:
+            _record(url, x, host, reason)
 
-    # 3. per company: skip already-ingested, else fetch the board and keep only
-    #    the surfaced ids. Per-group try/except so one bad board is skipped.
-    inserted = 0
+    # 1b. resolve embedded-greenhouse pages concurrently (each is one slow fetch).
+    if pending_embedded:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            resolved = list(ex.map(
+                lambda t: _safe_call(resolve_embedded_fn, t[0]), pending_embedded))
+        for (url, x, host), r in zip(pending_embedded, resolved):
+            if r is not None:
+                _stash(r, url, x)
+            else:
+                _record(url, x, host, "embedded_greenhouse")
+
+    # 2. per group: prune already-ingested ids (DB, serial), fetch the boards
+    #    (network, CONCURRENT — the bulk of the runtime), then write (DB, serial).
+    work: list[tuple] = []  # (source, slug, name, missing, meta)
     for (source, slug), meta in wanted.items():
         ids = set(meta)
-        name = next(iter(meta.values()))["company_name"] or slug
-        try:
-            # existing_external_ids prunes groups already fully ingested. It is a
-            # no-op for workday (the feed surfaces jobReqIds, the DB stores GUIDs —
-            # different id spaces — so the lookup never matches and the group always
-            # re-fetches; dedup-on-upsert prevents dupes). That's intentional.
-            missing = ids - db.existing_external_ids(conn, source, ids)
-            if not missing:
-                continue
-            if source in detail_sources:
-                # No board-list endpoint: fetch each surfaced id directly. external_id
-                # is exactly what we fetched, so no keep-filter is needed. Failed ids
-                # (raise / None / invalid) are recorded so a silently-broken scraper
-                # surfaces on the unresolved board instead of vanishing.
-                keep, failed = _detail_fetch(detail_fetch_fn, source, slug, missing, name)
-                for fid in failed:
-                    m = meta[fid]
-                    record_unresolved_fn(
-                        conn, feed=feed_name, url=m["url"],
-                        company_name=m["company_name"], job_title=m["job_title"],
-                        host=(urlparse(m["url"]).hostname or ""),
-                        reason="detail_fetch_failed", now=now,
-                    )
-                # Resolved some ids but kept NONE = the scraper likely broke (a
-                # genuinely-empty board never reaches here — missing is non-empty).
-                # The recorded rows are the durable signal; this is the live one.
-                if not keep:
-                    print(f"[feed] {source}: detail-fetch collapse — "
-                          f"0/{len(missing)} resolved (scraper may be broken)")
-            else:
-                match = _feed_match_fn(source, missing)
-                postings = fetch_fn(source, slug, name)
-                keep = [p for p in postings if match(p)]
-            for p in keep:
-                p["company_slug"] = slug
-            inserted += db.upsert_postings(conn, keep, now=now)
-        except Exception:  # noqa: BLE001 — one bad board must not abort the rest
-            continue
+        # existing_external_ids prunes groups already fully ingested. It is a no-op
+        # for workday (the feed surfaces the job's externalPath, the DB stores the
+        # GUID — different id spaces — so it never matches and re-fetches each run;
+        # but that's now ONE cheap per-job CXS call, not the whole board, and upsert
+        # dedups the row).
+        missing = ids - db.existing_external_ids(conn, source, ids)
+        if missing:
+            name = next(iter(meta.values()))["company_name"] or slug
+            work.append((source, slug, name, missing, meta))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        fetched = list(ex.map(
+            lambda w: _fetch_group(w[0], w[1], w[2], w[3],
+                                   detail_fetch_fn=detail_fetch_fn, fetch_fn=fetch_fn,
+                                   detail_sources=detail_sources),
+            work))
+
+    inserted = 0
+    for (source, slug, name, missing, meta), (keep, failed) in zip(work, fetched):
+        for fid in failed:
+            m = meta[fid]
+            record_unresolved_fn(
+                conn, feed=feed_name, url=m["url"],
+                company_name=m["company_name"], job_title=m["job_title"],
+                host=(urlparse(m["url"]).hostname or ""),
+                reason="detail_fetch_failed", now=now)
+        # A detail source that resolved ids but kept NONE = the scraper likely broke
+        # (a genuinely-empty board never reaches here — missing is non-empty).
+        if source in detail_sources and not keep:
+            print(f"[feed] {source}: detail-fetch collapse — "
+                  f"0/{len(missing)} resolved (scraper may be broken)")
+        for p in keep:
+            p["company_slug"] = slug
+        inserted += db.upsert_postings(conn, keep, now=now)
     return inserted
 
 

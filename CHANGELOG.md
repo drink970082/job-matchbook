@@ -7,6 +7,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+- **Feed performance: a full pass dropped from ~tens of minutes to ~1 minute.** Profiling
+  showed the feed was network-bound and dominated by N+1 boards. Two fixes: (1) the feed
+  now fetches **SmartRecruiters and Workday per surfaced job** (their new `fetch_one`)
+  instead of listing the whole board — a 1500-posting SmartRecruiters board cost ~11 min
+  of per-job detail calls just to keep the 1–2 jobs the feed wanted. Workday's per-job id
+  is the job's `externalPath` (the CXS per-job endpoint), which also resolves Workday URLs
+  the old `jobReqId`-suffix parsing rejected (a small coverage gain; the watchlist still
+  lists the whole board). (2) `run_feed` now fetches **concurrently** — a `ThreadPoolExecutor`
+  fans out the embedded-greenhouse I/O resolves and the per-group fetches, with all SQLite
+  reads/writes kept on the main thread; `run.py` gives each worker thread its own
+  `requests.Session` (keep-alive) and a shorter timeout. Measured: a fresh full feed pass
+  went from ~47 min to ~47 s.
+
 ### Added
 - **Embedded-greenhouse feed resolution.** Companies that host greenhouse jobs on their
   own domain with `?gh_jid=` apply URLs now resolve: a new *enriching resolver*

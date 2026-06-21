@@ -5,20 +5,19 @@ description. The JD only comes from the company's ATS board. So we parse the URL
 back into the (source, slug, external_id) that the matching `fetch/` adapter
 would emit, then reuse that adapter to pull the JD.
 
-The external_id produced here MUST equal what the caller matches against:
-  - greenhouse:     numeric job id   (fetch/greenhouse.py     -> str(j["id"]))
-  - lever:          posting uuid     (fetch/lever.py          -> str(j["id"]))
-  - ashby:          posting uuid     (fetch/ashby.py          -> str(j["id"]))
-  - smartrecruiters posting id       (fetch/smartrecruiters.py-> str(p["id"]))
-
-For these four the adapter emits exactly this id, so run_feed's exact-membership
-filter and the (source, external_id) dedup hold. WORKDAY is special: the feed URL
-exposes the per-tenant jobReqId but the adapter keys on the GUID, so we still
-return the jobReqId as external_id and run_feed matches it as a SUBSTRING of the
-posting's job_url (the externalUrl). The remaining unresolvable cases (embedded
-greenhouse — a `gh_jid` on a custom domain has no slug; any other ATS host; a
-malformed workday URL with no `job` segment) are left for the caller to record
-via `classify_reason` as a next-step backlog item.
+The (source, slug, external_id) produced here drives one of run_feed's two ingest
+shapes:
+  - BOARD sources list the whole board and keep the exact surfaced external_id:
+      greenhouse (numeric job id), lever (uuid), ashby (uuid).
+  - DETAIL sources fetch ONLY the surfaced id (no whole-board fetch):
+      smartrecruiters (posting id -> /postings/{id}),
+      workday (the job's externalPath, "/job/..." -> the CXS per-job endpoint; the
+        adapter still emits the GUID as external_id, so it dedups with the watchlist),
+      oracle (slug packs host/site), jobvite.
+The remaining unresolvable cases (embedded greenhouse — a `gh_jid` on a custom
+domain has no slug, handled by an enriching I/O resolver outside this module; any
+other ATS host; a workday URL with no `job` segment) are left for the caller to
+record via `classify_reason` as a next-step backlog item.
 """
 from __future__ import annotations
 
@@ -119,16 +118,20 @@ def _resolve_oracle(host: str, parts: list[str]) -> tuple[str, str, str] | None:
 
 
 def _resolve_workday(host: str, parts: list[str]) -> tuple[str, str, str] | None:
-    """Map a *.myworkdayjobs.com feed URL to ("workday", "tenant/dc/site", jobReqId).
+    """Map a *.myworkdayjobs.com feed URL to ("workday", "tenant/dc/site", externalPath).
 
     Example:
       relx.wd3.myworkdayjobs.com/en-US/relx/job/UK---London/Software-Engineer-I_R100158-2
         tenant = relx (1st host label), dc = wd3 (2nd host label),
         site   = the segment immediately BEFORE the `job` segment (relx),
-        jobReqId = token after the LAST `_` in the LAST path segment (R100158-2).
+        externalPath = "/job/UK---London/Software-Engineer-I_R100158-2" — everything
+                       from `job` on, which is exactly what the CXS per-job detail
+                       endpoint takes. So the feed fetches ONLY this job (workday's
+                       `fetch_one`), not the whole board. The adapter still emits the
+                       GUID as external_id, so it dedups with the watchlist.
 
-    Returns None if there is no `job` segment, or any required part is
-    missing/empty — never guess (the caller records it via classify_reason).
+    Returns None if there is no `job` segment, no site segment before it, or no job
+    path after it — never guess (the caller records it via classify_reason).
     """
     labels = host.split(".")
     if len(labels) < 2 or not labels[0] or not labels[1]:
@@ -141,17 +144,11 @@ def _resolve_workday(host: str, parts: list[str]) -> tuple[str, str, str] | None
     if job_idx == 0:  # no segment before `job` to use as the site
         return None
     site = parts[job_idx - 1]
-    if not site:
+    if not site or job_idx + 1 >= len(parts):  # need a site AND a job path after `job`
         return None
 
-    last = parts[-1]
-    if "_" not in last:
-        return None
-    job_req_id = last.rsplit("_", 1)[-1]
-    if not job_req_id:
-        return None
-
-    return ("workday", f"{tenant}/{dc}/{site}", job_req_id)
+    external_path = "/" + "/".join(parts[job_idx:])  # /job/.../<title>_<reqId>
+    return ("workday", f"{tenant}/{dc}/{site}", external_path)
 
 
 def classify_reason(url: str | None) -> tuple[str, str]:

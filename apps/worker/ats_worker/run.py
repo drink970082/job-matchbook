@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
 import time
+
+import requests
 
 from . import config as config_mod
 from . import db, pipeline
+from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
 from .score import score_posting
@@ -31,6 +35,19 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # than Opus for a step that may run several rounds per high-scoring job.
 # Override with --anthropic-model or the ANTHROPIC_MODEL env var.
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+
+# The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
+# Session isn't safe to share across threads, so hand each worker thread its own
+# (keep-alive within a thread); a shorter timeout caps the wait on a slow host.
+_FEED_TIMEOUT = 10
+_feed_local = threading.local()
+
+
+def _feed_session() -> requests.Session:
+    s = getattr(_feed_local, "session", None)
+    if s is None:
+        s = _feed_local.session = requests.Session()
+    return s
 
 
 def load_env(path: str) -> dict:
@@ -98,7 +115,14 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                     conn, now=now,
                     feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
                     keep_categories=feed.categories, feed_name=feed.name,
-                    resolve_embedded_fn=embedded_gh.resolve_embedded,
+                    # Bind a per-thread Session + shorter timeout into the network fns
+                    # so the concurrent fetches reuse connections and don't stall long.
+                    fetch_fn=lambda s, sl, n: fetch_company(
+                        s, sl, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                        s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
+                        url, session=_feed_session(), timeout=_FEED_TIMEOUT),
                 )
 
         # Build the screening checklist only when the candidate actually configured

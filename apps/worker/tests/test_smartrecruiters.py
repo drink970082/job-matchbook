@@ -141,6 +141,25 @@ def test_parse_job_empty_location_is_none():
     assert p["job_url"] == "https://jobs.smartrecruiters.com/Acme/x"
 
 
+# --- fetch_one (feed path: only the surfaced id, never the whole board) ----
+
+def test_fetch_one_fetches_only_the_surfaced_posting():
+    sess = _FakeSession()
+    p = sr.fetch_one("Acme", "abc-111", "Acme Corp", session=sess)
+    assert p["external_id"] == "abc-111"
+    assert p["job_title"] == "Software Engineer"
+    assert "Python" in p["description"]
+    # exactly ONE detail GET — the list endpoint (the N+1 whole-board cost) is never hit
+    assert sess.gets == [
+        ("https://api.smartrecruiters.com/v1/companies/Acme/postings/abc-111", None)]
+
+
+def test_fetch_one_missing_id_returns_none_without_fetching():
+    sess = _FakeSession()
+    assert sr.fetch_one("Acme", "", "Acme Corp", session=sess) is None
+    assert sess.gets == []
+
+
 # --- fetch (two-step) -----------------------------------------------------
 
 def test_fetch_pages_and_enriches_via_detail():

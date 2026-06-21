@@ -9,6 +9,20 @@ from ats_worker import run
 from tests._helpers import bootstrap_db, make_posting
 
 
+def test_feed_session_is_per_thread():
+    # The concurrent feed fetch needs ONE requests.Session per worker thread (Session
+    # is not safe to share). Same thread reuses; different threads get distinct ones.
+    import threading
+
+    a1, a2 = run._feed_session(), run._feed_session()
+    assert a1 is a2  # reused within a thread
+
+    other: list = []
+    t = threading.Thread(target=lambda: other.append(run._feed_session()))
+    t.start(); t.join()
+    assert other[0] is not a1  # a different thread gets its own
+
+
 def test_load_env_reads_file(tmp_path):
     env = tmp_path / ".env"
     env.write_text(

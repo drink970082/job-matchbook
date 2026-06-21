@@ -43,12 +43,16 @@ from ats_worker.feed import resolve
      ("smartrecruiters", "Acme", "12345")),
     ("https://jobs.smartrecruiters.com/Rose%20Rocket/98765",
      ("smartrecruiters", "Rose Rocket", "98765")),
-    # workday: tenant=relx, dc=wd3, site=segment before `job`; jobReqId=after last `_`
+    # workday: tenant=relx, dc=wd3, site=segment before `job`; external_id = the
+    # job's externalPath ("/job/...") that the CXS per-job endpoint takes.
     ("https://relx.wd3.myworkdayjobs.com/en-US/relx/job/UK---London/Software-Engineer-I_R100158-2",
-     ("workday", "relx/wd3/relx", "R100158-2")),
+     ("workday", "relx/wd3/relx", "/job/UK---London/Software-Engineer-I_R100158-2")),
     # workday with no leading locale (site is still the segment before `job`)
     ("https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer_R123",
-     ("workday", "acme/wd5/External", "R123")),
+     ("workday", "acme/wd5/External", "/job/Boston/Engineer_R123")),
+    # workday path needs no jobReqId suffix now — the whole `/job/...` path resolves.
+    ("https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer",
+     ("workday", "acme/wd5/External", "/job/Boston/Engineer")),
 ])
 def test_resolves_supported_boards(url, expected):
     assert resolve.resolve_url(url) == expected
@@ -59,10 +63,6 @@ def test_resolves_supported_boards(url, expected):
     "",
     # workday with NO `job` segment -> can't locate site -> None (never guess)
     "https://acme.wd5.myworkdayjobs.com/External/Engineer_R123",
-    # workday whose last segment has no `_` -> no jobReqId -> None
-    "https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer",
-    # workday whose last segment ends in `_` -> empty jobReqId -> None
-    "https://acme.wd5.myworkdayjobs.com/External/job/Boston/Engineer_",
     # workday where `job` is the very first segment -> no site before it -> None
     "https://acme.wd5.myworkdayjobs.com/job/Boston/Engineer_R1",
     # embedded greenhouse — gh_jid but no board slug

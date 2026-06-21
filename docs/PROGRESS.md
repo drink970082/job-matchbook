@@ -93,9 +93,14 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   accessible clean API; the JD is rendered only inside fragile Next.js `__next_f` flight
   data with unreliable location, a hack not worth shipping). Revisit only with a
   headless-browser strategy. **Dropped:** greenhouse embed-token (URL has only a job id,
-  no recoverable board slug); SuccessFactors (absent from the feed). **Demoted:** a
-  direct Workday CXS per-job fetch would fix the `jobReqId`-substring fragility +
-  whole-board N+1 but buys **0** coverage, so it's robustness-only.
+  no recoverable board slug); SuccessFactors (absent from the feed).
+- **Feed performance ✅ (full pass ~tens of min → ~1 min).** Profiling found the feed was
+  network-bound and dominated by N+1 boards (one SmartRecruiters board: ~11 min to keep
+  1–2 jobs). Fixed by routing SmartRecruiters **and Workday** through per-job `fetch_one`
+  in the feed (fetch only surfaced ids; Workday by `externalPath`, which also lifted
+  Workday resolution) + concurrent fetching in `run_feed` (`ThreadPoolExecutor`, DB on the
+  main thread; per-thread `Session` + shorter timeout). The previously-demoted Workday
+  CXS-direct work thus landed — for speed, and it *gained* coverage rather than costing it.
 - **Headless-browser fetch (Playwright) — the next step to unlock iCIMS + ByteDance
   (~127 listings).** Both deferred Tier-2 sources need a real browser: iCIMS gates every
   request behind a "Human Verification" bot wall, and ByteDance/TikTok renders the JD

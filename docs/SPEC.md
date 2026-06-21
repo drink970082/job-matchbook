@@ -303,8 +303,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   | Greenhouse | `boards.greenhouse.io`, `job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io` | list | ✅ | ✅ |
   | Lever | `jobs.lever.co` | list | ✅ | ✅ |
   | Ashby | `jobs.ashbyhq.com` | list | ✅ | ✅ |
-  | Workday | `*.myworkdayjobs.com` | list, N+1 | ✅ (jobReqId substring) | ✅ |
-  | SmartRecruiters | `jobs.smartrecruiters.com` | list, N+1 | ✅ | ✅ |
+  | Workday | `*.myworkdayjobs.com` | list (watchlist) + per-job (feed) | ✅ (per-job by externalPath) | ✅ |
+  | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | ✅ (per-job by id) | ✅ |
   | Pinpoint | `{slug}.pinpointhq.com` | list | ❌ | ✅ |
   | Workable | `apply.workable.com` | list | ✅ | ✅ |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
@@ -320,6 +320,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
   (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
   JobPosting JSON-LD.
+  **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
+  (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
+  surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2
+  the feed wants was the dominant feed cost (≈11 min for one big board). Workday's
+  feed id is the job's externalPath (CXS per-job endpoint); SmartRecruiters' is the
+  posting id. With this + concurrent fetching (below), a full feed pass dropped from
+  ~tens of minutes to ~1 minute.
   *Backlog (in `feed_unresolved`, not routed):* iCIMS (bot-walled — "Human
   Verification" on every request, needs a real browser), greenhouse embed-token (no
   recoverable slug), ByteDance/TikTok (no clean API; JD only in fragile Next.js flight
@@ -331,10 +338,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `prefilter` — cheap metadata gate: keep `active` listings whose `category` is in
     the configured keep-list and whose `sponsorship` is not an explicit "no".
   - `resolve` — `resolve_url` maps an apply URL → `(source, slug, external_id)` for
-    `lever`/`ashby`/`greenhouse`-direct (incl. the EU host)/`smartrecruiters`/`workable`
-    (external_ids match the adapters exactly), `workday` (returns the `jobReqId`,
-    matched downstream as a substring of the posting's `job_url`), and the per-listing
-    detail sources `oracle` (slug packs `{host}/{site}`) and `jobvite`; else `None`.
+    the board sources `lever`/`ashby`/`greenhouse`-direct (incl. the EU host)/`workable`
+    (external_ids match the adapters exactly), and the per-job/per-listing detail
+    sources `smartrecruiters` (posting id), `workday` (the job's `externalPath` for the
+    CXS per-job endpoint), `oracle` (slug packs `{host}/{site}`), and `jobvite`; else
+    `None`.
     `classify_reason` labels the residual unresolvable ones (an *unparseable* `workday`
     URL → `workday_deferred`, `embedded_greenhouse`, `unsupported_host`) for the
     `feed_unresolved` backlog.
@@ -377,11 +385,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   the feed: prefilter → resolve → record-unresolved, then groups survivors by
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
-  board via the existing adapter and keep **only** the surfaced ids (match: exact
-  `external_id` for most boards; `jobReqId`-substring-of-`job_url` for workday);
-  **detail sources** (`fetch.DETAIL_SOURCES`, e.g. oracle/jobvite — no board-list
-  endpoint) fetch each surfaced id directly via `fetch_one_company` (per-id try/except,
-  so one bad listing is skipped). A fetched posting is **validated** (`_valid_posting`:
+  board via the existing adapter and keep **only** the surfaced ids (exact
+  `external_id` membership); **detail sources** (`fetch.DETAIL_SOURCES` — oracle,
+  jobvite, plus the per-job feed routes for smartrecruiters/workday) fetch each
+  surfaced id directly via `fetch_one_company` (per-id try/except, so one bad listing
+  is skipped). The network work runs **concurrently** (a `ThreadPoolExecutor`; the
+  embedded-greenhouse I/O resolves and the per-group fetches each fan out) while every
+  DB read/write stays on the main thread — SQLite connections aren't safe across
+  threads. `run.py` hands each worker thread its own `requests.Session` (keep-alive)
+  and a shorter timeout. A fetched posting is **validated** (`_valid_posting`:
   non-empty `external_id` + `job_title` + `description`) before it counts — an empty JD
   means a scrape silently lost the body, the main way an HTML/JS scraper breaks without
   raising. Any failed id (raise / `None` / invalid) is recorded in `feed_unresolved`
