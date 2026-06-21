@@ -6,6 +6,8 @@
  */
 import {
     addApplication,
+    bulkRemove,
+    bulkReopen,
     deleteApplication,
     deleteHistoryItem,
     exportApplicationsCSV,
@@ -14,6 +16,7 @@ import {
     getKPIs,
     importApplicationsCSV,
     markJobApplied,
+    removeAllInView,
     updateApplicationStatus,
 } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
@@ -259,4 +262,32 @@ test('importApplicationsCSV handles escaping/dedup/invalid rows; export round-tr
     expect(exp.success).toBe(true)
     expect(exp.csv).toContain('"Engineer, Senior"')   // comma-bearing field re-quoted
     expect(exp.csv).toContain('"line1\nline2"')        // embedded newline preserved
+})
+
+
+// --- bulkRemove / bulkReopen / removeAllInView ----------------------------
+
+test('bulkRemove hides rows from every bucket', async () => {
+    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b1', score: 90, pipeline_status: 'scored' }) })
+    const b = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b2', score: 85, pipeline_status: 'notified' }) })
+    const res = await bulkRemove([a.id, b.id])
+    expect(res).toEqual({ success: true, count: 2 })
+    expect((await getJobPostings({ bucket: 'matched' })).data).toHaveLength(0)
+    expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('removed')
+})
+
+test('bulkReopen sends discarded rows back to scored', async () => {
+    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'r1', score: 90, pipeline_status: 'discarded' }) })
+    const res = await bulkReopen([a.id])
+    expect(res).toEqual({ success: true, count: 1 })
+    expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('scored')
+})
+
+test('removeAllInView removes only rows matching the filter', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'keep', score: 90, pipeline_status: 'scored' }) })   // matched
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'gone', score: 65, pipeline_status: 'scored' }) })   // near-miss
+    const res = await removeAllInView({ bucket: 'discarded', discardType: 'nearmiss' })
+    expect(res).toEqual({ success: true, count: 1 })
+    expect((await getJobPostings({ bucket: 'matched' })).data.map((d) => d.external_id)).toEqual(['keep'])
+    expect((await getJobPostings({ bucket: 'discarded', discardType: 'nearmiss' })).data).toHaveLength(0)
 })

@@ -173,6 +173,52 @@ export async function reopenJobPosting(id: number) {
     }
 }
 
+// Terminal hide: a 'removed' posting is invisible to every bucket query and inert
+// to the worker (ingest is ON CONFLICT DO NOTHING; the pipeline only selects by
+// explicit status), so it never re-scores/re-notifies. See the design spec.
+export async function bulkRemove(ids: number[]) {
+    try {
+        const res = await prisma.job_postings.updateMany({
+            where: { id: { in: ids } },
+            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
+        })
+        return { success: true, count: res.count }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+export async function bulkReopen(ids: number[]) {
+    try {
+        const res = await prisma.job_postings.updateMany({
+            where: { id: { in: ids } },
+            data: { pipeline_status: 'scored', updated_at: new Date().toISOString() },
+        })
+        return { success: true, count: res.count }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+// Clear the whole current Discarded view in one click (respects bucket + sub-filter
+// + search + minScore via the same where-builder getJobPostings uses).
+export async function removeAllInView(filter: {
+    bucket?: JobBucket
+    search?: string
+    minScore?: number
+    discardType?: DiscardType
+}) {
+    try {
+        const res = await prisma.job_postings.updateMany({
+            where: buildJobWhere(filter),
+            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
+        })
+        return { success: true, count: res.count }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
 export async function markJobApplied(id: number, category?: string) {
     try {
         const posting = await prisma.job_postings.findUnique({ where: { id } })
