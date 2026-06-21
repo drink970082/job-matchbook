@@ -115,8 +115,6 @@ def load_config(source) -> Config:
     """
     if hasattr(source, "read_text"):  # pathlib.Path
         text = source.read_text()
-    elif isinstance(source, (bytes, bytearray)):
-        text = source.decode()
     elif isinstance(source, str) and not _looks_like_yaml_text(source) and os.path.exists(source):
         with open(source, "r", encoding="utf-8") as fh:
             text = fh.read()

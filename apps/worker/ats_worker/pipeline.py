@@ -19,7 +19,6 @@ Stage gating:
 """
 from __future__ import annotations
 
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
@@ -27,10 +26,6 @@ from . import db
 from .fetch import DETAIL_SOURCES, fetch_company, fetch_one_company, filter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    return {k: row[k] for k in row.keys()}
 
 
 # --- fetch ----------------------------------------------------------------
@@ -224,12 +219,12 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
 # --- score ----------------------------------------------------------------
 
-def run_score(conn, resume_text, *, now, score_fn) -> None:
+def run_score(conn, *, now, score_fn) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the scorer flags
     it disqualified (conflicts with a candidate dealbreaker). Score + reason are
     kept either way so the UI can show why something was dropped."""
     for row in db.get_by_status(conn, "new"):
-        posting = _row_to_dict(row)
+        posting = dict(row)
         try:
             result = score_fn(posting)
             disqualified = bool(result.get("disqualified"))
@@ -256,7 +251,7 @@ def run_score(conn, resume_text, *, now, score_fn) -> None:
 
 # --- tailor ---------------------------------------------------------------
 
-def run_tailor(conn, master_tex, threshold, *, now, tailor_fn) -> None:
+def run_tailor(conn, threshold, *, now, tailor_fn) -> None:
     """Tailor every 'scored' posting at or above `threshold`.
 
     Below-threshold rows are left in 'scored' untouched. The injected
@@ -264,7 +259,7 @@ def run_tailor(conn, master_tex, threshold, *, now, tailor_fn) -> None:
     single-page loop; we just persist its result.
     """
     for row in db.get_by_status(conn, "scored", min_score=threshold):
-        posting = _row_to_dict(row)
+        posting = dict(row)
         try:
             result = tailor_fn(posting)
             db.save_resume(
@@ -284,7 +279,7 @@ def run_tailor(conn, master_tex, threshold, *, now, tailor_fn) -> None:
 def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
     """Notify for every 'tailored' posting and advance it to 'notified'."""
     for row in db.get_by_status(conn, "tailored"):
-        posting = _row_to_dict(row)
+        posting = dict(row)
         try:
             notify_fn(posting, posting.get("resume_path"), token=token, chat_id=chat_id)
             db.mark_notified(conn, row["id"], now=now)

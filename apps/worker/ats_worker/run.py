@@ -11,6 +11,7 @@ which lacks apscheduler — can still import and exercise this module.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import threading
 import time
@@ -153,7 +154,7 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                 num_ctx=num_ctx,
             )
 
-        pipeline.run_score(conn, resume_text, now=now, score_fn=score_fn)
+        pipeline.run_score(conn, now=now, score_fn=score_fn)
 
         # Built lazily on first use so importing anthropic only happens when a
         # posting actually needs tailoring (keeps the smoke test SDK-free).
@@ -176,7 +177,7 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
                 out_dir=out_dir,
             )
 
-        pipeline.run_tailor(conn, master_tex, cfg.threshold, now=now, tailor_fn=tailor_fn)
+        pipeline.run_tailor(conn, cfg.threshold, now=now, tailor_fn=tailor_fn)
 
         pipeline.run_notify(
             conn,
@@ -194,8 +195,6 @@ def _companies_as_dicts(cfg) -> list[dict]:
 
 
 def _missing_keywords(posting) -> list[str]:
-    import json
-
     raw = posting.get("score_detail")
     if not raw:
         return []

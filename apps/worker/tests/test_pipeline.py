@@ -63,7 +63,7 @@ def test_run_score_only_new_and_one_failure_isolated(db_path):
         return {"score": 90, "matched_keywords": [], "missing_keywords": [],
                 "reasoning": "ok"}
 
-    pipeline.run_score(conn, "resume text", now=NOW, score_fn=score_fn)
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
 
     statuses = {
         r["external_id"]: r["pipeline_status"]
@@ -86,7 +86,7 @@ def test_run_score_skips_non_new(db_path):
         called.append(posting["external_id"])
         return {"score": 1}
 
-    pipeline.run_score(conn, "resume", now=NOW, score_fn=score_fn)
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
     assert called == []
 
 
@@ -102,7 +102,7 @@ def test_run_tailor_gates_on_threshold(db_path):
         tailored.append(posting["external_id"])
         return {"tex": "T", "pdf_path": "/tmp/x.pdf", "pages": 1, "ok": True}
 
-    pipeline.run_tailor(conn, "master", 75, now=NOW, tailor_fn=tailor_fn)
+    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
     assert tailored == ["hi"]
 
     statuses = {
@@ -122,7 +122,7 @@ def test_run_tailor_failure_isolated(db_path):
             raise RuntimeError("tectonic exploded")
         return {"tex": "T", "pdf_path": "/tmp/b.pdf", "pages": 1, "ok": True}
 
-    pipeline.run_tailor(conn, "master", 75, now=NOW, tailor_fn=tailor_fn)
+    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
     statuses = {
         r["external_id"]: r["pipeline_status"]
         for r in conn.execute("SELECT * FROM job_postings").fetchall()
@@ -180,7 +180,7 @@ def test_run_score_disqualified_is_discarded_with_reason(db_path):
                     "disqualification_reason": "requires a PhD"}
         return {"score": 80, "disqualified": False}
 
-    pipeline.run_score(conn, "resume", now=NOW, score_fn=score_fn)
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert rows["1"]["pipeline_status"] == "discarded"
     assert rows["2"]["pipeline_status"] == "scored"
@@ -200,7 +200,7 @@ def test_run_score_failure_records_error_and_increments_attempts(db_path):
     def score_fn(posting):
         raise RuntimeError("ollama down")
 
-    pipeline.run_score(conn, "resume", now=NOW, score_fn=score_fn)
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "failed"
     assert row["attempts"] == 1
@@ -216,7 +216,7 @@ def test_run_score_passes_full_posting_to_scorer(db_path):
         seen.update(posting)
         return {"score": 50}
 
-    pipeline.run_score(conn, "resume", now=NOW, score_fn=score_fn)
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
     assert seen.get("description")   # the JD text reached the scorer, not just the id
     assert seen.get("job_title")
 
@@ -230,7 +230,7 @@ def test_run_tailor_threshold_is_inclusive(db_path):
         tailored.append(posting["external_id"])
         return {"tex": "T", "pdf_path": "/tmp/x.pdf", "pages": 1, "ok": True}
 
-    pipeline.run_tailor(conn, "master", 75, now=NOW, tailor_fn=tailor_fn)
+    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
     assert tailored == ["edge"]      # score == threshold IS tailored (>= not >)
 
 
@@ -241,7 +241,7 @@ def test_run_tailor_failure_records_attempts(db_path):
     def tailor_fn(posting):
         raise RuntimeError("tectonic exploded")
 
-    pipeline.run_tailor(conn, "master", 75, now=NOW, tailor_fn=tailor_fn)
+    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "failed"
     assert row["attempts"] == 1
@@ -255,7 +255,7 @@ def test_stages_ignore_wrong_status_rows(db_path):
     _seed_tailored(conn, ["t"])       # 'tailored'
 
     tailored = []
-    pipeline.run_tailor(conn, "m", 75, now=NOW,
+    pipeline.run_tailor(conn, 75, now=NOW,
                         tailor_fn=lambda p: tailored.append(p["external_id"]))
     assert tailored == []             # nothing 'scored' >= 75
 

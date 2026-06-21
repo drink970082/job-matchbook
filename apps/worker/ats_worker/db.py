@@ -62,7 +62,7 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
                 "created_at": now,
             },
         )
-        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        inserted += cur.rowcount
     conn.commit()
     return inserted
 
@@ -94,7 +94,7 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
             "ON CONFLICT(source, slug) DO NOTHING",
             {"source": c["source"], "slug": c["slug"], "name": c["name"], "created_at": now},
         )
-        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        inserted += cur.rowcount
     conn.commit()
     return inserted
 
@@ -185,14 +185,6 @@ def mark_notified(conn, posting_id: int, *, now: str) -> None:
     _update(conn, posting_id, {"pipeline_status": "notified", "updated_at": now})
 
 
-def mark_applied(conn, posting_id: int, *, application_id: int, now: str) -> None:
-    _update(conn, posting_id, {
-        "pipeline_status": "applied",
-        "application_id": application_id,
-        "updated_at": now,
-    })
-
-
 def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:
     # increment attempts atomically; keep it in one statement.
     conn.execute(
@@ -201,7 +193,3 @@ def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:
         (error, now, posting_id),
     )
     conn.commit()
-
-
-def discard(conn, posting_id: int, *, now: str) -> None:
-    _update(conn, posting_id, {"pipeline_status": "discarded", "updated_at": now})

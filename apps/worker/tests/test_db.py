@@ -98,21 +98,6 @@ def test_mark_notified(db_path):
     assert _one(conn)["pipeline_status"] == "notified"
 
 
-def test_mark_applied_backfills_application_id(db_path):
-    conn = db.connect(db_path)
-    db.upsert_postings(conn, [posting("1")], now=NOW)
-    pid = _one(conn)["id"]
-    app_id = conn.execute(
-        "INSERT INTO applications (company_name, job_title, date_applied, status) "
-        "VALUES ('Acme','Software Engineer','2026-06-04','Applied')"
-    ).lastrowid
-    conn.commit()
-    db.mark_applied(conn, pid, application_id=app_id, now=LATER)
-    row = _one(conn)
-    assert row["pipeline_status"] == "applied"
-    assert row["application_id"] == app_id
-
-
 def test_mark_failed_records_error_and_increments_attempts(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)
@@ -124,14 +109,6 @@ def test_mark_failed_records_error_and_increments_attempts(db_path):
     assert row["attempts"] == 1
     db.mark_failed(conn, pid, error="again", now=LATER)
     assert _one(conn)["attempts"] == 2
-
-
-def test_discard(db_path):
-    conn = db.connect(db_path)
-    db.upsert_postings(conn, [posting("1")], now=NOW)
-    pid = _one(conn)["id"]
-    db.discard(conn, pid, now=LATER)
-    assert _one(conn)["pipeline_status"] == "discarded"
 
 
 EVEN_LATER = "2026-06-04T10:00:00.000Z"
