@@ -269,8 +269,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--master-tex`, `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
   `--anthropic-model` (`ANTHROPIC_MODEL`, tailoring), `--anthropic-score-model`
   (`ANTHROPIC_SCORE_MODEL`, fit scoring), `--import-companies` (seed the DB
-  watchlist from config and exit). Defaults: screen `qwen3.5:4b`; fit score and
-  tailoring both `claude-sonnet-4-6`. Each pass
+  watchlist from config and exit). Defaults: screen `qwen3.5:4b`; fit score
+  `claude-sonnet-5`; tailoring `claude-sonnet-4-6`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -366,8 +366,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   `existing_external_ids`. Issues no DDL.
 - **`score.py` — `score_posting`.** Two calls, two backends. (1) The fit **SCORE**
   comes from an injected `score_fit(posting, resume_text)` callable — in
-  production `make_claude_scorer` (Claude, `claude-sonnet-4-6` by default,
-  overridable via `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends
+  production `make_claude_scorer` (Claude, `claude-sonnet-5` by default —
+  structured outputs require it; `claude-sonnet-4-6` doesn't support
+  `output_config.format` — overridable via
+  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends
   the résumé + scoring rubric as a **cached system prefix** (`cache_control:
   ephemeral`, byte-identical every call in a run, only the JD is fresh) with
   **adaptive thinking** so the model reasons about seniority/domain/gaps *before*
@@ -842,10 +844,12 @@ automated coverage — those rely on code review or the human in the loop, not a
   so reasoning models still return JSON) — it only extracts JOB facts; CODE applies
   the candidate's constraints, since a 4B model is unreliable at the pass/fail
   judgment itself. The fit SCORE (every posting) and tailoring (only high scorers)
-  both go to Claude `claude-sonnet-4-6`: scoring needs a real seniority/domain
-  judgment the local model kept getting wrong (mode-collapsed scores, missed
-  disqualifiers), and a cached résumé+rubric system prefix keeps the per-posting
-  cost down to just the fresh JD; tailoring is prompted (via `FABRICATION_GUARD`)
+  both go to Claude — fit score via `claude-sonnet-5` (structured outputs require
+  it; `claude-sonnet-4-6` doesn't support `output_config.format`), tailoring via
+  `claude-sonnet-4-6`: scoring needs a real seniority/domain judgment the local
+  model kept getting wrong (mode-collapsed scores, missed disqualifiers), and a
+  cached résumé+rubric system prefix keeps the per-posting cost down to just the
+  fresh JD; tailoring is prompted (via `FABRICATION_GUARD`)
   to reorder existing resume content only — faithfulness is prompt-instructed and
   human-verified, not enforced (see §9). Sonnet is plenty (and cost-effective) for
   both steps, including a tailoring pass that may run several rounds per job.

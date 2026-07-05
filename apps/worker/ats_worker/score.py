@@ -502,7 +502,7 @@ def _as_str_list(value) -> list[str]:
 
 # --- real adapter (exercised only in Docker; never imported at module load) ---
 
-def make_claude_scorer(api_key: str, model: str, *, max_tokens: int = 2048):
+def make_claude_scorer(api_key: str, model: str, *, max_tokens: int = 4096):
     """Build a `score_fit(posting, resume_text) -> dict` callable backed by Claude.
 
     The résumé + rubric are sent as a cached system prefix (byte-identical every

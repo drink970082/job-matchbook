@@ -36,10 +36,10 @@ FABRICATION_GUARD: str = _t["guard"]            # injected inline via {guard}
 BASE_PROMPT: str = _t["base"] + "\n"
 FEEDBACK_PROMPT: str = _t["feedback"] + "\n"
 
-# score (Ollama) — TWO separate calls. SCORE_HEADER drives the fit-score call
-# (rubric + résumé + job); SCREEN_HEADER + the checklist drive the screening call
-# (job + hard requirements, NO résumé, so it can't anchor on the candidate's
-# current address).
+# score — TWO separate calls, two backends. SCORE_HEADER drives the fit-score call
+# (rubric + résumé + job), sent to Claude; SCREEN_HEADER + the checklist drive the
+# screening call (job + hard requirements, NO résumé, so it can't anchor on the
+# candidate's current address), sent to local Ollama.
 SCORE_HEADER: str = _s["score_header"] + "\n"
 SCREEN_HEADER: str = _s["screen_header"] + "\n"
 

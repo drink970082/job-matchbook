@@ -61,6 +61,6 @@ candidate:
   dealbreakers:                       # freeform extra HARD constraints the fields above don't cover
     - "requires an active US security clearance"   # example — delete or replace with your own
 
-threshold: 75              # minimum Ollama score (0-100) required to tailor
+threshold: 75              # minimum Claude fit score (0-100) required to tailor
 schedule_hours: 24         # cron interval for the background scheduler
 max_single_page_rounds: 3  # max Claude retries to squeeze the resume to 1 page

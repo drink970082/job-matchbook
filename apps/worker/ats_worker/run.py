@@ -36,9 +36,10 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # than Opus for a step that may run several rounds per high-scoring job.
 # Override with --anthropic-model or the ANTHROPIC_MODEL env var.
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
-# Sonnet 4.6 scores fit (real seniority/domain judgment, unlike the local 4B model).
-# Override with --anthropic-score-model or the ANTHROPIC_SCORE_MODEL env var.
-DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-4-6"
+# Sonnet 5 scores fit (real seniority/domain judgment, unlike the local 4B model);
+# Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
+# be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
+DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own

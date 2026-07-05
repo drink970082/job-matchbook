@@ -46,10 +46,6 @@ POSTING = {
     "description": "We need Python, Django, and AWS experience.",
 }
 RESUME = "Experienced Python and Django developer."
-# A valid SCORE-call response, for tests that focus on the SCREEN call (which is
-# the second call, so the first must return a usable score).
-SCORE_OK = json.dumps({"score": 60, "matched_keywords": [], "missing_keywords": [],
-                       "reasoning": "ok"})
 
 
 def _fit(score=60, matched=None, missing=None, reasoning="ok"):

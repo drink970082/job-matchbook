@@ -14,15 +14,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now clicks the dialog's confirm button; the Playwright suite is back to **4/4**.
 
 ### Changed
-- **Scoring: fit assessed by Claude Sonnet 4.6 (reason-first) instead of the local
+- **Scoring: fit assessed by Claude Sonnet 5 (reason-first) instead of the local
   4B model; removed the fragile local years/seniority screen gate.** The
   hard-requirements screen (degree, work authorization, clearance, locations,
   dealbreakers, internships) stays on local Ollama, with code applying the
   candidate's configured constraints; only the fit SCORE moved to Claude, via a
   cached résumé+rubric system prefix, adaptive thinking, and schema-constrained
   JSON output (`reasoning` before `score`). New `ANTHROPIC_SCORE_MODEL` /
-  `--anthropic-score-model` (default `claude-sonnet-4-6`), reusing
-  `ANTHROPIC_API_KEY`. (SPEC §3, §7.1, §10.)
+  `--anthropic-score-model` (default `claude-sonnet-5` — structured outputs
+  require it; `claude-sonnet-4-6` doesn't support `output_config.format`),
+  reusing `ANTHROPIC_API_KEY`. (SPEC §3, §7.1, §10.)
 - **Repo-wide over-engineering cleanup (behavior-preserving).** Removed dead code
   (worker `db.discard`/`db.mark_applied` + their tests, the `_row_to_dict` helper —
   `dict(row)` covers it, an unreachable `load_config` bytes branch, and the never-read
