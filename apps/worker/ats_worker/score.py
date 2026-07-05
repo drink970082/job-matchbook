@@ -33,7 +33,6 @@ from ats_worker.prompts import (
     SCORE_C_CLEARANCE,
     SCORE_C_DEALBREAKERS,
     SCORE_C_DEGREE,
-    SCORE_C_EXPERIENCE,
     SCORE_C_LOCATION,
     SCORE_HEADER,
     SCREEN_FOOTER,
@@ -43,18 +42,12 @@ from ats_worker.prompts import (
 
 # How each configured hard requirement is screened. For the structured fields the
 # LLM only EXTRACTS a fact about the JOB and CODE applies the candidate's
-# constraint (a 4B model is unreliable at the pass/fail judgment itself — it leaks
-# senior roles, mismatches degrees, can't tell a US city is "in" the USA). Only
-# `dealbreakers` (free-text the user writes) stays an LLM {pass, note}. A skill the
-# model invents as a key is ignored, so a skill gap can never disqualify.
+# constraint (a 4B model is unreliable at the pass/fail judgment itself — it
+# mismatches degrees, can't tell a US city is "in" the USA). Only `dealbreakers`
+# (free-text the user writes) stays an LLM {pass, note}. A skill the model invents
+# as a key is ignored, so a skill gap can never disqualify.
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
-
-# Below this many years of experience a Senior/Staff/Principal/Lead title is treated
-# as out of reach; at or above it (or when the candidate's years are unknown) a senior
-# title alone never disqualifies — the safe direction, since an experienced candidate
-# plausibly fits a senior role and we never discard on absent data.
-SENIOR_TITLE_MIN_YEARS = 5
 
 # The 4B model tends to invent the "convenient" value for facts a JD leaves unstated
 # — it guesses offers_sponsorship="no" and remote=true out of silence. We only honour
@@ -69,17 +62,6 @@ _REMOTE_HINTS = ("remote", "work from home", "work-from-home", "wfh", "work from
 # candidate's exclude_internships flag): a 4B model is unreliable on this, but the
 # title makes it trivial. Whole-word so "internal"/"international"/"cooperation" never match.
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
-
-# Early-career / grad-friendly JD signals. When present, a years MINIMUM is never
-# grounds to discard — a safe-keep guard for a candidate who qualifies as early
-# career, and a backstop against the 4B model misreading a "preferred" figure or a
-# cap ("no more than 3 years") as a hard floor. Substring match (lowercased).
-_EARLY_CAREER_HINTS = (
-    "early career", "early-career", "new grad", "new graduate", "recent grad",
-    "recent graduate", "graduates will be considered", "graduates are welcome",
-    "graduates encouraged", "entry level", "entry-level",
-    "no experience necessary", "no experience required",
-)
 
 # Country aliases normalised so the LLM's free-form country ("United States") and
 # the candidate's config ("USA") compare equal. Only the common multi-spelling
@@ -127,7 +109,6 @@ def _candidate_block(candidate) -> str:
     """
     if not candidate:
         return ""
-    years = candidate.get("years_experience")
     degree = str(candidate.get("highest_degree") or "").strip()
     auth = str(candidate.get("work_authorization") or "").strip()
     clearance = str(candidate.get("security_clearance") or "").strip()
@@ -138,8 +119,6 @@ def _candidate_block(candidate) -> str:
     # JOB fact; code compares it to the candidate config), so they carry no {value}.
     # Only dealbreakers needs the candidate's list interpolated.
     clauses: list[str] = []
-    if years is not None:
-        clauses.append(SCORE_C_EXPERIENCE)
     if degree:
         clauses.append(SCORE_C_DEGREE)
     if auth:
@@ -296,8 +275,8 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     """Decide disqualification from the SCREEN call's extracted JOB facts.
 
     For each configured structured requirement the LLM only EXTRACTED a fact about
-    the job; here CODE applies the candidate's constraint (degree rank, years gap,
-    sponsorship, clearance, location membership). This takes the unreliable pass/fail
+    the job; here CODE applies the candidate's constraint (degree rank, sponsorship,
+    clearance, location membership). This takes the unreliable pass/fail
     judgment off a 4B model entirely. `dealbreakers` is the one exception — free-text
     the user writes, so it stays an LLM {pass, note}. A requirement the candidate
     didn't configure is skipped, and a key the model invents (e.g. "skills") is
@@ -317,8 +296,6 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     entry = lambda k: screen.get(k) if isinstance(screen.get(k), dict) else {}
 
-    gate("experience", candidate.get("years_experience") is not None,
-         *_check_experience(entry("experience"), candidate.get("years_experience"), description))
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
@@ -343,27 +320,6 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
         "disqualified": bool(failures),
         "disqualification_reason": "; ".join(failures),
     }
-
-
-def _check_experience(entry: dict, cand_years, description: str = "") -> tuple[bool, str]:
-    """Fail a too-senior role: a Senior/Staff/Principal/Lead title when the candidate
-    is plausibly too junior (known years below SENIOR_TITLE_MIN_YEARS), or a stated
-    minimum strictly above the candidate's years (the role's floor exceeds what they
-    have — for a range like "2-5 years" the model reports the lower bound, 2). An
-    unknown-years candidate is never failed on the minimum. A JD that explicitly
-    welcomes early-career candidates (new grads / entry-level / a years cap) is never
-    failed on the minimum either — the safe direction for someone who qualifies as
-    early career, and a backstop against the model misreading a 'preferred' figure or
-    a cap ("no more than 3 years") as a floor. The senior-title check is NOT relaxed
-    by this — a senior role is senior regardless of grad-friendly language."""
-    cand = _to_num(cand_years)
-    if _flag(entry.get("senior")) and cand is not None and cand < SENIOR_TITLE_MIN_YEARS:
-        return False, "senior-level role"
-    min_req = _to_num(entry.get("min_years_required"))
-    if (min_req is not None and cand is not None and min_req > cand
-            and not _mentions(description, _EARLY_CAREER_HINTS)):
-        return False, f"requires ~{_fmt_num(min_req)}+ years"
-    return True, ""
 
 
 def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
@@ -430,22 +386,6 @@ def _check_location(
 
 
 # --- value coercion helpers ----------------------------------------------
-
-def _to_num(value) -> float | None:
-    """First number in the value (so '5+', '3-5', 5, '5 years' all work), or None."""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    m = re.search(r"\d+(?:\.\d+)?", str(value))
-    return float(m.group()) if m else None
-
-
-def _fmt_num(n: float) -> str:
-    return str(int(n)) if float(n).is_integer() else str(n)
-
 
 def _mentions(description: str, hints: tuple[str, ...]) -> bool:
     """True if the JD text contains any of `hints` (used to sanity-check the model's

@@ -47,7 +47,6 @@ SCREEN_HEADER: str = _s["screen_header"] + "\n"
 # bare: the join there supplies the newlines). Each c_* clause has a single
 # {value} placeholder and maps 1:1 to a "screen" key the model must return.
 SCREEN_LIST_HEADER: str = _s["screen_list_header"]
-SCORE_C_EXPERIENCE: str = _s["c_experience"]
 SCORE_C_DEGREE: str = _s["c_degree"]
 SCORE_C_AUTHORIZATION: str = _s["c_authorization"]
 SCORE_C_CLEARANCE: str = _s["c_clearance"]
