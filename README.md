@@ -18,9 +18,9 @@ SQLite database**:
 - [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
 - [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
   scans company ATS boards (Greenhouse / Lever / Ashby / Workday / Pinpoint), scores
-  each posting against your resume with a local LLM, screens out hard-constraint
-  mismatches, auto-tailors a one-page resume for the best matches, and pings you on
-  Telegram. You review and apply by hand, then one-click **Mark Applied** turns a
+  each posting against your resume with Claude, screens out hard-constraint
+  mismatches with a local LLM, auto-tailors a one-page resume for the best matches,
+  and pings you on Telegram. You review and apply by hand, then one-click **Mark Applied** turns a
   posting into a tracked application. A human is always in the loop — no auto-apply.
 
 > 📖 **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
@@ -49,8 +49,9 @@ keywords and reasoning, download the auto-tailored one-page PDF, then **Mark
 Applied** to promote it into a tracked application that flows into every chart
 above.
 
-The pipeline: **fetch** (5 board APIs) → **score + screen** (local Ollama, GPU) →
-**tailor** (Claude + `tectonic` → single-page PDF) → **notify** (Telegram).
+The pipeline: **fetch** (5 board APIs) → **score** (Claude, reason-first) +
+**screen** (local Ollama, GPU, hard requirements) → **tailor** (Claude + `tectonic`
+→ single-page PDF) → **notify** (Telegram).
 
 ---
 
@@ -78,8 +79,8 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Responsive / mobile layout | ✅ | — | stacks below ~640px |
 | Fetch — Greenhouse / Lever / Ashby / Workday / Pinpoint | ✅ | ✅ | dedup on `(source, external_id)` |
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
-| Score — local Ollama | ✅ | ✅ | |
-| Hard-constraint screening | ✅ | ✅ | disqualified → `discarded` |
+| Score — Claude (reason-first) | ✅ | ✅ | |
+| Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
 | Tailor — one-page loop | ✅ | ✅ | page-count gate |
 | Tailor — faithfulness (no fabrication) | ✅ | ⚠ | **prompt + human review only; no deterministic gate** |
 | Notify — Telegram message + PDF | ✅ | ✅ | ⚠ transient failure can bury tailored work → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |

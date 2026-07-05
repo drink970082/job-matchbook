@@ -11,8 +11,9 @@
 gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
 test/CI hardening, not security hardening** — several known reliability/security
 gaps remain open (see [Open work](#open-work)), including one shipped data-loss
-defect and an untested security guard. Nothing is in flight right now. (Most recent
-change: feed-coverage Tier 1 — see [CHANGELOG](../CHANGELOG.md); remaining coverage in
+defect and an untested security guard. One item is in flight — see
+[In flight](#in-flight). (Most recent change: Claude-scored fit — see
+[CHANGELOG](../CHANGELOG.md); remaining coverage in
 [Enhancements](#enhancements--not-built-optional).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
@@ -22,8 +23,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 Nothing in flight. (Starting work → add a line here; see
-[How to update](#how-to-update).)
+🚧 Remove résumé tailoring (worker tailor/pipeline/notify/db + web schema+UI +
+tectonic; drops the now-orphaned score keyword outputs) — spec pending; see
+`docs/superpowers/specs/2026-07-05-claude-scoring-design.md` §8.
 
 ---
 

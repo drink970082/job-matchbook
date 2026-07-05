@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-06-21 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-07-05 · **License:** MIT
 
 ---
 
@@ -66,9 +66,9 @@ database**:
   discovered jobs, triage them, and track every application through its status
   lifecycle with KPIs and charts.
 - **`apps/worker`** — a scheduled Python pipeline that *feeds* the tracker: it
-  scans company ATS boards, scores each posting against your resume with a local
-  LLM, screens out hard-constraint mismatches, auto-tailors a one-page resume for
-  the best matches, and pings you on Telegram.
+  scans company ATS boards, scores each posting against your resume with Claude,
+  screens out hard-constraint mismatches with a local LLM, auto-tailors a one-page
+  resume for the best matches, and pings you on Telegram.
 
 The two services never call each other. Their only contract is the **shared
 database** (and a shared folder of tailored PDFs). The worker discovers and
@@ -104,8 +104,10 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Local-first compute.** High-frequency scoring runs on a local GPU (Ollama),
-  not a paid API; only the low-frequency tailoring step (high scorers) hits Claude.
+- **Local-first compute where it's cheap, Claude where judgment matters.** The
+  high-frequency hard-requirements screen runs on a local GPU (Ollama), not a paid
+  API; fit scoring (every posting, needs real seniority/domain judgment) and
+  tailoring (low-frequency, high scorers only) both hit Claude.
 
 ---
 
@@ -151,7 +153,7 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
                     (per-listing detail sources: Oracle/Jobvite)                       │
                     (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
-            ─► score + screen (local Ollama)
+            ─► score (Claude, reason-first) + screen (local Ollama, hard requirements)
             ─► tailor one-page resume (Claude + tectonic)   [only score ≥ threshold]
             ─► notify (Telegram message + PDF)
 
@@ -264,9 +266,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   scheduler (immediate pass, then every `schedule_hours`). Flags: `--config`,
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--resume-dir` (`RESUME_DIR`, default `../../resumes`), `--resume`,
-  `--master-tex`, `--model` (`OLLAMA_MODEL`), `--anthropic-model`
-  (`ANTHROPIC_MODEL`), `--import-companies` (seed the DB watchlist from config and
-  exit). Defaults: scoring `qwen3.5:4b`, tailoring `claude-sonnet-4-6`. Each pass
+  `--master-tex`, `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
+  `--anthropic-model` (`ANTHROPIC_MODEL`, tailoring), `--anthropic-score-model`
+  (`ANTHROPIC_SCORE_MODEL`, fit scoring), `--import-companies` (seed the DB
+  watchlist from config and exit). Defaults: screen `qwen3.5:4b`; fit score and
+  tailoring both `claude-sonnet-4-6`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -360,19 +364,25 @@ worker modules are pure and dependency-injected; real services are wired only in
   `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `existing_external_ids`. Issues no DDL.
-- **`score.py` — `score_posting`.** Calls host Ollama (`think: false`,
-  `num_ctx` from `OLLAMA_NUM_CTX`, default 8192) with `resume.txt` + JD → JSON
-  `{score 0-100, matched_keywords, missing_keywords, reasoning}`. When a non-empty
-  `candidate` is supplied, also screens each hard requirement (experience, degree,
-  work authorization, clearance, locations, dealbreakers) *semantically* and may
-  return `disqualified` + `disqualification_reason` + per-requirement `screen`
-  verdicts. Two decisions are deterministic in code rather than left to the 4B model:
-  **experience** disqualifies when the role's *hard-required* minimum (the model
-  extracts the lower bound of a range; `preferred`/cap/"graduates welcome" → null)
-  strictly exceeds the candidate's years — with a deterministic keep-guard
-  (`_EARLY_CAREER_HINTS`) that never discards on years when the JD welcomes
-  early-career candidates (new grads / entry-level / a years cap), so a misread
-  `preferred`/cap figure can't false-discard an early-career role; and when
+- **`score.py` — `score_posting`.** Two calls, two backends. (1) The fit **SCORE**
+  comes from an injected `score_fit(posting, resume_text)` callable — in
+  production `make_claude_scorer` (Claude, `claude-sonnet-4-6` by default,
+  overridable via `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends
+  the résumé + scoring rubric as a **cached system prefix** (`cache_control:
+  ephemeral`, byte-identical every call in a run, only the JD is fresh) with
+  **adaptive thinking** so the model reasons about seniority/domain/gaps *before*
+  committing to a number, returning schema-constrained JSON
+  (`{reasoning, score 0-100, matched_keywords, missing_keywords}`, `reasoning`
+  ordered first in the schema); `score_posting` only normalizes/clamps the result
+  (`ScoreError` on anything unusable). (2) The hard-requirements **SCREEN** stays
+  on host Ollama (`think: false`, `num_ctx` from `OLLAMA_NUM_CTX`, default 8192),
+  runs only when a non-empty `candidate` is supplied, and — with **no résumé in
+  the prompt** — extracts each requirement (degree, work authorization, clearance,
+  locations, dealbreakers) as a JOB fact *semantically*, while CODE applies the
+  candidate's configured constraint (a 4B model is unreliable at the pass/fail
+  judgment itself); `disqualified` is derived from those per-requirement verdicts.
+  **There is no local experience/years gate** — seniority is judged entirely by
+  the Claude score, not a deterministic code check. Separately, when
   `candidate.exclude_internships` is set, intern/co-op roles are disqualified by a
   whole-word match on the job title (no LLM call — runs even when no other screen
   clause is configured).
@@ -515,7 +525,7 @@ model job_postings {
   location        String?
   job_url         String
   description     String        // full JD text (fed to the LLM)
-  score           Int?          // 0-100, from Ollama
+  score           Int?          // 0-100, from Claude fit score
   score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification
   resume_tex      String?       // tailored LaTeX source
   resume_path     String?       // tailored PDF path on the shared volume
@@ -826,13 +836,19 @@ automated coverage — those rely on code review or the human in the loop, not a
   exceptions are the two `GET` routes — `/api/resume/[id]` (binary PDF streaming
   doesn't fit the Server Action model) and `/api/health` (an HTTP-status probe the
   Docker healthcheck can call).
-- **Local + cloud LLM split.** Scoring is high-frequency (every posting) → local
-  Ollama on the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card,
-  ~2 s/posting, `think:false` so reasoning models still return JSON). Tailoring is
-  low-frequency (only high scorers) → Claude `claude-sonnet-4-6`, prompted (via
-  `FABRICATION_GUARD`) to reorder existing resume content only — faithfulness is
-  prompt-instructed and human-verified, not enforced (see §9). Sonnet is plenty (and
-  cost-effective) for a step that may run several rounds per job.
+- **Local + cloud LLM split.** The hard-requirements SCREEN is high-frequency
+  (every posting with candidate constraints configured) → stays on local Ollama on
+  the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card, `think:false`
+  so reasoning models still return JSON) — it only extracts JOB facts; CODE applies
+  the candidate's constraints, since a 4B model is unreliable at the pass/fail
+  judgment itself. The fit SCORE (every posting) and tailoring (only high scorers)
+  both go to Claude `claude-sonnet-4-6`: scoring needs a real seniority/domain
+  judgment the local model kept getting wrong (mode-collapsed scores, missed
+  disqualifiers), and a cached résumé+rubric system prefix keeps the per-posting
+  cost down to just the fresh JD; tailoring is prompted (via `FABRICATION_GUARD`)
+  to reorder existing resume content only — faithfulness is prompt-instructed and
+  human-verified, not enforced (see §9). Sonnet is plenty (and cost-effective) for
+  both steps, including a tailoring pass that may run several rounds per job.
 - **One-page resume loop.** Single-page can't be guaranteed in one shot, so compile
   → count pages → feed back "cut to 1 page" up to `max_single_page_rounds`, then
   store the last version and flag `resume_pages` for a UI warning.
@@ -888,8 +904,9 @@ Full prerequisites and step-by-step (Telegram bot, Ollama, troubleshooting) were
 historically in `docs/SETUP.md`; this section is now authoritative.
 
 **Prerequisites:** Docker + Compose (≥ 24); Node 20+ and Python 3.11+ only for
-local non-Docker dev/tests; Ollama + an NVIDIA GPU on the **host** for scoring; an
-Anthropic API key for tailoring; a Telegram bot for alerts.
+local non-Docker dev/tests; Ollama + an NVIDIA GPU on the **host** for the
+hard-requirements screen; an Anthropic API key for fit scoring and tailoring; a
+Telegram bot for alerts.
 
 **Web app only (no pipeline):**
 
@@ -913,7 +930,7 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`
    (`http://host.docker.internal:11434` for Docker). Optional overrides:
-   `OLLAMA_MODEL`, `ANTHROPIC_MODEL`, `OLLAMA_NUM_CTX`.
+   `OLLAMA_MODEL`, `ANTHROPIC_MODEL`, `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
 4. On the host: `ollama pull qwen3.5:4b && ollama serve`.
 5. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build`
    (or `make up`). The worker runs one pass immediately, then every
