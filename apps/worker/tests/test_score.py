@@ -592,3 +592,12 @@ def test_truncate_boundary_and_disabled():
     assert score._truncate("abcde", 5) == "abcde"          # exact length: not cut
     assert "truncated" in score._truncate("abcdef", 5)     # one over: cut
     assert score._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
+
+
+# --- real adapter: import safety ------------------------------------------
+
+def test_make_claude_scorer_builds_without_importing_sdk():
+    # The adapter must be import-safe: building it never imports anthropic (which
+    # the hermetic test env lacks), so run.py can construct it before first use.
+    fit = score.make_claude_scorer("sk-test", "claude-sonnet-4-6")
+    assert callable(fit)

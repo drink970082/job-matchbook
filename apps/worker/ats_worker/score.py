@@ -35,6 +35,7 @@ from ats_worker.prompts import (
     SCORE_C_DEALBREAKERS,
     SCORE_C_DEGREE,
     SCORE_C_LOCATION,
+    SCORE_HEADER,
     SCREEN_FOOTER,
     SCREEN_HEADER,
     SCREEN_LIST_HEADER,
@@ -76,6 +77,23 @@ _COUNTRY_ALIASES = {
 
 class ScoreError(RuntimeError):
     """The model returned output we could not parse into a valid score."""
+
+
+# Structured-output schema for the Claude fit score. reasoning first so the model
+# assesses fit before committing to a number; keyword lists feed résumé tailoring.
+# (Structured outputs reject numeric bounds, so `score` is a bare integer — the
+# 0-100 clamp lives in _coerce_score.)
+_SCORE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "score": {"type": "integer"},
+        "matched_keywords": {"type": "array", "items": {"type": "string"}},
+        "missing_keywords": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["reasoning", "score", "matched_keywords", "missing_keywords"],
+    "additionalProperties": False,
+}
 
 
 def _truncate(text: str, max_chars: int, label: str = "description") -> str:
@@ -480,3 +498,49 @@ def _as_str_list(value) -> list[str]:
         else:
             out.append(str(v))
     return out
+
+
+# --- real adapter (exercised only in Docker; never imported at module load) ---
+
+def make_claude_scorer(api_key: str, model: str, *, max_tokens: int = 2048):
+    """Build a `score_fit(posting, resume_text) -> dict` callable backed by Claude.
+
+    The résumé + rubric are sent as a cached system prefix (byte-identical every
+    call in a run) so only the JD is fresh; the model reasons (adaptive thinking)
+    then emits schema-constrained JSON. `import anthropic` and the client are
+    deferred to the FIRST call so importing this module — and building the scorer
+    in tests — never needs the SDK. Returns the RAW parsed JSON; score_posting
+    normalizes it.
+    """
+    cell: list = []
+
+    def score_fit(posting: dict, resume_text: str) -> dict:
+        if not cell:
+            import anthropic  # lazy: only at runtime in Docker
+            cell.append(anthropic.Anthropic(api_key=api_key))
+        client = cell[0]
+        job = _job_block(posting, 0)  # 0 -> no truncation (Claude has ample context)
+        msg = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            thinking={"type": "adaptive"},
+            system=[
+                {"type": "text", "text": SCORE_HEADER},
+                {"type": "text", "text": f"=== RESUME ===\n{resume_text}",
+                 "cache_control": {"type": "ephemeral"}},
+            ],
+            output_config={"format": {"type": "json_schema", "schema": _SCORE_SCHEMA}},
+            messages=[{"role": "user", "content": job}],
+        )
+        text = "".join(
+            b.text for b in msg.content if getattr(b, "type", None) == "text"
+        )
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ScoreError(f"Claude returned non-JSON score: {text!r}") from exc
+        if not isinstance(data, dict):
+            raise ScoreError(f"Claude score was not a JSON object: {data!r}")
+        return data
+
+    return score_fit
