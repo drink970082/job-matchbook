@@ -23,7 +23,7 @@ from . import db, pipeline
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import score_posting
+from .score import make_claude_scorer, score_posting
 from .tailor import make_claude, pypdf_count, tailor_resume, tectonic_compile
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
@@ -36,6 +36,9 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # than Opus for a step that may run several rounds per high-scoring job.
 # Override with --anthropic-model or the ANTHROPIC_MODEL env var.
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+# Sonnet 4.6 scores fit (real seniority/domain judgment, unlike the local 4B model).
+# Override with --anthropic-score-model or the ANTHROPIC_SCORE_MODEL env var.
+DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-4-6"
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own
@@ -88,7 +91,8 @@ def resume_out_dir(base: str, posting) -> str:
 
 def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../resumes",
              ollama_model=DEFAULT_OLLAMA_MODEL,
-             anthropic_model=DEFAULT_ANTHROPIC_MODEL) -> None:
+             anthropic_model=DEFAULT_ANTHROPIC_MODEL,
+             anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> None:
     """Run fetch -> score -> tailor -> notify exactly once.
 
     Tailored PDFs are written under `resume_dir` (a volume shared with the web
@@ -145,10 +149,20 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
+        # Build the Claude scorer lazily on first use (make_claude_scorer is
+        # import-safe: the SDK import is deferred to the scorer's first call, so
+        # this closure is cheap and the hermetic tests never touch anthropic).
+        _scorer_cell: list = []
+
         def score_fn(posting):
+            if not _scorer_cell:
+                _scorer_cell.append(
+                    make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model)
+                )
             return score_posting(
                 posting, resume_text,
-                model=ollama_model,
+                score_fit=_scorer_cell[0],
+                model=ollama_model,          # Ollama model — SCREEN call only now
                 ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
                 candidate=candidate,
                 num_ctx=num_ctx,
@@ -236,6 +250,10 @@ def main(argv=None) -> None:
     parser.add_argument("--anthropic-model",
                         default=os.environ.get("ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
                         help="Anthropic model used for resume tailoring")
+    parser.add_argument("--anthropic-score-model",
+                        default=os.environ.get("ANTHROPIC_SCORE_MODEL",
+                                               DEFAULT_ANTHROPIC_SCORE_MODEL),
+                        help="Anthropic model used for fit scoring")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -259,7 +277,8 @@ def main(argv=None) -> None:
     def once():
         run_once(cfg, db_path=args.db, resume_text=resume_text,
                  master_tex=master_tex, env=env, resume_dir=args.resume_dir,
-                 ollama_model=args.model, anthropic_model=args.anthropic_model)
+                 ollama_model=args.model, anthropic_model=args.anthropic_model,
+                 anthropic_score_model=args.anthropic_score_model)
 
     if args.once:
         once()

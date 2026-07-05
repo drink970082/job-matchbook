@@ -250,6 +250,37 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
     assert kw["ollama_host"] == "http://ol:11434"
+    assert callable(kw["score_fit"])                   # Claude scorer injected
+
+
+def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, score_model):
+    """Like _run_once_capturing_score, but passes anthropic_score_model through."""
+    def fake_score_posting(posting, resume_text, **kwargs):
+        return {"score": 70}
+    monkeypatch.setattr(run, "score_posting", fake_score_posting)
+    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_tailor", lambda *a, **k: None)
+    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    conn = dbmod.connect(str(dbfile))
+    dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
+    conn.close()
+    run.run_once(cfg, db_path=str(dbfile), resume_text="r", master_tex="m", env=env,
+                 anthropic_score_model=score_model)
+
+
+def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "make_claude_scorer",
+                        lambda key, model: seen.setdefault("model", model) or
+                        (lambda posting, resume_text: {"score": 70}))
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
+           "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
+    _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env,
+                                         score_model="claude-opus-4-8")
+    assert seen["model"] == "claude-opus-4-8"
 
 
 def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
