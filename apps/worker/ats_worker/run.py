@@ -138,7 +138,6 @@ def run_once(cfg, *, db_path, resume_text, master_tex, env, resume_dir="../../re
             candidate = None
         else:
             candidate = {
-                "years_experience": cfg.candidate.years_experience,
                 "highest_degree": cfg.candidate.highest_degree,
                 "work_authorization": cfg.candidate.work_authorization,
                 "security_clearance": cfg.candidate.security_clearance,

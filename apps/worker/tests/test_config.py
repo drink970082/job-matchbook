@@ -110,7 +110,6 @@ def test_load_parses_structured_candidate():
     cfg = config.load_config(
         "companies: []\n"
         "candidate:\n"
-        "  years_experience: 1\n"
         "  highest_degree: \"Master's\"\n"
         "  work_authorization: 'needs visa sponsorship'\n"
         "  security_clearance: none\n"
@@ -120,7 +119,6 @@ def test_load_parses_structured_candidate():
         "  exclude_internships: true\n"
     )
     c = cfg.candidate
-    assert c.years_experience == 1.0
     assert c.highest_degree == "Master's"
     assert c.work_authorization == "needs visa sponsorship"
     assert c.security_clearance == "none"
@@ -131,21 +129,14 @@ def test_load_parses_structured_candidate():
 
 
 def test_exclude_internships_defaults_false():
-    cfg = config.load_config("companies: []\ncandidate:\n  years_experience: 1\n")
+    cfg = config.load_config("companies: []\ncandidate:\n  highest_degree: \"Master's\"\n")
     assert cfg.candidate.exclude_internships is False
-
-
-def test_candidate_years_experience_non_numeric_raises():
-    bad = "companies: []\ncandidate:\n  years_experience: 'a lot'\n"
-    with pytest.raises(config.ConfigError):
-        config.load_config(bad)
 
 
 def test_is_empty_false_when_any_single_field_set():
     # run.py uses is_empty() to decide whether to build the screen checklist at all,
     # so ANY one configured hard requirement must flip it to False (screening on).
     cases = (
-        "candidate:\n  years_experience: 0\n",       # 0 years is still "configured"
         "candidate:\n  highest_degree: \"Bachelor's\"\n",
         "candidate:\n  work_authorization: 'US citizen'\n",
         "candidate:\n  security_clearance: 'Secret'\n",
@@ -175,7 +166,7 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
 @pytest.mark.parametrize("key", ["threshold", "schedule_hours", "max_single_page_rounds"])
 def test_non_numeric_numeric_fields_raise_config_error(key):
     # The module contract is "fail loud with a ConfigError at startup", not an
-    # opaque ValueError from int(). Mirrors years_experience handling.
+    # opaque ValueError from int().
     bad = f"companies: []\n{key}: not-a-number\n"
     with pytest.raises(config.ConfigError, match="must be an integer"):
         config.load_config(bad)

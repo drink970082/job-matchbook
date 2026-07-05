@@ -23,7 +23,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   JSON output (`reasoning` before `score`). New `ANTHROPIC_SCORE_MODEL` /
   `--anthropic-score-model` (default `claude-sonnet-5` — structured outputs
   require it; `claude-sonnet-4-6` doesn't support `output_config.format`),
-  reusing `ANTHROPIC_API_KEY`. (SPEC §3, §7.1, §10.)
+  reusing `ANTHROPIC_API_KEY`. The now-inert `candidate.years_experience` config
+  field was dropped (nothing screens on it anymore). (SPEC §3, §7.1, §10.)
 - **Repo-wide over-engineering cleanup (behavior-preserving).** Removed dead code
   (worker `db.discard`/`db.mark_applied` + their tests, the `_row_to_dict` helper —
   `dict(row)` covers it, an unreachable `load_config` bytes branch, and the never-read

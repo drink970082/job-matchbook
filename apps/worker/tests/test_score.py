@@ -218,7 +218,7 @@ def test_empty_candidate_fields_render_no_screen_call():
     http = FakeHttp()
     score.score_posting(
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-        candidate={"years_experience": None, "highest_degree": "", "dealbreakers": []},
+        candidate={"highest_degree": "", "dealbreakers": []},
     )
     assert len(http.calls) == 0
 
@@ -416,7 +416,7 @@ def test_intern_title_not_excluded_without_the_flag():
     posting = {**POSTING, "job_title": "Software Engineer Intern"}
     http = FakeHttp(_screen_resp({}))
     out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"years_experience": 1})
+                              candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
 

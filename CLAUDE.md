@@ -78,6 +78,6 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
   silently breaks cross-container WAL.
 - **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web
   gated via `jest.all.config.ts`. CI also runs the schema-drift guard.
-- Default models: scoring `qwen3.5:4b`, tailoring `claude-sonnet-4-6` (override via
-  env / CLI — see SPEC §7.1).
+- Default models: local `qwen3.5:4b` screens hard requirements, Claude `claude-sonnet-5`
+  scores fit, `claude-sonnet-4-6` tailors (override via env / CLI — see SPEC §7.1).
 ```

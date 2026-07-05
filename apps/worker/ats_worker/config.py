@@ -54,7 +54,6 @@ class Candidate:
     the model gives a pass/fail verdict for; `dealbreakers` adds freeform extras.
     Everything empty = the scorer is never asked to screen (no disqualification).
     Skills/identity for FIT scoring live in the résumé, not here."""
-    years_experience: float | None = None
     highest_degree: str = ""
     work_authorization: str = ""
     security_clearance: str = ""
@@ -68,7 +67,6 @@ class Candidate:
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
         return not any((
-            self.years_experience is not None,
             self.highest_degree.strip(),
             self.work_authorization.strip(),
             self.security_clearance.strip(),
@@ -222,18 +220,9 @@ def _parse_title_filter(raw) -> list[str]:
 def _parse_candidate(raw) -> Candidate:
     if not isinstance(raw, dict):
         raise ConfigError("`candidate` must be a mapping")
-    years = raw.get("years_experience")
-    if years is not None:
-        try:
-            years = float(years)
-        except (TypeError, ValueError) as exc:
-            raise ConfigError(
-                f"candidate.years_experience must be a number, got {years!r}"
-            ) from exc
     locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
     dealbreakers = [str(d) for d in (raw.get("dealbreakers") or []) if str(d).strip()]
     return Candidate(
-        years_experience=years,
         highest_degree=str(raw.get("highest_degree") or "").strip(),
         work_authorization=str(raw.get("work_authorization") or "").strip(),
         security_clearance=str(raw.get("security_clearance") or "").strip(),

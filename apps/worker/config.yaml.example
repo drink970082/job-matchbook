@@ -52,7 +52,6 @@ candidate:
   # A missing skill/technology is NOT here — that only lowers the fit score; your
   # skills live in the résumé. EVERY field is optional — leave one blank to not
   # screen on it; leave everything blank to disable disqualification entirely.
-  years_experience: 1                 # years of relevant professional experience
   highest_degree: "Master's"          # none | High School | Associate | Bachelor's | Master's | PhD
   work_authorization: "needs visa sponsorship"   # citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
   security_clearance: "none"          # none | confidential | secret | top secret

@@ -234,7 +234,6 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     cfg = cfgmod.load_config(
         "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
         "candidate:\n"
-        "  years_experience: 2\n"
         "  highest_degree: \"Master's\"\n"
         "  locations: ['remote', 'USA']\n"
         "  dealbreakers: ['no internships']\n"
@@ -243,7 +242,6 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
            "ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
     kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
     cand = kw["candidate"]
-    assert cand["years_experience"] == 2
     assert cand["highest_degree"] == "Master's"
     assert cand["locations"] == ["remote", "USA"]
     assert cand["dealbreakers"] == ["no internships"]
