@@ -1,25 +1,26 @@
-"""Score a job posting against the resume using a local Ollama model.
+"""Score a job posting against the resume: a fit SCORE (injected, Claude) plus a
+hard-requirements SCREEN (local Ollama).
 
-WHY Ollama (local) rather than a hosted LLM: scoring runs over every freshly
-fetched posting, so doing it on a local model keeps cost at zero and avoids
-rate limits — the expensive, quality-sensitive step (tailoring) is the only one
-that goes to Claude.
+WHY the SCREEN call stays on local Ollama rather than a hosted LLM: it runs over
+every freshly fetched posting, so keeping it local keeps cost at zero and avoids
+rate limits — the expensive, quality-sensitive step (fit scoring, like tailoring)
+goes to Claude instead, via the injected `score_fit` callable built in run.py.
 
-TWO calls per posting, on purpose. A small local model (qwen3.5:4b) is unreliable
-when asked to both screen hard constraints AND score fit in one overloaded prompt
-— it lets a strong fit wash out a failed constraint, and anchors location on the
-résumé's home city. So we split:
-  1. SCORE  — rubric + résumé + job  -> fit score 0-100 + matched/missing keywords.
+TWO calls per posting, on purpose, from two different backends:
+  1. SCORE  — fit score 0-100 + matched/missing keywords, from the injected
+              `score_fit(posting, resume_text)` callable. Its result is only
+              normalized here (missing/unusable "score" raises ScoreError).
   2. SCREEN — job + the candidate's hard requirements, with NO résumé -> a per-
               requirement pass/fail; `disqualified` is derived from those verdicts.
 The screen call has no résumé so it can't anchor on where the candidate lives, and
-each call's output is small (no truncation). Screening is skipped entirely when no
+its output is small (no truncation). Screening is skipped entirely when no
 candidate constraints are configured.
 
-`http` is injected (defaults to `requests`) so tests exercise parsing with a fake
-transport and zero network. Ollama wraps output in {"response": "<json string>"}
-under format=json; we parse that inner string defensively and raise ScoreError on
-anything unusable so the pipeline can mark one posting failed, not abort the batch.
+`http` is injected (defaults to `requests`) so tests exercise the SCREEN call's
+parsing with a fake transport and zero network. Ollama wraps output in
+{"response": "<json string>"} under format=json; we parse that inner string
+defensively and raise ScoreError on anything unusable so the pipeline can mark one
+posting failed, not abort the batch.
 """
 from __future__ import annotations
 
@@ -34,7 +35,6 @@ from ats_worker.prompts import (
     SCORE_C_DEALBREAKERS,
     SCORE_C_DEGREE,
     SCORE_C_LOCATION,
-    SCORE_HEADER,
     SCREEN_FOOTER,
     SCREEN_HEADER,
     SCREEN_LIST_HEADER,
@@ -140,27 +140,24 @@ def score_posting(
     posting: dict,
     resume_text: str,
     *,
-    model: str,
+    score_fit,
     http=requests,
     ollama_host: str,
+    model: str | None = None,
     timeout: int = 180,
     candidate: dict | None = None,
     temperature: float = 0.0,
     seed: int = 0,
     num_ctx: int = 8192,
 ) -> dict:
-    """Ask Ollama to score `posting` against `resume_text` (and screen it).
+    """Score `posting` against `resume_text` (fit) and screen it (hard requirements).
 
-    Returns {"score": int 0-100, "matched_keywords": [...],
-    "missing_keywords": [...], "reasoning": str, "screen": {key: {pass, note}},
-    "disqualified": bool, "disqualification_reason": str}. `disqualified` is
-    DERIVED from the per-requirement screen verdicts (any fail), not taken from
-    the model directly. Raises ScoreError on unparseable output.
-
-    `temperature=0` + a fixed `seed` make results reproducible run-to-run (the
-    score gates an expensive tailoring step). `num_ctx` is set explicitly because
-    Ollama's small default silently truncates long JDs; the description is also
-    pre-capped, and `num_predict` bounds the answer length.
+    The fit SCORE comes from the injected `score_fit(posting, resume_text) -> dict`
+    (Claude, built in run.py); its result is normalized here so a missing `score`
+    raises ScoreError. The SCREEN call (hard requirements, NO résumé) stays on the
+    local Ollama transport (`http`/`ollama_host`/`model`) and is skipped when no
+    candidate constraints are configured. `disqualified` is DERIVED from the
+    per-requirement screen verdicts. Raises ScoreError on an unusable fit result.
     """
     options = {
         "temperature": temperature,
@@ -170,16 +167,11 @@ def score_posting(
         # runaway (which otherwise stalls a call past the read timeout).
         "num_predict": 512,
     }
+
+    # 1. SCORE — fit only, via Claude (injected). Normalized here (missing score -> raise).
+    result = _normalize_score(score_fit(posting, resume_text))
+
     job = _job_block(posting, num_ctx * 2)
-
-    # 1. SCORE — fit only (rubric + résumé + job). Always runs. The résumé is capped
-    # the same way as the JD so an oversized résumé can't push the JD out of context.
-    resume_text = _truncate(resume_text, num_ctx * 2, label="resume")
-    score_prompt = SCORE_HEADER + f"\n=== RESUME ===\n{resume_text}\n\n" + job
-    result = _normalize_score(
-        _post(http, ollama_host, model, score_prompt, options=options, timeout=timeout)
-    )
-
     # 2. SCREEN — hard requirements only (job + checklist, NO résumé). Skipped when
     # nothing is configured, so disqualification stays disabled. A SCREEN-call parse
     # failure must NOT discard the posting (or fail the whole row) — the design errs
