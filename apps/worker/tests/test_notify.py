@@ -31,13 +31,11 @@ TOKEN = "12345:ABC"
 CHAT = "999"
 
 
-def test_sends_message_and_document_when_pdf_given(tmp_path):
-    pdf = tmp_path / "resume.pdf"
-    pdf.write_bytes(b"%PDF-1.4 fake")
+def test_sends_message_with_summary_fields():
     http = FakeHttp()
-    notify.notify_posting(POSTING, str(pdf), token=TOKEN, chat_id=CHAT, http=http)
+    notify.notify_posting(POSTING, token=TOKEN, chat_id=CHAT, http=http)
 
-    assert len(http.calls) == 2
+    assert len(http.calls) == 1          # message only — no document
     msg_url, msg_kw = http.calls[0]
     assert msg_url == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = msg_kw.get("data") or msg_kw.get("json")
@@ -47,27 +45,3 @@ def test_sends_message_and_document_when_pdf_given(tmp_path):
     assert "Senior Python Engineer" in text
     assert "88" in text
     assert "https://example.com/jobs/1" in text
-
-    doc_url, doc_kw = http.calls[1]
-    assert doc_url == f"https://api.telegram.org/bot{TOKEN}/sendDocument"
-    doc_payload = doc_kw.get("data")
-    assert str(doc_payload["chat_id"]) == CHAT
-    assert "files" in doc_kw  # the pdf is uploaded as a file
-
-
-def test_only_message_when_no_pdf():
-    http = FakeHttp()
-    notify.notify_posting(POSTING, None, token=TOKEN, chat_id=CHAT, http=http)
-    assert len(http.calls) == 1
-    assert http.calls[0][0].endswith("/sendMessage")
-
-
-def test_missing_pdf_file_still_sends_message_without_raising(tmp_path):
-    # resume_path is set but the file is gone (cleanup / path mismatch). The
-    # alert must still go out, and we must NOT raise (which would mark the row
-    # failed AFTER the message was already sent).
-    http = FakeHttp()
-    notify.notify_posting(POSTING, str(tmp_path / "gone.pdf"),
-                          token=TOKEN, chat_id=CHAT, http=http)
-    assert len(http.calls) == 1
-    assert http.calls[0][0].endswith("/sendMessage")

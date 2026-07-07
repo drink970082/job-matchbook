@@ -1,6 +1,6 @@
 """Load prompts from the prompts/ directory at import time.
 
-Each stage has ONE file (tailor.txt, score.txt) split into named sections by
+The scoring stage has ONE file (score.txt) split into named sections by
 `@@ <name>` marker lines — `@@` is used because the prompt bodies themselves use
 `=== … ===` as content delimiters, so the splitter must not collide with those.
 """
@@ -28,13 +28,7 @@ def _sections(filename: str) -> dict[str, str]:
     return out
 
 
-_t = _sections("tailor.txt")
 _s = _sections("score.txt")
-
-# tailor (Claude API)
-FABRICATION_GUARD: str = _t["guard"]            # injected inline via {guard}
-BASE_PROMPT: str = _t["base"] + "\n"
-FEEDBACK_PROMPT: str = _t["feedback"] + "\n"
 
 # score — TWO separate calls, two backends. SCORE_HEADER drives the fit-score call
 # (rubric + résumé + job), sent to Claude; SCREEN_HEADER + the checklist drive the

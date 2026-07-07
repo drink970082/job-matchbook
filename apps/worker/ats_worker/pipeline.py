@@ -1,7 +1,7 @@
-"""Orchestration: drive postings through new -> scored -> tailored -> notified.
+"""Orchestration: drive postings through new -> scored -> notified.
 
 WHY a per-stage, per-item try/except: each stage talks to a flaky external
-(board API, Ollama, Claude+tectonic, Telegram). The cardinal rule is that ONE
+(board API, Ollama, Claude, Telegram). The cardinal rule is that ONE
 bad posting must never abort the whole batch — on any exception we record it via
 db.mark_failed and move on. Stages are pure functions over a db connection with
 injected worker callables and an explicit `now`, so the whole machine is
@@ -10,12 +10,9 @@ deterministic and testable without network.
 Stage gating:
   run_fetch  -> inserts brand-new postings ('new')
   run_score  -> processes ONLY 'new', advances to 'scored'
-  run_tailor -> processes ONLY 'scored' with score >= threshold (the rest stay
-                'scored', untouched), advances to 'tailored'
-  run_notify -> processes ONLY 'tailored', advances to 'notified'. A tailored
-                row always has a resume_path (save_resume requires it), so we
-                always send the PDF; if it were somehow missing the notifier
-                degrades to a message-only alert.
+  run_notify -> processes ONLY 'scored' with score >= threshold (the rest stay
+                'scored', untouched); sends a message-only alert and advances to
+                'notified'. The threshold is the notification gate.
 """
 from __future__ import annotations
 
@@ -249,39 +246,18 @@ def run_score(conn, *, now, score_fn) -> None:
             db.mark_failed(conn, row["id"], error=str(exc), now=now)
 
 
-# --- tailor ---------------------------------------------------------------
+# --- notify ---------------------------------------------------------------
 
-def run_tailor(conn, threshold, *, now, tailor_fn) -> None:
-    """Tailor every 'scored' posting at or above `threshold`.
-
-    Below-threshold rows are left in 'scored' untouched. The injected
-    `tailor_fn(posting) -> {tex, pdf_path, pages, ok}` already encapsulates the
-    single-page loop; we just persist its result.
+def run_notify(conn, threshold, *, now, notify_fn, token, chat_id) -> None:
+    """Notify every 'scored' posting at or above `threshold` and advance it to
+    'notified'. Below-threshold rows stay 'scored', untouched — the threshold is
+    the notification gate (it used to gate tailoring). One message-only alert per
+    posting; on any send error the row is marked 'failed', as before.
     """
     for row in db.get_by_status(conn, "scored", min_score=threshold):
         posting = dict(row)
         try:
-            result = tailor_fn(posting)
-            db.save_resume(
-                conn,
-                row["id"],
-                resume_tex=result["tex"],
-                resume_path=result["pdf_path"],
-                resume_pages=int(result["pages"]),
-                now=now,
-            )
-        except Exception as exc:  # noqa: BLE001
-            db.mark_failed(conn, row["id"], error=str(exc), now=now)
-
-
-# --- notify ---------------------------------------------------------------
-
-def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
-    """Notify for every 'tailored' posting and advance it to 'notified'."""
-    for row in db.get_by_status(conn, "tailored"):
-        posting = dict(row)
-        try:
-            notify_fn(posting, posting.get("resume_path"), token=token, chat_id=chat_id)
+            notify_fn(posting, token=token, chat_id=chat_id)
             db.mark_notified(conn, row["id"], now=now)
         except Exception as exc:  # noqa: BLE001
             db.mark_failed(conn, row["id"], error=str(exc), now=now)

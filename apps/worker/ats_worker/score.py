@@ -3,7 +3,7 @@ hard-requirements SCREEN (local Ollama).
 
 WHY the SCREEN call stays on local Ollama rather than a hosted LLM: it runs over
 every freshly fetched posting, so keeping it local keeps cost at zero and avoids
-rate limits — the expensive, quality-sensitive step (fit scoring, like tailoring)
+rate limits — the expensive, quality-sensitive step (fit scoring)
 goes to Claude instead, via the injected `score_fit` callable built in run.py.
 
 TWO calls per posting, on purpose, from two different backends:
@@ -80,7 +80,7 @@ class ScoreError(RuntimeError):
 
 
 # Structured-output schema for the Claude fit score. reasoning first so the model
-# assesses fit before committing to a number; keyword lists feed résumé tailoring.
+# assesses fit before committing to a number; keyword lists surface matched/missing skills in the UI.
 # (Structured outputs reject numeric bounds, so `score` is a bare integer — the
 # 0-100 clamp lives in _coerce_score.)
 _SCORE_SCHEMA = {
@@ -258,7 +258,7 @@ def _normalize_score(data: dict) -> dict:
     """Validate the SCORE call's output (score is required)."""
     if "score" not in data:
         # Absent score must fail loudly — burying it as 0 is indistinguishable
-        # from a genuine 0 and would silently exclude the posting from tailoring.
+        # from a genuine 0 and would silently exclude the posting from notification.
         raise ScoreError(f"response missing required 'score': {data!r}")
     return {
         "score": _coerce_score(data["score"]),
@@ -272,7 +272,7 @@ def _coerce_score(raw) -> int:
     """Accept int, float, or numeric string (85 / 85.7 / "85"); clamp to 0-100.
 
     A non-numeric score (e.g. "high") is unusable and raises, rather than being
-    silently buried as a 0 that would exclude the posting from tailoring.
+    silently buried as a 0 that would exclude the posting from notification.
     """
     try:
         value = round(float(raw))
@@ -482,7 +482,7 @@ def _as_str_list(value) -> list[str]:
     """Coerce the model's keyword field to a flat list of strings.
 
     Tolerates a bare string (wrapped) and one level of nesting (flattened) so a
-    slightly-off shape doesn't silently drop keywords that downstream tailoring
+    slightly-off shape doesn't silently drop keywords that the UI
     relies on.
     """
     if value is None:

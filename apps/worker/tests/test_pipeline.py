@@ -11,7 +11,6 @@ from tests._helpers import (
     make_posting as _posting,
     seed_new as _seed_new,
     seed_scored as _seed_scored,
-    seed_tailored as _seed_tailored,
 )
 
 
@@ -90,61 +89,40 @@ def test_run_score_skips_non_new(db_path):
     assert called == []
 
 
-# --- run_tailor -----------------------------------------------------------
+# --- run_notify -----------------------------------------------------------
 
-def test_run_tailor_gates_on_threshold(db_path):
+def test_run_notify_gates_on_threshold(db_path):
     conn = db.connect(db_path)
     _seed_scored(conn, {"hi": 90, "lo": 50})
 
-    tailored = []
+    notified = []
 
-    def tailor_fn(posting):
-        tailored.append(posting["external_id"])
-        return {"tex": "T", "pdf_path": "/tmp/x.pdf", "pages": 1, "ok": True}
+    def notify_fn(posting, *, token, chat_id):
+        notified.append(posting["external_id"])
 
-    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
-    assert tailored == ["hi"]
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    assert notified == ["hi"]
 
     statuses = {
         r["external_id"]: r["pipeline_status"]
         for r in conn.execute("SELECT * FROM job_postings").fetchall()
     }
-    assert statuses["hi"] == "tailored"
+    assert statuses["hi"] == "notified"
     assert statuses["lo"] == "scored"  # untouched, below threshold
 
 
-def test_run_tailor_failure_isolated(db_path):
+def test_run_notify_advances_and_passes_token_chat(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"a": 90, "b": 95})
-
-    def tailor_fn(posting):
-        if posting["external_id"] == "a":
-            raise RuntimeError("tectonic exploded")
-        return {"tex": "T", "pdf_path": "/tmp/b.pdf", "pages": 1, "ok": True}
-
-    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
-    statuses = {
-        r["external_id"]: r["pipeline_status"]
-        for r in conn.execute("SELECT * FROM job_postings").fetchall()
-    }
-    assert statuses["a"] == "failed"
-    assert statuses["b"] == "tailored"
-
-
-# --- run_notify -----------------------------------------------------------
-
-def test_run_notify_only_tailored_and_advances(db_path):
-    conn = db.connect(db_path)
-    _seed_tailored(conn, ["1", "2"])
+    _seed_scored(conn, {"1": 90, "2": 95})
 
     notified = []
 
-    def notify_fn(posting, pdf_path, *, token, chat_id):
-        notified.append((posting["external_id"], pdf_path, token, chat_id))
+    def notify_fn(posting, *, token, chat_id):
+        notified.append((posting["external_id"], token, chat_id))
 
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="tok", chat_id="cid")
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="tok", chat_id="cid")
     assert {n[0] for n in notified} == {"1", "2"}
-    assert all(n[2] == "tok" and n[3] == "cid" for n in notified)
+    assert all(n[1] == "tok" and n[2] == "cid" for n in notified)
     statuses = {
         r["external_id"]: r["pipeline_status"]
         for r in conn.execute("SELECT * FROM job_postings").fetchall()
@@ -154,13 +132,13 @@ def test_run_notify_only_tailored_and_advances(db_path):
 
 def test_run_notify_failure_isolated(db_path):
     conn = db.connect(db_path)
-    _seed_tailored(conn, ["1", "2"])
+    _seed_scored(conn, {"1": 90, "2": 95})
 
-    def notify_fn(posting, pdf_path, *, token, chat_id):
+    def notify_fn(posting, *, token, chat_id):
         if posting["external_id"] == "1":
             raise RuntimeError("telegram 429")
 
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
     statuses = {
         r["external_id"]: r["pipeline_status"]
         for r in conn.execute("SELECT * FROM job_postings").fetchall()
@@ -221,59 +199,46 @@ def test_run_score_passes_full_posting_to_scorer(db_path):
     assert seen.get("job_title")
 
 
-def test_run_tailor_threshold_is_inclusive(db_path):
+def test_run_notify_threshold_is_inclusive(db_path):
     conn = db.connect(db_path)
     _seed_scored(conn, {"edge": 75})
-    tailored = []
+    notified = []
 
-    def tailor_fn(posting):
-        tailored.append(posting["external_id"])
-        return {"tex": "T", "pdf_path": "/tmp/x.pdf", "pages": 1, "ok": True}
+    def notify_fn(posting, *, token, chat_id):
+        notified.append(posting["external_id"])
 
-    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
-    assert tailored == ["edge"]      # score == threshold IS tailored (>= not >)
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    assert notified == ["edge"]      # score == threshold IS notified (>= not >)
 
 
-def test_run_tailor_failure_records_attempts(db_path):
+def test_run_notify_failure_records_attempts(db_path):
     conn = db.connect(db_path)
     _seed_scored(conn, {"a": 90})
 
-    def tailor_fn(posting):
-        raise RuntimeError("tectonic exploded")
+    def notify_fn(posting, *, token, chat_id):
+        raise RuntimeError("telegram 429")
 
-    pipeline.run_tailor(conn, 75, now=NOW, tailor_fn=tailor_fn)
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "failed"
     assert row["attempts"] == 1
-    assert "tectonic" in row["pipeline_error"]
+    assert "telegram" in row["pipeline_error"]
 
 
 def test_stages_ignore_wrong_status_rows(db_path):
     conn = db.connect(db_path)
-    _seed_new(conn, ["n"])            # stays 'new'
-    _seed_scored(conn, {"s": 50})     # 'scored' but below threshold
-    _seed_tailored(conn, ["t"])       # 'tailored'
-
-    tailored = []
-    pipeline.run_tailor(conn, 75, now=NOW,
-                        tailor_fn=lambda p: tailored.append(p["external_id"]))
-    assert tailored == []             # nothing 'scored' >= 75
+    _seed_new(conn, ["n"])                      # stays 'new'
+    _seed_scored(conn, {"lo": 50, "hi": 90})   # one below, one above threshold
 
     notified = []
     pipeline.run_notify(
-        conn, now=NOW, token="x", chat_id="y",
-        notify_fn=lambda p, pdf, *, token, chat_id: notified.append(p["external_id"]),
+        conn, 75, now=NOW, token="x", chat_id="y",
+        notify_fn=lambda p, *, token, chat_id: notified.append(p["external_id"]),
     )
-    assert notified == ["t"]          # only the 'tailored' row
-
-
-def test_run_notify_passes_resume_path(db_path):
-    conn = db.connect(db_path)
-    _seed_tailored(conn, ["1"])
-    seen = {}
-
-    def notify_fn(posting, pdf_path, *, token, chat_id):
-        seen["pdf"] = pdf_path
-
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
-    assert seen["pdf"] and seen["pdf"].endswith(".pdf")
+    assert notified == ["hi"]         # only 'scored' >= threshold ('new' + below ignored)
+    statuses = {
+        r["external_id"]: r["pipeline_status"]
+        for r in conn.execute("SELECT * FROM job_postings").fetchall()
+    }
+    assert statuses["n"] == "new"
+    assert statuses["lo"] == "scored"

@@ -13,7 +13,6 @@ companies:
 title_filter: ["engineer", "developer"]
 threshold: 80
 schedule_hours: 12
-max_single_page_rounds: 5
 """
 
 
@@ -25,7 +24,6 @@ def test_load_parses_companies_and_title_filter():
     assert cfg.title_filter == ["engineer", "developer"]
     assert cfg.threshold == 80
     assert cfg.schedule_hours == 12
-    assert cfg.max_single_page_rounds == 5
 
 
 def test_defaults_applied_when_omitted():
@@ -34,7 +32,6 @@ def test_defaults_applied_when_omitted():
     )
     assert cfg.threshold == 75
     assert cfg.schedule_hours == 24
-    assert cfg.max_single_page_rounds == 3
     # empty title_filter allowed
     assert cfg.title_filter == []
 
@@ -163,7 +160,7 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
     assert cfg.candidate.is_empty() is True
 
 
-@pytest.mark.parametrize("key", ["threshold", "schedule_hours", "max_single_page_rounds"])
+@pytest.mark.parametrize("key", ["threshold", "schedule_hours"])
 def test_non_numeric_numeric_fields_raise_config_error(key):
     # The module contract is "fail loud with a ConfigError at startup", not an
     # opaque ValueError from int().

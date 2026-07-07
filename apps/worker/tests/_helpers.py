@@ -66,16 +66,6 @@ def seed_scored(conn, scores, *, detail=None):
                       score_detail=detail, now=NOW)
 
 
-def seed_tailored(conn, ids):
-    ids = set(ids)
-    seed_scored(conn, {i: 90 for i in ids})
-    for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
-        if r["external_id"] not in ids:
-            continue
-        db.save_resume(conn, r["id"], resume_tex="T",
-                       resume_path=f"resumes/{r['id']}.pdf", resume_pages=1, now=NOW)
-
-
 # --- requests-style HTTP fakes (for adapter fetch() wrappers) -------------
 
 class FakeResponse:

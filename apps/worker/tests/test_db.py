@@ -78,18 +78,6 @@ def test_get_by_status_can_filter_high_scores(db_path):
     assert [r["external_id"] for r in scored] == ["1"]
 
 
-def test_save_resume_advances_to_tailored(db_path):
-    conn = db.connect(db_path)
-    db.upsert_postings(conn, [posting("1")], now=NOW)
-    pid = _one(conn)["id"]
-    db.save_resume(conn, pid, resume_tex="\\documentclass{article}",
-                   resume_path="resumes/1.pdf", resume_pages=1, now=LATER)
-    row = _one(conn)
-    assert row["resume_path"] == "resumes/1.pdf"
-    assert row["resume_pages"] == 1
-    assert row["pipeline_status"] == "tailored"
-
-
 def test_mark_notified(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)

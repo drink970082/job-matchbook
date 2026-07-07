@@ -25,7 +25,6 @@ VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24
-DEFAULT_MAX_SINGLE_PAGE_ROUNDS = 3
 
 # Discovery feeds (broad listing streams resolved back to boards). Only Simplify
 # is wired in v1. The keep-list drops Product/Hardware; the LLM screen still
@@ -96,7 +95,6 @@ class Config:
     feeds: list[Feed] = field(default_factory=list)
     threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
-    max_single_page_rounds: int = DEFAULT_MAX_SINGLE_PAGE_ROUNDS
 
 
 def _looks_like_yaml_text(value) -> bool:
@@ -143,9 +141,6 @@ def load_config(source) -> Config:
         feeds=feeds,
         threshold=_int_field(data, "threshold", DEFAULT_THRESHOLD),
         schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
-        max_single_page_rounds=_int_field(
-            data, "max_single_page_rounds", DEFAULT_MAX_SINGLE_PAGE_ROUNDS
-        ),
     )
 
 

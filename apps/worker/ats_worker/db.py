@@ -172,17 +172,6 @@ def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
     })
 
 
-def save_resume(conn, posting_id: int, *, resume_tex: str, resume_path: str,
-                resume_pages: int, now: str) -> None:
-    _update(conn, posting_id, {
-        "resume_tex": resume_tex,
-        "resume_path": resume_path,
-        "resume_pages": resume_pages,
-        "pipeline_status": "tailored",
-        "updated_at": now,
-    })
-
-
 def mark_notified(conn, posting_id: int, *, now: str) -> None:
     _update(conn, posting_id, {"pipeline_status": "notified", "updated_at": now})
 

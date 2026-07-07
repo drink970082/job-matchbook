@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 
 # Canonical fields every adapter must produce. Aligned with the Prisma
-# job_postings model (worker writes a subset; score/tailor fill the rest).
+# job_postings model (worker writes a subset; scoring fills the rest).
 POSTING_FIELDS = (
     "source",
     "external_id",
