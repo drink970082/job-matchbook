@@ -353,8 +353,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     on the unresolved board.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
-  (optionally `min_score`), `save_score`, `save_resume`, `mark_notified`,
-  `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
+  (optionally `min_score`), `save_score`, `mark_notified`, `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `existing_external_ids`. Issues no DDL.
 - **`score.py` — `score_posting`.** Two calls, two backends. (1) The fit **SCORE**
@@ -849,8 +848,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
-- **Security:** the resume route guards against path traversal; secrets live only
-  in the gitignored `.env`, read by `run.py`.
+- **Security:** the RESUME/JOB text is marked as *data, not instructions* in the
+  score prompt (a posting can't inject directives); secrets live only in the
+  gitignored `.env`, read by `run.py`.
 
 ---
 

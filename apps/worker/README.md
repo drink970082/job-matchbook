@@ -50,7 +50,7 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 
 **Docker (recommended)** — from the repo root:
 ```bash
-# Ollama runs on the HOST (uses the GPU):  ollama pull qwen2.5:7b && ollama serve
+# Ollama runs on the HOST (uses the GPU):  ollama pull qwen3.5:4b && ollama serve
 UID=$(id -u) GID=$(id -g) docker compose up --build
 ```
 The worker shares the `./db` directory with the web app. The db is mounted as a

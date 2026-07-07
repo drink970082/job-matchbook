@@ -291,11 +291,9 @@ export function DiscoveredJobsTable({
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex items-center gap-1">
-                                                <Badge variant={scoreVariant(job.score)}>
-                                                    {job.score ?? '—'}
-                                                </Badge>
-                                            </div>
+                                            <Badge variant={scoreVariant(job.score)}>
+                                                {job.score ?? '—'}
+                                            </Badge>
                                         </TableCell>
                                         <TableCell className="text-muted-foreground text-xs whitespace-normal" title={job.location || ''}>
                                             {job.location || '—'}

@@ -60,13 +60,12 @@ CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 
 ## Keeping your real resume private
 
-The worker ships template `resume/master.tex` and `resume/resume.txt` so a clean
-clone runs out of the box. Replace them with your real resume locally, but keep
-your edits out of git:
+The worker ships template `resume/resume.txt` so a clean clone runs out of the
+box. Replace it with your real resume locally, but keep your edits out of git:
 
 ```bash
 cd apps/worker
-git update-index --skip-worktree resume/master.tex resume/resume.txt
+git update-index --skip-worktree resume/resume.txt
 ```
 
 Secrets (`apps/worker/.env`), the résumé (`apps/worker/resume/`), and the

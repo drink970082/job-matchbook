@@ -40,7 +40,7 @@ model job_postings {
   description     String // full JD text (fed to the LLM)
   score           Int? // 0-100 fit score (Claude); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { matched_keywords:[], missing_keywords:[], reasoning } (worker output)
-  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String? // last error message when pipeline_status='failed'
   attempts        Int           @default(0) // processing attempts (recorded on failure; auto-retry not yet implemented)
   application_id  Int? // back-link once marked applied
