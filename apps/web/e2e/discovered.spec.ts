@@ -17,9 +17,6 @@ test('discovered jobs render in score buckets and the JD modal shows match detai
     // Initech (score 65) is below the match threshold -> Discarded, not Matched.
     await expect(page.getByText('Initech Cloud')).toHaveCount(0)
 
-    // Exactly one multi-page warning badge (Globex has resume_pages = 2).
-    await expect(page.locator('[title*="pages"]')).toHaveCount(1)
-
     // Open Acme's JD modal.
     const acme = page.locator('tr', { hasText: 'Acme Robotics' })
     await acme.getByTitle('View JD').click()

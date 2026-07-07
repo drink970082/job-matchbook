@@ -16,6 +16,8 @@ apps/worker/config.yaml
 # work — a dir-level ignore would suppress them).
 apps/worker/resume/*
 !apps/worker/resume/README.md
-!apps/worker/resume/master.tex.example
 !apps/worker/resume/resume.txt.example
+
+# Orphaned tailored-PDF output dir (tailoring removed; kept ignored so any
+# leftover personal PDFs are never committed).
 resumes/

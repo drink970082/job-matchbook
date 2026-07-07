@@ -9,12 +9,11 @@
 
 **Current phase:** v0.2.0. Feature-set complete; testing/CI hardened (coverage
 gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
-test/CI hardening, not security hardening** — several known reliability/security
-gaps remain open (see [Open work](#open-work)), including one shipped data-loss
-defect and an untested security guard. One item is in flight — see
-[In flight](#in-flight). (Most recent change: Claude-scored fit — see
-[CHANGELOG](../CHANGELOG.md); remaining coverage in
-[Enhancements](#enhancements--not-built-optional).)
+test/CI hardening, not security hardening** — several known reliability gaps remain
+open (see [Open work](#open-work)), including a notify-failure defect that can bury a
+high-scoring match. Nothing is in flight. (Most recent change: résumé tailoring
+removed — the pipeline now ends at score → notify; see
+[CHANGELOG](../CHANGELOG.md).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -23,9 +22,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 Remove résumé tailoring (worker tailor/pipeline/notify/db + web schema+UI +
-tectonic; drops the now-orphaned score keyword outputs) — spec pending; see
-`docs/superpowers/specs/2026-07-05-claude-scoring-design.md` §8.
+_Nothing in flight._
 
 ---
 
@@ -37,25 +34,22 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **`failed` is a dead-end, and a transient notify failure buries already-tailored
-  work.** Any stage exception marks a row `failed`, and nothing transitions it back.
-  Worse: `run_notify` wraps the whole Telegram send in try/except, so a *transient*
-  send error on an *already-tailored* posting (PDF written, `resume_path` set) marks
-  it `failed` — and because the default Discovered-Jobs queue is
-  `{scored, tailored, notified}`, that high-score posting vanishes from the default
-  view and is never re-notified. **This is data loss of prepared work from the
-  user's default view;** recovery is manual (filter to `failed`/`all`, reopen →
-  re-tailor → re-notify). The `attempts` column is incremented on failure but
-  **auto-retry is not implemented** — `attempts` is recorded, never acted on. The fix
-  is one of: wire the auto-retry `attempts` anticipates; let notify failure leave the
-  row at `tailored` (retried next pass); or add a "needs attention" view for
-  `failed`. (SPEC §9, "Failure handling and recovery limits.")
+- **`failed` is a dead-end, and a transient notify failure buries a high-scoring
+  match.** Any stage exception marks a row `failed`, and nothing transitions it back.
+  `run_notify` wraps the Telegram send in try/except, so a *transient* send error on a
+  `scored ≥ threshold` posting marks it `failed` — and because the default
+  Discovered-Jobs queue is `{scored, notified}`, that match vanishes from the default
+  view and is never re-notified. Recovery is manual (filter to `failed`/`all`, reopen
+  → re-notify). The `attempts` column is incremented on failure but **auto-retry is
+  not implemented** — `attempts` is recorded, never acted on. **The tailoring removal
+  made the clean fix cheap:** notify is now a single atomic `sendMessage` (no PDF
+  second send), so a failed send sent nothing — the row can simply be left `scored`
+  and retried next pass with no double-alert risk. Alternatives: wire the auto-retry
+  `attempts` anticipates, or add a "needs attention" view for `failed`. (SPEC §9,
+  "Failure handling and recovery limits.")
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
-- **Path-traversal guard has no automated test.** The 403 guard in
-  `api/resume/[id]/route.ts` is code-only; no test exercises it. (SPEC §9
-  traceability, marked ⚠.)
 - **Stale-mount auto-recovery is unverified end-to-end.** The `/api/health` probe,
   Docker `healthcheck`, and `autoheal` sidecar are wired and the *healthy* path is
   confirmed (`ats-web` reports `healthy`, the sidecar monitors), but recovery from an
@@ -65,11 +59,6 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   `getTimelineData`, and `getCategoryData` (`lib/actions.ts`, feeding the
   Sankey / heatmap / donut) are exercised by no unit, integration, or e2e test —
   only their components render. A regression in the aggregation would pass CI.
-- **Resume non-fabrication has no deterministic gate.** "Never fabricates" is
-  enforced only by the `FABRICATION_GUARD` prompt plus the human reviewing the PDF;
-  the sole deterministic gate in the tailor loop is page count. A defensible check
-  could *warn* (not hard-block) on numbers / years / proper nouns present in the
-  tailored resume but absent from `master.tex`. (SPEC §9, marked ⚠.)
 - **No schema migration path.** `prisma db push` keeps no migration history, so a
   *destructive* schema change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
@@ -122,8 +111,6 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
   `autoheal` auto-restart (SPEC §6), but there are still no metrics or alerting
   beyond the per-job Telegram notification, and the **worker** has no healthcheck;
   failures there are visible only in the DB / logs.
-- **Batch / smarter tailoring.** Tailoring is per-posting and serial; no batching or
-  caching of near-identical JDs.
 
 ---
 

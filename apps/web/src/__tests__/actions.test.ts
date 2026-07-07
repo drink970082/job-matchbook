@@ -184,7 +184,7 @@ describe('Backend Actions', () => {
           where: expect.objectContaining({
             AND: expect.arrayContaining([
               expect.objectContaining({
-                pipeline_status: { in: ['scored', 'tailored', 'notified'] },
+                pipeline_status: { in: ['scored', 'notified'] },
                 score: { gte: 75 },
               }),
             ]),
@@ -210,7 +210,7 @@ describe('Backend Actions', () => {
                 OR: [
                   { pipeline_status: 'discarded' },
                   {
-                    pipeline_status: { in: ['scored', 'tailored', 'notified'] },
+                    pipeline_status: { in: ['scored', 'notified'] },
                     score: { lt: 75 },
                   },
                 ],

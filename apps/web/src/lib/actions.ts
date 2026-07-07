@@ -50,7 +50,7 @@ export async function getApplications(params: {
 
 // Pipeline statuses still "live" in the discovered queue (scored, not yet applied
 // or discarded). Score then sorts them into the Matched vs Discarded buckets.
-const ACTIVE_PIPELINE_STATUSES = ['scored', 'tailored', 'notified'] as const
+const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
 
 // Discovered Jobs collapses to three score-aware buckets (we're testing scoring):
 //   matched   — live + score ≥ threshold (the actionable set)

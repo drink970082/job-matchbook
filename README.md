@@ -17,11 +17,11 @@ SQLite database**:
 
 - [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
 - [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
-  scans company ATS boards (Greenhouse / Lever / Ashby / Workday / Pinpoint), scores
-  each posting against your resume with Claude, screens out hard-constraint
-  mismatches with a local LLM, auto-tailors a one-page resume for the best matches,
-  and pings you on Telegram. You review and apply by hand, then one-click **Mark Applied** turns a
-  posting into a tracked application. A human is always in the loop — no auto-apply.
+  scans company ATS boards (Greenhouse / Lever / Ashby / Workday / Pinpoint), screens
+  out hard-constraint mismatches with a local LLM, scores each posting's fit against
+  your resume with Claude, and pings you on Telegram for the best matches. You review
+  and apply by hand, then one-click **Mark Applied** turns a posting into a tracked
+  application. A human is always in the loop — no auto-apply.
 
 > 📖 **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
 > system spec (architecture, data model, behaviors, setup, testing) and the current
@@ -45,13 +45,12 @@ reconstructed from history.
 
 **Discover:** a **Discovered Jobs** tab shows a scored, filterable queue of postings
 the worker found. Open any row for the full JD plus the model's matched/missing
-keywords and reasoning, download the auto-tailored one-page PDF, then **Mark
-Applied** to promote it into a tracked application that flows into every chart
-above.
+keywords and reasoning, then **Mark Applied** to promote it into a tracked
+application that flows into every chart above.
 
-The pipeline: **fetch** (5 board APIs) → **score** (Claude, reason-first) +
-**screen** (local Ollama, GPU, hard requirements) → **tailor** (Claude + `tectonic`
-→ single-page PDF) → **notify** (Telegram).
+The pipeline: **fetch** (5 board APIs) → **screen** (local Ollama, GPU, hard
+requirements) + **score** fit (Claude, reason-first) → **notify** (Telegram) for
+every high scorer.
 
 ---
 
@@ -73,7 +72,6 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | CSV import / export | ✅ | ✅ | RFC-4180, enum validation, dedup |
 | Discovered Jobs queue + triage | ✅ | ✅ | unit + Playwright e2e |
 | JD + score-detail dialog | ✅ | ✅ | keywords, reasoning, screen verdicts |
-| Tailored resume download (`/api/resume/[id]`) | ✅ | ⚠ | download works; **path-traversal guard has no test** |
 | Mark Applied (posting → application) | ✅ | ✅ | atomic transaction + dedup |
 | Discard / Reopen posting | ✅ | ✅ | reopen keeps disqualification reason |
 | Responsive / mobile layout | ✅ | — | stacks below ~640px |
@@ -81,9 +79,7 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
 | Score — Claude (reason-first) | ✅ | ✅ | |
 | Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
-| Tailor — one-page loop | ✅ | ✅ | page-count gate |
-| Tailor — faithfulness (no fabrication) | ✅ | ⚠ | **prompt + human review only; no deterministic gate** |
-| Notify — Telegram message + PDF | ✅ | ✅ | ⚠ transient failure can bury tailored work → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
+| Notify — Telegram message (score ≥ threshold) | ✅ | ✅ | ⚠ transient failure can bury a match → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
 | Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
 | Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
 | Config load / validate | ✅ | ✅ | |
@@ -127,7 +123,7 @@ user own the bind-mounted files. Full setup (Ollama, Telegram, worker config) is
 
 Next.js 14 (App Router, Server Actions) · TypeScript · Prisma 6 + SQLite ·
 React 18 · Tailwind CSS 4 · Radix UI · Recharts + hand-rolled SVG charts ·
-Python 3.11 worker (APScheduler, Ollama, Claude + `tectonic`, Telegram) ·
+Python 3.11 worker (APScheduler, Ollama, Claude, Telegram) ·
 Jest + Playwright + pytest · Docker Compose. Details in
 [`docs/SPEC.md` §6](./docs/SPEC.md#6-architecture).
 

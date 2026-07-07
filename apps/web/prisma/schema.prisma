@@ -38,12 +38,9 @@ model job_postings {
   location        String?
   job_url         String
   description     String // full JD text (fed to the LLM)
-  score           Int? // 0-100, produced by Ollama
+  score           Int? // 0-100 fit score (Claude); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { matched_keywords:[], missing_keywords:[], reasoning } (worker output)
-  resume_tex      String? // tailored LaTeX source
-  resume_path     String? // tailored PDF path on the shared volume (absolute; both containers mount it at the same path)
-  resume_pages    Int? // page count after compilation (single page = 1)
-  pipeline_status String        @default("new") // new|scored|tailored|notified|applied|discarded|failed
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed
   pipeline_error  String? // last error message when pipeline_status='failed'
   attempts        Int           @default(0) // processing attempts (recorded on failure; auto-retry not yet implemented)
   application_id  Int? // back-link once marked applied

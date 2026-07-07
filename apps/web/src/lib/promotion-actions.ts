@@ -10,7 +10,7 @@ import { VALID_SOURCES } from '@/lib/constants'
 // (approve, via the existing addWatchedCompany) or dismiss them.
 //
 // A company (source, company_slug) qualifies when its postings show repeated
-// downstream traction: >= 2 postings reached tailored/notified/applied, OR
+// downstream traction: >= 2 postings reached notified/applied, OR
 // >= 1 posting was actually applied to. Companies already on the watchlist or
 // previously dismissed are excluded.
 
@@ -34,7 +34,7 @@ const WATCHLIST_SOURCES = VALID_SOURCES.map((s) => `'${s}'`).join(', ')
 const SUGGESTIONS_SQL = `
   SELECT jp.source AS source, jp.company_slug AS slug, MAX(jp.company_name) AS name,
     SUM(CASE WHEN jp.pipeline_status='applied' THEN 1 ELSE 0 END) AS applied,
-    SUM(CASE WHEN jp.pipeline_status IN ('tailored','notified','applied') THEN 1 ELSE 0 END) AS highScores,
+    SUM(CASE WHEN jp.pipeline_status IN ('notified','applied') THEN 1 ELSE 0 END) AS highScores,
     COUNT(*) AS total
   FROM job_postings jp
   WHERE jp.company_slug IS NOT NULL
@@ -42,7 +42,7 @@ const SUGGESTIONS_SQL = `
     AND NOT EXISTS (SELECT 1 FROM watched_companies w WHERE w.source=jp.source AND w.slug=jp.company_slug)
     AND NOT EXISTS (SELECT 1 FROM promotion_dismissed d WHERE d.source=jp.source AND d.slug=jp.company_slug)
   GROUP BY jp.source, jp.company_slug
-  HAVING SUM(CASE WHEN jp.pipeline_status IN ('tailored','notified','applied') THEN 1 ELSE 0 END) >= 2
+  HAVING SUM(CASE WHEN jp.pipeline_status IN ('notified','applied') THEN 1 ELSE 0 END) >= 2
       OR SUM(CASE WHEN jp.pipeline_status='applied' THEN 1 ELSE 0 END) >= 1
   ORDER BY applied DESC, highScores DESC
 `

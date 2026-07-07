@@ -16,7 +16,6 @@ export const POSTINGS = [
             missing_keywords: ['kubernetes'],
             reasoning: 'Strong backend match on the core stack.',
         }),
-        resume_path: '/resumes/acme.pdf', resume_pages: 1,
         pipeline_status: 'scored', created_at: '2026-01-01T00:00:00.000Z',
     },
     {
@@ -24,15 +23,13 @@ export const POSTINGS = [
         job_title: 'ML Engineer', location: 'NYC',
         job_url: 'https://globex.example/jobs/2', description: 'Train models.',
         score: 78, score_detail: null,
-        resume_path: '/resumes/globex.pdf', resume_pages: 2, // multi-page warning row
-        pipeline_status: 'tailored', created_at: '2026-01-01T00:00:00.000Z',
+        pipeline_status: 'notified', created_at: '2026-01-01T00:00:00.000Z',
     },
     {
         source: 'ashby', external_id: 'e2e-3', company_slug: 'initech', company_name: 'Initech Cloud',
         job_title: 'Platform Engineer', location: 'Austin',
         job_url: 'https://initech.example/jobs/3', description: 'Run the platform.',
         score: 65, score_detail: null,
-        resume_path: null, resume_pages: null,
         pipeline_status: 'scored', created_at: '2026-01-01T00:00:00.000Z',
     },
 ]

@@ -12,8 +12,6 @@ const mockJobs = [
     description: 'Build things',
     score: 91,
     score_detail: '{"matched":["python","aws"],"missing":["kubernetes"],"reasoning":"Strong match"}',
-    resume_path: '/resumes/1.pdf',
-    resume_pages: 1,
     pipeline_status: 'scored',
   },
   {
@@ -26,9 +24,7 @@ const mockJobs = [
     description: 'Train models',
     score: 78,
     score_detail: null,
-    resume_path: '/resumes/2.pdf',
-    resume_pages: 2,
-    pipeline_status: 'tailored',
+    pipeline_status: 'notified',
   },
 ]
 
@@ -77,14 +73,6 @@ describe('DiscoveredJobsTable', () => {
     renderTable()
     expect(screen.getByText('91')).toBeInTheDocument()
     expect(screen.getByText('78')).toBeInTheDocument()
-  })
-
-  it('shows a multi-page warning flag when resume_pages > 1', () => {
-    renderTable()
-    // The 2-page row (Globex) should show a warning; the 1-page row should not.
-    const warnings = screen.getAllByTitle(/page/i)
-    expect(warnings.length).toBe(1)
-    expect(warnings[0]).toHaveTextContent(/2/)
   })
 
   it('calls onMarkApplied when the Mark Applied action is clicked', () => {

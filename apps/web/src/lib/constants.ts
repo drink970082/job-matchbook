@@ -43,8 +43,9 @@ export const VALID_SOURCES = [
 ] as const
 
 // Score at/above which a scored posting counts as a "match" (mirrors the worker's
-// default tailoring threshold). Below it, a scored posting is a weak match and is
-// shown under the Discarded view rather than Matched. See getJobPostings.
+// notification threshold — the score at/above which the worker sends a Telegram
+// alert). Below it, a scored posting is a weak match and is shown under the
+// Discarded view rather than Matched. See getJobPostings.
 export const MATCH_SCORE_THRESHOLD = 75
 
 // Floor of the "near-miss" band shown by default in the Discarded audit view:

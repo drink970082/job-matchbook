@@ -7,6 +7,29 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Removed
+- **Résumé tailoring removed — the pipeline now ends at score → notify.** Dropped the
+  Claude+tectonic per-posting tailoring stage entirely: the state machine collapses
+  `new → scored → tailored → notified` to `new → scored → notified`, and the score
+  threshold (75) that used to gate tailoring now gates the Telegram alert. Telegram
+  sends a message-only alert (company / role / score / link); the user applies by hand.
+  - **Worker:** deleted `tailor.py` + `prompts/tailor.txt`; removed `run_tailor`,
+    `db.save_resume`, the tailor wiring/flags (`--anthropic-model`, `--master-tex`,
+    `--resume-dir`) and `max_single_page_rounds`. `run_notify` now processes
+    `scored ≥ threshold` and `notify_posting` is a single atomic `sendMessage`. Dropped
+    the `pypdf` dependency and the `tectonic` install (+ bundle prewarm) from the worker
+    image. Fit-score `matched_keywords`/`missing_keywords` are **kept** — they still feed
+    the Discovered-Jobs match analysis.
+  - **Web + shared schema:** dropped `resume_tex`/`resume_path`/`resume_pages` and the
+    `tailored` pipeline status from `schema.prisma` (apply with `make db-push` —
+    destructive, back up `db/applications.db` first); deleted the `/api/resume/[id]` PDF
+    route and the "Download Resume" UI in `DiscoveredJobsTable` / `JobDetailModal`;
+    retargeted `ACTIVE_PIPELINE_STATUSES` → `{scored, notified}` and the
+    promotion-traction SQL → `{notified, applied}`.
+  - Worker (314) + web (137) + Playwright (4/4) suites and the coverage / schema-drift
+    gates stay green. Design spec:
+    `docs/superpowers/specs/2026-07-06-tailoring-removal-design.md`. (SPEC §1, §5–§13.)
+
 ### Fixed
 - **`apply-loop` e2e now confirms the Mark-Applied dialog.** The spec clicked the
   row's Mark-Applied icon but never confirmed the `ApplyCategoryDialog` the

@@ -26,16 +26,15 @@ SQLite database**:
 
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
-- **`apps/worker`** — Python 3.11 pipeline: fetch (5 boards) → score+screen
-  (Ollama) → tailor (Claude + tectonic) → notify (Telegram). Human applies by hand.
+- **`apps/worker`** — Python 3.11 pipeline: fetch (5 boards) → screen (Ollama) +
+  score fit (Claude) → notify (Telegram). Human applies by hand.
 
 ## Repo map
 
 ```
 apps/web/      Next.js app   (schema, server actions, components, e2e)
-apps/worker/   Python worker (ats_worker/: fetch/ score tailor notify pipeline run)
+apps/worker/   Python worker (ats_worker/: fetch/ score notify pipeline run)
 db/            shared SQLite  (gitignored)
-resumes/       tailored PDFs  (gitignored)
 docs/          SPEC.md · PROGRESS.md · SETUP.md (stub) · pipeline-design.md (historical)
 tools/         check_schema_drift.mjs · seed_db.mjs
 ```
@@ -64,7 +63,7 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
 - **Commits:** short imperative subject, optional `type(scope):` prefix
   (`feat(worker): …`, `docs: …`). Keep each commit green.
 - **Privacy:** never commit secrets (`apps/worker/.env`), the real resume
-  (`apps/worker/resume/`), `config.yaml`, `db/`, or `resumes/` — all gitignored;
+  (`apps/worker/resume/`), `config.yaml`, or `db/` — all gitignored;
   the repo ships only `*.example` templates.
 - **Git identity:** commit as `drink970082 <howdywu@gmail.com>`.
 
@@ -79,5 +78,5 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
 - **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web
   gated via `jest.all.config.ts`. CI also runs the schema-drift guard.
 - Default models: local `qwen3.5:4b` screens hard requirements, Claude `claude-sonnet-5`
-  scores fit, `claude-sonnet-4-6` tailors (override via env / CLI — see SPEC §7.1).
+  scores fit (override via env / CLI — see SPEC §7.1).
 ```

@@ -22,7 +22,7 @@ import {
 import { Pagination } from './Pagination'
 import { MATCH_SCORE_THRESHOLD } from '@/lib/constants'
 import type { JobBucket, DiscardType, JobSort } from '@/lib/actions'
-import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react'
+import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
     id: number
@@ -34,8 +34,6 @@ export interface JobPosting {
     description?: string | null
     score?: number | null
     score_detail?: string | null
-    resume_path?: string | null
-    resume_pages?: number | null
     pipeline_status?: string
     posted_at?: string | null
 }
@@ -262,7 +260,6 @@ export function DiscoveredJobsTable({
                             </TableRow>
                         ) : (
                             data.map((job) => {
-                                const multiPage = job.resume_pages != null && job.resume_pages > 1
                                 const reason = discardLabel(job)
                                 return (
                                     <TableRow key={job.id}>
@@ -298,15 +295,6 @@ export function DiscoveredJobsTable({
                                                 <Badge variant={scoreVariant(job.score)}>
                                                     {job.score ?? '—'}
                                                 </Badge>
-                                                {multiPage && (
-                                                    <Badge
-                                                        variant="destructive"
-                                                        title={`Resume is ${job.resume_pages} pages (expected 1)`}
-                                                    >
-                                                        <AlertTriangle className="h-3 w-3" />
-                                                        {job.resume_pages}p
-                                                    </Badge>
-                                                )}
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-muted-foreground text-xs whitespace-normal" title={job.location || ''}>
@@ -328,19 +316,6 @@ export function DiscoveredJobsTable({
                                                 >
                                                     <FileText className="h-3.5 w-3.5" />
                                                 </Button>
-                                                {job.resume_path && (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        asChild
-                                                        title="Download Resume"
-                                                        className="h-7 w-7"
-                                                    >
-                                                        <a href={`/api/resume/${job.id}`} target="_blank" rel="noopener noreferrer">
-                                                            <Download className="h-3.5 w-3.5" />
-                                                        </a>
-                                                    </Button>
-                                                )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"

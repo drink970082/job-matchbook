@@ -20,8 +20,6 @@ const workerShapedJob: any = {
         missing_keywords: ['kubernetes'],
         reasoning: 'Strong backend match.',
     }),
-    resume_path: null,
-    resume_pages: null,
     pipeline_status: 'scored',
 }
 

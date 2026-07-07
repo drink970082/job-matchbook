@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Download, ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
+import { ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
 import type { JobPosting } from './DiscoveredJobsTable'
 
 interface JobDetailModalProps {
@@ -189,13 +189,6 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                 <ExternalLink className="mr-2 h-4 w-4" /> Open Posting
                             </a>
                         </Button>
-                        {job.resume_path && (
-                            <Button variant="outline" size="sm" asChild>
-                                <a href={`/api/resume/${job.id}`} target="_blank" rel="noopener noreferrer">
-                                    <Download className="mr-2 h-4 w-4" /> Download Resume (PDF)
-                                </a>
-                            </Button>
-                        )}
                         <div className="flex-1" />
                         <Button size="sm" onClick={() => onMarkApplied(job.id)}>
                             <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Applied

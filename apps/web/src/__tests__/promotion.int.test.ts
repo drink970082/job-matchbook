@@ -33,12 +33,12 @@ test('aggregates qualifying companies with counts and ordering', async () => {
     await seedPosting({ source: 'greenhouse', company_slug: 'acme', company_name: 'Acme', pipeline_status: 'notified' })
     await seedPosting({ source: 'greenhouse', company_slug: 'acme', company_name: 'Acme', pipeline_status: 'scored' })
 
-    // Globex (lever): 2 tailored, 0 applied -> qualifies (highScores >= 2).
-    await seedPosting({ source: 'lever', company_slug: 'globex', company_name: 'Globex', pipeline_status: 'tailored' })
-    await seedPosting({ source: 'lever', company_slug: 'globex', company_name: 'Globex', pipeline_status: 'tailored' })
+    // Globex (lever): 2 notified, 0 applied -> qualifies (highScores >= 2).
+    await seedPosting({ source: 'lever', company_slug: 'globex', company_name: 'Globex', pipeline_status: 'notified' })
+    await seedPosting({ source: 'lever', company_slug: 'globex', company_name: 'Globex', pipeline_status: 'notified' })
 
-    // Initech (ashby): only 1 tailored, 0 applied -> does NOT qualify.
-    await seedPosting({ source: 'ashby', company_slug: 'initech', company_name: 'Initech', pipeline_status: 'tailored' })
+    // Initech (ashby): only 1 notified, 0 applied -> does NOT qualify.
+    await seedPosting({ source: 'ashby', company_slug: 'initech', company_name: 'Initech', pipeline_status: 'notified' })
     await seedPosting({ source: 'ashby', company_slug: 'initech', company_name: 'Initech', pipeline_status: 'scored' })
 
     // Legacy null-slug rows are ignored entirely.
@@ -69,9 +69,9 @@ test('orders by applied DESC then highScores DESC', async () => {
     await seedPosting({ source: 'lever', company_slug: 'b', company_name: 'B', pipeline_status: 'applied' })
     await seedPosting({ source: 'lever', company_slug: 'b', company_name: 'B', pipeline_status: 'applied' })
     // C: applied=0, highScores=3  -> qualifies via highScores, sorts last
-    await seedPosting({ source: 'ashby', company_slug: 'c', company_name: 'C', pipeline_status: 'tailored' })
     await seedPosting({ source: 'ashby', company_slug: 'c', company_name: 'C', pipeline_status: 'notified' })
-    await seedPosting({ source: 'ashby', company_slug: 'c', company_name: 'C', pipeline_status: 'tailored' })
+    await seedPosting({ source: 'ashby', company_slug: 'c', company_name: 'C', pipeline_status: 'notified' })
+    await seedPosting({ source: 'ashby', company_slug: 'c', company_name: 'C', pipeline_status: 'notified' })
 
     const { data } = await getPromotionSuggestions()
     expect(data.map((c) => c.slug)).toEqual(['b', 'a', 'c'])

@@ -48,7 +48,7 @@ jobs:
           python-version: "3.11"
       # Fully dependency-injected suite — requirements-dev.txt is test-only
       # (pytest, pytest-cov, requests, PyYAML); none of the heavy runtime deps
-      # (anthropic / pypdf / apscheduler / tectonic) are needed or installed.
+      # (anthropic / apscheduler) are needed or installed.
       - run: pip install -r requirements-dev.txt
       # Coverage floor (fail_under=85) lives in pyproject [tool.coverage.report] so
       # local and CI enforce the same threshold from one place — no --cov-fail-under here.

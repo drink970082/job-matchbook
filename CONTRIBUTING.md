@@ -16,7 +16,7 @@ the product overview.
 
 - Node.js 20+ and npm
 - Python 3.11+
-- (Optional, for the full pipeline) Docker + Docker Compose, Ollama, `tectonic`
+- (Optional, for the full pipeline) Docker + Docker Compose, Ollama
 
 ## Getting started
 
@@ -39,8 +39,8 @@ make test-worker    # pytest (cd apps/worker && python -m pytest)
 ```
 
 The worker suite is **fully dependency-injected** — every external service
-(Ollama, Claude, Telegram) and binary (`tectonic`, `pypdf`) is mocked, so it
-runs anywhere Python + pytest exist, with no network and no API keys.
+(Ollama, Claude, Telegram) is mocked, so it runs anywhere Python + pytest
+exist, with no network and no API keys.
 
 CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 
@@ -69,5 +69,5 @@ cd apps/worker
 git update-index --skip-worktree resume/master.tex resume/resume.txt
 ```
 
-Secrets (`apps/worker/.env`), the database (`db/`), and tailored output
-(`resumes/`) are gitignored — never commit them.
+Secrets (`apps/worker/.env`), the résumé (`apps/worker/resume/`), and the
+database (`db/`) are gitignored — never commit them.

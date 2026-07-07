@@ -2,15 +2,15 @@
 
 The Python pipeline service of the ATS project — one of two services in this
 repo (the other is the [`../web`](../web) app). On a schedule it: **fetch**
-postings from company ATS boards → **score** each against your resume (local
-Ollama) → **tailor** a one-page LaTeX resume for high scorers (Claude +
-tectonic) → **notify** you on Telegram. You still apply by hand, then one-click
+postings from company ATS boards → **score** each against your resume (hard
+requirements screened locally on Ollama; fit scored by Claude) → **notify** you
+on Telegram for every high scorer. You still apply by hand, then one-click
 "Mark Applied" in the web UI.
 
 ```
-fetch ──► score ──► tailor ──► notify
-(boards) (Ollama) (Claude+    (Telegram)
-                   tectonic)
+fetch ──► score ─────────────► notify
+(boards) (Ollama screen +      (Telegram)
+          Claude fit score)
 ```
 
 Postings live in the `job_postings` table of the SQLite db shared with the
@@ -41,8 +41,8 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
    pre-filter) + the `candidate` screening block (experience / degree / work
    authorization / clearance / locations + freeform dealbreakers; auto-discards
    conflicting postings) + score threshold + schedule. See the committed sample.
-2. `resume/master.tex` and `resume/resume.txt` — your résumé content, used for
-   keyword/fit scoring and tailoring. See `resume/README.md`.
+2. `resume/resume.txt` — your résumé content, used for keyword/fit scoring.
+   See `resume/README.md`.
 3. `.env` — copy `.env.example` → `.env` and fill in `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`.
 
@@ -53,11 +53,10 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 # Ollama runs on the HOST (uses the GPU):  ollama pull qwen2.5:7b && ollama serve
 UID=$(id -u) GID=$(id -g) docker compose up --build
 ```
-The worker shares the `./db` directory and `./resumes` volume with the web app.
-The db is mounted as a **directory** (not a single file) so SQLite WAL works
-across both containers.
+The worker shares the `./db` directory with the web app. The db is mounted as a
+**directory** (not a single file) so SQLite WAL works across both containers.
 
-**Local (no Docker)** — needs `tectonic` on PATH and the Python deps installed:
+**Local (no Docker)** — needs the Python deps installed:
 ```bash
 pip install -r requirements.txt
 python -m ats_worker.run --once     # single test pass
@@ -67,7 +66,7 @@ python -m ats_worker.run            # scheduler (immediate pass + every N hours)
 ## Tests
 
 ```bash
-python -m pytest        # pure unit tests; no network / Ollama / Claude / tectonic needed
+python -m pytest        # pure unit tests; no network / Ollama / Claude needed
 ```
-All external services and `tectonic`/`pypdf` are dependency-injected, so the
-suite runs anywhere Python + pytest exist.
+All external services are dependency-injected, so the suite runs anywhere
+Python + pytest exist.

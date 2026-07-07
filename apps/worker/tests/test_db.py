@@ -90,10 +90,10 @@ def test_mark_failed_records_error_and_increments_attempts(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)
     pid = _one(conn)["id"]
-    db.mark_failed(conn, pid, error="tectonic exploded", now=LATER)
+    db.mark_failed(conn, pid, error="boom", now=LATER)
     row = _one(conn)
     assert row["pipeline_status"] == "failed"
-    assert row["pipeline_error"] == "tectonic exploded"
+    assert row["pipeline_error"] == "boom"
     assert row["attempts"] == 1
     db.mark_failed(conn, pid, error="again", now=LATER)
     assert _one(conn)["attempts"] == 2

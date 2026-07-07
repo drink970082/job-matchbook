@@ -182,8 +182,8 @@ def main(argv=None) -> None:
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--env", default=".env")
-    # DB_PATH / RESUME_DIR are set by docker-compose to the shared-volume paths;
-    # the defaults target a local (non-Docker) checkout layout.
+    # DB_PATH is set by docker-compose to the shared-volume path; the default
+    # targets a local (non-Docker) checkout layout.
     parser.add_argument("--db",
                         default=os.environ.get("DB_PATH", "../web/prisma/applications.db"))
     parser.add_argument("--resume", default="resume/resume.txt")

@@ -4,7 +4,7 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
       args:
-        # Match the host user that owns ./db and ./resumes so bind-mount writes
+        # Match the host user that owns ./db so bind-mount writes
         # work without chmod 777.
         UID: ${UID:-1000}
         GID: ${GID:-1000}
@@ -18,11 +18,8 @@ services:
       # created by the worker are visible here — otherwise cross-container WAL
       # silently breaks and reads/writes can diverge.
       DATABASE_URL: "file:/data/applications.db"
-      # Tailored PDFs the worker writes; served by /api/resume/[id].
-      RESUME_DIR: "/resumes"
     volumes:
       - ./db:/data            # shared SQLite directory (db + WAL sidecars)
-      - ./resumes:/resumes:ro # web app only reads the PDFs
     restart: unless-stopped
     # Probe DB reachability, NOT just the HTTP port: the WSL2 stale-bind-mount
     # failure leaves the server up but Prisma unable to open /data/applications.db
@@ -65,7 +62,6 @@ services:
     environment:
       # Read via os.environ by run.py's argparse defaults.
       DB_PATH: "/data/applications.db"
-      RESUME_DIR: "/resumes"
     extra_hosts:
       # Required on Linux/Compose for the worker to reach Ollama running on the
       # HOST (which owns the GPU). On Docker Desktop this is implicit, but being
@@ -74,10 +70,9 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./db:/data                               # SAME shared db directory (co-write)
-      - ./resumes:/resumes                       # worker WRITES tailored PDFs here
       - ./apps/worker/config.yaml:/app/config.yaml:ro
       - ./apps/worker/.env:/app/.env:ro          # secrets + OLLAMA_HOST
-      - ./apps/worker/resume:/app/resume:ro      # master.tex + resume.txt
+      - ./apps/worker/resume:/app/resume:ro      # resume.txt (fed to the scorer)
     depends_on:
       - web
     restart: unless-stopped

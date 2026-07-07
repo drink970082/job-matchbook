@@ -66,13 +66,13 @@ database**:
   discovered jobs, triage them, and track every application through its status
   lifecycle with KPIs and charts.
 - **`apps/worker`** — a scheduled Python pipeline that *feeds* the tracker: it
-  scans company ATS boards, scores each posting against your resume with Claude,
-  screens out hard-constraint mismatches with a local LLM, auto-tailors a one-page
-  resume for the best matches, and pings you on Telegram.
+  scans company ATS boards, screens out hard-constraint mismatches with a local
+  LLM, scores each posting's fit against your resume with Claude, and pings you on
+  Telegram for the best matches.
 
 The two services never call each other. Their only contract is the **shared
-database** (and a shared folder of tailored PDFs). The worker discovers and
-prepares; the web app is where a human triages, applies by hand, and tracks.
+database**. The worker discovers and prepares; the web app is where a human
+triages, applies by hand, and tracks.
 
 ---
 
@@ -88,9 +88,9 @@ Two pains, addressed by the two services:
 
 1. **Tracking** is tedious and hard to analyze in a spreadsheet → the web app is
    "the spreadsheet plus the answers" (KPIs, heatmap, funnel, Sankey).
-2. **Discovery** is repetitive: scanning boards, judging fit, tailoring a resume
-   per role → the worker automates everything *up to* the apply click, leaving the
-   human in control of the actual submission.
+2. **Discovery** is repetitive: scanning boards and judging fit per role → the
+   worker automates everything *up to* the apply click, leaving the human in
+   control of the actual submission.
 
 ---
 
@@ -99,15 +99,14 @@ Two pains, addressed by the two services:
 - **Single, self-hosting user.** No multi-tenant accounts, no auth layer — you run
   it on your own machine against your own data.
 - **Human always in the loop.** The pipeline invests *nothing* in auto-apply. It
-  prepares (score, screen, tailor, notify); you review and submit by hand, then
+  prepares (screen, score, notify); you review and submit by hand, then
   one-click "Mark Applied" records it.
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
 - **Local-first compute where it's cheap, Claude where judgment matters.** The
   high-frequency hard-requirements screen runs on a local GPU (Ollama), not a paid
-  API; fit scoring (every posting, needs real seniority/domain judgment) and
-  tailoring (low-frequency, high scorers only) both hit Claude.
+  API; fit scoring (every posting, needs real seniority/domain judgment) hits Claude.
 
 ---
 
@@ -119,9 +118,7 @@ Two pains, addressed by the two services:
 
 - Track applications end-to-end with status history and visual analytics.
 - Discover and pre-qualify jobs from company ATS boards on a schedule.
-- Tailor a one-page resume per high-scoring role. Faithfulness (no fabricated
-  experience) is prompt-instructed and verified by the human before applying — not a
-  checked guarantee (see §9, "Unenforced clauses").
+- Alert the human on Telegram for every high-scoring role, for manual application.
 - Keep the two services safely co-writing one SQLite database.
 - Stay runnable on a single host with one `docker compose up`.
 
@@ -153,12 +150,11 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
                     (per-listing detail sources: Oracle/Jobvite)                       │
                     (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
-            ─► score (Claude, reason-first) + screen (local Ollama, hard requirements)
-            ─► tailor one-page resume (Claude + tectonic)   [only score ≥ threshold]
-            ─► notify (Telegram message + PDF)
+            ─► screen (local Ollama, hard requirements) + score (Claude, reason-first)
+            ─► notify (Telegram message)   [only score ≥ threshold]
 
 Phase 2 — Triage & tracking (apps/web, browser)
-  Discovered Jobs tab ─► review JD + match analysis ─► download tailored PDF
+  Discovered Jobs tab ─► review JD + match analysis
             ─► you apply by hand ─► one-click "Mark Applied"
             ─► becomes a tracked application ─► flows into KPIs + charts
 ```
@@ -186,18 +182,18 @@ phases: it promotes a `job_postings` row into an `applications` row.
                   │                    ▼                 ▼              │
    ┌──────────────┴────────────────────────────────────────────────────┐
    │  apps/worker  (Python 3.11, APScheduler)                          │
-   │     fetch ──► score+screen ──► tailor (1-page PDF) ──► notify      │
-   └───────────────┬───────────────────────────────────┬───────────────┘
-                   │ writes job_postings rows           │ writes PDFs
-                   ▼                                     ▼
-            ┌────────────┐                        ┌────────────┐
-            │   db/      │   shared SQLite (WAL)  │  resumes/  │  shared volume
-            │ applications.db ◄──────────────────►│  (PDFs)    │
-            └─────┬──────┘                        └─────┬──────┘
-                  │ reads postings / writes applications │ serves PDFs
-                  ▼                                       ▼
+   │     fetch ──► screen + score ──► notify (Telegram)                │
+   └───────────────┬───────────────────────────────────────────────────┘
+                   │ writes job_postings rows
+                   ▼
+            ┌─────────────────┐
+            │   db/           │   shared SQLite (WAL)
+            │ applications.db │
+            └─────┬───────────┘
+                  │ reads postings / writes applications
+                  ▼
    ┌───────────────────────────────────────────────────────────────────┐
-   │  apps/web  (Next.js 14, Server Actions + 2 API routes)            │
+   │  apps/web  (Next.js 14, Server Actions + 1 API route)             │
    │   Discovered Jobs tab  ──"Mark Applied"──►  Applications + charts  │
    └───────────────────────────────────────────────────────────────────┘
                   ▲
@@ -209,10 +205,9 @@ phases: it promotes a `job_postings` row into an `applications` row.
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
-| fetch / score / tailor / notify | `worker` service (`ats-worker` container) | board APIs, host Ollama, Anthropic API, Telegram API |
+| fetch / screen / score / notify | `worker` service (`ats-worker` container) | board APIs, host Ollama, Anthropic API, Telegram API |
 | Ollama | **host** (GPU) — not containerized | — |
 | SQLite db | `./db` directory, bind-mounted into both containers | — |
-| Tailored PDFs | `./resumes`, bind-mounted into both containers | — |
 
 Both containers run as the host user (UID/GID build args) so bind-mount writes
 work without `chmod 777`. The database is mounted as a **directory** (not a single
@@ -246,9 +241,9 @@ the sidecar is what closes the loop.
 | UI | React 18, Tailwind CSS 4, Radix UI primitives | — |
 | Charts | Recharts (donut) + hand-rolled SVG (heatmap, funnel, Sankey) | — |
 | Forms | react-hook-form + Zod | — |
-| External | — | Anthropic SDK (Claude), Ollama HTTP, Telegram Bot API, `tectonic`, `pypdf` |
+| External | — | Anthropic SDK (Claude), Ollama HTTP, Telegram Bot API |
 | Tests | Jest + Testing Library + jest-mock-extended; Playwright e2e | pytest (fully mocked) |
-| Container | Alpine multi-stage, non-root | python:3.11-slim + tectonic (bundle prewarmed) |
+| Container | Alpine multi-stage, non-root | python:3.11-slim |
 
 ---
 
@@ -265,12 +260,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`run.py` — entrypoint & wiring.** CLI: `--once` (single pass then exit) vs
   scheduler (immediate pass, then every `schedule_hours`). Flags: `--config`,
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
-  `--resume-dir` (`RESUME_DIR`, default `../../resumes`), `--resume`,
-  `--master-tex`, `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
-  `--anthropic-model` (`ANTHROPIC_MODEL`, tailoring), `--anthropic-score-model`
-  (`ANTHROPIC_SCORE_MODEL`, fit scoring), `--import-companies` (seed the DB
-  watchlist from config and exit). Defaults: screen `qwen3.5:4b`; fit score
-  `claude-sonnet-5`; tailoring `claude-sonnet-4-6`. Each pass
+  `--resume`, `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
+  `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring),
+  `--import-companies` (seed the DB watchlist from config and exit). Defaults:
+  screen `qwen3.5:4b`; fit score `claude-sonnet-5`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -280,7 +273,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   smartrecruiters, workable} — feed-only sources oracle/jobvite are intentionally
   excluded); exposes `companies`,
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold`,
-  `schedule_hours`, `max_single_page_rounds`. Bad source / missing field → clear
+  `schedule_hours`. Bad source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
@@ -388,19 +381,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `candidate.exclude_internships` is set, intern/co-op roles are disqualified by a
   whole-word match on the job title (no LLM call — runs even when no other screen
   clause is configured).
-- **`tailor.py` — `tailor_resume` + helpers** (`make_claude`, `tectonic_compile`,
-  `pypdf_count`). Claude reorders/rephrases `master.tex` for the JD; a
-  `FABRICATION_GUARD` instruction is injected every round telling it never to invent
-  experience — **prompt-level only**; the sole deterministic gate in the loop is page
-  count (see §9). `tectonic` compiles to PDF, `pypdf` counts pages; if > 1 page, feed
-  "now N pages, cut to 1" back to Claude and recompile, up to `max_single_page_rounds`
-  (default 3). Returns `{tex, pdf_path, pages, ok}`.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
-  score / JD link) + `sendDocument` (tailored PDF). Degrades to message-only if the
-  PDF is missing.
+  score / JD link) — a single atomic message per match; the human applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
-  `run_fetch` → (`run_feed`) → `run_score` → `run_tailor` → `run_notify`. Every stage
+  `run_fetch` → (`run_feed`) → `run_score` → `run_notify`. Every stage
   wraps each item in try/except: one bad posting/company is recorded (via
   `db.mark_failed` or skipped) and the batch continues. `run_feed` (optional) runs
   the feed: prefilter → resolve → record-unresolved, then groups survivors by
@@ -428,8 +413,6 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
   'force-dynamic'` so it always reads the live db.
-- **`app/api/resume/[id]/route.ts`** — `GET` streams a tailored PDF for a
-  `job_postings.id`. Contract in §[9](#9-behaviors-and-invariants).
 - **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
   `GET` runs `SELECT 1` (`200 {status:"ok"}`, else `503`) so a stale bind mount is
   caught and the `autoheal` sidecar can restart the container (§6).
@@ -466,7 +449,7 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/discarded
-  cutoff, mirrors the worker's tailoring threshold), `NEAR_MISS_FLOOR` (60; the lower
+  cutoff, mirrors the worker's notification threshold), `NEAR_MISS_FLOOR` (60; the lower
   bound of the near-miss sub-band in the Discarded view), `getStatusColor`. **Edit here
   to extend statuses/categories/sources.**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
@@ -529,11 +512,8 @@ model job_postings {
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100, from Claude fit score
   score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification
-  resume_tex      String?       // tailored LaTeX source
-  resume_path     String?       // tailored PDF path on the shared volume
-  resume_pages    Int?          // page count after compile (1 = good)
   posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
-  pipeline_status String        @default("new") // new|scored|tailored|notified|applied|discarded|failed|removed
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String?       // last error when pipeline_status='failed'
   attempts        Int           @default(0)     // recorded on failure (auto-retry not implemented)
   application_id  Int?          // back-link once marked applied
@@ -613,26 +593,23 @@ fetch:   (new posting)            → new
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
 score:   new                      → scored        (default)
                                   → discarded      (candidate hard-constraint fail)
-tailor:  scored, score ≥ threshold → tailored      (below threshold: stay scored, untouched)
-notify:  tailored                 → notified
+notify:  scored, score ≥ threshold → notified      (below threshold: stay scored, untouched)
 any stage, on exception           → failed         (pipeline_error set; batch continues)
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
-- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView`; the worker never writes it and never transitions away from it (`run_score`/`run_tailor`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
+- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView`; the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
-- **Stage gating is strict:** `run_score` processes only `new`; `run_tailor` only
-  `scored` with `score ≥ threshold`; `run_notify` only `tailored`. A failure in one
-  posting never aborts the batch (per-item try/except → `mark_failed`).
+- **Stage gating is strict:** `run_score` processes only `new`; `run_notify` only
+  `scored` with `score ≥ threshold` (the notification gate; below-threshold rows
+  stay `scored`, untouched). A failure in one posting never aborts the batch
+  (per-item try/except → `mark_failed`).
 - **Screening is part of scoring, not a separate stage.** With an empty `candidate`
   block, the screen call is skipped entirely (no disqualification). A `discarded`
   row keeps its `score`/`score_detail` (including `disqualification_reason`) so the
   UI can explain *why*.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
-- **Tailored PDFs** are written to `{resume_dir}/{source}_{external_id}/` — unique
-  per posting so concurrent tailors never clobber each other; rooted at the shared
-  volume so `resume_path` is web-readable.
 
 **Feed ingestion** (`run_feed`, optional):
 
@@ -684,7 +661,7 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   suggested, since approving one would be rejected by `addWatchedCompany`),
   **excluding** companies already in `watched_companies` or `promotion_dismissed`, and
   surfaces those with
-  `count(pipeline_status ∈ {tailored,notified,applied}) ≥ 2` **or**
+  `count(pipeline_status ∈ {notified,applied}) ≥ 2` **or**
   `count(applied) ≥ 1`, ranked by applied then high-score count. Approve is the user
   calling `addWatchedCompany`; `dismissPromotion` records `(source, slug)` (idempotent)
   to suppress it. The watchlist only ever grows by an explicit human action.
@@ -693,9 +670,9 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 
 - **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, discarded,
   failed}, default `matched`). Score-aware, since the live tabs are about scoring:
-  **matched** = `{scored, tailored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
-  (default 75, mirrors the worker's tailoring threshold); **discarded** = a near-miss
-  audit view: `pipeline_status='discarded'` **or** `{scored, tailored, notified}` with
+  **matched** = `{scored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
+  (default 75, mirrors the worker's notification threshold); **discarded** = a near-miss
+  audit view: `pipeline_status='discarded'` **or** `{scored, notified}` with
   `score < threshold` (default band: `NEAR_MISS_FLOOR` 60 ≤ score < 75);
   **failed** = `pipeline_status='failed'`. All buckets exclude `removed` rows. Each is
   **paginated** (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`,
@@ -739,13 +716,6 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   `status`/`category` values fall back to `Applied`/`Others`; existing
   `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
 
-**Resume API contract** (`GET /api/resume/[id]`):
-
-- Non-integer `id` → 404. Missing posting or null `resume_path` → 404.
-- **Path-traversal guard:** the resolved path must stay within `RESUME_DIR` or →
-  403. On success → 200 `application/pdf`, `Content-Disposition: inline`,
-  `Cache-Control: private`.
-
 **Cross-service data invariant:** the schema is owned solely by Prisma; the worker
 reads/writes rows but issues **no DDL**. The worker's test fixture
 (`apps/worker/tests/fixtures/schema.sql`) is kept in sync with `schema.prisma` by a
@@ -754,31 +724,27 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 **Failure handling and recovery limits:**
 
 - **`failed` is terminal.** No stage or action transitions a row *out* of `failed`
-  (`run_score`←`new`, `run_tailor`←`scored`, `run_notify`←`tailored`;
-  `reopenJobPosting` only writes `scored`). `mark_failed` increments `attempts`, but
-  **auto-retry is not implemented** — `attempts` is recorded, not acted on.
-- **Notify failure buries finished work.** `run_notify` wraps the whole send in
-  try/except → `mark_failed`, so a *transient* Telegram error on an already-tailored
-  posting (PDF written, `resume_path` set) marks it `failed`. Because the default
-  Discovered-Jobs queue is `{scored, tailored, notified}`, that posting then disappears
-  from the default view and is never re-notified. Recovery is manual (filter to
-  `failed`/`all`; a manual reopen routes it to `scored`, which re-tailors and
-  re-notifies). This conflates a transient notification failure with a genuine pipeline
-  failure. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Open work → Defects.)*
+  (`run_score`←`new`, `run_notify`←`scored`; `reopenJobPosting` only writes `scored`).
+  `mark_failed` increments `attempts`, but **auto-retry is not implemented** —
+  `attempts` is recorded, not acted on.
+- **Notify failure buries a high-scoring match.** `run_notify` wraps the send in
+  try/except → `mark_failed`, so a *transient* Telegram error on a `scored ≥ threshold`
+  posting marks it `failed`. Because the default Discovered-Jobs queue is
+  `{scored, notified}`, that posting then disappears from the default view and is never
+  re-notified. Recovery is manual (filter to `failed`/`all`; a manual reopen routes it
+  to `scored`, which re-notifies). This conflates a transient notification failure with
+  a genuine pipeline failure. Now that notify is a single atomic `sendMessage` (no PDF
+  second send), the fix is cheap — leave the row `scored` on a send error — but is not
+  yet applied. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Open work → Defects.)*
 
-**Unenforced clauses (asserted, not checked).** Two contract-flavored claims have no
-deterministic gate; treat them as *intentions backed by the human in the loop*, not
-guarantees:
+**Unenforced clause (asserted, not checked).** One contract-flavored claim has no
+deterministic gate; treat it as an *intention backed by the human in the loop*, not a
+guarantee:
 
-- **"Never fabricates" (resume tailoring)** is enforced only by the `FABRICATION_GUARD`
-  prompt injected each round; the sole deterministic gate in the loop is page count.
-  `test_tailor.py::test_first_prompt_forbids_fabrication` asserts the guard text is in
-  the *prompt* — **not** that the output is faithful. The human reviewing the PDF
-  before applying is the actual backstop.
 - **Hard-constraint screening** (work authorization / clearance / location) is an LLM
-  *semantic* judgment, not a rule check — a misjudgment wastes a tailor or discards an
-  applicable role. The kept `disqualification_reason` + `reopenJobPosting` let a human
-  override.
+  *semantic* judgment, not a rule check — a misjudgment sends a spurious alert or
+  discards an applicable role. The kept `disqualification_reason` + `reopenJobPosting`
+  let a human override.
 
 ### Invariant → test traceability
 
@@ -792,8 +758,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
-| One-page loop (≤ `max_rounds`; `ok` iff 1 page) | `test_tailor.py` |
-| ⚠ Non-fabrication of resume content | `test_tailor.py::test_first_prompt_forbids_fabrication` — **prompt wiring only**, not output |
 | Discovered-jobs score-aware buckets (matched/discarded/failed) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
@@ -802,7 +766,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
 | ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
-| ⚠ Resume API path-traversal guard (403) | **none** — guard is code-only in `route.ts` |
 | Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
 | SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |
 | Workable adapter (per-board list) | `test_workable.py` |
@@ -834,38 +797,29 @@ automated coverage — those rely on code review or the human in the loop, not a
   shared; a single-file mount breaks this silently.
 - **Prisma owns the schema.** One source of truth; the worker aligns its columns
   and issues no DDL. A CI schema-drift guard keeps the worker's SQL fixture honest.
-- **Server Actions, not REST.** All mutations go through Server Actions; the
-  exceptions are the two `GET` routes — `/api/resume/[id]` (binary PDF streaming
-  doesn't fit the Server Action model) and `/api/health` (an HTTP-status probe the
-  Docker healthcheck can call).
+- **Server Actions, not REST.** All mutations go through Server Actions; the one
+  exception is the `GET /api/health` route — an HTTP-status probe the Docker
+  healthcheck can call, which doesn't fit the Server Action model.
 - **Local + cloud LLM split.** The hard-requirements SCREEN is high-frequency
   (every posting with candidate constraints configured) → stays on local Ollama on
   the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card, `think:false`
   so reasoning models still return JSON) — it only extracts JOB facts; CODE applies
   the candidate's constraints, since a 4B model is unreliable at the pass/fail
-  judgment itself. The fit SCORE (every posting) and tailoring (only high scorers)
-  both go to Claude — fit score via `claude-sonnet-5` (structured outputs require
-  it; `claude-sonnet-4-6` doesn't support `output_config.format`), tailoring via
-  `claude-sonnet-4-6`: scoring needs a real seniority/domain judgment the local
+  judgment itself. The fit SCORE (every posting) goes to Claude via `claude-sonnet-5`
+  (structured outputs require it; `claude-sonnet-4-6` doesn't support
+  `output_config.format`): scoring needs a real seniority/domain judgment the local
   model kept getting wrong (mode-collapsed scores, missed disqualifiers), and a
   cached résumé+rubric system prefix keeps the per-posting cost down to just the
-  fresh JD; tailoring is prompted (via `FABRICATION_GUARD`)
-  to reorder existing resume content only — faithfulness is prompt-instructed and
-  human-verified, not enforced (see §9). Sonnet is plenty (and cost-effective) for
-  both steps, including a tailoring pass that may run several rounds per job.
-- **One-page resume loop.** Single-page can't be guaranteed in one shot, so compile
-  → count pages → feed back "cut to 1 page" up to `max_single_page_rounds`, then
-  store the last version and flag `resume_pages` for a UI warning.
+  fresh JD. Sonnet is plenty (and cost-effective) for the job.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
   desaturated so flow geometry leads, not color.
-- **Fully dependency-injected worker.** Every external (Ollama, Claude, Telegram)
-  and binary (`tectonic`, `pypdf`) is injected, so the pytest suite runs anywhere
-  with no network and no keys; real wiring lives only in `run.py`.
-- **UID/GID passthrough + Tectonic prewarm.** Containers run as the host user so
-  bind-mount writes work without `chmod 777`; the worker image prewarms Tectonic's
-  package bundle at build so the first real compile doesn't stall on a download.
+- **Fully dependency-injected worker.** Every external (Ollama, Claude, Telegram) is
+  injected, so the pytest suite runs anywhere with no network and no keys; real
+  wiring lives only in `run.py`.
+- **UID/GID passthrough.** Containers run as the host user so bind-mount writes work
+  without `chmod 777`.
 - **Official board APIs only.** Greenhouse/Lever/Ashby/Workday/Pinpoint public
   endpoints are stable and compliant; LinkedIn/Indeed scraping is deliberately
   avoided. Adapters are isolated so one broken source only affects that source.
@@ -875,22 +829,22 @@ automated coverage — those rely on code review or the human in the loop, not a
 ## 11. Non-functional requirements
 
 - **Privacy:** resume (`apps/worker/resume/`), secrets (`apps/worker/.env`),
-  config (`config.yaml`), the database (`db/`), and tailored output (`resumes/`)
-  are gitignored. The repo ships only `*.example` templates. Keep real-resume edits
-  out of git with `git update-index --skip-worktree`.
+  config (`config.yaml`), and the database (`db/`) are gitignored. The repo ships
+  only `*.example` templates. Keep real-resume edits out of git with
+  `git update-index --skip-worktree`.
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the row is marked `failed` with its error and processing continues. The
   scorer returning junk JSON marks that row `failed` rather than crashing. Caveat:
   `failed` is terminal and not auto-retried, so a *transient* failure (notably at the
-  notify step) can bury an already-tailored posting — see §9, "Failure handling and
+  notify step) can bury a high-scoring match — see §9, "Failure handling and
   recovery limits."
 - **Concurrency safety:** WAL + `busy_timeout=5000`ms (+ the directory mount) keep the
   two containers from hitting `database is locked` **under low write-contention**
   (concurrent readers + one serialized writer; brief contention blocks-and-retries up
   to 5 s). Not a guarantee under sustained dual-write load.
-- **Performance:** scoring ~2 s/posting locally on an 8 GB GPU; tailoring (Claude +
-  compile) runs only for `score ≥ threshold`. The root page is `force-dynamic` (no
-  stale cache); the resume route is `Cache-Control: private`.
+- **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
+  GPU; the Claude fit score adds one cached-prefix API call per posting. The root
+  page is `force-dynamic` (no stale cache).
 - **Responsive UI:** the web layout is responsive and stacks to a single column
   below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
@@ -909,7 +863,7 @@ historically in `docs/SETUP.md`; this section is now authoritative.
 
 **Prerequisites:** Docker + Compose (≥ 24); Node 20+ and Python 3.11+ only for
 local non-Docker dev/tests; Ollama + an NVIDIA GPU on the **host** for the
-hard-requirements screen; an Anthropic API key for fit scoring and tailoring; a
+hard-requirements screen; an Anthropic API key for fit scoring; a
 Telegram bot for alerts.
 
 **Web app only (no pipeline):**
@@ -927,14 +881,14 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ {greenhouse, lever, ashby, workday, pinpoint}, board `slug`, `name`),
    optional `title_filter`, the `candidate` hard-constraint block, `threshold`
-   (default 75), `schedule_hours` (24), `max_single_page_rounds` (3). Workday's
-   `slug` packs `tenant/datacenter/site` (quote it).
-2. `cp apps/worker/resume/master.tex.example …/master.tex` and
-   `…/resume.txt.example …/resume.txt`, then replace with your real resume.
+   (default 75), `schedule_hours` (24). Workday's `slug` packs
+   `tenant/datacenter/site` (quote it).
+2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
+   real resume (plain text, fed to the fit scorer).
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`
    (`http://host.docker.internal:11434` for Docker). Optional overrides:
-   `OLLAMA_MODEL`, `ANTHROPIC_MODEL`, `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
+   `OLLAMA_MODEL`, `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
 4. On the host: `ollama pull qwen3.5:4b && ollama serve`.
 5. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build`
    (or `make up`). The worker runs one pass immediately, then every
@@ -944,9 +898,8 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 `docker compose run --rm worker python -m ats_worker.run --once --config /app/config.yaml --env /app/.env`
 
 **Volumes & env:** `./db` → `/data` (directory mount; `DATABASE_URL=
-file:/data/applications.db`, worker `DB_PATH=/data/applications.db`); `./resumes`
-→ `/resumes` (`RESUME_DIR`). `make` targets wrap all of this — see
-§[13](#13-testing-and-quality) and `make help`.
+file:/data/applications.db`, worker `DB_PATH=/data/applications.db`). `make` targets
+wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 
 ---
 
@@ -970,8 +923,8 @@ file:/data/applications.db`, worker `DB_PATH=/data/applications.db`); `./resumes
   integration (`jest.integration.config.ts`, real Prisma over a throwaway SQLite) +
   merged coverage (`jest.all.config.ts`). Playwright e2e (`e2e/`) runs against a
   seeded throwaway DB and is gated in CI.
-- **Worker:** pytest, **fully dependency-injected** — no network / Ollama / Claude /
-  `tectonic` / `pypdf` needed. `integration` marker runs `run_once` end-to-end over
+- **Worker:** pytest, **fully dependency-injected** — no network / Ollama / Claude
+  needed. `integration` marker runs `run_once` end-to-end over
   a temp SQLite. Coverage floor `fail_under = 85` (single source of truth in
   `pyproject.toml`, read by both `make test-coverage` and CI).
 - **CI** (`.github/workflows/ci.yml`): runs both suites on push / PR / nightly, with
