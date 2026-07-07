@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import re
 
+import pycountry
 import requests
 
 from ats_worker.prompts import (
@@ -75,6 +76,13 @@ _COUNTRY_ALIASES = {
     "uk": "uk", "u.k": "uk", "united kingdom": "uk", "britain": "uk",
     "great britain": "uk", "england": "uk",
 }
+
+# US subdivisions (states + territories), built once at import. Used to KEEP a US
+# role whose location string names only a state ("New York, New York", "Austin, TX")
+# and to win the state/country name collision ("Atlanta, Georgia": Georgia is a US
+# state AND a country — the state reading wins when the candidate allows USA).
+_US_STATE_NAMES = {s.name.lower() for s in pycountry.subdivisions if s.country_code == "US"}
+_US_STATE_CODES = {s.code.split("-")[1] for s in pycountry.subdivisions if s.country_code == "US"}
 
 
 class ScoreError(RuntimeError):
@@ -433,6 +441,62 @@ def _norm_loc(value) -> str:
     (United States == USA == US)."""
     t = " ".join(str(value).strip().lower().replace(".", "").split())
     return _COUNTRY_ALIASES.get(t, t)
+
+
+def _is_us_state(token: str) -> bool:
+    """True if `token` is a US state/territory name ('California') or 2-letter code ('CA')."""
+    t = token.strip()
+    return t.lower() in _US_STATE_NAMES or t.upper() in _US_STATE_CODES
+
+
+def _country_code(token: str) -> str | None:
+    """ISO alpha-2 for a country name/code token ('China'->'CN', 'USA'->'US'), else None."""
+    try:
+        return pycountry.countries.lookup(token.strip()).alpha_2
+    except LookupError:
+        return None
+
+
+def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
+    """Decide keep/discard for a posting's board `location` string against the
+    candidate's `allowed_locations`, in CODE (no LLM). Errs toward KEEP: discards
+    only when the string clearly resolves to a disallowed country.
+
+    Order:
+      (A) missing location -> keep.
+      (B) remote: if 'remote' is allowed and the LOCATION STRING says remote -> keep.
+          (Keyed off the board location field, NOT the JD prose, so a JD that merely
+          says 'not remote' can't false-match.)
+      (C) direct match: an allowed entry equals a location token, with country
+          aliasing via _norm_loc (allowed 'USA' matches token 'United States'; an
+          allowed city/state matches that token).
+      (D) US-state precedence: a US-state token keeps when USA is allowed (also
+          settles the Georgia state-vs-country collision).
+      (E) foreign: the LAST token (boards put the country last) resolves to a
+          country not in the allowed countries -> discard.
+      (F) otherwise keep.
+    """
+    if not location_str or not str(location_str).strip():
+        return True, ""                                                      # (A)
+    allowed_norm = {_norm_loc(a) for a in allowed_locations if str(a).strip()}
+    allowed_codes = set()
+    for a in allowed_locations:
+        if _norm_loc(a) == "remote":
+            continue
+        code = _country_code(str(a))
+        if code:
+            allowed_codes.add(code)
+    if "remote" in allowed_norm and _mentions(str(location_str), _REMOTE_HINTS):  # (B)
+        return True, "remote"
+    tokens = [t for t in re.split(r"[,/;|]| or ", str(location_str)) if t.strip()]
+    if allowed_norm & {_norm_loc(t) for t in tokens}:                        # (C)
+        return True, ""
+    if "usa" in allowed_norm and any(_is_us_state(t) for t in tokens):       # (D)
+        return True, ""
+    code = _country_code(tokens[-1]) if tokens else None                     # (E)
+    if code and code not in allowed_codes:
+        return False, f"on-site in {tokens[-1].strip()}"
+    return True, ""                                                          # (F)
 
 
 def _degree_rank(value) -> int:

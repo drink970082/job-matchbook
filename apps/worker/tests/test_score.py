@@ -609,6 +609,30 @@ def test_truncate_boundary_and_disabled():
     assert score._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
 
 
+# --- resolve_location: deterministic country gate over the board location string ---
+
+@pytest.mark.parametrize("location,allowed,want_keep,want_note", [
+    ("Shanghai, China", ["remote", "USA"], False, "on-site in China"),
+    ("Amsterdam, North Holland, Netherlands", ["remote", "USA"], False, "on-site in Netherlands"),
+    ("Sydney, Australia", ["remote", "USA"], False, "on-site in Australia"),
+    ("London, England, United Kingdom", ["remote", "USA"], False, "on-site in United Kingdom"),
+    ("Chicago, Illinois, United States", ["remote", "USA"], True, ""),
+    ("New York, New York", ["remote", "USA"], True, ""),
+    ("Austin, TX", ["remote", "USA"], True, ""),              # state code
+    ("Atlanta, Georgia", ["remote", "USA"], True, ""),        # GA state vs GE country collision
+    ("Toronto, Ontario", ["remote", "USA"], True, ""),        # subdivision, not a country -> keep (accepted leak)
+    ("Remote - US", ["remote", "USA"], True, "remote"),
+    ("", ["remote", "USA"], True, ""),                        # missing -> keep
+    (None, ["remote", "USA"], True, ""),
+    ("London, England, United Kingdom", ["New York"], False, "on-site in United Kingdom"),
+    ("New York, New York", ["New York"], True, ""),           # city-restricted keeps its city
+])
+def test_resolve_location(location, allowed, want_keep, want_note):
+    passed, note = score.resolve_location(location, allowed)
+    assert passed is want_keep, (location, allowed)
+    assert note == want_note, (location, allowed)
+
+
 # --- real adapter: import safety ------------------------------------------
 
 def test_make_claude_scorer_builds_without_importing_sdk():
