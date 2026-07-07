@@ -132,7 +132,7 @@ def _candidate_block(candidate) -> str:
     """Render the hard-requirement checklist for the SCREEN call, or '' if nothing
     is configured. Each configured structured field becomes one clause keyed to a
     "screen" key the model returns a pass/fail verdict for (prose lives in
-    prompts/score.txt). Only control flow + layout live here.
+    prompts/screen.txt). Only control flow + layout live here.
     """
     if not candidate:
         return ""
@@ -317,8 +317,9 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     For each configured structured requirement the LLM only EXTRACTED a fact about
     the job; here CODE applies the candidate's constraint (degree rank, sponsorship,
-    clearance, location membership). This takes the unreliable pass/fail
-    judgment off a 4B model entirely. `dealbreakers` is the one exception — free-text
+    clearance). This takes the unreliable pass/fail
+    judgment off a 4B model entirely. (Location is NOT gated here — it is a
+    deterministic pycountry gate in `score_posting`; see `resolve_location`.) `dealbreakers` is the one exception — free-text
     the user writes, so it stays an LLM {pass, note}. A requirement the candidate
     didn't configure is skipped, and a key the model invents (e.g. "skills") is
     ignored, so a skill gap can never disqualify. On missing/garbled extraction each

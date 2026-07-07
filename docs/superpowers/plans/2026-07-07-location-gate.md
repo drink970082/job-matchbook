@@ -555,5 +555,6 @@ git -c user.name='drink970082' -c user.email='howdywu@gmail.com' commit \
 ## Notes / accepted limitations
 
 - **Bare foreign city with no country token leaks** (e.g. a lone "London" or "London, Ontario" with no recognized country) — kept, by the err-toward-keep choice. Rare in the observed feed (boards include the country for foreign roles).
+- **Bare country-named US town discards** (e.g. a lone "Peru", "Cuba", "China" — real US towns — with no state suffix) — the mirror of the bare-foreign-city keep-leak, and the one reverse-direction edge. Boards append the state ("Peru, IN"), which the US-state guard protects, so it is rare; the human overrides via the kept `disqualification_reason` + reopen. Guarding it (lone token → keep) would stop discarding bona-fide bare foreign roles like "Singapore" (which the join-reasons test asserts must discard), so it is left as an accepted limitation. (Final-review finding, adjudicated.)
 - **City-restricted candidates** (e.g. `locations: ["New York"]`) still discard clearly-foreign roles and keep their city, but a *different US city* now keeps (the old LLM path discarded it). Acceptable: the real config is country-level (`["remote", "USA"]`).
 - **Remote is detected from the board `location` field, not the JD prose** — a refinement over the spec, to avoid a JD that says "not remote" false-matching on the word "remote".

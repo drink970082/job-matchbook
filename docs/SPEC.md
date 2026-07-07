@@ -755,9 +755,13 @@ guarantee:
   discards an applicable role. The kept `disqualification_reason` + `reopenJobPosting`
   let a human override.
 - **Location** is a deterministic `pycountry` rule check (`resolve_location`), not an
-  LLM judgment, but errs toward keep: a foreign role whose board `location` carries no
-  recognized country token (a bare "London") leaks through — the residual "asserted,
-  not checked" gap for location, again backed by the human in the loop.
+  LLM judgment, and mostly errs toward keep: a foreign role whose board `location`
+  carries no recognized country token (a bare "London") leaks through. The one reverse
+  edge — a lone country-named US town with no state suffix ("Peru", "Cuba") resolves to
+  the country and discards — mirrors it; real boards append the state ("Peru, IN"),
+  which the US-state guard protects. Both are the residual "asserted, not checked" gap
+  for location, backed by the human in the loop (kept `disqualification_reason` +
+  `reopenJobPosting`).
 
 ### Invariant → test traceability
 
