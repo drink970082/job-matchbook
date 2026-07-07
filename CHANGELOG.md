@@ -37,6 +37,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now clicks the dialog's confirm button; the Playwright suite is back to **4/4**.
 
 ### Changed
+- **Scoring: the hard-requirements SCREEN now runs first and gates the Claude fit
+  score.** `score_posting` previously called Claude on every posting and only *then*
+  ran the local screen, so a posting bound for `discarded` (foreign on-site role,
+  internship, missing-clearance, …) still paid for a Sonnet fit call. The order is now
+  screen → gate → score: a disqualified posting records `score` 0 and **skips the paid
+  Claude call entirely**; only postings that pass the screen are fit-scored. No change
+  to screen logic or the score for surviving postings; disqualified rows still carry
+  the per-requirement screen verdict + reason. Worker suite green (315). (SPEC §5, §7.)
 - **Scoring: fit assessed by Claude Sonnet 5 (reason-first) instead of the local
   4B model; removed the fragile local years/seniority screen gate.** The
   hard-requirements screen (degree, work authorization, clearance, locations,

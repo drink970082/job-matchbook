@@ -143,7 +143,7 @@ def test_candidate_screen_call_disqualifies_and_omits_resume():
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
         candidate={"dealbreakers": ["requires a PhD"]},
     )
-    assert out["score"] == 60                       # from score_fit (FIT -> 60)
+    assert out["score"] == 0                         # gated: disqualified -> no Claude fit call
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "dealbreakers: requires a PhD"
     assert len(http.calls) == 1                      # SCREEN is now the only Ollama call
@@ -175,6 +175,25 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     assert out["disqualification_reason"] == ""
     assert out["screen"] == {}
     assert len(http.calls) == 1                    # the (failed) SCREEN call
+
+
+def test_screen_gates_the_paid_score_call():
+    # The reorder: SCREEN runs first and GATES the fit score. A disqualified posting
+    # SKIPS the injected (paid) Claude scorer entirely (score 0, no fit); a posting
+    # that passes the screen still calls it.
+    disq = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": False}}))
+    fit = Mock(return_value={"score": 90})
+    out = score.score_posting(POSTING, RESUME, score_fit=fit, model="m", http=disq,
+                              ollama_host="h", candidate={"locations": ["remote", "USA"]})
+    assert out["disqualified"] is True and out["score"] == 0
+    fit.assert_not_called()                        # gate skipped the paid call
+
+    ok = FakeHttp(_screen_resp({"location": {"country": "United States", "remote": False}}))
+    fit2 = Mock(return_value={"score": 90})
+    out2 = score.score_posting(POSTING, RESUME, score_fit=fit2, model="m", http=ok,
+                               ollama_host="h", candidate={"locations": ["remote", "USA"]})
+    assert out2["disqualified"] is False and out2["score"] == 90
+    fit2.assert_called_once()                      # passed the screen -> scored
 
 
 # --- determinism / Ollama options ----------------------------------------
@@ -234,7 +253,7 @@ def test_foreign_location_disqualifies():
     http = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": False}}))
     out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
                               candidate={"locations": ["remote", "USA"]})
-    assert out["score"] == 60                                 # from score_fit (FIT -> 60)
+    assert out["score"] == 0                                  # gated: disqualified -> no Claude fit call
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "location: on-site in Singapore"
 

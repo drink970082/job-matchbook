@@ -6,15 +6,17 @@ every freshly fetched posting, so keeping it local keeps cost at zero and avoids
 rate limits — the expensive, quality-sensitive step (fit scoring)
 goes to Claude instead, via the injected `score_fit` callable built in run.py.
 
-TWO calls per posting, on purpose, from two different backends:
-  1. SCORE  — fit score 0-100 + matched/missing keywords, from the injected
-              `score_fit(posting, resume_text)` callable. Its result is only
-              normalized here (missing/unusable "score" raises ScoreError).
-  2. SCREEN — job + the candidate's hard requirements, with NO résumé -> a per-
+UP TO TWO calls per posting, from two different backends, SCREEN-gated:
+  1. SCREEN — job + the candidate's hard requirements, with NO résumé -> a per-
               requirement pass/fail; `disqualified` is derived from those verdicts.
+              Runs FIRST (cheap, local Ollama). Skipped when no candidate
+              constraints are configured.
+  2. SCORE  — fit score 0-100 + matched/missing keywords, from the injected
+              `score_fit(posting, resume_text)` callable (Claude). Only reached
+              when the screen did NOT disqualify — a discarded posting never pays
+              for a fit score. Result normalized here (missing "score" raises).
 The screen call has no résumé so it can't anchor on where the candidate lives, and
-its output is small (no truncation). Screening is skipped entirely when no
-candidate constraints are configured.
+its output is small (no truncation).
 
 `http` is injected (defaults to `requests`) so tests exercise the SCREEN call's
 parsing with a fake transport and zero network. Ollama wraps output in
@@ -168,14 +170,17 @@ def score_posting(
     seed: int = 0,
     num_ctx: int = 8192,
 ) -> dict:
-    """Score `posting` against `resume_text` (fit) and screen it (hard requirements).
+    """Screen `posting` against the candidate's hard requirements, then fit-SCORE it.
 
-    The fit SCORE comes from the injected `score_fit(posting, resume_text) -> dict`
-    (Claude, built in run.py); its result is normalized here so a missing `score`
-    raises ScoreError. The SCREEN call (hard requirements, NO résumé) stays on the
-    local Ollama transport (`http`/`ollama_host`/`model`) and is skipped when no
-    candidate constraints are configured. `disqualified` is DERIVED from the
-    per-requirement screen verdicts. Raises ScoreError on an unusable fit result.
+    SCREEN runs FIRST and GATES the fit score: the local Ollama screen (hard
+    requirements, NO résumé — `http`/`ollama_host`/`model`) plus the deterministic
+    intern/co-op title check derive `disqualified`; when it's True we return score 0
+    WITHOUT calling the (paid) Claude scorer, since a disqualified posting is
+    discarded regardless of fit. When it passes, the injected
+    `score_fit(posting, resume_text) -> dict` (Claude, built in run.py) is called and
+    normalized here (a missing `score` raises ScoreError). The SCREEN call is skipped
+    when no candidate constraints are configured, and a SCREEN parse failure errs
+    toward keep (not disqualified). Raises ScoreError on an unusable fit result.
     """
     options = {
         "temperature": temperature,
@@ -186,39 +191,48 @@ def score_posting(
         "num_predict": 512,
     }
 
-    # 1. SCORE — fit only, via Claude (injected). Normalized here (missing score -> raise).
-    result = _normalize_score(score_fit(posting, resume_text))
-
+    # 1. SCREEN — hard requirements only (job + checklist, NO résumé), the CHEAP
+    # local call. Skipped when nothing is configured. A parse failure must NOT
+    # discard the posting (or fail the row) — the design errs toward keep — so it
+    # falls back to not-screened / not-disqualified.
     job = _job_block(posting, num_ctx * 2)
-    # 2. SCREEN — hard requirements only (job + checklist, NO résumé). Skipped when
-    # nothing is configured, so disqualification stays disabled. A SCREEN-call parse
-    # failure must NOT discard the posting (or fail the whole row) — the design errs
-    # toward keep on garbled extraction — so we fall back to scored-but-not-screened
-    # and keep the already-computed fit score.
-    checklist = _candidate_block(candidate)
     description = str(posting.get("description") or "")
+    checklist = _candidate_block(candidate)
     if checklist:
         try:
             screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
                                 options=options, timeout=timeout)
-            result.update(_screen_verdict(screen_data, candidate or {}, description))
+            screen = _screen_verdict(screen_data, candidate or {}, description)
         except ScoreError:
-            result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
+            screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     else:
-        result.update({"screen": {}, "disqualified": False, "disqualification_reason": ""})
+        screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
-    # Deterministic intern/co-op exclusion — title-only, so it runs regardless of the
-    # LLM screen (a candidate that sets ONLY this flag makes no SCREEN call). The 4B
-    # model is unreliable here; the title is a clean signal. Merges a hard fail in.
+    # Deterministic intern/co-op exclusion — title-only (free, no LLM), so it runs
+    # even when no SCREEN call was made. The 4B model is unreliable here; the title
+    # is a clean signal. Merges a hard fail into the screen verdict.
     if candidate and candidate.get("exclude_internships") and _is_internship(
         str(posting.get("job_title") or "")
     ):
-        result.setdefault("screen", {})["internships"] = {"pass": False, "note": "internship/co-op role"}
-        prior = result.get("disqualification_reason") or ""
-        result["disqualified"] = True
-        result["disqualification_reason"] = (
+        screen.setdefault("screen", {})["internships"] = {"pass": False, "note": "internship/co-op role"}
+        prior = screen.get("disqualification_reason") or ""
+        screen["disqualified"] = True
+        screen["disqualification_reason"] = (
             f"{prior}; internship/co-op role" if prior else "internship/co-op role"
         )
+
+    # GATE — a disqualified posting is discarded regardless of fit, so SKIP the paid
+    # Claude SCORE. Record score 0 (no fit assessed) + the screen verdict; run_score
+    # routes it to 'discarded' with the reason.
+    if screen["disqualified"]:
+        return {"score": 0, "matched_keywords": [], "missing_keywords": [],
+                "reasoning": "disqualified by hard requirements; fit score skipped",
+                **screen}
+
+    # 2. SCORE — passed the screen, so pay for the Claude fit score (injected).
+    # Normalized here (missing score -> raise).
+    result = _normalize_score(score_fit(posting, resume_text))
+    result.update(screen)
     return result
 
 

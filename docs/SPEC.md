@@ -150,7 +150,8 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
                     (per-listing detail sources: Oracle/Jobvite)                       │
                     (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
-            ─► screen (local Ollama, hard requirements) + score (Claude, reason-first)
+            ─► screen (local Ollama, hard requirements) ─gate─► score (Claude, reason-first)
+                                          [disqualified → discarded, Claude call skipped]
             ─► notify (Telegram message)   [only score ≥ threshold]
 
 Phase 2 — Triage & tracking (apps/web, browser)
@@ -356,30 +357,32 @@ worker modules are pure and dependency-injected; real services are wired only in
   (optionally `min_score`), `save_score`, `mark_notified`, `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `existing_external_ids`. Issues no DDL.
-- **`score.py` — `score_posting`.** Two calls, two backends. (1) The fit **SCORE**
-  comes from an injected `score_fit(posting, resume_text)` callable — in
-  production `make_claude_scorer` (Claude, `claude-sonnet-5` by default —
+- **`score.py` — `score_posting`.** Up to two calls, two backends, **SCREEN-gated**:
+  the cheap local screen runs FIRST and gates the paid fit score. (1) The
+  hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
+  `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
+  and — with **no résumé in the prompt** — extracts each requirement (degree, work
+  authorization, clearance, locations, dealbreakers) as a JOB fact *semantically*,
+  while CODE applies the candidate's configured constraint (a 4B model is unreliable
+  at the pass/fail judgment itself); `disqualified` is derived from those
+  per-requirement verdicts. Separately, when `candidate.exclude_internships` is set,
+  intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
+  call — runs even when no other screen clause is configured). A SCREEN parse failure
+  errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
+  screen did not disqualify** (a discarded posting records `score` 0 and never pays
+  for a Claude call) — comes from an injected `score_fit(posting, resume_text)`
+  callable, in production `make_claude_scorer` (Claude, `claude-sonnet-5` by default —
   structured outputs require it; `claude-sonnet-4-6` doesn't support
   `output_config.format` — overridable via
-  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends
-  the résumé + scoring rubric as a **cached system prefix** (`cache_control:
-  ephemeral`, byte-identical every call in a run, only the JD is fresh) with
-  **adaptive thinking** so the model reasons about seniority/domain/gaps *before*
-  committing to a number, returning schema-constrained JSON
-  (`{reasoning, score 0-100, matched_keywords, missing_keywords}`, `reasoning`
-  ordered first in the schema); `score_posting` only normalizes/clamps the result
-  (`ScoreError` on anything unusable). (2) The hard-requirements **SCREEN** stays
-  on host Ollama (`think: false`, `num_ctx` from `OLLAMA_NUM_CTX`, default 8192),
-  runs only when a non-empty `candidate` is supplied, and — with **no résumé in
-  the prompt** — extracts each requirement (degree, work authorization, clearance,
-  locations, dealbreakers) as a JOB fact *semantically*, while CODE applies the
-  candidate's configured constraint (a 4B model is unreliable at the pass/fail
-  judgment itself); `disqualified` is derived from those per-requirement verdicts.
-  **There is no local experience/years gate** — seniority is judged entirely by
-  the Claude score, not a deterministic code check. Separately, when
-  `candidate.exclude_internships` is set, intern/co-op roles are disqualified by a
-  whole-word match on the job title (no LLM call — runs even when no other screen
-  clause is configured).
+  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends the résumé + scoring
+  rubric as a **cached system prefix** (`cache_control: ephemeral`, byte-identical
+  every call in a run, only the JD is fresh) with **adaptive thinking** so the model
+  reasons about seniority/domain/gaps *before* committing to a number, returning
+  schema-constrained JSON (`{reasoning, score 0-100, matched_keywords,
+  missing_keywords}`, `reasoning` ordered first in the schema); `score_posting`
+  normalizes/clamps the result (`ScoreError` on anything unusable). **There is no
+  local experience/years gate** — seniority is judged entirely by the Claude score,
+  not a deterministic code check.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link) — a single atomic message per match; the human applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
