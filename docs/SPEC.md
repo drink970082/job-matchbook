@@ -445,7 +445,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     parser; validates status/category against enums; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
   connection leaks).
-- **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9), `TERMINAL_STATUSES`,
+- **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/discarded
   cutoff, mirrors the worker's notification threshold), `NEAR_MISS_FLOOR` (60; the lower
@@ -564,8 +564,7 @@ on `(source, external_id)`.
 
 - **Statuses** (funnel order): `Applied` → `Online Assessment` → `Phone Screen` →
   `Interviewing: 1st…5th round` → `Final Round` → `Offer` → `Accepted`; terminals
-  `Rejected`, `Withdrew`, `Ghosted`. `TERMINAL_STATUSES` = {Offer, Accepted,
-  Rejected, Withdrew, Ghosted}.
+  `Rejected`, `Withdrew`, `Ghosted`.
 - **Categories:** SWE, MLE, DS, DA, Quant Dev, Quant Analyst, Quant Trader, AI
   Engineer, Others.
 
