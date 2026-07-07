@@ -37,6 +37,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now clicks the dialog's confirm button; the Playwright suite is back to **4/4**.
 
 ### Changed
+- **Location screen is now a deterministic code gate off the board field, not the 4B
+  model.** The screen asked qwen3.5:4b to extract `{city,region,country}` from the JD
+  and matched that; the 4B intermittently missed obvious foreign locations (a live run
+  kept an on-site `Shanghai, China` role) and err-toward-keep leaked them to the paid
+  Claude score. Location now resolves in code (`resolve_location`, `pycountry`) against
+  `posting["location"]`: foreign roles that carry a country token are discarded before
+  scoring; US-state-only and remote strings keep; ambiguous/missing keeps. Location left
+  the LLM screen entirely (a `locations`-only candidate makes no Ollama call), and the
+  scoring prompt split into `prompts/score.txt` + `prompts/screen.txt`. New dep:
+  `pycountry`. (SPEC §5, §7.)
 - **Scoring: the hard-requirements SCREEN now runs first and gates the Claude fit
   score.** `score_posting` previously called Claude on every posting and only *then*
   ran the local screen, so a posting bound for `discarded` (foreign on-site role,

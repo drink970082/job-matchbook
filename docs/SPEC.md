@@ -151,6 +151,7 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
                     (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
             ─► screen (local Ollama, hard requirements) ─gate─► score (Claude, reason-first)
+                     [location: deterministic code gate off the board field, not the LLM]
                                           [disqualified → discarded, Claude call skipped]
             ─► notify (Telegram message)   [only score ≥ threshold]
 
@@ -362,10 +363,17 @@ worker modules are pure and dependency-injected; real services are wired only in
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
   `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
   and — with **no résumé in the prompt** — extracts each requirement (degree, work
-  authorization, clearance, locations, dealbreakers) as a JOB fact *semantically*,
+  authorization, clearance, dealbreakers) as a JOB fact *semantically*,
   while CODE applies the candidate's configured constraint (a 4B model is unreliable
   at the pass/fail judgment itself); `disqualified` is derived from those
-  per-requirement verdicts. Separately, when `candidate.exclude_internships` is set,
+  per-requirement verdicts. **Location is a deterministic code gate**
+  (`resolve_location`, `pycountry`) matched against the board's `posting["location"]`
+  string — not the LLM. It errs toward keep (discards only when the string clearly
+  resolves to a disallowed country; US-state and remote strings keep), so a
+  `locations`-only candidate makes no Ollama call. The screen prompt carries no
+  location clause. The scoring prompts live in **two** files —
+  `prompts/score.txt` (Claude fit rubric) and `prompts/screen.txt` (Ollama
+  hard-requirements checklist). Separately, when `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured). A SCREEN parse failure
   errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
@@ -742,10 +750,14 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening** (work authorization / clearance / location) is an LLM
+- **Hard-constraint screening** (work authorization / clearance) is an LLM
   *semantic* judgment, not a rule check — a misjudgment sends a spurious alert or
   discards an applicable role. The kept `disqualification_reason` + `reopenJobPosting`
   let a human override.
+- **Location** is a deterministic `pycountry` rule check (`resolve_location`), not an
+  LLM judgment, but errs toward keep: a foreign role whose board `location` carries no
+  recognized country token (a bare "London") leaks through — the residual "asserted,
+  not checked" gap for location, again backed by the human in the loop.
 
 ### Invariant → test traceability
 
@@ -758,6 +770,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
+| Deterministic location gate (`resolve_location`, pycountry): foreign→discard, US-state/remote/missing→keep | `test_score.py` (`test_resolve_location` + gate integration tests) |
 | `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
 | Discovered-jobs score-aware buckets (matched/discarded/failed) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
