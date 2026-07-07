@@ -1,8 +1,9 @@
 """Load prompts from the prompts/ directory at import time.
 
-The scoring stage has ONE file (score.txt) split into named sections by
-`@@ <name>` marker lines — `@@` is used because the prompt bodies themselves use
-`=== … ===` as content delimiters, so the splitter must not collide with those.
+The scoring stage has TWO files (score.txt, screen.txt), each split into named
+sections by `@@ <name>` marker lines — `@@` is used because the prompt bodies
+themselves use `=== … ===` as content delimiters, so the splitter must not
+collide with those.
 """
 from __future__ import annotations
 
@@ -28,22 +29,22 @@ def _sections(filename: str) -> dict[str, str]:
     return out
 
 
-_s = _sections("score.txt")
+_score = _sections("score.txt")
+_screen = _sections("screen.txt")
 
-# score — TWO separate calls, two backends. SCORE_HEADER drives the fit-score call
-# (rubric + résumé + job), sent to Claude; SCREEN_HEADER + the checklist drive the
-# screening call (job + hard requirements, NO résumé, so it can't anchor on the
-# candidate's current address), sent to local Ollama.
-SCORE_HEADER: str = _s["score_header"] + "\n"
-SCREEN_HEADER: str = _s["screen_header"] + "\n"
+# TWO calls, two backends, two files. SCORE_HEADER (score.txt) drives the fit-score
+# call (rubric + résumé + job), sent to Claude. SCREEN_HEADER + the checklist
+# (screen.txt) drive the hard-requirements call (job + requirements, NO résumé),
+# sent to local Ollama. Location is NOT in the screen prompt — it is gated in code
+# off the board's location field (see score.resolve_location).
+SCORE_HEADER: str = _score["score_header"] + "\n"
+SCREEN_HEADER: str = _screen["screen_header"] + "\n"
 
-# screen checklist clauses (assembled line-by-line in score.py, so these stay
-# bare: the join there supplies the newlines). Each c_* clause has a single
-# {value} placeholder and maps 1:1 to a "screen" key the model must return.
-SCREEN_LIST_HEADER: str = _s["screen_list_header"]
-SCORE_C_DEGREE: str = _s["c_degree"]
-SCORE_C_AUTHORIZATION: str = _s["c_authorization"]
-SCORE_C_CLEARANCE: str = _s["c_clearance"]
-SCORE_C_LOCATION: str = _s["c_location"]
-SCORE_C_DEALBREAKERS: str = _s["c_dealbreakers"]
-SCREEN_FOOTER: str = _s["screen_footer"]
+# screen checklist clauses (assembled line-by-line in score.py, so these stay bare:
+# the join there supplies the newlines). Each maps 1:1 to a "screen" key.
+SCREEN_LIST_HEADER: str = _screen["screen_list_header"]
+SCORE_C_DEGREE: str = _screen["c_degree"]
+SCORE_C_AUTHORIZATION: str = _screen["c_authorization"]
+SCORE_C_CLEARANCE: str = _screen["c_clearance"]
+SCORE_C_DEALBREAKERS: str = _screen["c_dealbreakers"]
+SCREEN_FOOTER: str = _screen["screen_footer"]

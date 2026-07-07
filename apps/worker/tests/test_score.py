@@ -605,3 +605,13 @@ def test_make_claude_scorer_builds_without_importing_sdk():
     # the hermetic test env lacks), so run.py can construct it before first use.
     fit = score.make_claude_scorer("sk-test", "claude-sonnet-4-6")
     assert callable(fit)
+
+
+# --- prompts: split into score.txt (Claude) + screen.txt (Ollama) ---------
+
+def test_prompts_split_into_two_files_without_location_clause():
+    from ats_worker import prompts
+    assert "hiring manager" in prompts.SCORE_HEADER.lower()      # score.txt
+    assert "recruiter" in prompts.SCREEN_HEADER.lower()          # screen.txt
+    assert prompts.SCORE_C_DEGREE and prompts.SCREEN_FOOTER
+    assert not hasattr(prompts, "SCORE_C_LOCATION")              # location clause gone
