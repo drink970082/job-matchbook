@@ -37,7 +37,6 @@ from ats_worker.prompts import (
     SCORE_C_CLEARANCE,
     SCORE_C_DEALBREAKERS,
     SCORE_C_DEGREE,
-    SCORE_C_LOCATION,
     SCORE_HEADER,
     SCREEN_FOOTER,
     SCREEN_HEADER,
@@ -140,7 +139,6 @@ def _candidate_block(candidate) -> str:
     degree = str(candidate.get("highest_degree") or "").strip()
     auth = str(candidate.get("work_authorization") or "").strip()
     clearance = str(candidate.get("security_clearance") or "").strip()
-    locations = [str(l) for l in (candidate.get("locations") or []) if str(l).strip()]
     dealbreakers = [str(d) for d in (candidate.get("dealbreakers") or []) if str(d).strip()]
 
     # The structured clauses are pure extraction instructions (the model reports a
@@ -153,8 +151,6 @@ def _candidate_block(candidate) -> str:
         clauses.append(SCORE_C_AUTHORIZATION)
     if clearance:
         clauses.append(SCORE_C_CLEARANCE)
-    if locations:
-        clauses.append(SCORE_C_LOCATION)
     if dealbreakers:
         clauses.append(SCORE_C_DEALBREAKERS.format(value="; ".join(dealbreakers)))
 
@@ -228,6 +224,19 @@ def score_posting(
         screen["disqualification_reason"] = (
             f"{prior}; internship/co-op role" if prior else "internship/co-op role"
         )
+
+    # Deterministic LOCATION gate — matched in CODE against the board's location
+    # string (posting["location"]) via pycountry, NOT the LLM. Runs when the
+    # candidate configured allowed locations; merged into the screen verdict like
+    # the internship check above.
+    if candidate and candidate.get("locations"):
+        passed, note = resolve_location(posting.get("location"), candidate["locations"])
+        screen.setdefault("screen", {})["location"] = {"pass": passed, "note": note}
+        if not passed:
+            prior = screen.get("disqualification_reason") or ""
+            reason = f"location: {note}" if note else "location"
+            screen["disqualified"] = True
+            screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
 
     # GATE — a disqualified posting is discarded regardless of fit, so SKIP the paid
     # Claude SCORE. Record score 0 (no fit assessed) + the screen verdict; run_score
@@ -335,8 +344,6 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
                                candidate.get("work_authorization"), description))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
-    gate("location", bool(candidate.get("locations")),
-         *_check_location(entry("location"), candidate.get("locations") or [], description))
 
     # dealbreakers: free-text, so the LLM keeps the pass/fail judgment here. (The
     # common "no internships/co-op" case is handled deterministically by the
@@ -388,33 +395,6 @@ def _check_clearance(entry: dict, cand_clearance) -> tuple[bool, str]:
     if _flag(entry.get("requires_clearance")):
         return False, "requires security clearance"
     return True, ""
-
-
-def _check_location(
-    entry: dict, allowed_locations: list, description: str = ""
-) -> tuple[bool, str]:
-    """Pass if the role is remote (and remote is allowed) OR any candidate-allowed
-    location matches any of the posting's extracted {city, region, country}. The LLM
-    did the geography (free-form city/region/country); this is exact membership over
-    those discrete fields (NOT a substring scan of the whole JD), so a candidate city
-    matches a city posting and country aliasing still lets a US city match an allowed
-    'USA'. A model remote=true is only trusted if the JD actually mentions remote work
-    (the model otherwise marks on-site foreign roles remote). No extracted location
-    fields → pass."""
-    allowed = {_norm_loc(l) for l in allowed_locations if str(l).strip()}
-    city = str(entry.get("city") or "").strip()
-    region = str(entry.get("region") or entry.get("state") or "").strip()
-    country = str(entry.get("country") or "").strip()
-    where = country or city or region  # most specific available label for the note
-    remote = _flag(entry.get("remote")) and _mentions(description, _REMOTE_HINTS)
-    if "remote" in allowed and remote:
-        return True, f"{where} (remote)" if where else "remote"
-    fields = [f for f in (city, region, country) if f]
-    if not fields:
-        return True, ""
-    if any(_norm_loc(f) in allowed for f in fields):
-        return True, where
-    return False, f"on-site in {where}"
 
 
 # --- value coercion helpers ----------------------------------------------
@@ -473,7 +453,11 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
       (D) US-state precedence: a US-state token keeps when USA is allowed (also
           settles the Georgia state-vs-country collision).
       (E) foreign: the LAST token (boards put the country last) resolves to a
-          country not in the allowed countries -> discard.
+          country not in the allowed countries -> discard. Guarded against a bare
+          US postal code that also happens to be an ISO country code (IL->Israel,
+          CA->Canada, GA->Gabon...): such a token is a US state, not read as
+          foreign, even for a city-only allowlist that never reaches (D) — err
+          toward keep.
       (F) otherwise keep.
     """
     if not location_str or not str(location_str).strip():
@@ -494,7 +478,7 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
     if "usa" in allowed_norm and any(_is_us_state(t) for t in tokens):       # (D)
         return True, ""
     code = _country_code(tokens[-1]) if tokens else None                     # (E)
-    if code and code not in allowed_codes:
+    if code and code not in allowed_codes and not _is_us_state(tokens[-1]):
         return False, f"on-site in {tokens[-1].strip()}"
     return True, ""                                                          # (F)
 

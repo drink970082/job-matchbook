@@ -180,18 +180,19 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
 def test_screen_gates_the_paid_score_call():
     # The reorder: SCREEN runs first and GATES the fit score. A disqualified posting
     # SKIPS the injected (paid) Claude scorer entirely (score 0, no fit); a posting
-    # that passes the screen still calls it.
-    disq = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": False}}))
+    # that passes the screen still calls it. (Uses degree as the vehicle — location
+    # is now a code gate, exercised separately.)
+    disq = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
     fit = Mock(return_value={"score": 90})
     out = score.score_posting(POSTING, RESUME, score_fit=fit, model="m", http=disq,
-                              ollama_host="h", candidate={"locations": ["remote", "USA"]})
+                              ollama_host="h", candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is True and out["score"] == 0
     fit.assert_not_called()                        # gate skipped the paid call
 
-    ok = FakeHttp(_screen_resp({"location": {"country": "United States", "remote": False}}))
+    ok = FakeHttp(_screen_resp({"degree": {"required_degree": "bachelor's"}}))
     fit2 = Mock(return_value={"score": 90})
     out2 = score.score_posting(POSTING, RESUME, score_fit=fit2, model="m", http=ok,
-                               ollama_host="h", candidate={"locations": ["remote", "USA"]})
+                               ollama_host="h", candidate={"highest_degree": "Master's"})
     assert out2["disqualified"] is False and out2["score"] == 90
     fit2.assert_called_once()                      # passed the screen -> scored
 
@@ -211,6 +212,8 @@ def test_screen_request_sends_deterministic_options():
 # --- structured identity renders constraint clauses ----------------------
 
 def test_structured_candidate_renders_extraction_clauses_in_screen_call():
+    # locations is deliberately omitted: it's a code gate now (resolve_location off
+    # posting["location"]), so it renders no extraction clause in the SCREEN prompt.
     http = FakeHttp(json.dumps({"screen": {}}))
     score.score_posting(
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
@@ -218,7 +221,6 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
             "highest_degree": "Master's",
             "work_authorization": "needs visa sponsorship",
             "security_clearance": "none",
-            "locations": ["remote", "New York"],
         },
     )
     prompt = http.calls[0][1]["json"]["prompt"]                # the SCREEN call
@@ -226,9 +228,6 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     assert "required_degree" in prompt
     assert "offers_sponsorship" in prompt
     assert "requires_clearance" in prompt
-    assert '"country"' in prompt
-    assert '"city"' in prompt                                 # extractor returns city
-    assert '"region"' in prompt                               # ...and region/state
     assert '"screen"' in prompt
     assert RESUME not in prompt                               # no résumé in the screen call
 
@@ -248,77 +247,43 @@ def _screen_resp(screen):
     return json.dumps({"screen": screen})
 
 
-# location: LLM extracts country/remote, code checks membership
-def test_foreign_location_disqualifies():
-    http = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": False}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
+# location: gated in CODE off posting["location"] (pycountry), not the LLM screen
+def test_foreign_location_disqualifies_from_board_string():
+    posting = {**POSTING, "location": "Shanghai, China"}
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m",
+                              http=FakeHttp(), ollama_host="h",
                               candidate={"locations": ["remote", "USA"]})
-    assert out["score"] == 0                                  # gated: disqualified -> no Claude fit call
     assert out["disqualified"] is True
-    assert out["disqualification_reason"] == "location: on-site in Singapore"
+    assert out["score"] == 0                                  # gated: no Claude call
+    assert out["disqualification_reason"] == "location: on-site in China"
+    assert out["screen"]["location"]["pass"] is False
 
 
-def test_us_city_passes_location_via_extracted_country():
-    # The core regression: an on-site US role must PASS against allowed "USA" — the
-    # model extracts "United States", code normalises it to match "USA".
-    http = FakeHttp(_screen_resp({"location": {"country": "United States", "remote": False}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
+def test_us_state_only_location_kept():
+    posting = {**POSTING, "location": "New York, New York"}
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m",
+                              http=FakeHttp(), ollama_host="h",
                               candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is False
+    assert out["score"] == 60                                 # kept -> Claude (FIT) scored
     assert out["screen"]["location"]["pass"] is True
 
 
-def test_remote_role_passes_location_when_jd_says_remote():
-    posting = {**POSTING, "description": "This is a fully remote position."}
-    http = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": True}}))
-    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"locations": ["remote", "USA"]})
-    assert out["disqualified"] is False
-
-
-def test_candidate_city_matches_city_field_and_keeps_role():
-    # Candidate allows "New York"; an extracted city of "New York" must keep the
-    # role even though the candidate token isn't a country.
-    http = FakeHttp(_screen_resp(
-        {"location": {"city": "New York", "region": "New York", "country": "United States",
-                      "remote": False}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"locations": ["New York"]})
-    assert out["disqualified"] is False
-    assert out["screen"]["location"]["pass"] is True
-
-
-def test_candidate_city_discards_other_city():
-    # Candidate allows only "New York"; a London role must be discarded — tokens
-    # match against the posting's location fields, not loosely against everything.
-    http = FakeHttp(_screen_resp(
-        {"location": {"city": "London", "region": "England", "country": "United Kingdom",
-                      "remote": False}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"locations": ["New York"]})
+def test_locations_only_candidate_makes_no_ollama_call():
+    posting = {**POSTING, "location": "Sydney, Australia"}
+    http = FakeHttp()
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http,
+                              ollama_host="h", candidate={"locations": ["remote", "USA"]})
+    assert len(http.calls) == 0                               # location needs no LLM
     assert out["disqualified"] is True
-    assert "location" in out["disqualification_reason"]
 
 
-def test_candidate_country_still_matches_via_alias():
-    # Country aliasing is preserved: "USA" still keeps a US role even when a
-    # non-matching city is also extracted.
-    http = FakeHttp(_screen_resp(
-        {"location": {"city": "Austin", "region": "Texas", "country": "United States",
-                      "remote": False}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"locations": ["USA"]})
-    assert out["disqualified"] is False
-
-
-def test_remote_claim_ignored_when_jd_never_mentions_remote():
-    # The model loves to mark on-site foreign roles remote=true; if the JD never
-    # mentions remote, we don't trust it, so the foreign country fails.
-    http = FakeHttp(_screen_resp({"location": {"country": "Singapore", "remote": True}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
+def test_missing_board_location_is_kept():
+    posting = {**POSTING, "location": None}
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m",
+                              http=FakeHttp(), ollama_host="h",
                               candidate={"locations": ["remote", "USA"]})
-    assert out["disqualified"] is True
-    assert "on-site in Singapore" in out["disqualification_reason"]
+    assert out["disqualified"] is False                       # err toward keep
 
 
 # degree: LLM extracts required_degree, code compares rank
@@ -508,7 +473,6 @@ def test_screen_http_error_bubbles_up():
     ("degree", {"highest_degree": "Master's"}),
     ("authorization", {"work_authorization": "needs visa sponsorship"}),
     ("clearance", {"security_clearance": "none"}),
-    ("location", {"locations": ["USA"]}),
 ])
 def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
     # Each gate is CONFIGURED, but the model returns an empty fact for it. The
@@ -557,11 +521,10 @@ def test_candidate_holding_clearance_passes_when_role_requires_one():
 # --- multi-gate failure reason join --------------------------------------
 
 def test_multiple_failing_gates_join_reasons():
-    http = FakeHttp(_screen_resp({
-        "degree": {"required_degree": "phd"},
-        "location": {"country": "Singapore", "remote": False},
-    }))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
+    posting = {**POSTING, "location": "Singapore"}
+    http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http,
+                              ollama_host="h",
                               candidate={"highest_degree": "Master's", "locations": ["USA"]})
     assert out["disqualified"] is True
     reason = out["disqualification_reason"]
@@ -626,6 +589,8 @@ def test_truncate_boundary_and_disabled():
     (None, ["remote", "USA"], True, ""),
     ("London, England, United Kingdom", ["New York"], False, "on-site in United Kingdom"),
     ("New York, New York", ["New York"], True, ""),           # city-restricted keeps its city
+    ("Chicago, IL", ["New York"], True, ""),                  # US postal code, not Israel
+    ("Sacramento, CA", ["New York"], True, ""),               # CA=California, not Canada
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
     passed, note = score.resolve_location(location, allowed)
