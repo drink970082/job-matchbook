@@ -473,7 +473,10 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
             allowed_codes.add(code)
     if "remote" in allowed_norm and _mentions(str(location_str), _REMOTE_HINTS):  # (B)
         return True, "remote"
-    tokens = [t for t in re.split(r"[,/;|]| or ", str(location_str)) if t.strip()]
+    # Split on board separators — commas, slashes, ' or ', and a SPACE-padded dash
+    # ("London - United Kingdom", en/em too); a bare hyphen ("Winston-Salem") is NOT
+    # a separator, so intra-token hyphens survive.
+    tokens = [t for t in re.split(r"[,/;|]| or | +[-–—]+ +", str(location_str)) if t.strip()]
     if allowed_norm & {_norm_loc(t) for t in tokens}:                        # (C)
         return True, ""
     if "usa" in allowed_norm and any(_is_us_state(t) for t in tokens):       # (D)

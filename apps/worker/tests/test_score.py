@@ -591,6 +591,9 @@ def test_truncate_boundary_and_disabled():
     ("New York, New York", ["New York"], True, ""),           # city-restricted keeps its city
     ("Chicago, IL", ["New York"], True, ""),                  # US postal code, not Israel
     ("Sacramento, CA", ["New York"], True, ""),               # CA=California, not Canada
+    ("London - United Kingdom", ["remote", "USA"], False, "on-site in United Kingdom"),  # space-dash separator
+    ("Paris – France", ["remote", "USA"], False, "on-site in France"),                    # en-dash separator
+    ("Winston-Salem, NC", ["remote", "USA"], True, ""),       # bare hyphen is NOT a separator
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
     passed, note = score.resolve_location(location, allowed)
