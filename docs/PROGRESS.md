@@ -21,7 +21,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-_Nothing in flight._
+- 🚧 **Notify-failure defect fix — bounded retry (cap 3) at the notify stage.**
+  Approved spec:
+  [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
 
 ---
 
