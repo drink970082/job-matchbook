@@ -41,6 +41,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
     `docs/superpowers/specs/2026-07-06-tailoring-removal-design.md`. (SPEC §1, §5–§13.)
 
 ### Fixed
+- **A transient Telegram send error no longer buries a high-scoring match.** A notify
+  failure used to park the row in terminal `failed` — gone from the default
+  Discovered-Jobs view, never re-notified. `run_notify` now treats a send error as
+  transient: the row stays `scored` (`attempts+1`, `pipeline_error` recorded) and the
+  next scheduled pass retries the send; the 3rd cumulative failure parks it `failed`
+  (the Failed tab), so a persistently-broken channel (revoked token, wrong chat id)
+  still surfaces instead of retrying silently forever. A successful send clears
+  `pipeline_error`; delivery is at-least-once (a duplicate ping beats a lost match).
+  Design spec: `docs/superpowers/specs/2026-07-09-notify-retry-design.md`.
 - **`apply-loop` e2e now confirms the Mark-Applied dialog.** The spec clicked the
   row's Mark-Applied icon but never confirmed the `ApplyCategoryDialog` the
   discovered-jobs overhaul (`d4b46ea`) added, so it timed out with the dialog open. It

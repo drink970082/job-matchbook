@@ -2,8 +2,8 @@
 
 WHY a per-stage, per-item try/except: each stage talks to a flaky external
 (board API, Ollama, Claude, Telegram). The cardinal rule is that ONE
-bad posting must never abort the whole batch — on any exception we record it via
-db.mark_failed and move on. Stages are pure functions over a db connection with
+bad posting must never abort the whole batch — on any exception we record it
+(db.mark_failed, or db.record_notify_failure at the notify stage) and move on. Stages are pure functions over a db connection with
 injected worker callables and an explicit `now`, so the whole machine is
 deterministic and testable without network.
 
@@ -12,7 +12,10 @@ Stage gating:
   run_score  -> processes ONLY 'new', advances to 'scored'
   run_notify -> processes ONLY 'scored' with score >= threshold (the rest stay
                 'scored', untouched); sends a message-only alert and advances to
-                'notified'. The threshold is the notification gate.
+                'notified'. The threshold is the notification gate. A send error
+                is transient until proven persistent: the row STAYS 'scored'
+                (attempts+1, error recorded) so the next pass retries it, and
+                parks 'failed' on the NOTIFY_MAX_ATTEMPTS-th cumulative failure.
 """
 from __future__ import annotations
 
@@ -248,11 +251,24 @@ def run_score(conn, *, now, score_fn) -> None:
 
 # --- notify ---------------------------------------------------------------
 
+# Retry budget for the Telegram send. A send error is transient until proven
+# persistent: the row stays 'scored' so the next scheduled pass retries it, and
+# the NOTIFY_MAX_ATTEMPTS-th cumulative failure parks it 'failed' (terminal,
+# the web app's Failed tab) so a broken channel surfaces instead of retrying
+# silently forever. ponytail: pass-cadence retry only — no in-pass backoff; the
+# scheduler is the timer (~3 days at the default 24h schedule).
+NOTIFY_MAX_ATTEMPTS = 3
+
+
 def run_notify(conn, threshold, *, now, notify_fn, token, chat_id) -> None:
     """Notify every 'scored' posting at or above `threshold` and advance it to
-    'notified'. Below-threshold rows stay 'scored', untouched — the threshold is
-    the notification gate (it used to gate tailoring). One message-only alert per
-    posting; on any send error the row is marked 'failed', as before.
+    'notified' (clearing any prior send error). Below-threshold rows stay
+    'scored', untouched — the threshold is the notification gate. One
+    message-only alert per posting. A send error keeps the row 'scored'
+    (attempts+1, pipeline_error recorded) for a next-pass retry until
+    NOTIFY_MAX_ATTEMPTS cumulative failures park it 'failed'. Delivery is
+    at-least-once: a timeout after Telegram delivered re-sends next pass (one
+    duplicate ping) rather than risking a lost alert.
     """
     for row in db.get_by_status(conn, "scored", min_score=threshold):
         posting = dict(row)
@@ -260,4 +276,10 @@ def run_notify(conn, threshold, *, now, notify_fn, token, chat_id) -> None:
             notify_fn(posting, token=token, chat_id=chat_id)
             db.mark_notified(conn, row["id"], now=now)
         except Exception as exc:  # noqa: BLE001
-            db.mark_failed(conn, row["id"], error=str(exc), now=now)
+            attempt = row["attempts"] + 1
+            exhausted = attempt >= NOTIFY_MAX_ATTEMPTS
+            db.record_notify_failure(conn, row["id"], error=str(exc), now=now,
+                                     exhausted=exhausted)
+            print(f"[notify] send failed (attempt {attempt}/{NOTIFY_MAX_ATTEMPTS}) "
+                  f"for posting id={row['id']}: {exc}"
+                  + (" — parked as failed" if exhausted else "; will retry next pass"))

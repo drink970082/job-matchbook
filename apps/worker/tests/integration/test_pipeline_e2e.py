@@ -29,11 +29,12 @@ def _cfg():
     )
 
 
-def _run(monkeypatch, tmp_path, *, postings, score_fn):
+def _run(monkeypatch, tmp_path, *, postings, score_fn, passes=1):
     """Run the real run_once with canned postings + a fake scorer. notify raises
     only when the JD contains the marker 'BOOM' (for failure-isolation tests);
-    otherwise it records the external_ids it was asked to send. Returns
-    (db_path, notified_ids)."""
+    otherwise it records the external_ids it was asked to send. `passes` runs
+    run_once repeatedly over the SAME db (the scheduler's cadence), which is how
+    the notify retry path is exercised. Returns (db_path, notified_ids)."""
     dbfile = bootstrap_db(str(tmp_path / "applications.db"))
 
     def fake_run_fetch(conn, companies, title_filter, *, now, **_):
@@ -50,7 +51,8 @@ def _run(monkeypatch, tmp_path, *, postings, score_fn):
     monkeypatch.setattr(run, "score_posting", lambda posting, resume, **kw: score_fn(posting))
     monkeypatch.setattr(run, "notify_posting", fake_notify)
 
-    run.run_once(_cfg(), db_path=dbfile, resume_text="r", env=ENV)
+    for _ in range(passes):
+        run.run_once(_cfg(), db_path=dbfile, resume_text="r", env=ENV)
     return dbfile, notified
 
 
@@ -100,8 +102,25 @@ def test_notify_failure_isolated_across_postings(monkeypatch, tmp_path):
                             score_fn=lambda p: {"score": 90})
     status = _statuses(dbfile)
     assert status["ok"] == "notified"
-    assert status["bad"] == "failed"          # notify raised; row isolated, not aborting the batch
+    assert status["bad"] == "scored"          # send error is transient: kept for a next-pass retry
     assert notified == ["ok"]
     conn = dbmod.connect(dbfile)
     bad = conn.execute("SELECT * FROM job_postings WHERE external_id='bad'").fetchone()
     assert bad["attempts"] == 1 and "telegram" in bad["pipeline_error"]
+
+
+def test_notify_retry_exhausts_to_failed_without_double_alert(monkeypatch, tmp_path):
+    postings = [make_posting("ok", description="clean jd"),
+                make_posting("bad", description="BOOM jd")]
+
+    # Three scheduler passes over one db: the failing send is retried each pass
+    # and parks 'failed' on the 3rd (NOTIFY_MAX_ATTEMPTS) cumulative failure.
+    dbfile, notified = _run(monkeypatch, tmp_path, postings=postings,
+                            score_fn=lambda p: {"score": 90}, passes=3)
+    status = _statuses(dbfile)
+    assert status["bad"] == "failed"          # retry budget spent -> parked, visible in Failed tab
+    assert status["ok"] == "notified"
+    assert notified == ["ok"]                 # alerted exactly once across all passes
+    conn = dbmod.connect(dbfile)
+    bad = conn.execute("SELECT * FROM job_postings WHERE external_id='bad'").fetchone()
+    assert bad["attempts"] == 3

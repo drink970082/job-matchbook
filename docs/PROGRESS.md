@@ -9,9 +9,8 @@
 
 **Current phase:** v0.2.0. Feature-set complete; testing/CI hardened (coverage
 gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
-test/CI hardening, not security hardening** — several known reliability gaps remain
-open (see [Open work](#open-work)), including a notify-failure defect that can bury a
-high-scoring match. Nothing is in flight. (Recent changes: see the
+test/CI hardening, not security hardening** — a few unverified properties remain
+open (see [Open work](#open-work)). Nothing is in flight. (Recent changes: see the
 [CHANGELOG](../CHANGELOG.md).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
@@ -21,9 +20,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- 🚧 **Notify-failure defect fix — bounded retry (cap 3) at the notify stage.**
-  Approved spec:
-  [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
+_Nothing in flight._
 
 ---
 
@@ -35,19 +32,7 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **`failed` is a dead-end, and a transient notify failure buries a high-scoring
-  match.** Any stage exception marks a row `failed`, and nothing transitions it back.
-  `run_notify` wraps the Telegram send in try/except, so a *transient* send error on a
-  `scored ≥ threshold` posting marks it `failed` — and because the default
-  Discovered-Jobs queue is `{scored, notified}`, that match vanishes from the default
-  view and is never re-notified. Recovery is manual (filter to `failed`/`all`, reopen
-  → re-notify). The `attempts` column is incremented on failure but **auto-retry is
-  not implemented** — `attempts` is recorded, never acted on. **The tailoring removal
-  made the clean fix cheap:** notify is now a single atomic `sendMessage` (no PDF
-  second send), so a failed send sent nothing — the row can simply be left `scored`
-  and retried next pass with no double-alert risk. Alternatives: wire the auto-retry
-  `attempts` anticipates, or add a "needs attention" view for `failed`. (SPEC §9,
-  "Failure handling and recovery limits.")
+_No known defects._
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 

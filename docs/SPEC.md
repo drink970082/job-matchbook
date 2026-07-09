@@ -355,7 +355,10 @@ worker modules are pure and dependency-injected; real services are wired only in
     on the unresolved board.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
-  (optionally `min_score`), `save_score`, `mark_notified`, `mark_failed`. Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
+  (optionally `min_score`), `save_score`, `mark_notified` (clears `pipeline_error`),
+  `mark_failed` (terminal), `record_notify_failure` (retry-aware: keeps the row
+  `scored` until the caller declares the budget exhausted, then parks it `failed`).
+  Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `existing_external_ids`. Issues no DDL.
 - **`score.py` — `score_posting`.** Up to two calls, two backends, **SCREEN-gated**:
@@ -396,8 +399,9 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
   `run_fetch` → (`run_feed`) → `run_score` → `run_notify`. Every stage
-  wraps each item in try/except: one bad posting/company is recorded (via
-  `db.mark_failed` or skipped) and the batch continues. `run_feed` (optional) runs
+  wraps each item in try/except: one bad posting/company is recorded
+  (`db.mark_failed`; at the notify stage `db.record_notify_failure`, which retries —
+  §9) or skipped, and the batch continues. `run_feed` (optional) runs
   the feed: prefilter → resolve → record-unresolved, then groups survivors by
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
@@ -524,8 +528,8 @@ model job_postings {
   score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification
   posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
-  pipeline_error  String?       // last error when pipeline_status='failed'
-  attempts        Int           @default(0)     // recorded on failure (auto-retry not implemented)
+  pipeline_error  String?       // last stage/send error; cleared on successful notify
+  attempts        Int           @default(0)     // cumulative failures (notify retries until 3, then parks failed)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String
@@ -602,8 +606,12 @@ fetch:   (new posting)            → new
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
 score:   new                      → scored        (default)
                                   → discarded      (candidate hard-constraint fail)
-notify:  scored, score ≥ threshold → notified      (below threshold: stay scored, untouched)
-any stage, on exception           → failed         (pipeline_error set; batch continues)
+notify:  scored, score ≥ threshold → notified      (below threshold: stay scored, untouched;
+                                                    success clears pipeline_error)
+         on send error            → scored         (attempts+1, pipeline_error recorded;
+                                                    retried next pass — the 3rd cumulative
+                                                    failure parks the row failed)
+fetch/score, on exception         → failed         (pipeline_error set; batch continues)
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
@@ -612,7 +620,8 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 - **Stage gating is strict:** `run_score` processes only `new`; `run_notify` only
   `scored` with `score ≥ threshold` (the notification gate; below-threshold rows
   stay `scored`, untouched). A failure in one posting never aborts the batch
-  (per-item try/except → `mark_failed`).
+  (per-item try/except → `mark_failed`, or the notify stage's bounded retry — see
+  "Failure handling and recovery limits" below).
 - **Screening is part of scoring, not a separate stage.** With an empty `candidate`
   block, the screen call is skipped entirely (no disqualification). A `discarded`
   row keeps its `score`/`score_detail` (including `disqualification_reason`) so the
@@ -732,19 +741,22 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
 **Failure handling and recovery limits:**
 
-- **`failed` is terminal.** No stage or action transitions a row *out* of `failed`
-  (`run_score`←`new`, `run_notify`←`scored`; `reopenJobPosting` only writes `scored`).
-  `mark_failed` increments `attempts`, but **auto-retry is not implemented** —
-  `attempts` is recorded, not acted on.
-- **Notify failure buries a high-scoring match.** `run_notify` wraps the send in
-  try/except → `mark_failed`, so a *transient* Telegram error on a `scored ≥ threshold`
-  posting marks it `failed`. Because the default Discovered-Jobs queue is
-  `{scored, notified}`, that posting then disappears from the default view and is never
-  re-notified. Recovery is manual (filter to `failed`/`all`; a manual reopen routes it
-  to `scored`, which re-notifies). This conflates a transient notification failure with
-  a genuine pipeline failure. Now that notify is a single atomic `sendMessage` (no PDF
-  second send), the fix is cheap — leave the row `scored` on a send error — but is not
-  yet applied. *(Tracked in [`PROGRESS.md`](./PROGRESS.md) → Open work → Defects.)*
+- **`failed` is terminal.** No stage transitions a row *out* of `failed`
+  (`run_score`←`new`, `run_notify`←`scored`); recovery is a human act
+  (`reopenJobPosting`/`bulkReopen` write `scored`). A fetch/score exception parks the
+  row `failed` immediately.
+- **Notify send errors are retried, bounded.** `run_notify` treats a Telegram send
+  error as transient: the row **stays `scored`** (`attempts+1`, `pipeline_error`
+  recorded) so the next scheduled pass retries the send — the match never leaves the
+  default Discovered-Jobs view while retrying. The `NOTIFY_MAX_ATTEMPTS`-th (3)
+  cumulative failure parks it `failed` (terminal, the Failed tab), so a *persistent*
+  channel failure (revoked token, wrong chat id) surfaces in a visible queue instead
+  of retrying silently forever. A successful send clears `pipeline_error`. Delivery
+  is **at-least-once**: the send is a single atomic `sendMessage`, so a timeout after
+  delivery can only duplicate the alert, never half-send it — a duplicate ping beats
+  a lost match. `attempts` counts failures cumulatively, so a row manually reopened
+  from `failed` gets one fresh notify attempt per reopen. Design:
+  [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
 
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
@@ -775,7 +787,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Deterministic location gate (`resolve_location`, pycountry): foreign→discard, US-state/remote/missing→keep | `test_score.py` (`test_resolve_location` + gate integration tests) |
-| `mark_failed` → `failed` + `attempts+1` (no recovery exists) | `test_db.py` |
+| `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
+| Notify send error → stays `scored` + `attempts+1` + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
 | Discovered-jobs score-aware buckets (matched/discarded/failed) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
@@ -851,10 +864,10 @@ automated coverage — those rely on code review or the human in the loop, not a
   only `*.example` templates. Keep real-resume edits out of git with
   `git update-index --skip-worktree`.
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
-  batch — the row is marked `failed` with its error and processing continues. The
-  scorer returning junk JSON marks that row `failed` rather than crashing. Caveat:
-  `failed` is terminal and not auto-retried, so a *transient* failure (notably at the
-  notify step) can bury a high-scoring match — see §9, "Failure handling and
+  batch — the failure is recorded on the row and processing continues. The scorer
+  returning junk JSON marks that row `failed` rather than crashing. A notify send
+  error is retried across passes (bounded at 3) before parking `failed`; `failed`
+  itself stays terminal and manual-reopen-only — see §9, "Failure handling and
   recovery limits."
 - **Concurrency safety:** WAL + `busy_timeout=5000`ms (+ the directory mount) keep the
   two containers from hitting `database is locked` **under low write-contention**

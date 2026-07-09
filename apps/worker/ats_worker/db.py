@@ -173,7 +173,10 @@ def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
 
 
 def mark_notified(conn, posting_id: int, *, now: str) -> None:
-    _update(conn, posting_id, {"pipeline_status": "notified", "updated_at": now})
+    # pipeline_error is cleared so a row that recovered from a failed send
+    # doesn't carry a stale error string.
+    _update(conn, posting_id, {"pipeline_status": "notified", "pipeline_error": None,
+                               "updated_at": now})
 
 
 def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:
@@ -182,5 +185,20 @@ def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:
         "UPDATE job_postings SET pipeline_status='failed', pipeline_error=?, "
         "attempts=attempts+1, updated_at=? WHERE id=?",
         (error, now, posting_id),
+    )
+    conn.commit()
+
+
+def record_notify_failure(conn, posting_id: int, *, error: str, now: str,
+                          exhausted: bool) -> None:
+    """Record a failed notify send. Unlike mark_failed (terminal), the row keeps
+    its 'scored' status — so the next pass retries the send — until the caller
+    declares the retry budget exhausted, which parks it 'failed'. Either way the
+    error and the attempts counter land on the row, so a retrying failure is
+    visible, not swallowed."""
+    conn.execute(
+        "UPDATE job_postings SET pipeline_status=?, pipeline_error=?, "
+        "attempts=attempts+1, updated_at=? WHERE id=?",
+        ("failed" if exhausted else "scored", error, now, posting_id),
     )
     conn.commit()

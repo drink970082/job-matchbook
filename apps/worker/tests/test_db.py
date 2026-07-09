@@ -99,6 +99,33 @@ def test_mark_failed_records_error_and_increments_attempts(db_path):
     assert _one(conn)["attempts"] == 2
 
 
+def test_record_notify_failure_keeps_scored_until_exhausted(db_path):
+    conn = db.connect(db_path)
+    seed_scored(conn, {"1": 90})
+    pid = _one(conn)["id"]
+    db.record_notify_failure(conn, pid, error="telegram 429", now=LATER, exhausted=False)
+    row = _one(conn)
+    assert row["pipeline_status"] == "scored"   # still retryable next pass
+    assert row["pipeline_error"] == "telegram 429"
+    assert row["attempts"] == 1
+    db.record_notify_failure(conn, pid, error="telegram 500", now=LATER, exhausted=True)
+    row = _one(conn)
+    assert row["pipeline_status"] == "failed"   # retry budget spent -> parked
+    assert row["pipeline_error"] == "telegram 500"
+    assert row["attempts"] == 2
+
+
+def test_mark_notified_clears_pipeline_error(db_path):
+    conn = db.connect(db_path)
+    seed_scored(conn, {"1": 90})
+    pid = _one(conn)["id"]
+    db.record_notify_failure(conn, pid, error="telegram 429", now=LATER, exhausted=False)
+    db.mark_notified(conn, pid, now=LATER)
+    row = _one(conn)
+    assert row["pipeline_status"] == "notified"
+    assert row["pipeline_error"] is None        # a recovered row carries no stale error
+
+
 EVEN_LATER = "2026-06-04T10:00:00.000Z"
 
 

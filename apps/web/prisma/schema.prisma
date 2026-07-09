@@ -41,8 +41,8 @@ model job_postings {
   score           Int? // 0-100 fit score (Claude); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { matched_keywords:[], missing_keywords:[], reasoning } (worker output)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
-  pipeline_error  String? // last error message when pipeline_status='failed'
-  attempts        Int           @default(0) // processing attempts (recorded on failure; auto-retry not yet implemented)
+  pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
+  attempts        Int           @default(0) // cumulative failure count (notify send retries until 3, then parks 'failed')
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String

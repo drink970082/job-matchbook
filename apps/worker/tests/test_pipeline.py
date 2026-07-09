@@ -139,12 +139,13 @@ def test_run_notify_failure_isolated(db_path):
             raise RuntimeError("telegram 429")
 
     pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
-    statuses = {
-        r["external_id"]: r["pipeline_status"]
-        for r in conn.execute("SELECT * FROM job_postings").fetchall()
-    }
-    assert statuses["1"] == "failed"
-    assert statuses["2"] == "notified"
+    rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    # A send error is transient: the row stays 'scored' for a next-pass retry,
+    # with the failure recorded on it; the sibling is unaffected.
+    assert rows["1"]["pipeline_status"] == "scored"
+    assert rows["1"]["attempts"] == 1
+    assert "telegram" in rows["1"]["pipeline_error"]
+    assert rows["2"]["pipeline_status"] == "notified"
 
 
 def test_run_score_disqualified_is_discarded_with_reason(db_path):
@@ -211,18 +212,45 @@ def test_run_notify_threshold_is_inclusive(db_path):
     assert notified == ["edge"]      # score == threshold IS notified (>= not >)
 
 
-def test_run_notify_failure_records_attempts(db_path):
+def test_run_notify_send_error_retries_then_parks_failed(db_path):
     conn = db.connect(db_path)
     _seed_scored(conn, {"a": 90})
+    calls = []
 
     def notify_fn(posting, *, token, chat_id):
+        calls.append(posting["external_id"])
         raise RuntimeError("telegram 429")
 
+    # Each pass retries the still-'scored' row; the 3rd cumulative failure
+    # (NOTIFY_MAX_ATTEMPTS) parks it 'failed'.
+    for expected_attempts, expected_status in ((1, "scored"), (2, "scored"), (3, "failed")):
+        pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+        row = conn.execute("SELECT * FROM job_postings").fetchone()
+        assert row["attempts"] == expected_attempts
+        assert row["pipeline_status"] == expected_status
+        assert "telegram" in row["pipeline_error"]
+    assert calls == ["a", "a", "a"]
+    # Parked rows are terminal: a further pass must not retry them.
     pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    assert calls == ["a", "a", "a"]
+
+
+def test_run_notify_retry_then_success_clears_error(db_path):
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"a": 90})
+    sends = []
+
+    def flaky_notify(posting, *, token, chat_id):
+        sends.append(posting["external_id"])
+        if len(sends) == 1:
+            raise RuntimeError("telegram 429")
+
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
+    pipeline.run_notify(conn, 75, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
-    assert row["pipeline_status"] == "failed"
-    assert row["attempts"] == 1
-    assert "telegram" in row["pipeline_error"]
+    assert row["pipeline_status"] == "notified"
+    assert row["pipeline_error"] is None   # cleared on the successful send
+    assert row["attempts"] == 1            # the earlier failure stays counted
 
 
 def test_stages_ignore_wrong_status_rows(db_path):
