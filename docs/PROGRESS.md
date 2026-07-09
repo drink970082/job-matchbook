@@ -11,8 +11,7 @@
 gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
 test/CI hardening, not security hardening** — several known reliability gaps remain
 open (see [Open work](#open-work)), including a notify-failure defect that can bury a
-high-scoring match. Nothing is in flight. (Most recent change: résumé tailoring
-removed — the pipeline now ends at score → notify; see
+high-scoring match. Nothing is in flight. (Recent changes: see the
 [CHANGELOG](../CHANGELOG.md).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7

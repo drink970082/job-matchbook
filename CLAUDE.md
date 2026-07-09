@@ -40,7 +40,8 @@ SQLite database**:
 apps/web/      Next.js app   (schema, server actions, components, e2e)
 apps/worker/   Python worker (ats_worker/: fetch/ score notify pipeline run)
 db/            shared SQLite  (gitignored)
-docs/          SPEC.md · PROGRESS.md · SETUP.md (stub) · pipeline-design.md (historical)
+docs/          SPEC.md · PROGRESS.md · PRINCIPLES.md · DEVELOPMENT.md ·
+               superpowers/ (specs·plans) · SETUP.md (stub) · pipeline-design.md (historical)
 tools/         check_schema_drift.mjs · seed_db.mjs
 ```
 

@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-07-05 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-07-09 · **License:** MIT
 
 ---
 

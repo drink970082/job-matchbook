@@ -23,10 +23,14 @@ DNA). Do this before touching anything; the rest of the rail assumes it.
 |------|------------|------|
 | **Design-shaped** | Changes behavior or a SPEC §9 invariant, adds a dependency, touches `schema.prisma`, or has *any* open fork — and no approved spec exists yet | Full rail: 3 → 4 → 5 → 6 |
 | **Execution-shaped** | An approved spec (and plan, if multi-step) already exists under `docs/superpowers/` | Skip 3: execute the plan as written; a deviation discovered mid-flight goes back through 3 |
-| **Maintenance** | Restores already-specified behavior without changing any invariant: clear-repro bug, doc drift, dependency bump | Skip 3; 5–6 still apply in full |
+| **Maintenance** | Restores already-specified behavior without changing any invariant (clear-repro bug, doc drift, dependency bump) — or **adds tests/verification for already-specified behavior** (close the matching ⚠ row in SPEC §9's traceability table) | Skip 3; 5–6 still apply in full |
 
 **Unsure → design-shaped.** A maintenance fix that starts wanting to change an
 invariant or add behavior is reclassified on the spot.
+
+A spec counts as **approved** only when its `**Status:**` header line says so — a
+committed spec without that line is a draft, not a license to build (committing
+early as context insurance produces exactly such drafts).
 
 ## 3. Design gate *(design-shaped only)*
 
@@ -37,7 +41,8 @@ invariant or add behavior is reclassified on the spot.
 - **Every fork goes to the user** with researched trade-offs and a recommendation —
   the user decides. This includes new dependencies and changed defaults.
 - Write the spec to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` (rejected
-  alternatives + reasons included) and commit it. Multi-step work also gets a plan in
+  alternatives + reasons included) and commit it. Its `**Status:**` header becomes
+  `approved` only after the user signs off. Multi-step work also gets a plan in
   `docs/superpowers/plans/`.
 
 ## 4. Implement
@@ -68,7 +73,8 @@ Run everything the change touches:
 1. **Never claim a result from a command not run in this session.** Paste the tail
    of the actual output into the report.
 2. **Tests green ≠ behavior verified.** When the change has a runtime surface, drive
-   it — worker: targeted pytest plus a `--once` pass where feasible; web: `make dev`
+   it — worker: targeted pytest, plus a `--once` pass where real config/keys are
+   set up (SPEC §12); web: `make dev`
    and click through the flow — and report what was *observed*, not what should
    happen.
 3. **The final report always states:** what changed · the evidence (commands + output

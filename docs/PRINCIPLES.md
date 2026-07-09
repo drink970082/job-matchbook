@@ -69,8 +69,9 @@ nothing is silently swallowed.
 keep going.
 - *Why:* the pipeline runs unattended on a schedule; one flaky posting must not cost
   the other four hundred.
-- *In this repo:* every stage wraps each item in try/except → `mark_failed` (with
-  `pipeline_error`); `run_feed` isolates per-group and per-id.
+- *In this repo:* every stage wraps each item in try/except — recorded via
+  `mark_failed` (with `pipeline_error`) or skipped when no row exists yet
+  (`run_fetch`); `run_feed` isolates per-group and per-id.
 - *Smell:* a loop where one raise kills the pass; batch-level abort on item-level
   errors.
 
