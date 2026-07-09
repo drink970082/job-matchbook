@@ -959,6 +959,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 - **Status & open work:** [`PROGRESS.md`](./PROGRESS.md)
 - **Release history:** [`../CHANGELOG.md`](../CHANGELOG.md)
 - **Contributor conventions:** [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
+- **Design principles (decision DNA):** [`PRINCIPLES.md`](./PRINCIPLES.md)
+- **Session protocol & definition of done:** [`DEVELOPMENT.md`](./DEVELOPMENT.md)
 - **Service READMEs:** [`../apps/web`](../apps/web), [`../apps/worker/README.md`](../apps/worker/README.md)
 - **Historical design note (superseded by this spec):** [`pipeline-design.md`](./pipeline-design.md)
 - **Code anchors:** schema `apps/web/prisma/schema.prisma` · enums

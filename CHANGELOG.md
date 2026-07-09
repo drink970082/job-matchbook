@@ -7,6 +7,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+- **Development mechanism for AI sessions: `docs/PRINCIPLES.md` + `docs/DEVELOPMENT.md`.**
+  PRINCIPLES captures the project's fourteen design principles (each with rationale,
+  repo exemplar, and violation smell) plus the decision procedure (forks go to the
+  user; rejected alternatives get recorded). DEVELOPMENT pins the six-step session
+  rail — boot, task classification, design gate, implement, evidence-based verify
+  gate, same-commit docs — with a session-kickoff prompt template. `CLAUDE.md` and
+  SPEC §14 now point at both. Design spec:
+  `docs/superpowers/specs/2026-07-09-dev-mechanism-design.md`.
+
 ### Removed
 - **Résumé tailoring removed — the pipeline now ends at score → notify.** Dropped the
   Claude+tectonic per-posting tailoring stage entirely: the state machine collapses

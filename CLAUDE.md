@@ -5,7 +5,8 @@ automatically every session — keep it lean.
 
 ## Read first
 
-Before any substantive work, read these two — they are the source of truth:
+Before any substantive work, read these — the source of truth and the working
+protocol:
 
 - **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is*, including the current
   capability map (architecture, components, data model, behaviors & invariants,
@@ -13,6 +14,10 @@ Before any substantive work, read these two — they are the source of truth:
 - **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — only the *delta*: what's **in flight
   and open** (defects, unverified properties, enhancements). Completed capabilities
   live in `SPEC.md`; release history in `CHANGELOG.md`.
+- **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA: consult at every
+  design fork; forks go to the user, who decides.
+- **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
+  classification, verify-gate evidence table, definition of done.
 
 Keep them current: when you change behavior, in the **same commit** update the
 matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the gap
