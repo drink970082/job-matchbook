@@ -105,6 +105,33 @@ _SCORE_SCHEMA = {
 }
 
 
+def _score_schema(labels: list) -> dict:
+    """Structured-output schema for the fit call. With >=2 resume versions the
+    model must also pick `recommended_resume`, enum-constrained to the actual
+    labels so it can never name a nonexistent version; with one version the
+    field is omitted (byte-identical to single-resume behavior)."""
+    schema = json.loads(json.dumps(_SCORE_SCHEMA))  # deep copy; base stays pristine
+    if len(labels) >= 2:
+        schema["properties"]["recommended_resume"] = {
+            "type": "string", "enum": list(labels)}
+        schema["required"].append("recommended_resume")
+    return schema
+
+
+def _scorer_system_blocks(resumes: dict, profile: str = "") -> list[dict]:
+    """System-prefix blocks for the Claude fit call: rubric header, optional
+    personal profile, then one block per labeled resume version. cache_control
+    goes on the LAST block so the whole prefix — byte-identical every call in a
+    run — is cached once (per-posting marginal cost stays flat)."""
+    blocks: list[dict] = [{"type": "text", "text": SCORE_HEADER}]
+    if str(profile or "").strip():
+        blocks.append({"type": "text", "text": f"=== PERSONAL PROFILE ===\n{profile}"})
+    for label, text in resumes.items():
+        blocks.append({"type": "text", "text": f"=== RESUME ({label}) ===\n{text}"})
+    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return blocks
+
+
 def _truncate(text: str, max_chars: int, label: str = "description") -> str:
     """Cap a blob so it can't blow the context window.
 

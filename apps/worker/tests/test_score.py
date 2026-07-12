@@ -618,3 +618,40 @@ def test_prompts_split_into_two_files_without_location_clause():
     assert "recruiter" in prompts.SCREEN_HEADER.lower()          # screen.txt
     assert prompts.SCORE_C_DEGREE and prompts.SCREEN_FOOTER
     assert not hasattr(prompts, "SCORE_C_LOCATION")              # location clause gone
+
+
+# --- multi-resume: schema + system-prefix helpers ---------------------------
+
+def test_score_schema_single_resume_matches_today():
+    schema = score._score_schema(["resume"])
+    assert "recommended_resume" not in schema["properties"]
+    assert "recommended_resume" not in schema["required"]
+
+
+def test_score_schema_multi_resume_adds_enum_field():
+    schema = score._score_schema(["quant_dev", "swe"])
+    assert schema["properties"]["recommended_resume"] == {
+        "type": "string", "enum": ["quant_dev", "swe"]}
+    assert "recommended_resume" in schema["required"]
+    # the base schema must stay pristine (deep-copied, not mutated)
+    assert "recommended_resume" not in score._SCORE_SCHEMA["properties"]
+    assert "recommended_resume" not in score._SCORE_SCHEMA["required"]
+
+
+def test_scorer_system_blocks_layout_and_cache_control():
+    blocks = score._scorer_system_blocks(
+        {"quant_dev": "QD text", "swe": "SWE text"}, "profile text")
+    texts = [b["text"] for b in blocks]
+    assert texts[0].startswith("You are a hiring manager")     # SCORE_HEADER first
+    assert texts[1] == "=== PERSONAL PROFILE ===\nprofile text"
+    assert texts[2] == "=== RESUME (quant_dev) ===\nQD text"   # dict order preserved
+    assert texts[3] == "=== RESUME (swe) ===\nSWE text"
+    # cache_control on the LAST block only — caches the whole byte-identical prefix
+    assert blocks[-1]["cache_control"] == {"type": "ephemeral"}
+    assert all("cache_control" not in b for b in blocks[:-1])
+
+
+def test_scorer_system_blocks_empty_profile_omitted():
+    blocks = score._scorer_system_blocks({"resume": "text"}, "")
+    assert len(blocks) == 2                                    # header + one resume
+    assert blocks[1]["text"] == "=== RESUME (resume) ===\ntext"
