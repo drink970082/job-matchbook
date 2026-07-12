@@ -5,6 +5,8 @@ The critical invariant: one bad row must never abort a batch — it is marked
 """
 from __future__ import annotations
 
+import json as _json
+
 from ats_worker import db, pipeline
 from tests._helpers import (
     NOW,
@@ -164,7 +166,6 @@ def test_run_score_disqualified_is_discarded_with_reason(db_path):
     assert rows["1"]["pipeline_status"] == "discarded"
     assert rows["2"]["pipeline_status"] == "scored"
     assert rows["1"]["score"] == 88  # score kept even when discarded
-    import json as _json
     detail = _json.loads(rows["1"]["score_detail"])
     assert detail["disqualified"] is True
     assert detail["disqualification_reason"] == "requires a PhD"
@@ -198,6 +199,28 @@ def test_run_score_passes_full_posting_to_scorer(db_path):
     pipeline.run_score(conn, now=NOW, score_fn=score_fn)
     assert seen.get("description")   # the JD text reached the scorer, not just the id
     assert seen.get("job_title")
+
+
+def test_run_score_persists_recommended_resume(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+
+    def score_fn(posting):
+        base = {"score": 88, "matched_keywords": ["python"],
+                "missing_keywords": [], "reasoning": "fits the swe resume best"}
+        if posting["external_id"] == "1":
+            base["recommended_resume"] = "swe"
+        return base
+
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+
+    details = {
+        r["external_id"]: _json.loads(r["score_detail"])
+        for r in conn.execute("SELECT * FROM job_postings").fetchall()
+    }
+    assert details["1"]["recommended_resume"] == "swe"
+    # absent from the scorer result -> absent from the stored JSON (old shape)
+    assert "recommended_resume" not in details["2"]
 
 
 def test_run_notify_threshold_is_inclusive(db_path):

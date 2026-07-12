@@ -237,6 +237,10 @@ def run_score(conn, *, now, score_fn) -> None:
             # — kept for transparency so the UI can show why something was dropped.
             if result.get("screen"):
                 detail["screen"] = result["screen"]
+            # Which resume version the scorer recommends sending — rides the
+            # score_detail JSON (no schema change), surfaced in Telegram + UI.
+            if result.get("recommended_resume"):
+                detail["recommended_resume"] = result["recommended_resume"]
             if disqualified:
                 detail["disqualified"] = True
                 detail["disqualification_reason"] = result.get("disqualification_reason", "")
