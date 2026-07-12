@@ -1,6 +1,8 @@
 """TDD for Telegram notification. Injected http; no real network."""
 from __future__ import annotations
 
+import json
+
 from ats_worker import notify
 
 
@@ -45,3 +47,28 @@ def test_sends_message_with_summary_fields():
     assert "Senior Python Engineer" in text
     assert "88" in text
     assert "https://example.com/jobs/1" in text
+
+
+def _sent_text(http):
+    payload = http.calls[0][1].get("data") or http.calls[0][1].get("json")
+    return payload["text"]
+
+
+def test_message_includes_recommended_resume_line():
+    http = FakeHttp()
+    posting = dict(POSTING, score_detail=json.dumps(
+        {"matched_keywords": [], "recommended_resume": "quant_dev"}))
+    notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
+    text = _sent_text(http)
+    assert "Resume: quant_dev" in text
+    # the line sits above the URL so the link stays last (Telegram previews it)
+    assert text.index("Resume: quant_dev") < text.index("https://example.com/jobs/1")
+
+
+def test_message_omits_resume_line_when_absent_or_malformed():
+    for detail in (None, "", "not json", json.dumps({"reasoning": "x"}),
+                   json.dumps(["a", "list"])):
+        http = FakeHttp()
+        posting = dict(POSTING, score_detail=detail)
+        notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
+        assert "Resume:" not in _sent_text(http)
