@@ -14,6 +14,7 @@ import argparse
 import os
 import threading
 import time
+from pathlib import Path
 
 import requests
 
@@ -73,10 +74,12 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
 
-def run_once(cfg, *, db_path, resume_text, env,
+def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> None:
-    """Run fetch -> score -> notify exactly once."""
+    """Run fetch -> score -> notify exactly once. `resumes` is the {label: text}
+    dict of resume versions; `profile` is optional candidate context — both are
+    baked into the Claude scorer (the Ollama SCREEN never sees either)."""
     conn = db.connect(db_path)
     try:
         now = _now()
@@ -135,10 +138,11 @@ def run_once(cfg, *, db_path, resume_text, env,
         def score_fn(posting):
             if not _scorer_cell:
                 _scorer_cell.append(
-                    make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model)
+                    make_claude_scorer(env["ANTHROPIC_API_KEY"],
+                                       anthropic_score_model, profile=profile)
                 )
             return score_posting(
-                posting, resume_text,
+                posting, resumes,
                 score_fit=_scorer_cell[0],
                 model=ollama_model,          # Ollama model — SCREEN call only now
                 ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
@@ -175,6 +179,39 @@ def _read_text(path: str) -> str:
         ) from exc
 
 
+def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
+    """Load every *.txt in dir_path as a labeled resume version, plus the
+    optional personal_profile.txt as about-the-candidate context.
+
+    Label = filename stem minus a leading 'resume_' ('resume_quant_dev.txt' ->
+    'quant_dev'; bare 'resume.txt' -> 'resume'), so today's single-file layout
+    keeps working unchanged. Sorted by filename for a deterministic,
+    cache-stable prompt prefix. Zero resumes or two files deriving the same
+    label are config errors -> SystemExit (never a silent overwrite).
+    """
+    resumes: dict[str, str] = {}
+    seen: dict[str, str] = {}  # label -> filename that claimed it
+    profile = ""
+    for f in sorted(Path(dir_path).glob("*.txt")):
+        if f.name == "personal_profile.txt":
+            profile = _read_text(str(f))
+            continue
+        label = f.stem.removeprefix("resume_") or f.stem
+        if label in seen:
+            raise SystemExit(
+                f"Resume label {label!r} comes from both {seen[label]} and "
+                f"{f.name} — rename one (label = filename minus 'resume_')."
+            )
+        seen[label] = f.name
+        resumes[label] = _read_text(str(f))
+    if not resumes:
+        raise SystemExit(
+            f"No resume *.txt files found in {dir_path!r}. Provide at least one "
+            f"(see resume/README.md)."
+        )
+    return resumes, profile
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
@@ -186,7 +223,9 @@ def main(argv=None) -> None:
     # targets a local (non-Docker) checkout layout.
     parser.add_argument("--db",
                         default=os.environ.get("DB_PATH", "../web/prisma/applications.db"))
-    parser.add_argument("--resume", default="resume/resume.txt")
+    parser.add_argument("--resume-dir", default="resume",
+                        help="directory of resume *.txt versions (+ optional "
+                             "personal_profile.txt)")
     parser.add_argument("--model",
                         default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
                         help="Ollama model tag used for scoring")
@@ -211,10 +250,10 @@ def main(argv=None) -> None:
         return
 
     env = load_env(args.env)
-    resume_text = _read_text(args.resume)
+    resumes, profile = load_resumes(args.resume_dir)
 
     def once():
-        run_once(cfg, db_path=args.db, resume_text=resume_text,
+        run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                  env=env, ollama_model=args.model,
                  anthropic_score_model=args.anthropic_score_model)
 

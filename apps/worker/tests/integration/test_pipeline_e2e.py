@@ -52,7 +52,7 @@ def _run(monkeypatch, tmp_path, *, postings, score_fn, passes=1):
     monkeypatch.setattr(run, "notify_posting", fake_notify)
 
     for _ in range(passes):
-        run.run_once(_cfg(), db_path=dbfile, resume_text="r", env=ENV)
+        run.run_once(_cfg(), db_path=dbfile, resumes={"resume": "r"}, env=ENV)
     return dbfile, notified
 
 

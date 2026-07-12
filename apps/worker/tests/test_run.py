@@ -1,6 +1,8 @@
 """TDD for the entrypoint: --once runs the three stages in order, env plumbing."""
 from __future__ import annotations
 
+import pytest
+
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
 from ats_worker import run
@@ -76,7 +78,7 @@ def test_run_once_calls_three_stages_in_order(monkeypatch):
     run.run_once(
         cfg,
         db_path=":memory:",
-        resume_text="resume",
+        resumes={"resume": "resume"},
         env={
             "ANTHROPIC_API_KEY": "k",
             "TELEGRAM_BOT_TOKEN": "t",
@@ -106,7 +108,7 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
         "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
         "  - { source: lever, slug: b, name: B }\n"
     )
-    run.run_once(cfg, db_path=str(dbfile), resume_text="r", env=_ENV)
+    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
 
     conn = dbmod.connect(str(dbfile))
     assert dbmod.get_watchlist(conn) == [
@@ -114,7 +116,7 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
         {"source": "lever", "slug": "b", "name": "B"},
     ]
     # a second pass does not duplicate (watchlist no longer empty)
-    run.run_once(cfg, db_path=str(dbfile), resume_text="r", env=_ENV)
+    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
     assert dbmod.count_watchlist(dbmod.connect(str(dbfile))) == 2
 
 
@@ -130,12 +132,12 @@ def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
     cfg_on = cfgmod.load_config(
         "companies: []\nfeeds:\n  simplify:\n    enabled: true\n    categories: [Software]\n"
     )
-    run.run_once(cfg_on, db_path=str(dbfile), resume_text="r", env=_ENV)
+    run.run_once(cfg_on, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
     assert calls == [("simplify", ["Software"])]
 
     calls.clear()
     cfg_off = cfgmod.load_config("companies: []\nfeeds:\n  simplify:\n    enabled: false\n")
-    run.run_once(cfg_off, db_path=str(dbfile), resume_text="r", env=_ENV)
+    run.run_once(cfg_off, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
     assert calls == []
 
 
@@ -162,7 +164,7 @@ def _run_once_capturing_score(monkeypatch, tmp_path, cfg, env):
     dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
     conn.close()
 
-    run.run_once(cfg, db_path=str(dbfile), resume_text="r", env=env)
+    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=env)
     return captured
 
 
@@ -199,14 +201,14 @@ def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, sco
     conn = dbmod.connect(str(dbfile))
     dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
     conn.close()
-    run.run_once(cfg, db_path=str(dbfile), resume_text="r", env=env,
+    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=env,
                  anthropic_score_model=score_model)
 
 
 def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
     seen = {}
     monkeypatch.setattr(run, "make_claude_scorer",
-                        lambda key, model: seen.setdefault("model", model) or
+                        lambda key, model, **kw: seen.setdefault("model", model) or
                         (lambda posting, resume_text: {"score": 70}))
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
     env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
@@ -223,3 +225,38 @@ def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
     kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
     assert kw["candidate"] is None                     # is_empty() -> no SCREEN call
     assert kw["num_ctx"] == 8192                        # default when env omits it
+
+
+# --- multi-resume loading ---------------------------------------------------
+
+def test_load_resumes_labels_profile_and_order(tmp_path):
+    (tmp_path / "resume_swe.txt").write_text("SWE", encoding="utf-8")
+    (tmp_path / "resume_quant_dev.txt").write_text("QD", encoding="utf-8")
+    (tmp_path / "personal_profile.txt").write_text("my goals", encoding="utf-8")
+    resumes, profile = run.load_resumes(str(tmp_path))
+    # labels strip the resume_ prefix; sorted by filename -> deterministic,
+    # cache-stable prompt order (quant_dev before swe)
+    assert resumes == {"quant_dev": "QD", "swe": "SWE"}
+    assert list(resumes) == ["quant_dev", "swe"]
+    assert profile == "my goals"
+
+
+def test_load_resumes_bare_resume_txt_is_single_version(tmp_path):
+    (tmp_path / "resume.txt").write_text("me", encoding="utf-8")
+    resumes, profile = run.load_resumes(str(tmp_path))
+    assert resumes == {"resume": "me"}
+    assert profile == ""
+
+
+def test_load_resumes_no_files_exits_with_hint(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        run.load_resumes(str(tmp_path))
+    assert "resume" in str(e.value).lower()
+
+
+def test_load_resumes_duplicate_label_exits_naming_both(tmp_path):
+    (tmp_path / "resume_swe.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "swe.txt").write_text("b", encoding="utf-8")
+    with pytest.raises(SystemExit) as e:
+        run.load_resumes(str(tmp_path))
+    assert "resume_swe.txt" in str(e.value) and "swe.txt" in str(e.value)
