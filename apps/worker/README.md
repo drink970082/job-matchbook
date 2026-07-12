@@ -41,7 +41,8 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
    pre-filter) + the `candidate` screening block (experience / degree / work
    authorization / clearance / locations + freeform dealbreakers; auto-discards
    conflicting postings) + score threshold + schedule. See the committed sample.
-2. `resume/resume.txt` — your résumé content, used for keyword/fit scoring.
+2. `resume/*.txt` — one or more labeled résumé versions (plus an optional
+   `personal_profile.txt` about-me context), used for keyword/fit scoring.
    See `resume/README.md`.
 3. `.env` — copy `.env.example` → `.env` and fill in `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`.

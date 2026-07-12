@@ -262,7 +262,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`run.py` — entrypoint & wiring.** CLI: `--once` (single pass then exit) vs
   scheduler (immediate pass, then every `schedule_hours`). Flags: `--config`,
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
-  `--resume`, `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
+  `--resume-dir` (directory of resume versions, default `resume/`),
+  `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `qwen3.5:4b`; fit score `claude-sonnet-5`. Each pass
@@ -381,19 +382,31 @@ worker modules are pure and dependency-injected; real services are wired only in
   call — runs even when no other screen clause is configured). A SCREEN parse failure
   errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
   screen did not disqualify** (a discarded posting records `score` 0 and never pays
-  for a Claude call) — comes from an injected `score_fit(posting, resume_text)`
+  for a Claude call) — comes from an injected `score_fit(posting, resumes)`
   callable, in production `make_claude_scorer` (Claude, `claude-sonnet-5` by default —
   structured outputs require it; `claude-sonnet-4-6` doesn't support
   `output_config.format` — overridable via
-  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`), which sends the résumé + scoring
-  rubric as a **cached system prefix** (`cache_control: ephemeral`, byte-identical
-  every call in a run, only the JD is fresh) with **adaptive thinking** so the model
+  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`). `resumes` is the `{label: text}`
+  dict `run.py`'s `load_resumes` builds from every `*.txt` in `--resume-dir`: label =
+  filename minus a leading `resume_` (`resume.txt` → `resume`,
+  `resume_quant_dev.txt` → `quant_dev`), plus an optional `personal_profile.txt`
+  read separately as about-the-candidate context (goals/constraints/preferences,
+  never itself scored as a résumé); two files deriving the same label, or zero
+  resume files, is a config error (`SystemExit`, never a silent overwrite). The
+  scorer sends **all resume versions** (+ the profile, if present) and the rubric as
+  **one cached system prefix** (`cache_control: ephemeral`, byte-identical every
+  call in a run, only the JD is fresh) with **adaptive thinking** so the model
   reasons about seniority/domain/gaps *before* committing to a number, returning
   schema-constrained JSON (`{reasoning, score 0-100, matched_keywords,
-  missing_keywords}`, `reasoning` ordered first in the schema); `score_posting`
-  normalizes/clamps the result (`ScoreError` on anything unusable). **There is no
-  local experience/years gate** — seniority is judged entirely by the Claude score,
-  not a deterministic code check.
+  missing_keywords}`, `reasoning` ordered first in the schema). With **two or
+  more** resume versions the schema additionally requires `recommended_resume`,
+  enum-constrained to the actual labels (so the model can never name a nonexistent
+  version) — the best-fitting version, persisted in `score_detail` and surfaced as
+  a `Resume: <label>` line in the Telegram alert and an always-visible badge in the
+  job detail modal; a single-resume setup omits the field entirely (byte-identical
+  to prior behavior). `score_posting` normalizes/clamps the result (`ScoreError` on
+  anything unusable). **There is no local experience/years gate** — seniority is
+  judged entirely by the Claude score, not a deterministic code check.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link) — a single atomic message per match; the human applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
@@ -916,7 +929,9 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    (default 75), `schedule_hours` (24). Workday's `slug` packs
    `tenant/datacenter/site` (quote it).
 2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
-   real resume (plain text, fed to the fit scorer).
+   real resume (plain text, fed to the fit scorer) — or provide multiple
+   `resume_<label>.txt` versions plus an optional `personal_profile.txt` for
+   about-the-candidate context (`apps/worker/resume/README.md`).
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `ANTHROPIC_API_KEY`,
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`
    (`http://host.docker.internal:11434` for Docker). Optional overrides:

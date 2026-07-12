@@ -1,21 +1,33 @@
 # Resume source (user-provided)
 
-This repo ships only a **`resume.txt.example` template**. Copy it to the real
-filename and put **your own** content in — the real file is **gitignored**
-(personal data), so it never gets committed or pushed. Each user supplies their own.
+This repo ships only a **`resume.txt.example` template**. Real resume files are
+**gitignored** (personal data) — never committed or pushed. Each user supplies
+their own.
+
+The worker loads **every `*.txt` in this directory** as a resume version
+(`--resume-dir`, default `resume/`). The version label is the filename minus a
+leading `resume_`:
+
+| File | Label / purpose |
+|------|-----------------|
+| `resume.txt` | Label `resume` — the classic single-resume layout. |
+| `resume_quant_dev.txt` | Label `quant_dev` — a targeted version. |
+| `resume_swe.txt` | Label `swe` — another targeted version. |
+| `personal_profile.txt` | NOT a resume. Optional about-me context (goals, constraints, preferences) the fit scorer uses to judge whether a job suits you. |
+
+With **one** version, scoring behaves exactly as before. With **two or more**,
+the Claude fit scorer sees all of them, scores the best-fitting version, and
+reports which one to send (`recommended_resume` — shown in the Telegram alert
+and the job detail modal).
+
+> ⚠️ Every `*.txt` here is loaded. When you split into targeted versions,
+> **delete the old `resume.txt`** or it becomes a third scored version.
+
+Files only need to be clean readable text — the scorer judges fit on content,
+not formatting (export from your `.tex`/`.docx` sources however you like).
+The directory is mounted read-only into the worker container at `/app/resume`.
 
 ```bash
-cp resume.txt.example resume.txt       # then edit with YOUR resume
+cp resume.txt.example resume.txt       # single version, or
+cp resume.txt.example resume_swe.txt   # one file per targeted version
 ```
-
-The real file is mounted read-only into the worker container at `/app/resume`.
-
-| File | Purpose |
-|------|---------|
-| `resume.txt` | Plain-text version of your resume. Fed to the Claude fit scorer as your résumé, so the model judges fit on content, not markup. (The local Ollama screen sees only the job's hard requirements, never the résumé.) |
-
-It only needs to be clean readable text — the scorer judges fit on content, not
-formatting.
-
-Default (override with `--resume`):
-- `ats_worker.run` reads `resume/resume.txt`.

@@ -8,6 +8,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Multi-resume fit scoring.** The worker loads every `resume/*.txt` as a labeled
+  resume version (plus optional `personal_profile.txt` context); one Claude call
+  scores the best-fitting version and names it (`recommended_resume`, enum-constrained),
+  surfaced in the Telegram alert and the job detail modal. Single-resume setups are
+  unchanged. (`--resume` → `--resume-dir`.)
 - **Development mechanism for AI sessions: `docs/PRINCIPLES.md` + `docs/DEVELOPMENT.md`.**
   PRINCIPLES captures the project's fourteen design principles (each with rationale,
   repo exemplar, and violation smell) plus the decision procedure (forks go to the
