@@ -172,7 +172,7 @@ def _read_text(path: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as fh:
             return fh.read()
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise SystemExit(
             f"Could not read required resume file {path!r}: {exc}.\n"
             f"Provide your resume in apps/worker/resume/ (see resume/README.md)."

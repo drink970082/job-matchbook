@@ -260,3 +260,10 @@ def test_load_resumes_duplicate_label_exits_naming_both(tmp_path):
     with pytest.raises(SystemExit) as e:
         run.load_resumes(str(tmp_path))
     assert "resume_swe.txt" in str(e.value) and "swe.txt" in str(e.value)
+
+
+def test_load_resumes_non_utf8_file_exits_not_traceback(tmp_path):
+    (tmp_path / "resume.txt").write_bytes(b"\xff\xfe caf\xe9")  # not valid UTF-8
+    with pytest.raises(SystemExit) as e:
+        run.load_resumes(str(tmp_path))
+    assert "resume.txt" in str(e.value)
