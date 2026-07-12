@@ -267,3 +267,10 @@ def test_load_resumes_non_utf8_file_exits_not_traceback(tmp_path):
     with pytest.raises(SystemExit) as e:
         run.load_resumes(str(tmp_path))
     assert "resume.txt" in str(e.value)
+
+
+def test_load_resumes_skips_dotfiles(tmp_path):
+    (tmp_path / "resume.txt").write_text("me", encoding="utf-8")
+    (tmp_path / "._resume.txt").write_bytes(b"\x00\x05\x16\x07 AppleDouble junk")
+    resumes, _ = run.load_resumes(str(tmp_path))
+    assert resumes == {"resume": "me"}

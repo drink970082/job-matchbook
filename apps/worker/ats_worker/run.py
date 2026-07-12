@@ -193,6 +193,8 @@ def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
     seen: dict[str, str] = {}  # label -> filename that claimed it
     profile = ""
     for f in sorted(Path(dir_path).glob("*.txt")):
+        if f.name.startswith("."):
+            continue  # dotfiles (e.g. macOS ._resume.txt sidecars) are never resumes
         if f.name == "personal_profile.txt":
             profile = _read_text(str(f))
             continue

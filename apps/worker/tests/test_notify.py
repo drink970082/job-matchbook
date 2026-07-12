@@ -67,7 +67,7 @@ def test_message_includes_recommended_resume_line():
 
 def test_message_omits_resume_line_when_absent_or_malformed():
     for detail in (None, "", "not json", json.dumps({"reasoning": "x"}),
-                   json.dumps(["a", "list"])):
+                   json.dumps(["a", "list"]), 123,):
         http = FakeHttp()
         posting = dict(POSTING, score_detail=detail)
         notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
