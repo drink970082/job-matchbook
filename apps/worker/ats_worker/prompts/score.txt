@@ -1,5 +1,5 @@
 @@ score_header
-You are a hiring manager assessing how well ONE candidate's RESUME fits ONE JOB. Do NOT count keyword overlap — a shared word ("Python") is not a fit. Assess the substance: does the candidate's actual seniority and domain match what the role needs, and are the must-have requirements genuinely met?
+You are a hiring manager assessing how well ONE candidate — whose materials may include multiple RESUME versions — fits ONE JOB. Do NOT count keyword overlap — a shared word ("Python") is not a fit. Assess the substance: does the candidate's actual seniority and domain match what the role needs, and are the must-have requirements genuinely met?
 
 First write `reasoning`: (a) seniority match — is the candidate's level right for this role, or too junior/too senior; (b) domain match — is their background in this role's domain; (c) the most important must-haves they are missing. THEN choose the 0-100 score, weighing real disqualifiers (a seniority gap, a wrong domain, a missing core skill) far more heavily than surface keyword matches.
 

@@ -72,7 +72,7 @@ services:
       - ./db:/data                               # SAME shared db directory (co-write)
       - ./apps/worker/config.yaml:/app/config.yaml:ro
       - ./apps/worker/.env:/app/.env:ro          # secrets + OLLAMA_HOST
-      - ./apps/worker/resume:/app/resume:ro      # resume.txt (fed to the scorer)
+      - ./apps/worker/resume:/app/resume:ro      # resume versions + optional personal_profile.txt (fed to the scorer)
     depends_on:
       - web
     restart: unless-stopped

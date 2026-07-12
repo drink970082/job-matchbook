@@ -60,13 +60,17 @@ CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 
 ## Keeping your real resume private
 
-The worker ships template `resume/resume.txt` so a clean clone runs out of the
-box. Replace it with your real resume locally, but keep your edits out of git:
+Real resume files (`resume/*.txt`, `resume/personal_profile.txt`) are
+gitignored — the repo ships only a tracked `resume/resume.txt.example`
+template. Copy it to get started:
 
 ```bash
 cd apps/worker
-git update-index --skip-worktree resume/resume.txt
+cp resume/resume.txt.example resume/resume.txt
 ```
+
+See `apps/worker/resume/README.md` for the multi-resume convention (multiple
+targeted versions, the optional profile file, and how labels are derived).
 
 Secrets (`apps/worker/.env`), the résumé (`apps/worker/resume/`), and the
 database (`db/`) are gitignored — never commit them.

@@ -408,7 +408,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   anything unusable). **There is no local experience/years gate** — seniority is
   judged entirely by the Claude score, not a deterministic code check.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
-  score / JD link) — a single atomic message per match; the human applies by hand.
+  score / JD link, plus an optional `Resume: <label>` line when `score_detail`
+  carries `recommended_resume`) — a single atomic message per match; the human
+  applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
   `run_fetch` → (`run_feed`) → `run_score` → `run_notify`. Every stage
@@ -538,7 +540,7 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100, from Claude fit score
-  score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification
+  score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification, recommended_resume
   posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String?       // last stage/send error; cleared on successful notify

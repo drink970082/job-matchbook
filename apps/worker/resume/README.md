@@ -25,6 +25,7 @@ and the job detail modal).
 
 Files only need to be clean readable text — the scorer judges fit on content,
 not formatting (export from your `.tex`/`.docx` sources however you like).
+Files must be UTF-8; a non-UTF-8 file aborts startup, naming the offending file.
 The directory is mounted read-only into the worker container at `/app/resume`.
 
 ```bash
