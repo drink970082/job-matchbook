@@ -12,7 +12,7 @@ UP TO TWO calls per posting, from two different backends, SCREEN-gated:
               Runs FIRST (cheap, local Ollama). Skipped when no candidate
               constraints are configured.
   2. SCORE  — fit score 0-100 + matched/missing keywords, from the injected
-              `score_fit(posting, resume_text)` callable (Claude). Only reached
+              `score_fit(posting, resumes)` callable (Claude). Only reached
               when the screen did NOT disqualify — a discarded posting never pays
               for a fit score. Result normalized here (missing "score" raises).
 The screen call has no résumé so it can't anchor on where the candidate lives, and
@@ -189,7 +189,7 @@ def _candidate_block(candidate) -> str:
 
 def score_posting(
     posting: dict,
-    resume_text: str,
+    resumes,
     *,
     score_fit,
     http=requests,
@@ -208,8 +208,10 @@ def score_posting(
     intern/co-op title check derive `disqualified`; when it's True we return score 0
     WITHOUT calling the (paid) Claude scorer, since a disqualified posting is
     discarded regardless of fit. When it passes, the injected
-    `score_fit(posting, resume_text) -> dict` (Claude, built in run.py) is called and
-    normalized here (a missing `score` raises ScoreError). The SCREEN call is skipped
+    `score_fit(posting, resumes) -> dict` (Claude, built in run.py) is called and
+    normalized here (a missing `score` raises ScoreError). `resumes` is the
+    `{label: text}` dict of resume versions — score_posting itself never reads it
+    (pure pass-through). The SCREEN call is skipped
     when no candidate constraints are configured, and a SCREEN parse failure errs
     toward keep (not disqualified). Raises ScoreError on an unusable fit result.
     """
@@ -275,7 +277,7 @@ def score_posting(
 
     # 2. SCORE — passed the screen, so pay for the Claude fit score (injected).
     # Normalized here (missing score -> raise).
-    result = _normalize_score(score_fit(posting, resume_text))
+    result = _normalize_score(score_fit(posting, resumes))
     result.update(screen)
     return result
 
@@ -318,12 +320,16 @@ def _normalize_score(data: dict) -> dict:
         # Absent score must fail loudly — burying it as 0 is indistinguishable
         # from a genuine 0 and would silently exclude the posting from notification.
         raise ScoreError(f"response missing required 'score': {data!r}")
-    return {
+    out = {
         "score": _coerce_score(data["score"]),
         "matched_keywords": _as_str_list(data.get("matched_keywords")),
         "missing_keywords": _as_str_list(data.get("missing_keywords")),
         "reasoning": str(data.get("reasoning") or ""),
     }
+    recommended = str(data.get("recommended_resume") or "").strip()
+    if recommended:
+        out["recommended_resume"] = recommended
+    return out
 
 
 def _coerce_score(raw) -> int:
@@ -595,19 +601,22 @@ def _as_str_list(value) -> list[str]:
 
 # --- real adapter (exercised only in Docker; never imported at module load) ---
 
-def make_claude_scorer(api_key: str, model: str, *, max_tokens: int = 4096):
-    """Build a `score_fit(posting, resume_text) -> dict` callable backed by Claude.
+def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
+                       max_tokens: int = 4096):
+    """Build a `score_fit(posting, resumes) -> dict` callable backed by Claude.
 
-    The résumé + rubric are sent as a cached system prefix (byte-identical every
-    call in a run) so only the JD is fresh; the model reasons (adaptive thinking)
-    then emits schema-constrained JSON. `import anthropic` and the client are
+    `resumes` is the {label: text} dict of resume versions; `profile` (optional,
+    run-static) is extra about-the-candidate context. Rubric + profile + all
+    resumes are sent as a cached system prefix (byte-identical every call in a
+    run) so only the JD is fresh; with >=2 versions the schema also demands an
+    enum-constrained `recommended_resume`. `import anthropic` and the client are
     deferred to the FIRST call so importing this module — and building the scorer
     in tests — never needs the SDK. Returns the RAW parsed JSON; score_posting
     normalizes it.
     """
     cell: list = []
 
-    def score_fit(posting: dict, resume_text: str) -> dict:
+    def score_fit(posting: dict, resumes: dict) -> dict:
         if not cell:
             import anthropic  # lazy: only at runtime in Docker
             cell.append(anthropic.Anthropic(api_key=api_key))
@@ -617,12 +626,9 @@ def make_claude_scorer(api_key: str, model: str, *, max_tokens: int = 4096):
             model=model,
             max_tokens=max_tokens,
             thinking={"type": "adaptive"},
-            system=[
-                {"type": "text", "text": SCORE_HEADER},
-                {"type": "text", "text": f"=== RESUME ===\n{resume_text}",
-                 "cache_control": {"type": "ephemeral"}},
-            ],
-            output_config={"format": {"type": "json_schema", "schema": _SCORE_SCHEMA}},
+            system=_scorer_system_blocks(resumes, profile),
+            output_config={"format": {"type": "json_schema",
+                                      "schema": _score_schema(list(resumes))}},
             messages=[{"role": "user", "content": job}],
         )
         text = "".join(

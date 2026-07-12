@@ -655,3 +655,40 @@ def test_scorer_system_blocks_empty_profile_omitted():
     blocks = score._scorer_system_blocks({"resume": "text"}, "")
     assert len(blocks) == 2                                    # header + one resume
     assert blocks[1]["text"] == "=== RESUME (resume) ===\ntext"
+
+
+def test_recommended_resume_passed_through_normalization():
+    out = score.score_posting(
+        POSTING, {"quant_dev": "q", "swe": "s"}, model="m", http=FakeHttp(),
+        ollama_host="h",
+        score_fit=lambda p, r: {"score": 80, "recommended_resume": "swe"})
+    assert out["recommended_resume"] == "swe"
+
+
+def test_recommended_resume_absent_or_blank_is_omitted():
+    out = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(),
+                              ollama_host="h", score_fit=lambda p, r: {"score": 80})
+    assert "recommended_resume" not in out
+    out2 = score.score_posting(
+        POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
+        score_fit=lambda p, r: {"score": 80, "recommended_resume": "   "})
+    assert "recommended_resume" not in out2
+
+
+def test_score_fit_receives_the_resumes_dict():
+    got = {}
+    resumes = {"quant_dev": "QD", "swe": "SWE"}
+
+    def fit(posting, r):
+        got["resumes"] = r
+        return {"score": 70}
+
+    score.score_posting(POSTING, resumes, score_fit=fit, model="m",
+                        http=FakeHttp(), ollama_host="h")
+    assert got["resumes"] is resumes
+
+
+def test_make_claude_scorer_accepts_profile_kwarg():
+    # Still import-safe (no anthropic at build time), now with a baked-in profile.
+    fit = score.make_claude_scorer("sk-test", "claude-sonnet-5", profile="prefers quant")
+    assert callable(fit)
