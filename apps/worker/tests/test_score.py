@@ -618,6 +618,8 @@ def test_prompts_split_into_two_files_without_location_clause():
     assert "recruiter" in prompts.SCREEN_HEADER.lower()          # screen.txt
     assert prompts.SCORE_C_DEGREE and prompts.SCREEN_FOOTER
     assert not hasattr(prompts, "SCORE_C_LOCATION")              # location clause gone
+    assert "recommended_resume" in prompts.SCORE_HEADER       # multi-resume rubric
+    assert "PERSONAL PROFILE" in prompts.SCORE_HEADER         # profile block described
 
 
 # --- multi-resume: schema + system-prefix helpers ---------------------------
