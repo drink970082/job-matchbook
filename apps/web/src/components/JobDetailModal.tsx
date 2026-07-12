@@ -32,6 +32,7 @@ interface ScoreDetail {
     reasoning?: string
     disqualified: boolean
     disqualificationReason: string
+    recommendedResume: string
     screen: [string, ScreenVerdict][]
 }
 
@@ -58,6 +59,8 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
             reasoning: p.reasoning,
             disqualified: p.disqualified === true,
             disqualificationReason: p.disqualification_reason ?? '',
+            recommendedResume:
+                typeof p.recommended_resume === 'string' ? p.recommended_resume : '',
             screen,
         }
     } catch {
@@ -103,6 +106,16 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                 <span className="font-semibold text-red-700">Disqualified</span>
                                 <span className="text-red-700/90"> — {detail.disqualificationReason}</span>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Which resume version to send — decision-critical, always visible */}
+                    {detail?.recommendedResume && (
+                        <div className="flex items-center gap-2 text-sm">
+                            <span className="text-xs font-semibold text-muted-foreground">
+                                Recommended resume
+                            </span>
+                            <Badge variant="secondary">{detail.recommendedResume}</Badge>
                         </div>
                     )}
 

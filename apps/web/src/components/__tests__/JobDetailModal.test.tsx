@@ -108,6 +108,28 @@ describe('JobDetailModal score_detail rendering', () => {
         expect(screen.getByText('location')).toBeInTheDocument()
         expect(screen.getAllByText(/on-site in Singapore/).length).toBeGreaterThanOrEqual(1)
     })
+
+    it('shows the recommended resume without expanding anything', () => {
+        const withRec = {
+            ...props,
+            job: {
+                ...workerShapedJob,
+                score_detail: JSON.stringify({
+                    matched_keywords: ['python'],
+                    missing_keywords: [],
+                    recommended_resume: 'quant_dev',
+                }),
+            },
+        }
+        render(<JobDetailModal {...withRec} />)
+        expect(screen.getByText('Recommended resume')).toBeInTheDocument()
+        expect(screen.getByText('quant_dev')).toBeInTheDocument()
+    })
+
+    it('omits the recommended-resume row when the field is absent', () => {
+        render(<JobDetailModal {...props} />)
+        expect(screen.queryByText('Recommended resume')).not.toBeInTheDocument()
+    })
 })
 
 describe('JobDetailModal actions', () => {
