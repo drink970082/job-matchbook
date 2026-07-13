@@ -36,6 +36,14 @@ _No known defects._
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
+- **Live multi-resume Claude call is unexercised end-to-end.** The multi-resume
+  scoring path is fully unit-tested (prefix blocks, enum schema, normalization,
+  persistence, notify line, modal badge), but its composition into a real
+  `anthropic.messages.create` call — cached system prefix + enum-constrained
+  `recommended_resume` — has never run against the live API (the test suite never
+  mocks the SDK by convention). Close by running one real pass (`--once`) with two
+  resume versions and confirming a scored row's `score_detail` carries
+  `recommended_resume` and the Telegram ping shows the `Resume:` line. (SPEC §7.1.)
 - **Stale-mount auto-recovery is unverified end-to-end.** The `/api/health` probe,
   Docker `healthcheck`, and `autoheal` sidecar are wired and the *healthy* path is
   confirmed (`ats-web` reports `healthy`, the sidecar monitors), but recovery from an

@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1) · **Spec last updated:** 2026-07-09 · **License:** MIT
+- **Version:** 0.2.0 (unreleased: feed + DB watchlist + feed-coverage Tier 1 + multi-resume scoring) · **Spec last updated:** 2026-07-12 · **License:** MIT
 
 ---
 
@@ -67,8 +67,8 @@ database**:
   lifecycle with KPIs and charts.
 - **`apps/worker`** — a scheduled Python pipeline that *feeds* the tracker: it
   scans company ATS boards, screens out hard-constraint mismatches with a local
-  LLM, scores each posting's fit against your resume with Claude, and pings you on
-  Telegram for the best matches.
+  LLM, scores each posting's fit against your resume version(s) with Claude, and
+  pings you on Telegram for the best matches.
 
 The two services never call each other. Their only contract is the **shared
 database**. The worker discovers and prepares; the web app is where a human
@@ -802,6 +802,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Deterministic location gate (`resolve_location`, pycountry): foreign→discard, US-state/remote/missing→keep | `test_score.py` (`test_resolve_location` + gate integration tests) |
+| Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
+| Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
+| `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/components/__tests__/JobDetailModal.test.tsx` |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Notify send error → stays `scored` + `attempts+1` + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
 | Discovered-jobs score-aware buckets (matched/discarded/failed) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
@@ -855,8 +858,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   (structured outputs require it; `claude-sonnet-4-6` doesn't support
   `output_config.format`): scoring needs a real seniority/domain judgment the local
   model kept getting wrong (mode-collapsed scores, missed disqualifiers), and a
-  cached résumé+rubric system prefix keeps the per-posting cost down to just the
-  fresh JD. Sonnet is plenty (and cost-effective) for the job.
+  cached system prefix (rubric + optional profile + all resume versions) keeps the
+  per-posting cost down to just the fresh JD. Sonnet is plenty (and cost-effective)
+  for the job.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
@@ -876,8 +880,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 - **Privacy:** resume (`apps/worker/resume/`), secrets (`apps/worker/.env`),
   config (`config.yaml`), and the database (`db/`) are gitignored. The repo ships
-  only `*.example` templates. Keep real-resume edits out of git with
-  `git update-index --skip-worktree`.
+  only `*.example` templates; real resume files are untracked, so no extra git
+  steps are needed (see `CONTRIBUTING.md`).
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the failure is recorded on the row and processing continues. The scorer
   returning junk JSON marks that row `failed` rather than crashing. A notify send
@@ -895,9 +899,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
-- **Security:** the RESUME/JOB text is marked as *data, not instructions* in the
-  score prompt (a posting can't inject directives); secrets live only in the
-  gitignored `.env`, read by `run.py`.
+- **Security:** the RESUME / PERSONAL PROFILE / JOB text is marked as *data, not
+  instructions* in the score prompt (a posting can't inject directives); secrets
+  live only in the gitignored `.env`, read by `run.py`.
 
 ---
 
@@ -926,7 +930,8 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 **Full pipeline:**
 
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
-   (`source` ∈ {greenhouse, lever, ashby, workday, pinpoint}, board `slug`, `name`),
+   (`source` ∈ the seven watchlist-capable boards {greenhouse, lever, ashby,
+   workday, pinpoint, smartrecruiters, workable}, board `slug`, `name`),
    optional `title_filter`, the `candidate` hard-constraint block, `threshold`
    (default 75), `schedule_hours` (24). Workday's `slug` packs
    `tenant/datacenter/site` (quote it).
