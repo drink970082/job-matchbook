@@ -27,9 +27,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Analyze screen + score quality (queued — next session).** The pipeline runs
+🚧 **Analyze screen + score quality (in progress, 2026-07-13).** The pipeline runs
 clean (0 failures over 1169), but the *quality* of its two judgments is unmeasured.
 Evaluate against the first live cold pass (2026-07-13):
+
+**Progress:** a mechanical consistency check passed all 20 structural invariants —
+output is internally clean (one notify anomaly: id=872 notified at score 63 under
+the 75 threshold, most likely re-scored down *after* it was notified). A manual
+spot-audit of 8 postings then surfaced concrete quality defects in both judgments,
+now filed under [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)
+below. Next: fix the screen-gate bugs (deterministic, testable) first, then
+re-calibrate the score prompt. The original evaluation plan:
 
 - **Screen** — is the ~45% screen-out correct? Sample the **527 discarded** for
   false-positives (good roles wrongly cut on location/visa/internship) and check the
@@ -52,7 +60,59 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-_No known defects._
+Surfaced by the first quality audit of the 2026-07-13 cold pass (mechanical
+consistency check — all structural invariants passed — plus a manual spot-audit of
+8 mis-judged postings). These are quality/logic errors in the two LLM judgments,
+not format bugs. Ordered by severity; posting ids are live-DB repros.
+
+**Screen (Ollama hard-requirement gate):**
+
+- **Authorization disqualifies on boilerplate — HIGH (false negative).** The auth
+  gate (`_check_authorization`) is meant to fail only when the model says "no
+  sponsorship" *and* the JD actually discusses sponsorship — but the guard is a loose
+  substring check (`_SPONSOR_HINTS` = "sponsor", "visa", "citizen", …), so it fires
+  on unrelated boilerplate: Tower Research NYC matched `"sponsor"` in
+  **"company-sponsored sports teams"** (id=986, discarded); WorldQuant matched
+  `"citizen"` in the EEO line **"…citizenship, national origin, disability…"**
+  (id=1071, discarded). The junk match flips the guard, so the 4B model's invented
+  "no" (from a JD silent on sponsorship) goes through and kills a reachable US role.
+  Fix locus: tighten the guard to real sponsorship phrases (ideally a deterministic
+  explicit-no phrase gate, dropping reliance on the 4B yes/no).
+- **Location gate honors the wrong location — HIGH.** Resolved inconsistently against
+  the US-only profile: it fails some postings that list a valid US city and passes
+  some with no US location at all. *False negative:* Tudor "Medium Frequency Quant
+  Researcher" (NYC, London, Singapore) discarded as "on-site in Singapore" (id=1009)
+  — NYC is present. *False positive:* DRW "SWE, Research – Cumberland Systematic"
+  London (id=324, scored 62) and WorldQuant Vietnam (id=1071, `location: pass`) went
+  through with no US location. Contrast id=885/892/898 (Squarepoint
+  London/Montreal/Singapore) which *were* correctly discarded — same London,
+  opposite outcome, so the resolver is unreliable, not merely strict.
+- **Seniority beyond a new grad is not gated — MEDIUM.** Roles whose hard bar is
+  3+/4+ years (or "senior") pass screen and earn a mid fit score instead of being
+  rejected; a new grad cannot fill them, so they are *under*-penalized. Repro:
+  Squarepoint "Quant Developer (Python)" 4+ yrs (id=904, score 62); Cubist "SWE –
+  Data" 3+ yrs (id=177, score 63). Sharper still: at Squarepoint the actually-
+  suitable *Graduate*/*Junior* roles were discarded for being non-US-only
+  (id=885/892/898), so the queue keeps the unreachable senior role and drops the
+  reachable entry-level ones. **Open: fix as a screen hard-gate vs a score floor —
+  decide before implementing.**
+
+**Score (Claude fit):**
+
+- **Preferred / "plus" skills penalized like requirements — MEDIUM.** A missing
+  nice-to-have (e.g. C++) drags the fit score down even when the core matches.
+  Repro: HRT "SWE – AI Tools" (id=427, score 66) — strong Python/AI-tooling core,
+  docked on missing C++/UNIX-internals which the JD lists only as pluses.
+- **Location leaks into the fit score — MEDIUM.** The same role posted per-city
+  scores differently and inconsistently — Cumberland ranks London (id=324, 62)
+  *above* Chicago (id=323, 52); Prediction Markets ranks Chicago (id=322, 72) above
+  London (id=320, 35). Location belongs to the screen; the fit score should not move
+  on it. Entangles with the location-gate defect above.
+- **Fit scale compressed / too strict — MEDIUM.** Genuinely strong matches land in
+  the sub-75 near-miss band; 59% of all scores pile on 6 low values
+  (5/8/15/22/28/32) and only 11/642 clear 75. Repro: Prediction Markets Chicago
+  (id=322, 72). Systemic under-scoring risks missing real matches at the notify
+  threshold.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
