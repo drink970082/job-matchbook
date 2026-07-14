@@ -27,28 +27,32 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Analyze screen + score quality (in progress, 2026-07-13).** The pipeline runs
-clean (0 failures over 1169), but the *quality* of its two judgments is unmeasured.
-Evaluate against the first live cold pass (2026-07-13):
+🚧 **Fix the 6 audited screen/score defects (in flight, 2026-07-13).** The quality
+audit of the first cold pass is **done** — the mechanical consistency check passed
+all structural invariants, and a manual spot-audit filed **6 defects** (see
+[Defects](#defects--shipped-behavior-that-is-wrong-should-fix) below). The fix design
+is approved and speced in
+[`docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`](./superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md).
+Two streams, **screen-first** (higher severity, cheaper to verify, and D5 depends on
+D2):
 
-**Progress:** a mechanical consistency check passed all 20 structural invariants —
-output is internally clean (one notify anomaly: id=872 notified at score 63 under
-the 75 threshold, most likely re-scored down *after* it was notified). A manual
-spot-audit of 8 postings then surfaced concrete quality defects in both judgments,
-now filed under [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)
-below. Next: fix the screen-gate bugs (deterministic, testable) first, then
-re-calibrate the score prompt. The original evaluation plan:
-
-- **Screen** — is the ~45% screen-out correct? Sample the **527 discarded** for
-  false-positives (good roles wrongly cut on location/visa/internship) and check the
-  deterministic gates (pycountry location, internship title regex) against the Ollama
-  hard-requirement call.
-- **Score** — is the 0–100 scale calibrated to the 75 threshold? The scorer is strict
-  (**11/642 ≥75, ~1.7%**); review the **30 near-misses (60–74)** for false-negatives,
-  confirm the 11 matches are genuine, and sanity-check the `recommended_resume`
-  (swe vs quant_dev) choice per posting.
-- Deliverable: a calibration read on both stages + any threshold / prompt / gate
-  adjustments worth making.
+- **Stream 1 — Screen (deterministic, TDD):** **D1** authorization phrase-gate — stop
+  the boilerplate `_SPONSOR_HINTS` false-positive ("company-sponsored", EEO
+  "citizenship"); **D2** location via **geonamescache** — resolve all tokens
+  city→country (any US-allowed keeps, all-foreign discards), superseding the
+  2026-07-07 last-token/pycountry gate.
+- **Stream 2 — Score:** **S2.1 reasoning redesign** — replace the prose `reasoning`
+  blob + flat keyword lists with a structured `assessment` scorecard (enum
+  seniority/domain verdicts, split `must_haves`/`nice_to_haves`, one-line summary),
+  which subsumes **D3** (seniority score-floor) and **D4** (plus-skills); **D5** drop
+  `Location:` from the fit call; **D6** re-measure calibration *after* D3/D4/D5, then
+  loosen rubric or lower threshold only if genuine good-fits still sit < 75.
+- **Verify:** re-run the screen over the existing DB (local Ollama, ~$0) counting
+  verdict flips; re-score the flagged set + a stratified sample (Claude, small $) for
+  the score changes.
+- **Status:** spec approved; implementation plan (writing-plans) next. On landing,
+  each closed defect leaves Defects → CHANGELOG + SPEC (same commit), per the docs
+  discipline below.
 
 ---
 
