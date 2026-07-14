@@ -3,3 +3,4 @@ anthropic>=0.40
 apscheduler>=3.10
 PyYAML>=6.0
 pycountry>=23
+geonamescache>=3.0.1

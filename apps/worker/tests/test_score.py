@@ -623,11 +623,27 @@ def test_truncate_boundary_and_disabled():
     ("London - United Kingdom", ["remote", "USA"], False, "on-site in United Kingdom"),  # space-dash separator
     ("Paris – France", ["remote", "USA"], False, "on-site in France"),                    # en-dash separator
     ("Winston-Salem, NC", ["remote", "USA"], True, ""),       # bare hyphen is NOT a separator
+    # --- D2 repros: resolve EVERY token (city→country via geonamescache), not the last ---
+    ("New York City, London, Singapore", ["remote", "USA"], True, ""),         # id=1009: NYC is US -> keep
+    ("London", ["remote", "USA"], False, "on-site in United Kingdom"),         # id=324: bare foreign city -> discard
+    ("Hanoi OR Ho Chi Minh City", ["remote", "USA"], False, "on-site in Viet Nam"),  # id=1071: 'OR' split + both VN
+    ("London, Montreal, Singapore", ["remote", "USA"], False, "on-site in United Kingdom"),  # id=885: all foreign
+    ("San Jose", ["remote", "USA"], True, ""),               # ambiguous name, US the largest match -> keep
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
     passed, note = score.resolve_location(location, allowed)
     assert passed is want_keep, (location, allowed)
     assert note == want_note, (location, allowed)
+
+
+def test_token_country_resolves_states_countries_and_cities():
+    assert score._token_country("London") == "GB"          # foreign city (no US namesake)
+    assert score._token_country("New York City") == "US"    # US city
+    assert score._token_country("Chicago") == "US"
+    assert score._token_country("CA") == "US"               # US state code, NOT Canada
+    assert score._token_country("Georgia") == "US"          # US state, NOT the country
+    assert score._token_country("China") == "CN"            # country name
+    assert score._token_country("Nowhereville") is None     # unresolved
 
 
 # --- real adapter: import safety ------------------------------------------

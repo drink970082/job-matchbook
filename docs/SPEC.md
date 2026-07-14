@@ -377,9 +377,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   invented `"no"` from silence and the old loose substring guard fired on boilerplate
   ("company-sponsored", an EEO "citizenship" line) — the **D1** fix. `disqualified` is
   derived from those per-requirement verdicts. **Location is a deterministic code gate**
-  (`resolve_location`, `pycountry`) matched against the board's `posting["location"]`
-  string — not the LLM. It errs toward keep (discards only when the string clearly
-  resolves to a disallowed country; US-state and remote strings keep), so a
+  (`resolve_location`) matched against the board's `posting["location"]`
+  string — not the LLM. It resolves **every** token (not just the last) to a country —
+  US state / country name via `pycountry`, else a city via **geonamescache** (highest-
+  population match, so a tiny US namesake like Paris TX can't mask Paris FR) — and errs
+  toward keep: keep if any token is US or an allowed country, discard only when ≥1 token
+  resolves and none are allowed (naming the first foreign country), keep if nothing
+  resolves (**D2** — superseded the last-token/`pycountry`-only gate that leaked a bare
+  "London" and dropped multi-city US roles). US-state and remote strings keep, so a
   `locations`-only candidate makes no Ollama call. The screen prompt carries no
   location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (Claude fit rubric) and `prompts/screen.txt` (Ollama
@@ -792,14 +797,14 @@ guarantee:
   LLM *semantic* extraction with a code check — a misjudgment sends a spurious alert or
   discards an applicable role. The kept `disqualification_reason` + `reopenJobPosting`
   let a human override.
-- **Location** is a deterministic `pycountry` rule check (`resolve_location`), not an
-  LLM judgment, and mostly errs toward keep: a foreign role whose board `location`
-  carries no recognized country token (a bare "London") leaks through. The one reverse
-  edge — a lone country-named US town with no state suffix ("Peru", "Cuba") resolves to
-  the country and discards — mirrors it; real boards append the state ("Peru, IN"),
-  which the US-state guard protects. Both are the residual "asserted, not checked" gap
-  for location, backed by the human in the loop (kept `disqualification_reason` +
-  `reopenJobPosting`).
+- **Location** is a deterministic `resolve_location` check (pycountry + geonamescache
+  city index), not an LLM judgment, and errs toward keep. The old bare-"London" leak is
+  closed (city tokens now resolve to a country); the residual gaps are ambiguity-shaped:
+  a city name whose **highest-population** bearer is foreign discards even when the
+  posting meant a smaller US namesake ("Manchester" → GB, though Manchester NH exists —
+  real boards append the state, which the US-state guard keeps), and a token that
+  resolves to nothing at all still keeps. Both are backed by the human in the loop (kept
+  `disqualification_reason` + `reopenJobPosting`).
 
 ### Invariant → test traceability
 
@@ -812,7 +817,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
-| Deterministic location gate (`resolve_location`, pycountry): foreign→discard, US-state/remote/missing→keep | `test_score.py` (`test_resolve_location` + gate integration tests) |
+| Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/components/__tests__/JobDetailModal.test.tsx` |

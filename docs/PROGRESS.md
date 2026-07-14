@@ -39,9 +39,10 @@ D2):
 - **Stream 1 — Screen (deterministic, TDD):** ✅ **D1** authorization phrase-gate —
   **shipped**: `NO_SPONSOR_PHRASES` explicit-phrase gate replaced the boilerplate
   `_SPONSOR_HINTS` false-positive ("company-sponsored", EEO "citizenship"); the 4B
-  `offers_sponsorship` guess is no longer consulted. **D2** location via **geonamescache**
-  — resolve all tokens city→country (any US-allowed keeps, all-foreign discards),
-  superseding the 2026-07-07 last-token/pycountry gate.
+  `offers_sponsorship` guess is no longer consulted. ✅ **D2** location via
+  **geonamescache** — **shipped**: resolve every token city→country (highest-population
+  match, any-US/allowed keeps, all-foreign discards, `OR`-split fixed), superseding the
+  2026-07-07 last-token/pycountry gate.
 - **Stream 2 — Score:** **S2.1 reasoning redesign** — replace the prose `reasoning`
   blob + flat keyword lists with a structured `assessment` scorecard (enum
   seniority/domain verdicts, split `must_haves`/`nice_to_haves`, one-line summary),
@@ -72,15 +73,6 @@ not format bugs. Ordered by severity; posting ids are live-DB repros.
 
 **Screen (Ollama hard-requirement gate):**
 
-- **Location gate honors the wrong location — HIGH.** Resolved inconsistently against
-  the US-only profile: it fails some postings that list a valid US city and passes
-  some with no US location at all. *False negative:* Tudor "Medium Frequency Quant
-  Researcher" (NYC, London, Singapore) discarded as "on-site in Singapore" (id=1009)
-  — NYC is present. *False positive:* DRW "SWE, Research – Cumberland Systematic"
-  London (id=324, scored 62) and WorldQuant Vietnam (id=1071, `location: pass`) went
-  through with no US location. Contrast id=885/892/898 (Squarepoint
-  London/Montreal/Singapore) which *were* correctly discarded — same London,
-  opposite outcome, so the resolver is unreliable, not merely strict.
 - **Seniority beyond a new grad is not gated — MEDIUM.** Roles whose hard bar is
   3+/4+ years (or "senior") pass screen and earn a mid fit score instead of being
   rejected; a new grad cannot fill them, so they are *under*-penalized. Repro:

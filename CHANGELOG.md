@@ -8,6 +8,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Fixed
+- **Location gate resolves every token via geonamescache (D2).** `resolve_location` no
+  longer inspects only the last token through `pycountry` (countries only) — it resolves
+  **every** token to a country (US state / country name via pycountry, else a city via
+  **geonamescache**, highest-population match), keeps if any is US or an allowed country,
+  and discards only when ≥1 token resolves and none are allowed. Fixes both directions of
+  the audit: a multi-city US role is kept (Tudor "NYC, London, Singapore", id=1009, was
+  discarded) and a bare foreign city is dropped (DRW "London", id=324; WorldQuant "Hanoi
+  OR Ho Chi Minh City", id=1071 — the ` OR ` split is now case-insensitive). Adds
+  `geonamescache>=3.0.1`; supersedes the last-token/pycountry approach in
+  `docs/superpowers/specs/2026-07-07-location-gate-design.md`. Design: `…/2026-07-13-screen-score-quality-fixes-design.md` §D2.
 - **Authorization screen no longer disqualifies on boilerplate (D1).**
   `_check_authorization` replaced its loose `_SPONSOR_HINTS` substring guard — which
   fired on "company-sponsored sports teams" (Tower, id=986) and an EEO "citizenship"

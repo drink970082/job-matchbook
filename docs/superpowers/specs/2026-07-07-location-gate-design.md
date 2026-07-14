@@ -1,6 +1,12 @@
 # Design: Deterministic location gate — code owns location off the board field
 
-**Status:** approved (brainstorming), ready for implementation plan.
+**Status:** shipped, then **partially superseded 2026-07-13** — the core decision
+(code owns location off the board `posting["location"]` field, not the LLM) stands, but
+the *resolution mechanism* below (last-token / `pycountry`-countries-only) was replaced
+by every-token resolution with a **geonamescache** city index. See
+[`2026-07-13-screen-score-quality-fixes-design.md`](./2026-07-13-screen-score-quality-fixes-design.md)
+§D2: the last-token/pycountry gate leaked a bare "London" (a foreign *city* is not a
+country) and dropped multi-city US roles (only the last token was checked).
 **Date:** 2026-07-07.
 
 ## Problem / motivation
