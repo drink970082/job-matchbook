@@ -419,7 +419,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   labels (so the model can never name a nonexistent version) — the best-fitting version,
   persisted in `score_detail` and surfaced as a `Resume: <label>` line in the Telegram
   alert and an always-visible badge in the job detail modal; a single-resume setup omits
-  the field entirely. `score_posting` normalizes/clamps the result and validates the
+  the field entirely. The JOB section sent to this call **omits the location line**
+  (`include_location=False`) so geography can't move the fit number (**D5** — location is
+  the screen gate's decision; the same role posted per city scores identically). `score_posting` normalizes/clamps the result and validates the
   scorecard (`ScoreError` on a missing score or an out-of-enum verdict); the modal renders
   the scorecard with a legacy matched/missing/reasoning fallback for pre-S2.1 rows.
   **There is no local experience/years gate** — seniority is judged by the Claude

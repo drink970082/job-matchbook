@@ -23,6 +23,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md` §S2.1.
 
 ### Fixed
+- **Location no longer leaks into the fit score (D5).** The JOB section sent to the
+  Claude fit call omits the `Location:` line (`_job_block(..., include_location=False)`),
+  and the prompt tells the model to ignore geography. The same role posted per city now
+  scores identically — geography is the screen gate's job, not the fit number's (it had
+  ranked Cumberland London above Chicago, id=324 vs 323). The SCREEN call still receives
+  location. Design: `…/2026-07-13-screen-score-quality-fixes-design.md` §D5.
 - **Location gate resolves every token via geonamescache (D2).** `resolve_location` no
   longer inspects only the last token through `pycountry` (countries only) — it resolves
   **every** token to a country (US state / country name via pycountry, else a city via

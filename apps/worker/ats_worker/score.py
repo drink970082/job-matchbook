@@ -199,15 +199,18 @@ def _truncate(text: str, max_chars: int, label: str = "description") -> str:
     return text
 
 
-def _job_block(posting: dict, max_desc_chars: int) -> str:
-    """The shared JOB section (title, company, location, description)."""
+def _job_block(posting: dict, max_desc_chars: int, *, include_location: bool = True) -> str:
+    """The shared JOB section (title, company, [location], description). The fit SCORE
+    call passes include_location=False so geography can't leak into the fit number — the
+    same role posted per city should score identically; location is decided by the screen
+    gate, not the score (D5). The SCREEN call keeps the line (default)."""
     description = _truncate(str(posting.get("description", "")), max_desc_chars)
-    location = str(posting.get("location") or "").strip() or "(not specified)"
-    return (
-        f"=== JOB: {posting.get('job_title', '')} at {posting.get('company_name', '')} ===\n"
-        f"Location: {location}\n"
-        f"{description}\n"
-    )
+    header = f"=== JOB: {posting.get('job_title', '')} at {posting.get('company_name', '')} ===\n"
+    location_line = ""
+    if include_location:
+        location = str(posting.get("location") or "").strip() or "(not specified)"
+        location_line = f"Location: {location}\n"
+    return f"{header}{location_line}{description}\n"
 
 
 def _candidate_block(candidate) -> str:
@@ -756,7 +759,9 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
             import anthropic  # lazy: only at runtime in Docker
             cell.append(anthropic.Anthropic(api_key=api_key))
         client = cell[0]
-        job = _job_block(posting, 0)  # 0 -> no truncation (Claude has ample context)
+        # 0 -> no truncation (Claude has ample context); no Location line (D5 — geography
+        # is the screen's job, must not move the fit score).
+        job = _job_block(posting, 0, include_location=False)
         msg = client.messages.create(
             model=model,
             max_tokens=max_tokens,

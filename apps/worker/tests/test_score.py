@@ -690,6 +690,15 @@ def test_make_claude_scorer_builds_without_importing_sdk():
     assert callable(fit)
 
 
+def test_job_block_omits_location_for_the_fit_score_call():
+    # D5: the fit SCORE call drops the Location line so geography can't leak into the
+    # fit number (location is decided by the screen gate, not the score); the SCREEN
+    # call keeps it (default).
+    posting = {**POSTING, "location": "Chicago, IL"}
+    assert "Location: Chicago, IL" in score._job_block(posting, 0)                 # screen (default)
+    assert "Location:" not in score._job_block(posting, 0, include_location=False)  # score
+
+
 # --- prompts: split into score.txt (Claude) + screen.txt (Ollama) ---------
 
 def test_prompts_split_into_two_files_without_location_clause():

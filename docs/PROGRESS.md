@@ -47,14 +47,16 @@ D2):
   `reasoning` blob + flat keyword lists are replaced by a structured `assessment`
   scorecard (enum seniority/domain verdicts, split `must_haves`/`nice_to_haves`,
   one-line summary), rendered in the job modal (legacy fallback kept); subsumes **D3**
-  (seniority score-floor rule in the prompt) and **D4** (plus-skills). **D5** drop
-  `Location:` from the fit call (next); **D6** re-measure calibration *after* D5, then
-  loosen rubric or lower threshold only if genuine good-fits still sit < 75.
+  (seniority score-floor rule in the prompt) and **D4** (plus-skills). ✅ **D5**
+  **shipped**: the fit call's JOB section drops the `Location:` line
+  (`include_location=False`) so geography can't move the score. **D6** re-measure
+  calibration remains — *after* a re-score, loosen rubric or lower threshold only if
+  genuine good-fits still sit < 75.
 - **Verify:** D1/D2 screen flips re-run pure-code over the DB (local Ollama not even
   needed, ~$0); the S2.1/D5/D6 score changes re-scored over the flagged set + a
   stratified sample (Claude, small $) — **still owed before D6 calibration.**
-- **Status:** Stream 1 (D1, D2) + S2.1 (D3, D4) landed on `dev`. Remaining: **D5**
-  (deterministic, next), then **D6** (measure-first). Each closed defect leaves
+- **Status:** Stream 1 (D1, D2) + S2.1 (D3, D4) + D5 landed on `dev`. Remaining: **D6**
+  only (measure-first — needs the Claude re-score). Each closed defect leaves
   Defects → CHANGELOG + SPEC in the same commit, per the docs discipline below.
 
 ---
@@ -74,12 +76,8 @@ not format bugs. Ordered by severity; posting ids are live-DB repros.
 
 **Score (Claude fit):**
 
-- **Location leaks into the fit score — MEDIUM.** The same role posted per-city
-  scores differently and inconsistently — Cumberland ranks London (id=324, 62)
-  *above* Chicago (id=323, 52); Prediction Markets ranks Chicago (id=322, 72) above
-  London (id=320, 35). Location belongs to the screen; the fit score should not move
-  on it. Entangles with the location-gate defect above.
-- **Fit scale compressed / too strict — MEDIUM.** Genuinely strong matches land in
+- **Fit scale compressed / too strict — MEDIUM (D6, blocked on re-score).** Genuinely
+  strong matches land in
   the sub-75 near-miss band; 59% of all scores pile on 6 low values
   (5/8/15/22/28/32) and only 11/642 clear 75. Repro: Prediction Markets Chicago
   (id=322, 72). Systemic under-scoring risks missing real matches at the notify
