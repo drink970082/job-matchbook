@@ -36,11 +36,12 @@ is approved and speced in
 Two streams, **screen-first** (higher severity, cheaper to verify, and D5 depends on
 D2):
 
-- **Stream 1 — Screen (deterministic, TDD):** **D1** authorization phrase-gate — stop
-  the boilerplate `_SPONSOR_HINTS` false-positive ("company-sponsored", EEO
-  "citizenship"); **D2** location via **geonamescache** — resolve all tokens
-  city→country (any US-allowed keeps, all-foreign discards), superseding the
-  2026-07-07 last-token/pycountry gate.
+- **Stream 1 — Screen (deterministic, TDD):** ✅ **D1** authorization phrase-gate —
+  **shipped**: `NO_SPONSOR_PHRASES` explicit-phrase gate replaced the boilerplate
+  `_SPONSOR_HINTS` false-positive ("company-sponsored", EEO "citizenship"); the 4B
+  `offers_sponsorship` guess is no longer consulted. **D2** location via **geonamescache**
+  — resolve all tokens city→country (any US-allowed keeps, all-foreign discards),
+  superseding the 2026-07-07 last-token/pycountry gate.
 - **Stream 2 — Score:** **S2.1 reasoning redesign** — replace the prose `reasoning`
   blob + flat keyword lists with a structured `assessment` scorecard (enum
   seniority/domain verdicts, split `must_haves`/`nice_to_haves`, one-line summary),
@@ -71,17 +72,6 @@ not format bugs. Ordered by severity; posting ids are live-DB repros.
 
 **Screen (Ollama hard-requirement gate):**
 
-- **Authorization disqualifies on boilerplate — HIGH (false negative).** The auth
-  gate (`_check_authorization`) is meant to fail only when the model says "no
-  sponsorship" *and* the JD actually discusses sponsorship — but the guard is a loose
-  substring check (`_SPONSOR_HINTS` = "sponsor", "visa", "citizen", …), so it fires
-  on unrelated boilerplate: Tower Research NYC matched `"sponsor"` in
-  **"company-sponsored sports teams"** (id=986, discarded); WorldQuant matched
-  `"citizen"` in the EEO line **"…citizenship, national origin, disability…"**
-  (id=1071, discarded). The junk match flips the guard, so the 4B model's invented
-  "no" (from a JD silent on sponsorship) goes through and kills a reachable US role.
-  Fix locus: tighten the guard to real sponsorship phrases (ideally a deterministic
-  explicit-no phrase gate, dropping reliance on the 4B yes/no).
 - **Location gate honors the wrong location — HIGH.** Resolved inconsistently against
   the US-only profile: it fails some postings that list a valid US city and passes
   some with no US location at all. *False negative:* Tudor "Medium Frequency Quant

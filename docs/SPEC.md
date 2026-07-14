@@ -367,10 +367,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
   `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
   and — with **no résumé in the prompt** — extracts each requirement (degree, work
-  authorization, clearance, dealbreakers) as a JOB fact *semantically*,
-  while CODE applies the candidate's configured constraint (a 4B model is unreliable
-  at the pass/fail judgment itself); `disqualified` is derived from those
-  per-requirement verdicts. **Location is a deterministic code gate**
+  authorization, clearance, dealbreakers) as a JOB fact *semantically*.
+  CODE then decides pass/fail: for degree/clearance/dealbreakers by applying the
+  candidate's configured constraint to the extracted fact (a 4B model is unreliable at
+  the pass/fail judgment itself); for **work authorization by a deterministic JD-text
+  phrase gate** (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when
+  the candidate needs sponsorship *and* the description literally contains an explicit
+  no-sponsorship phrase. The model's `offers_sponsorship` guess is no longer trusted: it
+  invented `"no"` from silence and the old loose substring guard fired on boilerplate
+  ("company-sponsored", an EEO "citizenship" line) — the **D1** fix. `disqualified` is
+  derived from those per-requirement verdicts. **Location is a deterministic code gate**
   (`resolve_location`, `pycountry`) matched against the board's `posting["location"]`
   string — not the LLM. It errs toward keep (discards only when the string clearly
   resolves to a disallowed country; US-state and remote strings keep), so a
@@ -777,8 +783,13 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening** (work authorization / clearance) is an LLM
-  *semantic* judgment, not a rule check — a misjudgment sends a spurious alert or
+- **Hard-constraint screening**: **work authorization** is a deterministic JD-text
+  phrase gate (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when
+  the candidate needs sponsorship *and* the description literally states no sponsorship;
+  the 4B model's `offers_sponsorship` guess is not consulted (**D1** fix — it invented
+  "no" from silence and the old substring guard fired on boilerplate). A JD that declines
+  to sponsor in wording outside the phrase set errs toward keep. **Clearance** remains an
+  LLM *semantic* extraction with a code check — a misjudgment sends a spurious alert or
   discards an applicable role. The kept `disqualification_reason` + `reopenJobPosting`
   let a human override.
 - **Location** is a deterministic `pycountry` rule check (`resolve_location`), not an

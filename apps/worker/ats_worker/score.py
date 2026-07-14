@@ -52,14 +52,24 @@ from ats_worker.prompts import (
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
-# The 4B model tends to invent the "convenient" value for facts a JD leaves unstated
-# — it guesses offers_sponsorship="no" and remote=true out of silence. We only honour
-# those two claims if the posting text actually contains the relevant language; this
-# can only DOWNGRADE an unsupported guess, so it never causes a wrong discard.
-_SPONSOR_HINTS = ("sponsor", "visa", "citizen", "work authoriz", "authorized to work",
-                  "green card", "immigration", "right to work", "eligible to work")
+# The 4B model tends to invent remote=true out of silence. We only honour that guess
+# when the LOCATION STRING actually says remote (see resolve_location); this can only
+# DOWNGRADE an unsupported guess, so it never causes a wrong discard.
 _REMOTE_HINTS = ("remote", "work from home", "work-from-home", "wfh", "work from anywhere",
                  "fully remote", "remotely", "location independent", "location-independent")
+
+# Authorization is gated deterministically off the JD text, NOT the 4B model's
+# offers_sponsorship guess (D1): it invents "no" from silence, and the old loose
+# substring guard fired on unrelated boilerplate — "sponsor" in "company-sponsored
+# sports teams" (id=986), "citizen" in an EEO "citizenship" line (id=1071). Disqualify
+# ONLY when the JD literally contains one of these explicit no-sponsorship phrases,
+# substring-matched over the lowercased, whitespace-collapsed description.
+NO_SPONSOR_PHRASES = (
+    "will not sponsor", "does not sponsor", "do not sponsor", "cannot sponsor",
+    "unable to sponsor", "not able to sponsor", "no visa sponsorship", "no sponsorship",
+    "without sponsorship", "not provide sponsorship", "no immigration sponsorship",
+    "must be authorized to work without sponsorship",
+)
 
 # Internship/co-op detection is deterministic from the title (gated by the
 # candidate's exclude_internships flag): a 4B model is unreliable on this, but the
@@ -374,8 +384,7 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
-         *_check_authorization(entry("authorization"),
-                               candidate.get("work_authorization"), description))
+         *_check_authorization(candidate.get("work_authorization"), description))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
@@ -406,18 +415,16 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
-def _check_authorization(entry: dict, cand_auth, description: str = "") -> tuple[bool, str]:
-    """Fail only when the candidate needs sponsorship and the role explicitly won't
-    provide it. 'unknown' (the JD is silent) passes — most JDs don't mention it. A
-    model "no" is only trusted if the JD actually mentions sponsorship/authorization
-    (the model otherwise invents "no" from silence)."""
+def _check_authorization(cand_auth, description: str = "") -> tuple[bool, str]:
+    """Fail only when the candidate needs sponsorship AND the JD literally states it
+    won't sponsor. The 4B model's offers_sponsorship guess is NOT consulted — it
+    invents "no" from silence, and 'unknown' (the JD is silent) passes. We trust only
+    an explicit no-sponsorship PHRASE in the JD text (D1); the whitespace-collapse
+    keeps a phrase matching across line wraps."""
     if not _needs_sponsorship(cand_auth):
         return True, ""
-    offers = _norm_simple(entry.get("offers_sponsorship"))
-    explicit_no = offers in (
-        "no", "none", "false", "no sponsorship", "not offered", "without sponsorship",
-    )
-    if explicit_no and _mentions(description, _SPONSOR_HINTS):
+    text = " ".join((description or "").lower().split())
+    if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
         return False, "no visa sponsorship offered"
     return True, ""
 

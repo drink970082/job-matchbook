@@ -7,6 +7,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+- **Authorization screen no longer disqualifies on boilerplate (D1).**
+  `_check_authorization` replaced its loose `_SPONSOR_HINTS` substring guard — which
+  fired on "company-sponsored sports teams" (Tower, id=986) and an EEO "citizenship"
+  line (WorldQuant, id=1071), killing reachable US roles — with an explicit
+  no-sponsorship **phrase** gate (`NO_SPONSOR_PHRASES`) over the JD text. The 4B model's
+  invented `offers_sponsorship: "no"` is no longer consulted; a role is disqualified only
+  when the candidate needs sponsorship *and* the description literally states no
+  sponsorship. Design:
+  `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md` §D1.
+
 ### Added
 - **Multi-resume fit scoring.** The worker loads every `resume/*.txt` as a labeled
   resume version (plus optional `personal_profile.txt` context); one Claude call

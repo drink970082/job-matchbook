@@ -305,7 +305,7 @@ def test_lower_or_no_required_degree_passes():
 
 # authorization: LLM extracts offers_sponsorship, code checks against candidate need
 def test_no_sponsorship_disqualifies_when_jd_says_so():
-    posting = {**POSTING, "description": "We do not offer visa sponsorship for this role."}
+    posting = {**POSTING, "description": "We will not sponsor visas for this role."}
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
     out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
                               candidate={"work_authorization": "needs visa sponsorship"})
@@ -333,6 +333,35 @@ def test_citizen_never_fails_authorization():
     out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
                               candidate={"work_authorization": "US citizen"})
     assert out["disqualified"] is False
+
+
+def test_authorization_ignores_sponsor_boilerplate():
+    # D1 repro: a JD mentioning 'sponsor'/'citizen' only in boilerplate must NOT
+    # disqualify. Tower matched "sponsor" in "company-sponsored sports teams" (id=986);
+    # WorldQuant matched "citizen" in the EEO line (id=1071). The 4B model even invents
+    # offers_sponsorship='no' from silence — it must be ignored; only an explicit
+    # no-sponsorship phrase in the JD text disqualifies.
+    for desc in (
+        "We field company-sponsored sports teams and a great engineering culture.",
+        "EEO: we do not discriminate on citizenship, national origin, disability, or age.",
+    ):
+        posting = {**POSTING, "description": desc}
+        http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+        out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http,
+                                  ollama_host="h",
+                                  candidate={"work_authorization": "needs visa sponsorship"})
+        assert out["disqualified"] is False, desc
+
+
+def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
+    # D1: an explicit phrase disqualifies even when the model guessed 'unknown' —
+    # the phrase gate, not the 4B verdict, decides.
+    posting = {**POSTING, "description": "Strong team. This position offers no visa sponsorship."}
+    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "unknown"}}))
+    out = score.score_posting(posting, RESUME, score_fit=FIT, model="m", http=http,
+                              ollama_host="h",
+                              candidate={"work_authorization": "needs visa sponsorship"})
+    assert out["disqualified"] is True
 
 
 # clearance: LLM extracts requires_clearance, code checks
