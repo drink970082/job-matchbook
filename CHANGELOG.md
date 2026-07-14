@@ -12,7 +12,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   resume version (plus optional `personal_profile.txt` context); one Claude call
   scores the best-fitting version and names it (`recommended_resume`, enum-constrained),
   surfaced in the Telegram alert and the job detail modal. Single-resume setups are
-  unchanged. (`--resume` → `--resume-dir`.)
+  unchanged. (`--resume` → `--resume-dir`.) **Validated live 2026-07-13:** first
+  full production pass — two resume versions (`swe`, `quant_dev`) over a 642-posting
+  cold run, zero scorer failures; `recommended_resume` confirmed in `score_detail`
+  and the Telegram `Resume:` line. (Closes the last "unexercised live" gap in
+  `docs/PROGRESS.md`.)
 - **Development mechanism for AI sessions: `docs/PRINCIPLES.md` + `docs/DEVELOPMENT.md`.**
   PRINCIPLES captures the project's fourteen design principles (each with rationale,
   repo exemplar, and violation smell) plus the decision procedure (forks go to the

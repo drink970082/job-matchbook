@@ -7,11 +7,18 @@
 > finished item *leaves* this file to land in SPEC + CHANGELOG. Update it in the same
 > change as the work it describes — see [How to update](#how-to-update) at the bottom.
 
-**Current phase:** v0.2.0. Feature-set complete; testing/CI hardened (coverage
-gates, integration + Playwright e2e, schema-drift guard). **"Hardened" here means
-test/CI hardening, not security hardening** — a few unverified properties remain
-open (see [Open work](#open-work)). Nothing is in flight. (Recent changes: see the
-[CHANGELOG](../CHANGELOG.md).)
+**Current phase:** v0.2.0, **validated live end-to-end.** Feature-set complete;
+testing/CI hardened (coverage gates, integration + Playwright e2e, schema-drift
+guard). **"Hardened" here means test/CI hardening, not security hardening** — a few
+unverified properties remain open (see [Open work](#open-work)). On **2026-07-13**
+the full `fetch → screen → score → notify` pipeline ran against live services for
+the first time: one cold pass over 39 boards → **1169** postings fetched, **~45%**
+screened out (internship/location/visa), **642** fit-scored by Claude with **zero
+failures**, **11** matches (score ≥75) delivered to Telegram (~$8 one-time,
+~cents/day steady-state; the `recommended_resume` swe/quant_dev pick and the
+Telegram `Resume:` line were both confirmed live). The recurring 24h scheduler
+(`python -m ats_worker.run`) is the operator's remaining launch step. (Recent
+changes: see the [CHANGELOG](../CHANGELOG.md).)
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -20,7 +27,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-_Nothing in flight._
+🚧 **Analyze screen + score quality (queued — next session).** The pipeline runs
+clean (0 failures over 1169), but the *quality* of its two judgments is unmeasured.
+Evaluate against the first live cold pass (2026-07-13):
+
+- **Screen** — is the ~45% screen-out correct? Sample the **527 discarded** for
+  false-positives (good roles wrongly cut on location/visa/internship) and check the
+  deterministic gates (pycountry location, internship title regex) against the Ollama
+  hard-requirement call.
+- **Score** — is the 0–100 scale calibrated to the 75 threshold? The scorer is strict
+  (**11/642 ≥75, ~1.7%**); review the **30 near-misses (60–74)** for false-negatives,
+  confirm the 11 matches are genuine, and sanity-check the `recommended_resume`
+  (swe vs quant_dev) choice per posting.
+- Deliverable: a calibration read on both stages + any threshold / prompt / gate
+  adjustments worth making.
 
 ---
 
@@ -36,14 +56,6 @@ _No known defects._
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
-- **Live multi-resume Claude call is unexercised end-to-end.** The multi-resume
-  scoring path is fully unit-tested (prefix blocks, enum schema, normalization,
-  persistence, notify line, modal badge), but its composition into a real
-  `anthropic.messages.create` call — cached system prefix + enum-constrained
-  `recommended_resume` — has never run against the live API (the test suite never
-  mocks the SDK by convention). Close by running one real pass (`--once`) with two
-  resume versions and confirming a scored row's `score_detail` carries
-  `recommended_resume` and the Telegram ping shows the `Resume:` line. (SPEC §7.1.)
 - **Stale-mount auto-recovery is unverified end-to-end.** The `/api/health` probe,
   Docker `healthcheck`, and `autoheal` sidecar are wired and the *healthy* path is
   confirmed (`ats-web` reports `healthy`, the sidecar monitors), but recovery from an
