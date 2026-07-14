@@ -44,6 +44,34 @@ describe('JobDetailModal score_detail rendering', () => {
         expect(screen.getByText('Strong backend match.')).toBeInTheDocument()
     })
 
+    it('renders the S2.1 assessment scorecard (verdicts, must/nice-haves, summary)', () => {
+        const scored = {
+            ...props,
+            job: {
+                ...workerShapedJob,
+                score_detail: JSON.stringify({
+                    assessment: {
+                        seniority: { verdict: 'too_junior', note: 'role wants 3+ yrs' },
+                        domain: { verdict: 'match', note: 'quant dev' },
+                        must_haves: { met: ['python'], missing: ['c++'] },
+                        nice_to_haves: { missing: ['kdb'] },
+                        summary: 'Strong core, seniority gap.',
+                    },
+                }),
+            },
+        }
+        render(<JobDetailModal {...scored} />)
+        fireEvent.click(screen.getByText(/fit assessment/i))
+        expect(screen.getByText('too_junior')).toBeInTheDocument()
+        expect(screen.getByText('role wants 3+ yrs')).toBeInTheDocument()
+        expect(screen.getByText('Must-haves met')).toBeInTheDocument()
+        expect(screen.getByText('python')).toBeInTheDocument()
+        expect(screen.getByText('c++')).toBeInTheDocument()
+        expect(screen.getByText(/Nice-to-haves missing/i)).toBeInTheDocument()
+        expect(screen.getByText('kdb')).toBeInTheDocument()
+        expect(screen.getByText('Strong core, seniority gap.')).toBeInTheDocument()
+    })
+
     it('still tolerates the legacy matched/missing keys', () => {
         const legacy = {
             ...props,

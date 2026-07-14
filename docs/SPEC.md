@@ -406,18 +406,24 @@ worker modules are pure and dependency-injected; real services are wired only in
   resume files, is a config error (`SystemExit`, never a silent overwrite). The
   scorer sends **all resume versions** (+ the profile, if present) and the rubric as
   **one cached system prefix** (`cache_control: ephemeral`, byte-identical every
-  call in a run, only the JD is fresh) with **adaptive thinking** so the model
-  reasons about seniority/domain/gaps *before* committing to a number, returning
-  schema-constrained JSON (`{reasoning, score 0-100, matched_keywords,
-  missing_keywords}`, `reasoning` ordered first in the schema). With **two or
-  more** resume versions the schema additionally requires `recommended_resume`,
-  enum-constrained to the actual labels (so the model can never name a nonexistent
-  version) — the best-fitting version, persisted in `score_detail` and surfaced as
-  a `Resume: <label>` line in the Telegram alert and an always-visible badge in the
-  job detail modal; a single-resume setup omits the field entirely (byte-identical
-  to prior behavior). `score_posting` normalizes/clamps the result (`ScoreError` on
-  anything unusable). **There is no local experience/years gate** — seniority is
-  judged entirely by the Claude score, not a deterministic code check.
+  call in a run, only the JD is fresh) with **adaptive thinking**, returning
+  schema-constrained JSON: a structured **`assessment` scorecard** (ordered first so the
+  model works the verdicts before the number) + `score 0-100`. The scorecard carries
+  enum-constrained `seniority` (match/too_junior/too_senior) and `domain`
+  (match/adjacent/mismatch) verdicts + notes, split `must_haves` {met, missing} /
+  `nice_to_haves` {missing}, and a one-line `summary` (**S2.1** — replaced the flat
+  `matched_keywords`/`missing_keywords` lists + prose `reasoning`). The prompt scores
+  from the verdicts: a material seniority gap floors the score at 0–30 (**D3**), and
+  missing `nice_to_haves` barely move it (**D4**). With **two or more** resume versions
+  the schema additionally requires `recommended_resume`, enum-constrained to the actual
+  labels (so the model can never name a nonexistent version) — the best-fitting version,
+  persisted in `score_detail` and surfaced as a `Resume: <label>` line in the Telegram
+  alert and an always-visible badge in the job detail modal; a single-resume setup omits
+  the field entirely. `score_posting` normalizes/clamps the result and validates the
+  scorecard (`ScoreError` on a missing score or an out-of-enum verdict); the modal renders
+  the scorecard with a legacy matched/missing/reasoning fallback for pre-S2.1 rows.
+  **There is no local experience/years gate** — seniority is judged by the Claude
+  scorecard's verdict + floor, not a deterministic code check.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link, plus an optional `Resume: <label>` line when `score_detail`
   carries `recommended_resume`) — a single atomic message per match; the human
@@ -551,7 +557,7 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100, from Claude fit score
-  score_detail    String?       // JSON: matched/missing keywords, reasoning, screen, disqualification, recommended_resume
+  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
   posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String?       // last stage/send error; cleared on successful notify

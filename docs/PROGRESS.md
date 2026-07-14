@@ -43,18 +43,19 @@ D2):
   **geonamescache** — **shipped**: resolve every token city→country (highest-population
   match, any-US/allowed keeps, all-foreign discards, `OR`-split fixed), superseding the
   2026-07-07 last-token/pycountry gate.
-- **Stream 2 — Score:** **S2.1 reasoning redesign** — replace the prose `reasoning`
-  blob + flat keyword lists with a structured `assessment` scorecard (enum
-  seniority/domain verdicts, split `must_haves`/`nice_to_haves`, one-line summary),
-  which subsumes **D3** (seniority score-floor) and **D4** (plus-skills); **D5** drop
-  `Location:` from the fit call; **D6** re-measure calibration *after* D3/D4/D5, then
+- **Stream 2 — Score:** ✅ **S2.1 reasoning redesign** — **shipped**: the prose
+  `reasoning` blob + flat keyword lists are replaced by a structured `assessment`
+  scorecard (enum seniority/domain verdicts, split `must_haves`/`nice_to_haves`,
+  one-line summary), rendered in the job modal (legacy fallback kept); subsumes **D3**
+  (seniority score-floor rule in the prompt) and **D4** (plus-skills). **D5** drop
+  `Location:` from the fit call (next); **D6** re-measure calibration *after* D5, then
   loosen rubric or lower threshold only if genuine good-fits still sit < 75.
-- **Verify:** re-run the screen over the existing DB (local Ollama, ~$0) counting
-  verdict flips; re-score the flagged set + a stratified sample (Claude, small $) for
-  the score changes.
-- **Status:** spec approved; implementation plan (writing-plans) next. On landing,
-  each closed defect leaves Defects → CHANGELOG + SPEC (same commit), per the docs
-  discipline below.
+- **Verify:** D1/D2 screen flips re-run pure-code over the DB (local Ollama not even
+  needed, ~$0); the S2.1/D5/D6 score changes re-scored over the flagged set + a
+  stratified sample (Claude, small $) — **still owed before D6 calibration.**
+- **Status:** Stream 1 (D1, D2) + S2.1 (D3, D4) landed on `dev`. Remaining: **D5**
+  (deterministic, next), then **D6** (measure-first). Each closed defect leaves
+  Defects → CHANGELOG + SPEC in the same commit, per the docs discipline below.
 
 ---
 
@@ -71,27 +72,8 @@ consistency check — all structural invariants passed — plus a manual spot-au
 8 mis-judged postings). These are quality/logic errors in the two LLM judgments,
 not format bugs. Ordered by severity; posting ids are live-DB repros.
 
-**Screen (Ollama hard-requirement gate):**
-
-- **Seniority beyond a new grad is not gated — MEDIUM.** Roles whose hard bar is
-  3+/4+ years (or "senior") pass screen and earn a mid fit score instead of being
-  rejected; a new grad cannot fill them, so they are *under*-penalized. Repro:
-  Squarepoint "Quant Developer (Python)" 4+ yrs (id=904, score 62); Cubist "SWE –
-  Data" 3+ yrs (id=177, score 63). Sharper still: at Squarepoint the actually-
-  suitable *Graduate*/*Junior* roles were discarded for being non-US-only
-  (id=885/892/898), so the queue keeps the unreachable senior role and drops the
-  reachable entry-level ones. **Fix (2026-07-13 decision):** score floor, not a
-  screen discard — an explicit `seniority` verdict in the S2.1 scorecard redesign,
-  with a rule that a material gap scores weak (≤30). Kept visible, ranked low.
-
 **Score (Claude fit):**
 
-- **Preferred / "plus" skills penalized like requirements — MEDIUM.** A missing
-  nice-to-have (e.g. C++) drags the fit score down even when the core matches.
-  Repro: HRT "SWE – AI Tools" (id=427, score 66) — strong Python/AI-tooling core,
-  docked on missing C++/UNIX-internals which the JD lists only as pluses.
-  **Fix:** the S2.1 scorecard splits `must_haves` / `nice_to_haves` so missing
-  pluses barely move the score.
 - **Location leaks into the fit score — MEDIUM.** The same role posted per-city
   scores differently and inconsistently — Cumberland ranks London (id=324, 62)
   *above* Chicago (id=323, 52); Prediction Markets ranks Chicago (id=322, 72) above

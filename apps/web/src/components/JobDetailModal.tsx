@@ -26,7 +26,23 @@ interface ScreenVerdict {
     note: string
 }
 
+interface Verdict {
+    verdict: string
+    note: string
+}
+
+// The S2.1 fit scorecard — per-dimension verdicts that supersede the flat
+// matched/missing keyword lists + prose reasoning (kept as a legacy fallback below).
+interface Assessment {
+    seniority: Verdict
+    domain: Verdict
+    mustHaves: { met: string[]; missing: string[] }
+    niceToHaves: { missing: string[] }
+    summary: string
+}
+
 interface ScoreDetail {
+    assessment: Assessment | null
     matched: string[]
     missing: string[]
     reasoning?: string
@@ -34,6 +50,30 @@ interface ScoreDetail {
     disqualificationReason: string
     recommendedResume: string
     screen: [string, ScreenVerdict][]
+}
+
+// Verdict chip color: a clean match is green; a hard mismatch red; the in-between
+// verdicts (too_junior / too_senior / adjacent) amber.
+function verdictClass(v: string): string {
+    if (v === 'match') return 'bg-emerald-500/15 text-emerald-700 border-transparent'
+    if (v === 'mismatch') return 'bg-red-500/15 text-red-700 border-transparent'
+    return 'bg-amber-500/15 text-amber-700 border-transparent'
+}
+
+function parseAssessment(a: any): Assessment | null {
+    if (!a || typeof a !== 'object') return null
+    const verdict = (v: any): Verdict => ({
+        verdict: String(v?.verdict ?? ''),
+        note: String(v?.note ?? ''),
+    })
+    const list = (x: any): string[] => (Array.isArray(x) ? x.map(String) : [])
+    return {
+        seniority: verdict(a.seniority),
+        domain: verdict(a.domain),
+        mustHaves: { met: list(a.must_haves?.met), missing: list(a.must_haves?.missing) },
+        niceToHaves: { missing: list(a.nice_to_haves?.missing) },
+        summary: String(a.summary ?? ''),
+    }
 }
 
 // The worker (apps/worker/ats_worker/pipeline.py) writes score_detail as
@@ -54,6 +94,7 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
                   ])
                 : []
         return {
+            assessment: parseAssessment(p.assessment),
             matched: p.matched_keywords ?? p.matched ?? [],
             missing: p.missing_keywords ?? p.missing ?? [],
             reasoning: p.reasoning,
@@ -72,7 +113,9 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
     const [showDetails, setShowDetails] = useState(false)
     const detail = parseScoreDetail(job.score_detail)
     const isDiscarded = job.pipeline_status === 'discarded'
+    const assessment = detail?.assessment ?? null
     const hasMatchDetail = !!detail && (
+        !!assessment ||
         (detail.matched?.length ?? 0) > 0 ||
         (detail.missing?.length ?? 0) > 0 ||
         !!detail.reasoning
@@ -146,39 +189,93 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                 className="flex w-full items-center gap-1.5 p-3 text-sm font-medium hover:bg-muted/50"
                             >
                                 {showDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                Match details &amp; reasoning
+                                {assessment ? 'Fit assessment' : 'Match details & reasoning'}
                             </button>
                             {showDetails && (
                                 <div className="space-y-3 px-4 pb-4">
-                                    {detail!.matched && detail!.matched.length > 0 && (
-                                        <div>
-                                            <div className="text-xs font-semibold text-emerald-700 mb-1">Matched</div>
-                                            <div className="flex flex-wrap gap-1">
-                                                {detail!.matched.map((kw) => (
-                                                    <Badge key={kw} variant="secondary" className="bg-emerald-500/15 text-emerald-700 border-transparent">
-                                                        {kw}
-                                                    </Badge>
+                                    {assessment ? (
+                                        <>
+                                            <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                                {([['Seniority', assessment.seniority], ['Domain', assessment.domain]] as const).map(([label, v]) => (
+                                                    <div key={label} className="flex items-center gap-1.5 text-sm">
+                                                        <span className="text-xs font-semibold text-muted-foreground">{label}</span>
+                                                        <Badge variant="secondary" className={verdictClass(v.verdict)}>
+                                                            {v.verdict || '—'}
+                                                        </Badge>
+                                                        {v.note && <span className="text-xs text-muted-foreground">{v.note}</span>}
+                                                    </div>
                                                 ))}
                                             </div>
-                                        </div>
-                                    )}
-                                    {detail!.missing && detail!.missing.length > 0 && (
-                                        <div>
-                                            <div className="text-xs font-semibold text-red-700 mb-1">Missing</div>
-                                            <div className="flex flex-wrap gap-1">
-                                                {detail!.missing.map((kw) => (
-                                                    <Badge key={kw} variant="secondary" className="bg-red-500/15 text-red-700 border-transparent">
-                                                        {kw}
-                                                    </Badge>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                    {detail!.reasoning && (
-                                        <div>
-                                            <div className="text-xs font-semibold text-muted-foreground mb-1">Reasoning</div>
-                                            <p className="text-sm text-muted-foreground">{detail!.reasoning}</p>
-                                        </div>
+                                            {assessment.mustHaves.met.length > 0 && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-emerald-700 mb-1">Must-haves met</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {assessment.mustHaves.met.map((kw) => (
+                                                            <Badge key={kw} variant="secondary" className="bg-emerald-500/15 text-emerald-700 border-transparent">{kw}</Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {assessment.mustHaves.missing.length > 0 && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-red-700 mb-1">Must-haves missing</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {assessment.mustHaves.missing.map((kw) => (
+                                                            <Badge key={kw} variant="secondary" className="bg-red-500/15 text-red-700 border-transparent">{kw}</Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {assessment.niceToHaves.missing.length > 0 && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Nice-to-haves missing (optional)</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {assessment.niceToHaves.missing.map((kw) => (
+                                                            <Badge key={kw} variant="outline" className="text-muted-foreground">{kw}</Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {assessment.summary && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Summary</div>
+                                                    <p className="text-sm text-muted-foreground">{assessment.summary}</p>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            {detail!.matched && detail!.matched.length > 0 && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-emerald-700 mb-1">Matched</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {detail!.matched.map((kw) => (
+                                                            <Badge key={kw} variant="secondary" className="bg-emerald-500/15 text-emerald-700 border-transparent">
+                                                                {kw}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {detail!.missing && detail!.missing.length > 0 && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-red-700 mb-1">Missing</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {detail!.missing.map((kw) => (
+                                                            <Badge key={kw} variant="secondary" className="bg-red-500/15 text-red-700 border-transparent">
+                                                                {kw}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {detail!.reasoning && (
+                                                <div>
+                                                    <div className="text-xs font-semibold text-muted-foreground mb-1">Reasoning</div>
+                                                    <p className="text-sm text-muted-foreground">{detail!.reasoning}</p>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}

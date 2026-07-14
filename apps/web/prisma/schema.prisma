@@ -39,7 +39,7 @@ model job_postings {
   job_url         String
   description     String // full JD text (fed to the LLM)
   score           Int? // 0-100 fit score (Claude); screen verdicts are local (Ollama)
-  score_detail    String? // JSON: { matched_keywords:[], missing_keywords:[], reasoning, [recommended_resume] } (worker output)
+  score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
   attempts        Int           @default(0) // cumulative failure count (notify send retries until 3, then parks 'failed')

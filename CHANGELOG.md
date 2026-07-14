@@ -7,6 +7,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+- **Fit score reasoning redesigned into a structured `assessment` scorecard (S2.1;
+  closes D3 + D4).** The Claude fit call now emits an `assessment` object — enum-
+  constrained `seniority`/`domain` verdicts + notes, split `must_haves` {met, missing} /
+  `nice_to_haves` {missing}, and a one-line `summary` — replacing the flat
+  `matched_keywords`/`missing_keywords` lists and the prose `reasoning` blob in
+  `score_detail`. The prompt scores from those verdicts: a material seniority gap floors
+  the score at 0–30 (**D3** — a new grad no longer earns a mid score on a 3+-year role,
+  e.g. id=904/177), and missing `nice_to_haves` barely move it (**D4** — a missing "plus"
+  like C++ no longer tanks a strong core fit, e.g. id=427). `JobDetailModal` renders the
+  scorecard (verdict chips, must/nice-have chips, summary) with the legacy
+  matched/missing/reasoning path kept as a fallback for old rows; discarded rows carry no
+  assessment. No DB migration (old rows keep their shape). Design:
+  `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md` §S2.1.
+
 ### Fixed
 - **Location gate resolves every token via geonamescache (D2).** `resolve_location` no
   longer inspects only the last token through `pycountry` (countries only) — it resolves

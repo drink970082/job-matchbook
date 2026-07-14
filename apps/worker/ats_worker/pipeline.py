@@ -228,11 +228,11 @@ def run_score(conn, *, now, score_fn) -> None:
         try:
             result = score_fn(posting)
             disqualified = bool(result.get("disqualified"))
-            detail = {
-                "matched_keywords": result.get("matched_keywords", []),
-                "missing_keywords": result.get("missing_keywords", []),
-                "reasoning": result.get("reasoning", ""),
-            }
+            detail = {}
+            # The fit scorecard (seniority/domain verdicts, must/nice-to-haves, summary).
+            # Absent on disqualified rows — the fit call is skipped, so no assessment.
+            if result.get("assessment"):
+                detail["assessment"] = result["assessment"]
             # Per-requirement screen verdicts (which hard requirements passed/failed)
             # — kept for transparency so the UI can show why something was dropped.
             if result.get("screen"):

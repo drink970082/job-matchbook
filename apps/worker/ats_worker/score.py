@@ -98,19 +98,64 @@ class ScoreError(RuntimeError):
     """The model returned output we could not parse into a valid score."""
 
 
-# Structured-output schema for the Claude fit score. reasoning first so the model
-# assesses fit before committing to a number; keyword lists surface matched/missing skills in the UI.
-# (Structured outputs reject numeric bounds, so `score` is a bare integer — the
+# Structured-output schema for the Claude fit score. The `assessment` scorecard comes
+# first so the model works through the per-dimension verdicts BEFORE committing to a
+# number (replacing the old prose `reasoning` blob + flat keyword lists — S2.1). The
+# seniority/domain verdicts are enum-constrained so structured outputs enforce them; the
+# split must_haves/nice_to_haves make a missing "plus" skill visibly cheaper than a
+# missing core one (D4), and a seniority gap is a first-class field, not buried in prose
+# (D3). (Structured outputs reject numeric bounds, so `score` is a bare integer — the
 # 0-100 clamp lives in _coerce_score.)
+_ASSESSMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "seniority": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "enum": ["match", "too_junior", "too_senior"]},
+                "note": {"type": "string"},
+            },
+            "required": ["verdict", "note"],
+            "additionalProperties": False,
+        },
+        "domain": {
+            "type": "object",
+            "properties": {
+                "verdict": {"type": "string", "enum": ["match", "adjacent", "mismatch"]},
+                "note": {"type": "string"},
+            },
+            "required": ["verdict", "note"],
+            "additionalProperties": False,
+        },
+        "must_haves": {
+            "type": "object",
+            "properties": {
+                "met": {"type": "array", "items": {"type": "string"}},
+                "missing": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["met", "missing"],
+            "additionalProperties": False,
+        },
+        "nice_to_haves": {
+            "type": "object",
+            "properties": {
+                "missing": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["missing"],
+            "additionalProperties": False,
+        },
+        "summary": {"type": "string"},
+    },
+    "required": ["seniority", "domain", "must_haves", "nice_to_haves", "summary"],
+    "additionalProperties": False,
+}
 _SCORE_SCHEMA = {
     "type": "object",
     "properties": {
-        "reasoning": {"type": "string"},
+        "assessment": _ASSESSMENT_SCHEMA,
         "score": {"type": "integer"},
-        "matched_keywords": {"type": "array", "items": {"type": "string"}},
-        "missing_keywords": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["reasoning", "score", "matched_keywords", "missing_keywords"],
+    "required": ["assessment", "score"],
     "additionalProperties": False,
 }
 
@@ -281,9 +326,7 @@ def score_posting(
     # Claude SCORE. Record score 0 (no fit assessed) + the screen verdict; run_score
     # routes it to 'discarded' with the reason.
     if screen["disqualified"]:
-        return {"score": 0, "matched_keywords": [], "missing_keywords": [],
-                "reasoning": "disqualified by hard requirements; fit score skipped",
-                **screen}
+        return {"score": 0, **screen}  # fit skipped -> no assessment (discarded row)
 
     # 2. SCORE — passed the screen, so pay for the Claude fit score (injected).
     # Normalized here (missing score -> raise).
@@ -324,22 +367,54 @@ def _post(http, ollama_host: str, model: str, prompt: str, *, options: dict, tim
     return data
 
 
+_SENIORITY_VERDICTS = frozenset(("match", "too_junior", "too_senior"))
+_DOMAIN_VERDICTS = frozenset(("match", "adjacent", "mismatch"))
+
+
 def _normalize_score(data: dict) -> dict:
-    """Validate the SCORE call's output (score is required)."""
+    """Validate the SCORE call's output: both `score` and a well-formed `assessment`
+    scorecard are required, and both fail loudly — a missing score buried as 0 would
+    silently exclude the posting from notification, and a malformed assessment means the
+    model didn't produce the per-dimension verdicts the ranking + audit depend on (S2.1)."""
     if "score" not in data:
-        # Absent score must fail loudly — burying it as 0 is indistinguishable
-        # from a genuine 0 and would silently exclude the posting from notification.
         raise ScoreError(f"response missing required 'score': {data!r}")
     out = {
         "score": _coerce_score(data["score"]),
-        "matched_keywords": _as_str_list(data.get("matched_keywords")),
-        "missing_keywords": _as_str_list(data.get("missing_keywords")),
-        "reasoning": str(data.get("reasoning") or ""),
+        "assessment": _normalize_assessment(data.get("assessment")),
     }
     recommended = str(data.get("recommended_resume") or "").strip()
     if recommended:
         out["recommended_resume"] = recommended
     return out
+
+
+def _normalize_assessment(value) -> dict:
+    """Validate + coerce the scorecard. The seniority/domain verdicts must be in-enum
+    (raise ScoreError otherwise — they drive D3's seniority floor and the ranking); the
+    keyword lists and summary are coerced leniently since they only feed the UI."""
+    if not isinstance(value, dict):
+        raise ScoreError(f"score missing required 'assessment' object: {value!r}")
+
+    def _verdict(key, allowed):
+        entry = value.get(key)
+        if not isinstance(entry, dict):
+            raise ScoreError(f"assessment.{key} must be an object: {entry!r}")
+        verdict = str(entry.get("verdict") or "")
+        if verdict not in allowed:
+            raise ScoreError(
+                f"assessment.{key}.verdict {verdict!r} not one of {sorted(allowed)}")
+        return {"verdict": verdict, "note": str(entry.get("note") or "")}
+
+    must = value.get("must_haves") if isinstance(value.get("must_haves"), dict) else {}
+    nice = value.get("nice_to_haves") if isinstance(value.get("nice_to_haves"), dict) else {}
+    return {
+        "seniority": _verdict("seniority", _SENIORITY_VERDICTS),
+        "domain": _verdict("domain", _DOMAIN_VERDICTS),
+        "must_haves": {"met": _as_str_list(must.get("met")),
+                       "missing": _as_str_list(must.get("missing"))},
+        "nice_to_haves": {"missing": _as_str_list(nice.get("missing"))},
+        "summary": str(value.get("summary") or ""),
+    }
 
 
 def _coerce_score(raw) -> int:
