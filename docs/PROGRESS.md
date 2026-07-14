@@ -27,37 +27,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Fix the 6 audited screen/score defects (in flight, 2026-07-13).** The quality
-audit of the first cold pass is **done** — the mechanical consistency check passed
-all structural invariants, and a manual spot-audit filed **6 defects** (see
-[Defects](#defects--shipped-behavior-that-is-wrong-should-fix) below). The fix design
-is approved and speced in
-[`docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`](./superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md).
-Two streams, **screen-first** (higher severity, cheaper to verify, and D5 depends on
-D2):
-
-- **Stream 1 — Screen (deterministic, TDD):** ✅ **D1** authorization phrase-gate —
-  **shipped**: `NO_SPONSOR_PHRASES` explicit-phrase gate replaced the boilerplate
-  `_SPONSOR_HINTS` false-positive ("company-sponsored", EEO "citizenship"); the 4B
-  `offers_sponsorship` guess is no longer consulted. ✅ **D2** location via
-  **geonamescache** — **shipped**: resolve every token city→country (highest-population
-  match, any-US/allowed keeps, all-foreign discards, `OR`-split fixed), superseding the
-  2026-07-07 last-token/pycountry gate.
-- **Stream 2 — Score:** ✅ **S2.1 reasoning redesign** — **shipped**: the prose
-  `reasoning` blob + flat keyword lists are replaced by a structured `assessment`
-  scorecard (enum seniority/domain verdicts, split `must_haves`/`nice_to_haves`,
-  one-line summary), rendered in the job modal (legacy fallback kept); subsumes **D3**
-  (seniority score-floor rule in the prompt) and **D4** (plus-skills). ✅ **D5**
-  **shipped**: the fit call's JOB section drops the `Location:` line
-  (`include_location=False`) so geography can't move the score. **D6** re-measure
-  calibration remains — *after* a re-score, loosen rubric or lower threshold only if
-  genuine good-fits still sit < 75.
-- **Verify:** D1/D2 screen flips re-run pure-code over the DB (local Ollama not even
-  needed, ~$0); the S2.1/D5/D6 score changes re-scored over the flagged set + a
-  stratified sample (Claude, small $) — **still owed before D6 calibration.**
-- **Status:** Stream 1 (D1, D2) + S2.1 (D3, D4) + D5 landed on `dev`. Remaining: **D6**
-  only (measure-first — needs the Claude re-score). Each closed defect leaves
-  Defects → CHANGELOG + SPEC in the same commit, per the docs discipline below.
+🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
+audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
+design `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`), and
+validated **2026-07-14** against the live 1,169-row DB — a free pure-code pass (146 auth
+false-negatives recovered, 6 location keeps, 174 bare-foreign leaks now gated) plus a
+20-row Claude re-score (measurement-only, not persisted). But the **stored** rows still
+carry pre-fix screen verdicts and scores. The next scheduled pipeline pass only reaches
+*new* postings, so applying the fixes to the existing queue needs an operator re-run
+(reset the affected rows to `new`, or a one-off re-score) — a **paid** Claude pass over
+the ~640 kept rows. Not done automatically (mutates the DB + costs $); back up
+`db/applications.db` first.
 
 ---
 
@@ -69,19 +49,13 @@ thing from an unbuilt nice-to-have, and the two should not read at the same weig
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-Surfaced by the first quality audit of the 2026-07-13 cold pass (mechanical
-consistency check — all structural invariants passed — plus a manual spot-audit of
-8 mis-judged postings). These are quality/logic errors in the two LLM judgments,
-not format bugs. Ordered by severity; posting ids are live-DB repros.
-
-**Score (Claude fit):**
-
-- **Fit scale compressed / too strict — MEDIUM (D6, blocked on re-score).** Genuinely
-  strong matches land in
-  the sub-75 near-miss band; 59% of all scores pile on 6 low values
-  (5/8/15/22/28/32) and only 11/642 clear 75. Repro: Prediction Markets Chicago
-  (id=322, 72). Systemic under-scoring risks missing real matches at the notify
-  threshold.
+**None open.** The 6 defects from the 2026-07-13 cold-pass audit (D1 auth, D2 location,
+D3 seniority, D4 plus-skills, D5 location-leak, D6 calibration) all shipped — see the
+[CHANGELOG](../CHANGELOG.md). **D6 closed by measurement, not code:** the 2026-07-14
+re-score showed the fit scale de-compressed as an *emergent* effect of D3/D4/D5 (in a
+20-row sample the 60–74 near-miss band collapsed from 9 rows to 1, and 75+ rose from 0
+to 6 — genuine fits clear the notify threshold, weak/too-junior fits sink), so **no
+rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 

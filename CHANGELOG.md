@@ -23,6 +23,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md` §S2.1.
 
 ### Fixed
+- **Fit-scale calibration validated — no change needed (D6).** Re-scoring a 20-row sample
+  (flagged rows + a stratified sample) with the post-D3/D4/D5 prompt showed the score
+  scale de-compressed on its own: the 60–74 near-miss pile-up collapsed (9→1 in the
+  sample) and genuine good-fits reached ≥75 (0→6), while weak/too-junior roles sank. The
+  deferred fork (loosen rubric vs lower the notify threshold) resolves to neither — the
+  threshold stays **75**. Spot-checks confirmed D3 (id=904 62→25, id=177 63→28, id=322
+  72→25, all `too_junior`) and D4 (id=427 66→81, C++/UNIX demoted to nice-to-haves).
 - **Location no longer leaks into the fit score (D5).** The JOB section sent to the
   Claude fit call omits the `Location:` line (`_job_block(..., include_location=False)`),
   and the prompt tells the model to ignore geography. The same role posted per city now

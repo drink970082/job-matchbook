@@ -258,7 +258,11 @@ the scorecard schema/render (deterministic, unit-tested).
 ## Deferred forks (decide with data, not now)
 
 - **D3** deterministic YOE cap — only if the prompt alone leaks on re-score.
+  **Resolved 2026-07-14: not needed.** The prompt floor held — id=904/177/322 all scored
+  `too_junior` at ≤28 with notes citing the exact YoE gap; no deterministic cap added.
 - **D6** rubric-loosen vs threshold-drop — only if good-fits still sit < 75.
+  **Resolved 2026-07-14: neither.** The 20-row re-score showed the scale de-compressed
+  emergently (near-miss band 9→1, 75+ 0→6); the notify threshold stays 75.
 
 ## Risks
 
