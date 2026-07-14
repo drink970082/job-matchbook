@@ -94,8 +94,9 @@ not format bugs. Ordered by severity; posting ids are live-DB repros.
   Data" 3+ yrs (id=177, score 63). Sharper still: at Squarepoint the actually-
   suitable *Graduate*/*Junior* roles were discarded for being non-US-only
   (id=885/892/898), so the queue keeps the unreachable senior role and drops the
-  reachable entry-level ones. **Open: fix as a screen hard-gate vs a score floor —
-  decide before implementing.**
+  reachable entry-level ones. **Fix (2026-07-13 decision):** score floor, not a
+  screen discard — an explicit `seniority` verdict in the S2.1 scorecard redesign,
+  with a rule that a material gap scores weak (≤30). Kept visible, ranked low.
 
 **Score (Claude fit):**
 
@@ -103,6 +104,8 @@ not format bugs. Ordered by severity; posting ids are live-DB repros.
   nice-to-have (e.g. C++) drags the fit score down even when the core matches.
   Repro: HRT "SWE – AI Tools" (id=427, score 66) — strong Python/AI-tooling core,
   docked on missing C++/UNIX-internals which the JD lists only as pluses.
+  **Fix:** the S2.1 scorecard splits `must_haves` / `nice_to_haves` so missing
+  pluses barely move the score.
 - **Location leaks into the fit score — MEDIUM.** The same role posted per-city
   scores differently and inconsistently — Cumberland ranks London (id=324, 62)
   *above* Chicago (id=323, 52); Prediction Markets ranks Chicago (id=322, 72) above
