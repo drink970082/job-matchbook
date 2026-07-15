@@ -27,6 +27,30 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+▶ **Next session — start here.** Branch `dev` (5 commits D1–D6 pushed to `origin/dev`;
+`master` untouched). Untracked scratch in the tree is not repo state: `audit_list.txt`
+(the 8-posting audit source), `rescore_results_full.md` (the 20-row re-score **baseline**
+to compare against), `.coverage`. Two independent threads are open, in priority order:
+
+- **A — Scorer-prompt refinement round 2** (design agreed 2026-07-14; full rules in the
+  block below). In order: **(1)** drop in the regenerated
+  `apps/worker/resume/personal_profile.txt` (user produces it from the "good-profile
+  framework" below) and sanity-check it — no skills/tech/course inventory smuggled in,
+  interests genuine + specific, no hard-constraint restatement (config owns those).
+  **(2)** Apply the four universal `score.txt` edits (crisp/de-dup misses; seniority =
+  explicit level only; substance-not-keyword; no structurally-impossible misses).
+  Prompt-only. **(3) Validation re-score (paid Claude — get user OK first):** re-score the
+  20-row sample and compare to `rescore_results_full.md`. The scratchpad script is gone
+  (session-scoped); rebuild it — wiring is `run.load_resumes("apps/worker/resume")` →
+  `score.make_claude_scorer(key, "claude-sonnet-5", profile=profile)` → `score_fit` per
+  row → `score._normalize_score`, READ-ONLY (never writes the DB); key from
+  `apps/worker/.env`; run with `apps/worker/.venv/bin/python` (has `anthropic`). Confirm:
+  explicit-bar floors preserved (id=904/177 + traders stay low), id=322 lifts to a
+  near-miss (~55–65), deficit lists crispened, no good-fit regressions. Ship only if
+  clean, then move this item Defects→CHANGELOG+SPEC per the docs discipline.
+- **B — Operator: apply the shipped D1–D6 fixes to the live DB** (block below). Separate,
+  paid, mutates the DB; independent of A, do anytime.
+
 🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
 audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
 design `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`), and
@@ -38,6 +62,67 @@ carry pre-fix screen verdicts and scores. The next scheduled pipeline pass only 
 (reset the affected rows to `new`, or a one-off re-score) — a **paid** Claude pass over
 the ~640 kept rows. Not done automatically (mutates the DB + costs $); back up
 `db/applications.db` first.
+
+🚧 **Scorer-prompt refinement round 2 + profile framework (designed 2026-07-14, not yet
+implemented).** A subagent quality-assessment of the 20-row re-score
+(`rescore_results_full.md`) found two issues the S2.1 scorecard still has — both
+**universal**, not sample-patching: the fit `must_haves.missing` lists (a) restate one
+gap as several verbose paraphrased items (deficit-length inflation) and (b) penalize
+skills the résumé shows under a *different name* ("no explicit RAG" when a retrieval
+agent is on the résumé). Agreed `score.txt` changes (validate with a fresh re-score
+before shipping; must NOT regress the D3 seniority floor):
+
+- **Crisp / de-dup misses** — each `missing` item is ONE distinct checkable requirement;
+  collapse facets of one gap into a single item; prefer crisp skills over prose sentences.
+- **Seniority axis = explicit level only** — the `too_junior`/`too_senior` floor fires
+  only on a *stated* level (a YoE number, or senior/lead/staff/principal). Implied
+  ownership/responsibility ("independently own production systems") is a
+  `must_haves`/`domain` matter (dings toward a near-miss), NOT seniority (which floors to
+  0–30). Preserves the explicit-bar floors (id=904 "4+ yrs", id=177 "3+ yrs", traders
+  "2+ yrs"); un-floors implied-senior in-track roles (id=322).
+- **Read the résumé for substance, not keyword** — credit a capability the résumé
+  demonstrates under a different name (a retrieval agent ⇒ "RAG"). Do NOT infer from
+  adjacency (Python ⇒ mypy) — that hallucinates skills and hides real résumé gaps.
+- **No structurally-impossible misses** — don't list "no full-time tenure / not a proven
+  top performer at a prior job" as a missing must-have for roles open to new grads.
+
+**Résumé vs profile — governing rule (decided):** the **résumé is authoritative for
+skill / experience evidence** (it is what a recruiter sees). The **profile shapes the fit
+score but never overrides the résumé as skill evidence** — it may push fit *up* (genuine
+interests / motivation — the one legitimate upward lever, since interest ≠ skill), *down*
+(honest caveats), or *sideways* (positioning / direction), but must never inject skills
+the résumé does not back. Corollaries: **courses live on the résumé** (a selective
+"Relevant Coursework" line), not the profile; and a "no explicit X" for a skill genuinely
+absent from the résumé is useful **résumé-gap signal** (fix the résumé), aligned with the
+recruiter-first view.
+
+**Config vs profile — seam (decided):** `config.yaml` **serves the machine only** —
+operational settings (companies, title_filter, threshold, schedule) plus the structured
+hard constraints that feed the **deterministic** screen gates (degree / auth / clearance /
+location / internships, incl. D1/D2). It is **not** retired or dissolved into prose (that
+would regress the deterministic gates). The **profile serves the LLM fit score only**;
+de-duplicate by dropping the hard-constraint restatements (auth / location narrative) from
+the profile, since config owns them. (The earlier "profile absorbs config" idea is
+dropped.)
+
+**Good-profile framework — what the profile should contain:**
+1. **Target direction** — roles / functions / firm-types wanted, priority-ordered (judges
+   domain-fit against intent, not just history).
+2. **Anti-targets** — what to avoid even if qualified (correctly marks HFT / pure-trading /
+   floor / IT-ops roles as a poor fit *for you*).
+3. **Career stage (factual)** — grounds the seniority verdict; context, not a skill claim.
+4. **Self-positioning** — how you identify when a title is ambiguous ("builder/dev, not a
+   pure researcher") — drives the `domain: adjacent` calls.
+5. **Interests / motivation** — genuine fit factors; the one legitimate *upward* lever.
+6. **Honest downward caveats** — where the résumé might over-read ("C++ coursework-depth").
+   - **Out of the profile:** skills / tech / courses omitted from the résumé (→ put them on
+     the résumé); anything meant to inflate qualification beyond the résumé; hard
+     constraints already in config. Keep it **concise + stable** — it is a cached prefix on
+     every score call.
+
+**Status:** design agreed in discussion; not yet speced or implemented. Next step (when
+picked up): a design spec + plan for the `score.txt` edits and a profile trim, then a
+validation re-score before shipping.
 
 ---
 
