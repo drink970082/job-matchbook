@@ -32,22 +32,26 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 (the 8-posting audit source), `rescore_results_full.md` (the 20-row re-score **baseline**
 to compare against), `.coverage`. Two independent threads are open, in priority order:
 
-- **A — Scorer-prompt refinement round 2** (design agreed 2026-07-14; full rules in the
-  block below). In order: **(1)** drop in the regenerated
-  `apps/worker/resume/personal_profile.txt` (user produces it from the "good-profile
-  framework" below) and sanity-check it — no skills/tech/course inventory smuggled in,
-  interests genuine + specific, no hard-constraint restatement (config owns those).
-  **(2)** Apply the four universal `score.txt` edits (crisp/de-dup misses; seniority =
-  explicit level only; substance-not-keyword; no structurally-impossible misses).
-  Prompt-only. **(3) Validation re-score (paid Claude — get user OK first):** re-score the
-  20-row sample and compare to `rescore_results_full.md`. The scratchpad script is gone
-  (session-scoped); rebuild it — wiring is `run.load_resumes("apps/worker/resume")` →
-  `score.make_claude_scorer(key, "claude-sonnet-5", profile=profile)` → `score_fit` per
-  row → `score._normalize_score`, READ-ONLY (never writes the DB); key from
-  `apps/worker/.env`; run with `apps/worker/.venv/bin/python` (has `anthropic`). Confirm:
-  explicit-bar floors preserved (id=904/177 + traders stay low), id=322 lifts to a
-  near-miss (~55–65), deficit lists crispened, no good-fit regressions. Ship only if
-  clean, then move this item Defects→CHANGELOG+SPEC per the docs discipline.
+- **A — Build + run the fit-score eval harness.** Design **approved 2026-07-15**:
+  `docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`. The ad-hoc
+  "edit prompt → paid re-score → eyeball 20 rows" loop is **retired** — it optimized a
+  noisy score against a target that was never written down (root cause in the superseded
+  round-2 status below). Replacement = a **band-regression guard**: a frozen, hand-labeled
+  golden set judged by *code*, not eyeballs. Already seeded: `apps/worker/eval/golden.jsonl`
+  (gitignored) holds **23 rows** stratified across role-archetypes + the decision boundary
+  (keep 5 · keep-marked 1 · near 8 · skip 9), each `{id, band, hard?, marked?}`. **Next
+  actions:** (1) write `apps/worker/tools/score_eval.py` per the spec (K=3×, read-only,
+  reuses `load_resumes` → `make_claude_scorer("claude-sonnet-5")` → `score_fit` →
+  `_normalize_score`; PASS = 0 hard-violations + ≥85% band agreement + <20% flip over the
+  22 gate-eligible rows; `marked` rows to a ⚑ watch list) + a `make eval-score` target;
+  (2) run the **baseline** on the current (uncommitted) round-2 `score.txt`; (3) it is
+  expected to flag id=132/666 as prompt-vs-label disagreements → then apply the **queued
+  prompt edit** as *one measured variable* and re-run. **Queued `score.txt` edit** (do NOT
+  apply blind — validate through the harness): tighten the seniority floor from its "3+"
+  example to *any stated **minimum ≥ 2 years** → too_junior → 0–30*, while leaving "1-3"
+  ranges (min 1 → near), "0-2"/"up to N" ceilings, and no-bar roles un-floored. Untracked
+  scratch (not repo state): `golden_candidates_full.md` (the 23-row review doc),
+  `audit_list.txt`, `rescore_*.md`, `.coverage`.
 - **B — Operator: apply the shipped D1–D6 fixes to the live DB** (block below). Separate,
   paid, mutates the DB; independent of A, do anytime.
 
@@ -120,9 +124,21 @@ dropped.)
      constraints already in config. Keep it **concise + stable** — it is a cached prefix on
      every score call.
 
-**Status:** design agreed in discussion; not yet speced or implemented. Next step (when
-picked up): a design spec + plan for the `score.txt` edits and a profile trim, then a
-validation re-score before shipping.
+**Status — round-2 superseded by the eval-harness approach (2026-07-15).** The four
+`score.txt` edits + the regenerated `personal_profile.txt` remain uncommitted on the `dev`
+working tree; two paid 20-row re-scores were run (`rescore_round2_review.md`, untracked).
+Round-2 did **not** cleanly pass — but the decisive finding was about the *method*, not the
+prompt: the loop was **unmeasurable**. The fit score is a **noisy readout** (±10–15
+run-to-run on borderline rows — e.g. id=322 = 35 then 52, id=6 = 68→82; `temperature`/`seed`
+are rejected 400 on the `claude-sonnet-5` tier so the noise can't be turned off) with **no
+deterministic assessment→score mapping** (roughly `f(#must_haves.missing, domain bucket)`,
+both re-chosen each run), and the round-2 measurement was **confounded** (prompt *and*
+profile moved together). Conclusion: stop chasing exact scores; judge **bands** against a
+**written, frozen** golden set with a noise-tolerant stopping rule (thread A above +
+`docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`). The one low-variance
+lever round-2 found — seniority keyed on an *objective stated level* — is now the golden
+set's labeling convention (stated **minimum ≥ 2 yrs → skip**; "1-3" → near; "0-2"/ceiling/
+no-bar → keep-eligible).
 
 ---
 
@@ -160,6 +176,18 @@ rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
 
 ### Enhancements — not built, optional
 
+- **Alternative fit-score provider (cost / determinism).** The fit scorer is
+  dependency-injected (`score.make_claude_scorer`), so a provider swap is a clean seam
+  (a `make_openai_scorer` twin, wired only in `run.py`). Two possible future motivations,
+  **both gated on the iron rule `eval-model == production-model`** (tuning a prompt against
+  a model you don't ship is a bigger confound than round-2's profile confound): (a) **run
+  the scorer on a ChatGPT/Codex subscription** (e.g. `codex exec`) to get off pay-as-you-go
+  — but `codex exec` is a coding *agent* (heavy per call, fragile at strict-JSON output, and
+  subscription auth is shaky in the unattended 24h cron), so the OpenAI **API** is the better
+  interface if switching at all; (b) **an OpenAI model via API**, whose `seed` +
+  `temperature=0` could cut the ±15 noise the `claude-sonnet-5` tier can't turn off. Revisit
+  only if the harness **flip-rate** shows the noise is genuinely blocking; deferred, nothing
+  migrated. (Context: the eval-harness design, thread A.)
 - **Remaining feed coverage (the `feed_unresolved` long tail).** Feed-coverage Tier 1
   landed (greenhouse-EU host, Oracle, Workable, Jobvite + a per-listing detail-fetch
   path), lifting resolution ~67% → ~78% of the filtered feed. **Measurement snapshot

@@ -21,3 +21,8 @@ apps/worker/resume/*
 # Orphaned tailored-PDF output dir (tailoring removed; kept ignored so any
 # leftover personal PDFs are never committed).
 resumes/
+
+# Fit-score eval: the golden labels + run outputs reference real postings (by DB
+# id) + real resume/profile context, so the DATA stays gitignored; the harness
+# SCRIPT lives in apps/worker/tools/ and IS committed.
+apps/worker/eval/
