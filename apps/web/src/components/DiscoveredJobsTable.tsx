@@ -79,16 +79,14 @@ const CAUSES: { value: 'all' | DisqualifyCause; label: string }[] = [
     { value: 'internship', label: 'Internship' },
 ]
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-// Compact, timezone-safe date: "Jul 15" from a YYYY-MM-DD (or full-ISO) string; "—"
-// for null. Parsed by regex (no Date object) so a UTC-midnight string never shifts a day.
+// Compact, timezone-safe date: "2026-06-01" (yyyy-mm-dd) from a YYYY-MM-DD (or full-ISO)
+// string; "—" for null. Parsed by regex (no Date object) so a UTC-midnight string never
+// shifts a day.
 function fmtDate(raw?: string | null): string {
     if (!raw) return '—'
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
     if (!m) return raw
-    const month = MONTHS[Number(m[2]) - 1]
-    return month ? `${month} ${Number(m[3])}` : raw
+    return `${m[1]}-${m[2]}-${m[3]}`
 }
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)

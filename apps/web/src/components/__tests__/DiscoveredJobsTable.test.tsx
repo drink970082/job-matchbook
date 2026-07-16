@@ -80,8 +80,8 @@ describe('DiscoveredJobsTable', () => {
 
   it('renders posted and fetched dates compactly', () => {
     renderTable()
-    expect(screen.getByText('Posted Jun 1')).toBeInTheDocument()
-    expect(screen.getByText('Fetched Jun 3')).toBeInTheDocument()
+    expect(screen.getByText('Posted 2026-06-01')).toBeInTheDocument()
+    expect(screen.getByText('Fetched 2026-06-03')).toBeInTheDocument()
   })
 
   it('shows the score for each row', () => {
