@@ -36,7 +36,13 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # fails the pass loudly rather than scoring 0s. Claude remains available for a
 # reproducible A/B (--score-backend claude). Override with --score-backend / SCORE_BACKEND.
 DEFAULT_SCORE_BACKEND = "codex"
-DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
+# gpt-5.6-terra, NOT the CLI's own default (gpt-5.6-sol): measured tighter score spread
+# (3 vs 4 pts on repeat draws) at ~half the credit rate and a higher per-5h message
+# allowance — all three favor a 640-row batch. Deliberately NOT gpt-5.6-luna despite the
+# docs recommending it for "extraction/classification": it measured ~3x looser spread
+# (13 pts), which is the one thing this task can't afford (no seed/temperature to fall
+# back on).
+DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-terra"
 # Sonnet 5 scores fit (real seniority/domain judgment, unlike the local 4B model);
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.

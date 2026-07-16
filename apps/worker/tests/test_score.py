@@ -841,6 +841,29 @@ def test_codex_scorer_sends_schema_and_prompt_without_location(monkeypatch):
     assert "--ephemeral" in seen["cmd"]  # a 640-row pass must not litter session files
 
 
+def test_codex_scorer_runs_tool_less(monkeypatch):
+    # SECURITY: a JD is untrusted scraped text and plain `codex exec` holds a shell that
+    # --sandbox read-only still lets read ANY file (~/.codex/auth.json, .env) — so the
+    # tools must be REMOVED, not merely discouraged. web_search defaults ON; off here too.
+    seen: dict = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
+    score.make_codex_scorer("gpt-5.6-terra")(POSTING, {"swe": "r"})
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("--disable") + 1] == "shell_tool"
+    assert 'web_search="disabled"' in cmd
+
+
+def test_codex_scorer_pins_effort_and_verbosity(monkeypatch):
+    # Both MUST be sent explicitly: codex's default reasoning level is server-controlled
+    # (models_cache.json is etag-fetched) and was seen flipping low->medium->low, which
+    # would change scoring behavior mid-batch with no code change. Pinning is the defense.
+    seen: dict = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
+    score.make_codex_scorer("gpt-5.6-terra")(POSTING, {"swe": "r"})
+    assert "model_reasoning_effort=low" in seen["cmd"]
+    assert "model_verbosity=low" in seen["cmd"]
+
+
 def test_codex_scorer_raises_on_nonzero_exit_never_a_zero_score(monkeypatch):
     # A dead cron (e.g. codex purged auth.json) must fail the posting LOUDLY — a
     # swallowed error would silently score the whole queue 0 and look like a real pass.

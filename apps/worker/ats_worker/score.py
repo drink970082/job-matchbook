@@ -770,8 +770,8 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
     return score_fit
 
 
-def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "high",
-                      timeout: int = 600, codex_bin: str = "codex"):
+def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
+                      verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex"):
     """Build a `score_fit(posting, resumes) -> dict` callable backed by the Codex CLI.
 
     The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
@@ -780,18 +780,48 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     backends and the band-regression harness can judge one against the other.
 
     NO DETERMINISM: codex exec exposes no seed/temperature (its only model knobs are
-    model_reasoning_effort and model_verbosity), so the +/-10-15 score noise cannot be
-    turned off here — reasoning_effort=high is the one consistency lever, and
-    tools/score_eval.py is what says whether the noise actually moves a band.
+    model_reasoning_effort and model_verbosity), so the score noise cannot be turned off
+    here — tools/score_eval.py is what says whether it actually moves a band.
+
+    WHY effort=low + verbosity=low, and why BOTH are pinned rather than left default
+    (measured 2026-07-16, not guessed):
+      · effort buys nothing on this task shape — reasoning tokens were non-monotonic
+        across levels (low 44, medium 71, high 61, xhigh 54, max 67): the model won't
+        spend reasoning on a judgment it finds easy, so `high` cost latency for no gain.
+      · effort MUST still be pinned: the default is server-controlled (models_cache.json
+        is fetched with an etag) and was observed flipping low->medium->low within
+        minutes. An unpinned default can change behavior mid-batch with no CLI upgrade.
+      · verbosity is a NO-OP under --output-schema (the schema fully constrains the final
+        message; verbosity=high emitted byte-identical JSON). Pinned only so a future
+        reader doesn't "discover" it as a tuning knob.
+
+    TOOL-LESS BY CONSTRUCTION (`--disable shell_tool` + `web_search="disabled"`), which
+    is a SECURITY boundary, not a tuning choice: a JD is untrusted text scraped off the
+    internet, and plain `codex exec` is an agent holding a shell — `--sandbox read-only`
+    blocks writes but permits reads ANYWHERE, so a malicious posting could otherwise ask
+    the model to read ~/.codex/auth.json or .env and echo it into `summary`, which we
+    persist and push to Telegram. Dropping the tools removes the capability instead of
+    trusting the model to decline (it did decline when probed — but that's compliance,
+    not a guarantee). Measured bonus: it also cut ~3.1k input tokens/call (12,755 ->
+    9,659 on an identical prompt), which is real relief on the per-5h message cap that
+    actually bounds a 640-row batch. NOTE: the official docs claim there's no way to
+    disable exec; they're wrong as of 0.144.4 (verified behaviorally). `web_search`
+    defaults to ON ("cached") — off here: scoring is a closed-book judgment over the JD
+    and résumé, and a live lookup would add latency and one more source of variance.
 
     One ephemeral agent turn per call: --ephemeral keeps a 640-row pass from littering
     session files, and -C <tmpdir> + --skip-git-repo-check keep the JD the only input
     (no repo context leaks into a score). Auth is the operator's `codex login` state,
-    NOT an env key.
+    NOT an env key — but beware CODEX_API_KEY, which OVERRIDES ChatGPT auth and would
+    silently move this onto metered API billing (OPENAI_API_KEY is ignored, so it's
+    harmless).
 
-    A non-zero exit ALWAYS raises ScoreError rather than yielding a zero: codex purges
-    ~/.codex/auth.json after repeated auth failures, so a broken 24h cron must fail one
-    posting loudly instead of silently scoring the whole queue 0.
+    A non-zero exit ALWAYS raises ScoreError rather than yielding a zero, so a broken
+    24h cron fails one posting loudly instead of silently scoring the whole queue 0.
+    (Motivating incident: ~/.codex/auth.json was observed vanishing right after a failed
+    auth run on 2026-07-16, forcing a re-login. Codex is NOT documented to purge it and
+    the mechanism was never confirmed — but "score 0 on a dead backend" is unacceptable
+    regardless of what removed the file.)
     """
     def score_fit(posting: dict, resumes: dict) -> dict:
         # Same job block as Claude: no truncation, no Location line (D5).
@@ -803,7 +833,13 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
             with open(schema_path, "w", encoding="utf-8") as fh:
                 json.dump(_score_schema(list(resumes)), fh)
             cmd = [codex_bin, "exec", "--model", model,
+                   # Strip BOTH tools: scoring is pure judgment, and a JD is untrusted
+                   # scraped text. See the docstring — this is a security boundary, not
+                   # a tuning knob.
+                   "--disable", "shell_tool",
+                   "-c", 'web_search="disabled"',
                    "-c", f"model_reasoning_effort={reasoning_effort}",
+                   "-c", f"model_verbosity={verbosity}",
                    "--output-schema", schema_path, "--output-last-message", out_path,
                    "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                    "--color", "never", "-C", tmp, "-"]

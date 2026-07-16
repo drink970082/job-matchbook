@@ -28,16 +28,30 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   score the whole queue 0. `make eval-score` follows the production backend
   (`SCORE_BACKEND=claude` A/Bs the old path), keeping the gate's
   `eval-model == production-model` rule true.
+  Runs **tool-less** — `--disable shell_tool` + `web_search="disabled"` — a security
+  boundary rather than a tuning choice: a JD is untrusted scraped text and `codex exec`
+  is natively an agent whose shell `--sandbox read-only` still lets read *any* file, so
+  a posting could otherwise ask it to read `~/.codex/auth.json`/`.env` and echo a secret
+  into `summary` (which we persist and push to Telegram). Verified behaviorally with a
+  canary JD; also worth **~3.1 k fewer input tokens/call** (12,755 → 9,659). The official
+  docs claim exec can't be disabled — wrong as of 0.144.4. Model `gpt-5.6-terra` and
+  `model_reasoning_effort=low`/`model_verbosity=low` are **measured, not guessed**: terra
+  showed a tighter score spread than the CLI default `sol` at half the credit rate (and
+  `luna`, which the docs recommend for classification, measured ~3x looser); effort buys
+  nothing on this task shape but is pinned anyway because the default is server-controlled
+  and was seen flipping `low`→`medium`→`low` mid-session; verbosity is a no-op under
+  `--output-schema`.
   **Revises the 2026-07-15 direction on two points, from evidence:** (1) it uses the
   **subscription CLI, not the OpenAI API** — the API was chosen for `seed` +
-  `temperature=0`, but `codex exec` exposes neither (its only model knobs are
-  `model_reasoning_effort`, pinned `high`, and `model_verbosity`), so the ±10–15
-  score noise is **not** fixed and the harness, not a seed, is what says whether it
-  moves a band; (2) the "fragile at strict JSON" objection is **withdrawn** —
-  `--output-schema` enforces the nested, enum-constrained production schema exactly
-  as Claude's structured outputs do (verified end-to-end). The "heavy" objection
-  stands and now has a number: **~42 s/posting** (~7.5 h for a full sequential
-  re-score) vs one API call.
+  `temperature=0`, but `codex exec` exposes neither, so the score noise is **not** fixed
+  and the harness, not a seed, is what says whether it moves a band; (2) the "fragile at
+  strict JSON" objection is **withdrawn** — `--output-schema` enforces the nested,
+  enum-constrained production schema exactly as Claude's structured outputs do (verified
+  end-to-end). The "heavy" objection stands, and the real bound turned out to be **quota,
+  not latency**: Plus meters a rolling 5-hour message window (~20–110 on terra), so a
+  ~640-row re-score spans several windows and parallelism can't help. Each call also pays
+  a fixed ~9.7 k input tokens of Codex scaffolding for ~80 tokens of JSON with **zero**
+  prompt-cache credit — the opposite of Claude's cached prefix.
 - **Fit scorer `insufficient_context` signal (case #2).** The Claude fit scorer now
   returns a top-level `insufficient_context` boolean (schema-required, normalized to
   `False` when absent, persisted in `score_detail`): true when the JD is too thin,

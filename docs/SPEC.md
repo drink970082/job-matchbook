@@ -275,7 +275,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
-  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
+  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-terra`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -411,10 +411,21 @@ worker modules are pure and dependency-injected; real services are wired only in
     **ChatGPT subscription** (flat-rate, not metered): one `codex exec` per posting,
     schema enforced via `--output-schema`, JSON read back from
     `--output-last-message`. Auth is the operator's `codex login` state
-    (`auth_mode=chatgpt`), **not** an env key. ~42s/posting. Model
-    `gpt-5.6-sol` (`CODEX_SCORE_MODEL`/`--codex-score-model`).
-    **No determinism:** codex exposes no `seed`/`temperature` (only
-    `model_reasoning_effort`, pinned `high`), so the ±10–15 score noise cannot be
+    (`auth_mode=chatgpt`), **not** an env key — but `CODEX_API_KEY`, if set, *overrides*
+    it and silently moves scoring onto metered API billing (`OPENAI_API_KEY` is ignored).
+    Model `gpt-5.6-terra` (`CODEX_SCORE_MODEL`/`--codex-score-model`) — measured tighter
+    score spread than the CLI default `gpt-5.6-sol` at half the credit rate; **not**
+    `gpt-5.6-luna`, which the docs recommend for classification but which measured ~3x
+    looser spread.
+    **Tool-less by construction** (`--disable shell_tool`, `web_search="disabled"`) — a
+    security boundary, since a JD is untrusted scraped text and `codex exec` is natively
+    an agent with a shell that `--sandbox read-only` still lets read any file; also worth
+    ~3.1k input tokens/call.
+    **Pinned `model_reasoning_effort=low` + `model_verbosity=low`.** Effort buys nothing
+    on this task shape (reasoning tokens were non-monotonic across levels) but **must** be
+    pinned anyway: the default is server-controlled and was seen flipping `low`→`medium`
+    →`low`. Verbosity is a no-op under `--output-schema`.
+    **No determinism:** codex exposes no `seed`/`temperature`, so score noise cannot be
     turned off — `make eval-score` is what says whether it moves a band.
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
@@ -979,10 +990,22 @@ automated coverage — those rely on code review or the human in the loop, not a
   (concurrent readers + one serialized writer; brief contention blocks-and-retries up
   to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
-  GPU; the fit score adds one hosted call per posting — ~42 s on the default `codex`
-  backend (one `codex exec` agent turn), or one cached-prefix API call on `claude`.
-  A full ~640-row re-score is therefore ~7.5 h sequential on `codex`. The root
-  page is `force-dynamic` (no stale cache).
+  GPU; the fit score adds one hosted call per posting — tens of seconds on the default
+  `codex` backend (one `codex exec` turn), or one cached-prefix API call on `claude`.
+  The root page is `force-dynamic` (no stale cache).
+- **Subscription quota is the real bound on a big re-score — flat-rate is NOT
+  unlimited.** Codex on ChatGPT Plus meters a rolling **5-hour message window** (plus a
+  weekly cap): roughly 20–110 messages/5 h on `gpt-5.6-terra`, 15–90 on `sol`. A ~640-row
+  re-score therefore **cannot finish in one window** — it must be paced across several
+  (or funded with credits), which dominates the per-call latency. At the cap Codex hard-
+  blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
+  code**, so any pacing logic must match the stderr text, not the exit status. Each call
+  also pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
+  were disabled) to emit ~80 tokens of JSON, and **gets no prompt-cache credit**
+  (`cached_input_tokens` was 0 even on back-to-back identical prompts) — the opposite of
+  the `claude` backend, whose cached prefix makes the marginal posting nearly free. This
+  is the strongest standing argument for the metered API if the flat rate ever stops
+  paying for itself.
 - **Responsive UI:** the web layout is responsive and stacks to a single column
   below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
