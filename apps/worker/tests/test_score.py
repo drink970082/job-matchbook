@@ -171,19 +171,20 @@ def test_score_fit_error_propagates_to_mark_failed():
 
 
 def test_candidate_screen_call_disqualifies_and_omits_resume():
+    # A screen disqualification (here: the role requires a clearance the candidate
+    # lacks) gates the paid fit call and never puts the résumé in the screen prompt.
     http = FakeHttp(
-        json.dumps({"screen": {"dealbreakers": {"pass": False, "note": "requires a PhD"}}}),
+        json.dumps({"screen": {"clearance": {"requires_clearance": True}}}),
     )
     out = score.score_posting(
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-        candidate={"dealbreakers": ["requires a PhD"]},
+        candidate={"security_clearance": "none"},
     )
     assert out["score"] == 0                         # gated: disqualified -> no Claude fit call
     assert out["disqualified"] is True
-    assert out["disqualification_reason"] == "dealbreakers: requires a PhD"
+    assert out["disqualification_reason"] == "clearance: requires security clearance"
     assert len(http.calls) == 1                      # SCREEN is now the only Ollama call
     screen_prompt = http.calls[0][1]["json"]["prompt"]
-    assert "requires a PhD" in screen_prompt         # dealbreaker reached the screen
     assert '"screen"' in screen_prompt               # screen output requested
     assert RESUME not in screen_prompt               # screen never sees the résumé
 
@@ -203,7 +204,7 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     http = FakeHttp("this is not json {{{")
     out = score.score_posting(
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-        candidate={"dealbreakers": ["no internships"]},
+        candidate={"highest_degree": "Master's"},
     )
     assert out["score"] == 60                     # from score_fit (FIT -> 60)
     assert out["disqualified"] is False
@@ -271,7 +272,7 @@ def test_empty_candidate_fields_render_no_screen_call():
     http = FakeHttp()
     score.score_posting(
         POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-        candidate={"highest_degree": "", "dealbreakers": []},
+        candidate={"highest_degree": "", "locations": []},
     )
     assert len(http.calls) == 0
 
@@ -411,33 +412,6 @@ def test_clearance_not_required_passes():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": False}}))
     out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
                               candidate={"security_clearance": "none"})
-    assert out["disqualified"] is False
-
-
-# dealbreakers: stays an LLM pass/fail
-def test_dealbreaker_fail_disqualifies():
-    http = FakeHttp(_screen_resp({"dealbreakers": {"pass": False, "note": "internship role"}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"dealbreakers": ["no internships"]})
-    assert out["disqualified"] is True
-    assert out["disqualification_reason"] == "dealbreakers: internship role"
-
-
-def test_passed_fails_only_on_explicit_negative_token():
-    # Fail ONLY on an explicit false/no/0; everything else (incl. None and any
-    # unrecognized value) passes — the safe direction, matching the other gates.
-    for ok in ("maybe", "", None, "pass", "yes", "true", 1, True):
-        assert score._passed(ok) is True, repr(ok)
-    for bad in ("no", "false", "0", False, 0):
-        assert score._passed(bad) is False, repr(bad)
-
-
-def test_unrecognized_dealbreaker_verdict_does_not_disqualify():
-    # An LLM dealbreaker verdict that isn't a clean true/false (here "maybe") must
-    # NOT disqualify — err toward keep on a garbled judgment.
-    http = FakeHttp(_screen_resp({"dealbreakers": {"pass": "maybe", "note": "unclear"}}))
-    out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h",
-                              candidate={"dealbreakers": ["no internships"]})
     assert out["disqualified"] is False
 
 

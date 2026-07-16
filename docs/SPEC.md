@@ -367,8 +367,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
   `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
   and — with **no résumé in the prompt** — extracts each requirement (degree, work
-  authorization, clearance, dealbreakers) as a JOB fact *semantically*.
-  CODE then decides pass/fail: for degree/clearance/dealbreakers by applying the
+  authorization, clearance) as a JOB fact *semantically*.
+  CODE then decides pass/fail: for degree/clearance by applying the
   candidate's configured constraint to the extracted fact (a 4B model is unreliable at
   the pass/fail judgment itself); for **work authorization by a deterministic JD-text
   phrase gate** (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when

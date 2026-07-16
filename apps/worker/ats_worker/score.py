@@ -35,7 +35,6 @@ import requests
 from ats_worker.prompts import (
     SCORE_C_AUTHORIZATION,
     SCORE_C_CLEARANCE,
-    SCORE_C_DEALBREAKERS,
     SCORE_C_DEGREE,
     SCORE_HEADER,
     SCREEN_FOOTER,
@@ -46,9 +45,8 @@ from ats_worker.prompts import (
 # How each configured hard requirement is screened. For the structured fields the
 # LLM only EXTRACTS a fact about the JOB and CODE applies the candidate's
 # constraint (a 4B model is unreliable at the pass/fail judgment itself — it
-# mismatches degrees, can't tell a US city is "in" the USA). Only `dealbreakers`
-# (free-text the user writes) stays an LLM {pass, note}. A skill the model invents
-# as a key is ignored, so a skill gap can never disqualify.
+# mismatches degrees, can't tell a US city is "in" the USA). A skill the model
+# invents as a key is ignored, so a skill gap can never disqualify.
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
@@ -224,11 +222,9 @@ def _candidate_block(candidate) -> str:
     degree = str(candidate.get("highest_degree") or "").strip()
     auth = str(candidate.get("work_authorization") or "").strip()
     clearance = str(candidate.get("security_clearance") or "").strip()
-    dealbreakers = [str(d) for d in (candidate.get("dealbreakers") or []) if str(d).strip()]
 
     # The structured clauses are pure extraction instructions (the model reports a
     # JOB fact; code compares it to the candidate config), so they carry no {value}.
-    # Only dealbreakers needs the candidate's list interpolated.
     clauses: list[str] = []
     if degree:
         clauses.append(SCORE_C_DEGREE)
@@ -236,8 +232,6 @@ def _candidate_block(candidate) -> str:
         clauses.append(SCORE_C_AUTHORIZATION)
     if clearance:
         clauses.append(SCORE_C_CLEARANCE)
-    if dealbreakers:
-        clauses.append(SCORE_C_DEALBREAKERS.format(value="; ".join(dealbreakers)))
 
     if not clauses:
         return ""
@@ -438,13 +432,12 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     For each configured structured requirement the LLM only EXTRACTED a fact about
     the job; here CODE applies the candidate's constraint (degree rank, sponsorship,
-    clearance). This takes the unreliable pass/fail
-    judgment off a 4B model entirely. (Location is NOT gated here — it is a
-    deterministic pycountry gate in `score_posting`; see `resolve_location`.) `dealbreakers` is the one exception — free-text
-    the user writes, so it stays an LLM {pass, note}. A requirement the candidate
-    didn't configure is skipped, and a key the model invents (e.g. "skills") is
-    ignored, so a skill gap can never disqualify. On missing/garbled extraction each
-    checker errs toward PASS (don't discard on absent data).
+    clearance). This takes the unreliable pass/fail judgment off a 4B model entirely.
+    (Location is NOT gated here — it is a deterministic pycountry gate in
+    `score_posting`; see `resolve_location`.) A requirement the candidate didn't
+    configure is skipped, and a key the model invents (e.g. "skills") is ignored, so a
+    skill gap can never disqualify. On missing/garbled extraction each checker errs
+    toward PASS (don't discard on absent data).
     """
     screen = data.get("screen") if isinstance(data.get("screen"), dict) else {}
     clean: dict = {}
@@ -465,15 +458,6 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
          *_check_authorization(candidate.get("work_authorization"), description))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
-
-    # dealbreakers: free-text, so the LLM keeps the pass/fail judgment here. (The
-    # common "no internships/co-op" case is handled deterministically by the
-    # exclude_internships flag in score_posting, not by the model.)
-    if candidate.get("dealbreakers"):
-        db = entry("dealbreakers")
-        passed = _passed(db.get("pass"))
-        note = str(db.get("note") or "").strip()
-        gate("dealbreakers", True, passed, note)
 
     return {
         "screen": clean,
@@ -697,22 +681,6 @@ def _flag(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "yes", "1", "remote", "required"}
     return False
-
-
-def _passed(value) -> bool:
-    """Interpret a dealbreakers `pass` field. Fail ONLY on an explicit false/no/0
-    token; everything else — None (benefit of the doubt), unrecognized values
-    ("maybe", "") — passes. This errs toward keep, matching the other gates: a
-    garbled verdict must never disqualify."""
-    if value is None:
-        return True
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        return value.strip().lower() not in {"false", "no", "0"}
-    return True
 
 
 def _as_str_list(value) -> list[str]:

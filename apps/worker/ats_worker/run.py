@@ -123,7 +123,6 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 "work_authorization": cfg.candidate.work_authorization,
                 "security_clearance": cfg.candidate.security_clearance,
                 "locations": list(cfg.candidate.locations),
-                "dealbreakers": list(cfg.candidate.dealbreakers),
                 "exclude_internships": cfg.candidate.exclude_internships,
             }
         # num_ctx is set explicitly (Ollama's default is small enough to truncate

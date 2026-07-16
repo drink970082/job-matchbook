@@ -121,14 +121,6 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 - **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
   + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
   JobSpy noted as a possible fallback aggregator.
-- **Trim `config.yaml` to machine-only filters** — `[M · design call]`. Config should hold
-  only deterministic machine filters (companies, `title_filter`, threshold, schedule,
-  `exclude_internships`). Any constraint the **LLM** adjudicates leaves config for the
-  résumé/profile. Today `config.Candidate` (degree / auth / clearance / locations /
-  dealbreakers) feeds the LLM screen, so by this rule those move out. Revisits the
-  config-vs-profile seam ([In flight](#in-flight)): boundary = *deterministic vs
-  LLM-handled*, not *hard-constraint vs fit*. Confirm which D1/D2 gates are genuinely
-  deterministic before cutting.
 - **Separate tab for low-context Discovered Jobs** — `[M · web UI]`. Postings with a
   thin/malformed JD (can't screen/score with confidence) sit in the normal Discovered Jobs
   queue; give them their own tab/bucket so they're visibly distinct instead of silently

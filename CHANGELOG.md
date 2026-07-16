@@ -7,6 +7,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Removed
+- **`dealbreakers` from the candidate screen config.** It was the *only* screen
+  requirement the local 4B model actually **adjudicated** (a free-text `{pass, note}`
+  judgment); every other screen gate — degree, work authorization, clearance, location,
+  internships — is decided by **deterministic code**, with the model only *extracting* a
+  JOB fact for degree/clearance. Dropping it makes every screen *decision* deterministic.
+  Removed the `Candidate.dealbreakers` field + parsing, the `_candidate_block` clause, the
+  `_screen_verdict` gate + `_passed` helper, the `SCORE_C_DEALBREAKERS` prompt fragment,
+  `screen.txt`'s `c_dealbreakers` section, and the `config.yaml` key. The misleading
+  `Candidate` docstring (which claimed the model gives each field a pass/fail verdict) is
+  corrected to match the code: `config.Candidate` serves the **screen only** — the Claude
+  fit score reads the résumé + profile, never the config.
+
 ### Added
 - **Tests for two untested CI blind spots.** (1) The chart-data aggregations
   `getStatusFlow` / `getTimelineData` / `getCategoryData` (`lib/actions.ts`, feeding the

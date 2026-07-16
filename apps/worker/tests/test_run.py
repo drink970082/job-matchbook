@@ -174,7 +174,6 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
         "candidate:\n"
         "  highest_degree: \"Master's\"\n"
         "  locations: ['remote', 'USA']\n"
-        "  dealbreakers: ['no internships']\n"
     )
     env = {"OLLAMA_NUM_CTX": "4096", "OLLAMA_HOST": "http://ol:11434",
            "ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
@@ -182,7 +181,6 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     cand = kw["candidate"]
     assert cand["highest_degree"] == "Master's"
     assert cand["locations"] == ["remote", "USA"]
-    assert cand["dealbreakers"] == ["no internships"]
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
     assert kw["ollama_host"] == "http://ol:11434"

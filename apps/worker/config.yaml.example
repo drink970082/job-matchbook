@@ -57,8 +57,6 @@ candidate:
   security_clearance: "none"          # none | confidential | secret | top secret
   locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
-  dealbreakers:                       # freeform extra HARD constraints the fields above don't cover
-    - "requires an active US security clearance"   # example — delete or replace with your own
 
 threshold: 75              # minimum Claude fit score (0-100) required to notify (Telegram alert)
 schedule_hours: 24         # cron interval for the background scheduler

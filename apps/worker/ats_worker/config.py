@@ -46,18 +46,18 @@ class Company:
 
 @dataclass(frozen=True)
 class Candidate:
-    """The candidate's standard application-screening facts, fed to the LLM scorer
-    so it can semantically SCREEN each posting against the candidate's hard
-    requirements (handles vague wording like "no sponsorship" by reasoning, not a
-    brittle keyword list). Each structured field maps 1:1 to a `screen` requirement
-    the model gives a pass/fail verdict for; `dealbreakers` adds freeform extras.
-    Everything empty = the scorer is never asked to screen (no disqualification).
-    Skills/identity for FIT scoring live in the résumé, not here."""
+    """The candidate's hard-requirement facts, used ONLY by the local screen (never
+    by the Claude fit score, which reads the résumé + profile). The screen decides
+    disqualification in CODE: work authorization and location gate deterministically
+    off the JD text / posting location, internships off the title, and degree /
+    clearance compare the candidate's constraint against a fact the 4B model only
+    *extracts* from the JD (the model never makes the pass/fail call). Everything
+    empty = no screen call, no disqualification. Skills/identity for FIT scoring live
+    in the résumé, not here."""
     highest_degree: str = ""
     work_authorization: str = ""
     security_clearance: str = ""
     locations: list[str] = field(default_factory=list)
-    dealbreakers: list[str] = field(default_factory=list)
     # Deterministic hard-constraint (decided in code from the job title, not the LLM):
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
     # this, but the title is a clean signal. See score._is_internship.
@@ -70,7 +70,6 @@ class Candidate:
             self.work_authorization.strip(),
             self.security_clearance.strip(),
             self.locations,
-            self.dealbreakers,
             self.exclude_internships,
         ))
 
@@ -216,12 +215,10 @@ def _parse_candidate(raw) -> Candidate:
     if not isinstance(raw, dict):
         raise ConfigError("`candidate` must be a mapping")
     locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
-    dealbreakers = [str(d) for d in (raw.get("dealbreakers") or []) if str(d).strip()]
     return Candidate(
         highest_degree=str(raw.get("highest_degree") or "").strip(),
         work_authorization=str(raw.get("work_authorization") or "").strip(),
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
-        dealbreakers=dealbreakers,
         exclude_internships=bool(raw.get("exclude_internships")),
     )

@@ -85,21 +85,9 @@ def test_missing_company_fields_raise():
         config.load_config(bad)
 
 
-def test_load_parses_candidate_dealbreakers():
-    cfg = config.load_config(
-        "companies: []\n"
-        "candidate:\n"
-        "  dealbreakers:\n"
-        "    - 'requires a PhD'\n"
-        "    - 'no visa sponsorship'\n"
-    )
-    assert cfg.candidate.dealbreakers == ["requires a PhD", "no visa sponsorship"]
-    assert not cfg.candidate.is_empty()
-
-
 def test_candidate_defaults_empty_when_absent():
     cfg = config.load_config("companies: []\n")
-    assert cfg.candidate.dealbreakers == []
+    assert cfg.candidate.locations == []
     assert cfg.candidate.is_empty()
 
 
@@ -111,8 +99,6 @@ def test_load_parses_structured_candidate():
         "  work_authorization: 'needs visa sponsorship'\n"
         "  security_clearance: none\n"
         "  locations: ['remote', 'New York']\n"
-        "  dealbreakers:\n"
-        "    - 'requires an active clearance'\n"
         "  exclude_internships: true\n"
     )
     c = cfg.candidate
@@ -120,7 +106,6 @@ def test_load_parses_structured_candidate():
     assert c.work_authorization == "needs visa sponsorship"
     assert c.security_clearance == "none"
     assert c.locations == ["remote", "New York"]
-    assert c.dealbreakers == ["requires an active clearance"]
     assert c.exclude_internships is True
     assert not c.is_empty()
 
@@ -138,7 +123,6 @@ def test_is_empty_false_when_any_single_field_set():
         "candidate:\n  work_authorization: 'US citizen'\n",
         "candidate:\n  security_clearance: 'Secret'\n",
         "candidate:\n  locations: ['remote']\n",
-        "candidate:\n  dealbreakers: ['no internships']\n",
         "candidate:\n  exclude_internships: true\n",
     )
     for body in cases:
@@ -155,7 +139,6 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
         "  highest_degree: '   '\n"
         "  work_authorization: ''\n"
         "  locations: []\n"
-        "  dealbreakers: []\n"
     )
     assert cfg.candidate.is_empty() is True
 

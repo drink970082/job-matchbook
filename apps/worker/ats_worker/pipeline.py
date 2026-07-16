@@ -221,7 +221,7 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
 def run_score(conn, *, now, score_fn) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the scorer flags
-    it disqualified (conflicts with a candidate dealbreaker). Score + reason are
+    it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped."""
     for row in db.get_by_status(conn, "new"):
         posting = dict(row)
