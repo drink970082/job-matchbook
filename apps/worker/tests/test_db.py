@@ -227,3 +227,27 @@ def test_upsert_falls_back_to_scrape_date_when_no_posted_at(db_path):
     db.upsert_postings(conn, [posting("2")], now=NOW)   # make_posting has no posted_at
     row = db.get_by_status(conn, "new")[0]
     assert row["posted_at"] == NOW[:10]                 # "2026-06-04"
+
+
+# --- get_notifiable (verdict-based notify gate) ---------------------------
+
+def test_get_notifiable_selects_only_match_match_non_thin(db_path):
+    conn = db.connect(db_path)
+
+    def add(ext_id, sen, dom, *, thin=False, status="scored", score=50):
+        detail = {"assessment": {"seniority": {"verdict": sen}, "domain": {"verdict": dom}}}
+        if thin:
+            detail["insufficient_context"] = True
+        db.upsert_postings(conn, [posting(ext_id)], now=NOW)
+        pid = _one(conn, ext_id)["id"]
+        db.save_score(conn, pid, score=score, score_detail=detail, now=NOW, status=status)
+        return pid
+
+    notifiable_id = add("1", "match", "match")                  # notifiable
+    add("2", "match", "adjacent")                                # domain not match -> no
+    add("3", "too_junior", "match")                              # seniority not match -> no
+    add("4", "match", "match", thin=True)                        # thin JD -> no
+    add("5", "match", "match", status="notified")                # already notified -> no
+
+    got = [r["id"] for r in db.get_notifiable(conn)]
+    assert got == [notifiable_id]

@@ -150,6 +150,20 @@ def get_by_status(conn: sqlite3.Connection, status: str, *, min_score: int | Non
     return conn.execute(sql, params).fetchall()
 
 
+def get_notifiable(conn: sqlite3.Connection):
+    """Scored rows the fit verdicts mark a strong match — the notify gate.
+    Replaces the old score>=threshold gate: seniority AND domain must both be
+    `match`, and a thin-JD (insufficient_context) row is held back for human
+    review. json_extract reads the verdicts out of the score_detail JSON."""
+    return conn.execute(
+        "SELECT * FROM job_postings WHERE pipeline_status='scored' "
+        "AND json_extract(score_detail,'$.assessment.seniority.verdict')='match' "
+        "AND json_extract(score_detail,'$.assessment.domain.verdict')='match' "
+        "AND COALESCE(json_extract(score_detail,'$.insufficient_context'),0)<>1 "
+        "ORDER BY score DESC, id ASC"
+    ).fetchall()
+
+
 # --- state transitions ----------------------------------------------------
 
 def _update(conn: sqlite3.Connection, posting_id: int, sets: dict) -> None:
