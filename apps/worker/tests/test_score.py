@@ -707,7 +707,8 @@ def test_score_schema_carries_enum_constrained_assessment():
     # S2.1: the scorecard replaces the flat reasoning/keyword fields; verdicts are
     # enum-constrained so structured outputs enforce them.
     schema = score._score_schema(["resume"])
-    assert schema["required"] == ["assessment", "score"]
+    assert schema["required"] == ["assessment", "score", "insufficient_context"]
+    assert schema["properties"]["insufficient_context"] == {"type": "boolean"}
     for gone in ("reasoning", "matched_keywords", "missing_keywords"):
         assert gone not in schema["properties"]
     a = schema["properties"]["assessment"]
@@ -744,6 +745,21 @@ def test_recommended_resume_passed_through_normalization():
         score_fit=lambda p, r: {"score": 80, "assessment": _assessment(),
                                 "recommended_resume": "swe"})
     assert out["recommended_resume"] == "swe"
+
+
+def test_insufficient_context_normalized_true():
+    out = score.score_posting(
+        POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
+        score_fit=lambda p, r: {"score": 40, "assessment": _assessment(),
+                                "insufficient_context": True})
+    assert out["insufficient_context"] is True
+
+
+def test_insufficient_context_absent_defaults_false():
+    out = score.score_posting(
+        POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
+        score_fit=lambda p, r: {"score": 40, "assessment": _assessment()})
+    assert out["insufficient_context"] is False   # absent -> False (err toward scoreable)
 
 
 def test_recommended_resume_absent_or_blank_is_omitted():

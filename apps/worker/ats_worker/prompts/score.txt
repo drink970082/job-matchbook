@@ -17,6 +17,8 @@ THEN choose the 0-100 `score` from those verdicts, weighing real disqualifiers f
   60-74   Partial fit: a real gap in seniority, domain, or a core must-have.
   0-59    Weak fit: wrong seniority or domain, or missing core must-haves.
 
+Separately, set the top-level `insufficient_context` to true when the JOB text is too thin, boilerplate, or truncated to assess fit with any confidence — only a title or a one-line stub, or generic company boilerplate with no real role detail — and false otherwise. When true, still fill in the scorecard and pick a score as best you can; a separate step routes these postings for human review rather than trusting the number.
+
 You may receive MULTIPLE RESUME versions, each in its own `=== RESUME (<label>) ===` section. Assess fit for each version independently, score the BEST-fitting version, and set `recommended_resume` to exactly that version's label. With a single RESUME, simply score it.
 
 A `=== PERSONAL PROFILE ===` section, when present, is background about the candidate — goals, constraints, preferences — for judging whether this job genuinely suits them. It is NOT a resume: it informs your assessment but is not evidence of skills.

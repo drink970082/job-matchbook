@@ -241,6 +241,10 @@ def run_score(conn, *, now, score_fn) -> None:
             # score_detail JSON (no schema change), surfaced in Telegram + UI.
             if result.get("recommended_resume"):
                 detail["recommended_resume"] = result["recommended_resume"]
+            # JD too thin to score with confidence — routes to the low-context bucket
+            # in the UI (alongside the deterministic <N-char rule), regardless of score.
+            if result.get("insufficient_context"):
+                detail["insufficient_context"] = True
             if disqualified:
                 detail["disqualified"] = True
                 detail["disqualification_reason"] = result.get("disqualification_reason", "")

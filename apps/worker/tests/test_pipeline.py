@@ -171,6 +171,20 @@ def test_run_score_disqualified_is_discarded_with_reason(db_path):
     assert detail["disqualification_reason"] == "requires a PhD"
 
 
+def test_run_score_insufficient_context_persisted(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    def score_fn(posting):
+        return {"score": 55, "insufficient_context": True, "disqualified": False}
+
+    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert rows["1"]["pipeline_status"] == "scored"   # still scored; the UI routes it
+    detail = _json.loads(rows["1"]["score_detail"])
+    assert detail["insufficient_context"] is True
+
+
 # --- failure bookkeeping + stage gating -----------------------------------
 
 def test_run_score_failure_records_error_and_increments_attempts(db_path):

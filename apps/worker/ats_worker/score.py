@@ -152,8 +152,11 @@ _SCORE_SCHEMA = {
     "properties": {
         "assessment": _ASSESSMENT_SCHEMA,
         "score": {"type": "integer"},
+        # True when the JD is too thin/boilerplate to score with confidence; routes the
+        # row to the low-context bucket regardless of the (still-required) score.
+        "insufficient_context": {"type": "boolean"},
     },
-    "required": ["assessment", "score"],
+    "required": ["assessment", "score", "insufficient_context"],
     "additionalProperties": False,
 }
 
@@ -378,6 +381,8 @@ def _normalize_score(data: dict) -> dict:
     out = {
         "score": _coerce_score(data["score"]),
         "assessment": _normalize_assessment(data.get("assessment")),
+        # Lenient: absent/garbled -> False (err toward scoreable), matching the gates.
+        "insufficient_context": bool(data.get("insufficient_context")),
     }
     recommended = str(data.get("recommended_resume") or "").strip()
     if recommended:
