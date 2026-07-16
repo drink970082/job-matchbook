@@ -27,38 +27,22 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-▶ **Next session — start here.** Branch `dev` (5 commits D1–D6 pushed to `origin/dev`;
-`master` untouched). Untracked scratch in the tree is not repo state: `audit_list.txt`
-(the 8-posting audit source), `rescore_results_full.md` (the 20-row re-score **baseline**
-to compare against), `.coverage`. Two independent threads are open, in priority order:
-
-- **A — Fit-score eval harness: BUILT + baselined; prompt edit validated, ship pending 2
-  fresh confirmations.** Harness `apps/worker/tools/score_eval.py` + `make eval-score`
-  shipped (this commit): read-only (DB `mode=ro`), K=3× → majority keep/near/skip band vs
-  the frozen golden labels in code; PASS = 0 hard-violations + ≥85% agreement + <20% flip
-  over the gate rows, `marked` → ⚑ watch list. (Tool fix: `max_tokens=8192` + per-draw
-  retry — the prod 4096 cap truncates the verbose assessment JSON under adaptive thinking →
-  `ScoreError`, which is NOT SDK-retried, so one bad row aborted a paid run.) The ad-hoc
-  eyeball loop is retired. **Golden set (gitignored) evolved to keep 10 · near 3 · skip 8 ·
-  marked 2 (gate 21)** — six *evidence-based* label corrections (not model-fitting): 652,
-  26, 1158, 153, 70 near→**keep** (all target-list per `personal_profile.txt`; the min-1
-  "1-3 yr" convention is now *keep-eligible for target domains*, not auto-near); **132
-  skip+hard → marked** (its bar is "2+ years **OR** demonstrated excellent skills" — an
-  escape clause the seed label missed; the model reads it as a soft bar and splits 50/50 →
-  un-judgeable; the min-2 hard invariant stays guarded by the clean floors 666/207/186).
-  **Baseline overturned the prediction** — 132/666 already floored; the real miss was the
-  near band over-flooring "1-3 yr" (1158/153/70, bimodal skip 28 / keep 83). **The queued
-  edit** (un-floor "1-3 yr", keep min≥2) killed that bimodality → both runs recompute to
-  PASS (100% agreement · hard clean · flip 19%/10%). **Remaining to ship:** those two runs
-  *motivated* the relabels (circular to count) and run-1's flip margin is thin (19%), so
-  ship needs **2 FRESH consecutive PASS runs**, then commit `score.txt` (deliberately left
-  uncommitted). **Caution:** 6 labels moved post-hoc (each justified, but volume = overfit
-  risk); near band thinned 8→3 (grow-from-surprises repopulates). Full findings appended to
-  the design doc. Uncommitted working-tree (deliberate): `score.txt`, `personal_profile.txt`
-  (gitignored). Scratch (not repo state): `golden_candidates_full.md`, `audit_list.txt`,
-  `rescore_*.md`, `.coverage`.
-- **B — Operator: apply the shipped D1–D6 fixes to the live DB** (block below). Separate,
-  paid, mutates the DB; independent of A, do anytime.
+🚧 **Ship the fit-score prompt edit — validate, then commit `score.txt`.** The
+band-regression eval harness is **built and committed** (`apps/worker/tools/score_eval.py`
++ `make eval-score`; recorded in [SPEC](./SPEC.md) and the [CHANGELOG](../CHANGELOG.md)):
+read-only, scores each frozen golden-set row K=3× and judges the majority keep/near/skip
+**band**, PASS = 0 hard-violations + ≥85% agreement + <20% flip. Harness code is on
+`origin/dev` (`master` untouched); what's left is the ship gate for the *prompt*.
+`score.txt` (uncommitted, working tree) holds the validated 4-edit prompt — crisp / de-dup
+misses · seniority keyed to an *explicit stated level* only · credit a capability the
+résumé shows under a different name · no structurally-impossible misses.
+**Deliberately uncommitted:** the runs that motivated the golden relabels are circular to
+count as validation, so ship needs **2 fresh consecutive PASS runs** of `make eval-score`,
+then commit `score.txt`. **Watch:** 6 golden labels moved
+post-hoc and the near band thinned 8→3 (repopulate it from fresh surprises). Golden set +
+`personal_profile.txt` are gitignored; full method + baseline findings in
+`docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`. Scratch, *not* repo
+state: `golden_candidates_full.md`, `audit_list.txt`, `rescore_*.md`, `.coverage`.
 
 🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
 audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
@@ -72,78 +56,32 @@ carry pre-fix screen verdicts and scores. The next scheduled pipeline pass only 
 the ~640 kept rows. Not done automatically (mutates the DB + costs $); back up
 `db/applications.db` first.
 
-🚧 **Scorer-prompt refinement round 2 + profile framework (designed 2026-07-14, not yet
-implemented).** A subagent quality-assessment of the 20-row re-score
-(`rescore_results_full.md`) found two issues the S2.1 scorecard still has — both
-**universal**, not sample-patching: the fit `must_haves.missing` lists (a) restate one
-gap as several verbose paraphrased items (deficit-length inflation) and (b) penalize
-skills the résumé shows under a *different name* ("no explicit RAG" when a retrieval
-agent is on the résumé). Agreed `score.txt` changes (validate with a fresh re-score
-before shipping; must NOT regress the D3 seniority floor):
+**Profile framework (decided; guides the gitignored `personal_profile.txt`, not yet
+finalized).** Governing rule: the **résumé is authoritative for skill / experience
+evidence** (what a recruiter sees); the **profile shapes the fit score but never injects a
+skill the résumé lacks** — it may push fit *up* (genuine interest — the one legitimate
+upward lever, since interest ≠ skill), *down* (honest caveats), or *sideways* (positioning /
+direction), nothing more. Corollary: courses and any "no explicit X" gaps are **résumé**
+matters (put courses on the résumé; treat a genuine gap as fix-the-résumé signal), not
+profile content. **Config vs profile seam:** `config.yaml` serves the machine only —
+companies, title_filter, threshold, schedule + the structured hard constraints feeding the
+**deterministic** screen gates (degree / auth / clearance / location / internships) — and
+stays as-is, *not* dissolved into prose (that would regress the gates); the profile serves
+the LLM fit score only, so drop the hard-constraint restatements (auth / location) it
+duplicates from config. **The profile holds:** target direction (priority-ordered) ·
+anti-targets · factual career stage · self-positioning · genuine interests / motivation ·
+honest downward caveats — and **excludes** skills / tech / courses omitted from the résumé,
+any inflation beyond the résumé, and hard constraints already in config. Keep it concise +
+stable (a cached prefix on every score call).
 
-- **Crisp / de-dup misses** — each `missing` item is ONE distinct checkable requirement;
-  collapse facets of one gap into a single item; prefer crisp skills over prose sentences.
-- **Seniority axis = explicit level only** — the `too_junior`/`too_senior` floor fires
-  only on a *stated* level (a YoE number, or senior/lead/staff/principal). Implied
-  ownership/responsibility ("independently own production systems") is a
-  `must_haves`/`domain` matter (dings toward a near-miss), NOT seniority (which floors to
-  0–30). Preserves the explicit-bar floors (id=904 "4+ yrs", id=177 "3+ yrs", traders
-  "2+ yrs"); un-floors implied-senior in-track roles (id=322).
-- **Read the résumé for substance, not keyword** — credit a capability the résumé
-  demonstrates under a different name (a retrieval agent ⇒ "RAG"). Do NOT infer from
-  adjacency (Python ⇒ mypy) — that hallucinates skills and hides real résumé gaps.
-- **No structurally-impossible misses** — don't list "no full-time tenure / not a proven
-  top performer at a prior job" as a missing must-have for roles open to new grads.
-
-**Résumé vs profile — governing rule (decided):** the **résumé is authoritative for
-skill / experience evidence** (it is what a recruiter sees). The **profile shapes the fit
-score but never overrides the résumé as skill evidence** — it may push fit *up* (genuine
-interests / motivation — the one legitimate upward lever, since interest ≠ skill), *down*
-(honest caveats), or *sideways* (positioning / direction), but must never inject skills
-the résumé does not back. Corollaries: **courses live on the résumé** (a selective
-"Relevant Coursework" line), not the profile; and a "no explicit X" for a skill genuinely
-absent from the résumé is useful **résumé-gap signal** (fix the résumé), aligned with the
-recruiter-first view.
-
-**Config vs profile — seam (decided):** `config.yaml` **serves the machine only** —
-operational settings (companies, title_filter, threshold, schedule) plus the structured
-hard constraints that feed the **deterministic** screen gates (degree / auth / clearance /
-location / internships, incl. D1/D2). It is **not** retired or dissolved into prose (that
-would regress the deterministic gates). The **profile serves the LLM fit score only**;
-de-duplicate by dropping the hard-constraint restatements (auth / location narrative) from
-the profile, since config owns them. (The earlier "profile absorbs config" idea is
-dropped.)
-
-**Good-profile framework — what the profile should contain:**
-1. **Target direction** — roles / functions / firm-types wanted, priority-ordered (judges
-   domain-fit against intent, not just history).
-2. **Anti-targets** — what to avoid even if qualified (correctly marks HFT / pure-trading /
-   floor / IT-ops roles as a poor fit *for you*).
-3. **Career stage (factual)** — grounds the seniority verdict; context, not a skill claim.
-4. **Self-positioning** — how you identify when a title is ambiguous ("builder/dev, not a
-   pure researcher") — drives the `domain: adjacent` calls.
-5. **Interests / motivation** — genuine fit factors; the one legitimate *upward* lever.
-6. **Honest downward caveats** — where the résumé might over-read ("C++ coursework-depth").
-   - **Out of the profile:** skills / tech / courses omitted from the résumé (→ put them on
-     the résumé); anything meant to inflate qualification beyond the résumé; hard
-     constraints already in config. Keep it **concise + stable** — it is a cached prefix on
-     every score call.
-
-**Status — round-2 superseded by the eval-harness approach (2026-07-15).** The four
-`score.txt` edits + the regenerated `personal_profile.txt` remain uncommitted on the `dev`
-working tree; two paid 20-row re-scores were run (`rescore_round2_review.md`, untracked).
-Round-2 did **not** cleanly pass — but the decisive finding was about the *method*, not the
-prompt: the loop was **unmeasurable**. The fit score is a **noisy readout** (±10–15
-run-to-run on borderline rows — e.g. id=322 = 35 then 52, id=6 = 68→82; `temperature`/`seed`
-are rejected 400 on the `claude-sonnet-5` tier so the noise can't be turned off) with **no
-deterministic assessment→score mapping** (roughly `f(#must_haves.missing, domain bucket)`,
-both re-chosen each run), and the round-2 measurement was **confounded** (prompt *and*
-profile moved together). Conclusion: stop chasing exact scores; judge **bands** against a
-**written, frozen** golden set with a noise-tolerant stopping rule (thread A above +
-`docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`). The one low-variance
-lever round-2 found — seniority keyed on an *objective stated level* — is now the golden
-set's labeling convention (stated **minimum ≥ 2 yrs → skip**; "1-3" → near; "0-2"/ceiling/
-no-bar → keep-eligible).
+*Superseded 2026-07-15:* the round-2 "tune the prompt against eyeballed 20-row re-scores"
+loop was found **unmeasurable** — the fit score is a ±10–15 noisy readout (id=322 = 35→52,
+id=6 = 68→82) with no deterministic assessment→score map, and `temperature`/`seed` are
+400-rejected on the `claude-sonnet-5` tier — so it was replaced by the band-regression
+harness above. The four prompt edits it produced survive as the `score.txt` now pending
+harness validation; the low-variance lever it found (seniority keyed to an objective stated
+level) is now the golden set's labeling convention (stated **min ≥ 2 yrs → skip**; "1-3" →
+near; "0-2" / ceiling / no-bar → keep-eligible). Full write-up in the eval-harness design doc.
 
 ---
 
@@ -181,6 +119,17 @@ rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
 
 ### Enhancements — not built, optional
 
+- **Trim `config.yaml` to machine-only filters.** Config should hold *only* what a
+  deterministic machine filter uses (companies, `title_filter`, threshold, schedule,
+  `exclude_internships` — decided in code from the title). Any constraint actually
+  *adjudicated by the LLM* should not live in config at all — it belongs on the résumé /
+  profile that feeds the model. Today `config.Candidate` (degree / auth / clearance /
+  locations / dealbreakers) is handed to the **LLM screen** (`config.py` docstring), so by
+  this rule those fields leave config and become résumé/profile evidence. Revisits the
+  config-vs-profile seam in [In flight](#in-flight): keep the seam's split, but move the
+  boundary to *deterministic vs LLM-handled* rather than *hard-constraint vs fit*. Check
+  which of the D1/D2 gates are genuinely deterministic (stay) vs LLM-screened (move) before
+  cutting anything.
 - **Alternative fit-score provider (cost / determinism).** The fit scorer is
   dependency-injected (`score.make_claude_scorer`), so a provider swap is a clean seam
   (a `make_openai_scorer` twin, wired only in `run.py`). Two possible future motivations,
