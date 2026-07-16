@@ -13,6 +13,8 @@ const mockJobs = [
     score: 91,
     score_detail: '{"matched":["python","aws"],"missing":["kubernetes"],"reasoning":"Strong match"}',
     pipeline_status: 'scored',
+    posted_at: '2026-06-01',
+    created_at: '2026-06-03T00:00:00.000Z',
   },
   {
     id: 2,
@@ -25,6 +27,8 @@ const mockJobs = [
     score: 78,
     score_detail: null,
     pipeline_status: 'notified',
+    posted_at: '2026-05-20',
+    created_at: '2026-05-22T00:00:00.000Z',
   },
 ]
 
@@ -69,6 +73,17 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getByText('ML Engineer')).toBeInTheDocument()
   })
 
+  it('shows the Below bar tab', () => {
+    renderTable()
+    expect(screen.getByRole('button', { name: 'Below bar' })).toBeInTheDocument()
+  })
+
+  it('renders posted and fetched dates compactly', () => {
+    renderTable()
+    expect(screen.getByText('Posted Jun 1')).toBeInTheDocument()
+    expect(screen.getByText('Fetched Jun 3')).toBeInTheDocument()
+  })
+
   it('shows the score for each row', () => {
     renderTable()
     expect(screen.getByText('91')).toBeInTheDocument()
@@ -107,8 +122,8 @@ describe('DiscoveredJobsTable', () => {
   it('calls onDiscard with the row id for a non-discarded row', () => {
     const onDiscard = jest.fn()
     renderTable({ onDiscard })
-    // mockJobs[0] (id 1) is 'scored' (not discarded) -> shows a Discard action.
-    fireEvent.click(screen.getAllByTitle(/discard/i)[0])
+    // mockJobs[0] (id 1) is 'scored' (not discarded) -> shows a per-row Remove action.
+    fireEvent.click(screen.getAllByTitle(/remove/i)[0])
     expect(onDiscard).toHaveBeenCalledWith(1)
   })
 
@@ -152,29 +167,96 @@ describe('DiscoveredJobsTable', () => {
         jest.advanceTimersByTime(300)
       })
 
-      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'discarded', discardType: 'nearmiss', sort: 'score' })
+      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'discarded', sort: 'score' })
     } finally {
       jest.runOnlyPendingTimers()
       jest.useRealTimers()
     }
   })
 
-  it('distinguishes disqualified (with reason) from low-score rows', () => {
+  it('renders a bucket-aware why-cell for a below-bar row (domain verdict pill + top gap)', () => {
     const rows = [
-      // High score but hard-disqualified -> shows the reason, not "low score".
       {
         ...mockJobs[0],
-        id: 10,
+        id: 20,
+        score: 68,
+        pipeline_status: 'scored',
+        score_detail: JSON.stringify({
+          assessment: {
+            domain: { verdict: 'adjacent', note: 'ML infra, not research' },
+            must_haves: { met: [], missing: ['live-desk production experience'] },
+            summary: 'Close, but light on desk experience',
+          },
+        }),
+      },
+    ]
+    renderTable({ data: rows, total: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Below bar' }))
+    // The signature element: WHY it's under the bar — verdict + the top missing must-have.
+    expect(screen.getByText('Adjacent')).toBeInTheDocument()
+    expect(screen.getByText(/missing: live-desk production experience/)).toBeInTheDocument()
+  })
+
+  it('falls back to the legacy reasoning line for a below-bar row without a scorecard', () => {
+    // Pre-round-2 rows have no `assessment`; the why-cell still says WHY via `reasoning`.
+    const rows = [
+      {
+        ...mockJobs[0],
+        id: 22,
+        score: 70,
+        pipeline_status: 'scored',
+        score_detail: JSON.stringify({ reasoning: 'Strong Python engineer but only internship-level experience' }),
+      },
+    ]
+    renderTable({ data: rows, total: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Below bar' }))
+    expect(screen.getByText(/only internship-level experience/)).toBeInTheDocument()
+  })
+
+  it('shows both seniority and domain verdict pills for a below-bar row', () => {
+    const rows = [
+      {
+        ...mockJobs[0],
+        id: 23,
+        score: 63,
+        pipeline_status: 'scored',
+        score_detail: JSON.stringify({
+          assessment: {
+            seniority: { verdict: 'too_junior', note: 'needs 3+ yrs' },
+            domain: { verdict: 'adjacent', note: 'AI tooling, not quant' },
+            must_haves: { met: [], missing: ['UNIX/Linux systems depth'] },
+          },
+        }),
+      },
+    ]
+    renderTable({ data: rows, total: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Below bar' }))
+    expect(screen.getByText('Too junior')).toBeInTheDocument()
+    expect(screen.getByText('Adjacent')).toBeInTheDocument()
+    expect(screen.getByText(/missing: UNIX\/Linux systems depth/)).toBeInTheDocument()
+  })
+
+  it('shows the recommended résumé label next to the score', () => {
+    const rows = [
+      { ...mockJobs[0], id: 24, score: 87, score_detail: JSON.stringify({ recommended_resume: 'quant_dev' }) },
+    ]
+    renderTable({ data: rows, total: 1 })   // default Matched bucket
+    expect(screen.getByText('Quant Dev')).toBeInTheDocument()
+  })
+
+  it('renders the disqualification reason in the Discarded bucket why-cell', () => {
+    const rows = [
+      {
+        ...mockJobs[0],
+        id: 21,
         score: 90,
         pipeline_status: 'discarded',
         score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'internship/co-op role' }),
       },
-      // Below threshold, not disqualified -> "low score".
-      { ...mockJobs[0], id: 11, score: 60, pipeline_status: 'scored', score_detail: null },
     ]
-    renderTable({ data: rows, total: 2 })
+    renderTable({ data: rows, total: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
     expect(screen.getByText(/internship\/co-op role/)).toBeInTheDocument()
-    expect(screen.getByText(/low score/i)).toBeInTheDocument()
   })
 
   it('sends minScore in the filter payload', () => {
@@ -206,7 +288,7 @@ describe('DiscoveredJobsTable', () => {
         jest.advanceTimersByTime(300)
       })
 
-      // No discardType rides along (that sub-filter is Discarded-only).
+      // No cause sub-filter rides along (that sub-filter is Discarded-only).
       expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'lowcontext', sort: 'score' })
     } finally {
       jest.runOnlyPendingTimers()
@@ -214,17 +296,17 @@ describe('DiscoveredJobsTable', () => {
     }
   })
 
-  it('does not show the discard-type filter in the Low-context bucket', () => {
+  it('does not show the disqualification-cause filter in the Low-context bucket', () => {
     renderTable()
     fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
-    expect(screen.queryByLabelText(/discard type/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/disqualification cause/i)).not.toBeInTheDocument()
   })
 
-  it('shows the discard-type filter only in the Discarded bucket', () => {
+  it('shows the disqualification-cause filter only in the Discarded bucket', () => {
     renderTable()
-    expect(screen.queryByLabelText(/discard type/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/disqualification cause/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
-    expect(screen.getByLabelText(/discard type/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/disqualification cause/i)).toBeInTheDocument()
   })
 
   it('calls onPageChange when Next is clicked, and disables Previous on page 0', () => {
@@ -299,7 +381,7 @@ describe('DiscoveredJobsTable', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
     fireEvent.click(screen.getByRole('button', { name: /remove all in view/i }))
     expect(onRemoveAllInView).toHaveBeenCalledWith(
-      expect.objectContaining({ bucket: 'discarded', discardType: 'nearmiss', search: '' })
+      expect.objectContaining({ bucket: 'discarded', search: '' })
     )
   })
 })

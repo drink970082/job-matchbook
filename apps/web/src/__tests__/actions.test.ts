@@ -224,7 +224,7 @@ describe('Backend Actions', () => {
       )
     })
 
-    it('discarded bucket = explicitly discarded OR live-but-below-threshold', async () => {
+    it('discarded bucket = disqualified only (discarded status + disqualified flag)', async () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
@@ -235,13 +235,31 @@ describe('Backend Actions', () => {
           where: expect.objectContaining({
             AND: expect.arrayContaining([
               expect.objectContaining({
+                pipeline_status: 'discarded',
                 OR: [
-                  { pipeline_status: 'discarded' },
-                  {
-                    pipeline_status: { in: ['scored', 'notified'] },
-                    score: { lt: 75 },
-                  },
+                  { score_detail: { contains: '"disqualified": true' } },
+                  { score_detail: { contains: '"disqualified":true' } },
                 ],
+              }),
+            ]),
+          }),
+        })
+      )
+    })
+
+    it('belowbar bucket = live rows below the match threshold', async () => {
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ bucket: 'belowbar' })
+
+      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                pipeline_status: { in: ['scored', 'notified'] },
+                score: { lt: 75 },
               }),
             ]),
           }),
@@ -292,16 +310,20 @@ describe('Backend Actions', () => {
       )
     })
 
-    it('discardType=disqualified narrows to disqualified rows', async () => {
+    it('cause sub-filter layers a disqualification-cause id set onto the discarded bucket', async () => {
+      // getJobPostings runs lowContextIds() first, then disqualifyCauseIds(); both use
+      // $queryRaw. Queue: low-context = [] (no notIn), cause = [4, 8] (the id IN set).
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 4 }, { id: 8 }])
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ bucket: 'discarded', discardType: 'disqualified' })
+      await getJobPostings({ bucket: 'discarded', cause: 'degree' })
 
-      const call = mockPrisma.job_postings.findMany.mock.calls[0][0] as any
-      const serialized = JSON.stringify(call.where)
+      const where = (mockPrisma.job_postings.findMany.mock.calls[0][0] as any).where
+      const serialized = JSON.stringify(where)
       expect(serialized).toContain('"pipeline_status":"discarded"')
-      expect(serialized).toContain('disqualified')
+      expect(serialized).toContain('"in":[4,8]')
     })
 
     it('should support search over company_name and job_title', async () => {
@@ -328,7 +350,7 @@ describe('Backend Actions', () => {
   })
 
   describe('discardJobPosting', () => {
-    it('should set pipeline_status to discarded', async () => {
+    it('should set pipeline_status to removed (hidden, not the disqualified-only discarded bucket)', async () => {
       mockPrisma.job_postings.update.mockResolvedValue({ id: 1 } as any)
 
       const result = await discardJobPosting(1)
@@ -337,7 +359,7 @@ describe('Backend Actions', () => {
       expect(mockPrisma.job_postings.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 1 },
-          data: expect.objectContaining({ pipeline_status: 'discarded' }),
+          data: expect.objectContaining({ pipeline_status: 'removed' }),
         })
       )
     })

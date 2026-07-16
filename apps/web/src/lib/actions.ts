@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, NEAR_MISS_FLOOR, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -52,17 +52,32 @@ export async function getApplications(params: {
 // or discarded). Score then sorts them into the Matched vs Discarded buckets.
 const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
 
-// Discovered Jobs collapses to score-aware buckets (we're testing scoring):
-//   matched    — live + score ≥ threshold (the actionable set)
-//   discarded  — explicitly discarded OR live but below threshold (weak match)
+// Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
+// non-lowcontext bucket is mutually exclusive of the derived low-context id set:
+//   matched    — live (scored|notified) + score ≥ threshold (the actionable set)
+//   belowbar   — live + score < threshold (scored, but under the bar — incl. deep
+//                misses far below it; nothing scored is ever orphaned)
+//   discarded  — disqualified ONLY: pipeline_status='discarded' with the screen's
+//                disqualified:true (hard-constraint failures — the audit view)
 //   lowcontext — live but the JD was too thin to score with confidence (derived)
 //   failed     — pipeline failure, for monitoring
-export type JobBucket = 'matched' | 'discarded' | 'failed' | 'lowcontext'
+export type JobBucket = 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowcontext'
 
-// Within the Discarded audit view you narrow to one slice (default near-miss):
-//   nearmiss     — live, NEAR_MISS_FLOOR ≤ score < threshold (where false-negatives hide)
-//   disqualified — LLM hard-constraint failures
-export type DiscardType = 'disqualified' | 'nearmiss'
+// Within the Discarded (disqualified) audit view you can narrow to one hard-constraint
+// cause. The worker writes `disqualification_reason` keyed like "degree: requires phd"
+// / "authorization: no visa sponsorship offered" / "clearance: …" / "location: …" /
+// "internship/co-op role" (multiple joined by "; "); each cause maps to a LIKE pattern.
+export type DisqualifyCause = 'authorization' | 'location' | 'degree' | 'clearance' | 'internship'
+
+// LIKE patterns that recognize each disqualification cause inside the (possibly
+// "; "-joined) disqualification_reason string. See disqualifyCauseIds.
+const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
+    authorization: '%authorization:%',
+    location: '%location:%',
+    degree: '%degree:%',
+    clearance: '%clearance:%',
+    internship: '%internship/co-op%',
+}
 
 // Sort for the discovered queue: best match (score) or freshest posting.
 export type JobSort = 'score' | 'posted'
@@ -71,41 +86,36 @@ function buildJobWhere(params: {
     bucket?: JobBucket
     search?: string
     minScore?: number
-    discardType?: DiscardType
 }): Prisma.job_postingsWhereInput {
     const bucket = params.bucket ?? 'matched'
     const search = params.search || ''
     const minScore = params.minScore
 
-    const belowThreshold: Prisma.job_postingsWhereInput = {
-        pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-        score: { lt: MATCH_SCORE_THRESHOLD },
-    }
-    const nearMiss: Prisma.job_postingsWhereInput = {
-        pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-        score: { gte: NEAR_MISS_FLOOR, lt: MATCH_SCORE_THRESHOLD },
-    }
-    const disqualified: Prisma.job_postingsWhereInput = {
-        pipeline_status: 'discarded',
-        OR: [
-            // Substring-match the score_detail JSON; tolerate json.dumps spacing ("disqualified": true) and compact ("disqualified":true).
-            { score_detail: { contains: '"disqualified": true' } },
-            { score_detail: { contains: '"disqualified":true' } },
-        ],
-    }
-
     let bucketFilter: Prisma.job_postingsWhereInput
     if (bucket === 'failed') {
         bucketFilter = { pipeline_status: 'failed' }
     } else if (bucket === 'discarded') {
-        if (params.discardType === 'disqualified') {
-            bucketFilter = disqualified
-        } else if (params.discardType === 'nearmiss') {
-            bucketFilter = nearMiss
-        } else {
-            bucketFilter = { OR: [{ pipeline_status: 'discarded' }, belowThreshold] }
+        // Disqualified ONLY — hard-constraint screen failures. (Below-threshold scored
+        // rows are NOT disqualified; they live in the `belowbar` bucket now.)
+        // Substring-match the score_detail JSON; tolerate json.dumps spacing
+        // ("disqualified": true) and compact ("disqualified":true).
+        bucketFilter = {
+            pipeline_status: 'discarded',
+            OR: [
+                { score_detail: { contains: '"disqualified": true' } },
+                { score_detail: { contains: '"disqualified":true' } },
+            ],
+        }
+    } else if (bucket === 'belowbar') {
+        // Scored but under the bar: live rows below threshold (incl. deep misses far
+        // below it — nothing scored is orphaned). ACTIVE rows are never
+        // disqualified, so this is cleanly "scored yet not a match".
+        bucketFilter = {
+            pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
+            score: { lt: MATCH_SCORE_THRESHOLD },
         }
     } else {
+        // matched
         bucketFilter = {
             pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
             score: { gte: MATCH_SCORE_THRESHOLD },
@@ -123,21 +133,42 @@ function buildJobWhere(params: {
     }
 }
 
-// Ids of "low-context" postings: a JD body too thin to screen/score with confidence.
-// There's no persisted flag for this — the worker's ingest gate only rejects an
-// EMPTY description (a thin-but-present JD is scored like any other) — so it's derived
-// at query time from the trimmed length of `description`. Prisma's typed `where` can't
-// express LENGTH(...), so we fetch the matching ids once with a raw query and layer
-// them onto the typed bucket queries (id `in` for the low-context bucket, `notIn` for
-// every other bucket), which keeps the buckets mutually exclusive without touching
-// buildJobWhere. Scope: only rows that actually received a fit score
-// (ACTIVE_PIPELINE_STATUSES = scored|notified); disqualified/failed/applied/removed
-// rows keep their own buckets. Tunable via LOW_CONTEXT_MAX_DESCRIPTION_LENGTH.
+// Ids of discarded postings whose `disqualification_reason` matches one hard-constraint
+// cause. Prisma's typed `where` can't reach into the score_detail JSON, so — mirroring
+// lowContextIds — we fetch the matching ids once with a raw query (SQLite json_extract)
+// and layer them onto the discarded bucket query (id `in`). The LIKE pattern recognizes
+// the worker's keyed reason ("degree: …", "internship/co-op role") even inside a
+// "; "-joined multi-cause reason. An empty result → `id IN ()` → an (intentionally)
+// empty view, so no guard is needed.
+async function disqualifyCauseIds(cause: DisqualifyCause): Promise<number[]> {
+    const pattern = DISQUALIFY_CAUSE_PATTERNS[cause]
+    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
+        SELECT id FROM job_postings
+        WHERE pipeline_status = 'discarded'
+          AND json_extract(score_detail, '$.disqualification_reason') LIKE ${pattern}
+    `
+    return rows.map((r) => Number(r.id))
+}
+
+// Ids of "low-context" postings: a JD too thin to score with confidence. Two signals,
+// either one qualifies (OR):
+//   1. a short description body — derived at query time from TRIM(description) length
+//      (< LOW_CONTEXT_MAX_DESCRIPTION_LENGTH); the ingest gate only rejects EMPTY JDs.
+//   2. the fit scorer's persisted `insufficient_context: true` flag in score_detail —
+//      the LLM judged the JD too boilerplate/truncated to assess even at full length.
+// Prisma's typed `where` can't express LENGTH(...)/json_extract, so we fetch the ids
+// with a raw query and layer them onto the typed bucket queries (id `in` for the
+// low-context bucket, `notIn` for every other bucket) — keeping buckets mutually
+// exclusive without touching buildJobWhere. Scope: only rows that actually received a
+// fit score (scored|notified); disqualified/failed/applied/removed keep their own buckets.
 async function lowContextIds(): Promise<number[]> {
     const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
         SELECT id FROM job_postings
         WHERE pipeline_status IN ('scored', 'notified')
-          AND LENGTH(TRIM(description)) < ${LOW_CONTEXT_MAX_DESCRIPTION_LENGTH}
+          AND (
+                LENGTH(TRIM(description)) < ${LOW_CONTEXT_MAX_DESCRIPTION_LENGTH}
+             OR json_extract(score_detail, '$.insufficient_context') = 1
+          )
     `
     return rows.map((r) => Number(r.id))
 }
@@ -148,7 +179,7 @@ export async function getJobPostings(params: {
     page?: number
     size?: number
     minScore?: number
-    discardType?: DiscardType
+    cause?: DisqualifyCause
     sort?: JobSort
 }) {
     const page = params.page ?? 0
@@ -175,9 +206,15 @@ export async function getJobPostings(params: {
         // exclusion as a peer clause (keeping buildJobWhere's flat AND shape); guarded
         // so an empty set doesn't emit a `NOT IN ()`.
         const base = buildJobWhere(params)
+        // Discarded-only cause sub-filter: layer the raw-query id set as `id IN`.
+        const causeClause =
+            params.bucket === 'discarded' && params.cause
+                ? [{ id: { in: await disqualifyCauseIds(params.cause) } }]
+                : []
         where = {
             AND: [
                 ...(base.AND as Prisma.job_postingsWhereInput[]),
+                ...causeClause,
                 ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
             ],
         }
@@ -196,11 +233,15 @@ export async function getJobPostings(params: {
     return { data, total }
 }
 
+// Per-row dismiss. Writes 'removed' (hidden from every bucket, like bulk Remove) — NOT
+// 'discarded'. The Discarded bucket is reserved for the screen's auto-disqualifications,
+// so a hand-dismissed row must not masquerade as one (it would also be unreopenable,
+// matching no bucket). Reopen a genuine disqualification from the Discarded view instead.
 export async function discardJobPosting(id: number) {
     try {
         await prisma.job_postings.update({
             where: { id },
-            data: { pipeline_status: 'discarded', updated_at: new Date().toISOString() },
+            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
         })
         return { success: true }
     } catch (error: any) {
@@ -250,17 +291,28 @@ export async function bulkReopen(ids: number[]) {
     }
 }
 
-// Clear the whole current Discarded view in one click (respects bucket + sub-filter
-// + search + minScore via the same where-builder getJobPostings uses).
+// Clear the whole current Discarded view in one click (respects bucket + cause
+// sub-filter + search + minScore via the same where-builder getJobPostings uses).
 export async function removeAllInView(filter: {
     bucket?: JobBucket
     search?: string
     minScore?: number
-    discardType?: DiscardType
+    cause?: DisqualifyCause
 }) {
     try {
+        const base = buildJobWhere(filter)
+        const causeClause =
+            filter.bucket === 'discarded' && filter.cause
+                ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
+                : []
+        const where: Prisma.job_postingsWhereInput = {
+            AND: [
+                ...(base.AND as Prisma.job_postingsWhereInput[]),
+                ...causeClause,
+            ],
+        }
         const res = await prisma.job_postings.updateMany({
-            where: buildJobWhere(filter),
+            where,
             data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
         })
         return { success: true, count: res.count }

@@ -309,7 +309,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                             </Button>
                         ) : (
                             <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => onDiscard(job.id)}>
-                                <XCircle className="mr-2 h-4 w-4" /> Discard
+                                <XCircle className="mr-2 h-4 w-4" /> Remove
                             </Button>
                         )}
                     </div>

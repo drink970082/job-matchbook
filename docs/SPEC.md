@@ -414,7 +414,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `nice_to_haves` {missing}, and a one-line `summary` (**S2.1** — replaced the flat
   `matched_keywords`/`missing_keywords` lists + prose `reasoning`). The prompt scores
   from the verdicts: a material seniority gap floors the score at 0–30 (**D3**), and
-  missing `nice_to_haves` barely move it (**D4**). With **two or more** resume versions
+  missing `nice_to_haves` barely move it (**D4**). The scorer also sets a top-level
+  **`insufficient_context`** boolean (**case #2**): true when the JD is too thin,
+  boilerplate, or truncated to assess fit with confidence — a signal (independent of the
+  0–100 score, which is still filled in as best it can) that routes the posting to the
+  **Low-context** bucket for human review rather than trusting the number. With **two or more** resume versions
   the schema additionally requires `recommended_resume`, enum-constrained to the actual
   labels (so the model can never name a nonexistent version) — the best-fitting version,
   persisted in `score_detail` and surfaced as a `Resume: <label>` line in the Telegram
@@ -474,10 +478,11 @@ worker modules are pure and dependency-injected; real services are wired only in
     remaining history), `getKPIs`.
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
-  - *Discovered jobs:* `getJobPostings` (score-aware `bucket` ∈ matched/discarded/
-    lowcontext/failed, default matched; sort `JobSort` ∈ score/posted, default score;
-    paginated `page`/`size`; optional `minScore` filter and, for the discarded bucket, a
-    `discardType` ∈ disqualified/nearmiss/all sub-filter). `discardJobPosting`,
+  - *Discovered jobs:* `getJobPostings` (score-aware `bucket` ∈ matched/belowbar/
+    discarded/lowcontext/failed, default matched; sort `JobSort` ∈ score/posted, default
+    score; paginated `page`/`size`; optional `minScore` filter and, for the discarded
+    bucket, a disqualification-`cause` ∈ authorization/location/degree/clearance/internship
+    sub-filter). `discardJobPosting`,
     `reopenJobPosting`, `bulkRemove(ids)` (terminal `removed`, UI-only hide, worker-inert),
     `bulkReopen(ids)`, `removeAllInView(bucket, filters)`, `markJobApplied(id, category)`
     (category chosen at apply time, validated against `CATEGORIES`, default `Others`).
@@ -496,17 +501,22 @@ worker modules are pure and dependency-injected; real services are wired only in
   connection leaks).
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
-  are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/discarded
-  cutoff, mirrors the worker's notification threshold), `NEAR_MISS_FLOOR` (60; the lower
-  bound of the near-miss sub-band in the Discarded view), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
+  are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/below-bar
+  cutoff, mirrors the worker's notification threshold; Below-bar spans *all* sub-threshold
+  scored rows, so there is no separate near-miss floor), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; the trimmed-`description` char count below which a scored posting is bucketed
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
   to extend statuses/categories/sources.**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
-  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (buckets + sort
-  toggle Best match/Newest posted + score/discard-type filters + per-row discard reason
-  + bulk Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (bucket tabs on their
+  own row — Matched/Below-bar/Discarded/Failed/Low-context — above a filter row of sort
+  toggle Best match/Newest posted + score/disqualification-cause filters; a bucket-aware
+  per-row "why" subline (below-bar seniority/domain verdict pills + top missing must-have,
+  falling back to the legacy one-line `reasoning` for pre-S2.1 rows; disqualification
+  reason; thin-JD size; pipeline error); a `recommended_resume` label under the score;
+  folded Company/location/source and Posted/Fetched date columns + bulk
+  Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
   `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
   (category picker on Mark Applied), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
@@ -561,7 +571,7 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100, from Claude fit score
-  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
+  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
   posted_at       String?       // board posting date YYYY-MM-DD (greenhouse/lever/ashby/workday); scrape-date fallback for pinpoint + dateless rows
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String?       // last stage/send error; cleared on successful notify
@@ -651,7 +661,7 @@ fetch/score, on exception         → failed         (pipeline_error set; batch 
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
-- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView`; the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
+- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
 - **Stage gating is strict:** `run_score` processes only `new`; `run_notify` only
   `scored` with `score ≥ threshold` (the notification gate; below-threshold rows
@@ -722,42 +732,53 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 
 **Web ↔ pipeline seam** (`lib/actions.ts`):
 
-- **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, discarded,
+- **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, belowbar, discarded,
   lowcontext, failed}, default `matched`). Score-aware, since the live tabs are about scoring:
   **matched** = `{scored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
-  (default 75, mirrors the worker's notification threshold); **discarded** = a near-miss
-  audit view: `pipeline_status='discarded'` **or** `{scored, notified}` with
-  `score < threshold` (default band: `NEAR_MISS_FLOOR` 60 ≤ score < 75);
-  **lowcontext** = `{scored, notified}` rows whose JD was too thin to score with
-  confidence, i.e. `LENGTH(TRIM(description)) < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
-  (default 200); **failed** = `pipeline_status='failed'`. All buckets exclude `removed`
-  rows, and the buckets are **mutually exclusive** — the low-context set is a *derived*
-  (query-time, no schema flag) id set computed by one raw `LENGTH()` query and layered
-  as `id IN` on the low-context bucket and `id NOT IN` on the others, so a thin-JD scored
-  row appears only under Low-context, never in Matched/Discarded. Each is **paginated**
+  (default 75, mirrors the worker's notification threshold); **belowbar** = `{scored,
+  notified}` with `score < threshold` — every scored-but-under-the-bar row, *including*
+  deep misses below `NEAR_MISS_FLOOR`, so nothing scored is orphaned (ACTIVE rows are
+  never disqualified, so this is cleanly "scored, not a match"); **discarded** =
+  disqualified **only**: `pipeline_status='discarded'` with the screen's `disqualified:true`
+  (substring-matched in `score_detail`, tolerating `"disqualified": true` / `"disqualified":true`
+  spacing) — a below-threshold scored row is **not** discarded (it lives in belowbar);
+  **lowcontext** = `{scored, notified}` rows too thin to score with confidence, by
+  **either** signal (OR): a short JD body (`LENGTH(TRIM(description)) <
+  LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the fit scorer's
+  persisted `insufficient_context: true` flag (case #2 — a full-length but boilerplate/
+  truncated JD the LLM couldn't assess); **failed** = `pipeline_status='failed'`. All
+  buckets exclude `removed` rows, and the buckets are **mutually exclusive** — the
+  low-context set is a *derived* (query-time, part-persisted) id set from one raw query
+  (`LENGTH(...) < N OR json_extract(score_detail,'$.insufficient_context') = 1`) layered
+  as `id IN` on the low-context bucket and `id NOT IN` on the others, so a low-context
+  scored row appears only under Low-context, never in Matched/Below-bar. Each is **paginated**
   (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`, default
   `score desc`; `posted` orders by `posted_at desc, id desc`). Optional filters: a
-  `minScore` floor (any bucket) and, within discarded, a `discardType` ∈
-  {disqualified, nearmiss, all} sub-filter (disqualified = `pipeline_status='discarded'`
-  with the screen's `disqualified:true`; nearmiss = `NEAR_MISS_FLOOR ≤ score < threshold`
-  live rows; all = both).
+  `minScore` floor (any bucket) and, within discarded, a disqualification-`cause` ∈
+  {authorization, location, degree, clearance, internship} sub-filter — a *derived* id set
+  (mirroring low-context) from a raw query matching the worker's keyed
+  `disqualification_reason` via `json_extract(score_detail,'$.disqualification_reason') LIKE`
+  the cause pattern (`%authorization:%`, `%location:%`, `%degree:%`, `%clearance:%`,
+  `%internship/co-op%`), layered as `id IN` on the discarded query. `getJobPostings`
+  returns every row's `created_at` + `posted_at` (the table shows both dates).
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
   application (`status='Applied'`, `category` chosen by the user at apply time —
   validated against `CATEGORIES`, default `Others` — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
-- **`reopenJobPosting(id)`** reverses a discard (user- or LLM-initiated) back to
-  `scored`, preserving `score_detail`.
-- **`discardJobPosting(id)`** sets `pipeline_status='discarded'`.
+- **`reopenJobPosting(id)`** reverses a disqualification (from the Discarded view) back
+  to `scored`, preserving `score_detail`.
+- **`discardJobPosting(id)`** — the per-row dismiss — sets `pipeline_status='removed'`
+  (hidden, like bulk Remove), **not** `discarded`: the Discarded bucket is disqualified-only,
+  so a hand-dismissed row must not masquerade as an auto-disqualification.
 - **`bulkRemove(ids)`** sets `pipeline_status='removed'` for the given ids (terminal;
   available in Matched and Discarded buckets).
 - **`bulkReopen(ids)`** sets `pipeline_status='scored'` for the given ids (available in
-  Discarded bucket, including near-miss rows; reverses a prior discard or bulk-remove back
-  to scored).
+  the Discarded bucket; reverses a prior discard or bulk-remove back to scored).
 - **`removeAllInView(bucket, filters)`** applies `bulkRemove` to every row matching the
-  current bucket + filter (available in Discarded bucket; respects `discardType` +
-  `minScore`).
+  current bucket + filter (available in the Discarded bucket; respects the disqualification-
+  `cause` sub-filter + `minScore`).
 
 **Application invariants:**
 
@@ -839,7 +860,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/components/__tests__/JobDetailModal.test.tsx` |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Notify send error → stays `scored` + `attempts+1` + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
-| Discovered-jobs score-aware buckets (matched/discarded/lowcontext/failed, mutually exclusive) + sort (score/posted) + pagination + near-miss sub-filter + bulk remove/reopen/removeAllInView | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
+| Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
+| Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded`, `bulkRemove`→`removed`, `bulkReopen`→`scored`, `removeAllInView` | `actions.test.ts`, `actions.int.test.ts` |

@@ -7,6 +7,58 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+- **Fit scorer `insufficient_context` signal (case #2).** The Claude fit scorer now
+  returns a top-level `insufficient_context` boolean (schema-required, normalized to
+  `False` when absent, persisted in `score_detail`): true when the JD is too thin,
+  boilerplate, or truncated to assess with confidence. It routes the posting to the
+  **Low-context** bucket independently of the 0–100 score, so a full-length-but-empty JD
+  the LLM couldn't judge gets human review rather than a trusted number — complementing
+  case #1 (a short JD body). `lowContextIds` unions the two signals
+  (`LENGTH(TRIM(description)) < N OR json_extract(score_detail,'$.insufficient_context') = 1`).
+
+### Changed
+- **Discovered-Jobs bucket taxonomy split + table redesign.** The old `discarded`
+  bucket conflated two very different things — hard disqualifications *and*
+  below-threshold scored rows — behind a `discardType` (nearmiss/disqualified/all)
+  sub-filter. Split into clean, mutually-exclusive buckets: `JobBucket` is now
+  **matched · belowbar · discarded · failed · lowcontext**. **belowbar** = live
+  (`scored`|`notified`) rows with `score < MATCH_SCORE_THRESHOLD` — *all* of them,
+  including deep misses far below the bar, so nothing scored is orphaned;
+  **discarded** = disqualified **only** (`pipeline_status='discarded'` with the screen's
+  `disqualified:true`) — a below-bar scored row no longer lands here. The old
+  `DiscardType` sub-filter is replaced by a disqualification-**cause** filter
+  (`DisqualifyCause` ∈ authorization/location/degree/clearance/internship), implemented —
+  like `lowContextIds` — as a raw-query id set matching the worker's keyed
+  `disqualification_reason` via `json_extract(...) LIKE` the cause pattern, layered as
+  `id IN` on the discarded query (and `removeAllInView`). `getJobPostings` /
+  `removeAllInView` take `cause?` instead of `discardType?`, and `getJobPostings` now
+  returns each row's `created_at` + `posted_at`. `NEAR_MISS_FLOOR` is kept only as a
+  documented score-band marker (no longer a query boundary). **Table redesign**
+  (`DiscoveredJobsTable`): the bucket tabs (Matched · Below bar · Discarded · Failed ·
+  Low-context) moved to their **own row** above the filters; columns folded to Company
+  (name + location + source chip) · Role (title + a bucket-aware "why" subline — below-bar
+  seniority/domain **verdict pills** (too_junior / adjacent / mismatch, color-coded) + the
+  top missing must-have, falling back to the legacy one-line `reasoning` for pre-S2.1 rows;
+  the disqualification reason; thin-JD char count; or the pipeline error) · Score (with the
+  `recommended_resume` label — SWE / Quant Dev — beneath it) · Dates (Posted / Fetched) ·
+  Actions; the cause dropdown replaces the discard-type Select. The per-row dismiss now
+  writes `removed` (hidden, like bulk Remove) instead of `discarded`, so the
+  disqualified-only Discarded bucket can't be polluted by a hand-dismissed row. Reuses
+  existing shadcn/ui tokens and the modal's verdict-pill palette (no new colors).
+  Covered by updated unit (`actions.test.ts`), integration (`actions.int.test.ts` —
+  belowbar bucket, discarded = disqualified-only, cause filter, created_at/posted_at) and
+  component (`DiscoveredJobsTable.test.tsx` — Below-bar tab, cause dropdown, why-cell,
+  dates) tests.
+- **Round-2 fit-score prompt** (`score.txt`, `0de0068`). Four refinements to how the score
+  is reasoned: crisp / de-duplicated `missing` must-haves; `seniority` keyed to an *explicit
+  stated level* only (a range starting at 0–1 or a cap is not a bar); credit a capability the
+  résumé demonstrates under a different name; never list a requirement structurally impossible
+  for the role's own target candidate. Shipped on judgment — the band-regression harness read a
+  24% flip-rate that analysis traced to score *noise* (all majority keep/near/skip bands were
+  correct), not a prompt fault; the harness stays as the standing regression gate for future
+  prompt edits.
+
 ### Removed
 - **`dealbreakers` from the candidate screen config.** It was the *only* screen
   requirement the local 4B model actually **adjudicated** (a free-text `{pass, note}`

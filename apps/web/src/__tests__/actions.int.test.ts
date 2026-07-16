@@ -142,19 +142,30 @@ test('getApplications paginates (skip = page*size) and orders by date desc', asy
 test('getJobPostings buckets postings by score and status', async () => {
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm1', score: 90, pipeline_status: 'scored' }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm2', score: 80, pipeline_status: 'notified' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 60, pipeline_status: 'scored' }) })    // below threshold
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dx', score: 95, pipeline_status: 'discarded' }) }) // explicit discard
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 60, pipeline_status: 'scored' }) })    // below the bar
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 95, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) }) // disqualified
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'fx', score: 88, pipeline_status: 'failed' }) })
 
     const matched = await getJobPostings({ bucket: 'matched' })
     expect(matched.data.map((d) => d.external_id)).toEqual(['m1', 'm2'])  // >=75, score desc
 
-    // discarded = explicitly discarded OR live-but-below-threshold, score desc
+    // belowbar = live (scored|notified) rows under the threshold (incl. deep misses)
+    const belowbar = await getJobPostings({ bucket: 'belowbar' })
+    expect(belowbar.data.map((d) => d.external_id)).toEqual(['lo'])
+
+    // discarded = disqualified ONLY; the below-bar scored row 'lo' must NOT appear here
     const discarded = await getJobPostings({ bucket: 'discarded' })
-    expect(discarded.data.map((d) => d.external_id)).toEqual(['dx', 'lo'])
+    expect(discarded.data.map((d) => d.external_id)).toEqual(['dq'])
 
     const failed = await getJobPostings({ bucket: 'failed' })
     expect(failed.data.map((d) => d.external_id)).toEqual(['fx'])
+})
+
+test('getJobPostings returns created_at and posted_at for each row', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', score: 90, pipeline_status: 'scored', created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
+    const { data } = await getJobPostings({ bucket: 'matched' })
+    expect(data[0].created_at).toBe('2026-06-03T00:00:00.000Z')
+    expect(data[0].posted_at).toBe('2026-06-01')
 })
 
 test('getJobPostings paginates', async () => {
@@ -168,20 +179,43 @@ test('getJobPostings paginates', async () => {
     expect(p1.data).toHaveLength(2)                       // skip 5 -> 2 remain
 })
 
-test('getJobPostings discardType narrows the discarded bucket', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'near', score: 70, pipeline_status: 'scored' }) })  // 60..74 -> near-miss
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'deep', score: 40, pipeline_status: 'scored' }) })  // below the floor
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'man', score: 88, pipeline_status: 'discarded', score_detail: null }) })  // manual discard
+test('getJobPostings cause sub-filter narrows the discarded bucket by disqualification reason', async () => {
+    // The worker keys disqualification_reason like "degree: …" / "internship/co-op role"
+    // (multiple joined by "; "); the cause filter matches those via json_extract + LIKE.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'auth', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'authorization: no visa sponsorship offered' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'loc', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'deg', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'clr', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'clearance: requires security clearance' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'int', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'internship/co-op role' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'multi', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd; internship/co-op role' }) }) })
 
-    const dq = await getJobPostings({ bucket: 'discarded', discardType: 'disqualified' })
-    expect(dq.data.map((d) => d.external_id)).toEqual(['dq'])
+    const auth = await getJobPostings({ bucket: 'discarded', cause: 'authorization' })
+    expect(auth.data.map((d) => d.external_id)).toEqual(['auth'])
 
-    const near = await getJobPostings({ bucket: 'discarded', discardType: 'nearmiss' })
-    expect(near.data.map((d) => d.external_id)).toEqual(['near'])   // excludes deep(40) and man(88)
+    const loc = await getJobPostings({ bucket: 'discarded', cause: 'location' })
+    expect(loc.data.map((d) => d.external_id)).toEqual(['loc'])
 
+    const clr = await getJobPostings({ bucket: 'discarded', cause: 'clearance' })
+    expect(clr.data.map((d) => d.external_id)).toEqual(['clr'])
+
+    // A cause matches even inside a "; "-joined multi-cause reason.
+    const deg = await getJobPostings({ bucket: 'discarded', cause: 'degree' })
+    expect(deg.data.map((d) => d.external_id).sort()).toEqual(['deg', 'multi'])
+
+    const int = await getJobPostings({ bucket: 'discarded', cause: 'internship' })
+    expect(int.data.map((d) => d.external_id).sort()).toEqual(['int', 'multi'])
+
+    // No cause = every disqualified row.
     const all = await getJobPostings({ bucket: 'discarded' })
-    expect(all.data.map((d) => d.external_id).sort()).toEqual(['deep', 'dq', 'man', 'near'])
+    expect(all.data.map((d) => d.external_id).sort()).toEqual(['auth', 'clr', 'deg', 'int', 'loc', 'multi'])
+})
+
+test('getJobPostings discarded excludes a below-threshold scored row (disqualified only)', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'below', score: 55, pipeline_status: 'scored', score_detail: null }) })
+    const discarded = await getJobPostings({ bucket: 'discarded' })
+    expect(discarded.data).toHaveLength(0)               // a scored-but-under-the-bar row is NOT discarded
+    const belowbar = await getJobPostings({ bucket: 'belowbar' })
+    expect(belowbar.data.map((d) => d.external_id)).toEqual(['below'])   // it lives in belowbar instead
 })
 
 test('getJobPostings isolates low-context (thin-JD) rows into their own bucket', async () => {
@@ -201,8 +235,22 @@ test('getJobPostings isolates low-context (thin-JD) rows into their own bucket',
     const matched = await getJobPostings({ bucket: 'matched' })
     expect(matched.data.map((d) => d.external_id)).toEqual(['full-hi'])          // thin-hi excluded
 
-    const discarded = await getJobPostings({ bucket: 'discarded' })             // no discardType = all discarded
-    expect(discarded.data.map((d) => d.external_id)).toEqual(['thin-dq'])        // disqualified stays; thin near-miss moved out
+    const discarded = await getJobPostings({ bucket: 'discarded' })             // disqualified only
+    expect(discarded.data.map((d) => d.external_id)).toEqual(['thin-dq'])        // disqualified (not thin) stays; the thin below-bar row moved to Low-context
+})
+
+test('getJobPostings routes the scorer insufficient_context flag into low-context (case #2)', async () => {
+    // Full-length JD that would land in `matched`, but the fit scorer flagged it too
+    // boilerplate/truncated to trust — the persisted flag alone routes it to Low-context.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'insuf', score: 90, pipeline_status: 'scored', score_detail: JSON.stringify({ insufficient_context: true }) }) })
+    // Full JD, no flag: stays in matched.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full', score: 88, pipeline_status: 'scored' }) })
+
+    const low = await getJobPostings({ bucket: 'lowcontext' })
+    expect(low.data.map((d) => d.external_id)).toEqual(['insuf'])
+
+    const matched = await getJobPostings({ bucket: 'matched' })
+    expect(matched.data.map((d) => d.external_id)).toEqual(['full'])   // flagged row pulled OUT of matched
 })
 
 test('getJobPostings sort=posted orders by posted_at desc', async () => {
@@ -303,11 +351,12 @@ test('bulkReopen sends discarded rows back to scored', async () => {
     expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('scored')
 })
 
-test('removeAllInView removes only rows matching the filter', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'keep', score: 90, pipeline_status: 'scored' }) })   // matched
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'gone', score: 65, pipeline_status: 'scored' }) })   // near-miss
-    const res = await removeAllInView({ bucket: 'discarded', discardType: 'nearmiss' })
+test('removeAllInView removes only rows matching the discarded bucket + cause filter', async () => {
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'keep', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'gone', score: 88, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd' }) }) })
+    const res = await removeAllInView({ bucket: 'discarded', cause: 'degree' })
     expect(res).toEqual({ success: true, count: 1 })
-    expect((await getJobPostings({ bucket: 'matched' })).data.map((d) => d.external_id)).toEqual(['keep'])
-    expect((await getJobPostings({ bucket: 'discarded', discardType: 'nearmiss' })).data).toHaveLength(0)
+    // Only the degree-disqualified row is removed; the location one remains in the view.
+    expect((await getJobPostings({ bucket: 'discarded' })).data.map((d) => d.external_id)).toEqual(['keep'])
+    expect((await getJobPostings({ bucket: 'discarded', cause: 'degree' })).data).toHaveLength(0)
 })

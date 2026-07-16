@@ -27,32 +27,19 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Ship the fit-score prompt edit — validate, then commit `score.txt`.** The
-band-regression eval harness is **built and committed** (`apps/worker/tools/score_eval.py`
-+ `make eval-score`; recorded in [SPEC](./SPEC.md) and the [CHANGELOG](../CHANGELOG.md)):
-read-only, scores each frozen golden-set row K=3× and judges the majority keep/near/skip
-**band**, PASS = 0 hard-violations + ≥85% agreement + <20% flip. Harness code is on
-`origin/dev` (`master` untouched); what's left is the ship gate for the *prompt*.
-`score.txt` (uncommitted, working tree) holds the validated 4-edit prompt — crisp / de-dup
-misses · seniority keyed to an *explicit stated level* only · credit a capability the
-résumé shows under a different name · no structurally-impossible misses.
-**Deliberately uncommitted:** the runs that motivated the golden relabels are circular to
-count as validation, so ship needs **2 fresh consecutive PASS runs** of `make eval-score`,
-then commit `score.txt`. **Watch:** 6 golden labels moved
-post-hoc and the near band thinned 8→3 (repopulate it from fresh surprises). Golden set +
-`personal_profile.txt` are gitignored; full method + baseline findings in
-`docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`. Scratch, *not* repo
-state: `golden_candidates_full.md`, `audit_list.txt`, `rescore_*.md`, `.coverage`.
-
 🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
 audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
 design `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`), and
 validated **2026-07-14** against the live 1,169-row DB — a free pure-code pass (146 auth
 false-negatives recovered, 6 location keeps, 174 bare-foreign leaks now gated) plus a
 20-row Claude re-score (measurement-only, not persisted). But the **stored** rows still
-carry pre-fix screen verdicts and scores. The next scheduled pipeline pass only reaches
-*new* postings, so applying the fixes to the existing queue needs an operator re-run
-(reset the affected rows to `new`, or a one-off re-score) — a **paid** Claude pass over
+carry pre-fix screen verdicts and scores. This re-run is also what **populates the new
+UI**: every stored row predates the S2.1 structured `assessment` scorecard and the case-#2
+`insufficient_context` flag, so today the Below-bar why-cell falls back to legacy
+`reasoning` and case-#2 low-context routing is empty — the verdict pills / thin-JD flag
+only light up once rows carry the new `score_detail`. The next scheduled pipeline pass
+only reaches *new* postings, so applying the fixes to the existing queue needs an operator
+re-run (reset the affected rows to `new`, or a one-off re-score) — a **paid** pass over
 the ~640 kept rows. Not done automatically (mutates the DB + costs $); back up
 `db/applications.db` first.
 
@@ -78,8 +65,11 @@ stable (a cached prefix on every score call).
 loop was found **unmeasurable** — the fit score is a ±10–15 noisy readout (id=322 = 35→52,
 id=6 = 68→82) with no deterministic assessment→score map, and `temperature`/`seed` are
 400-rejected on the `claude-sonnet-5` tier — so it was replaced by the band-regression
-harness above. The four prompt edits it produced survive as the `score.txt` now pending
-harness validation; the low-variance lever it found (seniority keyed to an objective stated
+harness (`make eval-score`, built + committed; in [SPEC](./SPEC.md) + [CHANGELOG](../CHANGELOG.md)).
+The four prompt edits it produced **shipped** (`score.txt`, `0de0068`) — the harness read a
+24% flip-rate that analysis traced to score *noise*, not a prompt fault (all majority bands
+were correct), so it landed on judgment and the harness stays as the standing regression
+gate for future prompt edits. The low-variance lever it found (seniority keyed to an objective stated
 level) is now the golden set's labeling convention (stated **min ≥ 2 yrs → skip**; "1-3" →
 near; "0-2" / ceiling / no-bar → keep-eligible). Full write-up in the eval-harness design doc.
 
@@ -121,15 +111,16 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 - **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
   + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
   JobSpy noted as a possible fallback aggregator.
-- **Fit-score cost / determinism levers** — `[M · gated on harness flip-rate]`. The scorer
-  is DI'd (`score.make_claude_scorer`), so a provider swap is a clean seam (a
-  `make_openai_scorer` twin wired in `run.py`). Two overlapping levers, **both gated on
-  `eval-model == production-model`**: (a) get off metered pay-as-you-go via a flat-rate
-  Claude/ChatGPT subscription — but a coding-agent CLI (`codex exec`) is heavy, fragile at
-  strict JSON, and shaky auth in the 24h cron, so the OpenAI **API** is the better interface;
-  (b) an OpenAI model whose `seed` + `temperature=0` could kill the ±15 noise `claude-sonnet-5`
-  can't turn off. Revisit only if the harness flip-rate shows the noise is genuinely blocking.
-  (Context: eval-harness design.)
+- **Move fit scoring to OpenAI (cost + determinism)** — `[M · direction chosen, unbuilt]`.
+  **Decided (2026-07-15):** move the fit scorer off metered Claude to OpenAI, for a cheaper
+  flat-rate subscription *and* the determinism lever the round-2 loop proved was the real
+  need — `seed` + `temperature=0` to kill the ±10–15 noise `claude-sonnet-5` can't turn off
+  (those params are 400-rejected on that tier). The scorer is DI'd (`score.make_claude_scorer`),
+  so this is a clean seam: a `make_openai_scorer` twin wired in `run.py`. Use the OpenAI
+  **API**, not a coding-agent CLI (`codex exec` is heavy, fragile at strict JSON, and shaky
+  auth in the 24h cron). The band-regression harness (`make eval-score`) is the acceptance
+  gate — run it against the OpenAI model before cutting over, and it must clear
+  `eval-model == production-model`. (Context: eval-harness design.)
 - **Deployment / monitoring** — `[L · open-ended]`. `ats-web` has a DB-reachability
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
   Telegram notification, and the **worker** has no healthcheck — its failures show only in

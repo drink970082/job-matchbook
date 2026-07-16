@@ -177,7 +177,7 @@ describe('JobDetailModal actions', () => {
         render(<JobDetailModal {...props} onDiscard={onDiscard} />)
 
         expect(screen.queryByRole('button', { name: /reopen/i })).not.toBeInTheDocument()
-        await user.click(screen.getByRole('button', { name: /discard/i }))
+        await user.click(screen.getByRole('button', { name: /remove/i }))
         expect(onDiscard).toHaveBeenCalledWith(1)
     })
 

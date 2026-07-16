@@ -44,14 +44,11 @@ export const VALID_SOURCES = [
 
 // Score at/above which a scored posting counts as a "match" (mirrors the worker's
 // notification threshold — the score at/above which the worker sends a Telegram
-// alert). Below it, a scored posting is a weak match and is shown under the
-// Discarded view rather than Matched. See getJobPostings.
+// alert). Below it, a scored posting is under the bar and shown under the Below-bar
+// view rather than Matched (the Below-bar bucket spans ALL sub-threshold scored rows,
+// so nothing scored is orphaned; the Discarded bucket is disqualified-only). See
+// getJobPostings.
 export const MATCH_SCORE_THRESHOLD = 75
-
-// Floor of the "near-miss" band shown by default in the Discarded audit view:
-// NEAR_MISS_FLOOR ≤ score < MATCH_SCORE_THRESHOLD. The only slice where a real
-// false-negative hides; deeper-junk rows are reachable via the "All" sub-filter.
-export const NEAR_MISS_FLOOR = 60
 
 // A scored posting whose JD body (trimmed) is shorter than this many characters is
 // treated as "low-context": too thin to screen/score with confidence. Such rows are
