@@ -10,9 +10,10 @@ deterministic and testable without network.
 Stage gating:
   run_fetch  -> inserts brand-new postings ('new')
   run_score  -> processes ONLY 'new', advances to 'scored'
-  run_notify -> processes ONLY 'scored' with score >= threshold (the rest stay
-                'scored', untouched); sends a message-only alert and advances to
-                'notified'. The threshold is the notification gate. A send error
+  run_notify -> processes ONLY 'scored' rows whose fit verdicts are a strong
+                match (db.get_notifiable — the rest stay 'scored', untouched);
+                sends a message-only alert and advances to 'notified'. The
+                verdict predicate is the notification gate. A send error
                 is transient until proven persistent: the row STAYS 'scored'
                 (attempts+1, error recorded) so the next pass retries it, and
                 parks 'failed' on the NOTIFY_MAX_ATTEMPTS-th cumulative failure.
@@ -268,17 +269,19 @@ def run_score(conn, *, now, score_fn) -> None:
 NOTIFY_MAX_ATTEMPTS = 3
 
 
-def run_notify(conn, threshold, *, now, notify_fn, token, chat_id) -> None:
-    """Notify every 'scored' posting at or above `threshold` and advance it to
-    'notified' (clearing any prior send error). Below-threshold rows stay
-    'scored', untouched — the threshold is the notification gate. One
-    message-only alert per posting. A send error keeps the row 'scored'
-    (attempts+1, pipeline_error recorded) for a next-pass retry until
-    NOTIFY_MAX_ATTEMPTS cumulative failures park it 'failed'. Delivery is
-    at-least-once: a timeout after Telegram delivered re-sends next pass (one
-    duplicate ping) rather than risking a lost alert.
+def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
+    """Notify every scored posting whose fit verdicts mark it a strong match
+    (db.get_notifiable) and advance it to 'notified' (clearing any prior send
+    error). Non-matching rows stay 'scored', untouched. The verdict predicate
+    is the gate now — the old score>=threshold gate is gone (the score
+    quantized to the rubric band edge and flipped run-to-run; the verdicts
+    are stable). One message-only alert per posting. A send error keeps the
+    row 'scored' (attempts+1, pipeline_error recorded) for a next-pass retry
+    until NOTIFY_MAX_ATTEMPTS cumulative failures park it 'failed'. Delivery
+    is at-least-once: a timeout after Telegram delivered re-sends next pass
+    (one duplicate ping) rather than risking a lost alert.
     """
-    for row in db.get_by_status(conn, "scored", min_score=threshold):
+    for row in db.get_notifiable(conn):
         posting = dict(row)
         try:
             notify_fn(posting, token=token, chat_id=chat_id)

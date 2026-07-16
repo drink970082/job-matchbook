@@ -93,16 +93,34 @@ def test_run_score_skips_non_new(db_path):
 
 # --- run_notify -----------------------------------------------------------
 
-def test_run_notify_gates_on_threshold(db_path):
+# A save_score detail whose seniority + domain verdicts are both 'match' —
+# db.get_notifiable's notify gate. Shared by every run_notify test below that
+# just needs "this row is notifiable" without caring about the verdict values.
+_MATCH_MATCH = {"assessment": {"seniority": {"verdict": "match"},
+                               "domain": {"verdict": "match"}}}
+
+
+def test_run_notify_pings_only_verdict_matches(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"hi": 90, "lo": 50})
+
+    def add(ext_id, sen, dom):
+        db.upsert_postings(conn, [_posting(ext_id)], now=NOW)
+        row = conn.execute(
+            "SELECT id FROM job_postings WHERE external_id=?", (ext_id,)
+        ).fetchone()
+        db.save_score(conn, row["id"], score=50, now=NOW, status="scored",
+                      score_detail={"assessment": {"seniority": {"verdict": sen},
+                                                    "domain": {"verdict": dom}}})
+
+    add("hi", "match", "match")       # ping
+    add("lo", "match", "adjacent")    # no ping (below the verdict bar)
 
     notified = []
 
     def notify_fn(posting, *, token, chat_id):
         notified.append(posting["external_id"])
 
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
     assert notified == ["hi"]
 
     statuses = {
@@ -110,19 +128,19 @@ def test_run_notify_gates_on_threshold(db_path):
         for r in conn.execute("SELECT * FROM job_postings").fetchall()
     }
     assert statuses["hi"] == "notified"
-    assert statuses["lo"] == "scored"  # untouched, below threshold
+    assert statuses["lo"] == "scored"  # untouched, not a match/match verdict pair
 
 
 def test_run_notify_advances_and_passes_token_chat(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"1": 90, "2": 95})
+    _seed_scored(conn, {"1": 90, "2": 95}, detail=_MATCH_MATCH)
 
     notified = []
 
     def notify_fn(posting, *, token, chat_id):
         notified.append((posting["external_id"], token, chat_id))
 
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="tok", chat_id="cid")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="tok", chat_id="cid")
     assert {n[0] for n in notified} == {"1", "2"}
     assert all(n[1] == "tok" and n[2] == "cid" for n in notified)
     statuses = {
@@ -134,13 +152,13 @@ def test_run_notify_advances_and_passes_token_chat(db_path):
 
 def test_run_notify_failure_isolated(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"1": 90, "2": 95})
+    _seed_scored(conn, {"1": 90, "2": 95}, detail=_MATCH_MATCH)
 
     def notify_fn(posting, *, token, chat_id):
         if posting["external_id"] == "1":
             raise RuntimeError("telegram 429")
 
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     # A send error is transient: the row stays 'scored' for a next-pass retry,
     # with the failure recorded on it; the sibling is unaffected.
@@ -237,21 +255,9 @@ def test_run_score_persists_recommended_resume(db_path):
     assert "recommended_resume" not in details["2"]
 
 
-def test_run_notify_threshold_is_inclusive(db_path):
-    conn = db.connect(db_path)
-    _seed_scored(conn, {"edge": 75})
-    notified = []
-
-    def notify_fn(posting, *, token, chat_id):
-        notified.append(posting["external_id"])
-
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
-    assert notified == ["edge"]      # score == threshold IS notified (>= not >)
-
-
 def test_run_notify_send_error_retries_then_parks_failed(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"a": 90})
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
     calls = []
 
     def notify_fn(posting, *, token, chat_id):
@@ -261,20 +267,20 @@ def test_run_notify_send_error_retries_then_parks_failed(db_path):
     # Each pass retries the still-'scored' row; the 3rd cumulative failure
     # (NOTIFY_MAX_ATTEMPTS) parks it 'failed'.
     for expected_attempts, expected_status in ((1, "scored"), (2, "scored"), (3, "failed")):
-        pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+        pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
         row = conn.execute("SELECT * FROM job_postings").fetchone()
         assert row["attempts"] == expected_attempts
         assert row["pipeline_status"] == expected_status
         assert "telegram" in row["pipeline_error"]
     assert calls == ["a", "a", "a"]
     # Parked rows are terminal: a further pass must not retry them.
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
     assert calls == ["a", "a", "a"]
 
 
 def test_run_notify_retry_then_success_clears_error(db_path):
     conn = db.connect(db_path)
-    _seed_scored(conn, {"a": 90})
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
     sends = []
 
     def flaky_notify(posting, *, token, chat_id):
@@ -282,8 +288,8 @@ def test_run_notify_retry_then_success_clears_error(db_path):
         if len(sends) == 1:
             raise RuntimeError("telegram 429")
 
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
-    pipeline.run_notify(conn, 75, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None   # cleared on the successful send
@@ -292,15 +298,18 @@ def test_run_notify_retry_then_success_clears_error(db_path):
 
 def test_stages_ignore_wrong_status_rows(db_path):
     conn = db.connect(db_path)
-    _seed_new(conn, ["n"])                      # stays 'new'
-    _seed_scored(conn, {"lo": 50, "hi": 90})   # one below, one above threshold
+    _seed_new(conn, ["n"])                                  # stays 'new'
+    _seed_scored(conn, {"hi": 90}, detail=_MATCH_MATCH)      # match/match -> notifiable
+    _seed_scored(conn, {"lo": 50}, detail={                 # not match/match -> ignored
+        "assessment": {"seniority": {"verdict": "match"}, "domain": {"verdict": "adjacent"}},
+    })
 
     notified = []
     pipeline.run_notify(
-        conn, 75, now=NOW, token="x", chat_id="y",
+        conn, now=NOW, token="x", chat_id="y",
         notify_fn=lambda p, *, token, chat_id: notified.append(p["external_id"]),
     )
-    assert notified == ["hi"]         # only 'scored' >= threshold ('new' + below ignored)
+    assert notified == ["hi"]         # only 'scored' + match/match ('new' + non-matching ignored)
     statuses = {
         r["external_id"]: r["pipeline_status"]
         for r in conn.execute("SELECT * FROM job_postings").fetchall()

@@ -184,7 +184,6 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
         pipeline.run_notify(
             conn,
-            cfg.threshold,
             now=now,
             notify_fn=notify_posting,
             token=env["TELEGRAM_BOT_TOKEN"],

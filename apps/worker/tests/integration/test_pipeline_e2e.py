@@ -22,6 +22,10 @@ pytestmark = pytest.mark.integration
 ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
        "TELEGRAM_CHAT_ID": "c", "OLLAMA_HOST": "h"}
 
+# The notify gate is now the fit verdicts (db.get_notifiable), not the score —
+# a score_fn result needs both dimensions 'match' to be notifiable.
+_MATCH_MATCH_ASSESSMENT = {"seniority": {"verdict": "match"}, "domain": {"verdict": "match"}}
+
 
 def _cfg():
     return cfgmod.load_config(
@@ -69,11 +73,13 @@ def test_full_status_machine(monkeypatch, tmp_path):
         eid = posting["external_id"]
         if eid == "dq":
             return {"score": 88, "disqualified": True, "disqualification_reason": "needs PhD"}
-        return {"score": 50} if eid == "low" else {"score": 90}
+        if eid == "low":
+            return {"score": 50}   # no assessment verdicts -> not notifiable
+        return {"score": 90, "assessment": _MATCH_MATCH_ASSESSMENT}
 
     dbfile, notified = _run(monkeypatch, tmp_path, postings=postings, score_fn=score_fn)
     assert _statuses(dbfile) == {"dq": "discarded", "low": "scored", "hi": "notified"}
-    assert notified == ["hi"]   # only the above-threshold posting is notified
+    assert notified == ["hi"]   # only the match/match-verdict posting is notified
 
 
 def test_disqualified_routing_keeps_reason(monkeypatch, tmp_path):
@@ -99,7 +105,7 @@ def test_notify_failure_isolated_across_postings(monkeypatch, tmp_path):
                 make_posting("bad", description="BOOM jd")]
 
     dbfile, notified = _run(monkeypatch, tmp_path, postings=postings,
-                            score_fn=lambda p: {"score": 90})
+                            score_fn=lambda p: {"score": 90, "assessment": _MATCH_MATCH_ASSESSMENT})
     status = _statuses(dbfile)
     assert status["ok"] == "notified"
     assert status["bad"] == "scored"          # send error is transient: kept for a next-pass retry
@@ -116,7 +122,8 @@ def test_notify_retry_exhausts_to_failed_without_double_alert(monkeypatch, tmp_p
     # Three scheduler passes over one db: the failing send is retried each pass
     # and parks 'failed' on the 3rd (NOTIFY_MAX_ATTEMPTS) cumulative failure.
     dbfile, notified = _run(monkeypatch, tmp_path, postings=postings,
-                            score_fn=lambda p: {"score": 90}, passes=3)
+                            score_fn=lambda p: {"score": 90, "assessment": _MATCH_MATCH_ASSESSMENT},
+                            passes=3)
     status = _statuses(dbfile)
     assert status["bad"] == "failed"          # retry budget spent -> parked, visible in Failed tab
     assert status["ok"] == "notified"
