@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, NEAR_MISS_FLOOR } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, NEAR_MISS_FLOOR, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -52,11 +52,12 @@ export async function getApplications(params: {
 // or discarded). Score then sorts them into the Matched vs Discarded buckets.
 const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
 
-// Discovered Jobs collapses to three score-aware buckets (we're testing scoring):
-//   matched   — live + score ≥ threshold (the actionable set)
-//   discarded — explicitly discarded OR live but below threshold (weak match)
-//   failed    — pipeline failure, for monitoring
-export type JobBucket = 'matched' | 'discarded' | 'failed'
+// Discovered Jobs collapses to score-aware buckets (we're testing scoring):
+//   matched    — live + score ≥ threshold (the actionable set)
+//   discarded  — explicitly discarded OR live but below threshold (weak match)
+//   lowcontext — live but the JD was too thin to score with confidence (derived)
+//   failed     — pipeline failure, for monitoring
+export type JobBucket = 'matched' | 'discarded' | 'failed' | 'lowcontext'
 
 // Within the Discarded audit view you narrow to one slice (default near-miss):
 //   nearmiss     — live, NEAR_MISS_FLOOR ≤ score < threshold (where false-negatives hide)
@@ -122,6 +123,25 @@ function buildJobWhere(params: {
     }
 }
 
+// Ids of "low-context" postings: a JD body too thin to screen/score with confidence.
+// There's no persisted flag for this — the worker's ingest gate only rejects an
+// EMPTY description (a thin-but-present JD is scored like any other) — so it's derived
+// at query time from the trimmed length of `description`. Prisma's typed `where` can't
+// express LENGTH(...), so we fetch the matching ids once with a raw query and layer
+// them onto the typed bucket queries (id `in` for the low-context bucket, `notIn` for
+// every other bucket), which keeps the buckets mutually exclusive without touching
+// buildJobWhere. Scope: only rows that actually received a fit score
+// (ACTIVE_PIPELINE_STATUSES = scored|notified); disqualified/failed/applied/removed
+// rows keep their own buckets. Tunable via LOW_CONTEXT_MAX_DESCRIPTION_LENGTH.
+async function lowContextIds(): Promise<number[]> {
+    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
+        SELECT id FROM job_postings
+        WHERE pipeline_status IN ('scored', 'notified')
+          AND LENGTH(TRIM(description)) < ${LOW_CONTEXT_MAX_DESCRIPTION_LENGTH}
+    `
+    return rows.map((r) => Number(r.id))
+}
+
 export async function getJobPostings(params: {
     bucket?: JobBucket
     search?: string
@@ -133,7 +153,36 @@ export async function getJobPostings(params: {
 }) {
     const page = params.page ?? 0
     const size = params.size ?? 25
-    const where = buildJobWhere(params)
+    const search = params.search || ''
+    const minScore = params.minScore
+
+    const lowIds = await lowContextIds()
+    let where: Prisma.job_postingsWhereInput
+    if (params.bucket === 'lowcontext') {
+        // The low-context bucket IS the thin-JD id set, plus the shared search/minScore filters.
+        where = {
+            AND: [
+                { id: { in: lowIds } },
+                minScore != null ? { score: { gte: minScore } } : {},
+                search
+                    ? { OR: [{ company_name: { contains: search } }, { job_title: { contains: search } }] }
+                    : {},
+            ],
+        }
+    } else {
+        // Every other bucket EXCLUDES the low-context rows so the tabs stay mutually
+        // exclusive (a thin-JD scored row shows only under Low-context). Append the
+        // exclusion as a peer clause (keeping buildJobWhere's flat AND shape); guarded
+        // so an empty set doesn't emit a `NOT IN ()`.
+        const base = buildJobWhere(params)
+        where = {
+            AND: [
+                ...(base.AND as Prisma.job_postingsWhereInput[]),
+                ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
+            ],
+        }
+    }
+
     const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
         params.sort === 'posted'
             ? [{ posted_at: 'desc' }, { id: 'desc' }]

@@ -63,6 +63,7 @@ interface DiscoveredJobsTableProps {
 const BUCKETS: { value: JobBucket; label: string }[] = [
     { value: 'matched', label: 'Matched' },
     { value: 'discarded', label: 'Discarded' },
+    { value: 'lowcontext', label: 'Low-context' },
     { value: 'failed', label: 'Failed' },
 ]
 

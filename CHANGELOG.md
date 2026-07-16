@@ -21,6 +21,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   fit score reads the résumé + profile, never the config.
 
 ### Added
+- **Low-context tab in Discovered Jobs.** Postings whose JD is too thin to screen/score
+  with confidence now get their own bucket instead of being silently scored alongside
+  confidently-parsed rows. Detection is *derived at query time* — no schema change, no
+  worker change: a single raw `LENGTH(TRIM(description)) < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
+  query (new constant, default 200) yields the low-context id set, layered as `id IN` on
+  the new `lowcontext` bucket and `id NOT IN` on Matched/Discarded/Failed so the buckets
+  stay **mutually exclusive**. Scope is the scored/notified rows that actually received a
+  fit score; disqualified/failed/applied/removed rows keep their own buckets. New tab in
+  `DiscoveredJobsTable`, `JobBucket` gains `'lowcontext'`; tune via the one constant in
+  `lib/constants.ts`. Covered by unit (`actions.test.ts`), integration
+  (`actions.int.test.ts`, mutual-exclusivity assertion) and component
+  (`DiscoveredJobsTable.test.tsx`) tests.
 - **Tests for two untested CI blind spots.** (1) The chart-data aggregations
   `getStatusFlow` / `getTimelineData` / `getCategoryData` (`lib/actions.ts`, feeding the
   Sankey / heatmap / donut) now have integration coverage against the throwaway SQLite

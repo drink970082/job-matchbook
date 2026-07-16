@@ -5,7 +5,6 @@
  * pagination/ordering, the unique constraint, and FK cascade/SetNull.
  */
 import {
-    addApplication,
     bulkRemove,
     bulkReopen,
     deleteApplication,
@@ -183,6 +182,27 @@ test('getJobPostings discardType narrows the discarded bucket', async () => {
 
     const all = await getJobPostings({ bucket: 'discarded' })
     expect(all.data.map((d) => d.external_id).sort()).toEqual(['deep', 'dq', 'man', 'near'])
+})
+
+test('getJobPostings isolates low-context (thin-JD) rows into their own bucket', async () => {
+    // Thin JD + matched-range score: would land in `matched` if not for its thinness.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-hi', score: 90, pipeline_status: 'scored', description: 'Thin JD.' }) })
+    // Thin JD + below-threshold score: would land in the `discarded` view otherwise.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-lo', score: 65, pipeline_status: 'notified', description: 'Too short.' }) })
+    // Normal (full-length) JD, matched score: stays in `matched`.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full-hi', score: 88, pipeline_status: 'scored' }) })
+    // Thin JD but disqualified/discarded (not scored|notified): keeps its own bucket.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-dq', score: 90, pipeline_status: 'discarded', description: 'Nope.', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
+
+    const low = await getJobPostings({ bucket: 'lowcontext' })
+    expect(low.data.map((d) => d.external_id)).toEqual(['thin-hi', 'thin-lo'])   // score desc
+
+    // Mutual exclusivity: the thin scored rows are pulled OUT of matched/discarded.
+    const matched = await getJobPostings({ bucket: 'matched' })
+    expect(matched.data.map((d) => d.external_id)).toEqual(['full-hi'])          // thin-hi excluded
+
+    const discarded = await getJobPostings({ bucket: 'discarded' })             // no discardType = all discarded
+    expect(discarded.data.map((d) => d.external_id)).toEqual(['thin-dq'])        // disqualified stays; thin near-miss moved out
 })
 
 test('getJobPostings sort=posted orders by posted_at desc', async () => {

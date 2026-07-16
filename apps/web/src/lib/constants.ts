@@ -53,6 +53,15 @@ export const MATCH_SCORE_THRESHOLD = 75
 // false-negative hides; deeper-junk rows are reachable via the "All" sub-filter.
 export const NEAR_MISS_FLOOR = 60
 
+// A scored posting whose JD body (trimmed) is shorter than this many characters is
+// treated as "low-context": too thin to screen/score with confidence. Such rows are
+// pulled out of Matched/Discarded into their own Low-context bucket so they're
+// visibly distinct rather than silently scored alongside confidently-parsed JDs.
+// Single tuning knob (derived at query time — no persisted flag / schema change):
+// raise it to catch more borderline-thin JDs, lower it to catch only the barest
+// stubs. See getJobPostings / lowContextIds in lib/actions.ts.
+export const LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
+
 /** Map status to a display color class */
 export function getStatusColor(status: string) {
   if (status === 'Applied') return { bg: 'bg-blue-500/15', text: 'text-blue-700', dot: 'bg-blue-500' }

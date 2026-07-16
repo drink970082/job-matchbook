@@ -172,6 +172,34 @@ describe('Backend Actions', () => {
   })
 
   describe('getJobPostings', () => {
+    // getJobPostings derives the low-context id set via a raw query first; default it
+    // to empty so the score-aware bucket assertions below see the unmodified where.
+    beforeEach(() => {
+      mockPrisma.$queryRaw.mockResolvedValue([] as any)
+    })
+
+    it('excludes the derived low-context ids from a score-aware bucket', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }, { id: 9 }] as any)
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ bucket: 'matched' })
+
+      const where = (mockPrisma.job_postings.findMany.mock.calls[0][0] as any).where
+      expect(JSON.stringify(where)).toContain('"notIn":[7,9]')
+    })
+
+    it('lowcontext bucket selects exactly the derived low-context ids', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 3 }, { id: 5 }] as any)
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ bucket: 'lowcontext' })
+
+      const where = (mockPrisma.job_postings.findMany.mock.calls[0][0] as any).where
+      expect(JSON.stringify(where)).toContain('"in":[3,5]')
+    })
+
     it('should default to the matched bucket (actionable + score>=75), score desc then id', async () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)

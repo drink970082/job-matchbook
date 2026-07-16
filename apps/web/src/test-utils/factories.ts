@@ -24,7 +24,15 @@ export function makeJobPosting(over: Record<string, unknown> = {}) {
         job_title: 'Engineer',
         location: 'Remote',
         job_url: 'https://example.com/jobs/1',
-        description: 'Build things.',
+        // A realistic-length JD so a factory posting is a "normal" (confidently-parsed)
+        // row by default — kept above LOW_CONTEXT_MAX_DESCRIPTION_LENGTH so it lands in
+        // the score-aware buckets, not the derived Low-context bucket. Override with a
+        // short string to build a thin/low-context posting.
+        description:
+            'We are hiring a software engineer to design, build, and operate backend ' +
+            'services. You will own features end to end, collaborate across teams, write ' +
+            'tests, review code, and help scale our platform. Requirements: strong ' +
+            'programming fundamentals and experience shipping production systems.',
         score: null,
         score_detail: null,
         pipeline_status: 'scored',

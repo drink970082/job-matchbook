@@ -121,10 +121,6 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 - **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
   + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
   JobSpy noted as a possible fallback aggregator.
-- **Separate tab for low-context Discovered Jobs** — `[M · web UI]`. Postings with a
-  thin/malformed JD (can't screen/score with confidence) sit in the normal Discovered Jobs
-  queue; give them their own tab/bucket so they're visibly distinct instead of silently
-  scored or dropped.
 - **Fit-score cost / determinism levers** — `[M · gated on harness flip-rate]`. The scorer
   is DI'd (`score.make_claude_scorer`), so a provider swap is a clean seam (a
   `make_openai_scorer` twin wired in `run.py`). Two overlapping levers, **both gated on

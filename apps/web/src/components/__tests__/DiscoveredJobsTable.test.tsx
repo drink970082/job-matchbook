@@ -194,6 +194,32 @@ describe('DiscoveredJobsTable', () => {
     }
   })
 
+  it('switching to the Low-context bucket fires onFilterChange with that bucket', () => {
+    jest.useFakeTimers()
+    try {
+      const onFilterChange = jest.fn()
+      renderTable({ onFilterChange })
+
+      onFilterChange.mockClear()
+      fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
+      act(() => {
+        jest.advanceTimersByTime(300)
+      })
+
+      // No discardType rides along (that sub-filter is Discarded-only).
+      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'lowcontext', sort: 'score' })
+    } finally {
+      jest.runOnlyPendingTimers()
+      jest.useRealTimers()
+    }
+  })
+
+  it('does not show the discard-type filter in the Low-context bucket', () => {
+    renderTable()
+    fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
+    expect(screen.queryByLabelText(/discard type/i)).not.toBeInTheDocument()
+  })
+
   it('shows the discard-type filter only in the Discarded bucket', () => {
     renderTable()
     expect(screen.queryByLabelText(/discard type/i)).not.toBeInTheDocument()
