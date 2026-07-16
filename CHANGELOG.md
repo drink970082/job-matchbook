@@ -8,6 +8,36 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Codex fit-score backend — the ChatGPT-subscription twin (`make_codex_scorer`),
+  now the default.** Fit scoring moves off metered Claude onto the Codex CLI running
+  on the operator's ChatGPT subscription: a full ~640-row re-score becomes a
+  flat-rate pass instead of a paid one, which is what the cost of re-scoring the
+  queue actually turns on. `run.make_scorer` picks the backend
+  (`--score-backend`/`SCORE_BACKEND`, `codex` default | `claude`); both twins expose
+  the same `score_fit(posting, resumes) -> dict` contract, send the same prompt
+  sections (`_scorer_system_sections`, extracted so a prompt edit lands on both) and
+  the same JSON schema (`_score_schema` → codex's `--output-schema`), so scores stay
+  comparable and the band-regression harness can judge one against the other.
+  Each call is one ephemeral, read-only, repo-less `codex exec` turn (`--ephemeral`
+  so a 640-row pass leaves no session files; `-C <tmpdir>` + `--skip-git-repo-check`
+  so the JD is the only input), with the JSON read back from `--output-last-message`.
+  Auth is the operator's `codex login` state, not an env key — `ANTHROPIC_API_KEY` is
+  needed only for `--score-backend claude`. A non-zero exit **always** raises
+  `ScoreError` and never yields a `0`: codex purges `~/.codex/auth.json` after
+  repeated auth failures, so a logged-out cron must fail loudly rather than silently
+  score the whole queue 0. `make eval-score` follows the production backend
+  (`SCORE_BACKEND=claude` A/Bs the old path), keeping the gate's
+  `eval-model == production-model` rule true.
+  **Revises the 2026-07-15 direction on two points, from evidence:** (1) it uses the
+  **subscription CLI, not the OpenAI API** — the API was chosen for `seed` +
+  `temperature=0`, but `codex exec` exposes neither (its only model knobs are
+  `model_reasoning_effort`, pinned `high`, and `model_verbosity`), so the ±10–15
+  score noise is **not** fixed and the harness, not a seed, is what says whether it
+  moves a band; (2) the "fragile at strict JSON" objection is **withdrawn** —
+  `--output-schema` enforces the nested, enum-constrained production schema exactly
+  as Claude's structured outputs do (verified end-to-end). The "heavy" objection
+  stands and now has a number: **~42 s/posting** (~7.5 h for a full sequential
+  re-score) vs one API call.
 - **Fit scorer `insufficient_context` signal (case #2).** The Claude fit scorer now
   returns a top-level `insufficient_context` boolean (schema-required, normalized to
   `False` when absent, persisted in `score_detail`): true when the JD is too thin,

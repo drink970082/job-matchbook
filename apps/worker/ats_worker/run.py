@@ -23,17 +23,37 @@ from . import db, pipeline
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import make_claude_scorer, score_posting
+from .score import make_claude_scorer, make_codex_scorer, score_posting
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
 # CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
 # with --model or the OLLAMA_MODEL env var.
 DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
+# Fit scoring runs on the ChatGPT-subscription Codex CLI by default: flat-rate instead
+# of metered Claude, over a queue where a full re-score is ~640 paid calls. Auth is the
+# operator's `codex login` state (auth_mode=chatgpt), NOT an env key — a logged-out host
+# fails the pass loudly rather than scoring 0s. Claude remains available for a
+# reproducible A/B (--score-backend claude). Override with --score-backend / SCORE_BACKEND.
+DEFAULT_SCORE_BACKEND = "codex"
+DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
 # Sonnet 5 scores fit (real seniority/domain judgment, unlike the local 4B model);
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
 DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
+
+
+def make_scorer(backend: str, *, env, profile="",
+                codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
+                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL):
+    """Pick the fit-score backend. Both twins expose the same
+    `score_fit(posting, resumes) -> dict` contract, so only this line changes."""
+    if backend == "codex":
+        return make_codex_scorer(codex_score_model, profile=profile)
+    if backend == "claude":
+        return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
+                                  profile=profile)
+    raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own
@@ -76,10 +96,12 @@ def _now() -> str:
 
 def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
+             score_backend=DEFAULT_SCORE_BACKEND,
+             codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> None:
     """Run fetch -> score -> notify exactly once. `resumes` is the {label: text}
     dict of resume versions; `profile` is optional candidate context — both are
-    baked into the Claude scorer (the Ollama SCREEN never sees either)."""
+    baked into the fit scorer (the Ollama SCREEN never sees either)."""
     conn = db.connect(db_path)
     try:
         now = _now()
@@ -129,16 +151,17 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
-        # Build the Claude scorer lazily on first use (make_claude_scorer is
-        # import-safe: the SDK import is deferred to the scorer's first call, so
-        # this closure is cheap and the hermetic tests never touch anthropic).
+        # Build the fit scorer lazily on first use (both twins are import-safe: the
+        # anthropic SDK import / the codex subprocess are deferred to the first call,
+        # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
 
         def score_fn(posting):
             if not _scorer_cell:
                 _scorer_cell.append(
-                    make_claude_scorer(env["ANTHROPIC_API_KEY"],
-                                       anthropic_score_model, profile=profile)
+                    make_scorer(score_backend, env=env, profile=profile,
+                                codex_score_model=codex_score_model,
+                                anthropic_score_model=anthropic_score_model)
                 )
             return score_posting(
                 posting, resumes,
@@ -230,6 +253,14 @@ def main(argv=None) -> None:
     parser.add_argument("--model",
                         default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
                         help="Ollama model tag used for scoring")
+    parser.add_argument("--score-backend", choices=("codex", "claude"),
+                        default=os.environ.get("SCORE_BACKEND", DEFAULT_SCORE_BACKEND),
+                        help="fit-score backend: codex (ChatGPT subscription, flat-rate) "
+                             "or claude (metered API)")
+    parser.add_argument("--codex-score-model",
+                        default=os.environ.get("CODEX_SCORE_MODEL",
+                                               DEFAULT_CODEX_SCORE_MODEL),
+                        help="Codex CLI model used for fit scoring")
     parser.add_argument("--anthropic-score-model",
                         default=os.environ.get("ANTHROPIC_SCORE_MODEL",
                                                DEFAULT_ANTHROPIC_SCORE_MODEL),
@@ -256,6 +287,8 @@ def main(argv=None) -> None:
     def once():
         run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                  env=env, ollama_model=args.model,
+                 score_backend=args.score_backend,
+                 codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model)
 
     if args.once:

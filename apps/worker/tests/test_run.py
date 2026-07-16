@@ -187,8 +187,10 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     assert callable(kw["score_fit"])                   # Claude scorer injected
 
 
-def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, score_model):
-    """Like _run_once_capturing_score, but passes anthropic_score_model through."""
+def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, score_model,
+                                         score_backend="claude"):
+    """Like _run_once_capturing_score, but passes the score backend + its model through
+    (backend defaults to claude here: the default run backend is codex now)."""
     def fake_score_posting(posting, resume_text, **kwargs):
         return {"score": 70}
     monkeypatch.setattr(run, "score_posting", fake_score_posting)
@@ -199,8 +201,10 @@ def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, sco
     conn = dbmod.connect(str(dbfile))
     dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
     conn.close()
+    # score_backend=None -> omit it, so run_once's own default applies.
+    extra = {} if score_backend is None else {"score_backend": score_backend}
     run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=env,
-                 anthropic_score_model=score_model)
+                 anthropic_score_model=score_model, **extra)
 
 
 def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
@@ -214,6 +218,40 @@ def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
     _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env,
                                          score_model="claude-opus-4-8")
     assert seen["model"] == "claude-opus-4-8"
+
+
+def test_make_scorer_picks_the_backend(monkeypatch):
+    # One seam, two twins: codex (ChatGPT subscription) is the default; claude stays
+    # reachable for a metered A/B. Codex must never need ANTHROPIC_API_KEY.
+    monkeypatch.setattr(run, "make_codex_scorer",
+                        lambda model, **kw: ("codex", model, kw.get("profile")))
+    monkeypatch.setattr(run, "make_claude_scorer",
+                        lambda key, model, **kw: ("claude", key, model))
+    assert run.DEFAULT_SCORE_BACKEND == "codex"
+    assert run.make_scorer("codex", env={}, profile="p") == (
+        "codex", run.DEFAULT_CODEX_SCORE_MODEL, "p")
+    assert run.make_scorer("claude", env={"ANTHROPIC_API_KEY": "k"}) == (
+        "claude", "k", run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+
+
+def test_make_scorer_rejects_an_unknown_backend():
+    # A typo'd --score-backend must fail loudly, not silently fall back to a paid API.
+    with pytest.raises(ValueError, match="unknown score backend"):
+        run.make_scorer("gpt", env={})
+
+
+def test_run_once_defaults_to_the_codex_scorer(monkeypatch, tmp_path):
+    # The default pass builds the codex scorer and never reads ANTHROPIC_API_KEY —
+    # env here deliberately omits it, so a regression to Claude raises KeyError.
+    seen = {}
+    monkeypatch.setattr(run, "make_codex_scorer",
+                        lambda model, **kw: seen.setdefault("model", model) or
+                        (lambda posting, resumes: {"score": 70}))
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    env = {"OLLAMA_HOST": "h", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
+    _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env,
+                                         score_model="unused", score_backend=None)
+    assert seen["model"] == run.DEFAULT_CODEX_SCORE_MODEL
 
 
 def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):

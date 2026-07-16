@@ -264,9 +264,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--resume-dir` (directory of resume versions, default `resume/`),
   `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
-  `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring),
+  `--score-backend` (`SCORE_BACKEND`, `codex`|`claude`),
+  `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
+  `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
-  screen `qwen3.5:4b`; fit score `claude-sonnet-5`. Each pass
+  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -393,11 +395,30 @@ worker modules are pure and dependency-injected; real services are wired only in
   call — runs even when no other screen clause is configured). A SCREEN parse failure
   errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
   screen did not disqualify** (a discarded posting records `score` 0 and never pays
-  for a Claude call) — comes from an injected `score_fit(posting, resumes)`
-  callable, in production `make_claude_scorer` (Claude, `claude-sonnet-5` by default —
-  structured outputs require it; `claude-sonnet-4-6` doesn't support
-  `output_config.format` — overridable via
-  `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`). `resumes` is the `{label: text}`
+  for a fit call) — comes from an injected `score_fit(posting, resumes)`
+  callable. Two interchangeable twins build it, picked by `run.make_scorer`
+  (`--score-backend`/`SCORE_BACKEND`); both send the **same prompt sections**
+  (`_scorer_system_sections`) and the **same JSON schema** (`_score_schema`), so a
+  score is comparable across them and a prompt edit lands on both:
+  - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
+    **ChatGPT subscription** (flat-rate, not metered): one `codex exec` per posting,
+    schema enforced via `--output-schema`, JSON read back from
+    `--output-last-message`. Auth is the operator's `codex login` state
+    (`auth_mode=chatgpt`), **not** an env key. ~42s/posting. Model
+    `gpt-5.6-sol` (`CODEX_SCORE_MODEL`/`--codex-score-model`).
+    **No determinism:** codex exposes no `seed`/`temperature` (only
+    `model_reasoning_effort`, pinned `high`), so the ±10–15 score noise cannot be
+    turned off — `make eval-score` is what says whether it moves a band.
+  - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
+    structured outputs require it; `claude-sonnet-4-6` doesn't support
+    `output_config.format` — overridable via
+    `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`); needs `ANTHROPIC_API_KEY`.
+
+  Either backend raises `ScoreError` on a failed call so the pipeline marks **one**
+  posting failed rather than aborting the batch — on `codex` a non-zero exit never
+  yields a `0` score, because codex purges `~/.codex/auth.json` after repeated auth
+  failures and a logged-out cron must fail loudly, not score the queue 0.
+  `resumes` is the `{label: text}`
   dict `run.py`'s `load_resumes` builds from every `*.txt` in `--resume-dir`: label =
   filename minus a leading `resume_` (`resume.txt` → `resume`,
   `resume_quant_dev.txt` → `quant_dev`), plus an optional `personal_profile.txt`
@@ -908,13 +929,16 @@ automated coverage — those rely on code review or the human in the loop, not a
   the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card, `think:false`
   so reasoning models still return JSON) — it only extracts JOB facts; CODE applies
   the candidate's constraints, since a 4B model is unreliable at the pass/fail
-  judgment itself. The fit SCORE (every posting) goes to Claude via `claude-sonnet-5`
-  (structured outputs require it; `claude-sonnet-4-6` doesn't support
-  `output_config.format`): scoring needs a real seniority/domain judgment the local
-  model kept getting wrong (mode-collapsed scores, missed disqualifiers), and a
-  cached system prefix (rubric + optional profile + all resume versions) keeps the
-  per-posting cost down to just the fresh JD. Sonnet is plenty (and cost-effective)
-  for the job.
+  judgment itself. The fit SCORE (every posting) goes to a **hosted** model: scoring
+  needs a real seniority/domain judgment the local model kept getting wrong
+  (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
+  against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
+  is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
+  actually turns on. The trade is latency (~42 s/posting vs ~1 command) and the loss of
+  any determinism knob (no `seed`/`temperature` on `codex exec`); the Claude backend
+  stays wired for a metered A/B. Claude's cached system prefix (rubric + optional
+  profile + all resume versions) keeps its per-posting cost down to just the fresh JD;
+  codex has no such lever, but flat-rate makes that moot.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
@@ -947,7 +971,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   (concurrent readers + one serialized writer; brief contention blocks-and-retries up
   to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
-  GPU; the Claude fit score adds one cached-prefix API call per posting. The root
+  GPU; the fit score adds one hosted call per posting — ~42 s on the default `codex`
+  backend (one `codex exec` agent turn), or one cached-prefix API call on `claude`.
+  A full ~640-row re-score is therefore ~7.5 h sequential on `codex`. The root
   page is `force-dynamic` (no stale cache).
 - **Responsive UI:** the web layout is responsive and stacks to a single column
   below ~640px.
@@ -993,10 +1019,15 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    real resume (plain text, fed to the fit scorer) — or provide multiple
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for
    about-the-candidate context (`apps/worker/resume/README.md`).
-3. `cp apps/worker/.env.example apps/worker/.env` — fill `ANTHROPIC_API_KEY`,
-   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`
-   (`http://host.docker.internal:11434` for Docker). Optional overrides:
-   `OLLAMA_MODEL`, `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
+3. `cp apps/worker/.env.example apps/worker/.env` — fill `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://host.docker.internal:11434` for
+   Docker), plus `ANTHROPIC_API_KEY` **only** for `--score-backend claude`. Optional
+   overrides: `OLLAMA_MODEL`, `SCORE_BACKEND`, `CODEX_SCORE_MODEL`,
+   `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
+4. The default `codex` fit backend authenticates from the operator's `codex login`
+   state (`auth_mode=chatgpt`), not from `.env` — run `codex login` once on the
+   worker host and confirm with `codex doctor` (auth ✓). A logged-out host fails
+   every fit call loudly; it never scores 0.
 4. On the host: `ollama pull qwen3.5:4b && ollama serve`.
 5. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build`
    (or `make up`). The worker runs one pass immediately, then every

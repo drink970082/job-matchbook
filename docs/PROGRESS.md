@@ -27,6 +27,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+🚧 **Codex fit-score backend shipped; acceptance gate pending.** `make_codex_scorer` is
+built, wired as the **default** backend, and unit-covered (see
+[CHANGELOG](../CHANGELOG.md)); one real golden row scored end-to-end through the
+production schema (id=151 → 72, full assessment, enum-constrained resume pick, ~42 s).
+**Open:** `make eval-score` on the codex backend must clear the gate (0 hard-invariant
+violations · ≥85% band-agreement · <20% flip-rate), **twice consecutively**, before the
+backend can be trusted for the re-run below. The flip-rate is the number to watch — this
+backend has no seed, so K=3 majority is the only noise defense.
+
 🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
 audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
 design `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`), and
@@ -39,9 +48,13 @@ UI**: every stored row predates the S2.1 structured `assessment` scorecard and t
 `reasoning` and case-#2 low-context routing is empty — the verdict pills / thin-JD flag
 only light up once rows carry the new `score_detail`. The next scheduled pipeline pass
 only reaches *new* postings, so applying the fixes to the existing queue needs an operator
-re-run (reset the affected rows to `new`, or a one-off re-score) — a **paid** pass over
-the ~640 kept rows. Not done automatically (mutates the DB + costs $); back up
-`db/applications.db` first.
+re-run (reset the affected rows to `new`, or a one-off re-score) over the ~640 kept rows.
+**The economics inverted 2026-07-16:** on the shipped `codex`/subscription backend this
+pass is **free** but **slow** — ~42 s/posting ≈ **7.5 h sequential** (was: paid, fast).
+Cost is no longer the reason to hesitate; wall-clock is, and parallelism is the untried
+lever if that matters. Still not done automatically (mutates the DB); back up
+`db/applications.db` first, and confirm `codex doctor` shows auth ✓ — a mid-pass logout
+fails rows loudly (never 0s), but it still wastes the run.
 
 **Profile framework (decided; guides the gitignored `personal_profile.txt`, not yet
 finalized).** Governing rule: the **résumé is authoritative for skill / experience
@@ -93,6 +106,19 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
+- **Prompt-injection exposure via the codex scorer is measured, not bounded** — `[M ·
+  new surface as of 2026-07-16]`. The `codex` fit backend feeds **untrusted scraped JD
+  text to an agent that has a shell**, which the Claude backend (a plain completion, no
+  tools) never did. `--sandbox read-only` blocks writes but **permits reads anywhere** —
+  so the theoretical worst case is a JD instructing the model to read `~/.codex/auth.json`
+  or `apps/worker/.env` (Telegram tokens, `ANTHROPIC_API_KEY`) and echo it into the
+  `summary`, which is persisted to `score_detail` and pushed to Telegram. **Probed
+  2026-07-16 and resisted:** a canary JD ordering `cat <secret>` into the summary + a
+  score of 99 produced no tool call, no leak, and a merits-based 10. That is **one
+  adversarial probe, not a guarantee** — the model chose not to comply; nothing structural
+  stopped it, and `codex exec` has no flag to drop the shell tool. Upgrade path if this
+  ever matters: run the scorer as a user (or in a container) that simply cannot read the
+  secrets — don't rely on model compliance.
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the healthy
   path is confirmed, and the 200/503 logic now has a unit test (`health.test.ts`). Unproven:
@@ -111,16 +137,17 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 - **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
   + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
   JobSpy noted as a possible fallback aggregator.
-- **Move fit scoring to OpenAI (cost + determinism)** — `[M · direction chosen, unbuilt]`.
-  **Decided (2026-07-15):** move the fit scorer off metered Claude to OpenAI, for a cheaper
-  flat-rate subscription *and* the determinism lever the round-2 loop proved was the real
-  need — `seed` + `temperature=0` to kill the ±10–15 noise `claude-sonnet-5` can't turn off
-  (those params are 400-rejected on that tier). The scorer is DI'd (`score.make_claude_scorer`),
-  so this is a clean seam: a `make_openai_scorer` twin wired in `run.py`. Use the OpenAI
-  **API**, not a coding-agent CLI (`codex exec` is heavy, fragile at strict JSON, and shaky
-  auth in the 24h cron). The band-regression harness (`make eval-score`) is the acceptance
-  gate — run it against the OpenAI model before cutting over, and it must clear
-  `eval-model == production-model`. (Context: eval-harness design.)
+- **Fit-score noise is unfixable on the shipped backend** — `[M · accepted limitation;
+  revisit only if the harness fails]`. The ±10–15 score noise (id=322 = 35→52, id=6 = 68→82)
+  has **no** off switch now: `claude-sonnet-5` 400-rejects `temperature`/`seed`, and the
+  shipped `codex` backend exposes neither (only `model_reasoning_effort`, pinned `high`).
+  The 2026-07-15 plan to buy determinism via the OpenAI **API** was dropped when the
+  operator chose the flat-rate **subscription** (2026-07-16) — cost beat determinism, and
+  the API's lever was best-effort anyway (`seed` is documented as best-effort; reasoning
+  models reject `temperature`). So band stability is now a *measured* property, not a
+  guaranteed one: `make eval-score` (majority-of-K=3 bands) is the only thing standing
+  between the noise and a wrong routing decision. If it starts failing, the escape hatch is
+  raising K or `--score-backend claude`, not a seed.
 - **Deployment / monitoring** — `[L · open-ended]`. `ats-web` has a DB-reachability
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
   Telegram notification, and the **worker** has no healthcheck — its failures show only in

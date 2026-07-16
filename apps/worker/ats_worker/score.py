@@ -27,7 +27,10 @@ posting failed, not abort the batch.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import tempfile
 
 import pycountry
 import requests
@@ -174,16 +177,25 @@ def _score_schema(labels: list) -> dict:
     return schema
 
 
-def _scorer_system_blocks(resumes: dict, profile: str = "") -> list[dict]:
-    """System-prefix blocks for the Claude fit call: rubric header, optional
-    personal profile, then one block per labeled resume version. cache_control
-    goes on the LAST block so the whole prefix — byte-identical every call in a
-    run — is cached once (per-posting marginal cost stays flat)."""
-    blocks: list[dict] = [{"type": "text", "text": SCORE_HEADER}]
+def _scorer_system_sections(resumes: dict, profile: str = "") -> list[str]:
+    """The system prefix for the fit call, backend-agnostic: rubric header, optional
+    personal profile, then one section per labeled resume version. Claude sends these
+    as separate cached blocks; codex joins them into one prompt. Shared so a prompt
+    edit lands on BOTH backends at once and a score stays comparable across them.
+    """
+    sections = [SCORE_HEADER]
     if str(profile or "").strip():
-        blocks.append({"type": "text", "text": f"=== PERSONAL PROFILE ===\n{profile}"})
-    for label, text in resumes.items():
-        blocks.append({"type": "text", "text": f"=== RESUME ({label}) ===\n{text}"})
+        sections.append(f"=== PERSONAL PROFILE ===\n{profile}")
+    sections.extend(f"=== RESUME ({label}) ===\n{text}" for label, text in resumes.items())
+    return sections
+
+
+def _scorer_system_blocks(resumes: dict, profile: str = "") -> list[dict]:
+    """System-prefix blocks for the Claude fit call. cache_control goes on the LAST
+    block so the whole prefix — byte-identical every call in a run — is cached once
+    (per-posting marginal cost stays flat)."""
+    blocks: list[dict] = [{"type": "text", "text": s}
+                          for s in _scorer_system_sections(resumes, profile)]
     blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
@@ -753,6 +765,65 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
             raise ScoreError(f"Claude returned non-JSON score: {text!r}") from exc
         if not isinstance(data, dict):
             raise ScoreError(f"Claude score was not a JSON object: {data!r}")
+        return data
+
+    return score_fit
+
+
+def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "high",
+                      timeout: int = 600, codex_bin: str = "codex"):
+    """Build a `score_fit(posting, resumes) -> dict` callable backed by the Codex CLI.
+
+    The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
+    Same prompt sections and same JSON schema (fed to `--output-schema`, which enforces
+    it the way Claude's structured outputs do), so scores stay comparable across
+    backends and the band-regression harness can judge one against the other.
+
+    NO DETERMINISM: codex exec exposes no seed/temperature (its only model knobs are
+    model_reasoning_effort and model_verbosity), so the +/-10-15 score noise cannot be
+    turned off here — reasoning_effort=high is the one consistency lever, and
+    tools/score_eval.py is what says whether the noise actually moves a band.
+
+    One ephemeral agent turn per call: --ephemeral keeps a 640-row pass from littering
+    session files, and -C <tmpdir> + --skip-git-repo-check keep the JD the only input
+    (no repo context leaks into a score). Auth is the operator's `codex login` state,
+    NOT an env key.
+
+    A non-zero exit ALWAYS raises ScoreError rather than yielding a zero: codex purges
+    ~/.codex/auth.json after repeated auth failures, so a broken 24h cron must fail one
+    posting loudly instead of silently scoring the whole queue 0.
+    """
+    def score_fit(posting: dict, resumes: dict) -> dict:
+        # Same job block as Claude: no truncation, no Location line (D5).
+        prompt = "\n\n".join([*_scorer_system_sections(resumes, profile),
+                              _job_block(posting, 0, include_location=False)])
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = os.path.join(tmp, "schema.json")
+            out_path = os.path.join(tmp, "out.json")
+            with open(schema_path, "w", encoding="utf-8") as fh:
+                json.dump(_score_schema(list(resumes)), fh)
+            cmd = [codex_bin, "exec", "--model", model,
+                   "-c", f"model_reasoning_effort={reasoning_effort}",
+                   "--output-schema", schema_path, "--output-last-message", out_path,
+                   "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                   "--color", "never", "-C", tmp, "-"]
+            try:
+                proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                      text=True, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise ScoreError(f"codex exec timed out after {timeout}s") from exc
+            except FileNotFoundError as exc:
+                raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
+            if proc.returncode != 0:
+                tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+                raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
+            try:
+                with open(out_path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ScoreError(f"codex score was not a JSON object: {data!r}")
         return data
 
     return score_fit

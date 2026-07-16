@@ -791,3 +791,81 @@ def test_make_claude_scorer_accepts_profile_kwarg():
     # Still import-safe (no anthropic at build time), now with a baked-in profile.
     fit = score.make_claude_scorer("sk-test", "claude-sonnet-5", profile="prefers quant")
     assert callable(fit)
+
+
+# --- codex scorer: the ChatGPT-subscription twin (no network; subprocess mocked) ---
+
+CODEX_PAYLOAD = {"assessment": {}, "score": 71, "insufficient_context": False}
+
+
+def _fake_codex(payload=CODEX_PAYLOAD, returncode=0, capture=None):
+    """Stand in for `codex exec`: writes `payload` to the --output-last-message path
+    the scorer passed, exactly as the real CLI does."""
+    def run(cmd, **kwargs):
+        if capture is not None:
+            capture["cmd"] = cmd
+            capture["prompt"] = kwargs.get("input", "")
+            # Read the schema HERE — the scorer's TemporaryDirectory is gone by the
+            # time the test body runs.
+            with open(cmd[cmd.index("--output-schema") + 1], encoding="utf-8") as fh:
+                capture["schema"] = json.load(fh)
+        if returncode == 0:
+            out = cmd[cmd.index("--output-last-message") + 1]
+            with open(out, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh)
+        return Mock(returncode=returncode, stdout="boom", stderr="")
+    return run
+
+
+def test_codex_scorer_parses_the_output_file(monkeypatch):
+    # The CLI writes its final message to --output-last-message; the scorer returns
+    # that parsed JSON verbatim (score_posting normalizes), same contract as Claude.
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex())
+    fit = score.make_codex_scorer("gpt-5.6-sol")
+    assert fit(POSTING, {"swe": "resume text"}) == CODEX_PAYLOAD
+
+
+def test_codex_scorer_sends_schema_and_prompt_without_location(monkeypatch):
+    # The schema handed to --output-schema must be the SAME one Claude gets (so the
+    # two backends are comparable), and the prompt must carry the résumé but not the
+    # Location line (D5 — geography must not move the fit score).
+    seen: dict = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
+    fit = score.make_codex_scorer("gpt-5.6-sol", profile="prefers quant")
+    fit({**POSTING, "location": "Chicago, IL"}, {"swe": "resume text", "quant_dev": "q"})
+
+    assert seen["schema"] == score._score_schema(["swe", "quant_dev"])
+    assert "prefers quant" in seen["prompt"]
+    assert "resume text" in seen["prompt"]
+    assert "Location: Chicago, IL" not in seen["prompt"]
+    assert "--ephemeral" in seen["cmd"]  # a 640-row pass must not litter session files
+
+
+def test_codex_scorer_raises_on_nonzero_exit_never_a_zero_score(monkeypatch):
+    # A dead cron (e.g. codex purged auth.json) must fail the posting LOUDLY — a
+    # swallowed error would silently score the whole queue 0 and look like a real pass.
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex(returncode=1))
+    fit = score.make_codex_scorer("gpt-5.6-sol")
+    with pytest.raises(score.ScoreError, match="exit 1"):
+        fit(POSTING, {"swe": "resume text"})
+
+
+def test_codex_scorer_raises_when_output_is_not_json(monkeypatch):
+    def run(cmd, **kwargs):
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write("I couldn't score this.")
+        return Mock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    fit = score.make_codex_scorer("gpt-5.6-sol")
+    with pytest.raises(score.ScoreError, match="non-JSON"):
+        fit(POSTING, {"swe": "resume text"})
+
+
+def test_both_backends_share_one_prompt_prefix():
+    # The shared sections are what keep a prompt edit landing on both backends; if
+    # these drift, a Claude-vs-codex band comparison is measuring the prompt, not the model.
+    resumes = {"swe": "resume text"}
+    sections = score._scorer_system_sections(resumes, "prefers quant")
+    blocks = score._scorer_system_blocks(resumes, "prefers quant")
+    assert [b["text"] for b in blocks] == sections
