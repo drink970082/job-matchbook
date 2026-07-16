@@ -87,112 +87,81 @@ near; "0-2" / ceiling / no-bar → keep-eligible). Full write-up in the eval-har
 
 ## Open work
 
-Surfaced from the code and history — observations, not a roadmap. **Graded by
-severity:** a shipped defect that silently loses prepared work is a different kind of
-thing from an unbuilt nice-to-have, and the two should not read at the same weight.
+Surfaced from the code and history — observations, not a roadmap. **Two axes:**
+*severity* sets the bucket (a shipped defect that loses prepared work ≠ an unbuilt
+nice-to-have), and within each bucket items run **easiest → hardest** with an effort tag —
+**XS** (~an hour) · **S** (~an afternoon) · **M** (~a day + a design call) · **L**
+(multi-day / new dependency / architectural). Blocked items name their blocker.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-**None open.** The 6 defects from the 2026-07-13 cold-pass audit (D1 auth, D2 location,
-D3 seniority, D4 plus-skills, D5 location-leak, D6 calibration) all shipped — see the
-[CHANGELOG](../CHANGELOG.md). **D6 closed by measurement, not code:** the 2026-07-14
-re-score showed the fit scale de-compressed as an *emergent* effect of D3/D4/D5 (in a
-20-row sample the 60–74 near-miss band collapsed from 9 rows to 1, and 75+ rose from 0
-to 6 — genuine fits clear the notify threshold, weak/too-junior fits sink), so **no
-rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
+**None open.** The 6 cold-pass defects (D1 auth · D2 location · D3 seniority · D4
+plus-skills · D5 location-leak · D6 calibration; 2026-07-13) all shipped — see the
+[CHANGELOG](../CHANGELOG.md). D6 closed by *measurement*, not code: D3/D4/D5 de-compressed
+the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9→1, 75+ rose
+0→6), so no rubric-loosen was needed and the notify threshold stays 75.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
-- **Stale-mount recovery is unobserved end-to-end.** The `/api/health` probe, Docker
-  `healthcheck`, and `autoheal` sidecar are wired, the *healthy* path is confirmed
-  (`ats-web` reports `healthy`, the sidecar monitors), and `/api/health`'s 200/503 logic
-  now has a unit test (`health.test.ts`). What stays unproven is recovery from an *actual*
-  WSL2 stale-bind-mount event — never observed, and not reproducible in a unit test (needs
-  a live event or a manual drill). (SPEC §6.)
-- **No schema migration path.** `prisma db push` keeps no migration history, so a
-  *destructive* schema change (drop/rename a column) has no backfill or rollback and
-  can lose retained `applications` / `status_history` data. Back up
-  `db/applications.db` before schema changes. (SPEC §8.)
+- **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
+  `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the healthy
+  path is confirmed, and the 200/503 logic now has a unit test (`health.test.ts`). Unproven:
+  recovery from an *actual* WSL2 stale-bind-mount event — never observed, not unit-testable
+  (needs a live event or manual drill). (SPEC §6.)
+- **No schema migration path** — `[L]`. `prisma db push` keeps no migration history, so a
+  *destructive* change (drop/rename a column) has no backfill or rollback and can lose
+  retained `applications` / `status_history` data. Back up `db/applications.db` before
+  schema changes. (SPEC §8.)
 
 ### Enhancements — not built, optional
 
-- **Trim `config.yaml` to machine-only filters.** Config should hold *only* what a
-  deterministic machine filter uses (companies, `title_filter`, threshold, schedule,
-  `exclude_internships` — decided in code from the title). Any constraint actually
-  *adjudicated by the LLM* should not live in config at all — it belongs on the résumé /
-  profile that feeds the model. Today `config.Candidate` (degree / auth / clearance /
-  locations / dealbreakers) is handed to the **LLM screen** (`config.py` docstring), so by
-  this rule those fields leave config and become résumé/profile evidence. Revisits the
-  config-vs-profile seam in [In flight](#in-flight): keep the seam's split, but move the
-  boundary to *deterministic vs LLM-handled* rather than *hard-constraint vs fit*. Check
-  which of the D1/D2 gates are genuinely deterministic (stay) vs LLM-screened (move) before
-  cutting anything.
-- **Alternative fit-score provider (cost / determinism).** The fit scorer is
-  dependency-injected (`score.make_claude_scorer`), so a provider swap is a clean seam
-  (a `make_openai_scorer` twin, wired only in `run.py`). Two possible future motivations,
-  **both gated on the iron rule `eval-model == production-model`** (tuning a prompt against
-  a model you don't ship is a bigger confound than round-2's profile confound): (a) **run
-  the scorer on a ChatGPT/Codex subscription** (e.g. `codex exec`) to get off pay-as-you-go
-  — but `codex exec` is a coding *agent* (heavy per call, fragile at strict-JSON output, and
-  subscription auth is shaky in the unattended 24h cron), so the OpenAI **API** is the better
-  interface if switching at all; (b) **an OpenAI model via API**, whose `seed` +
-  `temperature=0` could cut the ±15 noise the `claude-sonnet-5` tier can't turn off. Revisit
-  only if the harness **flip-rate** shows the noise is genuinely blocking; deferred, nothing
-  migrated. (Context: the eval-harness design, thread A.)
-- **Remaining feed coverage (the `feed_unresolved` long tail).** Feed-coverage Tier 1
-  landed (greenhouse-EU host, Oracle, Workable, Jobvite + a per-listing detail-fetch
-  path), lifting resolution ~67% → ~78% of the filtered feed. **Measurement snapshot
-  (2026-06-18, live `listings.json`):** 18,207 raw → 1,394 after prefilter; 460
-  unresolved by platform — Oracle 116 ✅, ByteDance/TikTok 85, iCIMS 42, greenhouse
-  EU-host 23 ✅, embedded-greenhouse 54, greenhouse embed-token 17, Jobvite 14 ✅,
-  Workable 7 ✅, long-tail bespoke ~remaining. Two robustness/coverage steps then landed:
-  (1) the **detail-fetch robustness framework** (validate scraped postings; record
-  raise/`None`/invalid failures to `feed_unresolved` as `detail_fetch_failed`; collapse
-  warning) so scrapers fail *loudly*; (2) **embedded greenhouse** ✅ — an enriching
-  resolver scrapes the board token from the company page and reuses the greenhouse
-  adapter (recovers the server-side-embed subset; JS-injected embeds stay recorded).
-  **Deferred after recon proved them not feasible via `requests`:** **iCIMS** (~42 —
-  every request returns a "Human Verification" bot wall; needs a real browser, a heavy
-  dep that contradicts the requests-only worker) and **ByteDance/TikTok** (~85 — no
-  accessible clean API; the JD is rendered only inside fragile Next.js `__next_f` flight
-  data with unreliable location, a hack not worth shipping). Revisit only with a
-  headless-browser strategy. **Dropped:** greenhouse embed-token (URL has only a job id,
-  no recoverable board slug); SuccessFactors (absent from the feed).
-- **Headless-browser fetch (Playwright) — the next step to unlock iCIMS + ByteDance
-  (~127 listings).** Both deferred Tier-2 sources need a real browser: iCIMS gates every
-  request behind a "Human Verification" bot wall, and ByteDance/TikTok renders the JD
-  only client-side (no clean API; only fragile Next.js flight data server-side). Plan:
-  add an *optional* Playwright-backed `fetch_one` path (new dep + headless Chromium),
-  kept isolated and config-gated so the requests-only adapters and the core pipeline stay
-  dependency-light — render the page, then reuse the per-source extractors (iCIMS
-  `window._jibe`, ByteDance position data). The detail-fetch robustness framework already
-  makes these fail loudly, and each remains its own spec.
-- **`posted_at` board coverage.** The posting date is captured for
-  greenhouse/lever/ashby/workday; Pinpoint exposes no board date, so `posted_at` falls
-  back to the scrape date for Pinpoint rows (and any other dateless row).
-- **More board adapters.** The adapter pattern (`fetch/<source>.py` + `ADAPTERS` +
-  `VALID_SOURCES`; or `fetch_one` for a per-listing source in `DETAIL_SOURCES`) makes
-  new sources cheap; JobSpy was noted as a possible fallback aggregator.
-- **Deployment / monitoring.** `ats-web` now has a DB-reachability healthcheck +
-  `autoheal` auto-restart (SPEC §6), but there are still no metrics or alerting
-  beyond the per-job Telegram notification, and the **worker** has no healthcheck;
-  failures there are visible only in the DB / logs.
-- **Paid subscription instead of pay-as-you-go API calls.** Related to the
-  provider-swap seam above (`score.make_claude_scorer`) but a distinct lever: check
-  whether a flat-rate Claude/ChatGPT subscription can front the fit-score calls
-  instead of metered API billing, for cost predictability at higher volume. Same
-  `eval-model == production-model` gate applies before switching.
-- **Separate tab for low-context Discovered Jobs.** Some fetched postings lack
-  enough parseable structure (thin/malformed JD) to screen or score with
-  confidence; they currently sit in the same Discovered Jobs queue as normal rows.
-  Give them their own tab/bucket in the web UI so they're visibly distinct instead
-  of silently scored (or dropped) alongside confidently-parsed postings.
-- **AI fetch+score fallback for unparseable job descriptions.** For postings where
-  structural text extraction fails (JS-rendered pages, bot-walled boards, odd
-  markup), explore letting Claude — via API or a paid subscription — fetch the job
-  page itself and score fit directly from the raw page, bypassing the normal
-  parse-then-score pipeline. Candidate landing spot for the iCIMS/ByteDance
-  long-tail above if a headless-browser fetch alone isn't enough.
+- **`posted_at` for dateless boards** — `[S · accepted limitation]`. Pinpoint exposes no
+  board date, so `posted_at` falls back to the scrape date for Pinpoint (and any dateless
+  row). No fix unless a board adds a date — documented, low value.
+- **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
+  + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
+  JobSpy noted as a possible fallback aggregator.
+- **Trim `config.yaml` to machine-only filters** — `[M · design call]`. Config should hold
+  only deterministic machine filters (companies, `title_filter`, threshold, schedule,
+  `exclude_internships`). Any constraint the **LLM** adjudicates leaves config for the
+  résumé/profile. Today `config.Candidate` (degree / auth / clearance / locations /
+  dealbreakers) feeds the LLM screen, so by this rule those move out. Revisits the
+  config-vs-profile seam ([In flight](#in-flight)): boundary = *deterministic vs
+  LLM-handled*, not *hard-constraint vs fit*. Confirm which D1/D2 gates are genuinely
+  deterministic before cutting.
+- **Separate tab for low-context Discovered Jobs** — `[M · web UI]`. Postings with a
+  thin/malformed JD (can't screen/score with confidence) sit in the normal Discovered Jobs
+  queue; give them their own tab/bucket so they're visibly distinct instead of silently
+  scored or dropped.
+- **Fit-score cost / determinism levers** — `[M · gated on harness flip-rate]`. The scorer
+  is DI'd (`score.make_claude_scorer`), so a provider swap is a clean seam (a
+  `make_openai_scorer` twin wired in `run.py`). Two overlapping levers, **both gated on
+  `eval-model == production-model`**: (a) get off metered pay-as-you-go via a flat-rate
+  Claude/ChatGPT subscription — but a coding-agent CLI (`codex exec`) is heavy, fragile at
+  strict JSON, and shaky auth in the 24h cron, so the OpenAI **API** is the better interface;
+  (b) an OpenAI model whose `seed` + `temperature=0` could kill the ±15 noise `claude-sonnet-5`
+  can't turn off. Revisit only if the harness flip-rate shows the noise is genuinely blocking.
+  (Context: eval-harness design.)
+- **Deployment / monitoring** — `[L · open-ended]`. `ats-web` has a DB-reachability
+  healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
+  Telegram notification, and the **worker** has no healthcheck — its failures show only in
+  the DB/logs.
+- **Headless-browser fetch (Playwright)** — `[L · new dep; unlocks the two below]`. iCIMS
+  (~42, "Human Verification" bot wall) and ByteDance/TikTok (~85, JD only in client-side
+  Next.js flight data) both need a real browser. Plan: an *optional*, config-gated Playwright
+  `fetch_one` path (headless Chromium) kept isolated so the requests-only adapters + core
+  pipeline stay dependency-light — render, then reuse per-source extractors (iCIMS
+  `window._jibe`, ByteDance position data). Each source its own spec.
+- **Remaining feed coverage (the `feed_unresolved` long tail)** — `[L · blocked on
+  headless]`. Tier 1 landed (greenhouse-EU host, Oracle, Workable, Jobvite,
+  embedded-greenhouse + a detail-fetch robustness framework that records failures loudly),
+  lifting resolution ~67% → ~78%. What's left is iCIMS + ByteDance (need the headless path
+  above). **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
+  (absent from feed). (Full 2026-06-18 platform breakdown in git history.)
+- **AI fetch+score fallback for unparseable JDs** — `[L · blocked on headless]`. Where text
+  extraction fails (JS-rendered / bot-walled / odd markup), let Claude fetch the job page and
+  score fit directly from the raw page, bypassing parse-then-score. Candidate landing spot
+  for the iCIMS/ByteDance tail if the headless fetch alone isn't enough.
 
 ---
 
@@ -207,5 +176,6 @@ items. When state changes:
   of [`SPEC.md`](./SPEC.md) (the capability map / behavior) — **all in the same
   commit**.
 - **Discovering a new gap** → add it to [Open work](#open-work) in the right severity
-  bucket. Keep the ordering honest: defects (broken) above unverified properties
-  above enhancements (optional).
+  bucket, placed **easiest-first** with an effort tag (`[XS/S/M/L · blocker]`). Keep
+  severity honest: defects (broken) above unverified properties above enhancements
+  (optional).
