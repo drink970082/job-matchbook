@@ -50,29 +50,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
-  worker:
-    build:
-      context: ./apps/worker
-      dockerfile: Dockerfile
-      args:
-        UID: ${UID:-1000}
-        GID: ${GID:-1000}
-    image: ats-worker:local
-    container_name: ats-worker
-    environment:
-      # Read via os.environ by run.py's argparse defaults.
-      DB_PATH: "/data/applications.db"
-    extra_hosts:
-      # Required on Linux/Compose for the worker to reach Ollama running on the
-      # HOST (which owns the GPU). On Docker Desktop this is implicit, but being
-      # explicit makes it work everywhere. The .env's OLLAMA_HOST should be
-      # http://host.docker.internal:11434.
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ./db:/data                               # SAME shared db directory (co-write)
-      - ./apps/worker/config.yaml:/app/config.yaml:ro
-      - ./apps/worker/.env:/app/.env:ro          # secrets + OLLAMA_HOST
-      - ./apps/worker/resume:/app/resume:ro      # resume versions + optional personal_profile.txt (fed to the scorer)
-    depends_on:
-      - web
-    restart: unless-stopped
+# NO worker service — the worker runs NATIVELY on the host (see docs/SPEC.md §6).
+# It was containerized until 2026-07-16; removed because the fit scorer now shells out
+# to the Codex CLI, which authenticates from the operator's ~/.codex/auth.json `codex
+# login` state. Containerizing that means baking a 285 MB binary into the image AND
+# mounting a live subscription token into it — for a service that was already pinned to
+# the host by Ollama's GPU. Run it with `python -m ats_worker.run` (see SPEC §7.1).

@@ -207,11 +207,18 @@ phases: it promotes a `job_postings` row into an `applications` row.
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
-| fetch / screen / score / notify | `worker` service (`ats-worker` container) | board APIs, host Ollama, Anthropic API, Telegram API |
+| fetch / screen / score / notify | **host** — `python -m ats_worker.run`, not containerized | board APIs, host Ollama, Codex CLI (fit score), Telegram API |
 | Ollama | **host** (GPU) — not containerized | — |
-| SQLite db | `./db` directory, bind-mounted into both containers | — |
+| SQLite db | `./db` directory, bind-mounted into the `web` container | — |
 
-Both containers run as the host user (UID/GID build args) so bind-mount writes
+The worker is **not containerized** (the `ats-worker` service was removed 2026-07-16):
+the default fit-score backend shells out to the **Codex CLI**, which authenticates from
+the operator's `~/.codex/auth.json` (`codex login`) — containerizing it would mean
+baking a 285 MB binary into the image *and* mounting a live subscription token into it,
+for a process Ollama's GPU already pinned to the host. `apps/worker/Dockerfile` remains
+in-tree but is referenced by nothing.
+
+The `web` container runs as the host user (UID/GID build args) so bind-mount writes
 work without `chmod 777`. The database is mounted as a **directory** (not a single
 file) so SQLite's WAL `-wal`/`-shm` sidecars are visible to both processes — a
 single-file mount silently breaks cross-container WAL. Ollama runs on the host
@@ -967,7 +974,8 @@ automated coverage — those rely on code review or the human in the loop, not a
   itself stays terminal and manual-reopen-only — see §9, "Failure handling and
   recovery limits."
 - **Concurrency safety:** WAL + `busy_timeout=5000`ms (+ the directory mount) keep the
-  two containers from hitting `database is locked` **under low write-contention**
+  containerized web app and the host worker from hitting `database is locked` **under
+  low write-contention**
   (concurrent readers + one serialized writer; brief contention blocks-and-retries up
   to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB

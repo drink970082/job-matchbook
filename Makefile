@@ -59,7 +59,7 @@ db-push: ## Sync the Prisma schema into the SQLite db
 seed-dev: ## Append realistic sample applications to the local db (vars: DB, COUNT)
 	node apps/web/prisma/seed-dev.mjs "$(DB)" $(COUNT)
 
-up: ## Build + start the full stack (web + worker) via Docker Compose
+up: ## Build + start the web stack (web + autoheal) via Docker Compose — the worker runs natively, see SPEC §6
 	UID=$$(id -u) GID=$$(id -g) docker compose up --build -d
 
 down: ## Stop the Docker Compose stack
