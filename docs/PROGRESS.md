@@ -32,26 +32,31 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 (the 8-posting audit source), `rescore_results_full.md` (the 20-row re-score **baseline**
 to compare against), `.coverage`. Two independent threads are open, in priority order:
 
-- **A — Build + run the fit-score eval harness.** Design **approved 2026-07-15**:
-  `docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`. The ad-hoc
-  "edit prompt → paid re-score → eyeball 20 rows" loop is **retired** — it optimized a
-  noisy score against a target that was never written down (root cause in the superseded
-  round-2 status below). Replacement = a **band-regression guard**: a frozen, hand-labeled
-  golden set judged by *code*, not eyeballs. Already seeded: `apps/worker/eval/golden.jsonl`
-  (gitignored) holds **23 rows** stratified across role-archetypes + the decision boundary
-  (keep 5 · keep-marked 1 · near 8 · skip 9), each `{id, band, hard?, marked?}`. **Next
-  actions:** (1) write `apps/worker/tools/score_eval.py` per the spec (K=3×, read-only,
-  reuses `load_resumes` → `make_claude_scorer("claude-sonnet-5")` → `score_fit` →
-  `_normalize_score`; PASS = 0 hard-violations + ≥85% band agreement + <20% flip over the
-  22 gate-eligible rows; `marked` rows to a ⚑ watch list) + a `make eval-score` target;
-  (2) run the **baseline** on the current (uncommitted) round-2 `score.txt`; (3) it is
-  expected to flag id=132/666 as prompt-vs-label disagreements → then apply the **queued
-  prompt edit** as *one measured variable* and re-run. **Queued `score.txt` edit** (do NOT
-  apply blind — validate through the harness): tighten the seniority floor from its "3+"
-  example to *any stated **minimum ≥ 2 years** → too_junior → 0–30*, while leaving "1-3"
-  ranges (min 1 → near), "0-2"/"up to N" ceilings, and no-bar roles un-floored. Untracked
-  scratch (not repo state): `golden_candidates_full.md` (the 23-row review doc),
-  `audit_list.txt`, `rescore_*.md`, `.coverage`.
+- **A — Fit-score eval harness: BUILT + baselined; prompt edit validated, ship pending 2
+  fresh confirmations.** Harness `apps/worker/tools/score_eval.py` + `make eval-score`
+  shipped (this commit): read-only (DB `mode=ro`), K=3× → majority keep/near/skip band vs
+  the frozen golden labels in code; PASS = 0 hard-violations + ≥85% agreement + <20% flip
+  over the gate rows, `marked` → ⚑ watch list. (Tool fix: `max_tokens=8192` + per-draw
+  retry — the prod 4096 cap truncates the verbose assessment JSON under adaptive thinking →
+  `ScoreError`, which is NOT SDK-retried, so one bad row aborted a paid run.) The ad-hoc
+  eyeball loop is retired. **Golden set (gitignored) evolved to keep 10 · near 3 · skip 8 ·
+  marked 2 (gate 21)** — six *evidence-based* label corrections (not model-fitting): 652,
+  26, 1158, 153, 70 near→**keep** (all target-list per `personal_profile.txt`; the min-1
+  "1-3 yr" convention is now *keep-eligible for target domains*, not auto-near); **132
+  skip+hard → marked** (its bar is "2+ years **OR** demonstrated excellent skills" — an
+  escape clause the seed label missed; the model reads it as a soft bar and splits 50/50 →
+  un-judgeable; the min-2 hard invariant stays guarded by the clean floors 666/207/186).
+  **Baseline overturned the prediction** — 132/666 already floored; the real miss was the
+  near band over-flooring "1-3 yr" (1158/153/70, bimodal skip 28 / keep 83). **The queued
+  edit** (un-floor "1-3 yr", keep min≥2) killed that bimodality → both runs recompute to
+  PASS (100% agreement · hard clean · flip 19%/10%). **Remaining to ship:** those two runs
+  *motivated* the relabels (circular to count) and run-1's flip margin is thin (19%), so
+  ship needs **2 FRESH consecutive PASS runs**, then commit `score.txt` (deliberately left
+  uncommitted). **Caution:** 6 labels moved post-hoc (each justified, but volume = overfit
+  risk); near band thinned 8→3 (grow-from-surprises repopulates). Full findings appended to
+  the design doc. Uncommitted working-tree (deliberate): `score.txt`, `personal_profile.txt`
+  (gitignored). Scratch (not repo state): `golden_candidates_full.md`, `audit_list.txt`,
+  `rescore_*.md`, `.coverage`.
 - **B — Operator: apply the shipped D1–D6 fixes to the live DB** (block below). Separate,
   paid, mutates the DB; independent of A, do anytime.
 
@@ -233,6 +238,22 @@ rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
   `autoheal` auto-restart (SPEC §6), but there are still no metrics or alerting
   beyond the per-job Telegram notification, and the **worker** has no healthcheck;
   failures there are visible only in the DB / logs.
+- **Paid subscription instead of pay-as-you-go API calls.** Related to the
+  provider-swap seam above (`score.make_claude_scorer`) but a distinct lever: check
+  whether a flat-rate Claude/ChatGPT subscription can front the fit-score calls
+  instead of metered API billing, for cost predictability at higher volume. Same
+  `eval-model == production-model` gate applies before switching.
+- **Separate tab for low-context Discovered Jobs.** Some fetched postings lack
+  enough parseable structure (thin/malformed JD) to screen or score with
+  confidence; they currently sit in the same Discovered Jobs queue as normal rows.
+  Give them their own tab/bucket in the web UI so they're visibly distinct instead
+  of silently scored (or dropped) alongside confidently-parsed postings.
+- **AI fetch+score fallback for unparseable job descriptions.** For postings where
+  structural text extraction fails (JS-rendered pages, bot-walled boards, odd
+  markup), explore letting Claude — via API or a paid subscription — fetch the job
+  page itself and score fit directly from the raw page, bypassing the normal
+  parse-then-score pipeline. Candidate landing spot for the iCIMS/ByteDance
+  long-tail above if a headless-browser fetch alone isn't enough.
 
 ---
 

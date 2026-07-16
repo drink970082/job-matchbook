@@ -7,6 +7,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+- **Fit-score band-regression eval harness** (`apps/worker/tools/score_eval.py` +
+  `make eval-score`). Read-only (opens the shared DB `mode=ro`, never writes DDL/DML),
+  reuses the exact production scorer wiring (`load_resumes` →
+  `make_claude_scorer("claude-sonnet-5")` → `score_fit` → `_normalize_score`), scores
+  each row of a frozen hand-labeled golden set K=3× and judges the **majority
+  keep/near/skip band** — not the noisy exact score — against the label in code. PASS =
+  0 hard-invariant violations + ≥85% band agreement + <20% flip-rate over the gate rows;
+  `marked` rows route to a ⚑ watch list, excluded from the gate. Uses `max_tokens=8192` +
+  a per-draw retry so a truncated response (adaptive thinking overruns the prod 4096 cap
+  and is *not* an SDK-retried transient) can't abort a paid run. Replaces the retired
+  ad-hoc "edit prompt → paid re-score → eyeball 20 rows" loop; the golden labels
+  (`apps/worker/eval/`) stay gitignored (real postings). Design:
+  `docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`.
+
 ### Changed
 - **Fit score reasoning redesigned into a structured `assessment` scorecard (S2.1;
   closes D3 + D4).** The Claude fit call now emits an `assessment` object — enum-

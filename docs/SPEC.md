@@ -994,6 +994,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
+| `make eval-score` | band-regression eval of the fit-score prompt vs the frozen golden set (**paid, manual** — read-only Claude, ~60 calls; not a CI gate) |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 

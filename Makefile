@@ -9,7 +9,8 @@ DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: ma
 COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install dev build lint test test-web test-worker \
-        test-integration test-e2e test-coverage check-schema up down db-push seed-dev
+        test-integration test-e2e test-coverage check-schema up down db-push seed-dev \
+        eval-score
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -45,6 +46,9 @@ test-e2e: ## Run the Playwright e2e suite (builds web, seeds a throwaway DB)
 test-coverage: ## Run both suites with coverage (gated by thresholds)
 	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
+
+eval-score: ## Band-regression eval of the fit-score prompt vs the frozen golden set (PAID Claude, ~60 calls)
+	$(WORKER)/.venv/bin/python $(WORKER)/tools/score_eval.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 	node tools/check_schema_drift.mjs

@@ -201,3 +201,41 @@ finally answer "was it the prompt or the profile?"
 - Provider migration / `codex exec` — deferred; the scorer stays pluggable so this can
   be revisited on evidence if the flip-rate proves noise is blocking.
 - An LLM-as-judge — would re-import the noise the band metric exists to sidestep.
+
+## Implementation & findings (2026-07-15)
+
+Built and exercised. `apps/worker/tools/score_eval.py` + `make eval-score` shipped
+(committed); the ad-hoc loop is retired. The `score.txt` edit under test remains
+**uncommitted** pending two *fresh* confirmation runs (see status below).
+
+- **Tool robustness.** The production scorer caps `max_tokens=4096`; under adaptive
+  thinking the verbose `assessment` notes truncate the JSON mid-string → `ScoreError`,
+  which is **not** an SDK-retried transient, so one bad row aborted a whole paid run. Fix:
+  the eval scorer uses `max_tokens=8192` (measurement-neutral — the cap changes only
+  whether the JSON *completes*, not the model's score) plus a per-draw retry. (Latent prod
+  note: production at 4096 can likewise truncate a verbose row and silently mark it failed
+  — rare, not fixed here.)
+- **Baseline overturned the prediction.** 132/666 already floor correctly (skip/skip/skip)
+  — the prompt already handled min≥2, so the "expect 132/666 to disagree" premise was
+  wrong. The real failures were near-band: the "1-3 yr" ranges (1158/153/70) were being
+  *over*-floored, bimodal skip(~28)/keep(~83) — the worst fragility, and the flip driver.
+- **Queued edit validated (one variable).** Un-flooring "1-3 yr" ranges (keeping min≥2 as
+  the floor) killed the 1158/153/70 bimodality → stable keep; 100% agreement, hard clean,
+  flip 19%/10% on two recomputed passes. **Not yet shipped:** the two runs in hand
+  *motivated* the relabels below (circular to count them), and run-1's flip margin is thin
+  (19%). Ship needs **2 fresh consecutive PASS runs**, then commit `score.txt`.
+- **Labeling-convention refinements (ratified this session).**
+  - *A min-1 range is keep-eligible for a target domain*, not auto-near. A "1-3 yr" bar on
+    a dead-center target role (1158/153/70, all target #1/#2) is a **keep** — the mild YoE
+    stretch is dominated by domain fit. Supersedes the seed table's flat "1 → near"; and
+    652/26 likewise corrected near→keep as target-list roles (model's keep was right, the
+    labels too strict).
+  - *A stated YoE bar with an explicit alternative path is NOT a hard floor.* id=132's bar
+    is "2+ years **OR** demonstrated excellent skills" — the model reads the escape clause
+    correctly and splits 50/50 (34 vs 70, a full band), so the row is genuinely
+    un-judgeable → **`marked`** (watch list). Clean floors with no escape — 666 ("minimum
+    of 2 years"), 207 ("3+"), 186 (senior) — remain the min-2 hard-invariant guards.
+- **Golden set now keep 10 · near 3 · skip 8 · marked 2 (gate 21).** Six labels moved
+  after seeing scores (each evidence-based — profile target-list, JD escape clause — *not*
+  model-fitting); flagged as an overfit caution, and the near band thinned 8→3
+  (grow-from-surprises is the repopulation path).
