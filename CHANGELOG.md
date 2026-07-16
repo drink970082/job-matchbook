@@ -8,6 +8,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Tests for two untested CI blind spots.** (1) The chart-data aggregations
+  `getStatusFlow` / `getTimelineData` / `getCategoryData` (`lib/actions.ts`, feeding the
+  Sankey / heatmap / donut) now have integration coverage against the throwaway SQLite
+  (`charts.int.test.ts`) — status-chain dedup + collapse, per-day `T`-split counts,
+  `null`→`Others` bucketing. (2) The `/api/health` liveness probe now has a unit test
+  (`health.test.ts`, `@jest-environment node`) asserting 200 on a reachable DB and 503
+  when Prisma throws. `jest.setup.ts` is guarded (`typeof window !== 'undefined'`) so the
+  shared jsdom setup is a no-op under node-env files.
 - **Fit-score band-regression eval harness** (`apps/worker/tools/score_eval.py` +
   `make eval-score`). Read-only (opens the shared DB `mode=ro`, never writes DDL/DML),
   reuses the exact production scorer wiring (`load_resumes` →

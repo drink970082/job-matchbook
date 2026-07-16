@@ -103,15 +103,12 @@ rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
-- **Stale-mount auto-recovery is unverified end-to-end.** The `/api/health` probe,
-  Docker `healthcheck`, and `autoheal` sidecar are wired and the *healthy* path is
-  confirmed (`ats-web` reports `healthy`, the sidecar monitors), but recovery from an
-  *actual* WSL2 stale-bind-mount event has not been observed, and `/api/health` has
-  no automated test. (SPEC §6.)
-- **Chart-data actions have no automated test.** `getStatusFlow`,
-  `getTimelineData`, and `getCategoryData` (`lib/actions.ts`, feeding the
-  Sankey / heatmap / donut) are exercised by no unit, integration, or e2e test —
-  only their components render. A regression in the aggregation would pass CI.
+- **Stale-mount recovery is unobserved end-to-end.** The `/api/health` probe, Docker
+  `healthcheck`, and `autoheal` sidecar are wired, the *healthy* path is confirmed
+  (`ats-web` reports `healthy`, the sidecar monitors), and `/api/health`'s 200/503 logic
+  now has a unit test (`health.test.ts`). What stays unproven is recovery from an *actual*
+  WSL2 stale-bind-mount event — never observed, and not reproducible in a unit test (needs
+  a live event or a manual drill). (SPEC §6.)
 - **No schema migration path.** `prisma db push` keeps no migration history, so a
   *destructive* schema change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
@@ -161,13 +158,6 @@ rubric-loosen or threshold-drop was needed** and the notify threshold stays 75.
   data with unreliable location, a hack not worth shipping). Revisit only with a
   headless-browser strategy. **Dropped:** greenhouse embed-token (URL has only a job id,
   no recoverable board slug); SuccessFactors (absent from the feed).
-- **Feed performance ✅ (full pass ~tens of min → ~1 min).** Profiling found the feed was
-  network-bound and dominated by N+1 boards (one SmartRecruiters board: ~11 min to keep
-  1–2 jobs). Fixed by routing SmartRecruiters **and Workday** through per-job `fetch_one`
-  in the feed (fetch only surfaced ids; Workday by `externalPath`, which also lifted
-  Workday resolution) + concurrent fetching in `run_feed` (`ThreadPoolExecutor`, DB on the
-  main thread; per-thread `Session` + shorter timeout). The previously-demoted Workday
-  CXS-direct work thus landed — for speed, and it *gained* coverage rather than costing it.
 - **Headless-browser fetch (Playwright) — the next step to unlock iCIMS + ByteDance
   (~127 listings).** Both deferred Tier-2 sources need a real browser: iCIMS gates every
   request behind a "Human Verification" bot wall, and ByteDance/TikTok renders the JD
