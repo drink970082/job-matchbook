@@ -27,26 +27,34 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-🚧 **Codex fit-score backend shipped; gate FAILED once on flip-rate — root cause looks
-like the *prompt*, not the backend.** `make_codex_scorer` is built, wired as the default,
-unit-covered, and **tool-less** (see [CHANGELOG](../CHANGELOG.md)). First gate run
-(`gpt-5.6-sol`, effort `high` — a pre-research guess): **agreement 18/21 (86%) ✅ · hard
-10/10 ✅ · flip-rate 29% ❌ → FAIL** (`<20%` required). Config has since moved to the
-*measured* optimum (`gpt-5.6-terra`, effort `low`, tool-less); a re-run on that is the
-next gate attempt, and shipping still needs **two consecutive PASSes**.
+🚧 **Codex fit-score backend shipped; gate FAILED on flip-rate in BOTH configs tried —
+root cause is the *rubric*, not the backend, and config-spinning is the wrong lever.**
+`make_codex_scorer` is built, wired as the default, unit-covered, and **tool-less** (see
+[CHANGELOG](../CHANGELOG.md)). Two gate runs, both FAIL (`<20%` flip required), each
+`hard 10/10 ✅`:
+- `gpt-5.6-sol` / effort `high` / with-tools → **agreement 86% · flip 29%**
+- `gpt-5.6-terra` / effort `low` / tool-less → **agreement 76% · flip 38%** (worse)
 
-**The finding that matters more than the verdict:** every flip was a draw scoring **74** —
-exactly the top of the rubric's own `60-74 Partial fit` band, and exactly one point under
-the `>=75` notify threshold. The model does **not** emit a continuous score; it picks a
-rubric band and emits that band's edge (74 vs ~94, skipping the middle), so **the notify
-threshold sits precisely on a quantization boundary the prompt itself defines** — the
-least stable point available. Corroborating: the enum verdicts (`seniority`/`domain`) were
-**100% stable across every draw** while only the number moved. So the noise is a *lossy
-re-encoding of a stable judgment*, not model flakiness — which means **it would have failed
-the same way on Claude** (round 2 measured a comparable 24% flip-rate, and its id=6 68→82
-crosses the same seam). Switching models cannot fix it. Real options, none taken yet
-(needs a design call): move the notify threshold off the 74/75 seam · widen the rubric's
-band edges away from it · or **route on the stable enum verdicts instead of the number**.
+Two lessons. (1) **terra lost on the golden set** — a synthetic single-prompt probe had
+favored it, so the golden set overrode the probe and the default reverted to `sol`. (2) That
+second run changed *three* variables at once (model, effort, tools), so it can't cleanly
+attribute the regression — a **methodology error** to avoid repeating: change one axis per
+gate. Shipping config is now `sol` + effort `low` + tool-less (the low-effort and tool-less
+wins are justified independently of the gate — quota + security); **this exact combo is
+un-gated**, but see below for why another spin isn't the move.
+
+**Why no more config spins:** every flip in both runs is a draw landing on the rubric band
+edge (`sol`→74, `terra`→72), one to three points under the `>=75` notify threshold. The model
+does **not** emit a continuous score; it picks a rubric band and emits that band's edge (74
+vs ~94, skipping the middle), so **the threshold sits on a quantization boundary the prompt
+itself defines** — the least stable point available. The enum verdicts (`seniority`/`domain`)
+were **100% stable across every draw**; only the number moved. So the noise is a *lossy
+re-encoding of a stable judgment*, and **it would have failed the same way on Claude** (round
+2: comparable 24% flip, id=6 68→82 crosses the same seam). Two models, two effort levels,
+tools on and off — same failure, same place. **This is exactly the "unmeasurable tuning loop"
+round 2 already diagnosed and abandoned.** Real fix is upstream and needs a **design call**:
+move the notify threshold off the 74/75 seam · widen the rubric's band edges away from it ·
+or **route on the stable enum verdicts instead of the number**.
 One row (id=397) is a separate, honest calibration disagreement — stably `near` (68/70/72)
 against a `keep` label, no flip involved.
 
@@ -65,7 +73,7 @@ only reaches *new* postings, so applying the fixes to the existing queue needs a
 re-run (reset the affected rows to `new`, or a one-off re-score) over the ~640 kept rows.
 **The economics inverted 2026-07-16, but the bound moved rather than vanished:** on the
 shipped `codex`/subscription backend the pass costs no money — but Plus meters a rolling
-**5-hour window** (~20–110 messages on `gpt-5.6-terra`), so ~640 rows **cannot finish in
+**5-hour window** (~15–90 messages on `gpt-5.6-sol`), so ~640 rows **cannot finish in
 one window**. It's a *paced, multi-window* job (or credit-funded), not an overnight one,
 and **quota — not the per-call latency — is what actually bounds it**. Parallelism does
 NOT help (the cap is messages, not wall-clock); chunking across windows does. At the cap

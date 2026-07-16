@@ -34,13 +34,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   a posting could otherwise ask it to read `~/.codex/auth.json`/`.env` and echo a secret
   into `summary` (which we persist and push to Telegram). Verified behaviorally with a
   canary JD; also worth **~3.1 k fewer input tokens/call** (12,755 → 9,659). The official
-  docs claim exec can't be disabled — wrong as of 0.144.4. Model `gpt-5.6-terra` and
-  `model_reasoning_effort=low`/`model_verbosity=low` are **measured, not guessed**: terra
-  showed a tighter score spread than the CLI default `sol` at half the credit rate (and
-  `luna`, which the docs recommend for classification, measured ~3x looser); effort buys
-  nothing on this task shape but is pinned anyway because the default is server-controlled
-  and was seen flipping `low`→`medium`→`low` mid-session; verbosity is a no-op under
-  `--output-schema`.
+  docs claim exec can't be disabled — wrong as of 0.144.4. Model `gpt-5.6-sol` (the CLI
+  default) with `model_reasoning_effort=low`/`model_verbosity=low`. A synthetic probe
+  favored `gpt-5.6-terra` (tighter spread, half the credits), but on the golden set terra
+  scored **worse** (gate 76%/38% flip vs sol's 86%/29%), so sol stands; `luna` was rejected
+  (~3x looser) despite the docs recommending it for classification. Effort buys nothing on
+  this task shape but is pinned anyway because the default is server-controlled and was seen
+  flipping `low`→`medium`→`low` mid-session; verbosity is a no-op under `--output-schema`.
   **Revises the 2026-07-15 direction on two points, from evidence:** (1) it uses the
   **subscription CLI, not the OpenAI API** — the API was chosen for `seed` +
   `temperature=0`, but `codex exec` exposes neither, so the score noise is **not** fixed

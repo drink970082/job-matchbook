@@ -36,13 +36,15 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # fails the pass loudly rather than scoring 0s. Claude remains available for a
 # reproducible A/B (--score-backend claude). Override with --score-backend / SCORE_BACKEND.
 DEFAULT_SCORE_BACKEND = "codex"
-# gpt-5.6-terra, NOT the CLI's own default (gpt-5.6-sol): measured tighter score spread
-# (3 vs 4 pts on repeat draws) at ~half the credit rate and a higher per-5h message
-# allowance — all three favor a 640-row batch. Deliberately NOT gpt-5.6-luna despite the
-# docs recommending it for "extraction/classification": it measured ~3x looser spread
-# (13 pts), which is the one thing this task can't afford (no seed/temperature to fall
-# back on).
-DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-terra"
+# gpt-5.6-sol — chosen on the GOLDEN SET, which is the only measurement that counts here.
+# A synthetic single-prompt probe said gpt-5.6-terra had a tighter spread at half the
+# credit rate; on real JDs terra was WORSE on both gate axes (agreement 76% vs 86%,
+# flip-rate 38% vs 29%) and calibrated visibly looser/more generous (id=64 a confident
+# keep(92,93,92) against a `near` label; id=70 threw a skip(28) between two keep(86+)).
+# Synthetic variance probes did not predict real-JD behavior — twice. Don't re-pick a
+# model without a full `make eval-score` run. (gpt-5.6-luna: rejected outright, ~3x looser
+# spread, despite the docs recommending it for "extraction/classification".)
+DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
 # Sonnet 5 scores fit (real seniority/domain judgment, unlike the local 4B model);
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.

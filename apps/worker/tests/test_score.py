@@ -847,7 +847,7 @@ def test_codex_scorer_runs_tool_less(monkeypatch):
     # tools must be REMOVED, not merely discouraged. web_search defaults ON; off here too.
     seen: dict = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-terra")(POSTING, {"swe": "r"})
+    score.make_codex_scorer("gpt-5.6-sol")(POSTING, {"swe": "r"})
     cmd = seen["cmd"]
     assert cmd[cmd.index("--disable") + 1] == "shell_tool"
     assert 'web_search="disabled"' in cmd
@@ -859,7 +859,7 @@ def test_codex_scorer_pins_effort_and_verbosity(monkeypatch):
     # would change scoring behavior mid-batch with no code change. Pinning is the defense.
     seen: dict = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-terra")(POSTING, {"swe": "r"})
+    score.make_codex_scorer("gpt-5.6-sol")(POSTING, {"swe": "r"})
     assert "model_reasoning_effort=low" in seen["cmd"]
     assert "model_verbosity=low" in seen["cmd"]
 

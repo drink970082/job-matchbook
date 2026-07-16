@@ -275,7 +275,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
-  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-terra`. Each pass
+  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -413,10 +413,12 @@ worker modules are pure and dependency-injected; real services are wired only in
     `--output-last-message`. Auth is the operator's `codex login` state
     (`auth_mode=chatgpt`), **not** an env key — but `CODEX_API_KEY`, if set, *overrides*
     it and silently moves scoring onto metered API billing (`OPENAI_API_KEY` is ignored).
-    Model `gpt-5.6-terra` (`CODEX_SCORE_MODEL`/`--codex-score-model`) — measured tighter
-    score spread than the CLI default `gpt-5.6-sol` at half the credit rate; **not**
-    `gpt-5.6-luna`, which the docs recommend for classification but which measured ~3x
-    looser spread.
+    Model `gpt-5.6-sol` (`CODEX_SCORE_MODEL`/`--codex-score-model`), the CLI's own
+    default — chosen on the golden set, the only measurement that counts. `gpt-5.6-terra`
+    looked better on a synthetic probe (tighter spread, half the credit rate) but scored
+    **worse on real JDs** (gate agreement 76% vs 86%, flip-rate 38% vs 29%) and calibrated
+    looser; `gpt-5.6-luna` was rejected outright (~3x looser spread) despite the docs
+    recommending it for classification.
     **Tool-less by construction** (`--disable shell_tool`, `web_search="disabled"`) — a
     security boundary, since a JD is untrusted scraped text and `codex exec` is natively
     an agent with a shell that `--sandbox read-only` still lets read any file; also worth
@@ -995,7 +997,7 @@ automated coverage — those rely on code review or the human in the loop, not a
   The root page is `force-dynamic` (no stale cache).
 - **Subscription quota is the real bound on a big re-score — flat-rate is NOT
   unlimited.** Codex on ChatGPT Plus meters a rolling **5-hour message window** (plus a
-  weekly cap): roughly 20–110 messages/5 h on `gpt-5.6-terra`, 15–90 on `sol`. A ~640-row
+  weekly cap): roughly 15–90 messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). A ~640-row
   re-score therefore **cannot finish in one window** — it must be paced across several
   (or funded with credits), which dominates the per-call latency. At the cap Codex hard-
   blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
