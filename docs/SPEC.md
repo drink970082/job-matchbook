@@ -434,7 +434,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     pinned anyway: the default is server-controlled and was seen flipping `low`→`medium`
     →`low`. Verbosity is a no-op under `--output-schema`.
     **No determinism:** codex exposes no `seed`/`temperature`, so score noise cannot be
-    turned off — `make eval-score` is what says whether it moves a band.
+    turned off — but routing no longer depends on the noisy number (§9), so
+    `make eval-score` gates on whether the per-dimension `seniority`/`domain` verdicts
+    stay accurate, not on whether the score moves a band.
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
@@ -1103,7 +1105,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
-| `make eval-score` | band-regression eval of the fit-score prompt vs the frozen golden set (**paid, manual** — read-only Claude, ~60 calls; not a CI gate) |
+| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the frozen golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path) |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 

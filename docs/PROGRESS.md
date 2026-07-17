@@ -33,10 +33,18 @@ Routing half now RESOLVED (2026-07-16): notify (`db.get_notifiable`) and the web
 matched/belowbar buckets (`matchedIds()`) route on the stable enum verdicts
 (`seniority=match AND domain=match AND NOT insufficient_context`), not the flip-prone
 score — the gate no longer sits on the rubric's quantization boundary, so flip-rate is
-moot for the routing decision (see SPEC §9). What's still open below: the harness
-reframe to validate verdict accuracy (not score bands) and batched fit scoring
-(design `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`,
-Parts B/C — not started).**
+moot for the routing decision (see SPEC §9). Harness half now RESOLVED too
+(2026-07-16): the golden set (`apps/worker/eval/golden.jsonl`) carries
+ground-truth `seniority`/`domain` verdicts on every row, and `make eval-score` gates
+on **verdict accuracy** — 0 hard-invariant violations (a `hard`+`skip` row must never
+come back `match`/`match`), ≥85% per-dimension agreement, <20% verdict flip-rate over
+K=3 draws — not the score band (see [SPEC](./SPEC.md) §13). Flip-rate is now measured
+on the enum verdicts, which were 100% stable across every draw in both gate runs
+below, so the reframed gate is expected to pass where the old band-regression gate
+structurally couldn't — not yet re-run under the new definition to confirm. What's
+still open below: **batched** fit scoring (design `docs/superpowers/specs/2026-07-16-
+enum-routing-and-batched-scoring-design.md`, Part B — not started; batched verdicts
+must match single-scored verdicts on the golden set before it ships).**
 `make_codex_scorer` is built, wired as the default, unit-covered, and **tool-less** (see
 [CHANGELOG](../CHANGELOG.md)). Two gate runs, both FAIL (`<20%` flip required), each
 `hard 10/10 ✅`:
@@ -111,8 +119,10 @@ stable (a cached prefix on every score call).
 *Superseded 2026-07-15:* the round-2 "tune the prompt against eyeballed 20-row re-scores"
 loop was found **unmeasurable** — the fit score is a ±10–15 noisy readout (id=322 = 35→52,
 id=6 = 68→82) with no deterministic assessment→score map, and `temperature`/`seed` are
-400-rejected on the `claude-sonnet-5` tier — so it was replaced by the band-regression
-harness (`make eval-score`, built + committed; in [SPEC](./SPEC.md) + [CHANGELOG](../CHANGELOG.md)).
+400-rejected on the `claude-sonnet-5` tier — so it was replaced by a band-regression
+harness (`make eval-score`, built + committed; in [SPEC](./SPEC.md) + [CHANGELOG](../CHANGELOG.md);
+later reframed 2026-07-16 to gate on verdict accuracy instead of score bands — see
+[In flight](#in-flight)).
 The four prompt edits it produced **shipped** (`score.txt`, `0de0068`) — the harness read a
 24% flip-rate that analysis traced to score *noise*, not a prompt fault (all majority bands
 were correct), so it landed on judgment and the harness stays as the standing regression
@@ -177,9 +187,10 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
   The 2026-07-15 plan to buy determinism via the OpenAI **API** was dropped when the
   operator chose the flat-rate **subscription** (2026-07-16) — cost beat determinism, and
   the API's lever was best-effort anyway (`seed` is documented as best-effort; reasoning
-  models reject `temperature`). So band stability is now a *measured* property, not a
-  guaranteed one: `make eval-score` (majority-of-K=3 bands) is the only thing standing
-  between the noise and a wrong routing decision. If it starts failing, the escape hatch is
+  models reject `temperature`). So score stability is now a *measured* property, not a
+  guaranteed one: `make eval-score` (majority-of-K=3 verdicts, reframed 2026-07-16 — see
+  [In flight](#in-flight)) is the only thing standing between the noise and a wrong
+  routing decision. If it starts failing, the escape hatch is
   raising K or `--score-backend claude`, not a seed. **Note (2026-07-16):** the noise
   itself is unchanged, but it no longer *gates* anything — notify and the matched/
   belowbar buckets route on the stable enum verdicts, not the noisy score (see the

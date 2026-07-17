@@ -80,8 +80,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   worker's `cfg.threshold` are now **inert** (parsed but unread; left in place for a
   later cleanup). Design:
   `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
-  (Part A; Part B batched fit scoring and the eval-harness verdict-accuracy reframe
-  are separate, not-yet-started work).
+  (Part A; the eval-harness verdict-accuracy reframe is Part C, below — Part B
+  batched fit scoring is separate, not-yet-started work).
+- **`make eval-score` gates on verdict accuracy, not score-band regression.** Follows
+  the routing cutover above: since notify/matched no longer read the score, the harness
+  stops judging whether the score reproduces a keep/near/skip band and instead judges
+  the thing routing now depends on — the per-dimension `seniority`/`domain` verdicts.
+  The golden set (`apps/worker/eval/golden.jsonl`, gitignored) is relabeled with
+  ground-truth `seniority` (match/too_junior/too_senior) and `domain`
+  (match/adjacent/mismatch) verdicts on every row. `tools/score_eval.py` scores each row
+  K=3×, takes the majority verdict per dimension, and PASSes iff: 0 hard-invariant
+  violations (a `hard`+`skip` golden row must never come back `seniority==match AND
+  domain==match`) **AND** ≥85% per-dimension verdict agreement **AND** <20% verdict
+  flip-rate across the K draws — all over the gate-eligible (non-`marked`) rows. The
+  derived `match`/`match` notify decision is still reported per row for visibility but
+  is **not** the gate, so the accepted recall loss (adjacent-domain keeps) can't fail
+  it. Design: `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
+  (Part C), superseding the score→band design in
+  `docs/superpowers/specs/2026-07-15-fit-score-eval-harness-design.md`.
 - **Discovered-Jobs bucket taxonomy split + table redesign.** The old `discarded`
   bucket conflated two very different things — hard disqualifications *and*
   below-threshold scored rows — behind a `discardType` (nearmiss/disqualified/all)
