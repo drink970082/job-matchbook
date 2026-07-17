@@ -316,17 +316,20 @@ guard's *verdict* (batching does not ship) stands and is now better-founded; its
   homegrown estimator — it reports usage itself (its `/status` `rate_limits`:
   `used_percent`/`resets_at`/`plan_type`, on every response) — and the observed binding
   limit is **weekly** (`window_minutes=10080`), not the assumed rolling 5h window. So the
-  scorer captures usage **free** off each scoring call (`codex exec --json`), writes a
+  scorer captures usage **free** off each scoring call, writes a
   `codex_usage.json` snapshot to the shared db mount, and the web renders a bar on the
   Discovered Jobs view (`CodexUsageBar` + `app/api/codex-usage`). It's a budget indicator
   (last scoring call, not live — a live reading would cost a message). **Dropped as
   unneeded:** the JSONL call-counter, the exit-1 + stderr "capped" fingerprinting, the
   Prisma-table/log-location fork (one shared-mount file, no schema change), and the active
   pacing gate (YAGNI — the bar makes hand-pacing operable; revisit only if unattended
-  multi-window re-scores become routine). **One thing unverified without spending a quota
-  message:** that `codex exec --json` streams `rate_limits` to *stdout* (vs only the
-  session rollout) — confirmed by the next real scoring pass; the parser is already
-  validated against a real rollout event. See CHANGELOG + SPEC §7.1/§7.2, design
+  multi-window re-scores become routine). **Capture mechanism corrected 2026-07-17 (v1
+  shipped broken):** the first cut read `codex exec --json` stdout, but `--json` streams
+  only thread/turn/item events — **not** `rate_limits` (verified 0.144.5). The figures live
+  only in the session rollout, which `--ephemeral` suppresses. Fixed: the scorer drops
+  `--ephemeral` when capturing, reads the rollout it just wrote, then deletes it (assumes
+  sequential scoring). Proven correct by the 2026-07-17 live re-score (~30 rollout reads,
+  0 misses). See CHANGELOG + SPEC §7.1/§7.2, design
   `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`. [[codex-scorer-gotchas]]
 - **`posted_at` for dateless boards** — `[S · accepted limitation]`. Pinpoint exposes no
   board date, so `posted_at` falls back to the scrape date for Pinpoint (and any dateless

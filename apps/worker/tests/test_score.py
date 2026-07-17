@@ -1001,48 +1001,78 @@ def test_codex_batch_missing_job_ref_raises(monkeypatch):
         score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
 
 
-# --- codex quota-usage capture (usage_path + _capture_usage) ---------------------
+# --- codex quota-usage capture (usage_path + _capture_usage, rollout-based) -------
 
-def _rate_event(used, window, resets, secondary=None, plan="plus"):
-    """One `codex exec --json` stdout line carrying a rate_limits record nested
-    under `payload` — the shape observed live 2026-07-17."""
+def _rollout_line(used, window, resets, secondary=None, plan="plus"):
+    """One codex session-rollout event carrying a rate_limits record (the rollout is
+    the ONLY place codex records it — `--json` stdout does not; see _capture_usage)."""
     rl = {"limit_id": "codex", "plan_type": plan,
           "primary": {"used_percent": used, "window_minutes": window, "resets_at": resets},
           "secondary": secondary}
     return json.dumps({"type": "event_msg", "payload": {"rate_limits": rl}})
 
 
-def test_capture_usage_writes_snapshot(tmp_path):
+def _fake_sessions(monkeypatch, tmp_path):
+    sess = tmp_path / "sessions"
+    sess.mkdir(exist_ok=True)
+    monkeypatch.setattr(score, "_sessions_dir", lambda: str(sess))
+    return sess
+
+
+def _write_rollout(sess, lines, name="rollout-x.jsonl"):
+    p = sess / name
+    p.write_text("\n".join(lines))
+    return p
+
+
+def test_capture_usage_reads_rollout_and_deletes_it(tmp_path, monkeypatch):
+    sess = _fake_sessions(monkeypatch, tmp_path)
+    roll = _write_rollout(sess, [json.dumps({"type": "other"}),
+                                 _rollout_line(32.0, 10080, 1784839672)])
     path = str(tmp_path / "codex_usage.json")
-    stdout = "\n".join([json.dumps({"type": "other"}), _rate_event(32.0, 10080, 1784839672)])
-    score._capture_usage(stdout, path)
+    score._capture_usage(path, since_mtime=0.0)
     snap = json.loads((tmp_path / "codex_usage.json").read_text())
     assert snap["plan_type"] == "plus"
     assert snap["limits"] == [
         {"key": "primary", "used_percent": 32.0, "window_minutes": 10080, "resets_at": 1784839672}]
-    assert not (tmp_path / "codex_usage.json.tmp").exists()  # atomic: no tmp left behind
+    assert not roll.exists()                                 # rollout deleted after capture
+    assert not (tmp_path / "codex_usage.json.tmp").exists()  # atomic write, no tmp left
 
 
-def test_capture_usage_latest_event_wins_and_includes_secondary(tmp_path):
-    path = str(tmp_path / "u.json")
+def test_capture_usage_latest_line_wins_and_includes_secondary(tmp_path, monkeypatch):
+    sess = _fake_sessions(monkeypatch, tmp_path)
     secondary = {"used_percent": 5.0, "window_minutes": 300, "resets_at": 111}
-    stdout = "\n".join([_rate_event(10.0, 10080, 1),                       # stale
-                        _rate_event(40.0, 10080, 2, secondary=secondary)])  # freshest wins
-    score._capture_usage(stdout, path)
+    _write_rollout(sess, [_rollout_line(10.0, 10080, 1),                        # stale
+                          _rollout_line(40.0, 10080, 2, secondary=secondary)])  # freshest wins
+    path = str(tmp_path / "u.json")
+    score._capture_usage(path, 0.0)
     by_key = {l["key"]: l for l in json.loads((tmp_path / "u.json").read_text())["limits"]}
     assert by_key["primary"]["used_percent"] == 40.0
     assert by_key["secondary"]["window_minutes"] == 300
 
 
-def test_capture_usage_no_event_writes_nothing_and_never_raises(tmp_path):
-    path = str(tmp_path / "none.json")
-    score._capture_usage("not json\n{}\n" + json.dumps({"type": "x"}), path)  # no rate_limits
+def test_capture_usage_ignores_rollouts_older_than_since_mtime(tmp_path, monkeypatch):
+    import os
+    sess = _fake_sessions(monkeypatch, tmp_path)
+    old = _write_rollout(sess, [_rollout_line(99.0, 10080, 1)])
+    os.utime(old, (1000, 1000))                          # stamp it in the past
+    path = str(tmp_path / "u.json")
+    score._capture_usage(path, since_mtime=5000.0)       # cutoff newer than the rollout
+    assert not (tmp_path / "u.json").exists()            # nothing new -> no snapshot
+    assert old.exists()                                  # a pre-existing rollout is NOT deleted
+
+
+def test_capture_usage_no_rollout_never_raises(tmp_path, monkeypatch):
+    sess = _fake_sessions(monkeypatch, tmp_path)
+    score._capture_usage(str(tmp_path / "none.json"), 0.0)   # empty sessions dir
     assert not (tmp_path / "none.json").exists()
-    # an unwritable path must also be swallowed, never raised
-    score._capture_usage(_rate_event(1.0, 1, 1), "/nonexistent-dir/deep/none.json")
+    # an unwritable snapshot path must also be swallowed, never raised
+    _write_rollout(sess, [_rollout_line(1.0, 1, 1)])
+    score._capture_usage("/nonexistent-dir/deep/none.json", 0.0)
 
 
-def test_codex_scorer_captures_usage_when_path_set(monkeypatch, tmp_path):
+def test_codex_scorer_captures_usage_and_drops_ephemeral(monkeypatch, tmp_path):
+    sess = _fake_sessions(monkeypatch, tmp_path)
     usage = str(tmp_path / "codex_usage.json")
     seen = {}
     def run(cmd, **kwargs):
@@ -1050,17 +1080,21 @@ def test_codex_scorer_captures_usage_when_path_set(monkeypatch, tmp_path):
         out = cmd[cmd.index("--output-last-message") + 1]
         with open(out, "w", encoding="utf-8") as fh:
             json.dump({"results": [{"job_ref": 1, **CODEX_PAYLOAD}]}, fh)
-        return Mock(returncode=0, stdout=_rate_event(32.0, 10080, 999), stderr="")
+        _write_rollout(sess, [_rollout_line(32.0, 10080, 999)])  # codex's rollout for this call
+        return Mock(returncode=0, stdout="", stderr="")
     monkeypatch.setattr(score.subprocess, "run", run)
     score.make_codex_scorer("gpt-5.6-sol", usage_path=usage)([{**POSTING, "id": 1}], {"swe": "r"})
-    assert "--json" in seen["cmd"]  # streaming enabled only when a usage_path is set
+    assert "--ephemeral" not in seen["cmd"]  # capturing -> rollout must be written, not suppressed
+    assert "--json" not in seen["cmd"]
     written = json.loads((tmp_path / "codex_usage.json").read_text())
     assert written["limits"][0]["used_percent"] == 32.0
+    assert not (sess / "rollout-x.jsonl").exists()  # rollout cleaned up after capture
 
 
-def test_codex_scorer_no_json_flag_without_usage_path(monkeypatch):
-    # The eval/test path must keep the exact call it was gated on — no --json.
+def test_codex_scorer_keeps_ephemeral_without_usage_path(monkeypatch):
+    # The eval/test path (no usage_path) keeps --ephemeral, its exact gated call.
     seen = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
     score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
+    assert "--ephemeral" in seen["cmd"]
     assert "--json" not in seen["cmd"]

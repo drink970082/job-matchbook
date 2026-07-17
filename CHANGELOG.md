@@ -9,17 +9,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 - **Codex quota usage bar (web + worker).** The `codex` fit-score backend now captures
-  its own quota usage off each scoring call: `codex exec --json` streams a `rate_limits`
-  record (codex's `/status` accounting — `used_percent`, `resets_at`, `window_minutes`,
-  `plan_type`), which the scorer reads for **free** (rides the scoring message, no probe;
-  best-effort, never breaks a score) and writes as a latest-wins `codex_usage.json`
-  snapshot in the shared db dir. A new `app/api/codex-usage/route.ts` serves it (adds
+  its own quota usage off each scoring call: it reads codex's `/status` accounting
+  (`used_percent`, `resets_at`, `window_minutes`, `plan_type`) from the **session rollout**
+  the scoring call writes — for **free** (rides the scoring message, no probe; best-effort,
+  never breaks a score) — and writes a latest-wins `codex_usage.json` snapshot in the
+  shared db dir. (`codex exec --json` stdout carries only thread/turn/item events, **not**
+  `rate_limits` — verified on 0.144.5 — and `--ephemeral` suppresses the rollout, so when
+  capturing the scorer drops `--ephemeral`, reads the rollout it just wrote, then deletes
+  it; assumes sequential scoring.) A new `app/api/codex-usage/route.ts` serves it (adds
   `as_of` from the file mtime; empty state, not an error, before the first pass) and a
   `CodexUsageBar` renders one bar per limit — `used_percent`, "resets in Nd Hh", "as of" —
   on the Discovered Jobs view. It reflects the **last scoring call**, not a live reading:
   a fresh "now" reading would cost a quota message, the exact resource being tracked.
-  `--json` is added only when a `usage_path` is set, so the eval/test path keeps the
-  byte-identical gated call. Replaces the parked "message-quota usage tracker" plan: the
+  Capture runs only on the production `run_once` path (a `usage_path` is set), so the
+  eval/test path keeps its byte-identical `--ephemeral` gated call. Replaces the parked
+  "message-quota usage tracker" plan: the
   observed binding limit is **weekly** (`window_minutes=10080`), not the assumed rolling
   5-hour window, and codex reports usage itself (via `rate_limits`; the bar also renders a
   `secondary` limit if one appears), so no homegrown call-counter or exit-1 stderr

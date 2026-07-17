@@ -852,28 +852,74 @@ def _usage_snapshot(rate_limits: dict) -> dict:
     return out
 
 
-def _capture_usage(stdout_text: str, path: str) -> None:
-    """Best-effort: scan `codex exec --json` stdout for the newest rate_limits
-    event and atomically write a usage snapshot to `path`. Never raises — quota
-    telemetry must never break a score. codex emits one JSONL event per line; a
-    token-count event carries a `rate_limits` dict (nested under `payload`), and
-    the last one seen is the freshest. The web reads this file across the container
+def _sessions_dir() -> str:
+    return os.path.expanduser("~/.codex/sessions")
+
+
+def _rollout_mtime_ceiling() -> float:
+    """Newest codex rollout mtime right now (0.0 if none). Captured BEFORE a scoring
+    call so the rollout that call writes can be identified as the one newer than this."""
+    ceiling = 0.0
+    for root, _d, files in os.walk(_sessions_dir()):
+        for f in files:
+            if f.startswith("rollout-") and f.endswith(".jsonl"):
+                try:
+                    t = os.path.getmtime(os.path.join(root, f))
+                except OSError:
+                    continue
+                if t > ceiling:
+                    ceiling = t
+    return ceiling
+
+
+def _newest_rollout_after(mtime: float):
+    best, best_t = None, mtime
+    for root, _d, files in os.walk(_sessions_dir()):
+        for f in files:
+            if f.startswith("rollout-") and f.endswith(".jsonl"):
+                p = os.path.join(root, f)
+                try:
+                    t = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if t > best_t:
+                    best, best_t = p, t
+    return best
+
+
+def _capture_usage(path: str, since_mtime: float) -> None:
+    """Best-effort: read the `rate_limits` record from the codex session rollout THIS
+    scoring call just wrote, atomically write a usage snapshot to `path`, then delete
+    the rollout so a long pass doesn't litter ~/.codex/sessions. Never raises — quota
+    telemetry must not break a score.
+
+    Why the rollout, not stdout: `codex exec --json` streams only thread/turn/item
+    events — it does NOT carry `rate_limits` (verified on 0.144.5). The quota figures
+    (codex's own /status accounting) live ONLY in the session rollout, which
+    `--ephemeral` suppresses. So the scorer drops `--ephemeral` when capturing, reads
+    the rollout, then removes it (equivalent to ephemeral, but we extract usage first).
+    Assumes SEQUENTIAL scoring (run_once loops one JD at a time): the newest rollout
+    with mtime > since_mtime is this call's. The web reads `path` across the container
     boundary, so the write is atomic (tmp + os.replace)."""
     try:
+        roll = _newest_rollout_after(since_mtime)
+        if not roll:
+            return
         latest = None
-        for line in stdout_text.splitlines():
-            if "rate_limits" not in line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            rl = _find_key(obj, "rate_limits")
-            if isinstance(rl, dict):
-                latest = rl
+        with open(roll, encoding="utf-8") as fh:
+            for line in fh:
+                if "rate_limits" in line:
+                    latest = line
+        try:
+            os.remove(roll)  # cleanup — we've extracted what we need
+        except OSError:
+            pass
         if not latest:
             return
-        snapshot = _usage_snapshot(latest)
+        rl = _find_key(json.loads(latest), "rate_limits")
+        if not isinstance(rl, dict):
+            return
+        snapshot = _usage_snapshot(rl)
         if not snapshot["limits"]:
             return
         tmp = path + ".tmp"
@@ -988,14 +1034,18 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                    "-c", f"model_reasoning_effort={reasoning_effort}",
                    "-c", f"model_verbosity={verbosity}",
                    "--output-schema", schema_path, "--output-last-message", out_path,
-                   # --json streams rate_limits events to stdout so we can capture
-                   # quota usage off this same call (free — see _capture_usage). Only
-                   # added when a usage_path is set, so the eval/test paths keep the
-                   # exact byte-for-byte call (and verdicts) they were gated on; the
-                   # final scorecard still comes from out_path, unaffected by --json.
-                   *(["--json"] if usage_path else []),
-                   "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                   # --ephemeral suppresses the session rollout — but the rollout is
+                   # the ONLY place codex records rate_limits (used for the quota bar;
+                   # --json stdout does NOT carry it). So when capturing usage we drop
+                   # --ephemeral, read the rollout, then delete it (see _capture_usage).
+                   # The eval/test path (no usage_path) keeps --ephemeral, so its call
+                   # and verdicts are byte-for-byte unchanged.
+                   "--sandbox", "read-only", "--skip-git-repo-check",
+                   *([] if usage_path else ["--ephemeral"]),
                    "--color", "never", "-C", tmp, "-"]
+            # Mark the newest existing rollout so _capture_usage can find the one
+            # THIS call writes (only when capturing — the walk is not free).
+            usage_since = _rollout_mtime_ceiling() if usage_path else 0.0
             try:
                 proc = subprocess.run(cmd, input=prompt, capture_output=True,
                                       text=True, timeout=timeout)
@@ -1007,7 +1057,7 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                 tail = (proc.stdout or proc.stderr or "").strip()[-400:]
                 raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
             if usage_path:
-                _capture_usage(proc.stdout, usage_path)
+                _capture_usage(usage_path, usage_since)
             try:
                 with open(out_path, encoding="utf-8") as fh:
                     data = json.load(fh)

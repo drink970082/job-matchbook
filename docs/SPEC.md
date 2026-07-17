@@ -455,19 +455,24 @@ worker modules are pure and dependency-injected; real services are wired only in
     turned off — but routing no longer depends on the noisy number (§9), so
     `make eval-score` gates on whether the per-dimension `seniority`/`domain` verdicts
     stay accurate, not on whether the score moves a band.
-    **Quota-usage capture (free):** when `run.py` passes a `usage_path`, the scorer adds
-    `--json` and reads the `rate_limits` record off its own response stdout (codex's own
-    `/status` accounting — `used_percent`, `window_minutes`, `resets_at`, `plan_type`).
-    codex reports both a `primary` and a `secondary` limit; the observed `primary` was the
+    **Quota-usage capture (free):** when `run.py` passes a `usage_path`, the scorer reads
+    codex's own `/status` accounting (`used_percent`, `window_minutes`, `resets_at`,
+    `plan_type`) off the **session rollout** the scoring call writes, and snapshots it to
+    `codex_usage.json` in the shared db dir. Still free — it piggybacks the scoring
+    message, no probe call. **Mechanism (learned the hard way, verified 0.144.5):**
+    `codex exec --json` stdout carries only thread/turn/item events, **not** `rate_limits`;
+    the quota figures live only in the session rollout, which `--ephemeral` suppresses. So
+    when capturing, the scorer **drops `--ephemeral`**, reads the rollout it just wrote
+    (identified as the newest one past a pre-call mtime mark), then **deletes it** (net
+    equivalent to ephemeral, usage extracted first). This assumes **sequential** scoring
+    (`run_once` loops one JD at a time — the newest new rollout is unambiguously this
+    call's). The eval/test path (no `usage_path`) keeps `--ephemeral` and its byte-for-byte
+    gated call. codex reports `primary`+`secondary` limits; the observed `primary` was the
     **weekly** window (`window_minutes=10080`, `secondary` null), and the capture keeps
-    whatever non-null limits are present, so it renders a 5h secondary too if codex ever
-    reports one (§11). It writes a latest-wins snapshot to `codex_usage.json` in the
-    shared db dir. Best-effort (a parse failure never breaks
-    a score) and free — it rides the scoring message rather than a probe. `--json` is
-    added **only** when capturing, so the eval/test path keeps the exact gated call. The
-    web renders it as a bar (§7.2); a live "now" reading is out of scope (it would cost a
-    quota message). Capture happens on the production `run_once` path only, not in the
-    eval harness.
+    whatever non-null limits are present, so a 5h secondary renders too if codex ever
+    reports one (§11). Best-effort (a parse failure never breaks a score). The web renders
+    it as a bar (§7.2); a live "now" reading is out of scope (it would cost a quota
+    message). Capture is on the production `run_once` path only, not the eval harness.
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
