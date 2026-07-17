@@ -153,7 +153,8 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
             ─► screen (local Ollama, hard requirements) ─gate─► score (Claude, reason-first)
                      [location: deterministic code gate off the board field, not the LLM]
                                           [disqualified → discarded, Claude call skipped]
-            ─► notify (Telegram message)   [only score ≥ threshold]
+            ─► notify (Telegram message)   [gate: seniority=match AND domain=match,
+                                            NOT insufficient_context — score is display/ranking only]
 
 Phase 2 — Triage & tracking (apps/web, browser)
   Discovered Jobs tab ─► review JD + match analysis
@@ -284,8 +285,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable} — feed-only sources oracle/jobvite are intentionally
   excluded); exposes `companies`,
-  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold`,
-  `schedule_hours`. Bad source / missing field → clear
+  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
+  but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
+  source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
@@ -365,12 +367,16 @@ worker modules are pure and dependency-injected; real services are wired only in
     on the unresolved board.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
-  (optionally `min_score`), `save_score`, `mark_notified` (clears `pipeline_error`),
-  `mark_failed` (terminal), `record_notify_failure` (retry-aware: keeps the row
-  `scored` until the caller declares the budget exhausted, then parks it `failed`).
-  Watchlist + feed helpers: `get_watchlist`, `count_watchlist`,
-  `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
-  `existing_external_ids`. Issues no DDL.
+  (optionally `min_score` — used only by `run_score` to select `new` rows; no
+  caller passes `min_score` today), `get_notifiable` (the notify gate: `scored`
+  rows whose `score_detail` verdicts read `seniority=match AND domain=match AND
+  NOT insufficient_context`, via `json_extract` — replaces the old
+  `get_by_status(..., min_score=threshold)` selection), `save_score`,
+  `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal),
+  `record_notify_failure` (retry-aware: keeps the row `scored` until the caller
+  declares the budget exhausted, then parks it `failed`). Watchlist + feed
+  helpers: `get_watchlist`, `count_watchlist`, `import_watchlist` (idempotent),
+  `record_unresolved` (upsert on `url`), `existing_external_ids`. Issues no DDL.
 - **`score.py` — `score_posting`.** Up to two calls, two backends, **SCREEN-gated**:
   the cheap local screen runs FIRST and gates the paid fit score. (1) The
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
@@ -542,12 +548,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   connection leaks).
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
-  are not listed), `MATCH_SCORE_THRESHOLD` (75; the Discovered-Jobs matched/below-bar
-  cutoff, mirrors the worker's notification threshold; Below-bar spans *all* sub-threshold
-  scored rows, so there is no separate near-miss floor), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
+  are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; the trimmed-`description` char count below which a scored posting is bucketed
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
-  to extend statuses/categories/sources.**
+  to extend statuses/categories/sources.** `MATCH_SCORE_THRESHOLD` was **removed** — the
+  Discovered-Jobs matched/below-bar split is now the verdict predicate (`matchedIds()` in
+  `lib/actions.ts`, mirroring the worker's `db.get_notifiable`), not a score cutoff; the
+  fit score is display/ranking only.
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs), `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (bucket tabs on their
@@ -693,7 +700,8 @@ fetch:   (new posting)            → new
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
 score:   new                      → scored        (default)
                                   → discarded      (candidate hard-constraint fail)
-notify:  scored, score ≥ threshold → notified      (below threshold: stay scored, untouched;
+notify:  scored, seniority=match AND domain=match AND NOT insufficient_context → notified
+                                                   (else: stay scored, untouched;
                                                     success clears pipeline_error)
          on send error            → scored         (attempts+1, pipeline_error recorded;
                                                     retried next pass — the 3rd cumulative
@@ -705,10 +713,13 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 - **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
 - **Stage gating is strict:** `run_score` processes only `new`; `run_notify` only
-  `scored` with `score ≥ threshold` (the notification gate; below-threshold rows
-  stay `scored`, untouched). A failure in one posting never aborts the batch
-  (per-item try/except → `mark_failed`, or the notify stage's bounded retry — see
-  "Failure handling and recovery limits" below).
+  `scored` rows the fit verdicts mark a strong match (`db.get_notifiable` —
+  `seniority=match AND domain=match AND NOT insufficient_context`; non-matching rows
+  stay `scored`, untouched). The score is not the gate — it quantizes to a rubric
+  band edge and flipped run-to-run near the old `≥75` threshold, while the verdicts
+  held stable across every draw (see `PROGRESS.md`). A failure in one posting never
+  aborts the batch (per-item try/except → `mark_failed`, or the notify stage's
+  bounded retry — see "Failure handling and recovery limits" below).
 - **Screening is part of scoring, not a separate stage.** With an empty `candidate`
   block, the screen call is skipped entirely (no disqualification). A `discarded`
   row keeps its `score`/`score_detail` (including `disqualification_reason`) so the
@@ -774,15 +785,18 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 **Web ↔ pipeline seam** (`lib/actions.ts`):
 
 - **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, belowbar, discarded,
-  lowcontext, failed}, default `matched`). Score-aware, since the live tabs are about scoring:
-  **matched** = `{scored, notified}` with `score ≥ MATCH_SCORE_THRESHOLD`
-  (default 75, mirrors the worker's notification threshold); **belowbar** = `{scored,
-  notified}` with `score < threshold` — every scored-but-under-the-bar row, *including*
-  deep misses below `NEAR_MISS_FLOOR`, so nothing scored is orphaned (ACTIVE rows are
-  never disqualified, so this is cleanly "scored, not a match"); **discarded** =
+  lowcontext, failed}, default `matched`). Verdict-aware, not score-aware — the fit
+  **score is display/ranking only and gates nothing**: **matched** = `{scored, notified}`
+  rows whose `score_detail` verdicts read `seniority=match AND domain=match AND NOT
+  insufficient_context` (`matchedIds()`, a raw `json_extract` query — **the same
+  predicate** the worker's notify gate uses, `db.get_notifiable`, so the UI's Matched tab
+  and the Telegram alert never disagree); **belowbar** = `{scored, notified}` rows outside
+  that id set — every scored-but-not-a-verdict-match row, *including* deep misses, so
+  nothing scored is orphaned (ACTIVE rows are never disqualified, so this is cleanly
+  "scored, not a match"); **discarded** =
   disqualified **only**: `pipeline_status='discarded'` with the screen's `disqualified:true`
   (substring-matched in `score_detail`, tolerating `"disqualified": true` / `"disqualified":true`
-  spacing) — a below-threshold scored row is **not** discarded (it lives in belowbar);
+  spacing) — a non-matching scored row is **not** discarded (it lives in belowbar);
   **lowcontext** = `{scored, notified}` rows too thin to score with confidence, by
   **either** signal (OR): a short JD body (`LENGTH(TRIM(description)) <
   LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the fit scorer's
@@ -1045,9 +1059,10 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ the seven watchlist-capable boards {greenhouse, lever, ashby,
    workday, pinpoint, smartrecruiters, workable}, board `slug`, `name`),
-   optional `title_filter`, the `candidate` hard-constraint block, `threshold`
-   (default 75), `schedule_hours` (24). Workday's `slug` packs
-   `tenant/datacenter/site` (quote it).
+   optional `title_filter`, the `candidate` hard-constraint block, `schedule_hours`
+   (24). `threshold` (default 75) is still parsed but **inert** — notify gates on
+   the fit verdicts, not the score (§9); left in the example file pending a later
+   cleanup. Workday's `slug` packs `tenant/datacenter/site` (quote it).
 2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
    real resume (plain text, fed to the fit scorer) — or provide multiple
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for

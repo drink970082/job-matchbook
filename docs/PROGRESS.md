@@ -28,7 +28,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 ## In flight
 
 🚧 **Codex fit-score backend shipped; gate FAILED on flip-rate in BOTH configs tried —
-root cause is the *rubric*, not the backend, and config-spinning is the wrong lever.**
+root cause is the *rubric*, not the backend, and config-spinning is the wrong lever.
+Routing half now RESOLVED (2026-07-16): notify (`db.get_notifiable`) and the web
+matched/belowbar buckets (`matchedIds()`) route on the stable enum verdicts
+(`seniority=match AND domain=match AND NOT insufficient_context`), not the flip-prone
+score — the gate no longer sits on the rubric's quantization boundary, so flip-rate is
+moot for the routing decision (see SPEC §9). What's still open below: the harness
+reframe to validate verdict accuracy (not score bands) and batched fit scoring
+(design `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`,
+Parts B/C — not started).**
 `make_codex_scorer` is built, wired as the default, unit-covered, and **tool-less** (see
 [CHANGELOG](../CHANGELOG.md)). Two gate runs, both FAIL (`<20%` flip required), each
 `hard 10/10 ✅`:
@@ -172,7 +180,11 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
   models reject `temperature`). So band stability is now a *measured* property, not a
   guaranteed one: `make eval-score` (majority-of-K=3 bands) is the only thing standing
   between the noise and a wrong routing decision. If it starts failing, the escape hatch is
-  raising K or `--score-backend claude`, not a seed.
+  raising K or `--score-backend claude`, not a seed. **Note (2026-07-16):** the noise
+  itself is unchanged, but it no longer *gates* anything — notify and the matched/
+  belowbar buckets route on the stable enum verdicts, not the noisy score (see the
+  first item under [In flight](#in-flight)), so this item is now scoped to display/
+  ranking fidelity, not routing correctness.
 - **Deployment / monitoring** — `[L · open-ended]`. `ats-web` has a DB-reachability
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
   Telegram notification, and the **worker** has no healthcheck — its failures show only in

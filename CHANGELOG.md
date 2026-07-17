@@ -62,6 +62,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   (`LENGTH(TRIM(description)) < N OR json_extract(score_detail,'$.insufficient_context') = 1`).
 
 ### Changed
+- **Notify and the web matched/belowbar buckets now route on the fit verdicts, not
+  the score.** The `>=75` notify threshold sat exactly on the rubric's band-edge
+  quantization point — score flip-rate 29–38% across two codex configs (see
+  `PROGRESS.md`) — while the `seniority`/`domain` enum verdicts held 100% stable
+  across every re-draw. Both sides now gate on one predicate: `seniority.verdict ==
+  "match" AND domain.verdict == "match" AND NOT insufficient_context`. **Worker:**
+  `db.get_notifiable(conn)` selects `pipeline_status='scored'` rows matching the
+  predicate via `json_extract`; `run_notify` drops its `threshold` parameter and no
+  longer calls `db.get_by_status(..., min_score=)` for gating. **Web:** a new
+  `matchedIds()` raw-query helper (mirrors `lowContextIds()`) returns the matching
+  ids; `matched` = active (`scored`|`notified`) ∩ `matchedIds()`, `belowbar` = active
+  ∖ `matchedIds()` — the same predicate the worker uses, so the UI and the Telegram
+  alert can never disagree. `MATCH_SCORE_THRESHOLD` is **removed** from
+  `apps/web/src/lib/constants.ts` (zero remaining references). The fit **score is now
+  display/ranking only** — it gates nothing. `config.yaml`'s `threshold:` key and the
+  worker's `cfg.threshold` are now **inert** (parsed but unread; left in place for a
+  later cleanup). Design:
+  `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
+  (Part A; Part B batched fit scoring and the eval-harness verdict-accuracy reframe
+  are separate, not-yet-started work).
 - **Discovered-Jobs bucket taxonomy split + table redesign.** The old `discarded`
   bucket conflated two very different things — hard disqualifications *and*
   below-threshold scored rows — behind a `discardType` (nearmiss/disqualified/all)
