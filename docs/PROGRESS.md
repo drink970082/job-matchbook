@@ -234,7 +234,42 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-**None open.** The 6 cold-pass defects (D1 auth · D2 location · D3 seniority · D4
+- **Telegram notify ≠ web "Matched" tab on thin JDs (low-context divergence)** — `[XS ·
+  from the 2026-07-17 scoring-system audit]`. The worker's notify gate
+  (`db.get_notifiable`) and the web's `matchedIds()` share a **byte-identical enum
+  predicate** (`seniority=match AND domain=match AND NOT insufficient_context`) — but the
+  web's *displayed* **Matched** bucket also **subtracts low-context rows**
+  (`lowContextIds()` = `LENGTH(TRIM(description)) < 200` **OR** `insufficient_context`),
+  whereas the worker notify has **no description-length check**. So a short (<200-char)
+  `match/match` JD the model did **not** flag `insufficient_context` (a thin-but-confident
+  blurb) **fires a Telegram alert** yet shows under **Low-context**, not **Matched** — the
+  "UI ≠ alerts" hazard the SPEC §9 claimed couldn't happen (SPEC now corrected). The eval
+  harness doesn't cover this axis (no `insufficient_context`/length in the golden set).
+  **Fix (small, but a behavior fork — operator's call):** either add
+  `AND LENGTH(TRIM(description)) >= 200` to `get_notifiable` so the worker also holds back
+  thin JDs (mirrors the UI; suppresses those alerts), **or** drop the description-length
+  signal from the web's low-context exclusion and rely only on the shared
+  `insufficient_context` flag (makes thin match/match JDs notifiable + shown in Matched).
+  The length-gate mirror preserves current UI behavior; pick per whether a thin-but-
+  confident match should alert.
+- **`run_score` batch persist trusts `len(cards) == len(chunk)`** — `[XS · latent, from
+  audit]`. `pipeline.py` zips `chunk` with `cards`; a backend returning *fewer* cards
+  without raising would silently orphan the tail rows (stuck `new`, re-scored next pass).
+  Latent only — codex raises on a missing `job_ref` and claude loops one-per-posting, so
+  both guarantee length-or-raise today. Cheap defensive guard: `if len(cards) !=
+  len(postings): fall back to singles` before the zip.
+
+*(Both surfaced by the 2026-07-17 audit of the verdict-routing scoring system; the audit
+also **verified-good**: the enum predicate is identical across worker/web, no numeric-score
+routing remains, the screen strictly gates the paid fit call, normalization fails loud on
+missing/out-of-enum fields, no failure path defaults to a match, and the domain rule's
+match/adjacent/mismatch collapse is total with no under-defined `adjacent`. The
+model-authored `summary` riding into the DB + Telegram is a bounded text-only injection
+surface — already mitigated by the tool-less codex boundary, tracked under [Unverified
+properties](#unverified--unguaranteed-properties--behavior-may-be-fine-but-nothing-proves-it-should-address).
+`config.threshold=75` is parsed-but-inert dead config — harmless, documented in SPEC §7.1.)*
+
+The 6 cold-pass defects (D1 auth · D2 location · D3 seniority · D4
 plus-skills · D5 location-leak · D6 calibration; 2026-07-13) all shipped — see the
 [CHANGELOG](../CHANGELOG.md). D6 closed by *measurement*, not code: D3/D4/D5 de-compressed
 the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9→1, 75+ rose

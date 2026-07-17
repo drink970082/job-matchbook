@@ -876,9 +876,14 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   lowcontext, failed}, default `matched`). Verdict-aware, not score-aware — the fit
   **score is display/ranking only and gates nothing**: **matched** = `{scored, notified}`
   rows whose `score_detail` verdicts read `seniority=match AND domain=match AND NOT
-  insufficient_context` (`matchedIds()`, a raw `json_extract` query — **the same
-  predicate** the worker's notify gate uses, `db.get_notifiable`, so the UI's Matched tab
-  and the Telegram alert never disagree); **belowbar** = `{scored, notified}` rows outside
+  insufficient_context` (`matchedIds()`, a raw `json_extract` query — **the same enum
+  predicate** the worker's notify gate uses, `db.get_notifiable`). **Caveat (open defect,
+  see PROGRESS):** the Matched tab additionally *subtracts low-context rows* — a thin JD
+  (`description < 200` chars **or** `insufficient_context`) — a **description-length**
+  signal the worker's notify gate does **not** apply, so a short (<200-char) `match/match`
+  JD the model did not flag `insufficient_context` fires a Telegram alert yet lands under
+  **Low-context**, not **Matched**. The enum verdicts agree; only the web-only
+  description-length gate diverges. **belowbar** = `{scored, notified}` rows outside
   that id set — every scored-but-not-a-verdict-match row, *including* deep misses, so
   nothing scored is orphaned (ACTIVE rows are never disqualified, so this is cleanly
   "scored, not a match"); **discarded** =
