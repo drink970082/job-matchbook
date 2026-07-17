@@ -34,9 +34,12 @@ flipped on the golden set and bled under batching). It was rebuilt as a **three-
 target-fit rule** (ANTI-TARGETS · TARGET priority from day-to-day work · RÉSUMÉ-evidenced
 field) collapsing to match/adjacent/mismatch against the operator's `personal_profile.txt`
 (see [SPEC](./SPEC.md) §13 + `CHANGELOG`). `make eval-score` (K=3 × 21 rows, `gpt-5.6-sol`)
-went **76% → 100% agreement, hard 10/10, flip-rate 24–38% → 5%** — one clean PASS; a second
-consecutive PASS is the remaining ship-gate (defer to a fresh quota window, before the
-backfill). **Two lessons banked:** (1) the "analyst penalty" (build-heavy Analyst/Trading-
+went **76% → 100% agreement, hard 10/10, flip-rate 24–38% → 5%**, and a **second consecutive
+PASS (95%) cleared the ship-gate** — the live ~640-row backfill is now the only remaining
+operator step. Lone wobbler across the two runs: id 26 (a borderline Aquatic Quant-Researcher
+seat that wavers match↔mismatch — research-central, not the clean twin of the stable id 652
+it first looked like); it stays within gate tolerance but is a candidate to `mark`
+(watch-list) if it flaps a future run. **Two lessons banked:** (1) the "analyst penalty" (build-heavy Analyst/Trading-
 Analyst seats scoring `adjacent`) was a **profile** tension, not a rubric bug — the model
 faithfully applied POSITIONING's "mostly engineering" bar and read those seats as
 analysis-central; the fix was loosening the profile's tier-3 analyst qualifier, and it
