@@ -47,7 +47,7 @@ test-coverage: ## Run both suites with coverage (gated by thresholds)
 	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
 
-eval-score: ## Band-regression eval vs the frozen golden set (~70 calls on the default codex backend: free, ~50min; SCORE_BACKEND=claude is PAID)
+eval-score: ## Verdict-accuracy eval vs the frozen golden set (~70 calls on the default codex backend: free, ~50min; SCORE_BACKEND=claude is PAID)
 	$(WORKER)/.venv/bin/python $(WORKER)/tools/score_eval.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
