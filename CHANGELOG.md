@@ -78,13 +78,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   other exception* (e.g. a transient `claude`-backend API error surfacing through the
   same call site) falls back to scoring that batch's postings **singly**, so one
   malformed batch costs latency, not correctness, and a single that still fails marks
-  only that one row `failed`. `batch_size` defaults to 10, overridable via
-  `--batch-size`/`CODEX_BATCH_SIZE`; `batch_size=1` degrades to exactly the
-  pre-batching one-call-per-posting path (no special-casing). Batching is
-  **codex-only** — the quota win, since the ChatGPT-subscription cap is
-  message-bound, not token-bound, and a ~640-row re-score drops from 640 messages to
-  ~64 (10/batch), cutting total input tokens ~6× (the fixed scaffolding prefix now
-  amortizes over 10 JDs per call instead of 1). The `claude` backend still loops one
+  only that one row `failed`. `batch_size` is configurable via
+  `--batch-size`/`CODEX_BATCH_SIZE` (shipped default was 10, since parked to 1 — see
+  below); `batch_size=1` degrades to exactly the pre-batching one-call-per-posting
+  path (no special-casing). Batching is **codex-only** — the intended quota win,
+  since the ChatGPT-subscription cap is message-bound, not token-bound, and at
+  `batch_size=10` a ~640-row re-score would drop from 640 messages to ~64 (10/batch),
+  cutting total input tokens ~6× (the fixed scaffolding prefix amortizing over 10 JDs
+  per call instead of 1) — **see the outcome below: this win is not realized at the
+  parked default.** The `claude` backend still loops one
   call per posting regardless of `batch_size`: its cached system prefix already makes
   the marginal posting cheap, so batching would only save request count, which
   doesn't matter on metered billing. `tools/score_eval.py` gains a `--batched` mode —
@@ -92,10 +94,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   the golden set once single and once batched and asserts the per-row `(seniority,
   domain)` verdicts are identical (PASS = 0 drift), which is what proves a batch's
   JDs don't corrupt each other's score via context bleed from their batch-mates.
-  **This guard has not been run this session; it is the acceptance step before
-  `batch_size=10` is trusted on the live queue, not yet a confirmed result** (see
-  `PROGRESS.md`). Unit-tested: `job_ref` alignment, the fallback path, `batch_size=1`
-  equivalence. Design:
+  **This guard ran live 2026-07-16** (gpt-5.6-sol, `batch_size=10`, 23 golden rows)
+  **and FAILED — 19/23 agree.** All 4 drift rows are on the **domain** verdict —
+  concatenating JDs into one codex call bleeds domain judgment across batch-mates: id
+  111 and 125 `match/adjacent`→`match/match`, id 132
+  `too_junior/adjacent`→`too_junior/match`, id 184 `match/match`→`match/adjacent`.
+  111/125 are gate-eligible and their `adjacent→match` drift crosses the notify
+  predicate — batching would have **wrongly notified** them (132 stays not-notified,
+  floored by `too_junior`; 184 is a `marked` row). Per the design's rollout rule,
+  **batching does not ship by default**: `run.py`'s `DEFAULT_BATCH_SIZE` is **1** (was
+  10) — default-off, degrading to the pre-batching one-call-per-posting path — with
+  the batching machinery and this guard left in place for a future fix (smaller
+  `batch_size` / stronger per-JD prompt isolation). Opt back in via
+  `--batch-size`/`CODEX_BATCH_SIZE` once the domain-verdict drift is resolved. Unit-
+  tested: `job_ref` alignment, the fallback path, `batch_size=1` equivalence. Design:
   `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
   (Part B; the batched==single validation is part of Part C).
 

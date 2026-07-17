@@ -418,11 +418,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   JSON schema** (`_score_schema`), so a score is comparable across them and a prompt
   edit lands on both:
   - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
-    **ChatGPT subscription** (flat-rate, not metered), and the **only backend that
-    batches**: one `codex exec` per call handles up to `batch_size` postings at once
-    (default 10, `--batch-size`/`CODEX_BATCH_SIZE`), because the subscription's quota
-    is MESSAGE-bound, not token-bound — fewer `codex exec` calls is the actual saving.
-    Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
+    **ChatGPT subscription** (flat-rate, not metered), and the **only backend with
+    batching machinery**: one `codex exec` per call can handle up to `batch_size`
+    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`), because the subscription's
+    quota is MESSAGE-bound, not token-bound — fewer `codex exec` calls would be the
+    saving. **Batching is disabled by default (`DEFAULT_BATCH_SIZE=1` in `run.py`):**
+    the live batched==single verdict-drift guard (§13) failed on the golden set
+    (19/23 agree — cross-JD domain-verdict bleed), so per the design's rollout rule
+    it does not ship; opt in via `--batch-size`/`CODEX_BATCH_SIZE` once the drift is
+    fixed (§9, §11). Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
     schema wraps N per-posting elements as `{"results": [{job_ref, ...}, ...]}`, enforced
     via `--output-schema`, JSON read back from `--output-last-message`. Results are
     realigned to the input postings **by `job_ref`, not list position** (an LLM isn't
@@ -535,12 +539,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
   that row `failed`), and a disqualified one is persisted `discarded` right here,
   **never** reaching the fit call; (2) the survivors are chunked into batches of
-  `batch_size` (default 10) and each chunk is **one** `fit_fn` call; (3) a chunk whose
-  call raises — `ScoreError` or any other exception — falls back to scoring that
-  chunk's postings **singly**, so one malformed batch costs latency, not correctness,
-  and a single that still fails marks only that row `failed`. `batch_size` is harmless
-  on the `claude` backend (which loops internally regardless) and is the actual quota
-  lever on `codex` (§7.1's scorer description, §11 quota math).
+  `batch_size` (**default 1 — batching parked**, see below) and each chunk is **one**
+  `fit_fn` call; (3) a chunk whose call raises — `ScoreError` or any other exception —
+  falls back to scoring that chunk's postings **singly**, so one malformed batch costs
+  latency, not correctness, and a single that still fails marks only that row
+  `failed`. `batch_size` is harmless on the `claude` backend (which loops internally
+  regardless) and would be the quota lever on `codex` if raised above 1 (§7.1's scorer
+  description, §11 quota math) — but the live batched==single guard failed on
+  domain-verdict bleed, so `batch_size` stays at its parked default of 1 until that's
+  fixed.
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -1010,14 +1017,16 @@ automated coverage — those rely on code review or the human in the loop, not a
   (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
   against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
   is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
-  actually turns on, and the codex fit call is **batched** (up to `batch_size` postings
-  per `codex exec`, default 10) because that subscription's real limit is a
-  MESSAGE-bound quota, not tokens (§7.1/§11) — the loss of
+  actually turns on. The codex fit call has **batching machinery** (up to `batch_size`
+  postings per `codex exec`) because that subscription's real limit is a MESSAGE-bound
+  quota, not tokens (§7.1/§11) — but it is **parked at `batch_size=1` (disabled by
+  default)**: the live batched==single guard failed on the golden set (cross-JD
+  domain-verdict bleed), so the intended quota win is not active — the loss of
   any determinism knob (no `seed`/`temperature` on `codex exec`) remains; the Claude backend
   stays wired for a metered A/B and deliberately does **not** batch. Claude's cached system prefix (rubric + optional
   profile + all resume versions) keeps its per-posting cost down to just the fresh JD;
-  codex has no such lever, so amortizing the fixed scaffolding cost across a batch is
-  what stands in for it.
+  codex has no such lever, so amortizing the fixed scaffolding cost across a batch would
+  stand in for it, if batching were enabled.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
@@ -1052,24 +1061,35 @@ automated coverage — those rely on code review or the human in the loop, not a
   to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
   GPU; the fit score adds one hosted call per **batch of up to `batch_size` postings**
-  (default 10) on the default `codex` backend — tens of seconds per `codex exec` turn,
-  amortized over the batch — or one cached-prefix API call **per posting** on `claude`
-  (unbatched by design; see §7.1). The root page is `force-dynamic` (no stale cache).
+  on the default `codex` backend — tens of seconds per `codex exec` turn, amortized
+  over the batch when `batch_size>1` — but `batch_size` defaults to **1** (batching
+  parked, see below), so in practice this is one `codex exec` turn per posting; or one
+  cached-prefix API call **per posting** on `claude` (unbatched by design; see §7.1).
+  The root page is `force-dynamic` (no stale cache).
 - **Subscription quota is the real bound on a big re-score — flat-rate is NOT
-  unlimited, and batching is what makes the queue fit it.** Codex on ChatGPT Plus
-  meters a rolling **5-hour message window** (plus a weekly cap): roughly 15–90
-  messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). Unbatched (`batch_size=1`), a
-  ~640-row re-score is 640 messages — **cannot finish in one window**, spans 7+.
-  Batched at the shipped default (`--batch-size`/`CODEX_BATCH_SIZE=10`, §7.1/§9), the
-  same 640 rows become **~64 `codex exec` calls** — turning a multi-window job into
-  something that can plausibly clear in one or two — and because the fixed scaffolding
-  prefix (below) is now paid once per **batch** instead of once per **posting**, total
-  input tokens drop **~6×** too. **This is a property of the shipped code, not yet a
-  validated number for the live queue:** `tools/score_eval.py --batched` (§13) is the
-  live guard that asserts batched verdicts match single-scored verdicts on the golden
-  set — it is the acceptance step for trusting batching on a real re-score, and it has
-  **not been re-run this session** (unit tests cover the alignment/fallback mechanics,
-  not live model behavior). At the cap Codex hard-
+  unlimited, and batching, if it shipped, is what would make the queue fit it.
+  It doesn't ship: the acceptance guard failed, so the win below is unrealized.**
+  Codex on ChatGPT Plus meters a rolling **5-hour message window** (plus a weekly
+  cap): roughly 15–90 messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). At the
+  **shipped default** `batch_size=1`, a ~640-row re-score is 640 messages — **cannot
+  finish in one window**, spans 7+ — and this is the actual current cost, not a
+  worst case: batching machinery exists (`--batch-size`/`CODEX_BATCH_SIZE`, §7.1/§9)
+  but is **parked at `batch_size=1` (default-off)**. *If* raised to `batch_size=10`,
+  the same 640 rows would become **~64 `codex exec` calls** — turning a multi-window
+  job into something that could plausibly clear in one or two — and because the fixed
+  scaffolding prefix (below) would then be paid once per **batch** instead of once
+  per **posting**, total input tokens would drop **~6×** too. **That number is not
+  live-validated and is not currently attainable:** `tools/score_eval.py --batched`
+  (§13), the live guard that asserts batched verdicts match single-scored verdicts on
+  the golden set, **ran 2026-07-16 (`gpt-5.6-sol`, `batch_size=10`, 23 rows) and
+  FAILED — 19/23 agree.** All 4 drift rows are on the **domain** verdict —
+  concatenating JDs into one codex call bleeds domain judgment across batch-mates
+  (ids 111/125 `adjacent`→`match`, crossing the notify predicate — batching would
+  have wrongly notified them; id 132 `adjacent`→`match` but stays not-notified,
+  floored by `too_junior`; id 184 `match`→`adjacent`). Per the design's rollout rule,
+  batching does not ship: `run.py`'s `DEFAULT_BATCH_SIZE=1`, and the queue re-score
+  stays on the unbatched, multi-window path until a fix (smaller batches / stronger
+  per-JD prompt isolation) clears the guard. At the cap Codex hard-
   blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
   code**, so any pacing logic must match the stderr text, not the exit status. Each call
   also pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
@@ -1182,13 +1202,17 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   --batched`):** a **separate, LIVE, quota-spending** check from the K=3 gate above —
   never run from CI/selftest. Scores the golden set once **single**
   (`fit([posting], resumes)`) and once **batched** (`fit(chunk, resumes)` at
-  `BATCH_SIZE=10`, mirroring `run_score`'s default), one draw per row per pass, and
-  asserts the per-row `(seniority, domain)` verdicts are **identical** — PASS = 0
-  drift. This is the check that proves batching N JDs into one `codex exec` call
-  doesn't corrupt a JD's score via context bleed from its batch-mates, and it is the
-  **acceptance gate** for trusting `batch_size=10` on a real re-score of the queue —
-  not yet re-run as of this writing (see `PROGRESS.md`). If it drifts, batching must
-  not be trusted for the queue; the Part A verdict-routing change (§9) stands
+  `BATCH_SIZE=10`), one draw per row per pass, and asserts the per-row `(seniority,
+  domain)` verdicts are **identical** — PASS = 0 drift. This is the check that proves
+  (or disproves) that batching N JDs into one `codex exec` call doesn't corrupt a JD's
+  score via context bleed from its batch-mates, and it is the **acceptance gate** for
+  trusting `batch_size>1` on a real re-score of the queue. **Run 2026-07-16
+  (`gpt-5.6-sol`, `batch_size=10`, 23 golden rows) — FAILED, 19/23 agree** (see
+  `PROGRESS.md`, `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict
+  (cross-JD context bleed), two of them (`adjacent`→`match`) crossing the notify
+  predicate. Per the design's rollout rule, batching **does not ship** — the shipped
+  default is `batch_size=1` (§7.1, §9, §11), and the batching machinery + this guard
+  stay in place for a future fix. The Part A verdict-routing change (§9) stands
   regardless.
 
 ---
