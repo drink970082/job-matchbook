@@ -817,8 +817,76 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
     return fit
 
 
+def _find_key(obj, key):
+    """Depth-first search for the first value under `key` anywhere in a nested
+    dict/list. Returns None if absent."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            found = _find_key(v, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for v in obj:
+            found = _find_key(v, key)
+            if found is not None:
+                return found
+    return None
+
+
+def _usage_snapshot(rate_limits: dict) -> dict:
+    """Reduce a codex `rate_limits` record to the persisted snapshot shape:
+    {plan_type, limits:[{key, used_percent, window_minutes, resets_at}, ...]}.
+    Only non-null limits with a used_percent are kept."""
+    out = {"plan_type": rate_limits.get("plan_type"), "limits": []}
+    for key in ("primary", "secondary"):
+        lim = rate_limits.get(key)
+        if isinstance(lim, dict) and lim.get("used_percent") is not None:
+            out["limits"].append({
+                "key": key,
+                "used_percent": lim.get("used_percent"),
+                "window_minutes": lim.get("window_minutes"),
+                "resets_at": lim.get("resets_at"),
+            })
+    return out
+
+
+def _capture_usage(stdout_text: str, path: str) -> None:
+    """Best-effort: scan `codex exec --json` stdout for the newest rate_limits
+    event and atomically write a usage snapshot to `path`. Never raises — quota
+    telemetry must never break a score. codex emits one JSONL event per line; a
+    token-count event carries a `rate_limits` dict (nested under `payload`), and
+    the last one seen is the freshest. The web reads this file across the container
+    boundary, so the write is atomic (tmp + os.replace)."""
+    try:
+        latest = None
+        for line in stdout_text.splitlines():
+            if "rate_limits" not in line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            rl = _find_key(obj, "rate_limits")
+            if isinstance(rl, dict):
+                latest = rl
+        if not latest:
+            return
+        snapshot = _usage_snapshot(latest)
+        if not snapshot["limits"]:
+            return
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(snapshot, fh)
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001 — telemetry is best-effort; a score must not fail on it
+        pass
+
+
 def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
-                      verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex"):
+                      verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex",
+                      usage_path: str | None = None):
     """Build a `fit(postings, resumes) -> list[dict]` callable backed by the Codex CLI.
 
     The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
@@ -919,6 +987,12 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                    "-c", f"model_reasoning_effort={reasoning_effort}",
                    "-c", f"model_verbosity={verbosity}",
                    "--output-schema", schema_path, "--output-last-message", out_path,
+                   # --json streams rate_limits events to stdout so we can capture
+                   # quota usage off this same call (free — see _capture_usage). Only
+                   # added when a usage_path is set, so the eval/test paths keep the
+                   # exact byte-for-byte call (and verdicts) they were gated on; the
+                   # final scorecard still comes from out_path, unaffected by --json.
+                   *(["--json"] if usage_path else []),
                    "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                    "--color", "never", "-C", tmp, "-"]
             try:
@@ -931,6 +1005,8 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
             if proc.returncode != 0:
                 tail = (proc.stdout or proc.stderr or "").strip()[-400:]
                 raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
+            if usage_path:
+                _capture_usage(proc.stdout, usage_path)
             try:
                 with open(out_path, encoding="utf-8") as fh:
                     data = json.load(fh)

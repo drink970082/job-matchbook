@@ -65,13 +65,16 @@ DEFAULT_BATCH_SIZE = 1
 
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL):
+                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
+                usage_path=None):
     """Pick the fit-score backend. Both twins expose the same batch-first
     `fit(postings, resumes) -> list[dict]` contract (one scorecard per input
     posting, in order; a single posting is `fit([posting], resumes)[0]`), so
-    only this line changes."""
+    only this line changes. `usage_path` (codex only) enables free quota-usage
+    capture off the scoring call; None disables it."""
     if backend == "codex":
-        return make_codex_scorer(codex_score_model, profile=profile)
+        return make_codex_scorer(codex_score_model, profile=profile,
+                                 usage_path=usage_path)
     if backend == "claude":
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
@@ -187,13 +190,19 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # anthropic SDK import / the codex subprocess are deferred to the first call,
         # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
+        # Land the codex quota snapshot next to the REAL db file (resolve the
+        # prisma/applications.db symlink) so it sits in the shared db/ mount the
+        # web reads as /data/codex_usage.json. See docs/SPEC.md §7.1.
+        usage_path = os.path.join(
+            os.path.dirname(os.path.realpath(db_path)), "codex_usage.json")
 
         def fit_fn(postings):
             if not _scorer_cell:
                 _scorer_cell.append(
                     make_scorer(score_backend, env=env, profile=profile,
                                 codex_score_model=codex_score_model,
-                                anthropic_score_model=anthropic_score_model)
+                                anthropic_score_model=anthropic_score_model,
+                                usage_path=usage_path)
                 )
             return _scorer_cell[0](postings, resumes)
 

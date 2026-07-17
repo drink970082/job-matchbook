@@ -455,6 +455,19 @@ worker modules are pure and dependency-injected; real services are wired only in
     turned off — but routing no longer depends on the noisy number (§9), so
     `make eval-score` gates on whether the per-dimension `seniority`/`domain` verdicts
     stay accurate, not on whether the score moves a band.
+    **Quota-usage capture (free):** when `run.py` passes a `usage_path`, the scorer adds
+    `--json` and reads the `rate_limits` record off its own response stdout (codex's own
+    `/status` accounting — `used_percent`, `window_minutes`, `resets_at`, `plan_type`).
+    codex reports both a `primary` and a `secondary` limit; the observed `primary` was the
+    **weekly** window (`window_minutes=10080`, `secondary` null), and the capture keeps
+    whatever non-null limits are present, so it renders a 5h secondary too if codex ever
+    reports one (§11). It writes a latest-wins snapshot to `codex_usage.json` in the
+    shared db dir. Best-effort (a parse failure never breaks
+    a score) and free — it rides the scoring message rather than a probe. `--json` is
+    added **only** when capturing, so the eval/test path keeps the exact gated call. The
+    web renders it as a bar (§7.2); a live "now" reading is out of scope (it would cost a
+    quota message). Capture happens on the production `run_once` path only, not in the
+    eval harness.
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
@@ -570,6 +583,11 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
   `GET` runs `SELECT 1` (`200 {status:"ok"}`, else `503`) so a stale bind mount is
   caught and the `autoheal` sidecar can restart the container (§6).
+- **`app/api/codex-usage/route.ts`** — serves the codex quota snapshot the worker
+  captures off each scoring call (§7.1): reads `codex_usage.json` (path derived from
+  `DATABASE_URL`, overridable via `CODEX_USAGE_FILE`), returns the snapshot plus `as_of`
+  (the file mtime). Missing/unparseable → empty state (`{limits:[], as_of:null}`, still
+  `200`), since the worker may not have scored yet.
 - **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
   shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical
@@ -624,7 +642,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   (category picker on Mark Applied), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
-  backlog), `JobDetailModal` (JD + score detail), and the four charts `TimelineHeatmap` /
+  backlog), `CodexUsageBar` (codex quota bar on the Discovered Jobs view — polls
+  `/api/codex-usage`, one bar per limit with % + "resets in Nd Hh" + "as of"; reflects
+  the last scoring call, not a live reading), `JobDetailModal` (JD + score detail), and
+  the four charts `TimelineHeatmap` /
   `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
 
 ---

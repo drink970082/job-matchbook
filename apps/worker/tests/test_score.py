@@ -999,3 +999,68 @@ def test_codex_batch_missing_job_ref_raises(monkeypatch):
     monkeypatch.setattr(score.subprocess, "run", run)
     with pytest.raises(score.ScoreError, match="job_ref"):
         score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
+
+
+# --- codex quota-usage capture (usage_path + _capture_usage) ---------------------
+
+def _rate_event(used, window, resets, secondary=None, plan="plus"):
+    """One `codex exec --json` stdout line carrying a rate_limits record nested
+    under `payload` — the shape observed live 2026-07-17."""
+    rl = {"limit_id": "codex", "plan_type": plan,
+          "primary": {"used_percent": used, "window_minutes": window, "resets_at": resets},
+          "secondary": secondary}
+    return json.dumps({"type": "event_msg", "payload": {"rate_limits": rl}})
+
+
+def test_capture_usage_writes_snapshot(tmp_path):
+    path = str(tmp_path / "codex_usage.json")
+    stdout = "\n".join([json.dumps({"type": "other"}), _rate_event(32.0, 10080, 1784839672)])
+    score._capture_usage(stdout, path)
+    snap = json.loads((tmp_path / "codex_usage.json").read_text())
+    assert snap["plan_type"] == "plus"
+    assert snap["limits"] == [
+        {"key": "primary", "used_percent": 32.0, "window_minutes": 10080, "resets_at": 1784839672}]
+    assert not (tmp_path / "codex_usage.json.tmp").exists()  # atomic: no tmp left behind
+
+
+def test_capture_usage_latest_event_wins_and_includes_secondary(tmp_path):
+    path = str(tmp_path / "u.json")
+    secondary = {"used_percent": 5.0, "window_minutes": 300, "resets_at": 111}
+    stdout = "\n".join([_rate_event(10.0, 10080, 1),                       # stale
+                        _rate_event(40.0, 10080, 2, secondary=secondary)])  # freshest wins
+    score._capture_usage(stdout, path)
+    by_key = {l["key"]: l for l in json.loads((tmp_path / "u.json").read_text())["limits"]}
+    assert by_key["primary"]["used_percent"] == 40.0
+    assert by_key["secondary"]["window_minutes"] == 300
+
+
+def test_capture_usage_no_event_writes_nothing_and_never_raises(tmp_path):
+    path = str(tmp_path / "none.json")
+    score._capture_usage("not json\n{}\n" + json.dumps({"type": "x"}), path)  # no rate_limits
+    assert not (tmp_path / "none.json").exists()
+    # an unwritable path must also be swallowed, never raised
+    score._capture_usage(_rate_event(1.0, 1, 1), "/nonexistent-dir/deep/none.json")
+
+
+def test_codex_scorer_captures_usage_when_path_set(monkeypatch, tmp_path):
+    usage = str(tmp_path / "codex_usage.json")
+    seen = {}
+    def run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump({"results": [{"job_ref": 1, **CODEX_PAYLOAD}]}, fh)
+        return Mock(returncode=0, stdout=_rate_event(32.0, 10080, 999), stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    score.make_codex_scorer("gpt-5.6-sol", usage_path=usage)([{**POSTING, "id": 1}], {"swe": "r"})
+    assert "--json" in seen["cmd"]  # streaming enabled only when a usage_path is set
+    written = json.loads((tmp_path / "codex_usage.json").read_text())
+    assert written["limits"][0]["used_percent"] == 32.0
+
+
+def test_codex_scorer_no_json_flag_without_usage_path(monkeypatch):
+    # The eval/test path must keep the exact call it was gated on — no --json.
+    seen = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
+    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
+    assert "--json" not in seen["cmd"]

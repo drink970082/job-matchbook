@@ -31,6 +31,7 @@ import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actio
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { ApplicationTable } from './ApplicationTable'
 import { DiscoveredJobsTable } from './DiscoveredJobsTable'
+import { CodexUsageBar } from './CodexUsageBar'
 import { WatchlistTable } from './WatchlistTable'
 import { PromotionSuggestions } from './PromotionSuggestions'
 import { UnresolvedFeedsTable } from './UnresolvedFeedsTable'
@@ -533,6 +534,7 @@ export function Dashboard({
                         <CardTitle className="text-lg">Discovered Jobs</CardTitle>
                     </CardHeader>
                     <CardContent>
+                        <CodexUsageBar />
                         <DiscoveredJobsTable
                             data={jobPostings}
                             total={totalJobs}

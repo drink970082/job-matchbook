@@ -155,7 +155,12 @@ re-run (reset the affected rows to `new`, or a one-off re-score) over the ~640 k
 the pass costs no money — but Plus meters a rolling **5-hour window** (~15–90 messages
 on `gpt-5.6-sol`). Unbatched (`batch_size=1`, **the parked default — see
 [above](#in-flight)**), ~640 rows is 640 messages and **cannot finish in one window**
-(spans 7+). **The batching win that would have dropped this to ~64 `codex exec` calls
+(spans 7+). **Correction 2026-07-17:** the observed *binding* limit is actually **weekly**
+(codex's own `rate_limits`: `window_minutes=10080`), not the assumed rolling 5-hour window
+(a 5h `secondary` may also exist but was null when observed), and codex reports remaining
+budget directly — now surfaced by the shipped [codex quota usage bar](../CHANGELOG.md)
+(SPEC §7.2). **Pace against the bar's real `used_percent`/reset, not the estimated window
+math above.** **The batching win that would have dropped this to ~64 `codex exec` calls
 (~10× fewer messages, ~6× fewer input tokens from amortizing the scaffolding prefix
 over 10 JDs/call) is unrealized and — as of 2026-07-17 — **permanently off the table:**
 the live batched==single verdict-drift guard (`tools/score_eval.py --batched`) ran
@@ -164,8 +169,8 @@ real context bleed that scales with batch size** and killed the `batch_size=5` m
 ground (see [above](#in-flight) and [Open work](#open-work)). So the operator re-run
 stays on the unbatched, multi-window math **for good**, not until a fix lands.
 Parallelism does NOT help either way (the cap is messages, not wall-clock); chunking
-across windows does — which makes the quota tracker + pacing gate ([Open
-work](#open-work)) the only remaining lever, and now the load-bearing one. At the cap
+across the weekly reset does — which makes pacing against the now-visible weekly budget
+(the shipped [usage bar](../CHANGELOG.md), SPEC §7.2) the load-bearing lever. At the cap
 Codex hard-blocks and `codex exec` exits 1 with no distinct rate-limit code, so a pacing
 script must match stderr text. Still not done automatically (mutates the DB); back up
 `db/applications.db` first, and confirm `codex doctor` shows auth ✓ — a mid-pass logout
@@ -292,25 +297,23 @@ longer decide PASS; gate-eligible drift is `19/21`). And **one draw per row per 
 structurally cannot separate bleed from noise — that is what `--drift-probe` is for. The
 guard's *verdict* (batching does not ship) stands and is now better-founded; its
 *reasoning* was partly wrong. Related: [[batching-bleeds-domain-verdicts]].
-- **Codex message-quota usage tracker (web + worker)** — `[M · new feature; needs a
-  design pass]`. **Promoted 2026-07-17: this is now the *only* lever on the quota
-  problem.** Batching was the other one, and the drift probe closed it for good (above),
-  so the ~640-row re-score is permanently a paced, multi-window job — which is exactly
-  what this instrument makes operable. The ChatGPT-Plus quota is **message-bound**
-  (rolling 5h window, ~15–90
-  msgs on sol, exact ceiling opaque, **no API to query remaining**), and at the cap
-  `codex exec` exits **1 with no distinct rate-limit code** (see [[codex-scorer-gotchas]]).
-  A ~640-row re-score spans 7+ windows, so the operator (and any pacing loop) is flying
-  blind on "how many calls have I burned this window / am I about to hit the wall." Wanted:
-  the worker records each `codex exec` (a timestamp, and a "capped" event when it detects
-  the exit-1 + stderr signature), and the web surfaces a **calls-in-the-trailing-5h-window
-  / estimated-budget** indicator. Necessarily a **best-effort local estimate**, not
-  authoritative (the real limit varies and can't be queried). Design forks (brainstorm
-  before building): where the log lives (a new Prisma table vs a worker-owned JSONL vs
-  derived from existing row `updated_at` timestamps); whether it's a passive counter or an
-  active **pacing gate** that pauses a re-score as it nears the cap; and how the worker
-  reliably fingerprints "capped" vs other exit-1 causes. This is the instrument that makes
-  the parked-batching / unbatched multi-window re-score actually operable.
+- **Codex quota usage bar — SHIPPED 2026-07-17** (was "message-quota usage tracker",
+  `[M]`). The design corrected two premises of the original plan: codex needs **no**
+  homegrown estimator — it reports usage itself (its `/status` `rate_limits`:
+  `used_percent`/`resets_at`/`plan_type`, on every response) — and the observed binding
+  limit is **weekly** (`window_minutes=10080`), not the assumed rolling 5h window. So the
+  scorer captures usage **free** off each scoring call (`codex exec --json`), writes a
+  `codex_usage.json` snapshot to the shared db mount, and the web renders a bar on the
+  Discovered Jobs view (`CodexUsageBar` + `app/api/codex-usage`). It's a budget indicator
+  (last scoring call, not live — a live reading would cost a message). **Dropped as
+  unneeded:** the JSONL call-counter, the exit-1 + stderr "capped" fingerprinting, the
+  Prisma-table/log-location fork (one shared-mount file, no schema change), and the active
+  pacing gate (YAGNI — the bar makes hand-pacing operable; revisit only if unattended
+  multi-window re-scores become routine). **One thing unverified without spending a quota
+  message:** that `codex exec --json` streams `rate_limits` to *stdout* (vs only the
+  session rollout) — confirmed by the next real scoring pass; the parser is already
+  validated against a real rollout event. See CHANGELOG + SPEC §7.1/§7.2, design
+  `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`. [[codex-scorer-gotchas]]
 - **`posted_at` for dateless boards** — `[S · accepted limitation]`. Pinpoint exposes no
   board date, so `posted_at` falls back to the scrape date for Pinpoint (and any dateless
   row). No fix unless a board adds a date — documented, low value.
