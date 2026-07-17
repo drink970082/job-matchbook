@@ -7,6 +7,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+- **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
+  The old one-line domain prompt ("is their background in this role's domain?") had no
+  criteria for `adjacent`, so the verdict was a vibe that drifted (a coin-flip on the
+  golden set's borderline rows and the dimension that bled under batching). It is now a
+  deterministic collapse of **three checks** recorded in the note — (1) ANTI-TARGETS,
+  (2) which TARGET priority (from the role's day-to-day work, not its title), (3) whether
+  the RÉSUMÉ evidences the field — against the operator's `personal_profile.txt`. This
+  keeps the single `domain` enum (no schema change) but makes the match/adjacent line —
+  which the notify predicate turns on — a checkable rule instead of a judgment call.
+  **The fit-score verdict-accuracy gate (`make eval-score`, K=3 × 21 rows) PASSES at
+  100% agreement / hard 10/10 / 5% flip** under the redesigned rubric (2026-07-17,
+  `gpt-5.6-sol`). Flip-rate collapsed from 24–38% (pre-redesign) to 5%. The golden set
+  and profile that validate it are operator-local (gitignored), so the committed artifact
+  is the rubric; the eval's validity is tied to the local profile + golden labels.
+  - **The "analyst penalty" was a profile tension, not a rubric bug.** Build-heavy
+    "Analyst"/"Researcher" seats (e.g. a prop-desk Trading Analyst) scored `adjacent`
+    because the model applied the profile's POSITIONING ("mostly engineering fits, mostly
+    research doesn't") and read them as analysis-central — demoting them below the
+    engineering-facing-analyst tier. The fix was in the **profile** (loosen the tier-3
+    analyst qualifier to include seats with substantial tooling/pipeline building even if
+    analysis-central), not the prompt: a prompt tweak that tried to force it (deliverable-
+    based check) backfired — it destabilized an ambiguous row into a false-notify and
+    over-corrected another. Same defect, opposite outcomes: fixing the profile *stabilized*
+    the ambiguous row (100% agreement), fixing the rubric destabilized it.
+
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched
   verdict drift is context bleed or draw noise. It's bleed, and it scales with batch

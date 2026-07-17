@@ -488,7 +488,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   enum-constrained `seniority` (match/too_junior/too_senior) and `domain`
   (match/adjacent/mismatch) verdicts + notes, split `must_haves` {met, missing} /
   `nice_to_haves` {missing}, and a one-line `summary` (**S2.1** — replaced the flat
-  `matched_keywords`/`missing_keywords` lists + prose `reasoning`). The prompt scores
+  `matched_keywords`/`missing_keywords` lists + prose `reasoning`). The **`domain`
+  verdict is a target-fit rule** (redesigned 2026-07-17, replacing the criteria-less
+  "is their background in this role's domain?"): the model records **three checks** in
+  the note — (1) ANTI-TARGETS, (2) which TARGET priority the role's *day-to-day work*
+  (not its title) falls under, (3) whether the RÉSUMÉ evidences the field — and collapses
+  them deterministically (`mismatch` if anti or no-target-and-no-background; `match` if
+  TARGET priority 1-3 and résumé-backed; `adjacent` otherwise) against the operator's
+  gitignored `personal_profile.txt` (TARGET tiers / ANTI-TARGETS / POSITIONING). This is
+  what makes the match/adjacent line — which the notify predicate turns on (§9) — a
+  checkable rule rather than a vibe, and drove the eval flip-rate from 24–38% to 5% (§13).
+  Because the verdict reads the profile, **verdict behavior is operator-tunable via the
+  profile, not only the prompt** — e.g. an "engineering-facing analyst with real tooling"
+  seat is a `match` or `adjacent` depending on how the profile's tier-3 qualifier is
+  drawn. The prompt scores
   from the verdicts: a material seniority gap floors the score at 0–30 (**D3**), and
   missing `nice_to_haves` barely move it (**D4**). The scorer also sets a top-level
   **`insufficient_context`** boolean (**case #2**): true when the JD is too thin,
@@ -1186,7 +1199,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
-| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the frozen golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path) |
+| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path). **Latest: 100% agreement / hard 10/10 / 5% flip (2026-07-17, target-fit domain rubric)** — one PASS; shipping needs two consecutive. The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 

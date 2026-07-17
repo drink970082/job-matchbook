@@ -27,6 +27,29 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+✅ **RESOLVED 2026-07-17 — domain rubric redesigned to target-fit; gate now PASSES
+100%.** The long saga below is the history; here is where it landed. The fit-score
+**domain** verdict was the unstable dimension (a vibe with no criteria — the thing that
+flipped on the golden set and bled under batching). It was rebuilt as a **three-check
+target-fit rule** (ANTI-TARGETS · TARGET priority from day-to-day work · RÉSUMÉ-evidenced
+field) collapsing to match/adjacent/mismatch against the operator's `personal_profile.txt`
+(see [SPEC](./SPEC.md) §13 + `CHANGELOG`). `make eval-score` (K=3 × 21 rows, `gpt-5.6-sol`)
+went **76% → 100% agreement, hard 10/10, flip-rate 24–38% → 5%** — one clean PASS; a second
+consecutive PASS is the remaining ship-gate (defer to a fresh quota window, before the
+backfill). **Two lessons banked:** (1) the "analyst penalty" (build-heavy Analyst/Trading-
+Analyst seats scoring `adjacent`) was a **profile** tension, not a rubric bug — the model
+faithfully applied POSITIONING's "mostly engineering" bar and read those seats as
+analysis-central; the fix was loosening the profile's tier-3 analyst qualifier, and it
+*stabilized* the ambiguous NLP row (id 111) that an equivalent **rubric** tweak had
+*destabilized into a false-notify*. Fix the source (profile), not the symptom (prompt).
+(2) The golden set is not frozen truth — several labels were written under the old
+"background" rubric and were **corrected to ground truth** during this pass (125/64 →
+mismatch, 26/111 → match as the profile evolved, 813/222 seniority → too_junior from
+stated bars). The golden set + profile are **operator-local (gitignored)**, so the
+committed artifact is `score.txt`; the eval's validity is tied to the local profile +
+labels. **Batching stays dead** (confirmed twice, §13 + [Open work](#open-work)); the
+quota problem routes to pacing + the usage tracker. Below: the full history.
+
 🚧 **Codex fit-score backend shipped; gate FAILED on flip-rate in BOTH configs tried —
 root cause is the *rubric*, not the backend, and config-spinning is the wrong lever.
 Routing half now RESOLVED (2026-07-16): notify (`db.get_notifiable`) and the web
@@ -327,6 +350,34 @@ guard's *verdict* (batching does not ship) stands and is now better-founded; its
   extraction fails (JS-rendered / bot-walled / odd markup), let Claude fetch the job page and
   score fit directly from the raw page, bypassing parse-then-score. Candidate landing spot
   for the iCIMS/ByteDance tail if the headless fetch alone isn't enough.
+- **External reference — `github.com/MadsLorentzen/ai-job-search`** — `[reference · mine,
+  don't adopt wholesale]`. A Claude-Code-native, human-in-the-loop application *framework*
+  (skills + slash commands + LaTeX CV/cover-letter gen, flat-file state, no backend) — the
+  mirror image of our automated `fetch → screen → score → notify` pipeline, so nothing is
+  drop-in. Four pieces worth mining:
+  - **Their fit rubric (`04-job-evaluation.md`) cross-checks our `score.txt`:** 5 explicit
+    dimensions (Technical 30% · Experience 25% · Behavioral 15% · Career-alignment 30% ·
+    Location = hard pass/fail) with named bands (Strong 75+ / Good 60 / Moderate 45 / Weak 30).
+    Confirms two of our choices — location as a separate deal-breaker, and a career
+    "energize vs. drain" filter ≈ our TARGET/ANTI-TARGETS. **But a weighted-average-of-5-
+    subscores would multiply band edges** — the exact quantization-boundary noise the fit-rubric
+    design call is trying to move *off* (see [In flight](#in-flight)). A fork to weigh, not a copy.
+  - **Their `/rank` independently validates "batching is dead" (above).** Its "batch scoring"
+    is **N parallel agents, ~5 jobs each, every job scored from its own fetched content** —
+    isolated contexts, never concatenated JDs. A second project landing on isolate-don't-
+    concatenate corroborates [[batching-bleeds-domain-verdicts]]. Their triage-vs-authoritative
+    split (cheap posting-only score; full eval re-runs on apply) ≈ our screen-vs-score split.
+  - **Sources: only LinkedIn is worth taking.** Their LinkedIn public `jobs-guest` endpoint
+    (unauthenticated, zero-dep, location as a flag; personal-use / ToS caveat, keep volume low)
+    is a viable new adapter — folds into **More board adapters** above. Their Danish boards and
+    freehire.dev are not for us; **the source strategy stays the universal codex/claude scraper,
+    not per-board CLIs** (operator call).
+  - **Fetch hygiene worth mirroring:** "a dead / redirected / expired posting is marked
+    `expired`, never scored from the title." Their CI `security_guards.py` (asserts no
+    secrets / PII committed) echoes [[user-security-privacy-prefs]] — a small privacy-guard test
+    alongside `check_schema_drift` is a cheap future option.
+  - *Skip:* LaTeX/CV gen, `/setup`·`/interview`·`/upskill`, salary tool, `/html-report`, the
+    no-DB architecture — out of scope or already done better here.
 
 ---
 
