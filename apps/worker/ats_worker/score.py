@@ -932,8 +932,9 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     persist and push to Telegram. Dropping the tools removes the capability instead of
     trusting the model to decline (it did decline when probed — but that's compliance,
     not a guarantee). Measured bonus: it also cut ~3.1k input tokens/call (12,755 ->
-    9,659 on an identical prompt), which is real relief on the per-5h message cap that
-    actually bounds a 640-row batch. NOTE: the official docs claim there's no way to
+    9,659 on an identical prompt), which is real relief on the message budget that
+    actually bounds a 640-row batch (weekly-metered — see make_codex_scorer's usage
+    capture and docs/SPEC.md §11). NOTE: the official docs claim there's no way to
     disable exec; they're wrong as of 0.144.4 (verified behaviorally). `web_search`
     defaults to ON ("cached") — off here: scoring is a closed-book judgment over the JD
     and résumé, and a live lookup would add latency and one more source of variance.

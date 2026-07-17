@@ -1103,10 +1103,13 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Subscription quota is the real bound on a big re-score — flat-rate is NOT
   unlimited, and batching, if it shipped, is what would make the queue fit it.
   It doesn't ship: the acceptance guard failed, so the win below is unrealized.**
-  Codex on ChatGPT Plus meters a rolling **5-hour message window** (plus a weekly
-  cap): roughly 15–90 messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). At the
-  **shipped default** `batch_size=1`, a ~640-row re-score is 640 messages — **cannot
-  finish in one window**, spans 7+ — and this is the actual current cost, not a
+  Codex on ChatGPT Plus meters usage as a **message budget** whose observed **binding
+  limit is weekly** (codex's own `rate_limits`: `window_minutes=10080`; a shorter 5h
+  `secondary` may also apply but was null when observed — the capture renders whatever
+  codex reports, §7.1). At the **shipped default** `batch_size=1`, a ~640-row re-score is
+  ~640 messages against that budget — it must be **paced against remaining weekly
+  headroom** (now visible via the codex usage bar, §7.2), not run in one sitting — and
+  this is the actual current cost, not a
   worst case: batching machinery exists (`--batch-size`/`CODEX_BATCH_SIZE`, §7.1/§9)
   but is **parked at `batch_size=1` (default-off)**. *If* raised to `batch_size=10`,
   the same 640 rows would become **~64 `codex exec` calls** — turning a multi-window
