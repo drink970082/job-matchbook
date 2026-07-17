@@ -42,14 +42,6 @@ export const VALID_SOURCES = [
   'workable',
 ] as const
 
-// Score at/above which a scored posting counts as a "match" (mirrors the worker's
-// notification threshold — the score at/above which the worker sends a Telegram
-// alert). Below it, a scored posting is under the bar and shown under the Below-bar
-// view rather than Matched (the Below-bar bucket spans ALL sub-threshold scored rows,
-// so nothing scored is orphaned; the Discarded bucket is disqualified-only). See
-// getJobPostings.
-export const MATCH_SCORE_THRESHOLD = 75
-
 // A scored posting whose JD body (trimmed) is shorter than this many characters is
 // treated as "low-context": too thin to screen/score with confidence. Such rows are
 // pulled out of Matched/Discarded into their own Low-context bucket so they're

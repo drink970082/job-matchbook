@@ -24,6 +24,13 @@ import { makeApplication, makeJobPosting, makeStatusHistory } from '@/test-utils
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
 
+// The `matched` bucket keys on the fit verdicts (seniority=match AND domain=match),
+// the SAME predicate the worker's notify gate uses — NOT on score. Seed this into
+// score_detail for any row a test expects to land in `matched`.
+const MATCH_VERDICT = JSON.stringify({
+    assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } },
+})
+
 
 // --- markJobApplied: transaction atomicity --------------------------------
 
@@ -140,16 +147,16 @@ test('getApplications paginates (skip = page*size) and orders by date desc', asy
 // --- getJobPostings: score-aware buckets + ordering + unique constraint ----
 
 test('getJobPostings buckets postings by score and status', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm1', score: 90, pipeline_status: 'scored' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm2', score: 80, pipeline_status: 'notified' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 60, pipeline_status: 'scored' }) })    // below the bar
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm1', score: 90, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'm2', score: 80, pipeline_status: 'notified', score_detail: MATCH_VERDICT }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'lo', score: 60, pipeline_status: 'scored' }) })    // no verdicts -> below the bar
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dq', score: 95, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'location: onsite London, UK' }) }) }) // disqualified
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'fx', score: 88, pipeline_status: 'failed' }) })
 
     const matched = await getJobPostings({ bucket: 'matched' })
-    expect(matched.data.map((d) => d.external_id)).toEqual(['m1', 'm2'])  // >=75, score desc
+    expect(matched.data.map((d) => d.external_id)).toEqual(['m1', 'm2'])  // match/match verdicts, score desc
 
-    // belowbar = live (scored|notified) rows under the threshold (incl. deep misses)
+    // belowbar = live (scored|notified) rows outside the matched verdict set
     const belowbar = await getJobPostings({ bucket: 'belowbar' })
     expect(belowbar.data.map((d) => d.external_id)).toEqual(['lo'])
 
@@ -162,7 +169,7 @@ test('getJobPostings buckets postings by score and status', async () => {
 })
 
 test('getJobPostings returns created_at and posted_at for each row', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', score: 90, pipeline_status: 'scored', created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'dt', score: 90, pipeline_status: 'scored', score_detail: MATCH_VERDICT, created_at: '2026-06-03T00:00:00.000Z', posted_at: '2026-06-01' }) })
     const { data } = await getJobPostings({ bucket: 'matched' })
     expect(data[0].created_at).toBe('2026-06-03T00:00:00.000Z')
     expect(data[0].posted_at).toBe('2026-06-01')
@@ -170,7 +177,7 @@ test('getJobPostings returns created_at and posted_at for each row', async () =>
 
 test('getJobPostings paginates', async () => {
     for (let i = 0; i < 7; i++) {
-        await prisma.job_postings.create({ data: makeJobPosting({ external_id: `p${i}`, score: 90 - i, pipeline_status: 'scored' }) })
+        await prisma.job_postings.create({ data: makeJobPosting({ external_id: `p${i}`, score: 90 - i, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
     }
     const p0 = await getJobPostings({ bucket: 'matched', page: 0, size: 5 })
     expect(p0.data).toHaveLength(5)
@@ -223,8 +230,8 @@ test('getJobPostings isolates low-context (thin-JD) rows into their own bucket',
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-hi', score: 90, pipeline_status: 'scored', description: 'Thin JD.' }) })
     // Thin JD + below-threshold score: would land in the `discarded` view otherwise.
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-lo', score: 65, pipeline_status: 'notified', description: 'Too short.' }) })
-    // Normal (full-length) JD, matched score: stays in `matched`.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full-hi', score: 88, pipeline_status: 'scored' }) })
+    // Normal (full-length) JD, matched verdicts: stays in `matched`.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full-hi', score: 88, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
     // Thin JD but disqualified/discarded (not scored|notified): keeps its own bucket.
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-dq', score: 90, pipeline_status: 'discarded', description: 'Nope.', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'on-site' }) }) })
 
@@ -243,8 +250,8 @@ test('getJobPostings routes the scorer insufficient_context flag into low-contex
     // Full-length JD that would land in `matched`, but the fit scorer flagged it too
     // boilerplate/truncated to trust — the persisted flag alone routes it to Low-context.
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'insuf', score: 90, pipeline_status: 'scored', score_detail: JSON.stringify({ insufficient_context: true }) }) })
-    // Full JD, no flag: stays in matched.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full', score: 88, pipeline_status: 'scored' }) })
+    // Full JD, no flag, matched verdicts: stays in matched.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'full', score: 88, pipeline_status: 'scored', score_detail: MATCH_VERDICT }) })
 
     const low = await getJobPostings({ bucket: 'lowcontext' })
     expect(low.data.map((d) => d.external_id)).toEqual(['insuf'])
@@ -254,14 +261,41 @@ test('getJobPostings routes the scorer insufficient_context flag into low-contex
 })
 
 test('getJobPostings sort=posted orders by posted_at desc', async () => {
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', score: 80, pipeline_status: 'scored', posted_at: '2026-01-01' }) })
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', score: 80, pipeline_status: 'scored', posted_at: '2026-06-01' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', score: 80, pipeline_status: 'scored', score_detail: MATCH_VERDICT, posted_at: '2026-01-01' }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', score: 80, pipeline_status: 'scored', score_detail: MATCH_VERDICT, posted_at: '2026-06-01' }) })
 
     const byScore = await getJobPostings({ bucket: 'matched' })                  // default: score desc, id asc
     expect(byScore.data.map((d) => d.external_id)).toEqual(['old', 'new'])       // tie score -> id asc
 
     const byPosted = await getJobPostings({ bucket: 'matched', sort: 'posted' })
     expect(byPosted.data.map((d) => d.external_id)).toEqual(['new', 'old'])      // newest posted first
+})
+
+test('matched bucket keys on verdicts, not score', async () => {
+    // High score but only an adjacent-domain verdict: NOT matched under verdict routing.
+    await prisma.job_postings.create({
+        data: makeJobPosting({
+            external_id: 'high-adjacent',
+            score: 90,
+            pipeline_status: 'scored',
+            score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'adjacent' } } }),
+        }),
+    })
+    // Lower score but a clean match/match verdict: IS matched.
+    await prisma.job_postings.create({
+        data: makeJobPosting({
+            external_id: 'low-match',
+            score: 60,
+            pipeline_status: 'scored',
+            score_detail: JSON.stringify({ assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } } }),
+        }),
+    })
+
+    const matched = await getJobPostings({ bucket: 'matched' })
+    expect(matched.data.map((d) => d.external_id)).toEqual(['low-match'])
+
+    const belowbar = await getJobPostings({ bucket: 'belowbar' })
+    expect(belowbar.data.map((d) => d.external_id)).toContain('high-adjacent')
 })
 
 test('the (source, external_id) unique constraint is enforced', async () => {

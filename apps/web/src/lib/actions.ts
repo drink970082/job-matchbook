@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, MATCH_SCORE_THRESHOLD, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -54,9 +54,12 @@ const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
 
 // Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
 // non-lowcontext bucket is mutually exclusive of the derived low-context id set:
-//   matched    — live (scored|notified) + score ≥ threshold (the actionable set)
-//   belowbar   — live + score < threshold (scored, but under the bar — incl. deep
-//                misses far below it; nothing scored is ever orphaned)
+//   matched    — live (scored|notified) + fit verdicts are seniority=match AND
+//                domain=match AND NOT insufficient_context (the actionable set —
+//                the SAME predicate the worker's notify gate uses, so the UI and
+//                the Telegram notification never disagree; see matchedIds)
+//   belowbar   — live + NOT in the matched id set (scored, but not a verdict match —
+//                incl. deep misses; nothing scored is ever orphaned)
 //   discarded  — disqualified ONLY: pipeline_status='discarded' with the screen's
 //                disqualified:true (hard-constraint failures — the audit view)
 //   lowcontext — live but the JD was too thin to score with confidence (derived)
@@ -86,7 +89,7 @@ function buildJobWhere(params: {
     bucket?: JobBucket
     search?: string
     minScore?: number
-}): Prisma.job_postingsWhereInput {
+}, matchIds: number[]): Prisma.job_postingsWhereInput {
     const bucket = params.bucket ?? 'matched'
     const search = params.search || ''
     const minScore = params.minScore
@@ -107,18 +110,22 @@ function buildJobWhere(params: {
             ],
         }
     } else if (bucket === 'belowbar') {
-        // Scored but under the bar: live rows below threshold (incl. deep misses far
-        // below it — nothing scored is orphaned). ACTIVE rows are never
-        // disqualified, so this is cleanly "scored yet not a match".
+        // Scored but not a verdict match: live rows outside the matched id set (incl.
+        // deep misses — nothing scored is orphaned). ACTIVE rows are never
+        // disqualified, so this is cleanly "scored yet not a match". Guarded like the
+        // lowIds `notIn`: an empty matchIds must NOT emit `NOT IN ()` (which SQLite/
+        // Prisma would treat as excluding nothing rather than excluding everything).
         bucketFilter = {
             pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-            score: { lt: MATCH_SCORE_THRESHOLD },
+            ...(matchIds.length > 0 ? { id: { notIn: matchIds } } : {}),
         }
     } else {
-        // matched
+        // matched — the SAME verdict predicate as the worker's notify gate
+        // (seniority=match AND domain=match AND NOT insufficient_context). An empty
+        // matchIds correctly yields `id IN ()` → no rows, so no guard needed here.
         bucketFilter = {
             pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-            score: { gte: MATCH_SCORE_THRESHOLD },
+            id: { in: matchIds },
         }
     }
 
@@ -173,6 +180,26 @@ async function lowContextIds(): Promise<number[]> {
     return rows.map((r) => Number(r.id))
 }
 
+// Ids of "matched" postings: the SAME verdict predicate as the worker's notify gate
+// (ats_worker/db.py get_notifiable) — seniority=match AND domain=match AND NOT
+// insufficient_context — so the UI's Matched tab and the Telegram notification never
+// disagree. Score alone is a rubric-band-quantized number that flips run-to-run near
+// the old threshold; the verdicts are stable (see PROGRESS.md). Prisma's typed
+// `where` can't reach into the score_detail JSON, so — mirroring lowContextIds — we
+// fetch the matching ids once with a raw query and layer them onto the matched/
+// belowbar bucket queries (id `in` for matched, `notIn` for belowbar). Scope: only
+// rows that actually received a fit score (scored|notified).
+async function matchedIds(): Promise<number[]> {
+    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
+        SELECT id FROM job_postings
+        WHERE pipeline_status IN ('scored', 'notified')
+          AND json_extract(score_detail, '$.assessment.seniority.verdict') = 'match'
+          AND json_extract(score_detail, '$.assessment.domain.verdict') = 'match'
+          AND COALESCE(json_extract(score_detail, '$.insufficient_context'), 0) <> 1
+    `
+    return rows.map((r) => Number(r.id))
+}
+
 export async function getJobPostings(params: {
     bucket?: JobBucket
     search?: string
@@ -187,7 +214,7 @@ export async function getJobPostings(params: {
     const search = params.search || ''
     const minScore = params.minScore
 
-    const lowIds = await lowContextIds()
+    const [lowIds, matchIds] = await Promise.all([lowContextIds(), matchedIds()])
     let where: Prisma.job_postingsWhereInput
     if (params.bucket === 'lowcontext') {
         // The low-context bucket IS the thin-JD id set, plus the shared search/minScore filters.
@@ -205,7 +232,7 @@ export async function getJobPostings(params: {
         // exclusive (a thin-JD scored row shows only under Low-context). Append the
         // exclusion as a peer clause (keeping buildJobWhere's flat AND shape); guarded
         // so an empty set doesn't emit a `NOT IN ()`.
-        const base = buildJobWhere(params)
+        const base = buildJobWhere(params, matchIds)
         // Discarded-only cause sub-filter: layer the raw-query id set as `id IN`.
         const causeClause =
             params.bucket === 'discarded' && params.cause
@@ -300,7 +327,8 @@ export async function removeAllInView(filter: {
     cause?: DisqualifyCause
 }) {
     try {
-        const base = buildJobWhere(filter)
+        const matchIds = await matchedIds()
+        const base = buildJobWhere(filter, matchIds)
         const causeClause =
             filter.bucket === 'discarded' && filter.cause
                 ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
