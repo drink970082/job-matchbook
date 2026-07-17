@@ -226,8 +226,9 @@ test('getJobPostings discarded excludes a below-threshold scored row (disqualifi
 })
 
 test('getJobPostings isolates low-context (thin-JD) rows into their own bucket', async () => {
-    // Thin JD + matched-range score: would land in `matched` if not for its thinness.
-    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-hi', score: 90, pipeline_status: 'scored', description: 'Thin JD.' }) })
+    // Thin JD + match/match verdicts: would land in `matched` if not for its thinness —
+    // it's excluded from matched by the notIn-lowIds layering, NOT by lacking verdicts.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-hi', score: 90, pipeline_status: 'scored', description: 'Thin JD.', score_detail: MATCH_VERDICT }) })
     // Thin JD + below-threshold score: would land in the `discarded` view otherwise.
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'thin-lo', score: 65, pipeline_status: 'notified', description: 'Too short.' }) })
     // Normal (full-length) JD, matched verdicts: stays in `matched`.
