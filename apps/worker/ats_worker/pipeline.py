@@ -23,7 +23,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from . import db
+from . import db, score
 from .fetch import DETAIL_SOURCES, fetch_company, fetch_one_company, filter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
@@ -220,42 +220,114 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
 # --- score ----------------------------------------------------------------
 
-def run_score(conn, *, now, score_fn) -> None:
-    """Score every 'new' posting -> 'scored', or 'discarded' when the scorer flags
+def _score_detail(result: dict, *, disqualified: bool) -> dict:
+    """Assemble the persisted score_detail JSON from a screen+fit result.
+
+    Shared by the disqualified-discard path (screen alone) and the scored path
+    (normalized fit merged with screen) so both produce the SAME shape for the
+    same inputs — byte-identical to the pre-B3 run_score's inline assembly.
+    """
+    detail: dict = {}
+    # The fit scorecard (seniority/domain verdicts, must/nice-to-haves, summary).
+    # Absent on disqualified rows — the fit call is skipped, so no assessment.
+    if result.get("assessment"):
+        detail["assessment"] = result["assessment"]
+    # Per-requirement screen verdicts (which hard requirements passed/failed)
+    # — kept for transparency so the UI can show why something was dropped.
+    if result.get("screen"):
+        detail["screen"] = result["screen"]
+    # Which resume version the scorer recommends sending — rides the
+    # score_detail JSON (no schema change), surfaced in Telegram + UI.
+    if result.get("recommended_resume"):
+        detail["recommended_resume"] = result["recommended_resume"]
+    # JD too thin to score with confidence — routes to the low-context bucket
+    # in the UI (alongside the deterministic <N-char rule), regardless of score.
+    if result.get("insufficient_context"):
+        detail["insufficient_context"] = True
+    if disqualified:
+        detail["disqualified"] = True
+        detail["disqualification_reason"] = result.get("disqualification_reason", "")
+    return detail
+
+
+def _chunks(seq: list, n: int):
+    """Yield `seq` sliced into consecutive chunks of at most `n` items."""
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
+def _persist_scored(conn, row, screen: dict, card: dict, *, now) -> None:
+    """Normalize one raw fit scorecard, merge the screen verdict on top (mirrors
+    B2's score_posting: normalize-then-update), and persist 'scored'. A
+    structurally-bad scorecard (score.ScoreError from _normalize_score) fails
+    only THIS row — it must not abort the chunk it's part of."""
+    try:
+        result = {**score._normalize_score(card), **screen}
+    except score.ScoreError as exc:
+        db.mark_failed(conn, row["id"], error=str(exc), now=now)
+        return
+    disqualified = bool(result.get("disqualified"))
+    detail = _score_detail(result, disqualified=disqualified)
+    db.save_score(
+        conn, row["id"], score=int(result["score"]),
+        score_detail=detail, now=now,
+        status="scored",
+    )
+
+
+def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
+    """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
-    kept either way so the UI can show why something was dropped."""
+    kept either way so the UI can show why something was dropped.
+
+    Three phases:
+      1. SCREEN every 'new' row (cheap, local Ollama, per-item — one bad screen
+         call marks only that row 'failed' and never blocks the rest). A
+         disqualified posting is persisted 'discarded' right here and NEVER
+         reaches the fit scorer — that's the whole point of screening first.
+      2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call —
+         the codex quota win (message-bound, not token-bound).
+      3. FALLBACK: a chunk that raises ScoreError (e.g. a batch alignment/parse
+         failure) is retried as one `fit_fn` call PER posting in that chunk, so
+         a single bad JD in a batch doesn't sink its batch-mates. A single that
+         STILL fails marks only that row 'failed'.
+    """
+    survivors: list[tuple] = []  # (row, posting, screen)
     for row in db.get_by_status(conn, "new"):
         posting = dict(row)
         try:
-            result = score_fn(posting)
-            disqualified = bool(result.get("disqualified"))
-            detail = {}
-            # The fit scorecard (seniority/domain verdicts, must/nice-to-haves, summary).
-            # Absent on disqualified rows — the fit call is skipped, so no assessment.
-            if result.get("assessment"):
-                detail["assessment"] = result["assessment"]
-            # Per-requirement screen verdicts (which hard requirements passed/failed)
-            # — kept for transparency so the UI can show why something was dropped.
-            if result.get("screen"):
-                detail["screen"] = result["screen"]
-            # Which resume version the scorer recommends sending — rides the
-            # score_detail JSON (no schema change), surfaced in Telegram + UI.
-            if result.get("recommended_resume"):
-                detail["recommended_resume"] = result["recommended_resume"]
-            # JD too thin to score with confidence — routes to the low-context bucket
-            # in the UI (alongside the deterministic <N-char rule), regardless of score.
-            if result.get("insufficient_context"):
-                detail["insufficient_context"] = True
-            if disqualified:
-                detail["disqualified"] = True
-                detail["disqualification_reason"] = result.get("disqualification_reason", "")
-            db.save_score(
-                conn, row["id"], score=int(result["score"]),
-                score_detail=detail, now=now,
-                status="discarded" if disqualified else "scored",
-            )
-        except Exception as exc:  # noqa: BLE001
+            screen = screen_fn(posting)
+        except Exception as exc:  # noqa: BLE001 — one bad screen must not abort the pass
             db.mark_failed(conn, row["id"], error=str(exc), now=now)
+            continue
+        if screen.get("disqualified"):
+            db.save_score(
+                conn, row["id"], score=0,
+                score_detail=_score_detail(screen, disqualified=True),
+                now=now, status="discarded",
+            )
+        else:
+            survivors.append((row, posting, screen))
+
+    for chunk in _chunks(survivors, batch_size):
+        postings = [p for (_row, p, _screen) in chunk]
+        try:
+            cards = fit_fn(postings)
+        except score.ScoreError:
+            cards = None
+        if cards is None:
+            # Fallback: retry this chunk's postings one fit_fn call each, so one
+            # bad JD in the batch doesn't sink its batch-mates.
+            for row, posting, screen in chunk:
+                try:
+                    card = fit_fn([posting])[0]
+                except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
+                    db.mark_failed(conn, row["id"], error=str(exc), now=now)
+                    continue
+                _persist_scored(conn, row, screen, card, now=now)
+        else:
+            for (row, posting, screen), card in zip(chunk, cards):
+                _persist_scored(conn, row, screen, card, now=now)
 
 
 # --- notify ---------------------------------------------------------------

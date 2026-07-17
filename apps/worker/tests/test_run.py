@@ -9,6 +9,20 @@ from ats_worker import run
 from tests._helpers import bootstrap_db, make_posting
 
 
+def _assessment(**over):
+    """A minimally-valid fit assessment scorecard (passes score._normalize_score's
+    enum checks) so a fake fit closure's card doesn't itself raise ScoreError."""
+    base = {
+        "seniority": {"verdict": "match", "note": ""},
+        "domain": {"verdict": "match", "note": ""},
+        "must_haves": {"met": [], "missing": []},
+        "nice_to_haves": {"missing": []},
+        "summary": "",
+    }
+    base.update(over)
+    return base
+
+
 def test_feed_session_is_per_thread():
     # The concurrent feed fetch needs ONE requests.Session per worker thread (Session
     # is not safe to share). Same thread reuses; different threads get distinct ones.
@@ -143,18 +157,25 @@ def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
 
 # --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---
 
-def _run_once_capturing_score(monkeypatch, tmp_path, cfg, env):
+def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
     """Drive the REAL run_score over one 'new' row, capturing the kwargs the wired
-    score_fn passes to score_posting. fetch/notify are stubbed so no network
-    or Claude/Telegram is touched."""
+    screen_fn passes to screen_posting. fetch/notify are stubbed, and the fit
+    scorer's BUILD is stubbed to a trivial hermetic callable — the fake screen
+    always survives (not disqualified), so run_score's fit phase does run, and
+    it must not shell out to a real codex/Claude backend."""
     captured = {}
 
-    def fake_score_posting(posting, resume_text, **kwargs):
+    def fake_screen_posting(posting, **kwargs):
         captured["kwargs"] = kwargs
         captured["posting"] = posting
-        return {"score": 70}
+        return {"disqualified": False}
 
-    monkeypatch.setattr(run, "score_posting", fake_score_posting)
+    monkeypatch.setattr(run, "screen_posting", fake_screen_posting)
+    monkeypatch.setattr(
+        run, "make_scorer",
+        lambda backend, **kw: (lambda postings, resumes: [
+            {"score": 70, "assessment": _assessment()} for _ in postings]),
+    )
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
     monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
 
@@ -177,23 +198,27 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     )
     env = {"OLLAMA_NUM_CTX": "4096", "OLLAMA_HOST": "http://ol:11434",
            "ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
+    kw = _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env)["kwargs"]
     cand = kw["candidate"]
     assert cand["highest_degree"] == "Master's"
     assert cand["locations"] == ["remote", "USA"]
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
     assert kw["ollama_host"] == "http://ol:11434"
-    assert callable(kw["score_fit"])                   # Claude scorer injected
+    # (fit-scorer wiring — which backend/model builds fit_fn — is verified by the
+    # score-model/backend tests below via make_scorer/make_claude_scorer/
+    # make_codex_scorer; screen_posting has no score_fit kwarg to inspect here.)
 
 
-def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, score_model,
-                                         score_backend="claude"):
-    """Like _run_once_capturing_score, but passes the score backend + its model through
-    (backend defaults to claude here: the default run backend is codex now)."""
-    def fake_score_posting(posting, resume_text, **kwargs):
-        return {"score": 70}
-    monkeypatch.setattr(run, "score_posting", fake_score_posting)
+def _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env, *, score_model,
+                                  score_backend="claude"):
+    """Like _run_once_capturing_screen, but leaves make_claude_scorer/
+    make_codex_scorer for the caller to monkeypatch (to capture the model kwarg
+    fit_fn's lazy build calls it with). screen_fn is stubbed to a hermetic
+    always-survives fake so control reaches fit_fn regardless of candidate
+    config (backend defaults to claude here: the default run backend is codex
+    now)."""
+    monkeypatch.setattr(run, "screen_posting", lambda posting, **kw: {"disqualified": False})
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
     monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
     dbfile = tmp_path / "applications.db"
@@ -209,14 +234,17 @@ def _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env, *, sco
 
 def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(run, "make_claude_scorer",
-                        lambda key, model, **kw: seen.setdefault("model", model) or
-                        (lambda posting, resume_text: {"score": 70}))
+
+    def fake_make_claude_scorer(key, model, **kw):
+        seen["model"] = model
+        return lambda postings, resumes: [{"score": 70} for _ in postings]
+
+    monkeypatch.setattr(run, "make_claude_scorer", fake_make_claude_scorer)
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
     env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
            "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env,
-                                         score_model="claude-opus-4-8")
+    _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env,
+                                  score_model="claude-opus-4-8")
     assert seen["model"] == "claude-opus-4-8"
 
 
@@ -244,13 +272,16 @@ def test_run_once_defaults_to_the_codex_scorer(monkeypatch, tmp_path):
     # The default pass builds the codex scorer and never reads ANTHROPIC_API_KEY —
     # env here deliberately omits it, so a regression to Claude raises KeyError.
     seen = {}
-    monkeypatch.setattr(run, "make_codex_scorer",
-                        lambda model, **kw: seen.setdefault("model", model) or
-                        (lambda posting, resumes: {"score": 70}))
+
+    def fake_make_codex_scorer(model, **kw):
+        seen["model"] = model
+        return lambda postings, resumes: [{"score": 70} for _ in postings]
+
+    monkeypatch.setattr(run, "make_codex_scorer", fake_make_codex_scorer)
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
     env = {"OLLAMA_HOST": "h", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    _run_once_capturing_score_with_model(monkeypatch, tmp_path, cfg, env,
-                                         score_model="unused", score_backend=None)
+    _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env,
+                                  score_model="unused", score_backend=None)
     assert seen["model"] == run.DEFAULT_CODEX_SCORE_MODEL
 
 
@@ -258,7 +289,7 @@ def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
     env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
            "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    kw = _run_once_capturing_score(monkeypatch, tmp_path, cfg, env)["kwargs"]
+    kw = _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env)["kwargs"]
     assert kw["candidate"] is None                     # is_empty() -> no SCREEN call
     assert kw["num_ctx"] == 8192                        # default when env omits it
 

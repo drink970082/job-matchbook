@@ -7,13 +7,28 @@ from __future__ import annotations
 
 import json as _json
 
-from ats_worker import db, pipeline
+from ats_worker import db, pipeline, score
 from tests._helpers import (
     NOW,
     make_posting as _posting,
     seed_new as _seed_new,
     seed_scored as _seed_scored,
 )
+
+
+def _assessment(**over):
+    """A minimally-valid fit assessment scorecard — passes score._normalize_score's
+    enum checks (seniority/domain verdicts) so a fit_fn fake's card doesn't itself
+    raise ScoreError before run_score's fallback logic is what's under test."""
+    base = {
+        "seniority": {"verdict": "match", "note": ""},
+        "domain": {"verdict": "match", "note": ""},
+        "must_haves": {"met": [], "missing": []},
+        "nice_to_haves": {"missing": []},
+        "summary": "",
+    }
+    base.update(over)
+    return base
 
 
 # --- run_fetch ------------------------------------------------------------
@@ -58,13 +73,17 @@ def test_run_score_only_new_and_one_failure_isolated(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1", "2", "3"])
 
-    def score_fn(posting):
+    # The failure is a screen-stage error (e.g. Ollama down) — one bad SCREEN
+    # call must not abort the pass; the other two rows still get scored.
+    def screen_fn(posting):
         if posting["external_id"] == "2":
             raise RuntimeError("ollama down")
-        return {"score": 90, "matched_keywords": [], "missing_keywords": [],
-                "reasoning": "ok"}
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        return [{"score": 90, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
 
     statuses = {
         r["external_id"]: r["pipeline_status"]
@@ -83,11 +102,14 @@ def test_run_score_skips_non_new(db_path):
 
     called = []
 
-    def score_fn(posting):
+    def screen_fn(posting):
         called.append(posting["external_id"])
-        return {"score": 1}
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        raise AssertionError("fit must not run — there are no 'new' rows")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
     assert called == []
 
 
@@ -172,18 +194,21 @@ def test_run_score_disqualified_is_discarded_with_reason(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1", "2"])
 
-    def score_fn(posting):
+    def screen_fn(posting):
         if posting["external_id"] == "1":
-            return {"score": 88, "matched_keywords": [], "missing_keywords": [],
-                    "reasoning": "strong", "disqualified": True,
-                    "disqualification_reason": "requires a PhD"}
-        return {"score": 80, "disqualified": False}
+            return {"disqualified": True, "disqualification_reason": "requires a PhD"}
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        return [{"score": 80, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert rows["1"]["pipeline_status"] == "discarded"
     assert rows["2"]["pipeline_status"] == "scored"
-    assert rows["1"]["score"] == 88  # score kept even when discarded
+    # A disqualified posting never reaches the fit scorer (screened out before
+    # the fit phase even runs) — so it's persisted with score 0, not a fit score.
+    assert rows["1"]["score"] == 0
     detail = _json.loads(rows["1"]["score_detail"])
     assert detail["disqualified"] is True
     assert detail["disqualification_reason"] == "requires a PhD"
@@ -193,10 +218,14 @@ def test_run_score_insufficient_context_persisted(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1"])
 
-    def score_fn(posting):
-        return {"score": 55, "insufficient_context": True, "disqualified": False}
+    def screen_fn(posting):
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        return [{"score": 55, "insufficient_context": True, "assessment": _assessment()}
+                for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert rows["1"]["pipeline_status"] == "scored"   # still scored; the UI routes it
     detail = _json.loads(rows["1"]["score_detail"])
@@ -209,10 +238,13 @@ def test_run_score_failure_records_error_and_increments_attempts(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1"])
 
-    def score_fn(posting):
+    def screen_fn(posting):
         raise RuntimeError("ollama down")
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        raise AssertionError("fit must not run — the screen failed")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "failed"
     assert row["attempts"] == 1
@@ -224,11 +256,14 @@ def test_run_score_passes_full_posting_to_scorer(db_path):
     _seed_new(conn, ["1"])
     seen = {}
 
-    def score_fn(posting):
-        seen.update(posting)
-        return {"score": 50}
+    def screen_fn(posting):
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        seen.update(postings[0])
+        return [{"score": 50, "assessment": _assessment()}]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
     assert seen.get("description")   # the JD text reached the scorer, not just the id
     assert seen.get("job_title")
 
@@ -237,14 +272,19 @@ def test_run_score_persists_recommended_resume(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1", "2"])
 
-    def score_fn(posting):
-        base = {"score": 88, "matched_keywords": ["python"],
-                "missing_keywords": [], "reasoning": "fits the swe resume best"}
-        if posting["external_id"] == "1":
-            base["recommended_resume"] = "swe"
-        return base
+    def screen_fn(posting):
+        return {"disqualified": False}
 
-    pipeline.run_score(conn, now=NOW, score_fn=score_fn)
+    def fit_fn(postings):
+        out = []
+        for p in postings:
+            card = {"score": 88, "assessment": _assessment()}
+            if p["external_id"] == "1":
+                card["recommended_resume"] = "swe"
+            out.append(card)
+        return out
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
 
     details = {
         r["external_id"]: _json.loads(r["score_detail"])
@@ -253,6 +293,64 @@ def test_run_score_persists_recommended_resume(db_path):
     assert details["1"]["recommended_resume"] == "swe"
     # absent from the scorer result -> absent from the stored JSON (old shape)
     assert "recommended_resume" not in details["2"]
+
+
+def test_run_score_batches_survivors_and_falls_back_on_batch_error(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3"])
+    calls = {"batch": [], "single": 0}
+
+    def fit_fn(postings):
+        ids = [p["id"] for p in postings]
+        calls["batch"].append(ids)
+        if len(ids) > 1:
+            raise score.ScoreError("batch parse failed")      # force fallback
+        calls["single"] += 1
+        return [{"score": 70, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, batch_size=10,
+                       screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=fit_fn)
+    assert calls["batch"][0] == [1, 2, 3]     # tried as one batch
+    assert calls["single"] == 3               # fell back to singles
+    assert len(db.get_by_status(conn, "scored")) == 3
+
+
+def test_run_score_persists_disqualified_without_fit(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(
+        conn, now=NOW, batch_size=10,
+        screen_fn=lambda p: {"disqualified": True, "disqualification_reason": "x"},
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("fit must not run")),
+    )
+    assert db.get_by_status(conn, "discarded")[0]["id"] == 1
+
+
+def test_run_score_fallback_single_failure_is_isolated(db_path):
+    # The batch fails (forcing the single-item fallback); within that fallback,
+    # ONE posting's single fit_fn call still fails — it alone is marked 'failed',
+    # its batch-mate is still scored.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+
+    def fit_fn(postings):
+        if len(postings) > 1:
+            raise score.ScoreError("batch parse failed")
+        posting = postings[0]
+        if posting["external_id"] == "1":
+            raise RuntimeError("codex exec failed for this one JD")
+        return [{"score": 70, "assessment": _assessment()}]
+
+    pipeline.run_score(conn, now=NOW, batch_size=10,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+
+    statuses = {
+        r["external_id"]: r["pipeline_status"]
+        for r in conn.execute("SELECT * FROM job_postings").fetchall()
+    }
+    assert statuses["1"] == "failed"
+    assert statuses["2"] == "scored"
 
 
 def test_run_notify_send_error_retries_then_parks_failed(db_path):

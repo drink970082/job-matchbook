@@ -23,7 +23,7 @@ from . import db, pipeline
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import make_claude_scorer, make_codex_scorer, score_posting
+from .score import make_claude_scorer, make_codex_scorer, screen_posting
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -49,6 +49,12 @@ DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
 DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
+# Max postings per fit_fn batch call. Batching is the codex quota win (the
+# ChatGPT-subscription quota is MESSAGE-bound, not token-bound — see
+# make_codex_scorer); claude's fit_fn loops internally per posting regardless,
+# so batch_size is harmless (just a chunking cadence) on that backend. Override
+# with --batch-size or CODEX_BATCH_SIZE.
+DEFAULT_BATCH_SIZE = 10
 
 
 def make_scorer(backend: str, *, env, profile="",
@@ -106,7 +112,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-             anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> None:
+             anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
+             batch_size: int = DEFAULT_BATCH_SIZE) -> None:
     """Run fetch -> score -> notify exactly once. `resumes` is the {label: text}
     dict of resume versions; `profile` is optional candidate context — both are
     baked into the fit scorer (the Ollama SCREEN never sees either)."""
@@ -159,28 +166,31 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
+        def screen_fn(posting):
+            return screen_posting(
+                posting,
+                model=ollama_model,
+                ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
+                candidate=candidate,
+                num_ctx=num_ctx,
+            )
+
         # Build the fit scorer lazily on first use (both twins are import-safe: the
         # anthropic SDK import / the codex subprocess are deferred to the first call,
         # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
 
-        def score_fn(posting):
+        def fit_fn(postings):
             if not _scorer_cell:
                 _scorer_cell.append(
                     make_scorer(score_backend, env=env, profile=profile,
                                 codex_score_model=codex_score_model,
                                 anthropic_score_model=anthropic_score_model)
                 )
-            return score_posting(
-                posting, resumes,
-                score_fit=_scorer_cell[0],
-                model=ollama_model,          # Ollama model — SCREEN call only now
-                ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
-                candidate=candidate,
-                num_ctx=num_ctx,
-            )
+            return _scorer_cell[0](postings, resumes)
 
-        pipeline.run_score(conn, now=now, score_fn=score_fn)
+        pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
+                           batch_size=batch_size)
 
         pipeline.run_notify(
             conn,
@@ -272,6 +282,11 @@ def main(argv=None) -> None:
                         default=os.environ.get("ANTHROPIC_SCORE_MODEL",
                                                DEFAULT_ANTHROPIC_SCORE_MODEL),
                         help="Anthropic model used for fit scoring")
+    parser.add_argument("--batch-size", type=int,
+                        default=int(os.environ.get("CODEX_BATCH_SIZE", "10")),
+                        help="max postings per fit_fn batch call (the codex quota "
+                             "win; harmless on the claude backend, which loops "
+                             "internally)")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -296,7 +311,8 @@ def main(argv=None) -> None:
                  env=env, ollama_model=args.model,
                  score_backend=args.score_backend,
                  codex_score_model=args.codex_score_model,
-                 anthropic_score_model=args.anthropic_score_model)
+                 anthropic_score_model=args.anthropic_score_model,
+                 batch_size=args.batch_size)
 
     if args.once:
         once()

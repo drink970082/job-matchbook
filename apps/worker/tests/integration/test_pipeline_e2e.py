@@ -34,9 +34,21 @@ def _cfg():
 
 
 def _run(monkeypatch, tmp_path, *, postings, score_fn, passes=1):
-    """Run the real run_once with canned postings + a fake scorer. notify raises
-    only when the JD contains the marker 'BOOM' (for failure-isolation tests);
-    otherwise it records the external_ids it was asked to send. `passes` runs
+    """Run the real run_once with canned postings + a fake scorer, SPLIT into the
+    screen_fn/fit_fn halves run_score now consumes. Each test's `score_fn(posting)`
+    still returns ONE merged dict (screen + fit fields together) for convenience:
+      - screen_posting is faked to surface just the disqualification half (so no
+        Ollama call happens) — `run.screen_posting` calls `score_fn(posting)` and
+        returns its disqualified/disqualification_reason/screen fields.
+      - the fit backend is faked via `run.make_scorer` (so no real Claude/codex
+        backend is built) — fit_fn returns `score_fn(posting)` UNCHANGED as the raw
+        card for each survivor; pipeline.run_score normalizes it same as a real
+        backend's card would be.
+    A posting screened out as disqualified never reaches the fit half — matching
+    the new run_score's phase order.
+
+    notify raises only when the JD contains the marker 'BOOM' (for failure-isolation
+    tests); otherwise it records the external_ids it was asked to send. `passes` runs
     run_once repeatedly over the SAME db (the scheduler's cadence), which is how
     the notify retry path is exercised. Returns (db_path, notified_ids)."""
     dbfile = bootstrap_db(str(tmp_path / "applications.db"))
@@ -51,8 +63,20 @@ def _run(monkeypatch, tmp_path, *, postings, score_fn, passes=1):
             raise RuntimeError("telegram 429")
         notified.append(posting["external_id"])
 
+    def fake_screen_posting(posting, **kw):
+        result = score_fn(posting)
+        return {
+            "disqualified": result.get("disqualified", False),
+            "disqualification_reason": result.get("disqualification_reason", ""),
+            "screen": result.get("screen", {}),
+        }
+
     monkeypatch.setattr(run.pipeline, "run_fetch", fake_run_fetch)
-    monkeypatch.setattr(run, "score_posting", lambda posting, resume, **kw: score_fn(posting))
+    monkeypatch.setattr(run, "screen_posting", fake_screen_posting)
+    monkeypatch.setattr(
+        run, "make_scorer",
+        lambda backend, **kw: (lambda postings, resumes: [score_fn(p) for p in postings]),
+    )
     monkeypatch.setattr(run, "notify_posting", fake_notify)
 
     for _ in range(passes):
@@ -74,7 +98,11 @@ def test_full_status_machine(monkeypatch, tmp_path):
         if eid == "dq":
             return {"score": 88, "disqualified": True, "disqualification_reason": "needs PhD"}
         if eid == "low":
-            return {"score": 50}   # no assessment verdicts -> not notifiable
+            # A structurally-valid assessment (required by score._normalize_score,
+            # which run_score now calls on every fit card) whose verdict pair is
+            # NOT both 'match' -> still 'scored', still not notifiable.
+            return {"score": 50, "assessment": {"seniority": {"verdict": "match"},
+                                                "domain": {"verdict": "adjacent"}}}
         return {"score": 90, "assessment": _MATCH_MATCH_ASSESSMENT}
 
     dbfile, notified = _run(monkeypatch, tmp_path, postings=postings, score_fn=score_fn)
@@ -94,7 +122,9 @@ def test_disqualified_routing_keeps_reason(monkeypatch, tmp_path):
     conn = dbmod.connect(dbfile)
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "discarded"
-    assert row["score"] == 70
+    # A disqualified posting is screened out before the fit phase runs (that's the
+    # whole point of screening first) -> persisted with score 0, not a fit score.
+    assert row["score"] == 0
     detail = json.loads(row["score_detail"])
     assert detail["disqualification_reason"] == "no visa sponsorship"
     assert notified == []
