@@ -73,6 +73,16 @@ guard stay in place for a future fix (smaller batches / stronger per-JD prompt
 isolation); opt back in via `--batch-size`/`CODEX_BATCH_SIZE` once the drift is
 resolved. **The quota win this was meant to unlock does not apply at the parked
 default** — tracked in [Open work](#open-work).**
+**Follow-up 2026-07-17 — the verdict holds, but read [Open work](#open-work) for the
+corrected reasoning.** The `--drift-probe` experiment (K=3 per row at b=1/5/10) confirmed
+the drift is **real context bleed that scales with batch size** (3/4 → 2/4 → 1/4 rows held
+a verdict at b=1 → b=5 → b=10) and closed the "smaller batches" escape hatch: **b=5 is not
+a partial fix**, it turns id 111 stably *wrong*. Three corrections to the paragraph above:
+the bleed is **not** confined to `domain` (id 132's *seniority* bleeds at b≥5); **id 125
+would NOT have been "wrongly notified" by batching** (it reads `match/match` on 3/3 single
+draws — unbatched notifies it too, so it is a label-calibration miss in both modes); and
+**two of the four drift rows (132, 184) are `marked`** watch-list rows the accuracy gate
+excludes, which the guard should never have counted (fixed).
 `make_codex_scorer` is built, wired as the default, unit-covered, and **tool-less** (see
 [CHANGELOG](../CHANGELOG.md)). Two gate runs, both FAIL (`<20%` flip required), each
 `hard 10/10 ✅`:
@@ -121,13 +131,15 @@ on `gpt-5.6-sol`). Unbatched (`batch_size=1`, **the parked default — see
 [above](#in-flight)**), ~640 rows is 640 messages and **cannot finish in one window**
 (spans 7+). **The batching win that would have dropped this to ~64 `codex exec` calls
 (~10× fewer messages, ~6× fewer input tokens from amortizing the scaffolding prefix
-over 10 JDs/call) is unrealized:** the live batched==single verdict-drift guard
-(`tools/score_eval.py --batched`) ran 2026-07-16 and **FAILED** (19/23 agree —
-domain-verdict context bleed across batch-mates; see [above](#in-flight)), so per the
-design's rollout rule batching is parked at `batch_size=1` and the operator re-run
-stays on the unbatched, multi-window math until the bleed is fixed (tracked in
-[Open work](#open-work)). Parallelism does NOT help either way (the cap is messages,
-not wall-clock); chunking across windows does. At the cap
+over 10 JDs/call) is unrealized and — as of 2026-07-17 — **permanently off the table:**
+the live batched==single verdict-drift guard (`tools/score_eval.py --batched`) ran
+2026-07-16 and **FAILED** (19/23 agree), and the `--drift-probe` follow-up **confirmed
+real context bleed that scales with batch size** and killed the `batch_size=5` middle
+ground (see [above](#in-flight) and [Open work](#open-work)). So the operator re-run
+stays on the unbatched, multi-window math **for good**, not until a fix lands.
+Parallelism does NOT help either way (the cap is messages, not wall-clock); chunking
+across windows does — which makes the quota tracker + pacing gate ([Open
+work](#open-work)) the only remaining lever, and now the load-bearing one. At the cap
 Codex hard-blocks and `codex exec` exits 1 with no distinct rate-limit code, so a pacing
 script must match stderr text. Still not done automatically (mutates the DB); back up
 `db/applications.db` first, and confirm `codex doctor` shows auth ✓ — a mid-pass logout
@@ -209,37 +221,57 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 
 ### Enhancements — not built, optional
 
-- **Batched fit-scoring quota win is parked pending a domain-bleed fix** — `[M ·
-  blocked on smaller batches / stronger per-JD prompt isolation]`. Batching
-  (`fit_fn` chunked via `batch_size`, design Part B) is implemented, unit-tested, and
-  **default-off** (`DEFAULT_BATCH_SIZE=1` in `run.py`) because the live
-  batched==single verdict-drift guard (`tools/score_eval.py --batched`, 2026-07-16,
-  gpt-5.6-sol, `batch_size=10`, 23 golden rows) read **19/23 agree** — see
-  [In flight](#in-flight) for the drift rows. Until a fix clears the guard, the
-  operator re-score of the ~640-row live queue stays on the unbatched, multi-window
-  path (~640 messages, 7+ windows); the ~64-message / ~6× input-token win described
-  in the economics passage above does not apply at the parked default. Opt back in
-  via `--batch-size`/`CODEX_BATCH_SIZE` once re-validated.
-- **OPEN QUESTION — is the drift from BATCHING (context bleed) or the JD itself
-  (inherent draw instability)?** — `[S · one paced experiment]`. The `--batched` guard
-  draws each row **once** single and **once** batched, so a single-vs-batched diff
-  cannot separate "batch-mates corrupted the score" from "this JD's domain verdict is a
-  coin-flip on any re-draw." All 4 drift rows (111, 125, 132, 184) are **adjacent-domain
-  borderline** rows — consistent with *either* hypothesis, which is exactly why it's
-  undetermined. **Definitive test:** score the 4 drift rows K× (K=3) at three settings —
-  `batch_size=1` (single), `batch_size=5`, `batch_size=10` — and read the domain verdict:
-  (a) if it flips across the K **single** draws → JD/draw noise, batching may be innocent
-  and the golden labels for those rows are just genuinely borderline; (b) if single is
-  stable but the batched draws differ → real context bleed; (c) if `batch_size=5` bleeds
-  **less** than 10 → bleed scales with batch size, so a smaller batch is a partial fix (a
-  middle-ground `batch_size` of 5 keeps most of the quota win). `batch_size` is already
-  env-configurable (`CODEX_BATCH_SIZE=5`); this experiment is the "run a 1-batch of 5 or
-  10" the operator asked for. Cost ≈ 4 rows × 3 draws × 3 settings ≈ ~36 codex messages
-  (one 5h window). Related: [[batching-bleeds-domain-verdicts]], and note the fit *score*
-  is separately noisy (below) — the *verdicts* were the stable signal, so this asks
-  specifically whether that stability holds for adjacent-domain rows under batching.
+- **Batched fit-scoring: the quota win is OFF THE TABLE — bleed confirmed at every batch
+  size >1** — `[M · closed as won't-fix pending a fundamentally different approach]`.
+  Batching (`fit_fn` chunked via `batch_size`, design Part B) stays implemented,
+  unit-tested, and **default-off** (`DEFAULT_BATCH_SIZE=1`). The 2026-07-17 drift probe
+  (below) **confirmed real context bleed and showed it scales with batch size**, killing
+  the `batch_size=5` middle ground that was the last salvage. The operator re-score of
+  the ~640-row live queue therefore stays on the unbatched, multi-window path (~640
+  messages, 7+ windows) **permanently, not provisionally** — the ~64-message / ~6×
+  input-token win described in the economics passage does not exist to be recovered. The
+  only named fix, *stronger per-JD prompt isolation*, is in tension with the win itself:
+  on this backend, one-JD-per-call **is** the isolation. **The message-quota problem now
+  routes entirely to the usage tracker + pacing** (next item) rather than to batching.
+  The code and both guards stay for a future backend that isolates JDs natively.
+
+**Answered 2026-07-17 — was the drift BATCHING (context bleed) or the JD (draw noise)?
+BLEED, confirmed, and it scales with batch size.** Built `tools/score_eval.py
+--drift-probe` (K=3 per row, one batch size per run via `CODEX_BATCH_SIZE`; SPEC §13) and
+ran all three settings (36 codex calls, one window). Rows holding one verdict across K=3:
+**3/4 → 2/4 → 1/4** at b=1 → b=5 → b=10 — a clean monotonic gradient. The answer is
+**both mechanisms are present, but bleed is real and decisive:**
+- **id 111 — bleed.** Stable *correct* (`match/adjacent` ×3) at b=1; **stably _wrong_**
+  (`match/match` ×3) at b=5, crossing the notify predicate. A stable wrong answer is
+  worse than a flip — it never announces itself. This alone kills `batch_size=5`.
+- **id 184 — bleed, cleanest case.** Stable in *both* modes at *different* values
+  (`match/match` ×3 at b=1/b=5 vs `match/adjacent` ×3 at b=10). Draw noise cannot
+  produce a deterministic mode-dependent shift.
+- **id 132 — bleed is NOT confined to `domain`.** Seniority held `too_junior` ×3 at b=1
+  but bled to `match` at b=5/b=10 (majority `match/match` — a `too_junior` row that would
+  notify). The guard had concluded "all 4 drift rows are on the domain verdict"; that was
+  an artifact of its single draw. Its *domain* flip at b=1 is genuine draw noise, exactly
+  as its own golden note predicted ("model splits 50/50 (34 vs 70, a full band)").
+- **id 125 — NOT a batching victim.** Reads `match/match` on **3/3 single** draws, so
+  unbatched scoring notifies it too. The claim that batching "would have wrongly notified"
+  it is wrong — it is a stable calibration disagreement with its `adjacent` golden label,
+  present in both modes. (Its label note concedes it was "lifted from skip".)
+
+**Two defects found in the `--batched` guard itself** (one fixed, one inherent): it
+**counted `marked` rows** — 132 and 184, both watch-list rows the K=3 accuracy gate
+excludes, one documented as a 50/50 split — so its `19/23` held them to a stricter
+standard than the gate they are exempt from (**fixed 2026-07-17**: marked rows still ride
+in their real batches, since their bleed can corrupt a gate-eligible batch-mate, but no
+longer decide PASS; gate-eligible drift is `19/21`). And **one draw per row per pass**
+structurally cannot separate bleed from noise — that is what `--drift-probe` is for. The
+guard's *verdict* (batching does not ship) stands and is now better-founded; its
+*reasoning* was partly wrong. Related: [[batching-bleeds-domain-verdicts]].
 - **Codex message-quota usage tracker (web + worker)** — `[M · new feature; needs a
-  design pass]`. The ChatGPT-Plus quota is **message-bound** (rolling 5h window, ~15–90
+  design pass]`. **Promoted 2026-07-17: this is now the *only* lever on the quota
+  problem.** Batching was the other one, and the drift probe closed it for good (above),
+  so the ~640-row re-score is permanently a paced, multi-window job — which is exactly
+  what this instrument makes operable. The ChatGPT-Plus quota is **message-bound**
+  (rolling 5h window, ~15–90
   msgs on sol, exact ceiling opaque, **no API to query remaining**), and at the cap
   `codex exec` exits **1 with no distinct rate-limit code** (see [[codex-scorer-gotchas]]).
   A ~640-row re-score spans 7+ windows, so the operator (and any pacing loop) is flying

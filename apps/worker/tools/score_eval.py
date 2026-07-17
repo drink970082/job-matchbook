@@ -25,7 +25,14 @@ verdicts are IDENTICAL. This is what proves the codex batching win (N JDs sharin
 call) doesn't corrupt a JD's score via context bleed from its batch-mates; PASS = 0
 drift. It is a LIVE, quota-spending run — call it deliberately, never from CI/selftest.
 If verdicts drift, batching must not be trusted for the queue; Phase A routing stands
-regardless (see the design doc).
+regardless (see the design doc). It FAILED 2026-07-16 (19/23, all 4 on `domain`), which
+parked batching at batch_size=1 and raised the question `--drift-probe` answers.
+
+`--drift-probe` is a one-shot EXPERIMENT (not a gate — it has no pass/fail): the
+--batched guard draws each row once single + once batched, so it cannot tell context
+BLEED from a JD whose verdict is a coin-flip on any re-draw. The probe re-draws the 4
+drift rows K=3x at ONE setting per run, chosen by CODEX_BATCH_SIZE (1 / 5 / 10); compare
+the reports to attribute the drift. LIVE and quota-spending — see run_drift_probe.
 
 Design: docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md
         (Part C / B4), superseding the score->band design in
@@ -33,6 +40,7 @@ Design: docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-desig
 Run:    apps/worker/.venv/bin/python apps/worker/tools/score_eval.py   (or `make eval-score`)
         …/python apps/worker/tools/score_eval.py --selftest   # free, hermetic gate-logic check
         …/python apps/worker/tools/score_eval.py --batched    # LIVE: batched==single guard (B4)
+        CODEX_BATCH_SIZE=1 …/python …/score_eval.py --drift-probe   # LIVE: bleed-vs-noise
 """
 from __future__ import annotations
 
@@ -49,9 +57,15 @@ sys.path.insert(0, str(ROOT / "apps" / "worker"))
 from ats_worker import run, score  # noqa: E402  (needs apps/worker on the path)
 
 K = 3
-# --batched mode's chunk size — mirrors ats_worker.pipeline.run_score's default
-# (and CODEX_BATCH_SIZE), so the guard measures the same batching production uses.
-BATCH_SIZE = 10
+# --batched / --drift-probe chunk size. Defaults to 10 — the batch shape the B4 guard
+# FAILED at on 2026-07-16 — not run.py's parked DEFAULT_BATCH_SIZE=1, because these are
+# the guards that must re-measure the drift, not inherit the workaround. Env-settable so
+# --drift-probe can sweep b1/b5/b10 without an edit (see run_drift_probe).
+BATCH_SIZE = int(os.environ.get("CODEX_BATCH_SIZE", "10"))
+# The 4 domain-verdict drift rows from the 2026-07-16 --batched guard (19/23 agree):
+# 111 match/adjacent->match/match · 125 match/adjacent->match/match ·
+# 132 too_junior/adjacent->too_junior/match · 184 match/match->match/adjacent.
+PROBE_IDS = (111, 125, 132, 184)
 # The gate is only meaningful when eval-model == production-model, so the backend
 # tracks run.py's default (codex / ChatGPT subscription). Override to A/B a backend:
 #   SCORE_BACKEND=claude apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
@@ -61,6 +75,9 @@ MODEL = (run.DEFAULT_CODEX_SCORE_MODEL if BACKEND == "codex"
 GOLDEN = ROOT / "apps/worker/eval/golden.jsonl"
 OUT = ROOT / "apps/worker/eval/last_run.md"
 OUT_BATCHED = ROOT / "apps/worker/eval/last_batched_run.md"
+# One report per --drift-probe setting ({b} = batch size) — the settings are compared
+# against each other, so a shared path would clobber the very baseline being compared to.
+OUT_PROBE_FMT = ROOT / "apps/worker/eval/last_drift_probe_b{b}.md"
 DB = ROOT / "db/applications.db"
 COLS = ("job_title", "company_name", "description", "location")
 
@@ -159,19 +176,30 @@ def draw_batch_verdicts(score_fit, postings, resumes):
     return out
 
 
-def verdicts_match(single_map: dict, batched_map: dict) -> tuple[bool, list[dict]]:
+def verdicts_match(single_map: dict, batched_map: dict,
+                   marked_ids: frozenset = frozenset()) -> tuple[bool, list[dict]]:
     """Pure comparator (no I/O, no model calls): per-id (seniority, domain) tuples from
     a SINGLE-pass run vs a BATCHED-pass run. A row present in `single_map` but missing
     or None (a failed draw) in `batched_map` counts as drift too — "we don't know" is
     not "they match". Returns (ok, drift_rows); drift_rows is empty iff ok is True.
+
+    `marked_ids` are watch-list rows the K=3 accuracy gate excludes (main() splits them
+    out of `render`'s gate set) because their labels are provisional or the model is
+    known to split on them — e.g. golden id=132's own note reads "model splits 50/50
+    (34 vs 70, a full band)". They are still SCORED and still ride in their real batches
+    (dropping them would change the batch-mates whose bleed is under test), but they
+    cannot decide PASS: a row documented as a coin-flip will drift on any re-draw, so
+    counting it as a batching failure blames batching for known label noise. They are
+    reported with `marked=True` so a reader sees them; `ok` ignores them.
     """
     drift = []
     for rid in sorted(single_map):
         single = single_map[rid]
         batched = batched_map.get(rid)
         if single != batched:
-            drift.append({"id": rid, "single": single, "batched": batched})
-    return not drift, drift
+            drift.append({"id": rid, "single": single, "batched": batched,
+                          "marked": rid in marked_ids})
+    return not [d for d in drift if not d["marked"]], drift
 
 
 def _build_postings(rows, conn) -> list[dict]:
@@ -213,34 +241,159 @@ def run_batched(rows, conn, score_fit, resumes, meta, batch_size: int = BATCH_SI
         print(f"batched ids={[p['id'] for p in chunk]} …", file=sys.stderr, flush=True)
         batched_map.update(draw_batch_verdicts(score_fit, chunk, resumes))
 
-    ok, drift = verdicts_match(single_map, batched_map)
-    doc = render_batched(single_map, batched_map, ok, drift, meta)
+    # Marked rows stay in the batches above (real batch-mates) but cannot decide PASS.
+    marked_ids = frozenset(r["id"] for r in rows if r.get("marked"))
+    ok, drift = verdicts_match(single_map, batched_map, marked_ids)
+    doc = render_batched(single_map, batched_map, ok, drift, meta, marked_ids)
     OUT_BATCHED.write_text(doc)
     print(doc)
     print(f"→ {OUT_BATCHED.relative_to(ROOT)}")
     return ok
 
 
-def render_batched(single_map, batched_map, ok, drift, meta) -> str:
+def render_batched(single_map, batched_map, ok, drift, meta, marked_ids=frozenset()) -> str:
     n = len(single_map)
+    n_gate = n - len(marked_ids)
+    gate_drift = [d for d in drift if not d["marked"]]
+    watch_drift = [d for d in drift if d["marked"]]
     lines = [
         f"# Batched == single verdict guard (B4) — {meta['ts']}", "",
-        f"Model: `{meta['model']}` · batch_size={meta['batch_size']} · rows={n}",
+        f"Model: `{meta['model']}` · batch_size={meta['batch_size']} · rows={n} "
+        f"({n_gate} gate-eligible + {len(marked_ids)} marked)",
         "LIVE run — spends quota. READ-ONLY on the DB. Each row scored ONCE per pass "
         "(not K×): isolates context bleed, not draw-to-draw noise.", "",
-        f"**batched==single: {n - len(drift)}/{n} agree → {'PASS' if ok else 'FAIL'}**",
+        f"**batched==single (gate-eligible): {n_gate - len(gate_drift)}/{n_gate} agree "
+        f"→ {'PASS' if ok else 'FAIL'}**",
         "",
     ]
-    if drift:
-        lines += ["## Drift", "```", f"{'id':>5}  {'single':<18}  {'batched':<18}", "-" * 45]
-        for d in drift:
+    if gate_drift:
+        lines += ["## Drift (gate-eligible — decides PASS)", "```",
+                  f"{'id':>5}  {'single':<18}  {'batched':<18}", "-" * 45]
+        for d in gate_drift:
             s = _pair(*d["single"]) if d["single"] else "ERR/None"
             b = _pair(*d["batched"]) if d["batched"] else "ERR/None"
             lines.append(f"{d['id']:>5}  {s:<18}  {b:<18}")
         lines += ["```", "", "If verdicts drift, batching must NOT be trusted for the "
-                  "queue — Phase A routing still stands regardless."]
-    else:
+                  "queue — Phase A routing still stands regardless.", ""]
+    if watch_drift:
+        lines += ["## ⚑ Drift (marked — watch-list, does NOT decide PASS)", "```",
+                  f"{'id':>5}  {'single':<18}  {'batched':<18}", "-" * 45]
+        for d in watch_drift:
+            s = _pair(*d["single"]) if d["single"] else "ERR/None"
+            b = _pair(*d["batched"]) if d["batched"] else "ERR/None"
+            lines.append(f"{d['id']:>5}  {s:<18}  {b:<18}")
+        lines += ["```", "", "These rows are scored and ride in their real batches (their "
+                  "bleed can still corrupt a gate-eligible batch-mate), but their labels "
+                  "are provisional / the model is known to split on them, so a drift here "
+                  "is not evidence against batching. `--drift-probe` re-draws them K×.", ""]
+    if not drift:
         lines.append("0 drift — batching is safe to trust for the queue.")
+    return "\n".join(lines)
+
+
+def run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size: int) -> bool:
+    """Is the batched domain drift context BLEED, or just JD/draw NOISE? (The open
+    question PROGRESS raised 2026-07-16.)
+
+    The --batched guard draws each row ONCE single + ONCE batched, so a diff cannot
+    separate "batch-mates corrupted this verdict" from "this JD's domain verdict is a
+    coin-flip on any re-draw" — every drift row is adjacent-domain borderline, which is
+    consistent with either. This re-draws the PROBE_IDS K× at ONE setting, selected by
+    `batch_size`, and reports per-row verdict stability:
+
+      batch_size=1  -> K × SINGLE draws of the probe rows only (4×K calls). A batch of
+                       one IS the single path, so this setting needs no separate mode.
+      batch_size>1  -> K × BATCHED passes over the WHOLE golden set (b10 = 3 batches ×
+                       K, b5 = 5 × K). The full set is deliberate: the golden rows are
+                       ordered by verdict class, so a probe row's batch-mates are what
+                       bleed would come FROM — scoring the 4 rows alone would replace
+                       the very context under test with each other.
+
+    Reading the reports (run one setting per 5h quota window, then compare):
+      flips at b1                  -> JD/draw noise; batching may be innocent and those
+                                      golden labels are just genuinely borderline.
+      stable b1 + drift at b10     -> real context bleed.
+      b5 drifts less than b10      -> bleed scales with batch size; a middle-ground
+                                      batch_size keeps most of the quota win.
+    LIVE, quota-spending — never call from --selftest. READ-ONLY on the DB.
+    """
+    postings = _build_postings(rows, conn)
+    probe = [p for p in postings if p["id"] in PROBE_IDS]
+    missing = set(PROBE_IDS) - {p["id"] for p in probe}
+    if missing:  # a probe row absent from the DB makes its column unreadable, not empty
+        print(f"! probe ids missing from DB: {sorted(missing)}", file=sys.stderr)
+    draws: dict = {p["id"]: [] for p in probe}
+
+    if batch_size == 1:
+        print(f"--drift-probe: SINGLE setting (b=1), {len(probe)} probe rows × K={K} "
+              f"= {len(probe) * K} calls. LIVE, spends quota …", file=sys.stderr)
+        for k in range(K):
+            for posting in probe:
+                print(f"single draw {k + 1}/{K} id={posting['id']} …",
+                      file=sys.stderr, flush=True)
+                draws[posting["id"]].append(draw_verdicts(score_fit, posting, resumes))
+    else:
+        n_batches = -(-len(postings) // batch_size)  # ceil div
+        print(f"--drift-probe: BATCHED setting (b={batch_size}) over all "
+              f"{len(postings)} golden rows — {n_batches} batches × K={K} = "
+              f"{n_batches * K} calls. LIVE, spends quota …", file=sys.stderr)
+        for k in range(K):
+            for chunk in _chunks(postings, batch_size):
+                print(f"batched draw {k + 1}/{K} ids={[p['id'] for p in chunk]} …",
+                      file=sys.stderr, flush=True)
+                for rid, verdict in draw_batch_verdicts(score_fit, chunk, resumes).items():
+                    if rid in draws:  # non-probe rows ride along free; only probe reported
+                        draws[rid].append(verdict)
+
+    doc = render_drift_probe(draws, rows, meta, batch_size)
+    out = OUT_PROBE_FMT.with_name(OUT_PROBE_FMT.name.format(b=batch_size))
+    out.write_text(doc)
+    print(doc)
+    print(f"→ {out.relative_to(ROOT)}")
+    return True  # a probe MEASURES; it has no pass/fail — the comparison is the answer
+
+
+def render_drift_probe(draws, rows, meta, batch_size: int) -> str:
+    """Probe report: per probe row, the K draws and whether the verdict held. A row
+    whose draws all failed is ERR — never silently counted 'stable'."""
+    golden = {r["id"]: r for r in rows}
+    setting = "SINGLE (b=1)" if batch_size == 1 else f"BATCHED (b={batch_size})"
+    lines = [
+        f"# Drift probe — context bleed vs JD/draw noise — {meta['ts']}", "",
+        f"Model: `{meta['model']}` · setting: **{setting}** · K={K}",
+        "LIVE run — spends quota. READ-ONLY on the DB.", "",
+        "Question: are the 4 batched-drift rows unstable because their BATCH-MATES bleed "
+        "into the domain verdict, or because the verdict is a coin-flip on ANY re-draw?",
+        "", "```",
+        f"{'id':>5}  {'golden':<22}  {'draws (seniority/domain × K)':<62}  {'maj':<22}  held",
+        "-" * 124,
+    ]
+    n_stable = 0
+    for rid in PROBE_IDS:
+        got = [d for d in draws.get(rid, []) if d is not None]
+        row = golden.get(rid, {})
+        gpair = _pair(row.get("seniority", "?"), row.get("domain", "?"))
+        tag = " (marked)" if row.get("marked") else ""
+        if not got:
+            lines.append(f"{rid:>5}  {gpair + tag:<22}  {'ALL DRAWS FAILED':<62}  "
+                         f"{'ERR':<22}  ?")
+            continue
+        maj = _pair(Counter(d[0] for d in got).most_common(1)[0][0],
+                    Counter(d[1] for d in got).most_common(1)[0][0])
+        held = len(set(got)) == 1
+        n_stable += held
+        lines.append(f"{rid:>5}  {gpair + tag:<22}  "
+                     f"{' '.join(_pair(*d) for d in got):<62}  {maj:<22}  "
+                     f"{'yes' if held else 'FLIPS'}")
+    lines += [
+        "```", "",
+        f"**{n_stable}/{len(PROBE_IDS)} probe rows held one verdict across K={K} draws "
+        f"at {setting}.**", "",
+        "Compare settings to answer it: flips at b=1 ⇒ JD/draw noise (batching may be "
+        "innocent); stable at b=1 but drifting at b=10 ⇒ real context bleed; less drift "
+        "at b=5 than b=10 ⇒ bleed scales with batch size, so a smaller batch is a "
+        "partial fix that keeps most of the quota win.",
+    ]
     return "\n".join(lines)
 
 
@@ -343,11 +496,46 @@ def main() -> int:
         ok, drift = verdicts_match(base, flipped)
         assert ok is False
         assert drift == [{"id": 2, "single": ("too_junior", "match"),
-                           "batched": ("match", "match")}]
+                           "batched": ("match", "match"), "marked": False}]
         # A missing/failed batched draw (None) is drift too, not a silent pass.
         ok, drift = verdicts_match(base, {**base, 3: None})
         assert ok is False
-        assert drift == [{"id": 3, "single": ("match", "adjacent"), "batched": None}]
+        assert drift == [{"id": 3, "single": ("match", "adjacent"), "batched": None,
+                          "marked": False}]
+        # A `marked` (watch-list) row is REPORTED as drift but cannot fail the guard —
+        # the K=3 accuracy gate excludes those rows, so counting them here blames
+        # batching for known label noise (golden 132: "model splits 50/50").
+        ok, drift = verdicts_match(base, flipped, marked_ids=frozenset({2}))
+        assert ok is True, "a marked row must not decide PASS"
+        assert drift == [{"id": 2, "single": ("too_junior", "match"),
+                           "batched": ("match", "match"), "marked": True}]
+        # …but a gate-eligible row drifting alongside a marked one still FAILS.
+        ok, drift = verdicts_match(base, {**flipped, 3: None}, marked_ids=frozenset({2}))
+        assert ok is False
+        assert [d["id"] for d in drift] == [2, 3]
+
+        # --drift-probe: the whole probe REPORTS a stability call, so a bug there answers
+        # bleed-vs-noise wrong while looking fine. Hermetic (fake draws, no model calls).
+        probe_meta = {"ts": "-", "model": "-", "batch_size": 1}
+        probe_rows = [{"id": rid, "seniority": "match", "domain": "adjacent"}
+                      for rid in PROBE_IDS]
+        held = render_drift_probe({rid: [("match", "adjacent")] * K for rid in PROBE_IDS},
+                                  probe_rows, probe_meta, 1)
+        assert f"{len(PROBE_IDS)}/{len(PROBE_IDS)} probe rows held" in held
+        assert "FLIPS" not in held
+        # One row's domain flips across draws -> that row FLIPS, the count drops.
+        flips = render_drift_probe(
+            {**{rid: [("match", "adjacent")] * K for rid in PROBE_IDS},
+             PROBE_IDS[0]: [("match", "adjacent"), ("match", "match"), ("match", "adjacent")]},
+            probe_rows, probe_meta, 10)
+        assert "FLIPS" in flips
+        assert f"{len(PROBE_IDS) - 1}/{len(PROBE_IDS)} probe rows held" in flips
+        # A row whose every draw failed is ERR — never silently counted stable.
+        errored = render_drift_probe({**{rid: [("match", "adjacent")] * K for rid in PROBE_IDS},
+                                      PROBE_IDS[0]: [None, None, None]},
+                                     probe_rows, probe_meta, 1)
+        assert "ALL DRAWS FAILED" in errored
+        assert f"{len(PROBE_IDS) - 1}/{len(PROBE_IDS)} probe rows held" in errored
 
         print("selftest ok")
         return 0
@@ -372,6 +560,11 @@ def main() -> int:
                     "batch_size": BATCH_SIZE}
             ok = run_batched(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)
             return 0 if ok else 1
+        if "--drift-probe" in sys.argv:  # LIVE: bleed-vs-noise probe (one setting/run)
+            meta = {"ts": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL,
+                    "batch_size": BATCH_SIZE}
+            run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)
+            return 0
         scored = [r for r in (score_row(conn, score_fit, resumes, x) for x in rows) if r]
     finally:
         conn.close()

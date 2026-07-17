@@ -8,6 +8,36 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched
+  verdict drift is context bleed or draw noise. It's bleed, and it scales with batch
+  size.** The `--batched` guard draws each row once per pass, so it structurally cannot
+  tell "batch-mates corrupted this verdict" from "this JD is a coin-flip on any re-draw"
+  — every drift row was `adjacent`-domain borderline, consistent with either. The probe
+  re-draws the 4 drift rows **K=3×** at one batch size per run (`CODEX_BATCH_SIZE`; `1` =
+  single/probe-rows-only, `>1` = batched over the **whole** golden set so probe rows keep
+  their real batch-mates — scoring the 4 alone would replace the very context under test).
+  **Run 2026-07-17 (`gpt-5.6-sol`, b=1/5/10, 36 calls, one window):** rows holding one
+  verdict went **3/4 → 2/4 → 1/4**. **`batch_size=5` is not a safe middle ground** — it
+  turns id 111 from stably *correct* (`match/adjacent` ×3 single) into stably **wrong**
+  (`match/match` ×3), crossing the notify predicate; a confident wrong answer is worse
+  than a flip. id 184 is stable in *both* modes at *different* values (noise can't do
+  that), and id 132's **seniority** bleeds at b≥5 — so the corruption is **not** confined
+  to `domain`. Batching stays parked at `batch_size=1` for good; the quota win is off the
+  table via batching (SPEC §11, §13).
+
+### Fixed
+- **`--batched` guard counted `marked` rows, holding them to a stricter standard than
+  the gate they're excluded from.** Two of its four "drift rows" (132, 184) are
+  watch-list rows the K=3 accuracy gate deliberately drops — 132's own golden note reads
+  *"model splits 50/50 (34 vs 70, a full band)"* — so its headline `19/23` blamed
+  batching for known label noise. `marked` rows now still ride in their real batches
+  (their bleed can corrupt a gate-eligible batch-mate, so removing them would weaken the
+  test) but no longer decide PASS; they're reported under a separate watch-list heading.
+  Gate-eligible drift is **19/21**. The guard's verdict (batching does not ship) is
+  unchanged and now better-founded. Also corrected in the docs: **id 125 was never a
+  batching victim** — it reads `match/match` on 3/3 *single* draws, so unbatched scoring
+  notifies it too; it's a stable calibration disagreement with its `adjacent` label, not
+  a batching regression.
 - **Codex fit-score backend — the ChatGPT-subscription twin (`make_codex_scorer`),
   now the default.** Fit scoring moves off metered Claude onto the Codex CLI running
   on the operator's ChatGPT subscription: a full ~640-row re-score becomes a

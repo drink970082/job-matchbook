@@ -1079,17 +1079,23 @@ automated coverage — those rely on code review or the human in the loop, not a
   job into something that could plausibly clear in one or two — and because the fixed
   scaffolding prefix (below) would then be paid once per **batch** instead of once
   per **posting**, total input tokens would drop **~6×** too. **That number is not
-  live-validated and is not currently attainable:** `tools/score_eval.py --batched`
-  (§13), the live guard that asserts batched verdicts match single-scored verdicts on
-  the golden set, **ran 2026-07-16 (`gpt-5.6-sol`, `batch_size=10`, 23 rows) and
-  FAILED — 19/23 agree.** All 4 drift rows are on the **domain** verdict —
-  concatenating JDs into one codex call bleeds domain judgment across batch-mates
-  (ids 111/125 `adjacent`→`match`, crossing the notify predicate — batching would
-  have wrongly notified them; id 132 `adjacent`→`match` but stays not-notified,
-  floored by `too_junior`; id 184 `match`→`adjacent`). Per the design's rollout rule,
-  batching does not ship: `run.py`'s `DEFAULT_BATCH_SIZE=1`, and the queue re-score
-  stays on the unbatched, multi-window path until a fix (smaller batches / stronger
-  per-JD prompt isolation) clears the guard. At the cap Codex hard-
+  live-validated and is not attainable at any batch size:** `tools/score_eval.py
+  --batched` (§13), the live guard that asserts batched verdicts match single-scored
+  verdicts on the golden set, **ran 2026-07-16 (`gpt-5.6-sol`, `batch_size=10`, 23
+  rows) and FAILED — 19/23 agree**, every drift row on the **domain** verdict.
+  The follow-up **drift probe** (§13, K=3 per row at b=1/5/10, 2026-07-17) then
+  **confirmed the cause is real context bleed and showed it scales with batch size**
+  (rows holding one verdict: **3/4 → 2/4 → 1/4** at b=1 → b=5 → b=10) — and killed the
+  obvious salvage: **`batch_size=5` is not a safe middle ground**, it turns id 111 from
+  stably *correct* into stably *wrong* (`match/match` ×3, crossing the notify
+  predicate), and it bleeds id 132's **seniority** verdict, so the corruption is not
+  confined to `domain`. Per the design's rollout rule, batching does not ship at **any**
+  size >1: `run.py`'s `DEFAULT_BATCH_SIZE=1`, and the queue re-score stays on the
+  unbatched, multi-window path. **The ~64-call / ~6×-token win is therefore off the
+  table via batching** — the message-quota problem needs a different lever (pacing across
+  windows + the usage tracker in `PROGRESS.md`), not a bigger batch. A fix would have to
+  be *stronger per-JD prompt isolation*, but on this backend isolation is what one-JD-per-
+  call already buys — i.e. the win and the fix are in tension. At the cap Codex hard-
   blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
   code**, so any pacing logic must match the stderr text, not the exit status. Each call
   also pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
@@ -1208,12 +1214,35 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   score via context bleed from its batch-mates, and it is the **acceptance gate** for
   trusting `batch_size>1` on a real re-score of the queue. **Run 2026-07-16
   (`gpt-5.6-sol`, `batch_size=10`, 23 golden rows) — FAILED, 19/23 agree** (see
-  `PROGRESS.md`, `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict
-  (cross-JD context bleed), two of them (`adjacent`→`match`) crossing the notify
-  predicate. Per the design's rollout rule, batching **does not ship** — the shipped
-  default is `batch_size=1` (§7.1, §9, §11), and the batching machinery + this guard
-  stay in place for a future fix. The Part A verdict-routing change (§9) stands
-  regardless.
+  `PROGRESS.md`, `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict, two of
+  them (`adjacent`→`match`) appearing to cross the notify predicate. Per the design's
+  rollout rule, batching **does not ship** — the shipped default is `batch_size=1`
+  (§7.1, §9, §11), and the batching machinery + this guard stay in place for a future
+  fix. The Part A verdict-routing change (§9) stands regardless. **Its verdict is
+  confirmed but its reasoning was partly wrong — see the drift probe below;** the guard
+  counts `marked` rows (fixed 2026-07-17: they still ride in their real batches, since
+  their bleed can corrupt a gate-eligible batch-mate, but they no longer decide PASS),
+  and one draw per row per pass cannot separate bleed from draw noise.
+- **Drift probe (`tools/score_eval.py --drift-probe`, `CODEX_BATCH_SIZE` selects the
+  setting):** a one-shot **experiment**, not a gate — it has no PASS/FAIL, it *measures*.
+  Re-draws the 4 known drift rows **K=3×** at one batch size per run (`1` = single, probe
+  rows only; `>1` = batched over the **whole** golden set, so probe rows keep their real
+  batch-mates) and reports whether each verdict held. It exists because `--batched` draws
+  each row once per pass and so cannot attribute drift to context **bleed** vs a JD whose
+  verdict is a **coin-flip on any re-draw**. **Run 2026-07-17 (`gpt-5.6-sol`, K=3, b=1/5/10,
+  36 calls) — bleed CONFIRMED, and it scales with batch size:** rows holding one verdict went
+  **3/4 → 2/4 → 1/4** at b=1 → b=5 → b=10. Decisive rows: **id 111** stable-correct
+  (`match/adjacent` ×3) alone but **stably *wrong*** (`match/match` ×3) at b=5; **id 184**
+  stable in *both* modes at *different* values (`match/match` at b=1/b=5 vs `match/adjacent`
+  at b=10) — which noise cannot explain; **id 132** seniority stable `too_junior` ×3 alone but
+  bleeding to `match` at b=5/b=10, so **bleed is not confined to `domain`** as the guard
+  concluded. **`batch_size=5` is not a safe middle ground** — it converts a correct stable
+  verdict into a confident wrong one (worse than a flip, which at least announces itself).
+  Batching stays parked at `batch_size=1` at **every** size >1; the quota problem needs a
+  different lever (§11). Corrects two of the guard's claims: id 132 and 184 are `marked`
+  watch-list rows (132's golden note already documents a 50/50 split), and **id 125 is not a
+  batching victim** — it reads `match/match` on 3/3 *single* draws, so unbatched scoring
+  notifies it too; it is a stable calibration disagreement with its `adjacent` label.
 
 ---
 
