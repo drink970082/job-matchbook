@@ -61,9 +61,10 @@ def _assessment(seniority="match", domain="match", met=None, missing=None,
 
 
 def _fit(score=60, **assess):
-    """A canned score_fit(posting, resume) callable for tests that focus on SCREEN."""
+    """A canned score_fit(postings, resumes) -> list[dict] callable (batch-first,
+    B1) for tests that focus on SCREEN."""
     payload = {"score": score, "assessment": _assessment(**assess)}
-    return lambda posting, resume_text: dict(payload)
+    return lambda postings, resume_text: [dict(payload) for _ in postings]
 
 
 FIT = _fit()  # the common "score 60" fit used by SCREEN-focused tests
@@ -74,10 +75,10 @@ FIT = _fit()  # the common "score 60" fit used by SCREEN-focused tests
 def test_score_fit_result_is_normalized_and_returned():
     got = {}
 
-    def fit(posting, resume_text):
-        got["posting"], got["resume"] = posting, resume_text
-        return {"score": 88, "assessment": _assessment(
-            met=["python", "django"], missing=["aws"], summary="Strong overlap.")}
+    def fit(postings, resume_text):
+        got["posting"], got["resume"] = postings[0], resume_text
+        return [{"score": 88, "assessment": _assessment(
+            met=["python", "django"], missing=["aws"], summary="Strong overlap.")}]
 
     out = score.score_posting(POSTING, RESUME, score_fit=fit, model="m",
                               http=FakeHttp(), ollama_host="h")
@@ -100,9 +101,9 @@ def test_score_clamped_to_0_100():
 def test_assessment_lists_and_notes_coerced_to_defaults():
     # The scorecard's verdicts are required, but its keyword lists / notes / summary
     # coerce to empty when the model omits them (lenient — they only feed the UI).
-    fit = lambda p, r: {"score": 50, "assessment": {
+    fit = lambda ps, r: [{"score": 50, "assessment": {
         "seniority": {"verdict": "match"}, "domain": {"verdict": "adjacent"},
-        "must_haves": {}, "nice_to_haves": {}, "summary": None}}
+        "must_haves": {}, "nice_to_haves": {}, "summary": None}}]
     out = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
                               score_fit=fit)
     a = out["assessment"]
@@ -116,7 +117,7 @@ def test_absent_score_key_raises_not_silently_zero():
     # A scorer that returns a dict without "score" must NOT be buried as a real 0.
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-                            score_fit=lambda p, r: {"assessment": _assessment()})
+                            score_fit=lambda ps, r: [{"assessment": _assessment()}])
 
 
 def test_missing_or_malformed_assessment_raises():
@@ -124,11 +125,11 @@ def test_missing_or_malformed_assessment_raises():
     # or a bogus verdict fails loudly (the per-dimension verdicts drive ranking + audit).
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-                            score_fit=lambda p, r: {"score": 80})
-    bad = lambda p, r: {"score": 80, "assessment": {
+                            score_fit=lambda ps, r: [{"score": 80}])
+    bad = lambda ps, r: [{"score": 80, "assessment": {
         "seniority": {"verdict": "kinda"}, "domain": {"verdict": "match"},
         "must_haves": {"met": [], "missing": []}, "nice_to_haves": {"missing": []},
-        "summary": ""}}
+        "summary": ""}}]
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
                             score_fit=bad)
@@ -137,23 +138,23 @@ def test_missing_or_malformed_assessment_raises():
 def test_non_numeric_score_raises_score_error():
     with pytest.raises(score.ScoreError):
         score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-                            score_fit=lambda p, r: {"score": "high"})
+                            score_fit=lambda ps, r: [{"score": "high"}])
 
 
 def test_float_and_string_scores_accepted():
     out = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-                              score_fit=lambda p, r: {"score": 85.7, "assessment": _assessment()})
+                              score_fit=lambda ps, r: [{"score": 85.7, "assessment": _assessment()}])
     assert out["score"] == 86                                 # rounded
     out2 = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-                               score_fit=lambda p, r: {"score": "72", "assessment": _assessment()})
+                               score_fit=lambda ps, r: [{"score": "72", "assessment": _assessment()}])
     assert out2["score"] == 72
 
 
 def test_assessment_keyword_coercion_tolerates_bare_string_and_nesting():
-    fit = lambda p, r: {"score": 50, "assessment": {
+    fit = lambda ps, r: [{"score": 50, "assessment": {
         "seniority": {"verdict": "match"}, "domain": {"verdict": "match"},
         "must_haves": {"met": "python", "missing": [["aws", "k8s"]]},
-        "nice_to_haves": {"missing": []}, "summary": ""}}
+        "nice_to_haves": {"missing": []}, "summary": ""}}]
     out = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
                               score_fit=fit)
     assert out["assessment"]["must_haves"]["met"] == ["python"]
@@ -189,6 +190,18 @@ def test_candidate_screen_call_disqualifies_and_omits_resume():
     assert RESUME not in screen_prompt               # screen never sees the résumé
 
 
+def test_screen_posting_disqualifies_without_calling_fit():
+    # screen_posting is the standalone SCREEN half: no score_fit parameter exists on
+    # it at all, so it structurally cannot pay for a fit call — score_posting is what
+    # gates on `disqualified` before ever touching score_fit.
+    http = FakeHttp(json.dumps({"screen": {"clearance": {"requires_clearance": True}}}))
+    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+                               candidate={"security_clearance": "none"}, num_ctx=8192)
+    assert out["disqualified"] is True
+    assert "screen" in out
+    assert out["disqualification_reason"] == "clearance: requires security clearance"
+
+
 def test_no_candidate_means_one_call_and_not_disqualified():
     http = FakeHttp()
     out = score.score_posting(POSTING, RESUME, score_fit=FIT, model="m", http=http, ollama_host="h")
@@ -219,14 +232,14 @@ def test_screen_gates_the_paid_score_call():
     # that passes the screen still calls it. (Uses degree as the vehicle — location
     # is now a code gate, exercised separately.)
     disq = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
-    fit = Mock(return_value={"score": 90, "assessment": _assessment()})
+    fit = Mock(return_value=[{"score": 90, "assessment": _assessment()}])
     out = score.score_posting(POSTING, RESUME, score_fit=fit, model="m", http=disq,
                               ollama_host="h", candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is True and out["score"] == 0
     fit.assert_not_called()                        # gate skipped the paid call
 
     ok = FakeHttp(_screen_resp({"degree": {"required_degree": "bachelor's"}}))
-    fit2 = Mock(return_value={"score": 90, "assessment": _assessment()})
+    fit2 = Mock(return_value=[{"score": 90, "assessment": _assessment()}])
     out2 = score.score_posting(POSTING, RESUME, score_fit=fit2, model="m", http=ok,
                                ollama_host="h", candidate={"highest_degree": "Master's"})
     assert out2["disqualified"] is False and out2["score"] == 90
@@ -742,35 +755,35 @@ def test_recommended_resume_passed_through_normalization():
     out = score.score_posting(
         POSTING, {"quant_dev": "q", "swe": "s"}, model="m", http=FakeHttp(),
         ollama_host="h",
-        score_fit=lambda p, r: {"score": 80, "assessment": _assessment(),
-                                "recommended_resume": "swe"})
+        score_fit=lambda ps, r: [{"score": 80, "assessment": _assessment(),
+                                  "recommended_resume": "swe"}])
     assert out["recommended_resume"] == "swe"
 
 
 def test_insufficient_context_normalized_true():
     out = score.score_posting(
         POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-        score_fit=lambda p, r: {"score": 40, "assessment": _assessment(),
-                                "insufficient_context": True})
+        score_fit=lambda ps, r: [{"score": 40, "assessment": _assessment(),
+                                  "insufficient_context": True}])
     assert out["insufficient_context"] is True
 
 
 def test_insufficient_context_absent_defaults_false():
     out = score.score_posting(
         POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-        score_fit=lambda p, r: {"score": 40, "assessment": _assessment()})
+        score_fit=lambda ps, r: [{"score": 40, "assessment": _assessment()}])
     assert out["insufficient_context"] is False   # absent -> False (err toward scoreable)
 
 
 def test_recommended_resume_absent_or_blank_is_omitted():
     out = score.score_posting(POSTING, RESUME, model="m", http=FakeHttp(),
                               ollama_host="h",
-                              score_fit=lambda p, r: {"score": 80, "assessment": _assessment()})
+                              score_fit=lambda ps, r: [{"score": 80, "assessment": _assessment()}])
     assert "recommended_resume" not in out
     out2 = score.score_posting(
         POSTING, RESUME, model="m", http=FakeHttp(), ollama_host="h",
-        score_fit=lambda p, r: {"score": 80, "assessment": _assessment(),
-                                "recommended_resume": "   "})
+        score_fit=lambda ps, r: [{"score": 80, "assessment": _assessment(),
+                                  "recommended_resume": "   "}])
     assert "recommended_resume" not in out2
 
 
@@ -778,9 +791,9 @@ def test_score_fit_receives_the_resumes_dict():
     got = {}
     resumes = {"quant_dev": "QD", "swe": "SWE"}
 
-    def fit(posting, r):
+    def fit(postings, r):
         got["resumes"] = r
-        return {"score": 70, "assessment": _assessment()}
+        return [{"score": 70, "assessment": _assessment()}]
 
     score.score_posting(POSTING, resumes, score_fit=fit, model="m",
                         http=FakeHttp(), ollama_host="h")
