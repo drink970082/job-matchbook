@@ -60,6 +60,44 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   the LLM couldn't judge gets human review rather than a trusted number — complementing
   case #1 (a short JD body). `lowContextIds` unions the two signals
   (`LENGTH(TRIM(description)) < N OR json_extract(score_detail,'$.insufficient_context') = 1`).
+- **Batched codex fit scoring — the fit call is now list-in/list-out, and `run_score`
+  batches the survivors instead of scoring one posting per call.** `fit(postings,
+  resumes) -> list[dict]` (both backends) now takes a **list** of postings and returns
+  one scorecard per input, in the same order; a single score is
+  `fit([posting], resumes)[0]` — `score_posting`'s own call site, unchanged from the
+  caller's perspective. `run_score` (`pipeline.py`) is restructured into three phases:
+  (1) SCREEN every `new` posting (Ollama, per-item, unchanged) and persist a
+  disqualified one `discarded` immediately — it never reaches the fit call; (2) chunk
+  the survivors into batches of `batch_size` (default 10) and make **one** `fit_fn`
+  call per chunk — on `codex` this is one `codex exec` scoring up to 10 JDs at once,
+  each tagged `=== JOB job_ref=<posting id> ===`, with the schema wrapping results as
+  `{"results":[{job_ref,...}]}`; results are realigned to the input postings **by
+  `job_ref`, not list position** (an LLM isn't guaranteed to preserve order across N
+  items), and a missing/duplicate/unknown `job_ref` raises `ScoreError` for the
+  **whole batch**; (3) **safety net** — a batch call that raises `ScoreError` *or any
+  other exception* (e.g. a transient `claude`-backend API error surfacing through the
+  same call site) falls back to scoring that batch's postings **singly**, so one
+  malformed batch costs latency, not correctness, and a single that still fails marks
+  only that one row `failed`. `batch_size` defaults to 10, overridable via
+  `--batch-size`/`CODEX_BATCH_SIZE`; `batch_size=1` degrades to exactly the
+  pre-batching one-call-per-posting path (no special-casing). Batching is
+  **codex-only** — the quota win, since the ChatGPT-subscription cap is
+  message-bound, not token-bound, and a ~640-row re-score drops from 640 messages to
+  ~64 (10/batch), cutting total input tokens ~6× (the fixed scaffolding prefix now
+  amortizes over 10 JDs per call instead of 1). The `claude` backend still loops one
+  call per posting regardless of `batch_size`: its cached system prefix already makes
+  the marginal posting cheap, so batching would only save request count, which
+  doesn't matter on metered billing. `tools/score_eval.py` gains a `--batched` mode —
+  a separate, **live**, quota-spending guard, never run from CI/selftest — that scores
+  the golden set once single and once batched and asserts the per-row `(seniority,
+  domain)` verdicts are identical (PASS = 0 drift), which is what proves a batch's
+  JDs don't corrupt each other's score via context bleed from their batch-mates.
+  **This guard has not been run this session; it is the acceptance step before
+  `batch_size=10` is trusted on the live queue, not yet a confirmed result** (see
+  `PROGRESS.md`). Unit-tested: `job_ref` alignment, the fallback path, `batch_size=1`
+  equivalence. Design:
+  `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
+  (Part B; the batched==single validation is part of Part C).
 
 ### Changed
 - **Notify and the web matched/belowbar buckets now route on the fit verdicts, not
@@ -81,7 +119,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   later cleanup). Design:
   `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`
   (Part A; the eval-harness verdict-accuracy reframe is Part C, below — Part B
-  batched fit scoring is separate, not-yet-started work).
+  batched fit scoring shipped separately, see below).
 - **`make eval-score` gates on verdict accuracy, not score-band regression.** Follows
   the routing cutover above: since notify/matched no longer read the score, the harness
   stops judging whether the score reproduces a keep/near/skip band and instead judges

@@ -41,10 +41,24 @@ come back `match`/`match`), ≥85% per-dimension agreement, <20% verdict flip-ra
 K=3 draws — not the score band (see [SPEC](./SPEC.md) §13). Flip-rate is now measured
 on the enum verdicts, which were 100% stable across every draw in both gate runs
 below, so the reframed gate is expected to pass where the old band-regression gate
-structurally couldn't — not yet re-run under the new definition to confirm. What's
-still open below: **batched** fit scoring (design `docs/superpowers/specs/2026-07-16-
-enum-routing-and-batched-scoring-design.md`, Part B — not started; batched verdicts
-must match single-scored verdicts on the golden set before it ships).**
+structurally couldn't — not yet re-run under the new definition to confirm. **Batched**
+fit scoring (design `docs/superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-
+design.md`, Part B) **shipped 2026-07-16**: `fit` is now batch-first
+(`fit(postings, resumes) -> list[dict]`, one scorecard per input in order; a single
+score is `fit([posting], resumes)[0]`); `run_score` screens every `new` row first
+(unchanged, per-item) and batch-fits only the survivors, in chunks of `batch_size`
+(default 10, `--batch-size`/`CODEX_BATCH_SIZE`, **codex-only** — `claude` still loops
+one call per posting, its cached prefix already making that cheap); each codex batch
+tags every JD block with `job_ref` (the posting id) and realigns results by that tag,
+not list position (a missing/duplicate/unknown `job_ref` raises `ScoreError` for the
+**whole batch**); and any batch failure — `ScoreError` or any other exception — falls
+back to scoring that batch's postings **singly**, so one malformed batch costs latency,
+not correctness. All of this is **unit-tested** (alignment, fallback, `batch_size=1`
+equivalence). **Not yet live-validated:** the batched==single verdict-drift guard
+(`tools/score_eval.py --batched`, Part C/B4) — which asserts batched verdicts match
+single-scored verdicts on the golden set — is the acceptance gate before batching is
+trusted on a real re-score, and it **has not been run this session** (PENDING, not
+PASSed — it spends quota).**
 `make_codex_scorer` is built, wired as the default, unit-covered, and **tool-less** (see
 [CHANGELOG](../CHANGELOG.md)). Two gate runs, both FAIL (`<20%` flip required), each
 `hard 10/10 ✅`:
@@ -87,12 +101,23 @@ UI**: every stored row predates the S2.1 structured `assessment` scorecard and t
 only light up once rows carry the new `score_detail`. The next scheduled pipeline pass
 only reaches *new* postings, so applying the fixes to the existing queue needs an operator
 re-run (reset the affected rows to `new`, or a one-off re-score) over the ~640 kept rows.
-**The economics inverted 2026-07-16, but the bound moved rather than vanished:** on the
-shipped `codex`/subscription backend the pass costs no money — but Plus meters a rolling
-**5-hour window** (~15–90 messages on `gpt-5.6-sol`), so ~640 rows **cannot finish in
-one window**. It's a *paced, multi-window* job (or credit-funded), not an overnight one,
-and **quota — not the per-call latency — is what actually bounds it**. Parallelism does
-NOT help (the cap is messages, not wall-clock); chunking across windows does. At the cap
+**The economics inverted 2026-07-16, and the quota math improved again the same day
+once batching shipped:** on the shipped `codex`/subscription backend the pass costs no
+money — but Plus meters a rolling **5-hour window** (~15–90 messages on `gpt-5.6-sol`).
+Unbatched (`batch_size=1`), ~640 rows is 640 messages and **cannot finish in one
+window** (spans 7+). At the shipped `batch_size=10` default, the **same 640 rows are
+~64 `codex exec` calls** — a ~10× drop in message count, and because the fixed
+scaffolding prefix now amortizes over 10 JDs per call instead of 1, total input tokens
+drop **~6×** too — turning a multi-window pacing job into something that can plausibly
+clear in one or two windows instead of 7+. **This is not yet the operator's green
+light to run it, though:** the improved math is a property of the shipped code, not a
+validated result — the live batched==single verdict-drift guard
+(`tools/score_eval.py --batched`) has **not been run this session** (see
+[above](#in-flight)), and it is what says whether a batch of 10 JDs corrupts any one
+JD's score via context bleed from its batch-mates. The re-run over the live queue
+should wait on that guard PASSing before leaning on `batch_size=10` for correctness,
+not just for speed. Parallelism does NOT help either way (the cap is messages, not
+wall-clock); chunking across windows does. At the cap
 Codex hard-blocks and `codex exec` exits 1 with no distinct rate-limit code, so a pacing
 script must match stderr text. Still not done automatically (mutates the DB); back up
 `db/applications.db` first, and confirm `codex doctor` shows auth ✓ — a mid-pass logout

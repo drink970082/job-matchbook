@@ -377,8 +377,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   declares the budget exhausted, then parks it `failed`). Watchlist + feed
   helpers: `get_watchlist`, `count_watchlist`, `import_watchlist` (idempotent),
   `record_unresolved` (upsert on `url`), `existing_external_ids`. Issues no DDL.
-- **`score.py` — `score_posting`.** Up to two calls, two backends, **SCREEN-gated**:
-  the cheap local screen runs FIRST and gates the paid fit score. (1) The
+- **`score.py` — `screen_posting` / `score_posting`.** Up to two calls, two backends,
+  **SCREEN-gated**: the cheap local screen runs FIRST and gates the paid fit score. (1) The
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
   `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
   and — with **no résumé in the prompt** — extracts each requirement (degree, work
@@ -402,21 +402,35 @@ worker modules are pure and dependency-injected; real services are wired only in
   "London" and dropped multi-city US roles). US-state and remote strings keep, so a
   `locations`-only candidate makes no Ollama call. The screen prompt carries no
   location clause. The scoring prompts live in **two** files —
-  `prompts/score.txt` (Claude fit rubric) and `prompts/screen.txt` (Ollama
+  `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (Ollama
   hard-requirements checklist). Separately, when `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured). A SCREEN parse failure
   errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
   screen did not disqualify** (a discarded posting records `score` 0 and never pays
-  for a fit call) — comes from an injected `score_fit(posting, resumes)`
-  callable. Two interchangeable twins build it, picked by `run.make_scorer`
-  (`--score-backend`/`SCORE_BACKEND`); both send the **same prompt sections**
-  (`_scorer_system_sections`) and the **same JSON schema** (`_score_schema`), so a
-  score is comparable across them and a prompt edit lands on both:
+  for a fit call) — comes from an injected **`score_fit(postings, resumes) -> list[dict]`**
+  callable: **batch-first, list in / list out**, one scorecard per input posting in the
+  same order. `score_posting` itself always calls it with a one-posting batch and
+  normalizes the single result (`fit([posting], resumes)[0]`); the batching payoff is at
+  the `run_score` orchestration layer (§7.1/§9), not here. Two interchangeable twins
+  build it, picked by `run.make_scorer` (`--score-backend`/`SCORE_BACKEND`); both send
+  the **same prompt sections** (`_scorer_system_sections`) and the **same per-element
+  JSON schema** (`_score_schema`), so a score is comparable across them and a prompt
+  edit lands on both:
   - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
-    **ChatGPT subscription** (flat-rate, not metered): one `codex exec` per posting,
-    schema enforced via `--output-schema`, JSON read back from
-    `--output-last-message`. Auth is the operator's `codex login` state
+    **ChatGPT subscription** (flat-rate, not metered), and the **only backend that
+    batches**: one `codex exec` per call handles up to `batch_size` postings at once
+    (default 10, `--batch-size`/`CODEX_BATCH_SIZE`), because the subscription's quota
+    is MESSAGE-bound, not token-bound — fewer `codex exec` calls is the actual saving.
+    Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
+    schema wraps N per-posting elements as `{"results": [{job_ref, ...}, ...]}`, enforced
+    via `--output-schema`, JSON read back from `--output-last-message`. Results are
+    realigned to the input postings **by `job_ref`, not list position** (an LLM isn't
+    guaranteed to preserve order across N items) — a missing, duplicate, or unknown
+    `job_ref` raises `ScoreError` for the **whole batch** (silently misattributing a score
+    to the wrong job is worse than failing loudly). `batch_size=1` degrades to exactly
+    the pre-batching one-call-per-posting shape (no special-casing).
+    Auth is the operator's `codex login` state
     (`auth_mode=chatgpt`), **not** an env key — but `CODEX_API_KEY`, if set, *overrides*
     it and silently moves scoring onto metered API billing (`OPENAI_API_KEY` is ignored).
     Model `gpt-5.6-sol` (`CODEX_SCORE_MODEL`/`--codex-score-model`), the CLI's own
@@ -440,10 +454,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
-    `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`); needs `ANTHROPIC_API_KEY`.
+    `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`); needs `ANTHROPIC_API_KEY`. Does
+    **not** batch — `fit` loops one `messages.create` call per posting regardless of
+    `batch_size` (harmless no-op chunking cadence on this backend): Claude's win is the
+    cached system prefix (already flat per-call marginal cost), not fewer round-trips,
+    so batching would only save request count, which doesn't matter on metered billing.
 
-  Either backend raises `ScoreError` on a failed call so the pipeline marks **one**
-  posting failed rather than aborting the batch — on `codex` a non-zero exit never
+  Either backend raises `ScoreError` on a failed call. On `claude` (single-call) that
+  fails **one** posting, same as before. On `codex` (batched) a raised `ScoreError` — or
+  any other exception, e.g. a transient API error from the `claude` backend surfacing
+  through the same `run_score` call site — fails the **whole batch call**; `run_score`'s
+  safety net (§9) catches that and retries the batch's postings **singly**, so one
+  malformed batch costs latency, not correctness, and only a single that still fails
+  marks just that one row `failed`. A non-zero `codex exec` exit never
   yields a `0` score, because codex purges `~/.codex/auth.json` after repeated auth
   failures and a logged-out cron must fail loudly, not score the queue 0.
   `resumes` is the `{label: text}`
@@ -508,6 +531,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   surfaces on the unresolved board instead of vanishing; a source that resolves ids but
   keeps **none** also prints a one-line collapse warning. Each kept posting is stamped
   with its `company_slug`.
+  `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
+  (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
+  that row `failed`), and a disqualified one is persisted `discarded` right here,
+  **never** reaching the fit call; (2) the survivors are chunked into batches of
+  `batch_size` (default 10) and each chunk is **one** `fit_fn` call; (3) a chunk whose
+  call raises — `ScoreError` or any other exception — falls back to scoring that
+  chunk's postings **singly**, so one malformed batch costs latency, not correctness,
+  and a single that still fails marks only that row `failed`. `batch_size` is harmless
+  on the `claude` backend (which loops internally regardless) and is the actual quota
+  lever on `codex` (§7.1's scorer description, §11 quota math).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -726,6 +759,13 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   block, the screen call is skipped entirely (no disqualification). A `discarded`
   row keeps its `score`/`score_detail` (including `disqualification_reason`) so the
   UI can explain *why*.
+- **A batch-fit call can never silently misattribute a score to the wrong posting.**
+  `make_codex_scorer`'s batched `fit` realigns results by `job_ref` (the posting id),
+  not list position; a missing/duplicate/unknown `job_ref` raises `ScoreError` for the
+  **whole batch** rather than pairing a scorecard with the wrong JD. `run_score` (§7.1)
+  catches that (or any other exception the batch call raises) and retries the batch's
+  postings **singly** — one malformed batch costs latency, not correctness or
+  misattribution, and only a single that still fails marks just that one row `failed`.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -970,11 +1010,14 @@ automated coverage — those rely on code review or the human in the loop, not a
   (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
   against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
   is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
-  actually turns on. The trade is latency (~42 s/posting vs ~1 command) and the loss of
-  any determinism knob (no `seed`/`temperature` on `codex exec`); the Claude backend
-  stays wired for a metered A/B. Claude's cached system prefix (rubric + optional
+  actually turns on, and the codex fit call is **batched** (up to `batch_size` postings
+  per `codex exec`, default 10) because that subscription's real limit is a
+  MESSAGE-bound quota, not tokens (§7.1/§11) — the loss of
+  any determinism knob (no `seed`/`temperature` on `codex exec`) remains; the Claude backend
+  stays wired for a metered A/B and deliberately does **not** batch. Claude's cached system prefix (rubric + optional
   profile + all resume versions) keeps its per-posting cost down to just the fresh JD;
-  codex has no such lever, but flat-rate makes that moot.
+  codex has no such lever, so amortizing the fixed scaffolding cost across a batch is
+  what stands in for it.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
@@ -1008,18 +1051,30 @@ automated coverage — those rely on code review or the human in the loop, not a
   (concurrent readers + one serialized writer; brief contention blocks-and-retries up
   to 5 s). Not a guarantee under sustained dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
-  GPU; the fit score adds one hosted call per posting — tens of seconds on the default
-  `codex` backend (one `codex exec` turn), or one cached-prefix API call on `claude`.
-  The root page is `force-dynamic` (no stale cache).
+  GPU; the fit score adds one hosted call per **batch of up to `batch_size` postings**
+  (default 10) on the default `codex` backend — tens of seconds per `codex exec` turn,
+  amortized over the batch — or one cached-prefix API call **per posting** on `claude`
+  (unbatched by design; see §7.1). The root page is `force-dynamic` (no stale cache).
 - **Subscription quota is the real bound on a big re-score — flat-rate is NOT
-  unlimited.** Codex on ChatGPT Plus meters a rolling **5-hour message window** (plus a
-  weekly cap): roughly 15–90 messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). A ~640-row
-  re-score therefore **cannot finish in one window** — it must be paced across several
-  (or funded with credits), which dominates the per-call latency. At the cap Codex hard-
+  unlimited, and batching is what makes the queue fit it.** Codex on ChatGPT Plus
+  meters a rolling **5-hour message window** (plus a weekly cap): roughly 15–90
+  messages/5 h on `gpt-5.6-sol` (20–110 on `terra`). Unbatched (`batch_size=1`), a
+  ~640-row re-score is 640 messages — **cannot finish in one window**, spans 7+.
+  Batched at the shipped default (`--batch-size`/`CODEX_BATCH_SIZE=10`, §7.1/§9), the
+  same 640 rows become **~64 `codex exec` calls** — turning a multi-window job into
+  something that can plausibly clear in one or two — and because the fixed scaffolding
+  prefix (below) is now paid once per **batch** instead of once per **posting**, total
+  input tokens drop **~6×** too. **This is a property of the shipped code, not yet a
+  validated number for the live queue:** `tools/score_eval.py --batched` (§13) is the
+  live guard that asserts batched verdicts match single-scored verdicts on the golden
+  set — it is the acceptance step for trusting batching on a real re-score, and it has
+  **not been re-run this session** (unit tests cover the alignment/fallback mechanics,
+  not live model behavior). At the cap Codex hard-
   blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
   code**, so any pacing logic must match the stderr text, not the exit status. Each call
   also pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
-  were disabled) to emit ~80 tokens of JSON, and **gets no prompt-cache credit**
+  were disabled) to emit ~80 tokens of JSON per posting in the call, and **gets no
+  prompt-cache credit**
   (`cached_input_tokens` was 0 even on back-to-back identical prompts) — the opposite of
   the `claude` backend, whose cached prefix makes the marginal posting nearly free. This
   is the strongest standing argument for the metered API if the flat rate ever stops
@@ -1122,6 +1177,19 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 - **Schema-drift guard:** `tools/check_schema_drift.mjs` fails if
   `apps/worker/tests/fixtures/schema.sql` and `apps/web/prisma/schema.prisma` fall
   out of sync.
+- **Batched==single drift guard (`tools/score_eval.py --batched`, no `make` target —
+  invoked directly, e.g. `apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
+  --batched`):** a **separate, LIVE, quota-spending** check from the K=3 gate above —
+  never run from CI/selftest. Scores the golden set once **single**
+  (`fit([posting], resumes)`) and once **batched** (`fit(chunk, resumes)` at
+  `BATCH_SIZE=10`, mirroring `run_score`'s default), one draw per row per pass, and
+  asserts the per-row `(seniority, domain)` verdicts are **identical** — PASS = 0
+  drift. This is the check that proves batching N JDs into one `codex exec` call
+  doesn't corrupt a JD's score via context bleed from its batch-mates, and it is the
+  **acceptance gate** for trusting `batch_size=10` on a real re-score of the queue —
+  not yet re-run as of this writing (see `PROGRESS.md`). If it drifts, batching must
+  not be trusted for the queue; the Part A verdict-routing change (§9) stands
+  regardless.
 
 ---
 
