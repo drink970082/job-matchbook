@@ -316,6 +316,33 @@ def test_run_score_batches_survivors_and_falls_back_on_batch_error(db_path):
     assert len(db.get_by_status(conn, "scored")) == 3
 
 
+def test_run_score_falls_back_on_non_scoreerror_batch_failure(db_path):
+    # A transient NON-ScoreError from the batch call (e.g. make_claude_scorer lets an
+    # anthropic.RateLimitError from client.messages.create() propagate — it only
+    # wraps json.loads in ScoreError) must ALSO trigger the singles fallback, not
+    # escape run_score and abort every remaining chunk + skip run_notify. The
+    # batch-level catch is `except Exception`, not `except ScoreError`, to cover this.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3"])
+    calls = {"batch": [], "single": 0}
+
+    def fit_fn(postings):
+        ids = [p["id"] for p in postings]
+        calls["batch"].append(ids)
+        if len(ids) > 1:
+            raise RuntimeError("api down")          # NON-ScoreError -> must still fall back
+        calls["single"] += 1
+        return [{"score": 70, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, batch_size=10,
+                       screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=fit_fn)
+    assert calls["batch"][0] == [1, 2, 3]     # tried as one batch
+    assert calls["single"] == 3               # fell back to singles despite RuntimeError
+    # Every survivor still processed to 'scored' — the pass was NOT aborted.
+    assert len(db.get_by_status(conn, "scored")) == 3
+
+
 def test_run_score_persists_disqualified_without_fit(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1"])

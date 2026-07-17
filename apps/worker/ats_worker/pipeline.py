@@ -313,7 +313,16 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
         postings = [p for (_row, p, _screen) in chunk]
         try:
             cards = fit_fn(postings)
-        except score.ScoreError:
+        except Exception:  # noqa: BLE001 — see below
+            # ANY batch failure falls back to singles, not just ScoreError: the
+            # codex backend wraps every failure as ScoreError, but make_claude_scorer
+            # lets a transient anthropic.RateLimitError/APIConnectionError from
+            # client.messages.create() propagate. A narrow `except ScoreError` would
+            # let that escape run_score entirely — aborting every remaining chunk AND
+            # skipping run_notify this pass, violating the cardinal "one bad posting
+            # never aborts the batch" invariant. Falling back to singles here means a
+            # transient API hiccup fails only the row(s) it actually hits (via the
+            # singles-level mark_failed), matching the old broad per-row catch.
             cards = None
         if cards is None:
             # Fallback: retry this chunk's postings one fit_fn call each, so one
