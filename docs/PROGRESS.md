@@ -35,8 +35,12 @@ target-fit rule** (ANTI-TARGETS · TARGET priority from day-to-day work · RÉSU
 field) collapsing to match/adjacent/mismatch against the operator's `personal_profile.txt`
 (see [SPEC](./SPEC.md) §13 + `CHANGELOG`). `make eval-score` (K=3 × 21 rows, `gpt-5.6-sol`)
 went **76% → 100% agreement, hard 10/10, flip-rate 24–38% → 5%**, and a **second consecutive
-PASS (95%) cleared the ship-gate** — the live ~640-row backfill is now the only remaining
-operator step. Lone wobbler across the two runs: id 26 (a borderline Aquatic Quant-Researcher
+PASS (95%) cleared the ship-gate**, and the **live backfill ran 2026-07-17 (DONE)** —
+all ~630 stored rows re-scored under the new rubric, **0 failures, $0** (parallel `codex`
+at concurrency 4 covered the whole queue, ending at 59% of the weekly message budget,
+never touching the claude fallback); the queue is now **39 notified · 419 below-bar · 711
+discarded**, and the web UI's verdict pills / thin-JD flags are populated. Lone wobbler
+across the two eval runs: id 26 (a borderline Aquatic Quant-Researcher
 seat that wavers match↔mismatch — research-central, not the clean twin of the stable id 652
 it first looked like); it stays within gate tolerance but is a candidate to `mark`
 (watch-list) if it flaps a future run. **Two lessons banked:** (1) the "analyst penalty" (build-heavy Analyst/Trading-
@@ -138,7 +142,17 @@ or **route on the stable enum verdicts instead of the number**.
 One row (id=397) is a separate, honest calibration disagreement — stably `near` (68/70/72)
 against a `keep` label, no flip involved.
 
-🚧 **Apply the shipped screen/score fixes to the live DB (operator step).** All 6
+✅ **DONE 2026-07-17 — the live DB re-score ran; the queue now carries the new
+rubric + structured scorecard.** All ~630 stored `scored` rows were re-screened +
+re-fit-scored (parallel `codex`, concurrency 4, **0 failures, $0**, ended at 59% of the
+weekly message budget — the paced hybrid's claude tail was never needed), so the
+Below-bar why-cells, verdict pills, and thin-JD/low-context routing are now populated.
+Final queue: **39 notified · 419 below-bar · 711 discarded**. The DB was backed up first
+(`db/applications.db.bak-*`). The history below (economics, pacing, batching-parked) is
+kept for the record; the operator re-run it describes is now complete. The recurring 24h
+scheduler remains the only standing launch step.
+
+🗄️ *History (resolved) — the operator re-run this item tracked.* All 6
 audited defects (D1–D6) are fixed and on `dev` (see [CHANGELOG](../CHANGELOG.md);
 design `docs/superpowers/specs/2026-07-13-screen-score-quality-fixes-design.md`), and
 validated **2026-07-14** against the live 1,169-row DB — a free pure-code pass (146 auth
