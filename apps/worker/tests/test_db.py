@@ -251,3 +251,21 @@ def test_get_notifiable_selects_only_match_match_non_thin(db_path):
 
     got = [r["id"] for r in db.get_notifiable(conn)]
     assert got == [notifiable_id]
+
+
+def test_get_notifiable_orders_by_score_desc_then_id_asc(db_path):
+    conn = db.connect(db_path)
+
+    def add(ext_id, score):
+        detail = {"assessment": {"seniority": {"verdict": "match"}, "domain": {"verdict": "match"}}}
+        db.upsert_postings(conn, [posting(ext_id)], now=NOW)
+        pid = _one(conn, ext_id)["id"]
+        db.save_score(conn, pid, score=score, score_detail=detail, now=NOW, status="scored")
+        return pid
+
+    low_id = add("1", 60)
+    tie_a_id = add("2", 90)                                      # same score as "3", lower id
+    tie_b_id = add("3", 90)
+
+    got = [r["id"] for r in db.get_notifiable(conn)]
+    assert got == [tie_a_id, tie_b_id, low_id]

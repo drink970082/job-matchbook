@@ -60,8 +60,10 @@ DEFAULT_BATCH_SIZE = 10
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL):
-    """Pick the fit-score backend. Both twins expose the same
-    `score_fit(posting, resumes) -> dict` contract, so only this line changes."""
+    """Pick the fit-score backend. Both twins expose the same batch-first
+    `fit(postings, resumes) -> list[dict]` contract (one scorecard per input
+    posting, in order; a single posting is `fit([posting], resumes)[0]`), so
+    only this line changes."""
     if backend == "codex":
         return make_codex_scorer(codex_score_model, profile=profile)
     if backend == "claude":

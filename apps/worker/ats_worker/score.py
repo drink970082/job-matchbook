@@ -824,8 +824,8 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
     Same prompt sections and same per-element JSON schema (`_score_schema`, fed to
     `--output-schema`, which enforces it the way Claude's structured outputs do), so
-    scores stay comparable across backends and the band-regression harness can judge
-    one against the other.
+    scores stay comparable across backends and the verdict-accuracy harness
+    (tools/score_eval.py) can judge one against the other.
 
     BATCH-FIRST, ONE `codex exec` PER CALL: the ChatGPT-subscription quota is
     MESSAGE-bound, not token-bound, so batching all N postings into a single exec
@@ -841,7 +841,8 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
 
     NO DETERMINISM: codex exec exposes no seed/temperature (its only model knobs are
     model_reasoning_effort and model_verbosity), so the score noise cannot be turned off
-    here — tools/score_eval.py is what says whether it actually moves a band.
+    here — tools/score_eval.py is what says whether the verdicts actually
+    agree / stay stable.
 
     WHY effort=low + verbosity=low, and why BOTH are pinned rather than left default
     (measured 2026-07-16, not guessed):
