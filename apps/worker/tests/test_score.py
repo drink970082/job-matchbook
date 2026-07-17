@@ -795,12 +795,17 @@ def test_make_claude_scorer_accepts_profile_kwarg():
 
 # --- codex scorer: the ChatGPT-subscription twin (no network; subprocess mocked) ---
 
+# The raw scorecard fields codex returns for ONE job (pre-job_ref shape); the fake
+# CLI below wraps it in the batched {"results": [{"job_ref": ..., **payload}]}
+# envelope the real (post-B1) CLI is asked for.
 CODEX_PAYLOAD = {"assessment": {}, "score": 71, "insufficient_context": False}
 
 
-def _fake_codex(payload=CODEX_PAYLOAD, returncode=0, capture=None):
-    """Stand in for `codex exec`: writes `payload` to the --output-last-message path
-    the scorer passed, exactly as the real CLI does."""
+def _fake_codex(payload=CODEX_PAYLOAD, job_ref=1, returncode=0, capture=None):
+    """Stand in for `codex exec`: writes a single-result batch envelope,
+    {"results": [{"job_ref": job_ref, **payload}]}, to the --output-last-message path
+    the scorer passed — exactly the shape the real batched CLI returns for a
+    one-posting call."""
     def run(cmd, **kwargs):
         if capture is not None:
             capture["cmd"] = cmd
@@ -812,32 +817,63 @@ def _fake_codex(payload=CODEX_PAYLOAD, returncode=0, capture=None):
         if returncode == 0:
             out = cmd[cmd.index("--output-last-message") + 1]
             with open(out, "w", encoding="utf-8") as fh:
-                json.dump(payload, fh)
+                json.dump({"results": [{"job_ref": job_ref, **payload}]}, fh)
         return Mock(returncode=returncode, stdout="boom", stderr="")
     return run
 
 
+def _batch_schema(labels: list) -> dict:
+    """Mirror of make_codex_scorer's internal schema wrap (the per-element
+    `_score_schema` plus an integer job_ref, wrapped in a results array) — used to
+    assert on the schema the scorer hands to --output-schema."""
+    element = json.loads(json.dumps(score._score_schema(labels)))
+    element["properties"]["job_ref"] = {"type": "integer"}
+    element["required"].append("job_ref")
+    return {
+        "type": "object",
+        "properties": {"results": {"type": "array", "items": element}},
+        "required": ["results"],
+        "additionalProperties": False,
+    }
+
+
 def test_codex_scorer_parses_the_output_file(monkeypatch):
-    # The CLI writes its final message to --output-last-message; the scorer returns
-    # that parsed JSON verbatim (score_posting normalizes), same contract as Claude.
+    # The CLI writes its final message to --output-last-message; the scorer realigns
+    # by job_ref and returns the parsed element (still carrying job_ref) verbatim
+    # (score_posting normalizes), same contract as Claude, just batched — one
+    # scorecard per input posting, in input order.
     monkeypatch.setattr(score.subprocess, "run", _fake_codex())
     fit = score.make_codex_scorer("gpt-5.6-sol")
-    assert fit(POSTING, {"swe": "resume text"}) == CODEX_PAYLOAD
+    got = fit([{**POSTING, "id": 1}], {"swe": "resume text"})
+    assert got == [{"job_ref": 1, **CODEX_PAYLOAD}]
+
+
+def test_codex_batch_size_one_matches_single_call_scorecard(monkeypatch):
+    # batch_size=1 equivalence: a one-posting batch's scorecard fields are identical
+    # to what today's single-call adapter produced — only the job_ref tag is new.
+    monkeypatch.setattr(score.subprocess, "run", _fake_codex())
+    [got] = score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "resume text"})
+    assert got["score"] == CODEX_PAYLOAD["score"]
+    assert got["assessment"] == CODEX_PAYLOAD["assessment"]
+    assert got["insufficient_context"] == CODEX_PAYLOAD["insufficient_context"]
 
 
 def test_codex_scorer_sends_schema_and_prompt_without_location(monkeypatch):
-    # The schema handed to --output-schema must be the SAME one Claude gets (so the
-    # two backends are comparable), and the prompt must carry the résumé but not the
-    # Location line (D5 — geography must not move the fit score).
+    # The per-element schema handed to --output-schema must be the SAME shape Claude
+    # gets (so the two backends are comparable) plus the job_ref tag, and the prompt
+    # must carry the résumé but not the Location line (D5 — geography must not move
+    # the fit score) — and must carry the job_ref tag for realignment.
     seen: dict = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
     fit = score.make_codex_scorer("gpt-5.6-sol", profile="prefers quant")
-    fit({**POSTING, "location": "Chicago, IL"}, {"swe": "resume text", "quant_dev": "q"})
+    fit([{**POSTING, "location": "Chicago, IL", "id": 1}],
+        {"swe": "resume text", "quant_dev": "q"})
 
-    assert seen["schema"] == score._score_schema(["swe", "quant_dev"])
+    assert seen["schema"] == _batch_schema(["swe", "quant_dev"])
     assert "prefers quant" in seen["prompt"]
     assert "resume text" in seen["prompt"]
     assert "Location: Chicago, IL" not in seen["prompt"]
+    assert "job_ref=1" in seen["prompt"]
     assert "--ephemeral" in seen["cmd"]  # a 640-row pass must not litter session files
 
 
@@ -847,7 +883,7 @@ def test_codex_scorer_runs_tool_less(monkeypatch):
     # tools must be REMOVED, not merely discouraged. web_search defaults ON; off here too.
     seen: dict = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-sol")(POSTING, {"swe": "r"})
+    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
     cmd = seen["cmd"]
     assert cmd[cmd.index("--disable") + 1] == "shell_tool"
     assert 'web_search="disabled"' in cmd
@@ -859,7 +895,7 @@ def test_codex_scorer_pins_effort_and_verbosity(monkeypatch):
     # would change scoring behavior mid-batch with no code change. Pinning is the defense.
     seen: dict = {}
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-sol")(POSTING, {"swe": "r"})
+    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
     assert "model_reasoning_effort=low" in seen["cmd"]
     assert "model_verbosity=low" in seen["cmd"]
 
@@ -870,7 +906,7 @@ def test_codex_scorer_raises_on_nonzero_exit_never_a_zero_score(monkeypatch):
     monkeypatch.setattr(score.subprocess, "run", _fake_codex(returncode=1))
     fit = score.make_codex_scorer("gpt-5.6-sol")
     with pytest.raises(score.ScoreError, match="exit 1"):
-        fit(POSTING, {"swe": "resume text"})
+        fit([{**POSTING, "id": 1}], {"swe": "resume text"})
 
 
 def test_codex_scorer_raises_when_output_is_not_json(monkeypatch):
@@ -882,7 +918,38 @@ def test_codex_scorer_raises_when_output_is_not_json(monkeypatch):
     monkeypatch.setattr(score.subprocess, "run", run)
     fit = score.make_codex_scorer("gpt-5.6-sol")
     with pytest.raises(score.ScoreError, match="non-JSON"):
-        fit(POSTING, {"swe": "resume text"})
+        fit([{**POSTING, "id": 1}], {"swe": "resume text"})
+
+
+def test_codex_batch_duplicate_job_ref_raises(monkeypatch):
+    # Two results claiming the SAME job_ref is exactly the misalignment the guard
+    # exists to catch — it must fail the WHOLE batch loudly rather than silently
+    # pick one and pair a score with the wrong job.
+    def run(cmd, **kw):
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w") as fh:
+            json.dump({"results": [
+                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False},
+                {"job_ref": 1, "score": 10, "assessment": {}, "insufficient_context": False}]}, fh)
+        return Mock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    with pytest.raises(score.ScoreError, match="job_ref"):
+        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
+
+
+def test_codex_batch_unknown_job_ref_raises(monkeypatch):
+    # A job_ref that names no input posting must also fail the whole batch — it's
+    # exactly as unsafe to trust as a missing or duplicate one.
+    def run(cmd, **kw):
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w") as fh:
+            json.dump({"results": [
+                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False},
+                {"job_ref": 99, "score": 10, "assessment": {}, "insufficient_context": False}]}, fh)
+        return Mock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    with pytest.raises(score.ScoreError, match="job_ref"):
+        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
 
 
 def test_both_backends_share_one_prompt_prefix():
@@ -892,3 +959,30 @@ def test_both_backends_share_one_prompt_prefix():
     sections = score._scorer_system_sections(resumes, "prefers quant")
     blocks = score._scorer_system_blocks(resumes, "prefers quant")
     assert [b["text"] for b in blocks] == sections
+
+
+# --- B1: fit scorer is batch-first (list in, list out) --------------------
+
+def test_codex_batch_returns_one_scorecard_per_posting_in_order(monkeypatch):
+    def run(cmd, **kw):
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w") as fh:
+            json.dump({"results": [
+                {"job_ref": 2, "score": 40, "assessment": {}, "insufficient_context": False},
+                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False}]}, fh)
+        return Mock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    fit = score.make_codex_scorer("gpt-5.6-sol")
+    got = fit([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
+    assert [g["score"] for g in got] == [80, 40]          # realigned by job_ref, input order
+
+
+def test_codex_batch_missing_job_ref_raises(monkeypatch):
+    def run(cmd, **kw):
+        out = cmd[cmd.index("--output-last-message") + 1]
+        with open(out, "w") as fh:
+            json.dump({"results": [{"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False}]}, fh)
+        return Mock(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    with pytest.raises(score.ScoreError, match="job_ref"):
+        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})

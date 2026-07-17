@@ -726,7 +726,7 @@ def _as_str_list(value) -> list[str]:
 
 def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
                        max_tokens: int = 4096):
-    """Build a `score_fit(posting, resumes) -> dict` callable backed by Claude.
+    """Build a `fit(postings, resumes) -> list[dict]` callable backed by Claude.
 
     `resumes` is the {label: text} dict of resume versions; `profile` (optional,
     run-static) is extra about-the-candidate context. Rubric + profile + all
@@ -734,12 +734,17 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
     run) so only the JD is fresh; with >=2 versions the schema also demands an
     enum-constrained `recommended_resume`. `import anthropic` and the client are
     deferred to the FIRST call so importing this module — and building the scorer
-    in tests — never needs the SDK. Returns the RAW parsed JSON; score_posting
-    normalizes it.
+    in tests — never needs the SDK.
+
+    UNLIKE codex, this does NOT batch into one call: Claude's win is the cached
+    system prefix (flat per-call marginal cost already), not fewer round-trips, so
+    batching would only buy request-count savings that don't matter on metered API
+    billing. `fit` just loops the existing single-JD call and returns the RAW
+    parsed JSON per posting, in order; score_posting normalizes each one.
     """
     cell: list = []
 
-    def score_fit(posting: dict, resumes: dict) -> dict:
+    def _score_one(posting: dict, resumes: dict) -> dict:
         if not cell:
             import anthropic  # lazy: only at runtime in Docker
             cell.append(anthropic.Anthropic(api_key=api_key))
@@ -767,17 +772,33 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
             raise ScoreError(f"Claude score was not a JSON object: {data!r}")
         return data
 
-    return score_fit
+    def fit(postings: list[dict], resumes: dict) -> list[dict]:
+        return [_score_one(posting, resumes) for posting in postings]
+
+    return fit
 
 
 def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
                       verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex"):
-    """Build a `score_fit(posting, resumes) -> dict` callable backed by the Codex CLI.
+    """Build a `fit(postings, resumes) -> list[dict]` callable backed by the Codex CLI.
 
     The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
-    Same prompt sections and same JSON schema (fed to `--output-schema`, which enforces
-    it the way Claude's structured outputs do), so scores stay comparable across
-    backends and the band-regression harness can judge one against the other.
+    Same prompt sections and same per-element JSON schema (`_score_schema`, fed to
+    `--output-schema`, which enforces it the way Claude's structured outputs do), so
+    scores stay comparable across backends and the band-regression harness can judge
+    one against the other.
+
+    BATCH-FIRST, ONE `codex exec` PER CALL: the ChatGPT-subscription quota is
+    MESSAGE-bound, not token-bound, so batching all N postings into a single exec
+    (rather than one exec per posting) is the actual quota win — see B1 in
+    docs/superpowers/sdd. Each JD gets its own `=== JOB job_ref=<id> ===` block
+    (`posting["id"]`), and the schema demands the same `job_ref` tag come back on
+    every element (`{"results":[{"job_ref":...,...}, ...]}`). Results are realigned
+    to INPUT ORDER by that tag rather than trusted positionally, because an LLM is
+    not guaranteed to preserve list order across N items. A missing, duplicate, or
+    unknown `job_ref` raises ScoreError for the WHOLE BATCH — silently misattributing
+    a score to the wrong job is worse than failing loudly (a later task retries as
+    singles on this failure; not this one's concern).
 
     NO DETERMINISM: codex exec exposes no seed/temperature (its only model knobs are
     model_reasoning_effort and model_verbosity), so the score noise cannot be turned off
@@ -823,15 +844,32 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     the mechanism was never confirmed — but "score 0 on a dead backend" is unacceptable
     regardless of what removed the file.)
     """
-    def score_fit(posting: dict, resumes: dict) -> dict:
-        # Same job block as Claude: no truncation, no Location line (D5).
-        prompt = "\n\n".join([*_scorer_system_sections(resumes, profile),
-                              _job_block(posting, 0, include_location=False)])
+    def _batch_schema(labels: list) -> dict:
+        # Deep-copy _score_schema's output so its module-level cache (_SCORE_SCHEMA)
+        # is never mutated, then wrap N per-posting elements in a {"results":[...]}
+        # envelope tagged with the job_ref that makes realignment possible.
+        element = json.loads(json.dumps(_score_schema(labels)))
+        element["properties"]["job_ref"] = {"type": "integer"}
+        element["required"].append("job_ref")
+        return {
+            "type": "object",
+            "properties": {"results": {"type": "array", "items": element}},
+            "required": ["results"],
+            "additionalProperties": False,
+        }
+
+    def fit(postings: list[dict], resumes: dict) -> list[dict]:
+        # Same job block as Claude: no truncation, no Location line (D5). Each block
+        # is tagged with job_ref=<posting id> so the model's answer can be realigned.
+        blocks = [f"=== JOB job_ref={posting['id']} ===\n"
+                  + _job_block(posting, 0, include_location=False)
+                  for posting in postings]
+        prompt = "\n\n".join([*_scorer_system_sections(resumes, profile), *blocks])
         with tempfile.TemporaryDirectory() as tmp:
             schema_path = os.path.join(tmp, "schema.json")
             out_path = os.path.join(tmp, "out.json")
             with open(schema_path, "w", encoding="utf-8") as fh:
-                json.dump(_score_schema(list(resumes)), fh)
+                json.dump(_batch_schema(list(resumes)), fh)
             cmd = [codex_bin, "exec", "--model", model,
                    # Strip BOTH tools: scoring is pure judgment, and a JD is untrusted
                    # scraped text. See the docstring — this is a security boundary, not
@@ -858,8 +896,27 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                     data = json.load(fh)
             except (OSError, json.JSONDecodeError) as exc:
                 raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
-        if not isinstance(data, dict):
-            raise ScoreError(f"codex score was not a JSON object: {data!r}")
-        return data
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            raise ScoreError(f"codex batch response missing 'results' array: {data!r}")
 
-    return score_fit
+        # Alignment guard: realign by job_ref rather than trusting list position, and
+        # fail the WHOLE batch loudly on any missing/duplicate/unknown ref rather than
+        # risk silently pairing a score with the wrong job.
+        ids = [posting["id"] for posting in postings]
+        id_set = set(ids)
+        by_ref: dict = {}
+        for result in data["results"]:
+            if not isinstance(result, dict):
+                raise ScoreError(f"codex batch result was not a JSON object: {result!r}")
+            ref = result.get("job_ref")
+            if ref not in id_set:
+                raise ScoreError(f"codex returned unknown job_ref {ref!r}")
+            if ref in by_ref:
+                raise ScoreError(f"codex returned duplicate job_ref {ref!r}")
+            by_ref[ref] = result
+        missing = [i for i in ids if i not in by_ref]
+        if missing:
+            raise ScoreError(f"codex omitted job_ref {missing[0]}")
+        return [by_ref[i] for i in ids]
+
+    return fit
