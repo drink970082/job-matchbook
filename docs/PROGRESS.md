@@ -220,6 +220,39 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
   path (~640 messages, 7+ windows); the ~64-message / ~6× input-token win described
   in the economics passage above does not apply at the parked default. Opt back in
   via `--batch-size`/`CODEX_BATCH_SIZE` once re-validated.
+- **OPEN QUESTION — is the drift from BATCHING (context bleed) or the JD itself
+  (inherent draw instability)?** — `[S · one paced experiment]`. The `--batched` guard
+  draws each row **once** single and **once** batched, so a single-vs-batched diff
+  cannot separate "batch-mates corrupted the score" from "this JD's domain verdict is a
+  coin-flip on any re-draw." All 4 drift rows (111, 125, 132, 184) are **adjacent-domain
+  borderline** rows — consistent with *either* hypothesis, which is exactly why it's
+  undetermined. **Definitive test:** score the 4 drift rows K× (K=3) at three settings —
+  `batch_size=1` (single), `batch_size=5`, `batch_size=10` — and read the domain verdict:
+  (a) if it flips across the K **single** draws → JD/draw noise, batching may be innocent
+  and the golden labels for those rows are just genuinely borderline; (b) if single is
+  stable but the batched draws differ → real context bleed; (c) if `batch_size=5` bleeds
+  **less** than 10 → bleed scales with batch size, so a smaller batch is a partial fix (a
+  middle-ground `batch_size` of 5 keeps most of the quota win). `batch_size` is already
+  env-configurable (`CODEX_BATCH_SIZE=5`); this experiment is the "run a 1-batch of 5 or
+  10" the operator asked for. Cost ≈ 4 rows × 3 draws × 3 settings ≈ ~36 codex messages
+  (one 5h window). Related: [[batching-bleeds-domain-verdicts]], and note the fit *score*
+  is separately noisy (below) — the *verdicts* were the stable signal, so this asks
+  specifically whether that stability holds for adjacent-domain rows under batching.
+- **Codex message-quota usage tracker (web + worker)** — `[M · new feature; needs a
+  design pass]`. The ChatGPT-Plus quota is **message-bound** (rolling 5h window, ~15–90
+  msgs on sol, exact ceiling opaque, **no API to query remaining**), and at the cap
+  `codex exec` exits **1 with no distinct rate-limit code** (see [[codex-scorer-gotchas]]).
+  A ~640-row re-score spans 7+ windows, so the operator (and any pacing loop) is flying
+  blind on "how many calls have I burned this window / am I about to hit the wall." Wanted:
+  the worker records each `codex exec` (a timestamp, and a "capped" event when it detects
+  the exit-1 + stderr signature), and the web surfaces a **calls-in-the-trailing-5h-window
+  / estimated-budget** indicator. Necessarily a **best-effort local estimate**, not
+  authoritative (the real limit varies and can't be queried). Design forks (brainstorm
+  before building): where the log lives (a new Prisma table vs a worker-owned JSONL vs
+  derived from existing row `updated_at` timestamps); whether it's a passive counter or an
+  active **pacing gate** that pauses a re-score as it nears the cap; and how the worker
+  reliably fingerprints "capped" vs other exit-1 causes. This is the instrument that makes
+  the parked-batching / unbatched multi-window re-score actually operable.
 - **`posted_at` for dateless boards** — `[S · accepted limitation]`. Pinpoint exposes no
   board date, so `posted_at` falls back to the scrape date for Pinpoint (and any dateless
   row). No fix unless a board adds a date — documented, low value.
