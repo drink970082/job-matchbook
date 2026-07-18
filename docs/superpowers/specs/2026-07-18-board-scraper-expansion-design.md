@@ -1,7 +1,8 @@
 # Board-Scraper Expansion — Design
 
 **Date:** 2026-07-18
-**Status:** approved for build (phases 1–2); phases 3–4 documented but out of scope
+**Status:** approved for build (phases 1–2); phase 3 deferred; phase 4 (browser-required)
+pending a fetch-mode decision — see §3
 **Author:** design session (Claude + drink970082)
 
 ## 1. Problem & goal
@@ -84,23 +85,38 @@ ISO (DE Shaw), a human string "July 17, 2026" (Amazon), epoch seconds (Phenom),
 epoch ms (ByteDance has none at all), or absent (Jane Street, Renaissance). The
 executor must normalize tolerantly and treat `posted_at` as optional.
 
-## 3. Scope
+## 3. Scope & phases
 
-**In scope (build now):**
+**The one invariant — how we fetch: the runtime pipeline is plain HTTP (`requests`) only.
+No headless browser and no LLM in the fetch/score loop.** A browser and an LLM appear
+*once per board, at onboarding* (§4.4) — to discover the live endpoint and draft the
+recipe — then a human commits the row and runtime replays it with plain `requests`. Every
+phase below obeys this, *except* phase 4, which is deferred precisely because it can't.
 
-1. **`icims` platform adapter** + add to `VALID_SOURCES`.
-2. **`phenom` platform adapter** + add to `VALID_SOURCES`.
-3. **`custom` recipe executor** supporting `json` (GET/POST) and `next-data` modes,
-   `offset`/`page`/`none` pagination, and recipe storage on the watchlist.
+So "are we HTML-scraping or driving a headless browser?" — **at runtime, neither is a
+browser: it's plain HTTP.** Two flavors of plain HTTP: hit a JSON endpoint, or pull
+server-rendered HTML / embedded `__NEXT_DATA__` JSON out of a `requests` response. The
+headless browser is an onboarding tool, never a pipeline step.
 
-**Out of scope (documented, not built):**
+**Phase 1 — platform adapters (build now).** `icims` + `phenom` modules, added to
+`VALID_SOURCES`. Plain HTTP — iCIMS returns server-rendered HTML rows; Phenom is a JSON API.
 
-- `custom` executor `json-ld` and `html-css` modes + the optional detail-enrich phase
-  (needed only by G-Research, Renaissance — low volume / high fragility).
-- `google` code-adapter (WIZ). Add later if Google becomes must-have.
-- **Citadel** — **browser-required** (see §2): reachable only via a real browser at fetch time, which
-  means a Chromium dependency in the worker (currently pure `requests`, no browser, no network in
-  tests). Out of scope by default; the opt-in browser-mode option is documented in §8.
+**Phase 2 — custom recipe executor (build now).** `custom.py` runs a declarative recipe
+(`json` GET/POST + `next-data` modes; `offset`/`page`/`none` pagination), the recipe
+stored as a row on the watchlist. Plain HTTP — the recipe hits a JSON endpoint or extracts
+`__NEXT_DATA__` JSON embedded in the served HTML. **No browser, no CSS-selector scraping.**
+
+**Phase 3 — extended reach (deferred).** `custom` `json-ld` + `html-css` modes + the
+optional detail-enrich phase (G-Research 51, Renaissance 12 — low volume / higher
+fragility), and the `google` code-adapter (WIZ positional arrays). Still plain HTTP;
+deferred on volume + fragility, not on mechanism.
+
+**Phase 4 — browser-required (deferred, needs a decision).** Citadel Securities (81) +
+Citadel (49). The **only** class that cannot be done with plain HTTP at fetch time: a real
+browser must clear Cloudflare *per session*, and the cleared `cf_clearance` cookie is not
+portable to `requests` (§2, §8). Building it means a Chromium runtime dependency that
+breaks the worker's pure-`requests`, no-network-in-tests design. Fetch-mode options in §8;
+this phase stays out until that fork is decided.
 
 ## 4. Architecture
 
