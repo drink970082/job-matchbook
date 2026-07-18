@@ -43,6 +43,7 @@ export const VALID_SOURCES = [
   'icims',
   'phenom',
   'custom',
+  'browser',
 ] as const
 
 // Sources whose fetch is driven by a declarative JSON `recipe` (not a slug alone).

@@ -283,10 +283,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   secrets/external services.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
-  smartrecruiters, workable, icims, phenom, custom} — feed-only sources oracle/jobvite are
-  intentionally excluded); a `RECIPE_SOURCES` row (`custom`, and `browser` in phase 4) must carry
-  a `recipe` mapping (else a startup `ConfigError`). Exposes `companies` (each with an optional
-  `recipe: dict | None`),
+  smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
+  are intentionally excluded); a `RECIPE_SOURCES` row (`custom`, `browser`) must carry a `recipe`
+  mapping (else a startup `ConfigError`). Exposes `companies` (each with an optional
+  `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
   but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
   source / missing field → clear
@@ -323,6 +323,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | iCIMS | `{slug}.icims.com` | list (server HTML) | ❌ | ✅ |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | ❌ | ✅ |
   | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | ❌ | ✅ (needs `recipe`) |
+  | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | ❌ | ✅ (needs `recipe`; opt-in) |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
   | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | ✅ enriching (I/O token scrape) | ❌ feed-only |
@@ -346,7 +347,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   `url` templates, list-concat descriptions) into the canonical dict via the shared
   `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok, DE Shaw,
   …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
-  `browser` recipe (phase 4), never a hand-written adapter.
+  `browser` recipe, never a hand-written adapter.
+  **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
+  can't reach — a headless Playwright Chromium renders the page (clearing a Cloudflare challenge)
+  and CSS selectors extract from the rendered DOM (`item` + `fields`, `url`-template pagination,
+  optional per-role `detail` enrich). **Isolated**: Playwright is lazy-imported and lives in
+  `requirements-browser.txt` (not core), and `browser` rows are gated off the default cycle by
+  `enable_browser_sources` (default off) — so a normal run stays pure `requests` and never imports
+  Chromium. First member: Citadel Securities (81) + Citadel (49), both Cloudflare-blocked. The pure
+  `parse_jobs`/`apply_detail` are fixture-tested; the browser-driving `fetch` is not (like other
+  adapters' network I/O).
   **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
   (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
   surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2
@@ -732,7 +742,7 @@ model job_postings {
 
 model watched_companies {        // the DB-owned watchlist (web-managed)
   id          Int     @id @default(autoincrement())
-  source      String  // greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable|icims|phenom|custom
+  source      String  // greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable|icims|phenom|custom|browser
   slug        String  // board identifier (workday packs tenant/datacenter/site)
   name        String
   recipe      String? // JSON recipe for source=custom|browser (declarative fetch); NULL otherwise

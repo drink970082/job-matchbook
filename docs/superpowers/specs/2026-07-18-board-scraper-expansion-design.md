@@ -1,8 +1,9 @@
 # Board-Scraper Expansion — Design
 
 **Date:** 2026-07-18
-**Status:** approved for build (phases 1–2, and phase 4 via an opt-in browser module —
-decided 2026-07-18); phase 3 deferred — see §3
+**Status:** phases 1, 2, 4 **BUILT & shipped 2026-07-18** (icims/phenom adapters · `custom`
+recipe executor · `browser` recipe executor — see SPEC/CHANGELOG); phase 3 deferred — see §3.
+Follow-up: the `onboard-board` skill (§4.6) + wiring the live Citadel rows.
 **Author:** design session (Claude + drink970082)
 
 ## 1. Problem & goal
@@ -311,8 +312,9 @@ The catch-all for boards plain HTTP can't fetch or can't cleanly parse. Recipe-d
 - **Playwright is lazy + optional.** `from playwright.sync_api import sync_playwright` lives
   *inside* `fetch`, never at module top — importing the module (and running the whole rest of the
   suite) needs no Chromium. Missing extra → `fetch` raises a clear `RuntimeError` pointing to
-  `pip install -e '.[browser]' && playwright install chromium`. Playwright + Chromium are a
-  packaging **extra**, so core install, CI, and the coverage/schema gates stay browser-free.
+  `pip install -r requirements-browser.txt && playwright install chromium`. Playwright + Chromium
+  live in a separate **`requirements-browser.txt`** (the repo has no pyproject extras), so core
+  install, CI, and the coverage/schema gates stay browser-free.
 - **Fetch flow (thin glue over the pure parse):** launch headless Chromium → navigate the listing
   (any Cloudflare challenge clears unaided, ~2–8 s) → paginate per the recipe **in the same browser
   context** (a cleared cookie isn't portable, so all loads stay in-session) → optionally open each
@@ -328,20 +330,23 @@ The catch-all for boards plain HTTP can't fetch or can't cleanly parse. Recipe-d
 **Citadel recipe (illustrative; selectors finalized from the saved fixture at build):**
 
 ```yaml
+# Real selectors, captured live 2026-07-18. The item IS the card anchor, so `url`
+# reads the item node's own href (no child selector). Pagination: page 1 = the base
+# `url`, page N = the template from `start` until a page yields no new ids.
 source: browser
 slug: citadelsecurities.com
 name: Citadel Securities
 recipe:
   url: "https://www.citadelsecurities.com/careers/open-opportunities/"
   mode: html-css
-  item: "article.job-card"
-  page: {type: url, template: "https://www.citadelsecurities.com/careers/open-opportunities/page/{n}/", until: empty}
+  item: "a.careers-listing-card"
+  page: {type: url, template: "https://www.citadelsecurities.com/careers/open-opportunities/page/{n}/", start: 2}
   fields:
-    title: "h3"
-    location: ".job-location"
-    url: {selector: "a", attr: href}
-    external_id: {selector: "a", attr: href, extract: "details/([^/]+)/"}
-  detail: {url_field: url, fields: {description: ".job-description"}}
+    title: "h2"
+    location: ".careers-listing-card__location"
+    url: {attr: href}
+    external_id: {attr: href, extract: "details/([^/]+)/"}
+  detail: {url_field: job_url, fields: {description: ".single-job-post-description"}}
 ```
 
 `citadel.com` is the same recipe with the other host — a second data row, zero new code.

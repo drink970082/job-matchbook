@@ -8,6 +8,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **`browser` recipe executor (headless Chromium, isolated + opt-in).** The universal
+  last-resort fetcher (`fetch/browser.py`) for boards plain HTTP can't reach — a Playwright
+  Chromium renders the page (clearing a Cloudflare challenge) and CSS selectors extract from the
+  rendered DOM: `item` + `fields` (selector or `{selector, attr, extract}`), `url`-template
+  pagination, and an optional per-role `detail` enrich. Same recipe idea as `custom`, so a board
+  stays a data row. **Kept off the pure-`requests` core**: Playwright is lazy-imported inside
+  `fetch()` and lives in a new `requirements-browser.txt` (the repo has no pyproject extras); a
+  missing extra raises a clear install hint; and `browser` rows are gated off the default cycle by
+  `enable_browser_sources` (default off, filtered with a log in `run_once`) — a normal run never
+  imports Chromium. First member: Citadel Securities + Citadel (Cloudflare-blocked). Pure
+  `parse_jobs`/`apply_detail` fixture-tested against live-captured Citadel HTML; the browser-driving
+  `fetch` is `# pragma: no cover` glue. (Board-scraper expansion, phase 4.)
 - **`custom` recipe executor (declarative, plain-HTTP fetch).** A generic executor
   (`fetch/custom.py` + shared `fetch/_recipe.py`) driven by a JSON **recipe** stored on the
   watchlist row — no per-site code, so adding a board stays a data row. Modes: `json` (GET/POST)

@@ -1,0 +1,8 @@
+# Optional extra for the `browser` fetch source (fetch/browser.py) — ONLY needed
+# to run browser-required boards (e.g. Citadel, Cloudflare-blocked to plain HTTP).
+# Kept out of requirements.txt so the core install, CI, and the no-network test
+# gate stay Chromium-free. Playwright is lazy-imported inside browser.fetch(), and
+# browser-source rows are gated off the default cycle (config.enable_browser_sources).
+#
+# Install:  pip install -r requirements-browser.txt && playwright install chromium
+playwright>=1.40

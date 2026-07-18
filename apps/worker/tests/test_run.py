@@ -134,6 +134,32 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
     assert dbmod.count_watchlist(dbmod.connect(str(dbfile))) == 2
 
 
+def test_run_once_gates_browser_sources(monkeypatch, tmp_path):
+    _stub_stages(monkeypatch)
+    seen: dict = {}
+    monkeypatch.setattr(run.pipeline, "run_fetch",
+                        lambda conn, companies, tf, *, now, **k:
+                        seen.__setitem__("sources", [c["source"] for c in companies]) or 0)
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    conn = dbmod.connect(str(dbfile))
+    dbmod.import_watchlist(conn, [
+        {"source": "greenhouse", "slug": "a", "name": "A", "recipe": None},
+        {"source": "browser", "slug": "cs", "name": "CS", "recipe": {"url": "x", "item": "a"}},
+    ], now="2026-01-01T00:00:00Z")
+    conn.close()
+
+    # default: browser rows filtered out of the fetch
+    run.run_once(cfgmod.load_config("companies: []\n"),
+                 db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    assert "browser" not in seen["sources"] and "greenhouse" in seen["sources"]
+
+    # enable_browser_sources: they pass through
+    run.run_once(cfgmod.load_config("companies: []\nenable_browser_sources: true\n"),
+                 db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    assert "browser" in seen["sources"]
+
+
 def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
     _stub_stages(monkeypatch)
     calls = []

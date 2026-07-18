@@ -115,13 +115,14 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
   Telegram notification, and the **worker** has no healthcheck — its failures show only in
   the DB/logs.
-- **Headless-browser fetch (Playwright)** — `[L · new dep]`. **Reframed 2026-07-18 by the
-  board-scraper recon:** iCIMS and ByteDance/TikTok do **not** need a browser after all — iCIMS
-  serves job cards as plain server HTML (`?in_iframe=1`, shipped as the `icims` adapter), and
-  TikTok's list is a plain JSON POST (a `custom` recipe, phase 2). The genuinely
-  browser-required class is **Citadel** (Cloudflare-blocked) + **Google** (WIZ positional
-  arrays — read the rendered DOM). That work is now the `browser` recipe executor (phase 4) in
-  the 2026-07-18 board-scraper-expansion design, not a per-source `fetch_one` path.
+- **Headless-browser fetch — SHIPPED 2026-07-18 as the `browser` recipe executor** (phase 4;
+  see SPEC + CHANGELOG). The reframe held: iCIMS and TikTok were never browser-required (both
+  plain HTTP, shipped as the `icims` adapter + a `custom` recipe); the real browser-required class
+  is Cloudflare-blocked boards. `fetch/browser.py` renders in headless Playwright Chromium and
+  extracts via CSS, isolated behind `requirements-browser.txt` + the `enable_browser_sources` gate.
+  **First member: Citadel Securities + Citadel.** Remaining under this banner: **Google** (a
+  `browser` recipe, but deferred on scale — 1711 roles ≈ ~170 rendered pages/run) and, if wanted,
+  wiring the actual Citadel rows + running a first live pass with the extra installed.
 - **Remaining feed coverage (the `feed_unresolved` long tail)** — `[M · needs iCIMS/ByteDance
   feed routers]`. Tier 1 landed (greenhouse-EU host, Oracle, Workable, Jobvite,
   embedded-greenhouse + a detail-fetch robustness framework that records failures loudly),
@@ -131,7 +132,7 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   `fetch_one`, which the list adapters don't provide. **Dropped:** greenhouse embed-token (job
   id only, no board slug); SuccessFactors
   (absent from feed). (Full 2026-06-18 platform breakdown in git history.)
-- **AI fetch+score fallback for unparseable JDs** — `[L · blocked on headless]`. Where text
+- **AI fetch+score fallback for unparseable JDs** — `[L · optional]`. Where text
   extraction fails (JS-rendered / bot-walled / odd markup), let Claude fetch the job page and
   score fit directly from the raw page, bypassing parse-then-score. Candidate landing spot
   for the iCIMS/ByteDance tail if the headless fetch alone isn't enough.

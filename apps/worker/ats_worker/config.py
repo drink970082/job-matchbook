@@ -21,7 +21,7 @@ import yaml
 # sources (oracle, jobvite) are intentionally absent — they can't be a watchlist
 # company. Must match the watchlist-capable subset of fetch.ADAPTERS.
 VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
-                 "smartrecruiters", "workable", "icims", "phenom", "custom")
+                 "smartrecruiters", "workable", "icims", "phenom", "custom", "browser")
 
 # Sources whose fetch is driven by a declarative `recipe` (not a slug alone). A
 # watchlist row for one of these MUST carry a recipe mapping. `browser` joins here
@@ -100,6 +100,9 @@ class Config:
     feeds: list[Feed] = field(default_factory=list)
     threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
+    # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the
+    # optional Playwright extra). Off by default so a normal run stays pure `requests`.
+    enable_browser_sources: bool = False
 
 
 def _looks_like_yaml_text(value) -> bool:
@@ -146,6 +149,7 @@ def load_config(source) -> Config:
         feeds=feeds,
         threshold=_int_field(data, "threshold", DEFAULT_THRESHOLD),
         schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
+        enable_browser_sources=bool(data.get("enable_browser_sources", False)),
     )
 
 

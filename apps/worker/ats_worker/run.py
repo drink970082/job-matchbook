@@ -138,6 +138,17 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             print(f"seeded watchlist from config: {seeded} companies")
         companies = db.get_watchlist(conn)
 
+        # `browser`-source rows drive a headless Chromium (optional Playwright extra);
+        # keep them off the default cycle unless explicitly enabled, so a normal run
+        # stays pure `requests` and never imports Playwright.
+        if not cfg.enable_browser_sources:
+            skipped = [c for c in companies if c["source"] == "browser"]
+            if skipped:
+                names = ", ".join(f"{c['source']}/{c['slug']}" for c in skipped)
+                print(f"skipping {len(skipped)} browser-source row(s) "
+                      f"(enable_browser_sources is off): {names}")
+            companies = [c for c in companies if c["source"] != "browser"]
+
         pipeline.run_fetch(conn, companies, cfg.title_filter, now=now)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs

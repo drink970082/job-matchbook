@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from urllib.parse import urljoin
 
 from ats_worker.util import html_to_text
 
@@ -110,4 +111,58 @@ def apply_fields(item, fields: dict, company_name: str, source: str) -> dict:
         "job_url": _url(item, fields.get("url")),
         "description": html_to_text(_description(item, fields.get("description"))),
         "posted_at": normalize_date(dotted_get(item, fields.get("posted_at"))),
+    }
+
+
+# --- CSS extraction (browser executor, over a rendered DOM node) ----------
+
+def _css_one(node, spec):
+    """Extract one field value from a bs4 node per a CSS field spec.
+
+    spec is either a CSS selector string (-> element text) or a dict
+    {selector?, attr?, extract?}: pick the element (a child `selector`, or the
+    node itself), read `attr` (or its text), then optionally regex-`extract`
+    group 1. Returns None on a miss."""
+    if not spec:
+        return None
+    if isinstance(spec, str):
+        el = node.select_one(spec)
+        return el.get_text(" ", strip=True) if el is not None else None
+    sel = spec.get("selector")
+    el = node.select_one(sel) if sel else node
+    if el is None:
+        return None
+    val = (el.get(spec["attr"]) or "") if spec.get("attr") else el.get_text(" ", strip=True)
+    extract = spec.get("extract")
+    if extract:
+        m = re.search(extract, val or "")
+        val = m.group(1) if m else ""
+    return val
+
+
+def _css_description(node, spec) -> str:
+    """Description from a CSS spec: html_to_text over the selected element's HTML
+    so block structure survives as paragraph breaks. '' when absent."""
+    if not spec:
+        return ""
+    sel = spec if isinstance(spec, str) else spec.get("selector")
+    el = node.select_one(sel) if sel else node
+    return html_to_text(str(el)) if el is not None else ""
+
+
+def apply_css_fields(node, fields: dict, company_name: str, source: str,
+                     base_url: str = "") -> dict:
+    """Build one canonical posting dict from a rendered DOM node + a CSS field spec.
+    Relative `url` values are resolved against `base_url`."""
+    fields = fields or {}
+    raw_url = _css_one(node, fields.get("url")) or ""
+    return {
+        "source": source,
+        "external_id": _s(_css_one(node, fields.get("external_id"))),
+        "company_name": company_name,
+        "job_title": _s(_css_one(node, fields.get("title"))).strip(),
+        "location": (_css_one(node, fields.get("location")) or None),
+        "job_url": urljoin(base_url, raw_url) if raw_url else "",
+        "description": _css_description(node, fields.get("description")),
+        "posted_at": normalize_date(_css_one(node, fields.get("posted_at"))),
     }
