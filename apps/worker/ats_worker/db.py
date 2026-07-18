@@ -153,13 +153,19 @@ def get_by_status(conn: sqlite3.Connection, status: str, *, min_score: int | Non
 def get_notifiable(conn: sqlite3.Connection):
     """Scored rows the fit verdicts mark a strong match — the notify gate.
     Replaces the old score>=threshold gate: seniority AND domain must both be
-    `match`, and a thin-JD (insufficient_context) row is held back for human
-    review. json_extract reads the verdicts out of the score_detail JSON."""
+    `match`, and a **thin JD is held back** for human review two ways, so this gate
+    mirrors the web's Matched tab exactly (actions.ts `matchedIds()` minus
+    `lowContextIds()`): the model's own `insufficient_context` flag, OR a description
+    shorter than 200 chars (`LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` — kept in sync by hand
+    with apps/web/src/lib/constants.ts; a short blurb the model may still rate
+    confidently). Without the length clause the worker would alert on thin JDs the UI
+    hides under Low-context. json_extract reads the verdicts out of score_detail."""
     return conn.execute(
         "SELECT * FROM job_postings WHERE pipeline_status='scored' "
         "AND json_extract(score_detail,'$.assessment.seniority.verdict')='match' "
         "AND json_extract(score_detail,'$.assessment.domain.verdict')='match' "
         "AND COALESCE(json_extract(score_detail,'$.insufficient_context'),0)<>1 "
+        "AND LENGTH(TRIM(description)) >= 200 "
         "ORDER BY score DESC, id ASC"
     ).fetchall()
 

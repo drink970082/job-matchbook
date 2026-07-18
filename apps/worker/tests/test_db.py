@@ -231,14 +231,19 @@ def test_upsert_falls_back_to_scrape_date_when_no_posted_at(db_path):
 
 # --- get_notifiable (verdict-based notify gate) ---------------------------
 
+# >= 200 chars so the description-length low-context gate (mirrors the web's
+# LOW_CONTEXT_MAX_DESCRIPTION_LENGTH) does NOT hold these rows back.
+LONG_DESC = "Build backend services in Python and Go across data pipelines. " * 4
+
+
 def test_get_notifiable_selects_only_match_match_non_thin(db_path):
     conn = db.connect(db_path)
 
-    def add(ext_id, sen, dom, *, thin=False, status="scored", score=50):
+    def add(ext_id, sen, dom, *, thin=False, status="scored", score=50, desc=LONG_DESC):
         detail = {"assessment": {"seniority": {"verdict": sen}, "domain": {"verdict": dom}}}
         if thin:
             detail["insufficient_context"] = True
-        db.upsert_postings(conn, [posting(ext_id)], now=NOW)
+        db.upsert_postings(conn, [posting(ext_id, description=desc)], now=NOW)
         pid = _one(conn, ext_id)["id"]
         db.save_score(conn, pid, score=score, score_detail=detail, now=NOW, status=status)
         return pid
@@ -246,11 +251,26 @@ def test_get_notifiable_selects_only_match_match_non_thin(db_path):
     notifiable_id = add("1", "match", "match")                  # notifiable
     add("2", "match", "adjacent")                                # domain not match -> no
     add("3", "too_junior", "match")                              # seniority not match -> no
-    add("4", "match", "match", thin=True)                        # thin JD -> no
+    add("4", "match", "match", thin=True)                        # insufficient_context -> no
     add("5", "match", "match", status="notified")                # already notified -> no
+    add("6", "match", "match", desc="Short JD.")                 # <200-char thin JD -> no
 
     got = [r["id"] for r in db.get_notifiable(conn)]
     assert got == [notifiable_id]
+
+
+def test_get_notifiable_holds_back_thin_by_description_length(db_path):
+    # Mirrors the web Matched tab: a match/match JD the model did NOT flag
+    # insufficient_context but whose description is under 200 chars is still
+    # low-context and must not fire an alert (else UI Matched != Telegram alert).
+    conn = db.connect(db_path)
+    detail = {"assessment": {"seniority": {"verdict": "match"}, "domain": {"verdict": "match"}}}
+    for ext_id, desc in [("short", "Tiny."), ("long", LONG_DESC)]:
+        db.upsert_postings(conn, [posting(ext_id, description=desc)], now=NOW)
+        db.save_score(conn, _one(conn, ext_id)["id"], score=90,
+                      score_detail=detail, now=NOW, status="scored")
+    got = [r["external_id"] for r in db.get_notifiable(conn)]
+    assert got == ["long"]                                       # short one held back
 
 
 def test_get_notifiable_orders_by_score_desc_then_id_asc(db_path):
@@ -258,7 +278,7 @@ def test_get_notifiable_orders_by_score_desc_then_id_asc(db_path):
 
     def add(ext_id, score):
         detail = {"assessment": {"seniority": {"verdict": "match"}, "domain": {"verdict": "match"}}}
-        db.upsert_postings(conn, [posting(ext_id)], now=NOW)
+        db.upsert_postings(conn, [posting(ext_id, description=LONG_DESC)], now=NOW)
         pid = _one(conn, ext_id)["id"]
         db.save_score(conn, pid, score=score, score_detail=detail, now=NOW, status="scored")
         return pid

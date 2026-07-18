@@ -234,24 +234,19 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **Telegram notify ≠ web "Matched" tab on thin JDs (low-context divergence)** — `[XS ·
-  from the 2026-07-17 scoring-system audit]`. The worker's notify gate
-  (`db.get_notifiable`) and the web's `matchedIds()` share a **byte-identical enum
-  predicate** (`seniority=match AND domain=match AND NOT insufficient_context`) — but the
-  web's *displayed* **Matched** bucket also **subtracts low-context rows**
-  (`lowContextIds()` = `LENGTH(TRIM(description)) < 200` **OR** `insufficient_context`),
-  whereas the worker notify has **no description-length check**. So a short (<200-char)
-  `match/match` JD the model did **not** flag `insufficient_context` (a thin-but-confident
-  blurb) **fires a Telegram alert** yet shows under **Low-context**, not **Matched** — the
-  "UI ≠ alerts" hazard the SPEC §9 claimed couldn't happen (SPEC now corrected). The eval
-  harness doesn't cover this axis (no `insufficient_context`/length in the golden set).
-  **Fix (small, but a behavior fork — operator's call):** either add
-  `AND LENGTH(TRIM(description)) >= 200` to `get_notifiable` so the worker also holds back
-  thin JDs (mirrors the UI; suppresses those alerts), **or** drop the description-length
-  signal from the web's low-context exclusion and rely only on the shared
-  `insufficient_context` flag (makes thin match/match JDs notifiable + shown in Matched).
-  The length-gate mirror preserves current UI behavior; pick per whether a thin-but-
-  confident match should alert.
+✅ **FIXED 2026-07-17 — Telegram notify ≠ web "Matched" on thin JDs (low-context
+divergence).** The worker notify gate (`db.get_notifiable`) and the web `matchedIds()`
+shared a byte-identical enum predicate, but the web Matched tab *also* subtracts
+low-context rows (`LENGTH(TRIM(description)) < 200` OR `insufficient_context`) while the
+worker had no description-length check — so a short (<200-char) `match/match` JD not
+flagged `insufficient_context` fired a Telegram alert yet showed under Low-context, not
+Matched. Fixed by mirroring the UI in the worker: `get_notifiable` now also requires
+`LENGTH(TRIM(description)) >= 200` (operator chose the length-gate mirror over making thin
+JDs notifiable — a thin-but-confident match shouldn't alert). The two gates now agree.
+The `200` is hand-synced with the web `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (a cross-service
+constant, noted in `get_notifiable`'s docstring — a known drift point). See CHANGELOG;
+SPEC §9 corrected. (From the 2026-07-17 scoring-system audit.)
+
 - **`run_score` batch persist trusts `len(cards) == len(chunk)`** — `[XS · latent, from
   audit]`. `pipeline.py` zips `chunk` with `cards`; a backend returning *fewer* cards
   without raising would silently orphan the tail rows (stuck `new`, re-scored next pass).

@@ -16,6 +16,12 @@ LATER = "2026-06-04T09:00:00.000Z"
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+# Realistic JD length (>= 200 chars) so a match/match seeded row clears
+# get_notifiable's description-length low-context gate (mirrors the web
+# LOW_CONTEXT_MAX_DESCRIPTION_LENGTH). A short default would make every notify
+# test row non-notifiable — the thin-JD case the gate deliberately holds back.
+LONG_DESC = "Build backend services in Python and Go across data pipelines. " * 4
+
 
 # --- posting builder ------------------------------------------------------
 
@@ -28,7 +34,7 @@ def make_posting(external_id="1", source="greenhouse", **over):
         "job_title": "Software Engineer",
         "location": "Remote",
         "job_url": f"https://example.com/jobs/{external_id}",
-        "description": "Build things with Python.",
+        "description": LONG_DESC,
     }
     base.update(over)
     return base
@@ -45,20 +51,23 @@ def bootstrap_db(path) -> str:
     return str(path)
 
 
-def seed_new(conn, ids):
-    db.upsert_postings(conn, [make_posting(i) for i in ids], now=NOW)
+def seed_new(conn, ids, *, description=None):
+    over = {"description": description} if description is not None else {}
+    db.upsert_postings(conn, [make_posting(i, **over) for i in ids], now=NOW)
 
 
-def seed_scored(conn, scores, *, detail=None):
+def seed_scored(conn, scores, *, detail=None, description=None):
     """scores: dict external_id -> score. Leaves those rows in 'scored'.
 
     Only touches the rows it seeds (matched by external_id), so it composes with
-    other seed helpers in the same db without clobbering their rows.
+    other seed helpers in the same db without clobbering their rows. Rows inherit
+    make_posting's realistic (>=200-char) description so a match/match row is
+    notifiable; pass a shorter `description` to exercise the thin-JD hold-back.
     """
     # `detail is not None` (not `detail or ...`) so a caller can pass an
     # intentionally-empty {} without silently getting the default.
     detail = detail if detail is not None else {"missing_keywords": ["aws"]}
-    seed_new(conn, list(scores))
+    seed_new(conn, list(scores), description=description)
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
         if r["external_id"] not in scores:
             continue

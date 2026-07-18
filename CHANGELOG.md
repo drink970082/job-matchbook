@@ -30,6 +30,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   fingerprinting is needed. Storage is a single shared-mount file (no Prisma schema
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
+### Fixed
+- **Notify gate now mirrors the web "Matched" tab on thin JDs.** `db.get_notifiable`
+  gained `AND LENGTH(TRIM(description)) >= 200`, so a short (<200-char) `match/match` JD the
+  model did not flag `insufficient_context` no longer fires a Telegram alert while the web
+  hides it under Low-context — the two now agree. Surfaced by the 2026-07-17 scoring-system
+  audit (SPEC §9 corrected). The `200` is hand-synced with the web
+  `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (a cross-service constant, flagged in both).
+
 ### Changed
 - **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
   The old one-line domain prompt ("is their background in this role's domain?") had no

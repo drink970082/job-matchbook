@@ -15,7 +15,7 @@ import pytest
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
 from ats_worker import run
-from tests._helpers import bootstrap_db, make_posting
+from tests._helpers import LONG_DESC, bootstrap_db, make_posting
 
 pytestmark = pytest.mark.integration
 
@@ -131,8 +131,8 @@ def test_disqualified_routing_keeps_reason(monkeypatch, tmp_path):
 
 
 def test_notify_failure_isolated_across_postings(monkeypatch, tmp_path):
-    postings = [make_posting("ok", description="clean jd"),
-                make_posting("bad", description="BOOM jd")]
+    postings = [make_posting("ok", description=LONG_DESC),
+                make_posting("bad", description="BOOM " + LONG_DESC)]
 
     dbfile, notified = _run(monkeypatch, tmp_path, postings=postings,
                             score_fn=lambda p: {"score": 90, "assessment": _MATCH_MATCH_ASSESSMENT})
@@ -146,8 +146,8 @@ def test_notify_failure_isolated_across_postings(monkeypatch, tmp_path):
 
 
 def test_notify_retry_exhausts_to_failed_without_double_alert(monkeypatch, tmp_path):
-    postings = [make_posting("ok", description="clean jd"),
-                make_posting("bad", description="BOOM jd")]
+    postings = [make_posting("ok", description=LONG_DESC),
+                make_posting("bad", description="BOOM " + LONG_DESC)]
 
     # Three scheduler passes over one db: the failing send is retried each pass
     # and parks 'failed' on the 3rd (NOTIFY_MAX_ATTEMPTS) cumulative failure.
