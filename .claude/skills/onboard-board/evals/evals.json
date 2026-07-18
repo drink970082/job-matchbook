@@ -1,0 +1,26 @@
+{
+  "skill_name": "onboard-board",
+  "evals": [
+    {
+      "id": 0,
+      "name": "platform-greenhouse",
+      "prompt": "We keep losing track of Databricks roles. Can you add Databricks to the worker's watchlist so it fetches their openings automatically? I poked around and their job board seems to be at boards.greenhouse.io/databricks.",
+      "expected_output": "Recognizes Databricks runs on Greenhouse (a known platform) and emits a plain watchlist data row {source: greenhouse, slug: databricks, name: Databricks} with NO recipe. Does not write any adapter code or a recipe.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "plain-http-nextdata",
+      "prompt": "I want the ATS worker to start tracking D. E. Shaw's jobs. Their careers page is https://www.deshaw.com/careers -- add it to the watchlist.",
+      "expected_output": "Determines D.E. Shaw is not a known ATS but is reachable by plain HTTP via its __NEXT_DATA__ blob, and writes a `source: custom` row with a next-data recipe (item_path into props.pageProps.regularJobs, field mappings), saves a fixture, and validates it parses >=1 well-formed posting. No browser recipe, no adapter code.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "browser-cloudflare",
+      "prompt": "Add Citadel (the hedge fund, citadel.com) to the watchlist -- https://www.citadel.com/careers/open-opportunities/ . I want the worker to pull their open roles.",
+      "expected_output": "Finds that plain HTTP is Cloudflare-blocked and routes to a `source: browser` recipe (CSS over the rendered DOM), and flags that browser rows need enable_browser_sources + the Playwright extra. Does not claim a plain-HTTP recipe works, and does not write adapter code.",
+      "files": []
+    }
+  ]
+}

@@ -26,3 +26,8 @@ resumes/
 # id) + real resume/profile context, so the DATA stays gitignored; the harness
 # SCRIPT lives in apps/worker/tools/ and IS committed.
 apps/worker/eval/
+
+# Claude Code local state + skill-eval scratch (regenerable): keep the skills
+# themselves, ignore the per-run workspace outputs and the scheduler lock.
+.claude/scheduled_tasks.lock
+.claude/skills/*-workspace/
