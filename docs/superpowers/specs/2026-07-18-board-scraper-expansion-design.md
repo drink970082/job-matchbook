@@ -34,7 +34,7 @@ four buckets:
 | **Platform** | one adapter, ∞ companies via slug | iCIMS (SIG, General Dynamics, Fujifilm…), **Phenom** (Microsoft, Kraft Heinz, Mastercard, CVS…) |
 | **Custom-recipe** | one row against one generic executor | Amazon, ByteDance/TikTok, Jane Street, DE Shaw, G-Research, Renaissance, AQR |
 | **Code-adapter** | too weird for a recipe; ~30 lines of code | Google (WIZ `AF_initDataCallback` positional arrays) |
-| **Blocked** | not scrapable by plain HTTP | Citadel (Cloudflare interactive challenge; no ATS behind it) |
+| **Browser-required** | plain HTTP blocked, but a real browser clears it | Citadel (Cloudflare Turnstile; server-rendered once past — see §2 evidence) |
 
 Key evidence:
 
@@ -50,7 +50,17 @@ Key evidence:
 - **Jane Street**: `GET janestreet.com/jobs/main.json` — single file, top-level array, 214 roles, descriptions inline, no pagination.
 - **DE Shaw**: parse `__NEXT_DATA__` from `/careers`, `props.pageProps.regularJobs` (78 roles). (A `/_next/data/{buildId}/…` JSON API also exists but `buildId` rots — the HTML blob is more robust.)
 - **Google**: curl-reachable; `AF_initDataCallback` `ds:1` parses as strict JSON, `&page=N`, total 1711. ~30 lines of positional parsing.
-- **Citadel**: both domains behind a Cloudflare *interactive* managed challenge on all HTML/JSON; only static XML sitemaps leak (URLs only). Headless wouldn't reliably help.
+- **Citadel** (corrected 2026-07-18, verified first-hand — supersedes the earlier "skip, headless
+  won't help"): plain HTTP is blocked — `curl`, the worker's `requests`, and Claude Code's WebFetch
+  all get a **403 Cloudflare Turnstile** challenge every time. But a **real browser (Playwright
+  Chromium) reliably clears it** (2/2 attempts), and the listing is then plain **server-rendered HTML**
+  paginated at `/careers/open-opportunities/page/N/` (9 pages, ~81 roles, no XHR/JSON API, no ATS
+  behind it). There is **no** permanent plain-HTTP endpoint — the challenge must be cleared *per
+  session* — so Citadel needs a browser **at fetch time**, not just at onboarding. Accurate verdict:
+  **browser-required**, not impossible. (A web *search* is not a fetch: it returns a search engine's
+  stale crawl / third-party aggregators — Glassdoor showed 26 roles vs the live 81 — so it can enumerate
+  a rough count but cannot power the scraper. Assistants that "fetch" Citadel without a browser are
+  searching, not hitting the origin.)
 
 Cross-cutting reality that shapes the recipe format: **`posted_at` is inconsistent** —
 ISO (DE Shaw), a human string "July 17, 2026" (Amazon), epoch seconds (Phenom),
@@ -71,7 +81,9 @@ executor must normalize tolerantly and treat `posted_at` as optional.
 - `custom` executor `json-ld` and `html-css` modes + the optional detail-enrich phase
   (needed only by G-Research, Renaissance — low volume / high fragility).
 - `google` code-adapter (WIZ). Add later if Google becomes must-have.
-- **Citadel** — blocked; excluded by the "don't scrape blocked sites" rule.
+- **Citadel** — **browser-required** (see §2): reachable only via a real browser at fetch time, which
+  means a Chromium dependency in the worker (currently pure `requests`, no browser, no network in
+  tests). Out of scope by default; the opt-in browser-mode option is documented in §8.
 
 ## 4. Architecture
 
@@ -254,5 +266,21 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
   each detail URL to fill description/date. Needed by G-Research (51) and Renaissance (12).
 - **`google` code-adapter**: `results/?page=N` → parse `AF_initDataCallback` `ds:1` with
   index guards; sitemap (3585 URLs) as a dedup anchor.
-- **Citadel**: skip unless a real stealth browser is worth the maintenance — interactive
-  Turnstile resists automation.
+- **Citadel & other browser-required boards** (plain HTTP blocked, but a real browser clears the
+  Turnstile challenge and the content is server-rendered — see §2): reachable only with a browser at
+  fetch time. Deliberately kept **out of the core** — the worker is pure `requests`, DI,
+  no-network-in-tests, native on host; a Chromium dependency for one ~81-role board contradicts that.
+  If this class of board becomes worth it, the two options are:
+  - an **isolated, opt-in `browser` fetch mode** — a Playwright-backed module used ONLY for
+    browser-required boards, never on the default pipeline path (cost: Chromium dep, ~seconds/page, not
+    mockable like the rest); or
+  - a **`cf_clearance` cookie hybrid** — a browser clears the challenge and mints the cookie
+    periodically, then plain `requests` fetches the `/page/N/` pages with it (lighter at runtime, but
+    fragile: cookies are ~30-min, IP-bound, and rotate).
+
+  Recommendation: keep out by default; add the opt-in module only if browser-required boards matter.
+- **A web search is not a fetch:** search tools (and assistants that "search the web") return a search
+  engine's already-crawled, possibly-stale copy or third-party aggregators — not the live origin. Fine
+  for a rough look; useless as a scraper source (no complete list / descriptions / freshness). Verified
+  2026-07-18: a WebSearch of the Citadel careers URL returned aggregator snippets and a stale count,
+  never the live 81-role listing.
