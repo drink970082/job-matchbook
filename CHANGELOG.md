@@ -24,7 +24,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   (`fetch/custom.py` + shared `fetch/_recipe.py`) driven by a JSON **recipe** stored on the
   watchlist row — no per-site code, so adding a board stays a data row. Modes: `json` (GET/POST)
   and `next-data` (extract the `__NEXT_DATA__` blob, then treat as JSON); pagination
-  `offset`/`page`/`none`; a `fields` map with dotted paths (list-indexing, e.g. `office.0.name`),
+  `offset`/`page`/`none`; an optional `item_path` (omit for a bare root-level JSON array, e.g. Jane
+  Street); a `fields` map with dotted paths (list-indexing, e.g. `office.0.name`),
   `url` templates, list-concat descriptions, and a tolerant date normalizer (ISO / "Month D,
   YYYY" / epoch s|ms). Schema: a nullable `recipe` column on `watched_companies` (Prisma-owned,
   mirrored in the drift fixture); `config` requires a recipe for `RECIPE_SOURCES` (`custom`,

@@ -35,7 +35,10 @@ def _payload(resp, mode: str):
 
 def parse_jobs(payload, recipe: dict, company_name: str) -> list[dict]:
     """Map one page's payload to canonical postings (pure; no I/O)."""
-    items = dotted_get(payload, recipe.get("item_path")) or []
+    ip = recipe.get("item_path")
+    # No item_path + the payload IS the array -> root-level array board (e.g. a bare
+    # JSON feed). Otherwise walk item_path into the payload.
+    items = payload if (not ip and isinstance(payload, list)) else (dotted_get(payload, ip) or [])
     if not isinstance(items, list):
         raise ValueError(f"custom recipe item_path {recipe.get('item_path')!r} is not a list")
     fields = recipe.get("fields") or {}

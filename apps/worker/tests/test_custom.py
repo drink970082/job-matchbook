@@ -116,6 +116,18 @@ def test_parse_jobs_rejects_non_list_item_path():
         custom.parse_jobs({"jobs": {"not": "a list"}}, AMAZON_RECIPE, "Amazon")
 
 
+def test_parse_jobs_root_array_no_item_path():
+    """A bare JSON array (root IS the job list, e.g. Jane Street) needs no item_path."""
+    recipe = {"fields": {"title": "position", "external_id": "id",
+                         "url": "https://x/{id}/", "location": "city"}}
+    payload = [{"id": 7, "position": "Trader", "city": "NYC"}]
+    jobs = custom.parse_jobs(payload, recipe, "Jane Street")
+    assert len(jobs) == 1
+    assert jobs[0]["external_id"] == "7"
+    assert jobs[0]["job_title"] == "Trader"
+    assert jobs[0]["job_url"] == "https://x/7/"
+
+
 class _Resp:
     def __init__(self, payload=None, *, text=""):
         self._payload = payload
