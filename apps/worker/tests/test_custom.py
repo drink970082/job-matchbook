@@ -13,6 +13,8 @@ from ats_worker.util import POSTING_FIELDS
 FIXTURES = Path(__file__).parent / "fixtures"
 AMAZON = json.loads((FIXTURES / "amazon.json").read_text())
 TIKTOK = json.loads((FIXTURES / "tiktok.json").read_text())
+BYTEDANCE = json.loads((FIXTURES / "bytedance.json").read_text())
+JANESTREET = json.loads((FIXTURES / "janestreet.json").read_text())
 DESHAW_HTML = (FIXTURES / "deshaw.html").read_text(encoding="utf-8")
 
 AMAZON_RECIPE = {
@@ -56,6 +58,37 @@ DESHAW_RECIPE = {
         "url": "https://www.deshaw.com/careers/{data.jobUrl}",
         "description": "data.jobDescription.websiteDescription",
         "posted_at": "data.validFromDate", "external_id": "id",
+    },
+}
+
+# ByteDance corp: same jobs.bytedance.com API as TikTok, different portal header/body.
+BYTEDANCE_RECIPE = {
+    "method": "POST",
+    "url": "https://jobs.bytedance.com/api/v1/public/supplier/search/job/posts",
+    "headers": {"website-path": "en"},
+    "body": {"recruitment_id_list": ["201"], "job_category_id_list": [], "subject_id_list": [],
+             "location_code_list": [], "keyword": "", "limit": 100, "offset": 0},
+    "mode": "json",
+    "item_path": "data.job_post_list",
+    "total_path": "data.count",
+    "page": {"type": "offset", "body_param": "offset", "size": 100},
+    "fields": {
+        "title": "title", "location": "city_info.en_name",
+        "url": "https://joinbytedance.com/search/{id}",
+        "description": ["description", "requirement"], "external_id": "id",
+    },
+}
+
+# Jane Street: main.json is a bare top-level array -> no item_path.
+JANESTREET_RECIPE = {
+    "url": "https://www.janestreet.com/jobs/main.json",
+    "mode": "json",
+    "headers": {"User-Agent": "Mozilla/5.0"},
+    "page": {"type": "none"},
+    "fields": {
+        "title": "position", "location": "city",
+        "url": "https://www.janestreet.com/join-jane-street/position/{id}/",
+        "description": "overview", "external_id": "id",
     },
 }
 
@@ -109,6 +142,28 @@ def test_parse_jobs_amazon_maps_fields():
     )
     assert j["posted_at"] == "2026-07-17"     # "July 17, 2026" normalized
     assert j["description"]
+
+
+def test_parse_jobs_bytedance_maps_fields():
+    jobs = custom.parse_jobs(BYTEDANCE, BYTEDANCE_RECIPE, "ByteDance")
+    assert len(jobs) == 2
+    j = jobs[0]
+    assert set(j) == set(POSTING_FIELDS)
+    assert j["source"] == "custom"
+    assert j["external_id"] and j["job_title"]
+    assert j["location"]                                      # city_info.en_name
+    assert j["job_url"].startswith("https://joinbytedance.com/search/")
+    assert j["description"]                                   # description + requirement concat
+
+
+def test_parse_jobs_janestreet_bare_array():
+    jobs = custom.parse_jobs(JANESTREET, JANESTREET_RECIPE, "Jane Street")  # no item_path
+    assert len(jobs) == 2
+    j = jobs[0]
+    assert set(j) == set(POSTING_FIELDS)
+    assert j["external_id"] and j["job_title"]
+    assert j["job_url"].startswith("https://www.janestreet.com/join-jane-street/position/")
+    assert j["posted_at"] is None                            # feed carries no date
 
 
 def test_parse_jobs_rejects_non_list_item_path():

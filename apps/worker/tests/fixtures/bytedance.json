@@ -1,0 +1,153 @@
+{
+ "code": 0,
+ "data": {
+  "job_post_list": [
+   {
+    "id": "7607020417963968773",
+    "code": "A72890A",
+    "title": "Machine Learning Engineer Graduate (Global E-Commerce, Recommendation) - 2026 Start (PhD)",
+    "description": "Team Introduction\nE-commerce is a new and fast growing business that aims at connecting all customers to excellent sellers and quality products, through E-commerce live-streaming, E-commerce short videos, and commodity recommendation. We are a group of applied machine learning engineers and data scientists that focus on E-commerce recommendations. We are developing innovative algorithms and techniques to improve user engagement and satisfaction, converting creative ideas into business-impacting solutions. We are interested and excited in applying large scale machine learning to solve various real-world problems in E-commerce.  \n\nWe are looking for talented individuals to join our team in 2026. As a graduate, you will get opportunities to pursue bold ideas, tackle complex challenges, and unlock limitless growth. Launch your career where inspiration is infinite at our Company.\nSuccessful candidates must be able to commit to an onboarding date by end of year 2026. Please state your availability and graduation date clearly in your resume.\n\nResponsibilities\n- Participate in building large-scale (10 million to 100 million) e-commerce  recommendation algorithms and systems, including commodity recommendations, live stream recommendations, short video recommendations etc.\n- Build long and short term user interest models, analyze and extract relevant information from large amounts of various data and design algorithms to explore users' latent interests efficiently.\n- Design, develop, evaluate and iterate on predictive models for candidate generation and ranking(eg. Click Through Rate and Conversion Rate prediction) , including, but not limited to building real-time data pipelines, feature engineering, model optimization and innovation.\n- Design and build supporting/debugging tools as needed.\n- Support the production of scalable and optimised AI/machine learning (ML) models. \n- Focus on building algorithms for the extraction, transformation and loading of large volumes of realtime, unstructured data to deploy AI/ML solutions from theoretical data science models.\n- Run experiments to test the performance of deployed models, and identifies and resolves bugs that arise in the process.\n- Work in a team setting and apply knowledge in statistics, scripting and programming languages required by the firm.\n- Work with the relevant software platforms in which the models are deployed.",
+    "requirement": "Minimum Qualifications\n- Individuals who are completing or have recently completed a PhD degree in Software Development, Computer Science, Computer Engineering, or a related technical discipline.\n- Strong programming and problem-solving ability. \n- Experience in applied machine learning, familiar with one or more of the algorithms such as Collaborative Filtering, Matrix Factorization, Factorization Machines, Word2vec, Logistic Regression, Gradient Boosting Trees, Deep Neural Networks, Wide and Deep etc. \n- Experience in  Deep Learning Tools such as tensorflow/pytorch.\n- Experience with at least one programming language like C++/Python or equivalent.\n\nPreferred Qualifications\n- Experience in recommendation system, online advertising, information retrieval, natural language processing, machine learning, large-scale data mining, or related fields.\n- Publications at KDD, NeurlPS, WWW, SIGIR, WSDM, ICML, IJCAI, AAAI, RECSYS and  related conferences/journals, or experience in data mining/machine learning competitions such as Kaggle/KDD-cup etc.\n\nBy submitting an application for this role, you accept and agree to our global applicant privacy policy, which may be accessed here: https://jobs.bytedance.com/en/legal/privacy\n\nIf you have any questions, please reach out to us at apac-earlycareers@bytedance.com",
+    "recruit_type": {
+     "id": "201",
+     "name": "正式",
+     "en_name": "Regular",
+     "i18n_name": "正式"
+    },
+    "job_category": {
+     "id": "6704215956018694411",
+     "name": "算法",
+     "en_name": "Algorithm",
+     "i18n_name": "算法",
+     "parent": {
+      "id": "6704215862603155720",
+      "name": "研发",
+      "en_name": "R&D",
+      "i18n_name": "研发",
+      "parent": null
+     }
+    },
+    "city_info": {
+     "code": "CT_163",
+     "location_type": 3,
+     "name": "新加坡",
+     "en_name": "Singapore",
+     "i18n_name": "新加坡",
+     "parent": {
+      "code": "ST_100785",
+      "location_type": 2,
+      "name": "新加坡",
+      "en_name": "Singapore",
+      "i18n_name": "新加坡",
+      "parent": {
+       "code": "CN_25",
+       "location_type": 1,
+       "name": "新加坡",
+       "en_name": "Singapore",
+       "i18n_name": "新加坡",
+       "parent": null
+      }
+     }
+    },
+    "tag_list": null,
+    "job_subject": {
+     "id": "7459988146945116434",
+     "name": "PhD Graduates - 2026 Start",
+     "en_name": "PhD Graduates - 2026 Start",
+     "i18n_name": "PhD Graduates - 2026 Start"
+    },
+    "vacancies": null,
+    "department_info": null,
+    "job_post_info": {
+     "min_salary": null,
+     "max_salary": null,
+     "currency": null,
+     "required_degree": null,
+     "experience": null,
+     "sequence": null,
+     "min_level": null,
+     "max_level": null,
+     "highlight_list": null,
+     "job_post_object_value_list": null,
+     "expiry_time": null
+    },
+    "process_type": null,
+    "channel_online_status": null
+   },
+   {
+    "id": "7629136672475040053",
+    "code": "A22804B",
+    "title": "Research Scientist Graduate (Video Quality Analysis & Coding Strategy) - Global Frontier Tech Recruitment Program - 2027 Start (PhD)",
+    "description": "We are looking for talented individuals to join our team in 2027. As a graduate, you will get opportunities to pursue bold ideas, tackle complex challenges, and unlock limitless growth. Launch your career where inspiration is infinite at our Company.\nSuccessful candidates must be able to commit to an onboarding date by end of year 2027. Please state your availability and graduation date clearly in your resume.\n\nAbout the Team\nAt Multimedia Lab, we push the boundaries of what’s possible in multimedia technology. Our mission is to pioneer cutting-edge research across image and video understanding, generation, processing, compression, and transmission—and transform these innovations into real-world products that delight hundreds of millions of users globally.\nThe ideal candidate combines deep technical expertise with a strong record of innovation, thrives on solving challenging problems at scale, and is passionate about shaping the future of multimedia experiences. This is an opportunity to work alongside top talent, drive frontier research, and turn breakthrough ideas into impactful technologies used around the world.\n\nTopic Content:\nMultimodal Foundation Models for Intelligent Multimedia Processing\nExplore next-generation multimedia technologies powered by multimodal foundation models, including perceptual quality modeling, generative enhancement, temporal video understanding, user-centric evaluation, and intelligent visual representation/compression, to advance video quality, efficiency, and user experience in future multimedia systems.\n\nChallenges for the analysis, understanding, and quality assessment and enhancement based on multimodal large models: \n- Modeling complex time sequences in long multimodal videos\n- Building few-shot grounding-based models for quality assessment\n- Creating interactive video processing/enhancement models aligned with user preferences\n\nResearch value of analysis, understanding, and quality assessment and enhancement based on multimodal large models:\n- Enhance semantic understanding and event localization in medium- and long-length videos, improving processing efficiency, and support key areas such as ads recommendation, content comprehension, video value evaluation, and transcoding enhancement\n- Lower the cost of quality annotation, enable interpretable assessment of local degradation, boost generalization across different content types, and support pixel-level quality inspection and optimization\n\nResponsibilities\n- Design video analysis (ROI/SOD, content understanding, temporal grounding etc.) and quality assessment algorithms, and participate in database creation, algorithm design/development/optimization, etc. \n- Participate in designing strategy and solution for E2E video quality optimization with a combination of video analysis, processing and encoding algorithms\n- Apply designed algorithms for VOD / Live streaming monitoring, data analysis, objective evaluation for algorithms etc. \n- Collaborate with cross-functional teams to integrate algorithms into production workflows and validate their impact through A/B testing.",
+    "requirement": "Minimum qualifications: \n- Individuals who are completing or recently completed a PhD in Software Development, Computer Science, Computer Engineering, or a related technical discipline.\n- In-depth knowledge of video analysis algorithms or subjective/objective video quality algorithms, and state-of-the-art technologies\n- Proficient in one of the following: C, C++, Python\n\nPreferred Qualifications\n- Familiar with ML and image processing tools, including sklearn, opencv, ffmpeg, etc\n- Familiar with deep learning frameworks (Tensorflow/Pytorch)\n- Familiar with Transformer architectures and mainstream multi-modal large models (MLLMs), and hands-on implementation or research experience preferred.\n- Familiar with Linux development environments, shell scripting, HDFS etc\n- Knowledge of common video processing algorithms, such as supperresolution, defusion model, etc.\n- Great communication, eager to learn, and always passionate about turning cutting-edge technologies into real life use cases.",
+    "recruit_type": {
+     "id": "201",
+     "name": "正式",
+     "en_name": "Regular",
+     "i18n_name": "正式"
+    },
+    "job_category": {
+     "id": "6704215862603155720",
+     "name": "研发",
+     "en_name": "R&D",
+     "i18n_name": "研发",
+     "parent": null
+    },
+    "city_info": {
+     "code": "CT_1103355",
+     "location_type": 3,
+     "name": "圣何塞",
+     "en_name": "San Jose",
+     "i18n_name": "圣何塞",
+     "parent": {
+      "code": "ST_31",
+      "location_type": 2,
+      "name": "加利福尼亚州",
+      "en_name": "California",
+      "i18n_name": "加利福尼亚州",
+      "parent": {
+       "code": "CN_6",
+       "location_type": 1,
+       "name": "美国",
+       "en_name": "United States of America",
+       "i18n_name": "美国",
+       "parent": null
+      }
+     }
+    },
+    "tag_list": null,
+    "job_subject": {
+     "id": "7626270100032063797",
+     "name": "Global Frontier Tech Recruitment Program - 2027 Grad",
+     "en_name": "Global Frontier Tech Recruitment Program - 2027 Grad",
+     "i18n_name": "Global Frontier Tech Recruitment Program - 2027 Grad"
+    },
+    "vacancies": null,
+    "department_info": null,
+    "job_post_info": {
+     "min_salary": null,
+     "max_salary": null,
+     "currency": null,
+     "required_degree": null,
+     "experience": null,
+     "sequence": null,
+     "min_level": null,
+     "max_level": null,
+     "highlight_list": null,
+     "job_post_object_value_list": null,
+     "expiry_time": null
+    },
+    "process_type": null,
+    "channel_online_status": null
+   }
+  ],
+  "count": 163,
+  "BaseResp": {
+   "StatusMessage": "Success",
+   "StatusCode": 0,
+   "Extra": null
+  }
+ },
+ "message": "ok",
+ "error": null
+}

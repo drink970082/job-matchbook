@@ -350,14 +350,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
   `browser` recipe, never a hand-written adapter.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
-  can't reach — a headless Playwright Chromium renders the page (clearing a Cloudflare challenge)
-  and CSS selectors extract from the rendered DOM (`item` + `fields`, `url`-template pagination,
-  optional per-role `detail` enrich). **Isolated**: Playwright is lazy-imported and lives in
-  `requirements-browser.txt` (not core), and `browser` rows are gated off the default cycle by
-  `enable_browser_sources` (default off) — so a normal run stays pure `requests` and never imports
-  Chromium. First member: Citadel Securities (81) + Citadel (49), both Cloudflare-blocked. The pure
-  `parse_jobs`/`apply_detail` are fixture-tested; the browser-driving `fetch` is not (like other
-  adapters' network I/O).
+  can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
+  rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich). A
+  realistic UA + viewport + `--disable-blink-features=AutomationControlled` and *waiting for the
+  `item` selector* (not a fixed sleep) clears a Cloudflare "Just a moment" interstitial for the
+  listing — the default headless-shell fingerprint otherwise gets stuck (0 cards). Cloudflare still
+  re-challenges rapid deep-link navigations, so `detail` pages on a walled board return
+  description-less; a **circuit-breaker bails detail after 3 straight empties** (postings still ship
+  title/location/url; self-heals if the wall relaxes). **Isolated**: Playwright is lazy-imported and
+  lives in `requirements-browser.txt` (not core), and `browser` rows are gated off the default cycle
+  by `enable_browser_sources` (default off) — so a normal run stays pure `requests` and never imports
+  Chromium. Members: Citadel Securities + Citadel (Cloudflare — list-only in practice, detail
+  blocked) and Renaissance (Struts, JS-rendered, detail works). The pure `parse_jobs`/`apply_detail`
+  are fixture-tested; the browser-driving `fetch` is not (like other adapters' network I/O).
   **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
   (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
   surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2

@@ -24,6 +24,12 @@ _INSTALL_HINT = (
     "pip install -r requirements-browser.txt && playwright install chromium"
 )
 
+# A realistic UA + headed-looking context + the automation-flag off lets Cloudflare's
+# "Just a moment" JS interstitial auto-clear; the default headless-shell fingerprint
+# gets stuck on it (0 cards).
+_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+
 
 def parse_jobs(pages: list[str], recipe: dict, company_name: str) -> list[dict]:
     """Parse rendered listing-page HTML into postings (pure; no browser).
@@ -69,21 +75,38 @@ def fetch(slug: str, company_name: str, recipe: dict,
     url_field = detail.get("url_field")
     enrich = bool(url_field and detail.get("fields"))
 
-    with sync_playwright() as pw:  # pragma: no cover - browser-driving glue
-        browser = pw.chromium.launch(headless=True)
-        page = browser.new_context().new_page()
+    item_sel = recipe.get("item")
+    detail_desc = (detail.get("fields") or {}).get("description")
+    detail_wait = detail_desc if isinstance(detail_desc, str) else None
 
-        def render(url: str) -> str:
+    with sync_playwright() as pw:  # pragma: no cover - browser-driving glue
+        browser = pw.chromium.launch(
+            headless=True, args=["--disable-blink-features=AutomationControlled"])
+        page = browser.new_context(
+            user_agent=_UA, viewport={"width": 1920, "height": 1080}).new_page()
+
+        def render(url: str, wait_sel: str | None = None) -> str:
             page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)  # let a Cloudflare challenge clear + content render
+            # A Cloudflare "Just a moment" JS challenge auto-clears in a few seconds;
+            # wait for the expected element rather than a fixed sleep (a fixed 3s left
+            # 0 cards). Fall through on timeout so a genuinely empty page still returns
+            # whatever rendered. The clearance cookie persists, so later same-domain
+            # renders (pages, details) don't re-challenge.
+            if wait_sel:
+                try:
+                    page.wait_for_selector(wait_sel, timeout=15000)
+                except Exception:  # noqa: BLE001 — empty/other page: return as-is
+                    pass
+            page.wait_for_timeout(500)
             return page.content()
 
-        postings = parse_jobs([render(recipe["url"])], recipe, company_name)
+        postings = parse_jobs([render(recipe["url"], item_sel)], recipe, company_name)
         seen = {p["external_id"] for p in postings}
         if ptype == "url":
             template, n = page_cfg["template"], page_cfg.get("start", 2)
             while True:
-                fresh = [p for p in parse_jobs([render(template.format(n=n))], recipe, company_name)
+                fresh = [p for p in parse_jobs([render(template.format(n=n), item_sel)],
+                                               recipe, company_name)
                          if p["external_id"] not in seen]
                 if not fresh:
                     break  # empty page or all-seen -> past the end
@@ -94,16 +117,23 @@ def fetch(slug: str, company_name: str, recipe: dict,
             raise ValueError(f"browser recipe: unsupported page type {ptype!r}")
 
         if enrich:
-            # ponytail: one detail render per posting (Citadel first run ~81, ~minutes).
-            # Upgrade path if it bites: enrich only unseen external_ids (the pipeline
-            # already diffs new by id), so steady-state is a handful/run.
+            # One detail render per posting. A bot wall (Cloudflare) clears once for the
+            # listing but re-challenges rapid deep-link navigations, so detail pages come
+            # back description-less; a circuit-breaker bails after 3 straight empties
+            # rather than burning a ~15s render on every posting. Self-heals if the wall
+            # relaxes. (Edge: a board with 3+ genuinely blank JDs in a row stops early —
+            # postings stay valid, just description-less.)
+            empties = 0
             for p in postings:
                 url = p.get(url_field)
                 if not url:
                     continue
                 try:
-                    apply_detail(p, render(url), recipe)
+                    apply_detail(p, render(url, detail_wait), recipe)
                 except Exception:  # noqa: BLE001 — keep the posting, description as-is
                     continue
+                empties = empties + 1 if not p.get("description") else 0
+                if empties >= 3:
+                    break
         browser.close()
     return postings
