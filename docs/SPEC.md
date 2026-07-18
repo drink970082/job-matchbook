@@ -283,8 +283,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   secrets/external services.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
-  smartrecruiters, workable, icims, phenom} — feed-only sources oracle/jobvite are intentionally
-  excluded); exposes `companies`,
+  smartrecruiters, workable, icims, phenom, custom} — feed-only sources oracle/jobvite are
+  intentionally excluded); a `RECIPE_SOURCES` row (`custom`, and `browser` in phase 4) must carry
+  a `recipe` mapping (else a startup `ConfigError`). Exposes `companies` (each with an optional
+  `recipe: dict | None`),
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
   but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
   source / missing field → clear
@@ -320,6 +322,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | Workable | `apply.workable.com` | list | ✅ | ✅ |
   | iCIMS | `{slug}.icims.com` | list (server HTML) | ❌ | ✅ |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | ❌ | ✅ |
+  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | ❌ | ✅ (needs `recipe`) |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
   | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | ✅ enriching (I/O token scrape) | ❌ feed-only |
@@ -336,6 +339,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
+  **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
+  `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
+  `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
+  `item_path`/`total_path`, `page` (`offset`/`page`/`none`), and a `fields` map (dotted paths,
+  `url` templates, list-concat descriptions) into the canonical dict via the shared
+  `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok, DE Shaw,
+  …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
+  `browser` recipe (phase 4), never a hand-written adapter.
   **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
   (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
   surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2
@@ -720,10 +731,11 @@ model job_postings {
 }
 
 model watched_companies {        // the DB-owned watchlist (web-managed)
-  id          Int    @id @default(autoincrement())
-  source      String // watchlist-capable boards: greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable
-  slug        String // board identifier (workday packs tenant/datacenter/site)
+  id          Int     @id @default(autoincrement())
+  source      String  // greenhouse|lever|ashby|workday|pinpoint|smartrecruiters|workable|icims|phenom|custom
+  slug        String  // board identifier (workday packs tenant/datacenter/site)
   name        String
+  recipe      String? // JSON recipe for source=custom|browser (declarative fetch); NULL otherwise
   created_at  String
   @@unique([source, slug])       // dedup key
 }

@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { STATUSES, CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -904,16 +904,36 @@ export async function addWatchedCompany(input: {
     source: string
     slug: string
     name: string
+    recipe?: string
 }) {
     try {
         const source = (input.source || '').trim()
         const slug = (input.slug || '').trim()
         const name = (input.name || '').trim()
+        const recipeRaw = (input.recipe || '').trim()
         if (!source || !slug || !name) {
             return { success: false, error: 'source, slug, and name are required' }
         }
         if (!(VALID_SOURCES as readonly string[]).includes(source)) {
             return { success: false, error: `Unknown source: ${source}` }
+        }
+
+        // custom/browser rows are recipe-driven: parse the JSON and require it.
+        let recipe: string | null = null
+        if (recipeRaw) {
+            let parsed: unknown
+            try {
+                parsed = JSON.parse(recipeRaw)
+            } catch {
+                return { success: false, error: 'recipe must be valid JSON' }
+            }
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                return { success: false, error: 'recipe must be a JSON object' }
+            }
+            recipe = JSON.stringify(parsed)   // store normalized JSON
+        }
+        if ((RECIPE_SOURCES as readonly string[]).includes(source) && !recipe) {
+            return { success: false, error: `source '${source}' requires a recipe (JSON object)` }
         }
 
         const existing = await prisma.watched_companies.findFirst({
@@ -924,7 +944,7 @@ export async function addWatchedCompany(input: {
         }
 
         const created = await prisma.watched_companies.create({
-            data: { source, slug, name, created_at: new Date().toISOString() },
+            data: { source, slug, name, recipe, created_at: new Date().toISOString() },
         })
         return { success: true, data: created }
     } catch (error: any) {

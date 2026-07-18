@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
     Select,
     SelectContent,
@@ -19,7 +20,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { Trash2, Plus } from 'lucide-react'
-import { VALID_SOURCES } from '@/lib/constants'
+import { VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 
 export interface WatchedCompany {
     id: number
@@ -31,7 +32,7 @@ export interface WatchedCompany {
 
 interface WatchlistTableProps {
     data: WatchedCompany[]
-    onAdd: (c: { source: string; slug: string; name: string }) => void
+    onAdd: (c: { source: string; slug: string; name: string; recipe?: string }) => void
     onRemove: (id: number) => void
 }
 
@@ -39,14 +40,23 @@ export function WatchlistTable({ data, onAdd, onRemove }: WatchlistTableProps) {
     const [source, setSource] = useState<string>(VALID_SOURCES[0])
     const [slug, setSlug] = useState('')
     const [name, setName] = useState('')
+    const [recipe, setRecipe] = useState('')
 
-    const canAdd = slug.trim() !== '' && name.trim() !== ''
+    const isRecipeSource = (RECIPE_SOURCES as readonly string[]).includes(source)
+    const canAdd =
+        slug.trim() !== '' && name.trim() !== '' && (!isRecipeSource || recipe.trim() !== '')
 
     const submit = () => {
         if (!canAdd) return
-        onAdd({ source, slug: slug.trim(), name: name.trim() })
+        onAdd({
+            source,
+            slug: slug.trim(),
+            name: name.trim(),
+            ...(recipe.trim() ? { recipe: recipe.trim() } : {}),
+        })
         setSlug('')
         setName('')
+        setRecipe('')
     }
 
     return (
@@ -80,6 +90,16 @@ export function WatchlistTable({ data, onAdd, onRemove }: WatchlistTableProps) {
                     <Plus className="mr-1 h-4 w-4" /> Add
                 </Button>
             </div>
+
+            {/* Recipe JSON — required for custom/browser sources (declarative fetch) */}
+            {isRecipeSource && (
+                <Textarea
+                    placeholder='Recipe JSON, e.g. {"url": "...", "mode": "json", "item_path": "jobs", "fields": {...}}'
+                    value={recipe}
+                    onChange={(e) => setRecipe(e.target.value)}
+                    className="font-mono text-xs min-h-[120px]"
+                />
+            )}
 
             <div className="rounded-md border overflow-hidden">
                 <Table className="table-fixed w-full">

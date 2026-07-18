@@ -301,7 +301,7 @@ export function Dashboard({
         refreshUnresolved()
     }, [])
 
-    const handleAddWatched = async (c: { source: string; slug: string; name: string }) => {
+    const handleAddWatched = async (c: { source: string; slug: string; name: string; recipe?: string }) => {
         const result = await addWatchedCompany(c)
         if (result.success) {
             toast.success(`Watching ${c.name}`)

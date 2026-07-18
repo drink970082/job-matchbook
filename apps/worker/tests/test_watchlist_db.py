@@ -5,8 +5,8 @@ from ats_worker import db
 from tests._helpers import NOW, LATER, make_posting as _posting
 
 _COMPANIES = [
-    {"source": "greenhouse", "slug": "acme", "name": "Acme"},
-    {"source": "lever", "slug": "foobar", "name": "Foobar"},
+    {"source": "greenhouse", "slug": "acme", "name": "Acme", "recipe": None},
+    {"source": "lever", "slug": "foobar", "name": "Foobar", "recipe": None},
 ]
 
 
@@ -17,6 +17,16 @@ def test_import_and_get_watchlist(db_path):
     assert inserted == 2
     assert db.count_watchlist(conn) == 2
     assert db.get_watchlist(conn) == _COMPANIES
+
+
+def test_watchlist_recipe_round_trips_as_json(db_path):
+    conn = db.connect(db_path)
+    recipe = {"url": "https://x", "item_path": "jobs", "page": {"type": "offset"}}
+    db.import_watchlist(conn, [
+        {"source": "custom", "slug": "acme", "name": "Acme", "recipe": recipe},
+    ], now=NOW)
+    row = db.get_watchlist(conn)[0]
+    assert row["recipe"] == recipe             # stored as JSON string, decoded on read
 
 
 def test_import_watchlist_is_idempotent(db_path):

@@ -126,8 +126,8 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
 
     conn = dbmod.connect(str(dbfile))
     assert dbmod.get_watchlist(conn) == [
-        {"source": "greenhouse", "slug": "a", "name": "A"},
-        {"source": "lever", "slug": "b", "name": "B"},
+        {"source": "greenhouse", "slug": "a", "name": "A", "recipe": None},
+        {"source": "lever", "slug": "b", "name": "B", "recipe": None},
     ]
     # a second pass does not duplicate (watchlist no longer empty)
     run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)

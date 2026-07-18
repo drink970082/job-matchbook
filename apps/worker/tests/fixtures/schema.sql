@@ -50,6 +50,7 @@ CREATE TABLE "watched_companies" (
     "source" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "recipe" TEXT,
     "created_at" TEXT NOT NULL
 );
 

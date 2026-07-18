@@ -1,7 +1,7 @@
 """Fetch adapters and shared post-processing for board APIs."""
 from __future__ import annotations
 
-from . import (ashby, greenhouse, icims, jobvite, lever, oracle, phenom,
+from . import (ashby, custom, greenhouse, icims, jobvite, lever, oracle, phenom,
                pinpoint, smartrecruiters, workable, workday)
 
 # source name -> adapter module. Per-BOARD adapters expose `fetch` (list a board);
@@ -18,9 +18,14 @@ ADAPTERS = {
     workable.SOURCE: workable,
     icims.SOURCE: icims,
     phenom.SOURCE: phenom,
+    custom.SOURCE: custom,
     oracle.SOURCE: oracle,
     jobvite.SOURCE: jobvite,
 }
+
+# Sources whose fetch takes a declarative `recipe` kwarg (custom + browser). The
+# dispatcher passes `recipe` only to these — plain adapters would reject the kwarg.
+RECIPE_SOURCES = frozenset({"custom", "browser"})
 
 # Sources fetched ONE job at a time (no public board-list endpoint), via
 # adapter.fetch_one. The feed's detail-fetch path routes these.
@@ -46,12 +51,18 @@ def filter_postings(postings: list[dict], title_filter: list[str] | None) -> lis
     ]
 
 
-def fetch_company(source: str, slug: str, company_name: str, **kwargs) -> list[dict]:
-    """Dispatch to the per-board adapter for `source` (lists a whole board)."""
+def fetch_company(source: str, slug: str, company_name: str, *,
+                  recipe: dict | None = None, **kwargs) -> list[dict]:
+    """Dispatch to the per-board adapter for `source` (lists a whole board).
+
+    `recipe` is forwarded only to the recipe-driven executors (custom/browser);
+    plain adapters don't accept it, so it's dropped for them."""
     try:
         adapter = ADAPTERS[source]
     except KeyError:
         raise ValueError(f"unknown source: {source!r}")
+    if source in RECIPE_SOURCES:
+        return adapter.fetch(slug, company_name, recipe=recipe, **kwargs)
     return adapter.fetch(slug, company_name, **kwargs)
 
 
@@ -71,5 +82,5 @@ __all__ = [
     "ADAPTERS", "DETAIL_SOURCES", "filter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
-    "workable", "icims", "phenom", "oracle", "jobvite",
+    "workable", "icims", "phenom", "custom", "oracle", "jobvite",
 ]

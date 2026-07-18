@@ -42,7 +42,13 @@ export const VALID_SOURCES = [
   'workable',
   'icims',
   'phenom',
+  'custom',
 ] as const
+
+// Sources whose fetch is driven by a declarative JSON `recipe` (not a slug alone).
+// A watchlist row for one of these MUST carry a recipe. Mirrors the worker's
+// config.RECIPE_SOURCES. (`browser` joins in phase 4.)
+export const RECIPE_SOURCES = ['custom', 'browser'] as const
 
 // A scored posting whose JD body (trimmed) is shorter than this many characters is
 // treated as "low-context": too thin to screen/score with confidence. Such rows are

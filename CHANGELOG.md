@@ -8,6 +8,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **`custom` recipe executor (declarative, plain-HTTP fetch).** A generic executor
+  (`fetch/custom.py` + shared `fetch/_recipe.py`) driven by a JSON **recipe** stored on the
+  watchlist row — no per-site code, so adding a board stays a data row. Modes: `json` (GET/POST)
+  and `next-data` (extract the `__NEXT_DATA__` blob, then treat as JSON); pagination
+  `offset`/`page`/`none`; a `fields` map with dotted paths (list-indexing, e.g. `office.0.name`),
+  `url` templates, list-concat descriptions, and a tolerant date normalizer (ISO / "Month D,
+  YYYY" / epoch s|ms). Schema: a nullable `recipe` column on `watched_companies` (Prisma-owned,
+  mirrored in the drift fixture); `config` requires a recipe for `RECIPE_SOURCES` (`custom`,
+  `browser`); the dispatcher routes `recipe` only to those executors; the web add-company form
+  gains a recipe JSON field (parsed + required for recipe sources). Verified against live-captured
+  Amazon / TikTok / DE&nbsp;Shaw fixtures. (Board-scraper expansion, phase 2.)
 - **iCIMS + Phenom board adapters (plain HTTP, watchlist-capable).** Two new per-board
   sources, no browser. **iCIMS** (`slug` = careers subdomain, e.g. `careers-sig`) GETs
   `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` and parses the server-rendered job cards

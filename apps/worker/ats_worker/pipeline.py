@@ -40,7 +40,10 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> 
     inserted = 0
     for c in companies:
         try:
-            postings = fetch_fn(c["source"], c["slug"], c["name"])
+            # Pass recipe only for recipe-driven rows so a plain 3-arg fetch_fn
+            # (and every non-recipe adapter) is called exactly as before.
+            kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
+            postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             kept = filter_postings(postings, title_filter)
             for p in kept:
                 p["company_slug"] = c["slug"]

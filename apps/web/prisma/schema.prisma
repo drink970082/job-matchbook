@@ -70,6 +70,7 @@ model watched_companies {
   source     String // greenhouse | lever | ashby | workday | pinpoint
   slug       String // board identifier (workday packs tenant/datacenter/site)
   name       String // display name
+  recipe     String? // JSON recipe for source=custom|browser (declarative fetch); NULL for platform/known-ATS rows
   created_at String
 
   @@unique([source, slug]) // dedup key

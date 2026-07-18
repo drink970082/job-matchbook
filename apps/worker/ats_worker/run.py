@@ -221,7 +221,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
 
 def _companies_as_dicts(cfg) -> list[dict]:
-    return [{"source": c.source, "slug": c.slug, "name": c.name} for c in cfg.companies]
+    return [{"source": c.source, "slug": c.slug, "name": c.name, "recipe": c.recipe}
+            for c in cfg.companies]
 
 
 def _read_text(path: str) -> str:

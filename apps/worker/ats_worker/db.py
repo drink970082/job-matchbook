@@ -76,9 +76,13 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
 
 def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
-        "SELECT source, slug, name FROM watched_companies ORDER BY id ASC"
+        "SELECT source, slug, name, recipe FROM watched_companies ORDER BY id ASC"
     ).fetchall()
-    return [{"source": r["source"], "slug": r["slug"], "name": r["name"]} for r in rows]
+    return [
+        {"source": r["source"], "slug": r["slug"], "name": r["name"],
+         "recipe": json.loads(r["recipe"]) if r["recipe"] else None}
+        for r in rows
+    ]
 
 
 def count_watchlist(conn: sqlite3.Connection) -> int:
@@ -90,11 +94,13 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
     inserted. Used for the one-time migration of config.yaml `companies:`."""
     inserted = 0
     for c in companies:
+        recipe = c.get("recipe")
         cur = conn.execute(
-            "INSERT INTO watched_companies (source, slug, name, created_at) "
-            "VALUES (:source, :slug, :name, :created_at) "
+            "INSERT INTO watched_companies (source, slug, name, recipe, created_at) "
+            "VALUES (:source, :slug, :name, :recipe, :created_at) "
             "ON CONFLICT(source, slug) DO NOTHING",
-            {"source": c["source"], "slug": c["slug"], "name": c["name"], "created_at": now},
+            {"source": c["source"], "slug": c["slug"], "name": c["name"],
+             "recipe": json.dumps(recipe) if recipe else None, "created_at": now},
         )
         inserted += cur.rowcount
     conn.commit()

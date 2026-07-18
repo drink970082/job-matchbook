@@ -21,7 +21,12 @@ import yaml
 # sources (oracle, jobvite) are intentionally absent — they can't be a watchlist
 # company. Must match the watchlist-capable subset of fetch.ADAPTERS.
 VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
-                 "smartrecruiters", "workable", "icims", "phenom")
+                 "smartrecruiters", "workable", "icims", "phenom", "custom")
+
+# Sources whose fetch is driven by a declarative `recipe` (not a slug alone). A
+# watchlist row for one of these MUST carry a recipe mapping. `browser` joins here
+# in phase 4 (its adapter is gated separately in run.py).
+RECIPE_SOURCES = ("custom", "browser")
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24
@@ -42,6 +47,7 @@ class Company:
     source: str
     slug: str
     name: str
+    recipe: dict | None = None  # declarative fetch recipe for source in RECIPE_SOURCES
 
 
 @dataclass(frozen=True)
@@ -169,7 +175,15 @@ def _parse_companies(raw) -> list[Company]:
                 f"companies[{i}] has unknown source {source!r}; "
                 f"must be one of {VALID_SOURCES}"
             )
-        out.append(Company(source=source, slug=str(c["slug"]), name=str(c["name"])))
+        recipe = c.get("recipe")
+        if recipe is not None and not isinstance(recipe, dict):
+            raise ConfigError(f"companies[{i}] `recipe` must be a mapping")
+        if source in RECIPE_SOURCES and not isinstance(recipe, dict):
+            raise ConfigError(
+                f"companies[{i}] source {source!r} requires a `recipe` mapping"
+            )
+        out.append(Company(source=source, slug=str(c["slug"]),
+                           name=str(c["name"]), recipe=recipe))
     return out
 
 
