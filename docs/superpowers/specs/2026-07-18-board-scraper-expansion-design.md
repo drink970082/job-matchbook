@@ -58,9 +58,12 @@ Key evidence:
   (`cdn-cgi/challenge-platform/.../jsd/oneshot`), not a clickable Turnstile widget. A **real browser
   (Playwright Chromium) clears it unaided** (2/2 attempts, no interaction, `cf_clearance` minted), and
   the listing is then plain **server-rendered HTML** paginated at `/careers/open-opportunities/page/N/`
-  with **no XHR/JSON API and no ATS** behind it — roles are in the initial document. **Live size
-  (2026-07-18, from the site's own "Viewing N of M" counter): 5 pages, 49 roles** on citadel.com — the
-  earlier "9 pages / ~81 roles" was wrong. There is **no** portable plain-HTTP path: the `cf_clearance`
+  with **no XHR/JSON API and no ATS** behind it — roles are in the initial document. **Two separate
+  boards, two separate entities** (from each site's own "Viewing N of M" counter, 2026-07-18):
+  **citadelsecurities.com** (the market maker) = **81 roles / 9 pages**; **citadel.com** (the hedge
+  fund) = **49 roles / 5 pages**. Both are on the wishlist. (The original "81 / 9 pages" was correct
+  for Citadel Securities; a mid-audit run mistakenly measured only citadel.com and read 49 — corrected
+  here.) There is **no** portable plain-HTTP path: the `cf_clearance`
   cookie is bound to the browser's TLS/JA3 fingerprint + IP, so replaying cookie+UA over `curl` still
   403s (verified) — you must keep driving the browser end-to-end, not lift the cookie. So Citadel needs
   a browser **at fetch time**. Accurate verdict: **browser-required**, not impossible.
@@ -283,7 +286,7 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
 - **Citadel & other browser-required boards** (plain HTTP blocked, but a real browser clears the
   Cloudflare challenge and the content is server-rendered — see §2): reachable only with a browser at
   fetch time. Deliberately kept **out of the core** — the worker is pure `requests`, DI,
-  no-network-in-tests, native on host; a Chromium dependency for one 49-role board contradicts that.
+  no-network-in-tests, native on host; a Chromium dependency for two ~81+49-role boards contradicts that.
   If this class of board becomes worth it, the **only** viable option is an **isolated, opt-in
   `browser` fetch mode** — a Playwright-backed module used ONLY for browser-required boards, never on
   the default pipeline path (cost: Chromium dep, ~seconds/page, not mockable like the rest); it must
@@ -298,6 +301,7 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
 - **A web search is not a fetch:** search tools (and assistants that "search the web") return a search
   engine's already-crawled copy or third-party aggregators — not the live origin. Aggregator coverage
   is **fresh but incomplete** (audit 2026-07-18: Built In 46 w/ postings from yesterday, LinkedIn
-  jobs-guest live to `curl`, Simplify 37, Glassdoor 26 — vs 49 live on origin). Usable as a rough
+  jobs-guest live to `curl`, Simplify 37, Glassdoor 26 — vs 81 live on the Citadel Securities origin).
+  Usable as a rough
   count or fallback signal; useless as the complete source (no full list / descriptions / guaranteed
   freshness across all roles).
