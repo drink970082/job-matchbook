@@ -34,7 +34,7 @@ four buckets:
 | **Platform** | one adapter, ∞ companies via slug | iCIMS (SIG, General Dynamics, Fujifilm…), **Phenom** (Microsoft, Kraft Heinz, Mastercard, CVS…) |
 | **Custom-recipe** | one row against one generic executor | Amazon, ByteDance/TikTok, Jane Street, DE Shaw, G-Research, Renaissance, AQR |
 | **Code-adapter** | too weird for a recipe; ~30 lines of code | Google (WIZ `AF_initDataCallback` positional arrays) |
-| **Browser-required** | plain HTTP blocked, but a real browser clears it | Citadel (Cloudflare Turnstile; server-rendered once past — see §2 evidence) |
+| **Browser-required** | plain HTTP blocked, but a real browser clears it | Citadel (Cloudflare invisible JS challenge; server-rendered once past — see §2 evidence) |
 
 Key evidence:
 
@@ -50,17 +50,31 @@ Key evidence:
 - **Jane Street**: `GET janestreet.com/jobs/main.json` — single file, top-level array, 214 roles, descriptions inline, no pagination.
 - **DE Shaw**: parse `__NEXT_DATA__` from `/careers`, `props.pageProps.regularJobs` (78 roles). (A `/_next/data/{buildId}/…` JSON API also exists but `buildId` rots — the HTML blob is more robust.)
 - **Google**: curl-reachable; `AF_initDataCallback` `ds:1` parses as strict JSON, `&page=N`, total 1711. ~30 lines of positional parsing.
-- **Citadel** (corrected 2026-07-18, verified first-hand — supersedes the earlier "skip, headless
-  won't help"): plain HTTP is blocked — `curl`, the worker's `requests`, and Claude Code's WebFetch
-  all get a **403 Cloudflare Turnstile** challenge every time. But a **real browser (Playwright
-  Chromium) reliably clears it** (2/2 attempts), and the listing is then plain **server-rendered HTML**
-  paginated at `/careers/open-opportunities/page/N/` (9 pages, ~81 roles, no XHR/JSON API, no ATS
-  behind it). There is **no** permanent plain-HTTP endpoint — the challenge must be cleared *per
-  session* — so Citadel needs a browser **at fetch time**, not just at onboarding. Accurate verdict:
-  **browser-required**, not impossible. (A web *search* is not a fetch: it returns a search engine's
-  stale crawl / third-party aggregators — Glassdoor showed 26 roles vs the live 81 — so it can enumerate
-  a rough count but cannot power the scraper. Assistants that "fetch" Citadel without a browser are
-  searching, not hitting the origin.)
+- **Citadel** (corrected 2026-07-18, verified first-hand, then re-audited by three independent
+  agents same day — supersedes the earlier "skip, headless won't help"): plain HTTP is blocked —
+  `curl`, the worker's `requests`, and Claude Code's WebFetch all get a **403 Cloudflare** challenge
+  every time (20/20 probes across UAs — default/Chrome/Googlebot — and paths, incl. `/wp-json/`,
+  `/feed/`, and job-detail pages). The mechanism is Cloudflare's **invisible managed JS challenge**
+  (`cdn-cgi/challenge-platform/.../jsd/oneshot`), not a clickable Turnstile widget. A **real browser
+  (Playwright Chromium) clears it unaided** (2/2 attempts, no interaction, `cf_clearance` minted), and
+  the listing is then plain **server-rendered HTML** paginated at `/careers/open-opportunities/page/N/`
+  with **no XHR/JSON API and no ATS** behind it — roles are in the initial document. **Live size
+  (2026-07-18, from the site's own "Viewing N of M" counter): 5 pages, 49 roles** on citadel.com — the
+  earlier "9 pages / ~81 roles" was wrong. There is **no** portable plain-HTTP path: the `cf_clearance`
+  cookie is bound to the browser's TLS/JA3 fingerprint + IP, so replaying cookie+UA over `curl` still
+  403s (verified) — you must keep driving the browser end-to-end, not lift the cookie. So Citadel needs
+  a browser **at fetch time**. Accurate verdict: **browser-required**, not impossible.
+  - **New (audit finding):** the Yoast **`career-sitemap.xml`** *is* reachable plain-HTTP (200, no
+    challenge) on both domains — 53 URLs (citadel.com) + 86 (citadelsecurities.com), each with live
+    `<lastmod>` and a title-bearing slug (`…/careers/details/quantitative-research-analyst-asia/`).
+    Enough to build a **fresh URL/slug inventory with change-detection** without a browser, but it
+    carries **no titles/descriptions/locations** as fields and every detail page is challenged, so it
+    cannot deliver job *content*. Useful as a cheap "what changed" signal, not a scraper source.
+  - A web *search* is not a fetch: it returns aggregators, not the origin. Coverage is **incomplete but
+    not stale** (audit corrected the earlier "stale" framing): Built In carried 46 Citadel jobs with
+    "Yesterday"/"2 Days Ago" postings; LinkedIn's unauthenticated `jobs-guest` API serves live postings
+    to plain `curl`; Simplify 37; Glassdoor 26. Fresh-but-partial (~57% at best) — fine for a rough
+    count, useless as the complete source.
 
 Cross-cutting reality that shapes the recipe format: **`posted_at` is inconsistent** —
 ISO (DE Shaw), a human string "July 17, 2026" (Amazon), epoch seconds (Phenom),
@@ -267,20 +281,23 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
 - **`google` code-adapter**: `results/?page=N` → parse `AF_initDataCallback` `ds:1` with
   index guards; sitemap (3585 URLs) as a dedup anchor.
 - **Citadel & other browser-required boards** (plain HTTP blocked, but a real browser clears the
-  Turnstile challenge and the content is server-rendered — see §2): reachable only with a browser at
+  Cloudflare challenge and the content is server-rendered — see §2): reachable only with a browser at
   fetch time. Deliberately kept **out of the core** — the worker is pure `requests`, DI,
-  no-network-in-tests, native on host; a Chromium dependency for one ~81-role board contradicts that.
-  If this class of board becomes worth it, the two options are:
-  - an **isolated, opt-in `browser` fetch mode** — a Playwright-backed module used ONLY for
-    browser-required boards, never on the default pipeline path (cost: Chromium dep, ~seconds/page, not
-    mockable like the rest); or
-  - a **`cf_clearance` cookie hybrid** — a browser clears the challenge and mints the cookie
-    periodically, then plain `requests` fetches the `/page/N/` pages with it (lighter at runtime, but
-    fragile: cookies are ~30-min, IP-bound, and rotate).
-
-  Recommendation: keep out by default; add the opt-in module only if browser-required boards matter.
+  no-network-in-tests, native on host; a Chromium dependency for one 49-role board contradicts that.
+  If this class of board becomes worth it, the **only** viable option is an **isolated, opt-in
+  `browser` fetch mode** — a Playwright-backed module used ONLY for browser-required boards, never on
+  the default pipeline path (cost: Chromium dep, ~seconds/page, not mockable like the rest); it must
+  drive the browser end-to-end (navigate → read the server-rendered `/page/N/` HTML in-page).
+  - **A `cf_clearance` cookie hybrid does NOT work** (audit-tested 2026-07-18, was previously listed
+    here as an option — removed): clearing in a browser and replaying `cf_clearance`+`__cf_bm`+UA over
+    plain `requests`/`curl` still returns **403**. Cloudflare binds clearance to the client's TLS/JA3
+    fingerprint and IP, which `curl` cannot match — the cookie is not portable off the browser.
+  - Recommendation: keep out by default; add the opt-in browser module only if browser-required boards
+    matter. If you only need *change detection* (not content), the plain-HTTP `career-sitemap.xml`
+    (§2) is a free alternative to any browser.
 - **A web search is not a fetch:** search tools (and assistants that "search the web") return a search
-  engine's already-crawled, possibly-stale copy or third-party aggregators — not the live origin. Fine
-  for a rough look; useless as a scraper source (no complete list / descriptions / freshness). Verified
-  2026-07-18: a WebSearch of the Citadel careers URL returned aggregator snippets and a stale count,
-  never the live 81-role listing.
+  engine's already-crawled copy or third-party aggregators — not the live origin. Aggregator coverage
+  is **fresh but incomplete** (audit 2026-07-18: Built In 46 w/ postings from yesterday, LinkedIn
+  jobs-guest live to `curl`, Simplify 37, Glassdoor 26 — vs 49 live on origin). Usable as a rough
+  count or fallback signal; useless as the complete source (no full list / descriptions / guaranteed
+  freshness across all roles).
