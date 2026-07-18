@@ -296,12 +296,6 @@ the fit scale as an emergent effect (a 20-row sample's 60–74 band collapsed 9�
 
 ### Enhancements — not built, optional
 
-- **Sweep leftover codex probe rollouts** — `[XS · housekeeping]`. The 2026-07-17 live
-  re-score's *pacing probes* (standalone `codex exec` calls used to read `used_percent`
-  between chunks) left ~30 trivial `rollout-*.jsonl` files in `~/.codex/sessions/2026/07/`.
-  The scorer's own `_capture_usage` self-deletes its rollouts now, but those one-off probes
-  didn't. Harmless litter (operator-local, not in the repo); sweep the 2026-07-17 probe
-  rollouts by hand, or leave for codex's own session pruning. No repo impact.
 - **Batched fit-scoring: the quota win is OFF THE TABLE — bleed confirmed at every batch
   size >1** — `[M · closed as won't-fix pending a fundamentally different approach]`.
   Batching (`fit_fn` chunked via `batch_size`, design Part B) stays implemented,
