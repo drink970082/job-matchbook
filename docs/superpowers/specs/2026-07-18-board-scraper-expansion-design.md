@@ -1,8 +1,8 @@
 # Board-Scraper Expansion — Design
 
 **Date:** 2026-07-18
-**Status:** approved for build (phases 1–2); phase 3 deferred; phase 4 (browser-required)
-pending a fetch-mode decision — see §3
+**Status:** approved for build (phases 1–2, and phase 4 via an opt-in browser module —
+decided 2026-07-18); phase 3 deferred — see §3
 **Author:** design session (Claude + drink970082)
 
 ## 1. Problem & goal
@@ -91,7 +91,7 @@ executor must normalize tolerantly and treat `posted_at` as optional.
 No headless browser and no LLM in the fetch/score loop.** A browser and an LLM appear
 *once per board, at onboarding* (§4.4) — to discover the live endpoint and draft the
 recipe — then a human commits the row and runtime replays it with plain `requests`. Every
-phase below obeys this, *except* phase 4, which is deferred precisely because it can't.
+phase below obeys this, *except* phase 4 (Citadel), which is walled off in its own opt-in browser module (§4.5) because it can't.
 
 So "are we HTML-scraping or driving a headless browser?" — **at runtime, neither is a
 browser: it's plain HTTP.** Two flavors of plain HTTP: hit a JSON endpoint, or pull
@@ -111,12 +111,13 @@ optional detail-enrich phase (G-Research 51, Renaissance 12 — low volume / hig
 fragility), and the `google` code-adapter (WIZ positional arrays). Still plain HTTP;
 deferred on volume + fragility, not on mechanism.
 
-**Phase 4 — browser-required (deferred, needs a decision).** Citadel Securities (81) +
-Citadel (49). The **only** class that cannot be done with plain HTTP at fetch time: a real
-browser must clear Cloudflare *per session*, and the cleared `cf_clearance` cookie is not
-portable to `requests` (§2, §8). Building it means a Chromium runtime dependency that
-breaks the worker's pure-`requests`, no-network-in-tests design. Fetch-mode options in §8;
-this phase stays out until that fork is decided.
+**Phase 4 — browser-required (approved 2026-07-18: opt-in browser module).** Citadel
+Securities (81) + Citadel (49). The **only** class that can't be done with plain HTTP at
+fetch time — a real browser must clear Cloudflare *per session*, and the cleared
+`cf_clearance` cookie is not portable to `requests` (§2). Built as an **isolated, opt-in
+`citadel` adapter** driven by headless Playwright Chromium, kept off the default plain-HTTP
+path so the core stays pure. Design in §4.5. It carries a Chromium **extra** dependency
+that never touches core install, CI, or the no-network test gate.
 
 ## 4. Architecture
 
@@ -255,6 +256,43 @@ Adding a new board is a **build-time** activity, never runtime:
    captured response.
 3. Human reviews the row and commits it. Runtime then uses **plain `requests`** only.
 
+### 4.5 Browser adapter (`citadel.py`) — the isolated phase-4 path
+
+The one board class that needs a browser *at fetch time*, walled off so the plain-`requests`
+core stays untouched. Same adapter contract as the other 11; the browser is confined to a
+lazy-imported optional dependency.
+
+- **Contract, unchanged.** `SOURCE = "citadel"`, a pure `parse_jobs(pages: list[str]) ->
+  list[dict]`, and `fetch(slug, company_name, session=None, timeout=30) -> list[dict]`.
+  Registered in `fetch.ADAPTERS` + `config.VALID_SOURCES`. Two watchlist rows, one adapter:
+  `slug` = the host (`citadelsecurities.com` | `citadel.com`) — the second firm is **zero
+  code**, just a data row.
+- **The parse is pure and browser-free.** `parse_jobs` takes the already-fetched
+  `/page/N/` HTML strings and returns standard posting dicts — `title`, `location`, `url`
+  (the detail link), `external_id` (the detail slug, stable + unique → drives new-role
+  diffing), `description` (filled by the enrich step). Unit-tested against
+  `tests/fixtures/citadel.html`: **no browser in tests, no-network invariant preserved.**
+  All the real logic lives here.
+- **Playwright is lazy + optional.** `from playwright.sync_api import sync_playwright` lives
+  *inside* `fetch`, never at module top — importing the module (and running the whole rest
+  of the suite) needs no Chromium. If the extra is absent, `fetch` raises a clear
+  `RuntimeError` pointing to `pip install -e '.[browser]' && playwright install chromium`.
+  Playwright + Chromium ship as a packaging **extra**, so core install, CI, and the
+  coverage/schema gates stay browser-free.
+- **Fetch flow (thin glue over the pure parse):** launch headless Chromium → navigate the
+  listing (Cloudflare clears unaided, ~2–8 s) → read "Viewing N of M" for the page count →
+  walk `/careers/open-opportunities/page/1..K/` **in the same browser context** (the cookie
+  can't be lifted out, so every load stays in-session) → for each role, navigate its
+  `/careers/details/{slug}/` for the description → close browser → `parse_jobs(pages)`.
+  - `# ponytail: full-description mode loads one detail page per role — first run ≈130 loads
+    (~minutes). Upgrade path if it bites: enrich only unseen external_ids (the pipeline
+    already diffs new by id), so steady-state is a handful/run.` Until then, schedule Citadel
+    on a slower cadence than the plain-HTTP boards.
+- **Off the default path.** Because it drives a browser, `citadel` runs only when the
+  `browser` extra is present (or an `enable_browser_sources` flag is set); a normal `run.py`
+  without the extra **skips it with a warning**, never crashes. The default every-cycle
+  pipeline stays 100% plain `requests`.
+
 ## 5. Testing
 
 Follow the existing adapter convention: save a captured response as
@@ -268,6 +306,11 @@ Follow the existing adapter convention: save a captured response as
   (concatenated) description.
 - `config`: a `source: custom` entry parses its `recipe`; a `custom` row missing a
   `recipe` is a startup `ConfigError`.
+- `citadel`: fixture (`tests/fixtures/citadel.html`) + `parse_jobs` test — role rows,
+  location, detail-URL/`external_id` extraction, and a "Viewing N of M" count guard. The
+  browser-driving `fetch` glue is not unit-tested against the live site (same as other
+  adapters' network I/O); its shape-guard makes it fail loud if the card markup changes.
+  These tests import no Playwright (the lazy import keeps the suite browser-free).
 - Keep worker coverage ≥ 85 (`pyproject.toml`).
 
 ## 6. Risks & mitigations
@@ -283,6 +326,11 @@ Follow the existing adapter convention: save a captured response as
   how the pipeline detects "new").
 - **Phenom N+1 description calls** → one extra request per posting; bounded by the
   page-of-10 loop and the existing per-thread session/timeout.
+- **Browser fragility / cost (Citadel)** → the Playwright path is isolated behind the
+  `browser` extra and off the default cycle, so if Cloudflare hardens against headless
+  Chromium only Citadel breaks — the plain-HTTP core is unaffected. `parse_jobs` fails loud
+  on a markup change (fixture test); the per-role detail loads are the bounded cost in §4.5
+  (new-only enrich is the upgrade path). Never runs in CI/tests (lazy import + extra).
 
 ## 7. Docs to update on build
 
@@ -299,21 +347,13 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
   each detail URL to fill description/date. Needed by G-Research (51) and Renaissance (12).
 - **`google` code-adapter**: `results/?page=N` → parse `AF_initDataCallback` `ds:1` with
   index guards; sitemap (3585 URLs) as a dedup anchor.
-- **Citadel & other browser-required boards** (plain HTTP blocked, but a real browser clears the
-  Cloudflare challenge and the content is server-rendered — see §2): reachable only with a browser at
-  fetch time. Deliberately kept **out of the core** — the worker is pure `requests`, DI,
-  no-network-in-tests, native on host; a Chromium dependency for two ~81+49-role boards contradicts that.
-  If this class of board becomes worth it, the **only** viable option is an **isolated, opt-in
-  `browser` fetch mode** — a Playwright-backed module used ONLY for browser-required boards, never on
-  the default pipeline path (cost: Chromium dep, ~seconds/page, not mockable like the rest); it must
-  drive the browser end-to-end (navigate → read the server-rendered `/page/N/` HTML in-page).
-  - **A `cf_clearance` cookie hybrid does NOT work** (audit-tested 2026-07-18, was previously listed
-    here as an option — removed): clearing in a browser and replaying `cf_clearance`+`__cf_bm`+UA over
-    plain `requests`/`curl` still returns **403**. Cloudflare binds clearance to the client's TLS/JA3
-    fingerprint and IP, which `curl` cannot match — the cookie is not portable off the browser.
-  - Recommendation: keep out by default; add the opt-in browser module only if browser-required boards
-    matter. If you only need *change detection* (not content), the plain-HTTP `career-sitemap.xml`
-    (§2) is a free alternative to any browser.
+- **Citadel (browser-required):** no longer out-of-scope — promoted to **phase 4**, built as
+  the opt-in `citadel` browser adapter (§3, §4.5). Two alternatives were rejected: the
+  `cf_clearance` cookie hybrid **doesn't work** (clearance is TLS/JA3+IP-bound, so replaying
+  cookie+UA over `requests` still 403s — audit-tested 2026-07-18), and sitemap-only change
+  detection was passed over because we want full descriptions for fit-scoring (the
+  plain-HTTP `career-sitemap.xml` in §2 remains a free fallback if the browser path ever
+  becomes too costly to run).
 - **A web search is not a fetch:** search tools (and assistants that "search the web") return a search
   engine's already-crawled copy or third-party aggregators — not the live origin. Aggregator coverage
   is **fresh but incomplete** (audit 2026-07-18: Built In 46 w/ postings from yesterday, LinkedIn
