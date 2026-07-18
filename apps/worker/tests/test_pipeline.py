@@ -343,6 +343,25 @@ def test_run_score_falls_back_on_non_scoreerror_batch_failure(db_path):
     assert len(db.get_by_status(conn, "scored")) == 3
 
 
+def test_run_score_falls_back_when_batch_returns_short(db_path):
+    # A backend that returns FEWER cards than postings without raising must not
+    # zip-misalign and orphan the tail — it falls back to singles so all score.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3"])
+    calls = {"single": 0}
+
+    def fit_fn(postings):
+        if len(postings) > 1:
+            return [{"score": 70, "assessment": _assessment()}]   # short by 2
+        calls["single"] += 1
+        return [{"score": 70, "assessment": _assessment()}]
+
+    pipeline.run_score(conn, now=NOW, batch_size=10,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+    assert calls["single"] == 3
+    assert len(db.get_by_status(conn, "scored")) == 3
+
+
 def test_run_score_persists_disqualified_without_fit(db_path):
     conn = db.connect(db_path)
     _seed_new(conn, ["1"])

@@ -31,6 +31,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
 ### Fixed
+- **`run_score` batch persist no longer trusts `len(cards) == len(chunk)`.** A fit
+  backend returning fewer/more cards than postings without raising would have
+  zip-misaligned in `pipeline.run_score` and silently orphaned the tail rows (stuck
+  `new`, re-scored every pass). A `len(cards) != len(postings)` check now routes the
+  chunk into the existing singles fallback, so every posting is scored 1:1. Latent
+  today (codex raises on a missing `job_ref`; claude loops one-per-posting), hardened
+  from the 2026-07-17 scoring-system audit.
 - **Notify gate now mirrors the web "Matched" tab on thin JDs.** `db.get_notifiable`
   gained `AND LENGTH(TRIM(description)) >= 200`, so a short (<200-char) `match/match` JD the
   model did not flag `insufficient_context` no longer fires a Telegram alert while the web

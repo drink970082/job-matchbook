@@ -324,6 +324,13 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
             # transient API hiccup fails only the row(s) it actually hits (via the
             # singles-level mark_failed), matching the old broad per-row catch.
             cards = None
+        if cards is not None and len(cards) != len(postings):
+            # A backend returning fewer/more cards than postings without raising
+            # would misalign the zip below and silently orphan the tail (stuck
+            # 'new', re-scored every pass). codex raises on a missing job_ref and
+            # claude loops one-per-posting, so this is latent today — but treat a
+            # count mismatch as a batch failure so every posting is scored 1:1.
+            cards = None
         if cards is None:
             # Fallback: retry this chunk's postings one fit_fn call each, so one
             # bad JD in the batch doesn't sink its batch-mates.

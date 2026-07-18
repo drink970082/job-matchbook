@@ -247,12 +247,12 @@ The `200` is hand-synced with the web `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (a cr
 constant, noted in `get_notifiable`'s docstring — a known drift point). See CHANGELOG;
 SPEC §9 corrected. (From the 2026-07-17 scoring-system audit.)
 
-- **`run_score` batch persist trusts `len(cards) == len(chunk)`** — `[XS · latent, from
-  audit]`. `pipeline.py` zips `chunk` with `cards`; a backend returning *fewer* cards
-  without raising would silently orphan the tail rows (stuck `new`, re-scored next pass).
-  Latent only — codex raises on a missing `job_ref` and claude loops one-per-posting, so
-  both guarantee length-or-raise today. Cheap defensive guard: `if len(cards) !=
-  len(postings): fall back to singles` before the zip.
+✅ **FIXED 2026-07-17 — `run_score` batch persist no longer trusts `len(cards) ==
+len(chunk)`.** `pipeline.run_score` zipped `chunk` with `cards`; a backend returning
+*fewer/more* cards without raising would have misaligned the zip and orphaned the tail
+(stuck `new`, re-scored every pass). A `len(cards) != len(postings)` check now routes the
+chunk into the existing singles fallback (unit-tested). Latent only — codex raises on a
+missing `job_ref` and claude loops one-per-posting — but now guarded. See CHANGELOG.
 
 *(Both surfaced by the 2026-07-17 audit of the verdict-routing scoring system; the audit
 also **verified-good**: the enum predicate is identical across worker/web, no numeric-score
