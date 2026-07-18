@@ -76,6 +76,23 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
+- **Fetch-time filtering — by date + per-board settings** — `[M · design call · NEXT UP]`. Add
+  deterministic, pre-scorer filters applied at FETCH time to cut volume/noise (the only fetch-time
+  filter today is the coarse *global* `title_filter`):
+  - **By date** — drop postings whose `posted_at` is older than a max-age (keep the last N days).
+    Postings already carry `posted_at`; nothing filters on it yet. Note dateless boards fall back to
+    the scrape date (see the `posted_at` limitation above), so a max-age keeps those through.
+  - **Per-board settings** — move keep-rules onto the watchlist row so each board carries its own
+    query / keywords / locations / max-age (e.g. Amazon's `base_query` is hardcoded in the recipe
+    today, and high-volume boards like Amazon/Microsoft flood the scorer). Set at onboard time from
+    the candidate **profile / `config.yaml`**.
+  **Design forks (take to the operator):** where filters live — global `config.yaml` vs a new
+  nullable `filters` JSON column on `watched_companies` (Prisma-owned, mirrored in the drift
+  fixture) vs both (global default + per-board override); how they compose with the existing
+  `title_filter` + `candidate.*` disqualifiers and the LLM scorer (stay a cheap deterministic
+  pre-filter — **no LLM at fetch** — the scorer still does the real relevance judging); and whether
+  "from my profile" means the `onboard-board` skill / web UI *generates* the per-board filter or the
+  operator hand-sets it. Ties into [[design-work-preference]] — research the forks, operator decides.
 - **Batched fit-scoring — closed as won't-fix** — `[M · reopen only with a backend that
   isolates JDs natively]`. The `fit_fn` batching machinery stays implemented, unit-tested,
   and default-off (`DEFAULT_BATCH_SIZE=1`). The 2026-07-17 drift probe confirmed real
@@ -99,7 +116,14 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   only when the cascade fails. **Open follow-up — eval iteration 2** `[M · optional]`: re-run the
   skill-creator loop on the reworked add-or-fail flow (with-skill agents add to a *throwaway* DB
   via `--db`) and swap in tougher/undocumented boards — iteration 1 hit 100% pass on **both**
-  configs, so it measured speed (skill −42% time / −18% tokens), not correctness.
+  configs, so it measured speed (skill −42% time / −18% tokens), not correctness. **Used in anger
+  2026-07-18:** onboarded **10 boards, watchlist 39 → 49** — Microsoft (`phenom`), G-Research
+  (`workday`; its `/vacancies/` page is a WordPress skin over a Workday tenant), Amazon / Jane
+  Street / ByteDance / TikTok / DE Shaw (`custom`; Jane Street drove the bare-array executor fix,
+  commit a0b247e), and Citadel Securities / Citadel / Renaissance (`browser`). **Google skipped by
+  choice** (`scrape_board.txt`): scrapeable, but needs a browser `base_url` override (its `<base>`
+  tag makes `urljoin` double the path), JDs need hundreds of per-job renders (the scorer needs JD
+  text), and anti-bot risk on a recurring headless job — value/reliability not worth it.
 - **Fit-score noise is unfixable on the shipped backend** — `[M · accepted limitation;
   revisit only if the harness fails]`. The ±10–15 score noise (id=322 = 35→52, id=6 = 68→82)
   has **no** off switch now: `claude-sonnet-5` 400-rejects `temperature`/`seed`, and the
@@ -119,13 +143,18 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   Telegram notification, and the **worker** has no healthcheck — its failures show only in
   the DB/logs.
 - **Headless-browser fetch — SHIPPED 2026-07-18 as the `browser` recipe executor** (phase 4;
-  see SPEC + CHANGELOG). The reframe held: iCIMS and TikTok were never browser-required (both
-  plain HTTP, shipped as the `icims` adapter + a `custom` recipe); the real browser-required class
-  is Cloudflare-blocked boards. `fetch/browser.py` renders in headless Playwright Chromium and
-  extracts via CSS, isolated behind `requirements-browser.txt` + the `enable_browser_sources` gate.
-  **First member: Citadel Securities + Citadel.** Remaining under this banner: **Google** (a
-  `browser` recipe, but deferred on scale — 1711 roles ≈ ~170 rendered pages/run) and, if wanted,
-  wiring the actual Citadel rows + running a first live pass with the extra installed.
+  see SPEC + CHANGELOG). `fetch/browser.py` renders in headless Playwright Chromium and extracts
+  via CSS, isolated behind `requirements-browser.txt` + the `enable_browser_sources` gate.
+  **Wired + run live 2026-07-18** (commit 495b9bd): the Playwright extra is installed in the
+  worker's system python3, `enable_browser_sources: true`, and Citadel Securities fetched **10
+  live postings**. That first pass exposed + fixed a real bug — the headless-shell fingerprint got
+  stuck on Cloudflare's "Just a moment" challenge (0 cards); a realistic UA/viewport +
+  `--disable-blink-features=AutomationControlled` + *waiting for the `item` selector* now clears it
+  for the listing. **Accepted limitation `[· CF, no clean fix]`:** Cloudflare re-challenges rapid
+  deep-link navigations, so `detail` pages on a walled board stay description-less — a
+  circuit-breaker bails detail after 3 empties (Citadel ships list-only: title/location/url, no JD;
+  Renaissance, not CF-walled, enriches fully). Beating it needs residential proxies / a CF-solver —
+  out of scope.
 - **Remaining feed coverage (the `feed_unresolved` long tail)** — `[M · needs iCIMS/ByteDance
   feed routers]`. Tier 1 landed (greenhouse-EU host, Oracle, Workable, Jobvite,
   embedded-greenhouse + a detail-fetch robustness framework that records failures loudly),
