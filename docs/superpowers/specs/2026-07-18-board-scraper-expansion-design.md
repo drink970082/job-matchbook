@@ -28,14 +28,14 @@ quant firms that either run a different ATS or self-host. The wishlist
 ## 2. Findings (live recon, 2026-07-17/18)
 
 Every board on the wishlist was probed against its live endpoint. They fall into
-four buckets:
+**three buckets — and by design there is no code-per-site tier**: a board is a known
+platform, a plain-HTTP recipe, or a browser recipe. Adding one is always a data row.
 
 | Bucket | Meaning | Members (verified) |
 |---|---|---|
 | **Platform** | one adapter, ∞ companies via slug | iCIMS (SIG, General Dynamics, Fujifilm…), **Phenom** (Microsoft, Kraft Heinz, Mastercard, CVS…) |
-| **Custom-recipe** | one row against one generic executor | Amazon, ByteDance/TikTok, Jane Street, DE Shaw, G-Research, Renaissance, AQR |
-| **Code-adapter** | too weird for a recipe; ~30 lines of code | Google (WIZ `AF_initDataCallback` positional arrays) |
-| **Browser-required** | plain HTTP blocked, but a real browser clears it | Citadel (Cloudflare invisible JS challenge; server-rendered once past — see §2 evidence) |
+| **Plain-HTTP recipe** | one row against the `custom` executor, fetched by `requests` | Amazon, ByteDance/TikTok, Jane Street, DE Shaw, G-Research, Renaissance, AQR |
+| **Browser recipe** | one row against the `browser` executor — for boards plain HTTP can't fetch (*blocked*) or can't cleanly parse (*fragile shape*) | Citadel (Cloudflare-blocked), Google (WIZ positional arrays — read the rendered DOM instead) |
 
 Key evidence:
 
@@ -50,7 +50,12 @@ Key evidence:
   offset+limit. No posted date.
 - **Jane Street**: `GET janestreet.com/jobs/main.json` — single file, top-level array, 214 roles, descriptions inline, no pagination.
 - **DE Shaw**: parse `__NEXT_DATA__` from `/careers`, `props.pageProps.regularJobs` (78 roles). (A `/_next/data/{buildId}/…` JSON API also exists but `buildId` rots — the HTML blob is more robust.)
-- **Google**: curl-reachable; `AF_initDataCallback` `ds:1` parses as strict JSON, `&page=N`, total 1711. ~30 lines of positional parsing.
+- **Google**: curl-reachable, but the jobs are WIZ `AF_initDataCallback` **positional arrays**
+  (`ds:1`) — parseable yet index-fragile, and no dotted-path or CSS recipe addresses positional
+  data. So Google is a **browser recipe**: render the page, read the job cards from the DOM via
+  CSS selectors (steadier than array indices), `&page=N`, total 1711. (Deferred: 1711 roles ≈
+  ~170 rendered pages/run — a real runtime cost; build only if Google becomes must-have, on a
+  slow cadence.)
 - **Citadel** (corrected 2026-07-18, verified first-hand, then re-audited by three independent
   agents same day — supersedes the earlier "skip, headless won't help"): plain HTTP is blocked —
   `curl`, the worker's `requests`, and Claude Code's WebFetch all get a **403 Cloudflare** challenge
@@ -87,16 +92,20 @@ executor must normalize tolerantly and treat `posted_at` as optional.
 
 ## 3. Scope & phases
 
-**The one invariant — how we fetch: the runtime pipeline is plain HTTP (`requests`) only.
-No headless browser and no LLM in the fetch/score loop.** A browser and an LLM appear
-*once per board, at onboarding* (§4.4) — to discover the live endpoint and draft the
-recipe — then a human commits the row and runtime replays it with plain `requests`. Every
-phase below obeys this, *except* phase 4 (Citadel), which is walled off in its own opt-in browser module (§4.5) because it can't.
+**How we fetch — two executors, both recipe-driven, zero code-per-site.** Adding any board is
+a **data row**, never a new file (the core goal, §1). A row resolves to one of:
 
-So "are we HTML-scraping or driving a headless browser?" — **at runtime, neither is a
-browser: it's plain HTTP.** Two flavors of plain HTTP: hit a JSON endpoint, or pull
-server-rendered HTML / embedded `__NEXT_DATA__` JSON out of a `requests` response. The
-headless browser is an onboarding tool, never a pipeline step.
+- a **known platform adapter** (greenhouse, icims, phenom, … — slug only), or
+- a **plain-HTTP recipe** run by the `custom` executor (`requests` → JSON / `__NEXT_DATA__` /
+  json-ld / CSS), or
+- a **browser recipe** run by the `browser` executor (Playwright renders the page; the same
+  recipe fields extract from the rendered DOM) — the universal last resort.
+
+**The default pipeline is plain HTTP.** The browser executor is isolated, opt-in, and off the
+default path (§4.5); an LLM appears only at *onboarding* (§4.6) to draft a row, never in the
+fetch/score loop. So "HTML-scrape or headless browser?" — **prefer plain HTTP; drop to the
+browser executor only when plain HTTP is *blocked* (Citadel) or the shape *won't parse cleanly*
+(Google's positional arrays).** Both paths are recipes — the difference is just the transport.
 
 **Phase 1 — platform adapters (build now).** `icims` + `phenom` modules, added to
 `VALID_SOURCES`. Plain HTTP — iCIMS returns server-rendered HTML rows; Phenom is a JSON API.
@@ -106,18 +115,29 @@ headless browser is an onboarding tool, never a pipeline step.
 stored as a row on the watchlist. Plain HTTP — the recipe hits a JSON endpoint or extracts
 `__NEXT_DATA__` JSON embedded in the served HTML. **No browser, no CSS-selector scraping.**
 
-**Phase 3 — extended reach (deferred).** `custom` `json-ld` + `html-css` modes + the
-optional detail-enrich phase (G-Research 51, Renaissance 12 — low volume / higher
-fragility), and the `google` code-adapter (WIZ positional arrays). Still plain HTTP;
-deferred on volume + fragility, not on mechanism.
+**Phase 3 — extended plain-HTTP recipe modes (deferred).** `custom` `json-ld` + `html-css`
+modes + the optional detail-enrich phase (G-Research 51, Renaissance 12 — low volume / higher
+fragility). Still plain HTTP; deferred on volume + fragility, not on mechanism.
 
-**Phase 4 — browser-required (approved 2026-07-18: opt-in browser module).** Citadel
-Securities (81) + Citadel (49). The **only** class that can't be done with plain HTTP at
-fetch time — a real browser must clear Cloudflare *per session*, and the cleared
-`cf_clearance` cookie is not portable to `requests` (§2). Built as an **isolated, opt-in
-`citadel` adapter** driven by headless Playwright Chromium, kept off the default plain-HTTP
-path so the core stays pure. Design in §4.5. It carries a Chromium **extra** dependency
-that never touches core install, CI, or the no-network test gate.
+**Phase 4 — browser recipe executor (approved 2026-07-18).** The `browser` executor: an
+isolated, opt-in, recipe-driven module that renders a board in headless Playwright Chromium and
+extracts fields from the rendered DOM via the same recipe schema. It is the **catch-all last
+resort** for the two things plain HTTP can't handle — *blocked* boards (Citadel: Cloudflare
+clears only in a real browser, and the `cf_clearance` cookie isn't portable to `requests`, §2)
+and *fragile-shape* boards (Google's positional arrays — read the rendered cards, don't
+index-parse JSON). First recipe: Citadel (Securities 81 + fund 49). Design in §4.5. Chromium
+ships as an **extra** that never touches core install, CI, or the no-network test gate, and the
+executor stays off the default plain-HTTP cycle.
+
+**The cascade — how a new board is classified (as a skill, §4.6):**
+
+1. Known platform/ATS? → **data row** (`source` + `slug`).
+2. Plain HTTP reaches a parseable endpoint (JSON / `__NEXT_DATA__` / json-ld / CSS)? →
+   **plain-HTTP recipe row** (`source: custom`).
+3. Neither — blocked, or plain HTTP won't parse it cleanly? → **browser recipe row**
+   (`source: browser`). **No bespoke per-site code, ever.**
+
+Always take the earliest rung that works — it keeps runtime cheapest.
 
 ## 4. Architecture
 
@@ -178,10 +198,15 @@ fields:
 - `url` template interpolation with any field from the raw job object (e.g. `{id}`).
 - `next-data` mode = extract the `__NEXT_DATA__` `<script>` JSON, then behave as `json`.
 
-**Escape hatch:** anything a recipe can't express (Google's positional arrays,
-cursor pagination, signed headers) gets a tiny hand-written code adapter — it does
-**not** grow a knob on the recipe DSL. This boundary is the ponytail guardrail
-against the recipe format ballooning into a brittle mini-language.
+**Escape hatch = the browser executor, not code.** Anything the plain-HTTP recipe can't
+express (Google's positional arrays, cursor pagination, signed requests, a bot wall) becomes a
+**browser recipe** (§4.5), never a hand-written per-site adapter: in a rendered browser you read
+the visible DOM, click "next"/scroll to paginate, and the page signs its own requests, so a
+CSS-selector recipe covers it. Two guardrails at once — the plain-HTTP recipe DSL never balloons
+with exotic knobs, **and** the file count never grows per site (a board stays a data row). The
+one thing the browser executor can't do cheaply is *scale*: large boards (Google's 1711) mean
+many rendered pages/run — so prefer plain HTTP whenever it parses, and put big browser-only
+boards on a slow cadence.
 
 **Example recipes** (illustrative; exact paths finalized during build from the
 saved fixtures):
@@ -233,65 +258,118 @@ recipe:
   `watched_companies` (SQLite has no JSON type; store a JSON string). Platform/known-ATS
   rows leave it `NULL`; `custom` rows carry the recipe JSON. Then `make db-push` and
   update the schema-drift fixture (`make check-schema`).
-- **`VALID_SOURCES`** gains `icims`, `phenom`, `custom`.
+- **`VALID_SOURCES`** gains `icims`, `phenom`, `custom` (phase 1–2) and `browser` (phase 4).
 - **`config.Company`** gains an optional `recipe: dict | None`; `config.yaml`
-  `companies:` entries for `source: custom` carry an inline `recipe:` (seeded like
-  everything else).
+  `companies:` entries for `source: custom` **or** `source: browser` carry an inline `recipe:`
+  (seeded like everything else).
 - **`db.get_watchlist` / `import_watchlist`** select/insert the `recipe` column
   (parse/serialize JSON string ↔ dict at the boundary).
-- **Dispatch:** `pipeline.run_fetch` passes `recipe=company.get("recipe")` to
-  `fetch_company`; `fetch_company` routes `source == "custom"` to
-  `custom.fetch(slug, name, recipe=...)`. Existing sources ignore the kwarg.
+- **Dispatch:** `pipeline.run_fetch` passes `recipe=company.get("recipe")` to `fetch_company`;
+  `fetch_company` routes `source == "custom"` → `custom.fetch(...)` and `source == "browser"` →
+  `browser.fetch(...)`. Existing sources ignore the kwarg. **`browser` rows are gated**: skipped
+  with a warning unless the `browser` extra is installed (or `enable_browser_sources` is set), so
+  the default run never imports Playwright.
 
-One watchlist, one seed path, one fetch loop — `custom` is just another `source`.
+One watchlist, one seed path, one fetch loop — `custom` and `browser` are just other `source`s,
+differing only in transport (plain `requests` vs headless Chromium).
 
 ### 4.4 Onboarding workflow (where the browser/LLM live)
 
-Adding a new board is a **build-time** activity, never runtime:
+Adding a new board is a **build-time** activity, never runtime — codified as the
+`onboard-board` skill (§4.6). In short:
 
 1. Drive the board once in a headless browser; capture the XHR / page payload that
    holds the jobs (both Google's and Microsoft's *documented* URLs were dead — you
    must discover the live one).
-2. An LLM drafts either "it's platform X, slug = …" or a `custom` recipe row from the
-   captured response.
-3. Human reviews the row and commits it. Runtime then uses **plain `requests`** only.
+2. Walk the cascade (§3) and draft the row: "it's platform X, slug = …", a `custom`
+   recipe (plain HTTP), or — only if blocked/unparseable — a `browser` recipe.
+3. Human reviews the row and commits it. Runtime then uses **plain `requests`** for
+   `custom`/platform rows, and the isolated browser executor only for `browser` rows.
 
-### 4.5 Browser adapter (`citadel.py`) — the isolated phase-4 path
+### 4.5 Browser recipe executor (`browser.py`) — the isolated phase-4 fallback
 
-The one board class that needs a browser *at fetch time*, walled off so the plain-`requests`
-core stays untouched. Same adapter contract as the other 11; the browser is confined to a
-lazy-imported optional dependency.
+The catch-all for boards plain HTTP can't fetch or can't cleanly parse. Recipe-driven like
+`custom` (no per-site code), but the transport is a headless browser and extraction reads the
+**rendered DOM**. Walled off so the plain-`requests` core never imports Chromium.
 
-- **Contract, unchanged.** `SOURCE = "citadel"`, a pure `parse_jobs(pages: list[str]) ->
-  list[dict]`, and `fetch(slug, company_name, session=None, timeout=30) -> list[dict]`.
-  Registered in `fetch.ADAPTERS` + `config.VALID_SOURCES`. Two watchlist rows, one adapter:
-  `slug` = the host (`citadelsecurities.com` | `citadel.com`) — the second firm is **zero
-  code**, just a data row.
-- **The parse is pure and browser-free.** `parse_jobs` takes the already-fetched
-  `/page/N/` HTML strings and returns standard posting dicts — `title`, `location`, `url`
-  (the detail link), `external_id` (the detail slug, stable + unique → drives new-role
-  diffing), `description` (filled by the enrich step). Unit-tested against
-  `tests/fixtures/citadel.html`: **no browser in tests, no-network invariant preserved.**
-  All the real logic lives here.
+- **Contract, unchanged.** `SOURCE = "browser"`, a pure `parse_jobs(pages, recipe) ->
+  list[dict]`, and `fetch(slug, company_name, recipe, session=None, timeout=30) -> list[dict]`.
+  Registered in `fetch.ADAPTERS` + `config.VALID_SOURCES`. A board is a **data row**
+  (`source: browser`, slug = host, inline `recipe`); a second firm on the same site is zero code
+  (Citadel's two domains = two rows).
+- **Recipe = the `custom` schema + CSS extraction + interaction pagination.** Reuses the shared
+  field-mapping / date-normalization helpers (§4.2). Extraction is `html-css`: an `item` selector
+  for the job cards, then per-`field` CSS selectors (text or attr). Pagination gains browser-native
+  knobs — `page: {type: url, template: ".../page/{n}/", until: empty}` for URL paging, or
+  `{type: click, selector: "…Next"}` / `{type: scroll}` for interaction paging. An optional
+  `detail: {url_field, fields}` block enriches each role from its detail page. **Keep this DSL
+  lean** — the same ponytail guardrail as the plain-HTTP recipe.
+- **The parse is pure and browser-free.** `parse_jobs(pages, recipe)` takes the already-rendered
+  HTML strings + the recipe and returns standard posting dicts. Unit-tested against a saved fixture
+  (`tests/fixtures/citadel.html`): **no browser in tests, no-network invariant preserved.** All the
+  extraction logic lives here; `fetch` is thin glue that only produces the HTML strings.
 - **Playwright is lazy + optional.** `from playwright.sync_api import sync_playwright` lives
-  *inside* `fetch`, never at module top — importing the module (and running the whole rest
-  of the suite) needs no Chromium. If the extra is absent, `fetch` raises a clear
-  `RuntimeError` pointing to `pip install -e '.[browser]' && playwright install chromium`.
-  Playwright + Chromium ship as a packaging **extra**, so core install, CI, and the
-  coverage/schema gates stay browser-free.
-- **Fetch flow (thin glue over the pure parse):** launch headless Chromium → navigate the
-  listing (Cloudflare clears unaided, ~2–8 s) → read "Viewing N of M" for the page count →
-  walk `/careers/open-opportunities/page/1..K/` **in the same browser context** (the cookie
-  can't be lifted out, so every load stays in-session) → for each role, navigate its
-  `/careers/details/{slug}/` for the description → close browser → `parse_jobs(pages)`.
-  - `# ponytail: full-description mode loads one detail page per role — first run ≈130 loads
-    (~minutes). Upgrade path if it bites: enrich only unseen external_ids (the pipeline
-    already diffs new by id), so steady-state is a handful/run.` Until then, schedule Citadel
-    on a slower cadence than the plain-HTTP boards.
-- **Off the default path.** Because it drives a browser, `citadel` runs only when the
-  `browser` extra is present (or an `enable_browser_sources` flag is set); a normal `run.py`
-  without the extra **skips it with a warning**, never crashes. The default every-cycle
-  pipeline stays 100% plain `requests`.
+  *inside* `fetch`, never at module top — importing the module (and running the whole rest of the
+  suite) needs no Chromium. Missing extra → `fetch` raises a clear `RuntimeError` pointing to
+  `pip install -e '.[browser]' && playwright install chromium`. Playwright + Chromium are a
+  packaging **extra**, so core install, CI, and the coverage/schema gates stay browser-free.
+- **Fetch flow (thin glue over the pure parse):** launch headless Chromium → navigate the listing
+  (any Cloudflare challenge clears unaided, ~2–8 s) → paginate per the recipe **in the same browser
+  context** (a cleared cookie isn't portable, so all loads stay in-session) → optionally open each
+  role's detail page → collect the rendered HTML → close → `parse_jobs(pages, recipe)`.
+  - `# ponytail: detail-enrich loads one page per role (Citadel first run ≈130 loads, ~minutes).
+    Upgrade path if it bites: enrich only unseen external_ids (the pipeline already diffs new by
+    id), so steady-state is a handful/run.` Big browser-only boards get a slow cadence.
+- **Off the default path.** Because it drives a browser, `browser`-source rows run only when the
+  `browser` extra is present (or an `enable_browser_sources` flag is set); a normal `run.py` without
+  the extra **skips them with a warning**, never crashes. The default every-cycle pipeline stays
+  100% plain `requests`.
+
+**Citadel recipe (illustrative; selectors finalized from the saved fixture at build):**
+
+```yaml
+source: browser
+slug: citadelsecurities.com
+name: Citadel Securities
+recipe:
+  url: "https://www.citadelsecurities.com/careers/open-opportunities/"
+  mode: html-css
+  item: "article.job-card"
+  page: {type: url, template: "https://www.citadelsecurities.com/careers/open-opportunities/page/{n}/", until: empty}
+  fields:
+    title: "h3"
+    location: ".job-location"
+    url: {selector: "a", attr: href}
+    external_id: {selector: "a", attr: href, extract: "details/([^/]+)/"}
+  detail: {url_field: url, fields: {description: ".job-description"}}
+```
+
+`citadel.com` is the same recipe with the other host — a second data row, zero new code.
+
+### 4.6 Onboarding skill (`onboard-board`)
+
+The cascade (§3) as a repeatable Claude Code **skill**, so adding a board is a guided procedure,
+not tribal knowledge. Build-time only; it emits a reviewed data row, never code.
+
+**Input:** a careers URL (+ optional company name).
+
+1. **Platform check.** Probe known-ATS/platform signatures (greenhouse/lever/…/icims/phenom URL
+   shapes). Hit → propose `{source, slug}`, done.
+2. **Plain-HTTP probe.** `requests` the page; look for a JSON/XHR endpoint, `__NEXT_DATA__`, or
+   json-ld `JobPosting`. Parseable → draft a `source: custom` recipe and validate it against the
+   live response (must return ≥1 well-formed posting).
+3. **Browser fallback.** If blocked (403/challenge) or the shape won't parse cleanly, render in
+   Playwright, capture the rendered DOM, and draft a `source: browser` html-css recipe (item +
+   field selectors, pagination, optional detail). Validate against the render.
+4. **Emit + verify.** Output the watchlist row (source/slug/name/recipe) **and** a captured fixture
+   for the parse test. Human reviews, commits the row + fixture. Runtime never re-runs the skill.
+
+**Guardrails:** the skill *only ever produces a data row* (+ a test fixture) — it never writes a
+new adapter file. If no recipe fits, it says the board is genuinely unsupported rather than
+inventing bespoke code. Always prefer the earliest cascade rung that works.
+
+Deliverable: `skills/onboard-board/` (SKILL.md + probe helpers) — specced here, built as its own
+task.
 
 ## 5. Testing
 
@@ -306,19 +384,19 @@ Follow the existing adapter convention: save a captured response as
   (concatenated) description.
 - `config`: a `source: custom` entry parses its `recipe`; a `custom` row missing a
   `recipe` is a startup `ConfigError`.
-- `citadel`: fixture (`tests/fixtures/citadel.html`) + `parse_jobs` test — role rows,
-  location, detail-URL/`external_id` extraction, and a "Viewing N of M" count guard. The
-  browser-driving `fetch` glue is not unit-tested against the live site (same as other
-  adapters' network I/O); its shape-guard makes it fail loud if the card markup changes.
-  These tests import no Playwright (the lazy import keeps the suite browser-free).
+- `browser`: fixture (`tests/fixtures/citadel.html`) + `parse_jobs(pages, recipe)` test —
+  item/field CSS extraction, detail-URL/`external_id`, url-template pagination stop, and a
+  recipe-with-no-matches shape guard (fails loud on selector drift). The browser-driving `fetch`
+  glue isn't unit-tested against the live site (same as other adapters' network I/O). These tests
+  import no Playwright — the lazy import keeps the suite browser-free.
 - Keep worker coverage ≥ 85 (`pyproject.toml`).
 
 ## 6. Risks & mitigations
 
-- **Recipe DSL creep** → hard rule: recipe covers common shapes; weird boards get a
-  code adapter (§4.2 escape hatch). `json-ld`/`html`/detail-enrich stay deferred until a
-  wanted board needs them.
-- **HTML/positional fragility** (iCIMS rows, future Google) → each such parser fails
+- **Recipe DSL creep** → hard rule: the plain-HTTP recipe covers common shapes; anything it
+  can't express becomes a **browser recipe** (§4.2 escape hatch), never bespoke code.
+  `json-ld`/`html`/detail-enrich stay deferred until a wanted board needs them.
+- **HTML/positional fragility** (iCIMS rows, browser-recipe selectors) → each such parser fails
   loud (guard on shape) and has a fixture test so a site redesign is caught, not
   silently zeroed.
 - **Missing `posted_at`** (Jane Street, ByteDance, Renaissance) → treated as `null`;
@@ -326,11 +404,17 @@ Follow the existing adapter convention: save a captured response as
   how the pipeline detects "new").
 - **Phenom N+1 description calls** → one extra request per posting; bounded by the
   page-of-10 loop and the existing per-thread session/timeout.
-- **Browser fragility / cost (Citadel)** → the Playwright path is isolated behind the
-  `browser` extra and off the default cycle, so if Cloudflare hardens against headless
-  Chromium only Citadel breaks — the plain-HTTP core is unaffected. `parse_jobs` fails loud
-  on a markup change (fixture test); the per-role detail loads are the bounded cost in §4.5
-  (new-only enrich is the upgrade path). Never runs in CI/tests (lazy import + extra).
+- **Browser executor fragility / cost** → the Playwright path is isolated behind the `browser`
+  extra and off the default cycle, so a site hardening against headless Chromium (or a selector
+  drift) breaks only that one browser board — the plain-HTTP core is unaffected. `parse_jobs`
+  fails loud on a selector miss (fixture test); per-role detail loads are the bounded cost in §4.5
+  (new-only enrich is the upgrade path), and large browser-only boards run on a slow cadence.
+  Never runs in CI/tests (lazy import + extra).
+- **Code-per-site growth** → eliminated by design: no code-adapter tier exists. Fragile boards
+  become browser recipes, so the file count grows per *executor mode*, never per site (§4.2).
+- **Browser-recipe DSL creep** → the browser recipe adds only a few knobs (CSS `item`/`fields`,
+  url/click/scroll pagination, optional `detail`). Hold the line there; if a board needs more, it's
+  a signal to reconsider whether it's worth scraping, not to grow the DSL.
 
 ## 7. Docs to update on build
 
@@ -345,8 +429,10 @@ classifications and 2026-06-10 counts are stale — separate verification in fli
   reused across G-Research (detail), Renaissance (detail), and many WordPress boards.
 - **`custom` `html-css` mode + detail-enrich phase**: list via CSS selectors, then fetch
   each detail URL to fill description/date. Needed by G-Research (51) and Renaissance (12).
-- **`google` code-adapter**: `results/?page=N` → parse `AF_initDataCallback` `ds:1` with
-  index guards; sitemap (3585 URLs) as a dedup anchor.
+- **Google (browser recipe, deferred):** `results/?page=N` renders WIZ job cards; a
+  `source: browser` html-css recipe reads the rendered cards (sitemap's 3585 URLs as a dedup
+  anchor). Deferred on scale — 1711 roles ≈ ~170 rendered pages/run; build only if Google is
+  must-have, on a slow cadence.
 - **Citadel (browser-required):** no longer out-of-scope — promoted to **phase 4**, built as
   the opt-in `citadel` browser adapter (§3, §4.5). Two alternatives were rejected: the
   `cf_clearance` cookie hybrid **doesn't work** (clearance is TLS/JA3+IP-bound, so replaying
