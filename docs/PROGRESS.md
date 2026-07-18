@@ -91,12 +91,15 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
 - **More board adapters** — `[M · pick a target]`. The adapter pattern (`fetch/<source>.py`
   + `ADAPTERS`/`VALID_SOURCES`, or `fetch_one` in `DETAIL_SOURCES`) makes new sources cheap;
   JobSpy noted as a possible fallback aggregator.
-- **`onboard-board` skill** — `[M · next step; after the three executors land]`. The
-  board-scraper design's §4.6 cascade skill (`skills/onboard-board/`): probe a careers URL
-  through platform → plain-HTTP recipe → browser recipe and emit a **reviewed watchlist data
-  row + a test fixture, never a new adapter file**. Depends on the `custom` + `browser`
-  executors landing first (see `docs/superpowers/specs/2026-07-18-board-scraper-expansion-design.md`
-  §4.6); build as its own task.
+- **`onboard-board` skill — SHIPPED 2026-07-18** (`.claude/skills/onboard-board/`, commit
+  b14e471). The §4.6 cascade skill: `probe.py` classifies a careers URL (platform / plain-HTTP /
+  browser) by recognizing a known ATS + verifying a non-empty board, then it validates the recipe
+  yields ≥1 posting and **adds the board straight to the `watched_companies` DB** via
+  `add_watched.py` (config.yaml is only a seed) — a one-line "added" on success, a written report
+  only when the cascade fails. **Open follow-up — eval iteration 2** `[M · optional]`: re-run the
+  skill-creator loop on the reworked add-or-fail flow (with-skill agents add to a *throwaway* DB
+  via `--db`) and swap in tougher/undocumented boards — iteration 1 hit 100% pass on **both**
+  configs, so it measured speed (skill −42% time / −18% tokens), not correctness.
 - **Fit-score noise is unfixable on the shipped backend** — `[M · accepted limitation;
   revisit only if the harness fails]`. The ±10–15 score noise (id=322 = 35→52, id=6 = 68→82)
   has **no** off switch now: `claude-sonnet-5` 400-rejects `temperature`/`seed`, and the
