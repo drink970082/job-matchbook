@@ -283,7 +283,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   secrets/external services.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
-  smartrecruiters, workable} — feed-only sources oracle/jobvite are intentionally
+  smartrecruiters, workable, icims, phenom} — feed-only sources oracle/jobvite are intentionally
   excluded); exposes `companies`,
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
   but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
@@ -318,6 +318,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | ✅ (per-job by id) | ✅ |
   | Pinpoint | `{slug}.pinpointhq.com` | list | ❌ | ✅ |
   | Workable | `apply.workable.com` | list | ✅ | ✅ |
+  | iCIMS | `{slug}.icims.com` | list (server HTML) | ❌ | ✅ |
+  | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | ❌ | ✅ |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
   | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | ✅ enriching (I/O token scrape) | ❌ feed-only |
@@ -330,7 +332,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   detail; workable `apply.workable.com/api/v1/widget/accounts/{slug}?details=true`;
   oracle `{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails/{reqId}`
   (slug packs `{host}/{site}`); jobvite `jobs.jobvite.com/{slug}/job/{id}` → schema.org
-  JobPosting JSON-LD.
+  JobPosting JSON-LD; icims `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` → server-rendered
+  HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
+  `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
+  `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
   **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
   (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
   surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2
@@ -1072,6 +1077,18 @@ automated coverage — those rely on code review or the human in the loop, not a
   profile + all resume versions) keeps its per-posting cost down to just the fresh JD;
   codex has no such lever, so amortizing the fixed scaffolding cost across a batch would
   stand in for it, if batching were enabled.
+- **Résumé is authoritative for evidence; the profile only shapes fit.** The gitignored
+  `personal_profile.txt` may push a fit score *up* (genuine interest — the one legitimate
+  upward lever, since interest ≠ skill), *down* (honest caveats), or *sideways* (positioning
+  / target direction), but it **never injects a skill the résumé lacks** — a recruiter sees
+  the résumé, so a genuine gap is fix-the-résumé signal (put courses on the résumé), not
+  profile content. **Config vs profile seam:** `config.yaml` serves the machine — the
+  structured hard constraints feeding the deterministic screen gates (degree / auth /
+  clearance / location / internships) — and stays structured (dissolving it into prose would
+  regress the gates); the profile serves only the LLM fit score, so it holds target direction
+  (priority-ordered) · anti-targets · career stage · self-positioning · genuine interests ·
+  honest downward caveats, and **excludes** anything the résumé omits and any hard constraint
+  already in config. Kept concise + stable (a cached prefix on every score call).
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately

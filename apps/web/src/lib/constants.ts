@@ -40,6 +40,8 @@ export const VALID_SOURCES = [
   'pinpoint',
   'smartrecruiters',
   'workable',
+  'icims',
+  'phenom',
 ] as const
 
 // A scored posting whose JD body (trimmed) is shorter than this many characters is

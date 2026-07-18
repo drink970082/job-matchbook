@@ -21,7 +21,7 @@ import yaml
 # sources (oracle, jobvite) are intentionally absent — they can't be a watchlist
 # company. Must match the watchlist-capable subset of fetch.ADAPTERS.
 VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
-                 "smartrecruiters", "workable")
+                 "smartrecruiters", "workable", "icims", "phenom")
 
 DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24

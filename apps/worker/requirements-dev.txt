@@ -4,6 +4,7 @@
 # load (requests, PyYAML, pycountry). To actually RUN the worker, install requirements.txt.
 # Install with:  pip install -r requirements-dev.txt
 requests>=2.31
+beautifulsoup4>=4.12
 PyYAML>=6.0
 pycountry>=23
 pytest>=8

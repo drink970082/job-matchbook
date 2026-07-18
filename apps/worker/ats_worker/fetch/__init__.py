@@ -1,8 +1,8 @@
 """Fetch adapters and shared post-processing for board APIs."""
 from __future__ import annotations
 
-from . import (ashby, greenhouse, jobvite, lever, oracle, pinpoint,
-               smartrecruiters, workable, workday)
+from . import (ashby, greenhouse, icims, jobvite, lever, oracle, phenom,
+               pinpoint, smartrecruiters, workable, workday)
 
 # source name -> adapter module. Per-BOARD adapters expose `fetch` (list a board);
 # per-LISTING adapters expose `fetch_one` (one job by id, for boards with no public
@@ -16,6 +16,8 @@ ADAPTERS = {
     pinpoint.SOURCE: pinpoint,
     smartrecruiters.SOURCE: smartrecruiters,
     workable.SOURCE: workable,
+    icims.SOURCE: icims,
+    phenom.SOURCE: phenom,
     oracle.SOURCE: oracle,
     jobvite.SOURCE: jobvite,
 }
@@ -69,5 +71,5 @@ __all__ = [
     "ADAPTERS", "DETAIL_SOURCES", "filter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
-    "workable", "oracle", "jobvite",
+    "workable", "icims", "phenom", "oracle", "jobvite",
 ]

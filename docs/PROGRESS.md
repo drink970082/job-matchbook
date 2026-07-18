@@ -115,17 +115,21 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the per-job
   Telegram notification, and the **worker** has no healthcheck — its failures show only in
   the DB/logs.
-- **Headless-browser fetch (Playwright)** — `[L · new dep; unlocks the two below]`. iCIMS
-  (~42, "Human Verification" bot wall) and ByteDance/TikTok (~85, JD only in client-side
-  Next.js flight data) both need a real browser. Plan: an *optional*, config-gated Playwright
-  `fetch_one` path (headless Chromium) kept isolated so the requests-only adapters + core
-  pipeline stay dependency-light — render, then reuse per-source extractors (iCIMS
-  `window._jibe`, ByteDance position data). Each source its own spec.
-- **Remaining feed coverage (the `feed_unresolved` long tail)** — `[L · blocked on
-  headless]`. Tier 1 landed (greenhouse-EU host, Oracle, Workable, Jobvite,
+- **Headless-browser fetch (Playwright)** — `[L · new dep]`. **Reframed 2026-07-18 by the
+  board-scraper recon:** iCIMS and ByteDance/TikTok do **not** need a browser after all — iCIMS
+  serves job cards as plain server HTML (`?in_iframe=1`, shipped as the `icims` adapter), and
+  TikTok's list is a plain JSON POST (a `custom` recipe, phase 2). The genuinely
+  browser-required class is **Citadel** (Cloudflare-blocked) + **Google** (WIZ positional
+  arrays — read the rendered DOM). That work is now the `browser` recipe executor (phase 4) in
+  the 2026-07-18 board-scraper-expansion design, not a per-source `fetch_one` path.
+- **Remaining feed coverage (the `feed_unresolved` long tail)** — `[M · needs iCIMS/ByteDance
+  feed routers]`. Tier 1 landed (greenhouse-EU host, Oracle, Workable, Jobvite,
   embedded-greenhouse + a detail-fetch robustness framework that records failures loudly),
-  lifting resolution ~67% → ~78%. What's left is iCIMS + ByteDance (need the headless path
-  above). **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
+  lifting resolution ~67% → ~78%. What's left is iCIMS + ByteDance — **no longer blocked on
+  headless** (both are plain HTTP; iCIMS ships as a list adapter, TikTok as a phase-2 `custom`
+  recipe). To close the *feed* tail they still need a `resolve_url` host router + a per-listing
+  `fetch_one`, which the list adapters don't provide. **Dropped:** greenhouse embed-token (job
+  id only, no board slug); SuccessFactors
   (absent from feed). (Full 2026-06-18 platform breakdown in git history.)
 - **AI fetch+score fallback for unparseable JDs** — `[L · blocked on headless]`. Where text
   extraction fails (JS-rendered / bot-walled / odd markup), let Claude fetch the job page and

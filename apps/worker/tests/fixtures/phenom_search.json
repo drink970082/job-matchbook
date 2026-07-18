@@ -1,0 +1,55 @@
+{
+  "status": 200,
+  "error": {
+    "message": "",
+    "body": ""
+  },
+  "data": {
+    "positions": [
+      {
+        "id": 1970393556915125,
+        "displayJobId": "200041612",
+        "name": "Senior Software Engineer - CoreAI | Bangalore",
+        "locations": [
+          "India, Karnataka, Bangalore"
+        ],
+        "standardizedLocations": [
+          "Bengaluru, KA, IN"
+        ],
+        "postedTs": 1784386514,
+        "solrScore": null,
+        "stars": 0,
+        "department": "Software Engineering",
+        "creationTs": 1782463192,
+        "isHot": 0,
+        "workLocationOption": "onsite",
+        "locationFlexibility": null,
+        "atsJobId": "200041612",
+        "positionUrl": "/careers/job/1970393556915125"
+      },
+      {
+        "id": 1970393556927939,
+        "displayJobId": "200043011",
+        "name": "Software Engineer II",
+        "locations": [
+          "India, Telangana, Hyderabad"
+        ],
+        "standardizedLocations": [
+          "Hyderabad, TS, IN"
+        ],
+        "postedTs": 1784381188,
+        "solrScore": null,
+        "stars": 0,
+        "department": "Software Engineering",
+        "creationTs": 1783543535,
+        "isHot": 0,
+        "workLocationOption": "onsite",
+        "locationFlexibility": null,
+        "atsJobId": "200043011",
+        "positionUrl": "/careers/job/1970393556927939"
+      }
+    ],
+    "count": 1552
+  },
+  "metadata": null
+}

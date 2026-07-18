@@ -8,6 +8,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- **iCIMS + Phenom board adapters (plain HTTP, watchlist-capable).** Two new per-board
+  sources, no browser. **iCIMS** (`slug` = careers subdomain, e.g. `careers-sig`) GETs
+  `{slug}.icims.com/jobs/search?in_iframe=1&pr={n}` and parses the server-rendered job cards
+  with BeautifulSoup, paginating `pr` until a page yields no new ids. **Phenom** (`slug` packs
+  `{host}/{domain}`, e.g. `apply.careers.microsoft.com/microsoft.com`) pages
+  `/api/pcsx/search` by `start` against `data.count`, then hydrates each posting's description
+  via one `/api/pcsx/position_details?…&position_id={id}` call (a failed detail keeps the
+  posting, description-less). Both emit the canonical 8-field posting dict, registered in
+  `fetch.ADAPTERS` + `config.VALID_SOURCES` (and web `constants.ts`); fixtures captured live.
+  Adds `beautifulsoup4` to the worker deps. (Board-scraper expansion, phase 1.)
 - **Codex quota usage bar (web + worker).** The `codex` fit-score backend now captures
   its own quota usage off each scoring call: it reads codex's `/status` accounting
   (`used_percent`, `resets_at`, `window_minutes`, `plan_type`) from the **session rollout**
