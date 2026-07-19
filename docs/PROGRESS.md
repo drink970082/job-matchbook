@@ -62,10 +62,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   persists them (`actions.ts:490`) and `status_history` has no notes column
   (`schema.prisma:56-62`). Users type notes that vanish. Fix: add the column, or remove
   the field (+ the dead param / render branch under Enhancements).
-- **Malformed `recipe` JSON in one watchlist row aborts the entire pass** — `[XS]`.
-  `db.get_watchlist`'s comprehension `json.loads(r["recipe"])` (`db.py:83`,
-  `run.py:139`) runs before any per-company isolation, violating the "one bad row
-  never aborts the batch" invariant (SPEC §9).
 - **`SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH` / `CODEX_*` in `.env` are silently
   ignored** — `[XS]`. argparse reads these from `os.environ` only (`run.py:295-317`),
   but `load_env()`'s dict is never merged into `os.environ`, while `.env.example:3-8`

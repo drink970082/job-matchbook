@@ -63,3 +63,25 @@ def test_existing_external_ids(db_path):
     got = db.existing_external_ids(conn, "ashby", ["aaaa", "bbbb", "zzzz"])
     assert got == {"aaaa", "bbbb"}              # cccc is lever; zzzz absent
     assert db.existing_external_ids(conn, "ashby", []) == set()
+
+
+def test_get_watchlist_skips_a_row_with_malformed_recipe(db_path, capsys):
+    # One corrupt recipe must not abort the entire watchlist read (which would make
+    # the pass fetch nothing) — violates the "one bad row never aborts the batch"
+    # invariant. Insert a valid row + a deliberately-broken one straight into the
+    # raw String recipe column (import_watchlist always writes valid JSON).
+    conn = db.connect(db_path)
+    db.import_watchlist(conn, [
+        {"source": "custom", "slug": "good", "name": "Good",
+         "recipe": {"url": "https://x", "item_path": "jobs"}},
+    ], now=NOW)
+    conn.execute(
+        "INSERT INTO watched_companies (source, slug, name, recipe, created_at) "
+        "VALUES ('custom', 'bad', 'Bad', '{not valid json', ?)",
+        (NOW,),
+    )
+    conn.commit()
+
+    got = db.get_watchlist(conn)
+    assert [c["slug"] for c in got] == ["good"]   # bad row skipped, not fatal
+    assert "custom/bad" in capsys.readouterr().out

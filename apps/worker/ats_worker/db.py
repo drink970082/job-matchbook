@@ -78,11 +78,19 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         "SELECT source, slug, name, recipe FROM watched_companies ORDER BY id ASC"
     ).fetchall()
-    return [
-        {"source": r["source"], "slug": r["slug"], "name": r["name"],
-         "recipe": json.loads(r["recipe"]) if r["recipe"] else None}
-        for r in rows
-    ]
+    out: list[dict] = []
+    for r in rows:
+        try:
+            recipe = json.loads(r["recipe"]) if r["recipe"] else None
+        except json.JSONDecodeError:
+            # One malformed recipe must not abort the whole read (the pass would then
+            # fetch nothing) — skip it loudly; a recipe-source row can't fetch anyway.
+            print(f"[watchlist] {r['source']}/{r['slug']}: skipping row with "
+                  f"malformed recipe JSON")
+            continue
+        out.append({"source": r["source"], "slug": r["slug"], "name": r["name"],
+                    "recipe": recipe})
+    return out
 
 
 def count_watchlist(conn: sqlite3.Connection) -> int:

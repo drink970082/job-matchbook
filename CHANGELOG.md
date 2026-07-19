@@ -91,6 +91,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   hides it under Low-context — the two now agree. Surfaced by the 2026-07-17 scoring-system
   audit (SPEC §9 corrected). The `200` is hand-synced with the web
   `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (a cross-service constant, flagged in both).
+- **A malformed `recipe` in one watchlist row no longer aborts the whole pass.**
+  `db.get_watchlist` decoded every row's `recipe` JSON in a comprehension before any
+  per-company isolation, so one corrupt row raised through the entire read (fetching
+  nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
 
 ### Changed
 - **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
