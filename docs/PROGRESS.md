@@ -223,11 +223,15 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Architecture / maintainability (2026-07-18 audit)
 
-- **Cross-service drift with no guard** — `[M]`. `VALID_SOURCES` / `RECIPE_SOURCES`
-  (`config.py:23-29` vs `fetch/__init__.py:11-33` vs web `constants.ts:35-52`), the
-  `pipeline_status` string literals (scattered across worker + web), and the notify / low-context
-  predicate (200-char + verdict JSON, `db.py:159-176` vs `actions.ts:171-198`) are all
-  hand-duplicated with "must match" comments but no drift test — unlike the schema, which has two.
+- **Cross-service drift — partially guarded** — `[M]`. `test_source_enums_sync.py` (Task 4.1) now
+  guards the three genuinely-duplicated + cheaply-comparable items: `VALID_SOURCES` and
+  `RECIPE_SOURCES` (`config.py:23-29` vs `fetch/__init__.py:11-33` vs web `constants.ts:35-52`,
+  plus `VALID_SOURCES ⊆ fetch.ADAPTERS`), and the low-context length literal
+  (`db.get_notifiable`'s `LENGTH(TRIM(description)) >= 200` vs `constants.ts`
+  `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`). **Still unguarded (Ponytail scope call — fragile, low
+  value):** the `pipeline_status` string literals (scattered across worker + web) and the full
+  notify / matched verdict-predicate SQL (`db.py:159-176` vs `actions.ts:171-198`) — these stay
+  documented-not-guarded, hand-duplicated with "must match" comments only.
 - **Schema-drift guard duplicated in two languages, names-only** — `[S]`.
   `check_schema_drift.mjs` is a line-by-line port of `test_schema_sync.py` (CI runs both), and
   both compare column *names* only — a type / nullability / default / index mismatch passes clean.
