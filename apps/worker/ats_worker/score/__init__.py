@@ -47,6 +47,7 @@ from ats_worker.prompts import (
     SCREEN_LIST_HEADER,
 )
 
+from .errors import ScoreError
 from .location import (
     _COUNTRY_ALIASES,
     _REMOTE_HINTS,
@@ -95,10 +96,6 @@ NO_SPONSOR_PHRASES = (
 # candidate's exclude_internships flag): a 4B model is unreliable on this, but the
 # title makes it trivial. Whole-word so "internal"/"international"/"cooperation" never match.
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
-
-
-class ScoreError(RuntimeError):
-    """The model returned output we could not parse into a valid score."""
 
 
 # Structured-output schema for the Claude fit score. The `assessment` scorecard comes
