@@ -499,12 +499,12 @@ def test_multiple_failing_gates_join_reasons():
 
 # --- pure-function units (precise coercion coverage) ---------------------
 
-@pytest.mark.parametrize("value", ["true", "yes", "1", "remote", "required", "TRUE", 1, True, 2.5])
+@pytest.mark.parametrize("value", ["true", "yes", "1", "required", "TRUE", 1, True, 2.5])
 def test_flag_truthy_tokens(value):
     assert score._flag(value) is True
 
 
-@pytest.mark.parametrize("value", ["no", "false", "maybe", "", None, 0, False])
+@pytest.mark.parametrize("value", ["no", "false", "maybe", "", None, 0, False, "remote"])
 def test_flag_falsy_tokens(value):
     assert score._flag(value) is False
 

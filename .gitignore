@@ -1,10 +1,6 @@
-.cursor
 *.db
-*.tar
 __pycache__
-logs/
 db/
-screenshots/
 
 # Per-user secrets & config. The repo ships ONLY *.example templates; each user
 # copies them to the real filename (which stays gitignored), so no personal data

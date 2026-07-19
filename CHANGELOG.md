@@ -104,6 +104,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   per-company isolation, so one corrupt row raised through the entire read (fetching
   nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
 
+### Removed
+- Debris swept: unused `simplify.SOURCE`, dead `"remote"` token in `_flag`, orphaned
+  `test:all` npm script, and 4 stale `.gitignore` entries.
+
 ### Changed
 - **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
   The old one-line domain prompt ("is their background in this role's domain?") had no

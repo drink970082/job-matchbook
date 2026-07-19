@@ -684,7 +684,7 @@ def _needs_sponsorship(value) -> bool:
 
 
 def _flag(value) -> bool:
-    """Truthy for real bools, 1/0, and the strings true/yes/1/remote/required."""
+    """Truthy for real bools, 1/0, and the strings true/yes/1/required."""
     if value is None:
         return False
     if isinstance(value, bool):
@@ -692,7 +692,7 @@ def _flag(value) -> bool:
     if isinstance(value, (int, float)):
         return value != 0
     if isinstance(value, str):
-        return value.strip().lower() in {"true", "yes", "1", "remote", "required"}
+        return value.strip().lower() in {"true", "yes", "1", "required"}
     return False
 
 

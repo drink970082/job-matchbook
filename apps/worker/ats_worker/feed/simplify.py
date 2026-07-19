@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import requests
 
-SOURCE = "simplify"
 # The data file behind the SimplifyJobs/New-Grad-Positions README table.
 DEFAULT_URL = (
     "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions"

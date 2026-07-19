@@ -218,14 +218,8 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`simplify.SOURCE` unused** — `[XS]`. `simplify.py:15`.
-- **`_flag` `"remote"` token — leftover from the removed LLM location check** — `[XS]`.
-  `score.py:738`.
 - **`SankeyChart.getNodeColumn` `allNodes` param unused** — `[XS]`. `SankeyChart.tsx:63,105`.
 - **`tools/seed_db.mjs` — invoked by nothing** — `[XS]`. Make / e2e / CI all use other seeders.
-- **`package.json` `test:all` script — referenced nowhere** — `[XS]`. `package.json:12`.
-- **`.gitignore` stale entries** — `[XS]`. `logs/`, `screenshots/`, `.cursor`, `*.tar` match
-  nothing.
 - **Stale doc lines** — `[XS]`. `.env.example` `extra_hosts` note + `OLLAMA_HOST` default;
   `ci.yml:49-51` requirements-dev comment; `CLAUDE.md` + `SPEC.md` "host.docker.internal" for the
   now-native worker.
