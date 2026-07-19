@@ -688,6 +688,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
 
+### Security
+- **Web UI is published on loopback only (`127.0.0.1:3000`).** The Compose port bind
+  was `0.0.0.0:3000`, exposing the unauthenticated server actions to any LAN peer;
+  it now binds `127.0.0.1` (single-user localhost, no-auth is a non-goal). (SPEC §6/§11.)
+
 ## [0.2.0] — 2026-06-08
 
 ### Added

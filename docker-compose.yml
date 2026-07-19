@@ -11,7 +11,10 @@ services:
     image: ats-web:local
     container_name: ats-web
     ports:
-      - "3000:3000"
+      # Loopback only — single-user localhost, no auth layer (a non-goal). Publishing
+      # on 0.0.0.0 exposes the 26 unauthenticated server actions to any LAN peer.
+      # See docs/SPEC.md §6 / §11.
+      - "127.0.0.1:3000:3000"
     environment:
       # Absolute path on the DIRECTORY-mounted shared volume. A directory mount
       # (not a single-file mount) is REQUIRED so SQLite's WAL -wal/-shm sidecars

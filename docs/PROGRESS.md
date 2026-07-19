@@ -52,11 +52,6 @@ unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects (D1 aut
 location · D3 seniority · D4 plus-skills · D5 location-leak · D6 calibration); see
 the [CHANGELOG](../CHANGELOG.md).)
 
-- **Web UI published on `0.0.0.0` with no auth** — `[XS]`. `docker-compose.yml:14`
-  uses `"3000:3000"` (runtime-confirmed `0.0.0.0:3000`), so any LAN peer can reach
-  the 26 unauthenticated server actions and read/wipe/modify all data. Violates the
-  no-network-exposure requirement (no-auth is fine for *localhost* only). Fix:
-  `"127.0.0.1:3000:3000"`.
 - **Real résumé + `config.yaml` are in public git history** — `[S]`.
   `apps/worker/resume/resume.txt` (real PII) and the real `config.yaml` were
   committed 2026-06-05 (`8111d39`, moved `20cfe48`) and untracked 2026-06-08
