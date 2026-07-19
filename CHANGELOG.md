@@ -739,6 +739,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Untrusted scraper output (job_url) is rendered in `<a href>` tags; malicious javascript: and
   data: schemes execute on click. The new `safeHref` utility allows only http(s) schemes, blocking
   XSS via scraped URLs. Applied to `DiscoveredJobsTable` and `JobDetailModal` link hrefs.
+- **`db._update` validates SET columns against an allowlist.** Defense-in-depth: the worker's
+  shared `_update` helper builds its SQL `SET` clause from dict keys; a new `_UPDATABLE_COLUMNS`
+  frozenset (`score`, `score_detail`, `pipeline_status`, `pipeline_error`, `updated_at` — the exact
+  union of what `save_score`/`mark_notified` pass today) now rejects any other key with an explicit
+  `ValueError` before it can reach the SQL string, guarding against a future caller passing an
+  attacker-influenced key.
 
 ## [0.2.0] — 2026-06-08
 

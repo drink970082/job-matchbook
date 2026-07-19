@@ -186,7 +186,20 @@ def get_notifiable(conn: sqlite3.Connection):
 
 # --- state transitions ----------------------------------------------------
 
+# The only columns the state-transition helpers ever set (save_score,
+# mark_notified — attempts/application_id are written by fixed-SQL callers
+# instead, never through this dict path). `_update` builds its SET clause from
+# dict keys, so gate them against this allowlist: a stray/untrusted key must
+# never reach the SQL string (defense-in-depth; today all callers pass constants).
+_UPDATABLE_COLUMNS = frozenset({
+    "score", "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+})
+
+
 def _update(conn: sqlite3.Connection, posting_id: int, sets: dict) -> None:
+    unknown = set(sets) - _UPDATABLE_COLUMNS
+    if unknown:
+        raise ValueError(f"_update: refusing to build SET for unknown column(s): {sorted(unknown)}")
     cols = ", ".join(f"{k}=:{k}" for k in sets)
     params = {**sets, "id": posting_id}
     conn.execute(f"UPDATE job_postings SET {cols} WHERE id=:id", params)

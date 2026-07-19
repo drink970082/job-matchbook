@@ -102,9 +102,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 - **`$queryRawUnsafe` with interpolated `WATCHLIST_SOURCES`** — `[XS]`.
   `promotion-actions.ts:30,53`; the only non-parameterized query in the app — safe only while
   `VALID_SOURCES` stays a compile-time constant (turns into injection the day the list is dynamic).
-- **`db._update` builds the SET clause by f-string key interpolation** — `[XS]`.
-  `db.py:181-184`; safe while all three call-sites pass literal keys, but an injection-shaped
-  seam.
 - **Unvalidated server-action inputs** — `[XS]`. `addApplication` writes `data.status` ungated
   (`actions.ts:447`, inconsistent with the STATUSES check elsewhere); `updateApplicationDetails`
   validates nothing (`actions.ts:460-488` — category is a free-text Input, drifts past

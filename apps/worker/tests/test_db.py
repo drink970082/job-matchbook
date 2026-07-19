@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from ats_worker import db
 from tests._helpers import LATER, NOW, make_posting as posting, seed_scored
 
@@ -124,6 +126,17 @@ def test_mark_notified_clears_pipeline_error(db_path):
     row = _one(conn)
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None        # a recovered row carries no stale error
+
+
+def test_update_refuses_unknown_column(db_path):
+    # Defense-in-depth: _update builds its SET clause from dict keys, so a key
+    # outside the allowlist must never reach the SQL string, even though today's
+    # callers (save_score, mark_notified) only ever pass code-constant keys.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("1")], now=NOW)
+    pid = _one(conn)["id"]
+    with pytest.raises(ValueError):
+        db._update(conn, pid, {"job_title": "pwned"})  # not an allowed column
 
 
 EVEN_LATER = "2026-06-04T10:00:00.000Z"
