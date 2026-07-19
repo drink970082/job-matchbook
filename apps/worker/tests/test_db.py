@@ -70,16 +70,6 @@ def test_save_score_writes_detail_and_advances_status(db_path):
     assert row["updated_at"] == LATER
 
 
-def test_get_by_status_can_filter_high_scores(db_path):
-    conn = db.connect(db_path)
-    db.upsert_postings(conn, [posting("1"), posting("2")], now=NOW)
-    ids = {r["external_id"]: r["id"] for r in db.get_by_status(conn, "new")}
-    db.save_score(conn, ids["1"], score=90, score_detail={}, now=LATER)
-    db.save_score(conn, ids["2"], score=40, score_detail={}, now=LATER)
-    scored = db.get_by_status(conn, "scored", min_score=75)
-    assert [r["external_id"] for r in scored] == ["1"]
-
-
 def test_mark_notified(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)
@@ -204,28 +194,13 @@ def test_save_score_status_override_to_discarded(db_path):
     assert json.loads(row["score_detail"]) == detail
 
 
-# --- get_by_status ordering / limit / min_score boundary / NULL-excluded --
+# --- get_by_status ordering --
 
 def test_get_by_status_orders_by_score_then_id(db_path):
     conn = db.connect(db_path)
     seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
     rows = db.get_by_status(conn, "scored")
     assert [r["external_id"] for r in rows] == ["a", "b", "c"]  # 90s by id, then 40
-
-
-def test_get_by_status_min_score_is_inclusive_and_limited(db_path):
-    conn = db.connect(db_path)
-    seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
-    assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=75)] == ["a", "b"]
-    # boundary: score == min_score is included (>= not >)
-    assert [r["external_id"] for r in db.get_by_status(conn, "scored", min_score=90)] == ["a", "b"]
-    assert [r["external_id"] for r in db.get_by_status(conn, "scored", limit=1)] == ["a"]
-
-
-def test_get_by_status_null_score_excluded_by_min_score(db_path):
-    conn = db.connect(db_path)
-    db.upsert_postings(conn, [posting("1")], now=NOW)  # 'new', score is NULL
-    assert db.get_by_status(conn, "new", min_score=75) == []
 
 
 def test_upsert_stores_board_posted_at(db_path):

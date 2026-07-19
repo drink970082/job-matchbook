@@ -410,11 +410,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     refused with no HTTP call.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
-  (optionally `min_score` — used only by `run_score` to select `new` rows; no
-  caller passes `min_score` today), `get_notifiable` (the notify gate: `scored`
+  (selects rows by pipeline status), `get_notifiable` (the notify gate: `scored`
   rows whose `score_detail` verdicts read `seniority=match AND domain=match AND
-  NOT insufficient_context`, via `json_extract` — replaces the old
-  `get_by_status(..., min_score=threshold)` selection), `save_score`,
+  NOT insufficient_context`, via `json_extract`), `save_score`,
   `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal),
   `record_notify_failure` (retry-aware: keeps the row `scored` until the caller
   declares the budget exhausted, then parks it `failed`). Watchlist + feed

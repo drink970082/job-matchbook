@@ -218,7 +218,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`get_by_status` `min_score` / `limit` kwargs — test-only** — `[XS]`. `db.py:145-156`.
 - **`simplify.SOURCE` unused** — `[XS]`. `simplify.py:15`.
 - **`_flag` `"remote"` token — leftover from the removed LLM location check** — `[XS]`.
   `score.py:738`.

@@ -150,18 +150,11 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 
 # --- queries --------------------------------------------------------------
 
-def get_by_status(conn: sqlite3.Connection, status: str, *, min_score: int | None = None,
-                  limit: int | None = None):
-    sql = "SELECT * FROM job_postings WHERE pipeline_status=?"
-    params: list = [status]
-    if min_score is not None:
-        sql += " AND score >= ?"
-        params.append(min_score)
-    sql += " ORDER BY score DESC, id ASC"
-    if limit is not None:
-        sql += " LIMIT ?"
-        params.append(limit)
-    return conn.execute(sql, params).fetchall()
+def get_by_status(conn: sqlite3.Connection, status: str):
+    return conn.execute(
+        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
+        [status],
+    ).fetchall()
 
 
 def get_notifiable(conn: sqlite3.Connection):

@@ -150,6 +150,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Removed
 - **`threshold` config key removed.** Parsed, validated, and documented in `config.py` + `config.yaml.example`, but never read in production — the notify predicate gates on verdict fields instead. Removed from the Config dataclass, YAML loader, and all tests.
+- **`db.get_by_status` `min_score`/`limit` kwargs removed.** Test-only; sole prod caller passes neither.
 
 ### Fixed
 - **`--batched` guard counted `marked` rows, holding them to a stricter standard than
