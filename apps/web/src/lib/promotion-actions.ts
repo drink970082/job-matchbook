@@ -26,8 +26,10 @@ export interface PromotionSuggestion {
 // Only suggest companies on watchlist-capable boards: approving a suggestion calls
 // addWatchedCompany, which rejects any source not in VALID_SOURCES, so a feed-only
 // source (oracle, jobvite — no board to enumerate) would be an un-approvable
-// suggestion. VALID_SOURCES are trusted constants, so inlining them is injection-safe.
-const WATCHLIST_SOURCES = VALID_SOURCES.map((s) => `'${s}'`).join(', ')
+// suggestion.
+// VALID_SOURCES bind as positional params (not inlined literals) so the raw SQL
+// carries no interpolated values. See getPromotionSuggestions.
+const WATCHLIST_PLACEHOLDERS = VALID_SOURCES.map(() => '?').join(', ')
 
 // Raw SQL: conditional counts + NOT EXISTS subqueries are far cleaner than the
 // Prisma query API here. Table names match the Prisma model names (no @@map).
@@ -38,7 +40,7 @@ const SUGGESTIONS_SQL = `
     COUNT(*) AS total
   FROM job_postings jp
   WHERE jp.company_slug IS NOT NULL
-    AND jp.source IN (${WATCHLIST_SOURCES})
+    AND jp.source IN (${WATCHLIST_PLACEHOLDERS})
     AND NOT EXISTS (SELECT 1 FROM watched_companies w WHERE w.source=jp.source AND w.slug=jp.company_slug)
     AND NOT EXISTS (SELECT 1 FROM promotion_dismissed d WHERE d.source=jp.source AND d.slug=jp.company_slug)
   GROUP BY jp.source, jp.company_slug
@@ -59,7 +61,7 @@ export async function getPromotionSuggestions(): Promise<{ data: PromotionSugges
             highScores: number | bigint
             total: number | bigint
         }>
-    >(SUGGESTIONS_SQL)
+    >(SUGGESTIONS_SQL, ...VALID_SOURCES)
 
     const data: PromotionSuggestion[] = rows.map((r) => ({
         source: r.source,

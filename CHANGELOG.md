@@ -745,6 +745,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   union of what `save_score`/`mark_notified` pass today) now rejects any other key with an explicit
   `ValueError` before it can reach the SQL string, guarding against a future caller passing an
   attacker-influenced key.
+- **promotion-suggestions query binds source list as params instead of string interpolation.**
+  `promotion-actions.ts`'s `SUGGESTIONS_SQL` interpolated `VALID_SOURCES` directly into the
+  `IN (...)` clause (safe only while the list stays a compile-time constant); it now binds a
+  `?` placeholder per source and passes `VALID_SOURCES` as positional `$queryRawUnsafe` args,
+  removing the interpolation seam entirely.
 
 ## [0.2.0] — 2026-06-08
 

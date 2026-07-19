@@ -52,6 +52,15 @@ describe('Promotion actions', () => {
       const { data } = await getPromotionSuggestions()
       expect(data).toEqual([])
     })
+
+    it('binds VALID_SOURCES as query params (no inlined literals)', async () => {
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([] as any)
+      await getPromotionSuggestions()
+      const [sql, ...args] = mockPrisma.$queryRawUnsafe.mock.calls[0]
+      expect(sql).not.toMatch(/'greenhouse'/) // no inlined source literals
+      expect(sql).toMatch(/IN \(\?(, \?)*\)/) // placeholders instead
+      expect(args).toEqual(expect.arrayContaining(['greenhouse', 'lever']))
+    })
   })
 
   describe('dismissPromotion', () => {
