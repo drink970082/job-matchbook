@@ -102,8 +102,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
-- **Health endpoint echoes raw `err.message`** — `[XS]`. `route.ts:18-21` returns container
-  paths / Prisma internals on 503 to any caller (compounded by the `0.0.0.0` bind above).
 - **CSV formula injection** — `[XS]`. `csvEscape` handles quotes / commas / newlines but not a
   leading `= + - @` (`actions.ts:730-737`); scraped company / job names are emitted verbatim
   into a file opened in Excel / Sheets.

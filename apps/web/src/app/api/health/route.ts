@@ -14,9 +14,9 @@ export async function GET() {
         await prisma.$queryRaw`SELECT 1`
         return NextResponse.json({ status: 'ok' }, { status: 200 })
     } catch (err) {
-        return NextResponse.json(
-            { status: 'error', error: err instanceof Error ? err.message : String(err) },
-            { status: 503 },
-        )
+        // Detail stays server-side only; the 503 body must not leak internals (paths,
+        // driver strings). The autoheal sidecar keys on the status code, not the body.
+        console.error('[health] DB probe failed:', err)
+        return NextResponse.json({ status: 'error', error: 'database unreachable' }, { status: 503 })
     }
 }

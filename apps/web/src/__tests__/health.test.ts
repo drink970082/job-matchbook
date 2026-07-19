@@ -24,9 +24,14 @@ test('GET returns 200 ok when the DB query succeeds', async () => {
     expect(await res.json()).toEqual({ status: 'ok' })
 })
 
-test('GET returns 503 with the error message when the DB query throws', async () => {
-    mockQueryRaw.mockRejectedValue(new Error('SQLITE_CANTOPEN'))
-    const res = await GET()
-    expect(res.status).toBe(503)
-    expect(await res.json()).toEqual({ status: 'error', error: 'SQLITE_CANTOPEN' })
+test('GET returns 503 with a generic error when the DB query throws', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+        mockQueryRaw.mockRejectedValue(new Error('SQLITE_CANTOPEN'))
+        const res = await GET()
+        expect(res.status).toBe(503)
+        expect(await res.json()).toEqual({ status: 'error', error: 'database unreachable' })
+    } finally {
+        spy.mockRestore()
+    }
 })

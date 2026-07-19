@@ -728,6 +728,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now redacts the token to `***` before writing `job_postings.pipeline_error` (shown in the
   web Failed bucket) or printing it.
 - **Bump Next.js 14.2.0 → 14.2.35 (CVE-2024-56332 server-actions DoS).**
+- **Health probe 503 returns a generic message; error detail logged server-side only.**
+  The `/api/health` endpoint was leaking the raw error message (e.g. `SQLITE_CANTOPEN`) in
+  the 503 response body; this could reveal internal paths and driver strings to clients.
+  The response now returns a generic `{ status: 'error', error: 'database unreachable' }`,
+  while the full error is logged server-side only via `console.error()`. The autoheal
+  sidecar keys on the status code, not the body, so the change is transparent to monitoring.
 
 ## [0.2.0] — 2026-06-08
 
