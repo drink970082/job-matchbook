@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import requests
 
+from ats_worker.fetch._paged import paged_details
 from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "workday"
@@ -71,11 +72,9 @@ def fetch_one(slug: str, external_id: str, company_name: str,
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     tenant, dc, site = _parts(slug)
-    http = session or requests
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
-    out: list[dict] = []
-    offset = 0
-    while True:
+
+    def _page(http, offset):
         resp = http.post(
             cxs + "/jobs",
             json={"appliedFacets": {}, "limit": PAGE, "offset": offset, "searchText": ""},
@@ -83,22 +82,18 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         )
         resp.raise_for_status()
         data = resp.json()
-        stubs = parse_listing(data)
-        for stub in stubs:
-            try:
-                detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
-                detail.raise_for_status()
-                posting = parse_job(detail.json(), company_name)
-            except Exception:
-                continue  # m1: skip one bad posting, don't abort the company
-            if not posting["external_id"]:
-                continue  # m3: empty id would collide under (source, external_id) dedup
-            out.append(posting)
-        # M2: advance by rows actually returned so a short page never skips rows.
-        offset += len(stubs)
         # M1: terminate on an empty page OR an honest total we've reached; never
         # on `total or 0` (a null/absent total must not stop us after page 1).
-        total = data.get("total")
-        if not stubs or (isinstance(total, int) and offset >= total):
-            break
-    return out
+        return parse_listing(data), data.get("total")
+
+    def _row(http, stub):
+        # m1: skip one bad posting, don't abort the company. (m3: an empty
+        # external_id — no id, no jobReqId — is skipped by paged_details.)
+        try:
+            detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
+            detail.raise_for_status()
+            return parse_job(detail.json(), company_name)
+        except Exception:
+            return None
+
+    return paged_details(session, fetch_page=_page, build_row=_row)
