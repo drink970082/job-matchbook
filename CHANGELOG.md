@@ -750,6 +750,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `IN (...)` clause (safe only while the list stays a compile-time constant); it now binds a
   `?` placeholder per source and passes `VALID_SOURCES` as positional `$queryRawUnsafe` args,
   removing the interpolation seam entirely.
+- Add X-Frame-Options/X-Content-Type-Options/Referrer-Policy/CSP response headers.
 
 ## [0.2.0] — 2026-06-08
 

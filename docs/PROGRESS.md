@@ -103,8 +103,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   (`actions.ts:447`, inconsistent with the STATUSES check elsewhere); `updateApplicationDetails`
   validates nothing (`actions.ts:460-488` — category is a free-text Input, drifts past
   CATEGORIES); `page` / `size` are unbounded (`actions.ts:7-15,203-215`).
-- **No security headers** — `[XS]`. `next.config.mjs:2` sets only `output:'standalone'` (no CSP
-  / X-Frame-Options / etc.).
 - **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
   tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 

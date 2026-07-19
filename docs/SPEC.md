@@ -241,6 +241,13 @@ any container Docker marks **unhealthy**. Plain Compose does *not* restart on
 unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
 the sidecar is what closes the loop.
 
+**Response headers.** `next.config.mjs` sets a fixed header set on every response
+(`headers()`, matcher `/:path*`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: same-origin`, and a `Content-Security-Policy` that is
+`default-src 'self'` but keeps `'unsafe-inline'`/`'unsafe-eval'` on `script-src` for
+Next's inline runtime — minimal hardening (clickjacking / MIME-sniff / framing) for
+a single-user localhost app, not a strict script CSP.
+
 **Stack**
 
 | Layer | Web (`apps/web`) | Worker (`apps/worker`) |
