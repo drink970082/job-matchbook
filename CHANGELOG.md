@@ -696,6 +696,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and the real `config.yaml` (committed 2026-06-05, untracked 2026-06-08) were purged from
   all history with `git filter-repo` and force-pushed; the repo was also made private as
   immediate containment. (SPEC §3/§11, Privacy-first.)
+- **Telegram bot token is scrubbed from recorded/printed notify errors.** A `requests`
+  failure embeds the full Telegram URL (with the token) in its exception text; `run_notify`
+  now redacts the token to `***` before writing `job_postings.pipeline_error` (shown in the
+  web Failed bucket) or printing it.
 
 ## [0.2.0] — 2026-06-08
 

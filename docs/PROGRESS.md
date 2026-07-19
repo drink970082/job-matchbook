@@ -56,11 +56,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   exactly `14.2.0` (~25 patches behind); CVE-2024-56332 (server-actions DoS) applies
   to this server-action-heavy app. Middleware / `next/image` CVEs are N/A (neither
   feature is used). Bump to the latest 14.2.x.
-- **Telegram bot token can leak into the shared DB + logs** — `[S]`. `notify.py:16,60`
-  carries the token in the request URL; a `requests` error embeds the full URL in the
-  exception text, and `run_notify` writes `str(exc)` into `job_postings.pipeline_error`
-  (rendered by the web Failed bucket) and prints it (`pipeline.py:382`, `db.py:219-230`).
-  Scrub the token from recorded/printed errors.
 - **Status-change notes are silently dropped (data loss)** — `[S]`. The Update-Status
   form collects `notes` and passes them to `updateApplicationStatus(id, status, date,
   notes)` (`Dashboard.tsx:188`, `StatusHistoryModal.tsx:200`), but the action never

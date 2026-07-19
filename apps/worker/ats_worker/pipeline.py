@@ -380,8 +380,13 @@ def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
         except Exception as exc:  # noqa: BLE001
             attempt = row["attempts"] + 1
             exhausted = attempt >= NOTIFY_MAX_ATTEMPTS
-            db.record_notify_failure(conn, row["id"], error=str(exc), now=now,
+            # The bot token rides in the Telegram URL, which requests embeds in the
+            # exception text; scrub it before it lands in pipeline_error (rendered by
+            # the web Failed bucket) or on stdout. (Guard the empty-token case: an
+            # empty replace() would splice "***" between every character.)
+            error = str(exc).replace(token, "***") if token else str(exc)
+            db.record_notify_failure(conn, row["id"], error=error, now=now,
                                      exhausted=exhausted)
             print(f"[notify] send failed (attempt {attempt}/{NOTIFY_MAX_ATTEMPTS}) "
-                  f"for posting id={row['id']}: {exc}"
+                  f"for posting id={row['id']}: {error}"
                   + (" — parked as failed" if exhausted else "; will retry next pass"))

@@ -180,7 +180,7 @@ def test_run_notify_failure_isolated(db_path):
         if posting["external_id"] == "1":
             raise RuntimeError("telegram 429")
 
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     # A send error is transient: the row stays 'scored' for a next-pass retry,
     # with the failure recorded on it; the sibling is unaffected.
@@ -411,7 +411,7 @@ def test_run_notify_send_error_retries_then_parks_failed(db_path):
     # Each pass retries the still-'scored' row; the 3rd cumulative failure
     # (NOTIFY_MAX_ATTEMPTS) parks it 'failed'.
     for expected_attempts, expected_status in ((1, "scored"), (2, "scored"), (3, "failed")):
-        pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+        pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
         row = conn.execute("SELECT * FROM job_postings").fetchone()
         assert row["attempts"] == expected_attempts
         assert row["pipeline_status"] == expected_status
@@ -438,6 +438,27 @@ def test_run_notify_retry_then_success_clears_error(db_path):
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None   # cleared on the successful send
     assert row["attempts"] == 1            # the earlier failure stays counted
+
+
+def test_run_notify_scrubs_token_from_recorded_and_printed_error(db_path, capsys):
+    # requests embeds the request URL (which carries the bot token) in its exception
+    # text; run_notify writes str(exc) into pipeline_error (shown in the web Failed
+    # bucket) and prints it — the token must never reach either sink.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
+    token = "123456789:AAExampleSecretBotToken"
+
+    def notify_fn(posting, *, token, chat_id):
+        raise RuntimeError(
+            "HTTPSConnectionPool: Max retries exceeded with url: "
+            f"https://api.telegram.org/bot{token}/sendMessage")
+
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token=token, chat_id="c")
+
+    err = conn.execute("SELECT pipeline_error FROM job_postings").fetchone()["pipeline_error"]
+    assert token not in err and "***" in err
+    out = capsys.readouterr().out
+    assert token not in out and "***" in out
 
 
 def test_stages_ignore_wrong_status_rows(db_path):
