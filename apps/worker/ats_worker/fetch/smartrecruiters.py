@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import requests
 
+from ats_worker.fetch._paged import paged_details
 from ats_worker.util import html_to_text
 
 SOURCE = "smartrecruiters"
@@ -87,32 +88,23 @@ def fetch_one(slug: str, external_id: str, company_name: str,
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
-    http = session or requests
     base = API.format(slug=slug)
-    out: list[dict] = []
-    offset = 0
-    while True:
+
+    def _page(http, offset):
         resp = http.get(base, params={"limit": PAGE, "offset": offset}, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
-        stubs = parse_listing(data)
-        if not stubs:
-            break
-        for stub in stubs:
-            pid = stub.get("id")
-            if not pid:
-                continue
-            try:
-                detail = http.get(f"{base}/{pid}", timeout=timeout)
-                detail.raise_for_status()
-                posting = parse_job(detail.json(), slug, company_name)
-            except Exception:
-                continue  # skip one bad posting, don't abort the company
-            if not posting["external_id"]:
-                continue  # empty id would collide under (source, external_id) dedup
-            out.append(posting)
-        offset += PAGE
-        total = data.get("totalFound")
-        if isinstance(total, int) and offset >= total:
-            break
-    return out
+        return parse_listing(data), data.get("totalFound")
+
+    def _row(http, stub):
+        pid = stub.get("id")
+        if not pid:
+            return None  # id-less stub: no detail GET
+        try:
+            detail = http.get(f"{base}/{pid}", timeout=timeout)
+            detail.raise_for_status()
+            return parse_job(detail.json(), slug, company_name)
+        except Exception:
+            return None  # skip one bad posting, don't abort the company
+
+    return paged_details(session, fetch_page=_page, build_row=_row)
