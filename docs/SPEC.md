@@ -422,7 +422,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   declares the budget exhausted, then parks it `failed`). Watchlist + feed
   helpers: `get_watchlist`, `count_watchlist`, `import_watchlist` (idempotent),
   `record_unresolved` (upsert on `url`), `existing_external_ids`. Issues no DDL.
-- **`score.py` — `screen_posting` / `score_posting`.** Up to two calls, two backends,
+- **`score.py` — `screen_posting` / `_normalize_score`.** Up to two calls, two backends,
   **SCREEN-gated**: the cheap local screen runs FIRST and gates the paid fit score. (1) The
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
   `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
@@ -455,9 +455,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   screen did not disqualify** (a discarded posting records `score` 0 and never pays
   for a fit call) — comes from an injected **`score_fit(postings, resumes) -> list[dict]`**
   callable: **batch-first, list in / list out**, one scorecard per input posting in the
-  same order. `score_posting` itself always calls it with a one-posting batch and
-  normalizes the single result (`fit([posting], resumes)[0]`); the batching payoff is at
-  the `run_score` orchestration layer (§7.1/§9), not here. Two interchangeable twins
+  same order. `run_score` itself calls it directly with each chunk's full batch of
+  postings (`fit_fn(postings)`, chunked by `batch_size`); `pipeline._persist_scored`
+  then normalizes every result in the returned list (`score._normalize_score(card)`) —
+  the batching happens at the `run_score` orchestration layer (§7.1/§9), not inside a
+  per-posting call. Two interchangeable twins
   build it, picked by `run.make_scorer` (`--score-backend`/`SCORE_BACKEND`); both send
   the **same prompt sections** (`_scorer_system_sections`) and the **same per-element
   JSON schema** (`_score_schema`), so a score is comparable across them and a prompt
@@ -588,8 +590,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   alert and an always-visible badge in the job detail modal; a single-resume setup omits
   the field entirely. The JOB section sent to this call **omits the location line**
   (`include_location=False`) so geography can't move the fit number (**D5** — location is
-  the screen gate's decision; the same role posted per city scores identically). `score_posting` normalizes/clamps the result and validates the
-  scorecard (`ScoreError` on a missing score or an out-of-enum verdict); the modal renders
+  the screen gate's decision; the same role posted per city scores identically).
+  `pipeline._persist_scored` normalizes/clamps the result and validates the
+  scorecard via `score._normalize_score` (`ScoreError` on a missing score or an
+  out-of-enum verdict — the row is marked `failed` via `db.mark_failed` rather than
+  aborting the batch); the modal renders
   the scorecard with a legacy matched/missing/reasoning fallback for pre-S2.1 rows.
   **There is no local experience/years gate** — seniority is judged by the Claude
   scorecard's verdict + floor, not a deterministic code check.
