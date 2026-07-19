@@ -12,8 +12,8 @@ export async function getApplications(params: {
     category?: string
     search?: string
 }) {
-    const page = params.page || 0
-    const size = params.size || 10
+    const page = Math.max(0, Math.floor(params.page || 0))
+    const size = Math.min(100, Math.max(1, Math.floor(params.size || 10)))
     const status = params.status === 'all' ? undefined : params.status
     const historicalStatus = params.historicalStatus === 'all' ? undefined : params.historicalStatus
     const category = params.category === 'all' ? undefined : params.category
@@ -209,8 +209,8 @@ export async function getJobPostings(params: {
     cause?: DisqualifyCause
     sort?: JobSort
 }) {
-    const page = params.page ?? 0
-    const size = params.size ?? 25
+    const page = Math.max(0, Math.floor(params.page ?? 0))
+    const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
     const search = params.search || ''
     const minScore = params.minScore
 
@@ -438,13 +438,16 @@ export async function addApplication(data: {
             }
         }
 
+        const status = (STATUSES as readonly string[]).includes(data.status ?? '') ? data.status! : 'Applied'
+        const category = (CATEGORIES as readonly string[]).includes(data.category ?? '') ? data.category! : 'Others'
+
         const newApp = await prisma.applications.create({
             data: {
                 company_name: data.company_name,
                 job_title: data.job_title,
                 date_applied: data.date_applied,
-                category: data.category || 'Others',
-                status: data.status || 'Applied',
+                category,
+                status,
                 application_url: data.application_url || '',
                 notes: data.notes || '',
                 last_updated: new Date().toISOString(),
@@ -469,12 +472,14 @@ export async function updateApplicationDetails(
     }
 ) {
     try {
+        const category = (CATEGORIES as readonly string[]).includes(data.category) ? data.category : 'Others'
+
         await prisma.applications.update({
             where: { id },
             data: {
                 company_name: data.company_name,
                 job_title: data.job_title,
-                category: data.category,
+                category,
                 application_url: data.application_url ?? undefined,
                 date_applied: data.date_applied ?? undefined,
                 notes: data.notes ?? undefined,

@@ -99,10 +99,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
-- **Unvalidated server-action inputs** — `[XS]`. `addApplication` writes `data.status` ungated
-  (`actions.ts:447`, inconsistent with the STATUSES check elsewhere); `updateApplicationDetails`
-  validates nothing (`actions.ts:460-488` — category is a free-text Input, drifts past
-  CATEGORIES); `page` / `size` are unbounded (`actions.ts:7-15,203-215`).
 - **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
   tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 

@@ -3,6 +3,7 @@ import {
   getApplications,
   addApplication,
   updateApplicationStatus,
+  updateApplicationDetails,
   getKPIs,
   getJobPostings,
   discardJobPosting,
@@ -81,6 +82,16 @@ describe('Backend Actions', () => {
         })
       }))
     })
+
+    it('clamps an oversized page size', async () => {
+      mockPrisma.applications.findMany.mockResolvedValue([])
+      mockPrisma.applications.count.mockResolvedValue(0)
+
+      await getApplications({ page: -5, size: 99999 })
+
+      expect(mockPrisma.applications.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 100 }))
+    })
   })
 
   describe('addApplication', () => {
@@ -120,6 +131,37 @@ describe('Backend Actions', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('already exists')
       expect(mockPrisma.applications.create).not.toHaveBeenCalled()
+    })
+
+    it('coerces an out-of-set status to Applied', async () => {
+      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
+
+      await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', status: 'Hacked' })
+
+      expect(mockPrisma.applications.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'Applied' }) }))
+    })
+
+    it('coerces an out-of-set category to Others', async () => {
+      mockPrisma.applications.findFirst.mockResolvedValue(null)
+      mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
+
+      await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', category: 'Hacked' })
+
+      expect(mockPrisma.applications.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) }))
+    })
+  })
+
+  describe('updateApplicationDetails', () => {
+    it('coerces an out-of-set category to Others', async () => {
+      mockPrisma.applications.update.mockResolvedValue({ id: 1 } as any)
+
+      await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Hacked' })
+
+      expect(mockPrisma.applications.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) }))
     })
   })
 
@@ -313,6 +355,17 @@ describe('Backend Actions', () => {
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 20, take: 10 })
+      )
+    })
+
+    it('clamps an oversized page size', async () => {
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ page: -5, size: 99999 })
+
+      expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 100 })
       )
     })
 

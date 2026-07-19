@@ -751,6 +751,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `?` placeholder per source and passes `VALID_SOURCES` as positional `$queryRawUnsafe` args,
   removing the interpolation seam entirely.
 - Add X-Frame-Options/X-Content-Type-Options/Referrer-Policy/CSP response headers.
+- Server actions gate status/category to the constants sets and clamp page/size.
 
 ## [0.2.0] — 2026-06-08
 
