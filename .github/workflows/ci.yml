@@ -5,15 +5,12 @@ on:
     branches: [master, dev]
   pull_request:
   schedule:
-    - cron: '0 7 * * *'   # nightly — exercises the (otherwise gated) e2e job
+    - cron: '0 7 * * *'   # nightly — full CI (unit suites + the otherwise-gated e2e job)
 
 jobs:
   web:
     name: Web (Next.js / Jest)
     runs-on: ubuntu-latest
-    # The nightly cron exists only to exercise the (otherwise gated) e2e job below —
-    # skip the redundant re-run here (same code as the last push/PR).
-    if: github.event_name != 'schedule'
     defaults:
       run:
         working-directory: apps/web
@@ -41,8 +38,7 @@ jobs:
   worker:
     name: Worker (Python / pytest)
     runs-on: ubuntu-latest
-    # See the `web` job above — nightly only needs to exercise e2e.
-    if: github.event_name != 'schedule'
+    # Runs on the nightly cron too, to catch unpinned requirements-dev.txt drift early.
     defaults:
       run:
         working-directory: apps/worker

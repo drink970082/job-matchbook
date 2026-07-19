@@ -103,6 +103,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
 ### Fixed
+- **The nightly CI cron now runs the web (Jest) and worker (pytest) unit suites again, not
+  just e2e** — restoring early warning on the worker's unpinned dev-dependency drift. Both
+  jobs' `if: github.event_name != 'schedule'` guard is removed from `ci.yml`.
 - **`feed_unresolved` rows are now cleared when the posting they reference is
   successfully (re-)ingested**, so a transient board failure no longer leaves
   permanent stale entries in the Unresolved backlog. (New `db.delete_unresolved`,
