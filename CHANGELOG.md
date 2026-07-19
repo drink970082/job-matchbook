@@ -71,6 +71,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
 ### Fixed
+- **`.env` now feeds the argparse defaults.** `SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH`
+  / `CODEX_*` set in `.env` were silently ignored — `load_env()` ran after `parse_args`
+  and its dict was never merged into `os.environ`. `main()` now loads `.env` and
+  `setdefault`-merges it before the parser is built, so a real env var still wins and an
+  explicit CLI flag still overrides.
 - **`run_fetch` now logs a skipped company.** A failing board was swallowed by a bare
   `except: continue` despite the "logged-and-skipped" docstring; it now prints
   `[fetch] <source>/<slug>: skipped after error: <exc>`, matching `run_notify`.

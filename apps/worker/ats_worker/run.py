@@ -283,6 +283,17 @@ def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
 
 
 def main(argv=None) -> None:
+    # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
+    # --score-backend/--codex-score-model/--batch-size read os.environ, so a .env value
+    # has to be in os.environ by the time add_argument runs. setdefault = a real process
+    # env var still wins (docker-compose sets DB_PATH that way) and an explicit CLI flag
+    # still overrides; --env is peeked first so a custom path is honored.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--env", default=".env")
+    env = load_env(pre.parse_known_args(argv)[0].env)
+    for key, value in env.items():
+        os.environ.setdefault(key, value)
+
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
     parser.add_argument("--import-companies", action="store_true",
@@ -334,7 +345,6 @@ def main(argv=None) -> None:
         print(f"imported {seeded} companies into the watchlist")
         return
 
-    env = load_env(args.env)
     resumes, profile = load_resumes(args.resume_dir)
 
     def once():

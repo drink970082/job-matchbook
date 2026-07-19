@@ -62,10 +62,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   persists them (`actions.ts:490`) and `status_history` has no notes column
   (`schema.prisma:56-62`). Users type notes that vanish. Fix: add the column, or remove
   the field (+ the dead param / render branch under Enhancements).
-- **`SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH` / `CODEX_*` in `.env` are silently
-  ignored** — `[XS]`. argparse reads these from `os.environ` only (`run.py:295-317`),
-  but `load_env()`'s dict is never merged into `os.environ`, while `.env.example:3-8`
-  documents `SCORE_BACKEND=codex` as a `.env` key.
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 

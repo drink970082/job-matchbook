@@ -367,3 +367,42 @@ def test_load_resumes_skips_dotfiles(tmp_path):
     (tmp_path / "._resume.txt").write_bytes(b"\x00\x05\x16\x07 AppleDouble junk")
     resumes, _ = run.load_resumes(str(tmp_path))
     assert resumes == {"resume": "me"}
+
+
+# --- main() honors .env for argparse defaults -------------------------------
+
+def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
+    # SCORE_BACKEND / OLLAMA_MODEL / DB_PATH / CODEX_SCORE_MODEL set in .env must reach
+    # run_once — regression guard for the bug where load_env's dict was never merged
+    # into os.environ (so the os.environ-derived argparse defaults ignored .env).
+    import os as _os
+    monkeypatch.setattr(_os, "environ", dict(_os.environ))
+    for k in ("SCORE_BACKEND", "OLLAMA_MODEL", "DB_PATH", "CODEX_SCORE_MODEL"):
+        _os.environ.pop(k, None)
+
+    envfile = tmp_path / ".env"
+    envfile.write_text(
+        "SCORE_BACKEND=claude\n"
+        "OLLAMA_MODEL=custom:1b\n"
+        "DB_PATH=/tmp/from-env.db\n"
+        "CODEX_SCORE_MODEL=gpt-from-env\n"
+        "ANTHROPIC_API_KEY=k\nTELEGRAM_BOT_TOKEN=t\nTELEGRAM_CHAT_ID=c\n"
+    )
+
+    captured = {}
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: captured.update(kw))
+    # run.config_mod IS cfgmod (same module object, `from . import config as config_mod`),
+    # so the stub must close over the real load_config captured before patching — routing
+    # through `cfgmod.load_config` inside the replacement would call itself and recurse.
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config("companies: []\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+
+    run.main(["--once", "--env", str(envfile)])
+
+    assert captured["score_backend"] == "claude"
+    assert captured["ollama_model"] == "custom:1b"
+    assert captured["db_path"] == "/tmp/from-env.db"
+    assert captured["codex_score_model"] == "gpt-from-env"
+    assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "t"   # dict still plumbed to run_once
