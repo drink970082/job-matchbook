@@ -74,6 +74,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **`run_fetch` now logs a skipped company.** A failing board was swallowed by a bare
   `except: continue` despite the "logged-and-skipped" docstring; it now prints
   `[fetch] <source>/<slug>: skipped after error: <exc>`, matching `run_notify`.
+- **Toasts now follow the system theme.** `<Toaster>` was hardcoded `theme="dark"` while
+  `ThemeProvider` is `enableSystem`; it is now `theme="system"`, so toasts track
+  `prefers-color-scheme` like the rest of the UI. (No manual theme toggle exists.)
 - **CI now runs on `dev` pushes, not just `master`.** All development lands on the
   long-lived `dev` branch (master stays far behind by design), so routine commits were
   getting zero CI and the gated e2e job never fired. `ci.yml` push trigger is now

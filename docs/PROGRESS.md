@@ -66,8 +66,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   ignored** — `[XS]`. argparse reads these from `os.environ` only (`run.py:295-317`),
   but `load_env()`'s dict is never merged into `os.environ`, while `.env.example:3-8`
   documents `SCORE_BACKEND=codex` as a `.env` key.
-- **Toaster hardcoded `theme="dark"`** — `[XS]`. `layout.tsx:29`; toasts stay dark
-  when the system theme flips light (ThemeProvider is `enableSystem`).
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
