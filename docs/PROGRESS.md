@@ -92,6 +92,14 @@ the [CHANGELOG](../CHANGELOG.md).)
   structural guard. Watchlist rows are operator-authored (single user), so this internal-IP-host
   case is accepted; closable later by calling `is_safe_public_url` on the built host inside
   `phenom._parts`/`workday._parts`.
+- **`applications` has no DB `@@unique(company_name, job_title)`** — `[M · deferred ·
+  deliberate]`. Three paths dedupe in app code (`addApplication`, `markJobApplied`,
+  `importApplicationsCSV`) — now all transactional (Task 4.8 closed `addApplication`'s
+  findFirst→create TOCTOU, mirroring the other two). Adding the hard constraint requires a
+  backup + dedupe migration — the real `applications` table may already contain duplicate
+  `(company_name, job_title)` rows (legitimate re-applications), so `prisma db push` can't
+  build the unique index without `--accept-data-loss`. Deferred as a deliberate schema
+  change, not an oversight — needs an operator-confirmed dedupe pass first.
 
 ### Enhancements — not built, optional
 

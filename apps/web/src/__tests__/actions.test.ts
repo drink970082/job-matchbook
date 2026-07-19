@@ -106,6 +106,8 @@ describe('Backend Actions', () => {
         notes: ''
       }
 
+      // addApplication wraps findFirst + create in a $transaction
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 3, ...newApp } as any)
 
@@ -124,6 +126,7 @@ describe('Backend Actions', () => {
         status: 'Applied'
       }
 
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue({ id: 1 } as any)
 
       const result = await addApplication(newApp)
@@ -134,6 +137,7 @@ describe('Backend Actions', () => {
     })
 
     it('coerces an out-of-set status to Applied', async () => {
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
 
@@ -144,6 +148,7 @@ describe('Backend Actions', () => {
     })
 
     it('coerces an out-of-set category to Others', async () => {
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
 

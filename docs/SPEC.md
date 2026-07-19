@@ -1021,7 +1021,10 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   application and inserts a `status_history` row (timestamp = provided date at
   `T12:00:00Z`, else now).
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
-  and CSV import.
+  and CSV import — all three run their existence-check + create in a `$transaction`
+  (findFirst-then-throw-to-rollback if a match exists), closing the TOCTOU window
+  between the check and the write. There is no DB-level `@@unique` on the pair
+  (deferred — see PROGRESS.md); dedup is enforced entirely in application code.
 - **`deleteHistoryItem`** recomputes the application's current status to the most
   recent remaining history entry, or `Applied` if none remain — the delete +
   recompute + status update run in one `$transaction`.

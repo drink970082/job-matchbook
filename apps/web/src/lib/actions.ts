@@ -424,34 +424,35 @@ export async function addApplication(data: {
             return { success: false, error: 'Missing required fields' }
         }
 
-        const existing = await prisma.applications.findFirst({
-            where: {
-                company_name: data.company_name,
-                job_title: data.job_title,
-            },
-        })
-
-        if (existing) {
-            return {
-                success: false,
-                error: `Application for ${data.company_name} - ${data.job_title} already exists`,
-            }
-        }
-
         const status = (STATUSES as readonly string[]).includes(data.status ?? '') ? data.status! : 'Applied'
         const category = (CATEGORIES as readonly string[]).includes(data.category ?? '') ? data.category! : 'Others'
 
-        const newApp = await prisma.applications.create({
-            data: {
-                company_name: data.company_name,
-                job_title: data.job_title,
-                date_applied: data.date_applied,
-                category,
-                status,
-                application_url: data.application_url || '',
-                notes: data.notes || '',
-                last_updated: new Date().toISOString(),
-            },
+        const newApp = await prisma.$transaction(async (tx) => {
+            const existing = await tx.applications.findFirst({
+                where: {
+                    company_name: data.company_name,
+                    job_title: data.job_title,
+                },
+            })
+            if (existing) {
+                // Throw to roll back the transaction; surfaced as a failure below.
+                throw new Error(
+                    `Application for ${data.company_name} - ${data.job_title} already exists`
+                )
+            }
+
+            return tx.applications.create({
+                data: {
+                    company_name: data.company_name,
+                    job_title: data.job_title,
+                    date_applied: data.date_applied,
+                    category,
+                    status,
+                    application_url: data.application_url || '',
+                    notes: data.notes || '',
+                    last_updated: new Date().toISOString(),
+                },
+            })
         })
 
         return { success: true, data: newApp }

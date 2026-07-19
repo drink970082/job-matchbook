@@ -117,6 +117,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `connection_limit=1` + explicit `PRAGMA` fix was de-scoped (Ponytail) since the
   behavior it would have added already exists; the test stays as a regression lock.
 - **`deleteHistoryItem` and CSV import run in transactions.**
+- **`addApplication` runs in a transaction (closes create-dedupe TOCTOU).**
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

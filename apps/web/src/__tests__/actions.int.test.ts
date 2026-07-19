@@ -5,6 +5,7 @@
  * pagination/ordering, the unique constraint, and FK cascade/SetNull.
  */
 import {
+    addApplication,
     bulkRemove,
     bulkReopen,
     deleteApplication,
@@ -66,6 +67,18 @@ test('markJobApplied rolls back when a matching application already exists', asy
 
 test('markJobApplied returns not-found for a missing id', async () => {
     expect(await markJobApplied(99999)).toEqual({ success: false, error: 'Job posting not found' })
+})
+
+
+// --- addApplication: transaction atomicity ---------------------------------
+
+test('addApplication rejects a duplicate (company,title) atomically', async () => {
+    const first = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-01-01' })
+    expect(first.success).toBe(true)
+    const dup = await addApplication({ company_name: 'Acme', job_title: 'Eng', date_applied: '2026-02-01' })
+    expect(dup.success).toBe(false)
+    expect(dup.error).toContain('already exists')
+    expect(await prisma.applications.count()).toBe(1)
 })
 
 
