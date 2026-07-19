@@ -354,6 +354,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `Candidate` docstring (which claimed the model gives each field a pass/fail verdict) is
   corrected to match the code: `config.Candidate` serves the **screen only** — the Claude
   fit score reads the résumé + profile, never the config.
+- **Worker `Dockerfile` + `.dockerignore` deleted.** De-containerized 2026-07-16;
+  nothing built them.
 
 ### Added
 - **Low-context tab in Discovered Jobs.** Postings whose JD is too thin to screen/score

@@ -1,9 +1,0 @@
-# Keep the build context small and free of secrets / local state.
-.venv
-__pycache__
-*.pyc
-tests
-.env
-.pytest_cache
-resume
-config.yaml

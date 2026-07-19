@@ -216,8 +216,7 @@ The worker is **not containerized** (the `ats-worker` service was removed 2026-0
 the default fit-score backend shells out to the **Codex CLI**, which authenticates from
 the operator's `~/.codex/auth.json` (`codex login`) — containerizing it would mean
 baking a 285 MB binary into the image *and* mounting a live subscription token into it,
-for a process Ollama's GPU already pinned to the host. `apps/worker/Dockerfile` remains
-in-tree but is referenced by nothing.
+for a process Ollama's GPU already pinned to the host.
 
 The `web` container runs as the host user (UID/GID build args) so bind-mount writes
 work without `chmod 777`. The database is mounted as a **directory** (not a single
