@@ -52,15 +52,6 @@ unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects (D1 aut
 location · D3 seniority · D4 plus-skills · D5 location-leak · D6 calibration); see
 the [CHANGELOG](../CHANGELOG.md).)
 
-- **Real résumé + `config.yaml` are in public git history** — `[S]`.
-  `apps/worker/resume/resume.txt` (real PII) and the real `config.yaml` were
-  committed 2026-06-05 (`8111d39`, moved `20cfe48`) and untracked 2026-06-08
-  (`afede45`), but the blobs remain reachable on `origin/dev` + `origin/master` of
-  the **public** repo. Gitignore stops *future* commits, not the historical blobs.
-  Violates Privacy-first (SPEC §3/§11). Remediation = history rewrite
-  (`git filter-repo`) + force-push + GitHub cache purge, or make the repo private.
-  (No API keys / bot tokens ever hit history — `.env.example` is placeholders only,
-  verified.)
 - **Next.js pinned at 14.2.0 with an applicable CVE** — `[S]`. The lockfile pins
   exactly `14.2.0` (~25 patches behind); CVE-2024-56332 (server-actions DoS) applies
   to this server-action-heavy app. Middleware / `next/image` CVEs are N/A (neither

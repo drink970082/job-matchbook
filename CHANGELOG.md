@@ -692,6 +692,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **Web UI is published on loopback only (`127.0.0.1:3000`).** The Compose port bind
   was `0.0.0.0:3000`, exposing the unauthenticated server actions to any LAN peer;
   it now binds `127.0.0.1` (single-user localhost, no-auth is a non-goal). (SPEC §6/§11.)
+- **Removed real résumé + `config.yaml` from git history.** `apps/worker/resume/resume.txt`
+  and the real `config.yaml` (committed 2026-06-05, untracked 2026-06-08) were purged from
+  all history with `git filter-repo` and force-pushed; the repo was also made private as
+  immediate containment. (SPEC §3/§11, Privacy-first.)
 
 ## [0.2.0] — 2026-06-08
 
