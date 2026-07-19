@@ -99,7 +99,9 @@ the [CHANGELOG](../CHANGELOG.md).)
   backup + dedupe migration — the real `applications` table may already contain duplicate
   `(company_name, job_title)` rows (legitimate re-applications), so `prisma db push` can't
   build the unique index without `--accept-data-loss`. Deferred as a deliberate schema
-  change, not an oversight — needs an operator-confirmed dedupe pass first.
+  change, not an oversight. **Deferral operator-confirmed 2026-07-19**; the hard
+  constraint stays deferred until the operator runs a backup + dedupe pass (the three
+  transactional app-code dedupe paths hold the invariant in the meantime).
 
 ### Enhancements — not built, optional
 
@@ -245,9 +247,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   connector already sets `busy_timeout=5000` ms with a plain `new PrismaClient()`
   (`db.ts:7`), matching the worker's explicit `db.py:26` setting — no
   `connection_limit`/pragma change was needed; the test stays as a regression lock.
-- **`applications` missing `@@unique(company_name, job_title)`** — `[S]`. Three paths dedupe on
-  that pair via findFirst-then-create (`addApplication:427` is non-transactional → TOCTOU;
-  `markJobApplied:369`, `importApplicationsCSV:856`).
 - **`refreshData()` refetches everything on every mutation** — `[M]`. Each apply/discard/
   status-change/delete triggers 4 full-table `findMany` + in-JS aggregation (all state lives
   in the Dashboard shell). Not addressed by the 2026-07-18 tab split (presentational only,
