@@ -75,14 +75,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   *destructive* change (drop/rename a column) has no backfill or rollback and can lose
   retained `applications` / `status_history` data. Back up `db/applications.db` before
   schema changes. (SPEC §8.)
-- **`_capture_usage` deletes a codex rollout picked by mtime** — `[S]`. A concurrent
-  interactive codex session's rollout can be read as the quota snapshot and then `os.remove`d
-  (`score.py:855-930`); the docstring's "assumes sequential scoring" can't hold for *other*
-  codex uses on the host.
-- **Usage capture leaves résumé text on disk on failure** — `[S]`. With capture on,
-  `--ephemeral` is dropped so the full prompt (résumé + profile + JD) is written to
-  `~/.codex/sessions`; only the single newest rollout is deleted, so a capture failure leaves
-  résumé text behind (`score.py:890-930`).
 - **`autoheal` holds the Docker socket, tag-pinned** — `[note · accepted]`.
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege

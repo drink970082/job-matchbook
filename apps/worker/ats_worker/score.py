@@ -872,8 +872,12 @@ def _rollout_mtime_ceiling() -> float:
     return ceiling
 
 
-def _newest_rollout_after(mtime: float):
-    best, best_t = None, mtime
+def _rollouts_after(mtime: float):
+    """All codex session rollouts with mtime > `mtime`, as `(mtime, path)` sorted
+    oldest-first (newest last). Used by `_capture_usage` to detect a concurrent
+    codex session: exactly one entry means this call's rollout is unambiguous;
+    zero or several means another session is running and nothing should be deleted."""
+    out = []
     for root, _d, files in os.walk(_sessions_dir()):
         for f in files:
             if f.startswith("rollout-") and f.endswith(".jsonl"):
@@ -882,9 +886,9 @@ def _newest_rollout_after(mtime: float):
                     t = os.path.getmtime(p)
                 except OSError:
                     continue
-                if t > best_t:
-                    best, best_t = p, t
-    return best
+                if t > mtime:
+                    out.append((t, p))
+    return sorted(out)
 
 
 def _capture_usage(path: str, since_mtime: float) -> None:
@@ -898,22 +902,34 @@ def _capture_usage(path: str, since_mtime: float) -> None:
     (codex's own /status accounting) live ONLY in the session rollout, which
     `--ephemeral` suppresses. So the scorer drops `--ephemeral` when capturing, reads
     the rollout, then removes it (equivalent to ephemeral, but we extract usage first).
-    Assumes SEQUENTIAL scoring (run_once loops one JD at a time): the newest rollout
-    with mtime > since_mtime is this call's. The web reads `path` across the container
-    boundary, so the write is atomic (tmp + os.replace)."""
+
+    Deletion is guarded, not merely mtime-picked: codex owns the rollout filename, so
+    there is no schema-independent way to tag "ours" — instead, gather EVERY rollout
+    newer than `since_mtime` and delete ONLY when there is exactly one. Zero or two-plus
+    means a concurrent codex session (interactive or another scoring run) landed in the
+    same window, and removing its rollout would nuke that session's history; ambiguous
+    cases leave every rollout in place (still safe under the assumed-sequential
+    `run_once` loop, just conservative when that assumption breaks). The snapshot is
+    still read from the newest rollout regardless of the delete decision. The web reads
+    `path` across the container boundary, so the write is atomic (tmp + os.replace)."""
     try:
-        roll = _newest_rollout_after(since_mtime)
-        if not roll:
+        newer = _rollouts_after(since_mtime)
+        if not newer:
             return
+        roll = newer[-1][1]
         latest = None
         with open(roll, encoding="utf-8") as fh:
             for line in fh:
                 if "rate_limits" in line:
                     latest = line
-        try:
-            os.remove(roll)  # cleanup — we've extracted what we need
-        except OSError:
-            pass
+        # Delete ONLY when this is unambiguously the sole new rollout: a concurrent
+        # codex session would also land here, and removing its rollout would nuke the
+        # operator's session history. Ambiguous -> leave every rollout in place.
+        if len(newer) == 1:
+            try:
+                os.remove(roll)  # cleanup — we've extracted what we need
+            except OSError:
+                pass
         if not latest:
             return
         rl = _find_key(json.loads(latest), "rate_limits")
@@ -1047,22 +1063,27 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
             # THIS call writes (only when capturing — the walk is not free).
             usage_since = _rollout_mtime_ceiling() if usage_path else 0.0
             try:
-                proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                      text=True, timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                raise ScoreError(f"codex exec timed out after {timeout}s") from exc
-            except FileNotFoundError as exc:
-                raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
-            if proc.returncode != 0:
-                tail = (proc.stdout or proc.stderr or "").strip()[-400:]
-                raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
-            if usage_path:
-                _capture_usage(usage_path, usage_since)
-            try:
-                with open(out_path, encoding="utf-8") as fh:
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
+                try:
+                    proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                          text=True, timeout=timeout)
+                except subprocess.TimeoutExpired as exc:
+                    raise ScoreError(f"codex exec timed out after {timeout}s") from exc
+                except FileNotFoundError as exc:
+                    raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
+                if proc.returncode != 0:
+                    tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+                    raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
+                try:
+                    with open(out_path, encoding="utf-8") as fh:
+                        data = json.load(fh)
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
+            finally:
+                # Runs on success AND failure: since capturing drops --ephemeral, the
+                # rollout (full résumé+profile+JD prompt) must be reaped even when the
+                # exec raises — otherwise a failed call leaves that prompt on disk.
+                if usage_path:
+                    _capture_usage(usage_path, usage_since)
         if not isinstance(data, dict) or not isinstance(data.get("results"), list):
             raise ScoreError(f"codex batch response missing 'results' array: {data!r}")
 

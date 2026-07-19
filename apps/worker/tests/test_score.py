@@ -1098,3 +1098,23 @@ def test_codex_scorer_keeps_ephemeral_without_usage_path(monkeypatch):
     score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
     assert "--ephemeral" in seen["cmd"]
     assert "--json" not in seen["cmd"]
+
+
+def test_capture_usage_skips_delete_when_concurrent_rollout_present(tmp_path, monkeypatch):
+    sess = _fake_sessions(monkeypatch, tmp_path)
+    ours = _write_rollout(sess, [_rollout_line(32.0, 10080, 1)], name="rollout-a.jsonl")
+    theirs = _write_rollout(sess, [_rollout_line(5.0, 300, 2)], name="rollout-b.jsonl")
+    score._capture_usage(str(tmp_path / "u.json"), since_mtime=0.0)
+    assert ours.exists() and theirs.exists()   # ambiguous -> delete nothing
+
+
+def test_codex_scorer_cleans_rollout_on_failure(monkeypatch, tmp_path):
+    sess = _fake_sessions(monkeypatch, tmp_path)
+    def run(cmd, **kw):
+        _write_rollout(sess, [_rollout_line(1.0, 1, 1)])   # rollout written, then fail
+        return Mock(returncode=1, stdout="boom", stderr="")
+    monkeypatch.setattr(score.subprocess, "run", run)
+    with pytest.raises(score.ScoreError):
+        score.make_codex_scorer("gpt-5.6-sol", usage_path=str(tmp_path / "u.json"))(
+            [{**POSTING, "id": 1}], {"swe": "r"})
+    assert not (sess / "rollout-x.jsonl").exists()   # résumé prompt not left on disk

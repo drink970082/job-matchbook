@@ -765,6 +765,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   HTTP GET, so a malicious Simplify-feed listing can no longer make the worker fetch an
   internal target.
 - **`custom` and `browser` recipe executors validate `recipe.url` against the SSRF guard before fetching.** Both `fetch()` functions now call `is_safe_public_url()` as their first statement (before the lazy Playwright import in `browser`), blocking non-http(s) schemes and private/loopback/link-local/reserved IP literals including legacy IPv4 notations.
+- **Codex usage capture only deletes an unambiguous rollout and cleans up on failure.**
+  `_capture_usage` now gathers every session rollout newer than the pre-call mtime mark
+  and deletes the newest one only when it's the *sole* newer rollout — zero or several
+  means a concurrent codex session shares the window, so deletion is skipped and nothing
+  is removed, closing the risk of nuking another session's history. `make_codex_scorer`'s
+  `fit()` also moves the capture call into a `finally` around the `codex exec` subprocess
+  call + exit-code check + result read, so the résumé-bearing rollout (written because
+  capturing drops `--ephemeral`) is reaped even when the exec fails, instead of leaking
+  the full résumé+profile+JD prompt onto disk.
 
 ## [0.2.0] — 2026-06-08
 

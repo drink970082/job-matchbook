@@ -507,17 +507,28 @@ worker modules are pure and dependency-injected; real services are wired only in
     message, no probe call. **Mechanism (learned the hard way, verified 0.144.5):**
     `codex exec --json` stdout carries only thread/turn/item events, **not** `rate_limits`;
     the quota figures live only in the session rollout, which `--ephemeral` suppresses. So
-    when capturing, the scorer **drops `--ephemeral`**, reads the rollout it just wrote
-    (identified as the newest one past a pre-call mtime mark), then **deletes it** (net
-    equivalent to ephemeral, usage extracted first). This assumes **sequential** scoring
-    (`run_once` loops one JD at a time — the newest new rollout is unambiguously this
-    call's). The eval/test path (no `usage_path`) keeps `--ephemeral` and its byte-for-byte
-    gated call. codex reports `primary`+`secondary` limits; the observed `primary` was the
-    **weekly** window (`window_minutes=10080`, `secondary` null), and the capture keeps
-    whatever non-null limits are present, so a 5h secondary renders too if codex ever
-    reports one (§11). Best-effort (a parse failure never breaks a score). The web renders
-    it as a bar (§7.2); a live "now" reading is out of scope (it would cost a quota
-    message). Capture is on the production `run_once` path only, not the eval harness.
+    when capturing, the scorer **drops `--ephemeral`**, reads the newest rollout past a
+    pre-call mtime mark, then conditionally **deletes it** (net equivalent to ephemeral,
+    usage extracted first). **Deletion is guarded, not merely mtime-picked:** codex owns
+    the rollout filename, so there's no schema-independent way to tag "ours" — instead
+    `_rollouts_after(since_mtime)` gathers **every** rollout newer than the mark, and the
+    scorer deletes the newest one **only when it's the sole entry**. Zero or two-plus
+    newer rollouts means a concurrent codex session (interactive, or another scoring run)
+    landed in the same window, and the guard leaves *all* of them in place rather than risk
+    nuking that session's history — still correct under the assumed-sequential `run_once`
+    loop, just conservative when that assumption breaks. The eval/test path (no
+    `usage_path`) keeps `--ephemeral` and its byte-for-byte gated call. codex reports
+    `primary`+`secondary` limits; the observed `primary` was the **weekly** window
+    (`window_minutes=10080`, `secondary` null), and the capture keeps whatever non-null
+    limits are present, so a 5h secondary renders too if codex ever reports one (§11).
+    Best-effort (a parse failure never breaks a score). The web renders it as a bar
+    (§7.2); a live "now" reading is out of scope (it would cost a quota message). Capture
+    is on the production `run_once` path only, not the eval harness. **Reaped on failure
+    too:** the capture call sits in a `finally` around the `codex exec` subprocess call +
+    exit-code check + result-JSON read, so a résumé-bearing rollout (full prompt: résumé +
+    profile + JD) is deleted even when the exec raises `ScoreError` — capturing dropped
+    `--ephemeral` to write that rollout, so leaving it on disk only on the success path
+    would mean a failed call leaks the prompt.
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
