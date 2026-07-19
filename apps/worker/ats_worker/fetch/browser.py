@@ -16,6 +16,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 from ats_worker.fetch._recipe import _css_description, apply_css_fields
+from ats_worker.util import is_safe_public_url
 
 SOURCE = "browser"
 
@@ -64,6 +65,8 @@ def fetch(slug: str, company_name: str, recipe: dict,
           session=None, timeout: int = 30) -> list[dict]:
     """Render the board in headless Chromium, paginate, optionally enrich each
     posting from its detail page. `session` is ignored (signature parity)."""
+    if not is_safe_public_url(recipe.get("url")):
+        raise ValueError(f"browser recipe url is not a safe public http(s) URL: {recipe.get('url')!r}")
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - env-dependent

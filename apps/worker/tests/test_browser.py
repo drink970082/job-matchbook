@@ -67,6 +67,13 @@ RENTEC_RECIPE = {
 }
 
 
+# --- SSRF guard -----------------------------------------------------------
+
+def test_browser_fetch_refuses_internal_url():
+    with pytest.raises(ValueError):
+        browser.fetch("slug", "Acme", {"url": "http://169.254.169.254/", "item": ".job"})
+
+
 def test_parse_jobs_extracts_cards():
     jobs = browser.parse_jobs([CITADEL_LIST], CITADEL_RECIPE, "Citadel Securities")
     assert len(jobs) == 2

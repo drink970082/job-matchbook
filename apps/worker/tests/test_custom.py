@@ -9,6 +9,7 @@ import pytest
 from ats_worker import config
 from ats_worker.fetch import _recipe, custom
 from ats_worker.util import POSTING_FIELDS
+from tests._helpers import FakeSession
 
 FIXTURES = Path(__file__).parent / "fixtures"
 AMAZON = json.loads((FIXTURES / "amazon.json").read_text())
@@ -91,6 +92,15 @@ JANESTREET_RECIPE = {
         "description": "overview", "external_id": "id",
     },
 }
+
+
+# --- SSRF guard -----------------------------------------------------------
+
+def test_custom_fetch_refuses_internal_url():
+    sess = FakeSession(payload={"jobs": []})
+    with pytest.raises(ValueError):
+        custom.fetch("slug", "Acme", {"url": "http://127.0.0.1/jobs"}, session=sess)
+    assert sess.calls == []
 
 
 # --- recipe helpers ------------------------------------------------------

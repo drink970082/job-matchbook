@@ -16,6 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from ats_worker.fetch._recipe import apply_fields, dotted_get
+from ats_worker.util import is_safe_public_url
 
 SOURCE = "custom"
 
@@ -67,6 +68,8 @@ def _page_request(recipe: dict, page: dict, n: int):
 
 def fetch(slug: str, company_name: str, recipe: dict,
           session: requests.Session | None = None, timeout: int = 20) -> list[dict]:
+    if not is_safe_public_url(recipe.get("url")):
+        raise ValueError(f"custom recipe url is not a safe public http(s) URL: {recipe.get('url')!r}")
     http = session or requests
     method = (recipe.get("method") or "GET").upper()
     mode = recipe.get("mode") or "json"

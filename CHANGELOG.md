@@ -758,6 +758,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   non-http(s) schemes; `feed/embedded_gh.py`'s `resolve_embedded` checks it before any
   HTTP GET, so a malicious Simplify-feed listing can no longer make the worker fetch an
   internal target.
+- **`custom` and `browser` recipe executors validate `recipe.url` against the SSRF guard before fetching.** Both `fetch()` functions now call `is_safe_public_url()` as their first statement (before the lazy Playwright import in `browser`), blocking non-http(s) schemes and private/loopback/link-local/reserved IP literals including legacy IPv4 notations.
 
 ## [0.2.0] — 2026-06-08
 
