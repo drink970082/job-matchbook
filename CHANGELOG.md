@@ -177,6 +177,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   is now a thin shell holding the header/KPI grid, the tab-toggle bar, all state +
   handlers, and the `StatusHistoryModal`/`JobDetailModal`/`ApplyCategoryDialog` that
   span tabs.
+- **`verdictClass` / `verdictLabel` / score_detail JSON parsing shared via
+  `lib/score-detail.ts`** — behavior-preserving. `JobDetailModal.tsx` and
+  `DiscoveredJobsTable.tsx` each hand-duplicated the verdict-chip color helper (and the
+  table also had `verdictLabel`) plus an inline `try/JSON.parse/catch` guard; both now
+  import the shared helpers and route their own `parseScoreDetail`/`parseDetail`
+  view-model shaping through `safeParseDetail`. The two components' distinct view-models
+  are unchanged — only the genuinely-duplicated leaf helpers moved.
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched

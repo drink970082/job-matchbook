@@ -252,8 +252,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   status-change/delete triggers 4 full-table `findMany` + in-JS aggregation (all state lives
   in the Dashboard shell). Not addressed by the 2026-07-18 tab split (presentational only,
   per the plan's Ponytail scope call); an out-of-scope perf item kept open.
-- **Duplicated parse / verdict helpers** — `[XS]`. `verdictClass` / score_detail JSON parsing in
-  both `JobDetailModal.tsx:57-110` and `DiscoveredJobsTable.tsx:104-154`.
 - **Three near-identical list→detail adapter loops** — `[S]`. `workday` / `smartrecruiters` /
   `phenom` share loop structure + boilerplate that belongs beside `_recipe.py`.
 - **`requirements-dev.txt` duplicates base pins** — accepted as-is. No include mechanism exists to

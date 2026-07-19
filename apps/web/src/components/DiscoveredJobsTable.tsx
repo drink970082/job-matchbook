@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
+import { verdictClass, verdictLabel, safeParseDetail } from '@/lib/score-detail'
 import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
@@ -90,29 +91,11 @@ function fmtDate(raw?: string | null): string {
     return `${m[1]}-${m[2]}-${m[3]}`
 }
 
-const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
-
 function scoreVariant(score?: number | null): 'default' | 'secondary' | 'destructive' | 'outline' {
     if (score == null) return 'outline'
     if (score >= 80) return 'default'
     if (score >= 60) return 'secondary'
     return 'destructive'
-}
-
-// Seniority/domain verdict pill color, reusing the modal's palette (no new colors):
-// a clean match is green, a hard mismatch red, everything in between (adjacent, or an
-// off-level too_junior/too_senior) amber.
-function verdictClass(v: string): string {
-    if (v === 'match') return 'bg-emerald-500/15 text-emerald-700 border-transparent'
-    if (v === 'mismatch') return 'bg-red-500/15 text-red-700 border-transparent'
-    return 'bg-amber-500/15 text-amber-700 border-transparent'
-}
-
-// Human label for a verdict token ("too_junior" → "Too junior", "adjacent" → "Adjacent").
-function verdictLabel(v: string): string {
-    if (v === 'too_junior') return 'Too junior'
-    if (v === 'too_senior') return 'Too senior'
-    return cap(v)
 }
 
 // Which résumé version the scorer picked as the best fit — shown next to the score so
@@ -135,10 +118,8 @@ interface ParsedDetail {
 // { assessment:{domain,must_haves,summary}, disqualification_reason } shape the modal
 // reads; tolerant of bad JSON / pre-S2.1 rows (returns null / empty fields).
 function parseDetail(raw?: string | null): ParsedDetail | null {
-    if (!raw) return null
-    let p: any
-    try { p = JSON.parse(raw) } catch { return null }
-    if (!p || typeof p !== 'object') return null
+    const p = safeParseDetail(raw)
+    if (!p) return null
     const a = p.assessment && typeof p.assessment === 'object' ? p.assessment : null
     const missing = Array.isArray(a?.must_haves?.missing) ? a.must_haves.missing.map(String) : []
     return {

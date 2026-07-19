@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
 import { safeHref } from '@/lib/utils'
+import { verdictClass, safeParseDetail } from '@/lib/score-detail'
 import type { JobPosting } from './DiscoveredJobsTable'
 
 interface JobDetailModalProps {
@@ -53,14 +54,6 @@ interface ScoreDetail {
     screen: [string, ScreenVerdict][]
 }
 
-// Verdict chip color: a clean match is green; a hard mismatch red; the in-between
-// verdicts (too_junior / too_senior / adjacent) amber.
-function verdictClass(v: string): string {
-    if (v === 'match') return 'bg-emerald-500/15 text-emerald-700 border-transparent'
-    if (v === 'mismatch') return 'bg-red-500/15 text-red-700 border-transparent'
-    return 'bg-amber-500/15 text-amber-700 border-transparent'
-}
-
 function parseAssessment(a: any): Assessment | null {
     if (!a || typeof a !== 'object') return null
     const verdict = (v: any): Verdict => ({
@@ -83,30 +76,25 @@ function parseAssessment(a: any): Assessment | null {
 // tolerating the legacy { matched, missing } keys too. `screen` is the
 // per-requirement gate breakdown (which hard requirement passed/failed).
 function parseScoreDetail(raw?: string | null): ScoreDetail | null {
-    if (!raw) return null
-    try {
-        const p = JSON.parse(raw)
-        if (!p || typeof p !== 'object') return null
-        const screen: [string, ScreenVerdict][] =
-            p.screen && typeof p.screen === 'object'
-                ? Object.entries(p.screen).map(([k, v]: [string, any]) => [
-                      k,
-                      { pass: v?.pass !== false, note: String(v?.note ?? '') },
-                  ])
-                : []
-        return {
-            assessment: parseAssessment(p.assessment),
-            matched: p.matched_keywords ?? p.matched ?? [],
-            missing: p.missing_keywords ?? p.missing ?? [],
-            reasoning: p.reasoning,
-            disqualified: p.disqualified === true,
-            disqualificationReason: p.disqualification_reason ?? '',
-            recommendedResume:
-                typeof p.recommended_resume === 'string' ? p.recommended_resume : '',
-            screen,
-        }
-    } catch {
-        return null
+    const p = safeParseDetail(raw)
+    if (!p) return null
+    const screen: [string, ScreenVerdict][] =
+        p.screen && typeof p.screen === 'object'
+            ? Object.entries(p.screen).map(([k, v]: [string, any]) => [
+                  k,
+                  { pass: v?.pass !== false, note: String(v?.note ?? '') },
+              ])
+            : []
+    return {
+        assessment: parseAssessment(p.assessment),
+        matched: p.matched_keywords ?? p.matched ?? [],
+        missing: p.missing_keywords ?? p.missing ?? [],
+        reasoning: p.reasoning,
+        disqualified: p.disqualified === true,
+        disqualificationReason: p.disqualification_reason ?? '',
+        recommendedResume:
+            typeof p.recommended_resume === 'string' ? p.recommended_resume : '',
+        screen,
     }
 }
 
