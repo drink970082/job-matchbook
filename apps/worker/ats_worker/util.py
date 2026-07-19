@@ -69,8 +69,9 @@ def is_safe_public_url(url: str | None) -> bool:
     blocks the SSRF vectors a scraped URL can carry — non-http(s) schemes, `localhost`,
     and private/loopback/link-local/reserved IP literals (incl. 169.254.169.254), incl.
     legacy IPv4 notations (decimal/octal/hex/short) that the OS resolver accepts with NO
-    DNS query. A plain DNS name is allowed as-is (rebinding is out of scope; see
-    PROGRESS)."""
+    DNS query. Also normalizes a trailing dot (`localhost.`) before the `localhost` check
+    and rejects an IPv6 zone-id suffix (`%`, e.g. `fe80::1%eth0`). A plain DNS name is
+    allowed as-is (rebinding is out of scope; see PROGRESS)."""
     try:
         p = urlparse(url or "")
     except ValueError:

@@ -82,8 +82,6 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         )
         resp.raise_for_status()
         data = resp.json()
-        # M1: terminate on an empty page OR an honest total we've reached; never
-        # on `total or 0` (a null/absent total must not stop us after page 1).
         return parse_listing(data), data.get("total")
 
     def _row(http, stub):

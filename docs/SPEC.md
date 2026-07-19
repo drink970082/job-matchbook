@@ -704,7 +704,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   worker write-lock already makes web block-and-retry instead of throwing
   `SQLITE_BUSY`; no code change was needed.
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
-  `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
+  `VALID_SOURCES` (11 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; the trimmed-`description` char count below which a scored posting is bucketed
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
@@ -1299,10 +1299,11 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 **Full pipeline:**
 
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
-   (`source` ∈ the seven watchlist-capable boards {greenhouse, lever, ashby,
-   workday, pinpoint, smartrecruiters, workable}, board `slug`, `name`),
-   optional `title_filter`, the `candidate` hard-constraint block, `schedule_hours`
-   (24). Workday's `slug` packs `tenant/datacenter/site` (quote it).
+   (`source` ∈ the eleven watchlist-capable boards {greenhouse, lever, ashby,
+   workday, pinpoint, smartrecruiters, workable, icims, phenom, custom, browser},
+   board `slug`, `name`), optional `title_filter`, the `candidate` hard-constraint
+   block, `schedule_hours` (24). Workday's `slug` packs `tenant/datacenter/site`
+   (quote it).
 2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
    real resume (plain text, fed to the fit scorer) — or provide multiple
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for

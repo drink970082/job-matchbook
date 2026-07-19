@@ -59,9 +59,9 @@ nothing is silently swallowed.
 - *Why:* the main way a scraper/pipeline breaks is *silently* — an empty JD, a
   vanished listing. Silent loss is the worst failure a discovery system can have.
 - *In this repo:* unresolvable feed listings land in `feed_unresolved` with a
-  `reason`; detail-fetch failures are recorded as `detail_fetch_failed`; a source that
-  resolves ids but keeps none prints a collapse warning; the web app has an Unresolved
-  tab.
+  `reason`; detail-fetch failures are recorded as `detail_fetch_failed`, board-list
+  failures as `list_fetch_failed`; a source that resolves ids but keeps none prints
+  a collapse warning; the web app has an Unresolved tab.
 - *Smell:* `except: pass`; dropping an item because handling its failure is awkward;
   a failure path with no row, log line, or counter a human will ever see.
 
