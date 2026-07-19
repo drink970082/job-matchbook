@@ -248,8 +248,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 - **`applications` missing `@@unique(company_name, job_title)`** — `[S]`. Three paths dedupe on
   that pair via findFirst-then-create (`addApplication:427` is non-transactional → TOCTOU;
   `markJobApplied:369`, `importApplicationsCSV:856`).
-- **`score.py` god-module (1089 ln)** — `[M]`. Six concerns; cleanest extraction seams are the
-  codex quota telemetry (`820-930`) and the ~200-line location gazetteer (`559-739`).
 - **`Dashboard.tsx` 720-line god client component** — `[M]`. All state + 25 handlers for four
   tabs; every mutation calls `refreshData()` = 4 full-table findMany + in-JS aggregation.
 - **Duplicated parse / verdict helpers** — `[XS]`. `verdictClass` / score_detail JSON parsing in

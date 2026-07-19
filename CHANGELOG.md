@@ -162,6 +162,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - Misc low-arch cleanups: align web Dockerfile UID/GID to the compose default, point add_watched
   DEFAULT_DB at db/applications.db, scope the CI cron, align removeAllInView's where with the
   visible bucket.
+- **Worker `ats_worker/score.py` (1089 ln god-module) split into an `ats_worker/score/` package**
+  — behavior-preserving, no signature changes. Concerns separated into `usage.py` (codex quota
+  telemetry), `location.py` (deterministic location gazetteer/gate), `errors.py` (`ScoreError`),
+  `prompts.py` (prompt + schema assembly), `backends_claude.py` / `backends_codex.py` (the two
+  fit-scoring backends), and `screen.py` (screen rules, normalization, and the `screen_posting`
+  composition). `score/__init__.py` is now a ~40-line pure re-export shim (plus `import subprocess`,
+  kept as the tests' monkeypatch lifeline) so every existing `score.<name>` caller (tests,
+  `pipeline.py`, `run.py`, `tools/score_eval.py`) is unaffected.
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched

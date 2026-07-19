@@ -20,9 +20,9 @@ branch = true
 # Single source of truth for the coverage floor: both `make test-coverage` and CI
 # read it (CI does NOT pass --cov-fail-under), so the gate is identical and the
 # ratchet lives in one place. Bump as coverage grows. (run.main()/cron + the lazy
-# real-adapter bodies — e.g. score.py's make_claude_scorer — are legitimately
-# uncovered by the hermetic suite; they just count as missing, and the floor sits
-# well under the real total.)
+# real-adapter bodies — e.g. score/backends_claude.py's make_claude_scorer — are
+# legitimately uncovered by the hermetic suite; they just count as missing, and
+# the floor sits well under the real total.)
 fail_under = 85
 show_missing = true
 exclude_lines = [
