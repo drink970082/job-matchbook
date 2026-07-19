@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { STATUSES, getStatusColor } from '@/lib/constants'
+import { STATUSES, CATEGORIES, getStatusColor } from '@/lib/constants'
 import { Trash2 } from 'lucide-react'
 
 interface StatusHistoryModalProps {
@@ -108,12 +108,16 @@ export function StatusHistoryModal({
                 className="h-8"
             />
             <div className="grid grid-cols-2 gap-2">
-                <Input
+                <select
+                    aria-label="Category"
                     value={editForm.category}
                     onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
-                    placeholder="Category"
-                    className="h-8"
-                />
+                    className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                    {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                    ))}
+                </select>
                 <Input
                     type="date"
                     value={editForm.date_applied}

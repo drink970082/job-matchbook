@@ -89,17 +89,19 @@ describe('StatusHistoryModal', () => {
         // Edit fields are pre-populated from the application defaults.
         const companyInput = screen.getByPlaceholderText('Company Name')
         const titleInput = screen.getByPlaceholderText('Job Title')
-        const categoryInput = screen.getByPlaceholderText('Category')
         expect(companyInput).toHaveValue('Google')
         expect(titleInput).toHaveValue('SWE')
-        expect(categoryInput).toHaveValue('SWE')
+
+        // Category is a constrained dropdown, not free text (no data-loss on save).
+        expect(screen.queryByPlaceholderText('Category')).not.toBeInTheDocument()
+        const categorySelect = screen.getByRole('combobox', { name: /category/i })
+        expect(categorySelect).toHaveValue('SWE')
 
         await user.clear(companyInput)
         await user.type(companyInput, 'Anthropic')
         await user.clear(titleInput)
         await user.type(titleInput, 'Research Engineer')
-        await user.clear(categoryInput)
-        await user.type(categoryInput, 'MLE')
+        await user.selectOptions(categorySelect, 'MLE')
 
         await user.click(screen.getByRole('button', { name: /^save$/i }))
 

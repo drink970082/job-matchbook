@@ -167,6 +167,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   long; the worker connects with a 5s `busy_timeout`, so a large import mid-pass could abort
   a scoring pass. Import is idempotent per-row (dedupe), so a chunked, interrupted import
   still leaves a consistent prefix that a re-import completes.
+- **The edit-form category is now a dropdown constrained to `CATEGORIES`.** It was a
+  free-text `<Input>` whose out-of-set values were silently coerced to `'Others'` by the
+  server on save, losing the typed category. `StatusHistoryModal`'s edit form now uses a
+  `<select>` over `CATEGORIES` (mirroring `AddApplicationForm`), so application edits no
+  longer silently drop a category.
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**
