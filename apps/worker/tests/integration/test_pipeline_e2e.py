@@ -29,7 +29,7 @@ _MATCH_MATCH_ASSESSMENT = {"seniority": {"verdict": "match"}, "domain": {"verdic
 
 def _cfg():
     return cfgmod.load_config(
-        "companies:\n  - { source: greenhouse, slug: a, name: A }\nthreshold: 75\n"
+        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
     )
 
 

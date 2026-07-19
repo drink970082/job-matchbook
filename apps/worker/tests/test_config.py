@@ -11,7 +11,6 @@ companies:
   - { source: greenhouse, slug: acme, name: "Acme Inc" }
   - { source: lever, slug: foobar, name: "Foobar" }
 title_filter: ["engineer", "developer"]
-threshold: 80
 schedule_hours: 12
 """
 
@@ -22,7 +21,6 @@ def test_load_parses_companies_and_title_filter():
     assert cfg.companies[0].slug == "acme"
     assert cfg.companies[0].name == "Acme Inc"
     assert cfg.title_filter == ["engineer", "developer"]
-    assert cfg.threshold == 80
     assert cfg.schedule_hours == 12
 
 
@@ -30,7 +28,6 @@ def test_defaults_applied_when_omitted():
     cfg = config.load_config(
         "companies:\n  - { source: ashby, slug: x, name: X }\n"
     )
-    assert cfg.threshold == 75
     assert cfg.schedule_hours == 24
     # empty title_filter allowed
     assert cfg.title_filter == []
@@ -75,7 +72,7 @@ def test_load_from_path(tmp_path):
     p = tmp_path / "config.yaml"
     p.write_text(FULL)
     cfg = config.load_config(p)
-    assert cfg.threshold == 80
+    assert cfg.schedule_hours == 12
     assert cfg.companies[1].source == "lever"
 
 
@@ -165,7 +162,7 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
     assert cfg.candidate.is_empty() is True
 
 
-@pytest.mark.parametrize("key", ["threshold", "schedule_hours"])
+@pytest.mark.parametrize("key", ["schedule_hours"])
 def test_non_numeric_numeric_fields_raise_config_error(key):
     # The module contract is "fail loud with a ConfigError at startup", not an
     # opaque ValueError from int().
@@ -200,6 +197,6 @@ def test_slug_and_name_coerced_to_str():
 def test_load_from_plain_string_path(tmp_path):
     # A filename (no newline/colon) must be read from disk, not parsed as YAML.
     p = tmp_path / "cfg.yaml"
-    p.write_text("companies: []\nthreshold: 88\n")
+    p.write_text("companies: []\nschedule_hours: 18\n")
     cfg = config.load_config(str(p))
-    assert cfg.threshold == 88
+    assert cfg.schedule_hours == 18

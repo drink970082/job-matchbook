@@ -218,9 +218,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`threshold` config key — parsed / validated / documented, never read** — `[XS]`.
-  `config.py:31,101,150`, `config.yaml.example:97`; notify gates on the verdict predicate, not
-  this — the example doc line actively misleads.
 - **`get_by_status` `min_score` / `limit` kwargs — test-only** — `[XS]`. `db.py:145-156`.
 - **`simplify.SOURCE` unused** — `[XS]`. `simplify.py:15`.
 - **`_flag` `"remote"` token — leftover from the removed LLM location check** — `[XS]`.

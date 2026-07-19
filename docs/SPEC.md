@@ -296,8 +296,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   leading/trailing/doubled `/` — since the worker interpolates it straight into a fetch
   URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
   `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
-  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
-  but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
+  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `schedule_hours`. Bad
   source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
@@ -1269,9 +1268,7 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    (`source` ∈ the seven watchlist-capable boards {greenhouse, lever, ashby,
    workday, pinpoint, smartrecruiters, workable}, board `slug`, `name`),
    optional `title_filter`, the `candidate` hard-constraint block, `schedule_hours`
-   (24). `threshold` (default 75) is still parsed but **inert** — notify gates on
-   the fit verdicts, not the score (§9); left in the example file pending a later
-   cleanup. Workday's `slug` packs `tenant/datacenter/site` (quote it).
+   (24). Workday's `slug` packs `tenant/datacenter/site` (quote it).
 2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
    real resume (plain text, fed to the fit scorer) — or provide multiple
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for

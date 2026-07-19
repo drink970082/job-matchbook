@@ -1,7 +1,7 @@
 """Load and validate the worker's `config.yaml`.
 
 WHY a dataclass with explicit defaults rather than a bare dict: the rest of the
-pipeline reads `cfg.threshold`, `cfg.companies[i].source`, etc. Centralising the
+pipeline reads `cfg.companies[i].source`, etc. Centralising the
 defaults and the source-allowlist validation here means a typo'd board source is
 caught at startup with a clear message instead of blowing up mid-fetch.
 
@@ -29,7 +29,6 @@ VALID_SOURCES = ("greenhouse", "lever", "ashby", "workday", "pinpoint",
 # in phase 4 (its adapter is gated separately in run.py).
 RECIPE_SOURCES = ("custom", "browser")
 
-DEFAULT_THRESHOLD = 75
 DEFAULT_SCHEDULE_HOURS = 24
 
 # Discovery feeds (broad listing streams resolved back to boards). Only Simplify
@@ -111,7 +110,6 @@ class Config:
     title_filter: list[str] = field(default_factory=list)
     candidate: Candidate = field(default_factory=Candidate)
     feeds: list[Feed] = field(default_factory=list)
-    threshold: int = DEFAULT_THRESHOLD
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
     # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the
     # optional Playwright extra). Off by default so a normal run stays pure `requests`.
@@ -160,7 +158,6 @@ def load_config(source) -> Config:
         title_filter=title_filter,
         candidate=candidate,
         feeds=feeds,
-        threshold=_int_field(data, "threshold", DEFAULT_THRESHOLD),
         schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),
     )

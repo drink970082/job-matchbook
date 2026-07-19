@@ -148,6 +148,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   to `domain`. Batching stays parked at `batch_size=1` for good; the quota win is off the
   table via batching (SPEC §11, §13).
 
+### Removed
+- **`threshold` config key removed.** Parsed, validated, and documented in `config.py` + `config.yaml.example`, but never read in production — the notify predicate gates on verdict fields instead. Removed from the Config dataclass, YAML loader, and all tests.
+
 ### Fixed
 - **`--batched` guard counted `marked` rows, holding them to a stricter standard than
   the gate they're excluded from.** Two of its four "drift rows" (132, 184) are

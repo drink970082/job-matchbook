@@ -94,7 +94,6 @@ candidate:
   locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
 
-threshold: 75              # minimum Claude fit score (0-100) required to notify (Telegram alert)
 schedule_hours: 24         # cron interval for the background scheduler
 
 # OPTIONAL: enable `browser`-source rows (headless Chromium via the Playwright extra).
