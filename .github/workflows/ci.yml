@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
   schedule:
     - cron: '0 7 * * *'   # nightly — exercises the (otherwise gated) e2e job

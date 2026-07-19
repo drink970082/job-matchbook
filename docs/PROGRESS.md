@@ -70,11 +70,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `db.get_watchlist`'s comprehension `json.loads(r["recipe"])` (`db.py:83`,
   `run.py:139`) runs before any per-company isolation, violating the "one bad row
   never aborts the batch" invariant (SPEC §9).
-- **CI runs only on `master`; `dev` pushes are ungated** — `[XS]`. `ci.yml:3-8`
-  triggers on `push:[master]`, but all development lands on long-lived `dev` (master
-  stays far behind by design), so routine commits get zero CI and the gated e2e job
-  effectively never fires. Add `dev` to the push trigger. (Ties into
-  [[branch-integration-pattern]].)
 - **`SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH` / `CODEX_*` in `.env` are silently
   ignored** — `[XS]`. argparse reads these from `os.environ` only (`run.py:295-317`),
   but `load_env()`'s dict is never merged into `os.environ`, while `.env.example:3-8`

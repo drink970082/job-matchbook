@@ -71,6 +71,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
 ### Fixed
+- **CI now runs on `dev` pushes, not just `master`.** All development lands on the
+  long-lived `dev` branch (master stays far behind by design), so routine commits were
+  getting zero CI and the gated e2e job never fired. `ci.yml` push trigger is now
+  `[master, dev]`.
 - **`run_score` batch persist no longer trusts `len(cards) == len(chunk)`.** A fit
   backend returning fewer/more cards than postings without raising would have
   zip-misaligned in `pipeline.run_score` and silently orphaned the tail rows (stuck
