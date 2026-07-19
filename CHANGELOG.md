@@ -105,6 +105,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
 
 ### Removed
+- **`SankeyChart.getNodeColumn` unused `allNodes` param dropped.** The parameter was passed
+  at the call site but never read in the function body.
 - Debris swept: unused `simplify.SOURCE`, dead `"remote"` token in `_flag`, orphaned
   `test:all` npm script, and 4 stale `.gitignore` entries.
 

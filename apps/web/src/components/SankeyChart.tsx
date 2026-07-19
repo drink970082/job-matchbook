@@ -60,7 +60,7 @@ function getColor(name: string): string {
     return TONE[STATUS_TONE[name] ?? 'slate']
 }
 
-function getNodeColumn(name: string, allNodes: Set<string>, data: { from: string; to: string }[]): number {
+function getNodeColumn(name: string, data: { from: string; to: string }[]): number {
     // Build a depth map by BFS from "Applied"
     const adj = new Map<string, Set<string>>()
     for (const d of data) {
@@ -102,7 +102,7 @@ export function SankeyChart({ data }: SankeyChartProps) {
         // Assign columns by BFS depth from Applied
         const nodeColumns = new Map<string, number>()
         for (const n of nodeSet) {
-            nodeColumns.set(n, getNodeColumn(n, nodeSet, data))
+            nodeColumns.set(n, getNodeColumn(n, data))
         }
 
         // Group by column
