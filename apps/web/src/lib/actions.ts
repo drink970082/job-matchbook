@@ -729,7 +729,12 @@ const CSV_COLUMNS = [
 
 function csvEscape(value: string | null | undefined): string {
     if (value === null || value === undefined) return ''
-    const s = String(value)
+    let s = String(value)
+    // Formula-injection guard: a cell whose first char is one a spreadsheet may treat
+    // as a formula lead (= + - @, or a tab/CR) is prefixed with a single quote so
+    // Excel/Sheets render it as literal text. Prefix BEFORE the quote check so a
+    // comma-bearing cell still gets wrapped.
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s
     if (/[",\r\n]/.test(s)) {
         return `"${s.replace(/"/g, '""')}"`
     }

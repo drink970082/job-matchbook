@@ -367,6 +367,22 @@ test('importApplicationsCSV handles escaping/dedup/invalid rows; export round-tr
     expect(exp.csv).toContain('"line1\nline2"')        // embedded newline preserved
 })
 
+test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
+    await prisma.applications.create({ data: makeApplication({
+        company_name: '=1+2',
+        job_title: 'x',
+        date_applied: '2026-01-01',
+        category: 'Others',
+        status: 'Applied',
+        application_url: '',
+        notes: '@SUM(A1)',
+        last_updated: '2026-01-01T00:00:00.000Z',
+    }) })
+    const exp = await exportApplicationsCSV()
+    expect(exp.csv).toContain(`'=1+2`)
+    expect(exp.csv).toContain(`'@SUM(A1)`)
+})
+
 
 // --- bulkRemove / bulkReopen / removeAllInView ----------------------------
 

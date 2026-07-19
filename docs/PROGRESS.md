@@ -102,9 +102,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
-- **CSV formula injection** — `[XS]`. `csvEscape` handles quotes / commas / newlines but not a
-  leading `= + - @` (`actions.ts:730-737`); scraped company / job names are emitted verbatim
-  into a file opened in Excel / Sheets.
 - **`$queryRawUnsafe` with interpolated `WATCHLIST_SOURCES`** — `[XS]`.
   `promotion-actions.ts:30,53`; the only non-parameterized query in the app — safe only while
   `VALID_SOURCES` stays a compile-time constant (turns into injection the day the list is dynamic).
