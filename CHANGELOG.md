@@ -147,6 +147,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   behavior it would have added already exists; the test stays as a regression lock.
 - **`deleteHistoryItem` and CSV import run in transactions.**
 - **`addApplication` runs in a transaction (closes create-dedupe TOCTOU).**
+- **CSV import now strips the formula-injection guard apostrophe that export adds, so an
+  export→import round-trip no longer corrupts fields or creates duplicates.** `csvEscape`
+  prefixes a `'` to any cell whose first char is a formula lead (`= + - @`, tab, CR) so
+  spreadsheets render it as text; the import's field reader never reversed that, so
+  re-importing an export (the supported restore flow) stored the guard apostrophe verbatim
+  and the `(company_name, job_title)` dedupe no longer matched the original row, producing a
+  duplicate. `get()` now strips a single leading `'` only when followed by a formula-lead
+  char OR another `'` — the exact inverse of `csvEscape`, which now also guards a cell whose
+  first char is already `'` (not just the formula-lead set). Without that, a raw value like
+  `"+1 Talent"` and a raw value like `"'+1 Talent"` both escaped to the same `"'+1 Talent"`,
+  so the strip couldn't tell them apart and silently dropped a real leading apostrophe on
+  import; the pair is now a proper bijection, so the round-trip is lossless for every value,
+  including ones that already start with an apostrophe.
+- **CSV import runs in 100-row transaction batches instead of one 60s transaction, so a
+  large import no longer holds SQLite's write lock long enough to make a concurrent worker
+  pass fail with "database is locked".** The whole import previously ran as a single
+  `prisma.$transaction` with a 60s timeout, holding SQLite's WAL write lock for up to that
+  long; the worker connects with a 5s `busy_timeout`, so a large import mid-pass could abort
+  a scoring pass. Import is idempotent per-row (dedupe), so a chunked, interrupted import
+  still leaves a consistent prefix that a re-import completes.
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

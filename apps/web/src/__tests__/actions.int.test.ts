@@ -399,6 +399,75 @@ test('importApplicationsCSV is atomic and dedupes on (company,title)', async () 
     expect(await prisma.applications.count()).toBe(2)
 })
 
+test('importApplicationsCSV reverses the export formula-guard and dedupes', async () => {
+    await prisma.applications.create({ data: makeApplication({
+        company_name: '+Simple',
+        job_title: 'Eng',
+        date_applied: '2026-01-01',
+    }) })
+
+    const exp = await exportApplicationsCSV()
+    expect(exp.success).toBe(true)
+    expect(exp.csv).toContain(`'+Simple`)   // export applied the formula-guard
+
+    const imp = await importApplicationsCSV(exp.csv!)
+    expect(imp.success).toBe(true)
+    expect(imp.added).toBe(0)
+    expect(imp.skipped).toBe(1)   // dedupe matched the original row -> skipped, not duplicated
+
+    const apps = await prisma.applications.findMany({ where: { company_name: '+Simple' } })
+    expect(apps).toHaveLength(1)   // exactly one row; no `'+Simple` duplicate
+})
+
+test('importApplicationsCSV round-trips a value that itself starts with an apostrophe', async () => {
+    await prisma.applications.create({ data: makeApplication({
+        company_name: "'+1 Talent",
+        job_title: 'Eng',
+        date_applied: '2026-01-01',
+    }) })
+
+    const exp = await exportApplicationsCSV()
+    expect(exp.success).toBe(true)
+    expect(exp.csv).toContain(`''+1 Talent`)   // export doubled the guard: raw "'+1 Talent" -> "''+1 Talent"
+
+    const imp = await importApplicationsCSV(exp.csv!)
+    expect(imp.success).toBe(true)
+    expect(imp.added).toBe(0)
+    expect(imp.skipped).toBe(1)   // dedupe matched the original row -> not duplicated, apostrophe not dropped
+
+    const apps = await prisma.applications.findMany({ where: { company_name: "'+1 Talent" } })
+    expect(apps).toHaveLength(1)
+    expect(apps[0].company_name).toBe("'+1 Talent")   // leading apostrophe preserved exactly
+})
+
+test('importApplicationsCSV handles a >100-row import spanning two chunk transactions', async () => {
+    const total = 105
+    const DUP_ROW_A = 99    // last row of chunk 1 (0-based data-row index) -> CSV row 101
+    const DUP_ROW_B = 101   // second row of chunk 2 -> CSV row 103, shares company+title with A
+    const INVALID_ROW = 103 // fourth row of chunk 2 -> CSV row 105, past the 100-row boundary
+
+    const lines = ['company_name,job_title,date_applied,status,notes']
+    for (let i = 0; i < total; i++) {
+        if (i === DUP_ROW_A || i === DUP_ROW_B) {
+            lines.push('DupCo,DupRole,2026-01-01,Applied,dup-pair')
+        } else if (i === INVALID_ROW) {
+            lines.push(',NoCompany,2026-01-03,Applied,bad')   // missing company -> error
+        } else {
+            lines.push(`Company${i},Role${i},2026-01-01,Applied,filler`)
+        }
+    }
+    const csv = lines.join('\n')
+
+    const imp = await importApplicationsCSV(csv)
+    expect(imp.success).toBe(true)
+    expect(imp.added).toBe(total - 2)      // everything except the dup (skipped) and the invalid row (error)
+    expect(imp.skipped).toBe(1)            // DUP_ROW_B, matched against chunk 1's already-committed DUP_ROW_A
+    expect(imp.errors).toEqual(['Row 105: missing required field'])   // original row number, not batch-relative
+
+    const dups = await prisma.applications.findMany({ where: { company_name: 'DupCo', job_title: 'DupRole' } })
+    expect(dups).toHaveLength(1)   // proves chunk 2's findFirst sees chunk 1's committed row, not a duplicate
+})
+
 test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
     await prisma.applications.create({ data: makeApplication({
         company_name: '=1+2',

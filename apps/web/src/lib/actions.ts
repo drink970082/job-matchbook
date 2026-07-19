@@ -745,11 +745,14 @@ const CSV_COLUMNS = [
 function csvEscape(value: string | null | undefined): string {
     if (value === null || value === undefined) return ''
     let s = String(value)
-    // Formula-injection guard: a cell whose first char is one a spreadsheet may treat
-    // as a formula lead (= + - @, or a tab/CR) is prefixed with a single quote so
-    // Excel/Sheets render it as literal text. Prefix BEFORE the quote check so a
-    // comma-bearing cell still gets wrapped.
-    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s
+    // Formula-injection + reversibility guard: a cell whose first char is one a spreadsheet
+    // may treat as a formula lead (= + - @, or a tab/CR) — OR a cell that already starts with
+    // `'` — is prefixed with a single quote so Excel/Sheets render it as literal text. Guarding
+    // a leading `'` too (not just formula-lead chars) makes this a proper bijection with get()'s
+    // strip below: every value, including ones that start with an apostrophe, round-trips
+    // losslessly through export -> import. Prefix BEFORE the quote check so a comma-bearing
+    // cell still gets wrapped.
+    if (/^['=+\-@\t\r]/.test(s)) s = "'" + s
     if (/[",\r\n]/.test(s)) {
         return `"${s.replace(/"/g, '""')}"`
     }
@@ -851,61 +854,83 @@ export async function importApplicationsCSV(csvText: string) {
         const statusSet = new Set<string>(STATUSES as readonly string[])
         const categorySet = new Set<string>(CATEGORIES as readonly string[])
 
-        const result = await prisma.$transaction(async (tx) => {
-            let added = 0
-            let skipped = 0
-            const errors: string[] = []
+        const CHUNK = 100
+        let added = 0
+        let skipped = 0
+        const errors: string[] = []
 
-            for (let i = 0; i < dataRows.length; i++) {
-                const row = dataRows[i]
-                const rowNum = i + 2
+        for (let start = 0; start < dataRows.length; start += CHUNK) {
+            const batch = dataRows.slice(start, start + CHUNK)
 
-                const get = (col: string) => {
-                    const idx = colIndex(col)
-                    return idx === -1 ? '' : (row[idx] ?? '').trim()
+            const r = await prisma.$transaction(async (tx) => {
+                let a = 0
+                let s = 0
+                const e: string[] = []
+
+                for (let j = 0; j < batch.length; j++) {
+                    const row = batch[j]
+                    const rowNum = start + j + 2
+
+                    const get = (col: string) => {
+                        const idx = colIndex(col)
+                        if (idx === -1) return ''
+                        let v = (row[idx] ?? '').trim()
+                        // Reverse csvEscape's guard: strip a single leading `'` only when the
+                        // rest of the value also starts with a formula-lead char or another `'`
+                        // — the exact inverse of the export-side prepend above, so a value that
+                        // never went through csvEscape (e.g. "O'Brien", no guard char following
+                        // the `'`) is left untouched, while a guarded value (including one whose
+                        // original first char was itself `'`) round-trips exactly.
+                        if (v[0] === "'" && /^['=+\-@\t\r]/.test(v.slice(1))) v = v.slice(1)
+                        return v
+                    }
+
+                    const company_name = get('company_name')
+                    const job_title = get('job_title')
+                    const date_applied = get('date_applied')
+
+                    if (!company_name || !job_title || !date_applied) {
+                        e.push(`Row ${rowNum}: missing required field`)
+                        continue
+                    }
+
+                    const existing = await tx.applications.findFirst({
+                        where: { company_name, job_title },
+                    })
+                    if (existing) {
+                        s++
+                        continue
+                    }
+
+                    const rawStatus = get('status') || 'Applied'
+                    const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
+                    const rawCategory = get('category') || 'Others'
+                    const category = categorySet.has(rawCategory) ? rawCategory : 'Others'
+
+                    await tx.applications.create({
+                        data: {
+                            company_name,
+                            job_title,
+                            date_applied,
+                            category,
+                            status,
+                            application_url: get('application_url') || '',
+                            notes: get('notes') || '',
+                            last_updated: new Date().toISOString(),
+                        },
+                    })
+                    a++
                 }
 
-                const company_name = get('company_name')
-                const job_title = get('job_title')
-                const date_applied = get('date_applied')
+                return { a, s, e }
+            }, { timeout: 15_000 })
 
-                if (!company_name || !job_title || !date_applied) {
-                    errors.push(`Row ${rowNum}: missing required field`)
-                    continue
-                }
+            added += r.a
+            skipped += r.s
+            errors.push(...r.e)
+        }
 
-                const existing = await tx.applications.findFirst({
-                    where: { company_name, job_title },
-                })
-                if (existing) {
-                    skipped++
-                    continue
-                }
-
-                const rawStatus = get('status') || 'Applied'
-                const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
-                const rawCategory = get('category') || 'Others'
-                const category = categorySet.has(rawCategory) ? rawCategory : 'Others'
-
-                await tx.applications.create({
-                    data: {
-                        company_name,
-                        job_title,
-                        date_applied,
-                        category,
-                        status,
-                        application_url: get('application_url') || '',
-                        notes: get('notes') || '',
-                        last_updated: new Date().toISOString(),
-                    },
-                })
-                added++
-            }
-
-            return { added, skipped, errors }
-        }, { timeout: 60_000 })
-
-        return { success: true, added: result.added, skipped: result.skipped, errors: result.errors }
+        return { success: true, added, skipped, errors }
     } catch (error: any) {
         return { success: false, error: error.message }
     }
