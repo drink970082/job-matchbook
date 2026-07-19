@@ -75,9 +75,8 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
 
 ## Gotchas
 
-- **Ollama runs on the host** (GPU), not in a container; the worker reaches it via
-  `host.docker.internal:11434`. Docker Desktop cannot reach a host Ollama the same
-  way — see `docs/SPEC.md` §6.
+- **Ollama runs on the host** (GPU); the worker is native and reaches it via
+  `localhost:11434` — see `docs/SPEC.md` §6.
 - **SQLite is mounted as a directory** (`./db` → `/data`), not a single file, so
   WAL `-wal`/`-shm` sidecars are shared across both containers. A single-file mount
   silently breaks cross-container WAL.

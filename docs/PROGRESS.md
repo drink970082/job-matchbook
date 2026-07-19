@@ -218,9 +218,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **Stale doc lines** — `[XS]`. `.env.example` `extra_hosts` note + `OLLAMA_HOST` default;
-  `ci.yml:49-51` requirements-dev comment; `CLAUDE.md` + `SPEC.md` "host.docker.internal" for the
-  now-native worker.
 - *Keep (NOT dead):* `POSTING_FIELDS` (`util.py:10-19`) is the live adapter-contract assertion in
   12 test files; `CodexUsageBar` / `Pagination` test-only exports are used internally.
 

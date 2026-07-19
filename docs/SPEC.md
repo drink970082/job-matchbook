@@ -222,9 +222,8 @@ The `web` container runs as the host user (UID/GID build args) so bind-mount wri
 work without `chmod 777`. The database is mounted as a **directory** (not a single
 file) so SQLite's WAL `-wal`/`-shm` sidecars are visible to both processes — a
 single-file mount silently breaks cross-container WAL. Ollama runs on the host
-because GPU pass-through into a container under WSL2 is fiddly; the worker reaches
-it via `host.docker.internal:11434` (`extra_hosts: host-gateway` makes this work
-on Linux Compose).
+because GPU pass-through into a container under WSL2 is fiddly; the worker is native
+and reaches it via `localhost:11434`.
 
 **Resilience: stale bind mount → autoheal.** On WSL2, Docker bind mounts ride the
 WSL2 VM's filesystem share; when the VM suspends/resumes, a *long-running*
@@ -1272,8 +1271,8 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for
    about-the-candidate context (`apps/worker/resume/README.md`).
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `TELEGRAM_BOT_TOKEN`,
-   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://host.docker.internal:11434` for
-   Docker), plus `ANTHROPIC_API_KEY` **only** for `--score-backend claude`. Optional
+   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://localhost:11434`), plus `ANTHROPIC_API_KEY`
+   **only** for `--score-backend claude`. Optional
    overrides: `OLLAMA_MODEL`, `SCORE_BACKEND`, `CODEX_SCORE_MODEL`,
    `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`.
 4. The default `codex` fit backend authenticates from the operator's `codex login`

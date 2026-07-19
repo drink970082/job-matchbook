@@ -137,6 +137,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
     based check) backfired — it destabilized an ambiguous row into a false-notify and
     over-corrected another. Same defect, opposite outcomes: fixing the profile *stabilized*
     the ambiguous row (100% agreement), fixing the rubric destabilized it.
+- **Docs corrected for the native worker** (OLLAMA_HOST default → localhost:11434; dropped
+  stale host.docker.internal/extra_hosts notes; refreshed CI requirements-dev comment).
+  The worker is native (not containerized), so all references to `host.docker.internal`
+  have been updated to `localhost:11434` in `.env.example`, `CLAUDE.md` (Gotchas),
+  `docs/SPEC.md` (§6 + setup steps), and the CI comment now accurately lists the actual
+  requirements-dev dependencies (beautifulsoup4, pycountry, pytest, pytest-cov, requests, PyYAML).
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched
