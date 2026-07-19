@@ -232,9 +232,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   value):** the `pipeline_status` string literals (scattered across worker + web) and the full
   notify / matched verdict-predicate SQL (`db.py:159-176` vs `actions.ts:171-198`) — these stay
   documented-not-guarded, hand-duplicated with "must match" comments only.
-- **Schema-drift guard duplicated in two languages, names-only** — `[S]`.
-  `check_schema_drift.mjs` is a line-by-line port of `test_schema_sync.py` (CI runs both), and
-  both compare column *names* only — a type / nullability / default / index mismatch passes clean.
 - **Web Prisma client sets no `busy_timeout`** — `[S]`. `db.ts:7`; the worker sets 5000 ms
   (`db.py:26`), so worker write locks can surface as unretried `SQLITE_BUSY` toasts.
 - **`status_history.application_id` missing index** — `[XS]`. `schema.prisma:56-62`; queried

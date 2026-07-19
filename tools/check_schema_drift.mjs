@@ -3,6 +3,8 @@
 // Prisma owns the real schema (no migrations); the fixture is a hand-kept copy
 // the worker tests bootstrap from. Parse-only (no DB), mirrors the pytest guard
 // tests/test_schema_sync.py so `make check-schema` works without Python.
+// Nullability/type drift is caught by the deeper pytest guard tests/test_schema_sync.py;
+// this JS guard stays names-only so make check-schema needs no Python.
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

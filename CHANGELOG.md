@@ -8,6 +8,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- Schema-drift guard now also checks column nullability (pytest guard).
 - **Cross-service drift guard for board-source allowlists + low-context threshold.**
 - **`browser` recipe executor (headless Chromium, isolated + opt-in).** The universal
   last-resort fetcher (`fetch/browser.py`) for boards plain HTTP can't reach — a Playwright
