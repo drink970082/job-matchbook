@@ -87,9 +87,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 - **SSRF — recipe `url` from the DB fetched / driven with no allowlist** — `[S]`.
   `custom.py:82` (`_request(..., recipe["url"])`) and `browser.py:89,103` (`page.goto(url)`);
   the browser path is at least gated behind `enable_browser_sources` (default off).
-- **`javascript:` URL execution via scraped `job_url`** — `[XS]`. Rendered straight into
-  `<a href>` with no scheme allowlist (`DiscoveredJobsTable.tsx:433`, `JobDetailModal.tsx:298`);
-  React only console-warns and still renders it.
 - **`_capture_usage` deletes a codex rollout picked by mtime** — `[S]`. A concurrent
   interactive codex session's rollout can be read as the quota snapshot and then `os.remove`d
   (`score.py:855-930`); the docstring's "assumes sequential scoring" can't hold for *other*

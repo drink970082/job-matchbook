@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
+import { safeHref } from '@/lib/utils'
 import type { JobPosting } from './DiscoveredJobsTable'
 
 interface JobDetailModalProps {
@@ -295,7 +296,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                     {/* Links + actions */}
                     <div className="flex flex-wrap gap-2 border-t pt-4">
                         <Button variant="outline" size="sm" asChild>
-                            <a href={job.job_url} target="_blank" rel="noopener noreferrer">
+                            <a href={safeHref(job.job_url)} target="_blank" rel="noopener noreferrer">
                                 <ExternalLink className="mr-2 h-4 w-4" /> Open Posting
                             </a>
                         </Button>

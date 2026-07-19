@@ -735,6 +735,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   The response now returns a generic `{ status: 'error', error: 'database unreachable' }`,
   while the full error is logged server-side only via `console.error()`. The autoheal
   sidecar keys on the status code, not the body, so the change is transparent to monitoring.
+- **Job-posting links pass through safeHref (http/https only) to block javascript:/data: URLs in scraped job_url.**
+  Untrusted scraper output (job_url) is rendered in `<a href>` tags; malicious javascript: and
+  data: schemes execute on click. The new `safeHref` utility allows only http(s) schemes, blocking
+  XSS via scraped URLs. Applied to `DiscoveredJobsTable` and `JobDetailModal` link hrefs.
 
 ## [0.2.0] — 2026-06-08
 

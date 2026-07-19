@@ -20,6 +20,7 @@ import {
     SelectValue,
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
+import { safeHref } from '@/lib/utils'
 import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
@@ -430,7 +431,7 @@ export function DiscoveredJobsTable({
                                     </TableCell>
                                     <TableCell className="whitespace-normal align-top text-sm">
                                         <a
-                                            href={job.job_url}
+                                            href={safeHref(job.job_url)}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="block truncate font-medium text-foreground hover:underline"
