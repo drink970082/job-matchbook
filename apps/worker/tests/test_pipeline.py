@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json as _json
 
+import pytest
+
 from ats_worker import db, pipeline, score
 from tests._helpers import (
     NOW,
@@ -85,6 +87,15 @@ def test_run_fetch_requires_injected_fetch_fn():
     # fetch_fn defaults to None: the real adapter is wired only in run.py.
     import inspect
     assert inspect.signature(pipeline.run_fetch).parameters["fetch_fn"].default is None
+
+
+def test_run_fetch_raises_when_fetch_fn_missing(db_path):
+    # Omitting fetch_fn must fail loud (a wiring mistake), not degrade into a
+    # per-company swallowed TypeError that silently fetches nothing.
+    conn = db.connect(db_path)
+    companies = [{"source": "greenhouse", "slug": "x", "name": "X"}]
+    with pytest.raises(ValueError):
+        pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=None)
 
 
 # --- run_score ------------------------------------------------------------

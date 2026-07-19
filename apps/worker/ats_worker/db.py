@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from .config import RECIPE_SOURCES
+
 
 def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
     """Open a connection configured for cross-process co-writing.
@@ -84,10 +86,16 @@ def get_watchlist(conn: sqlite3.Connection) -> list[dict]:
             recipe = json.loads(r["recipe"]) if r["recipe"] else None
         except json.JSONDecodeError:
             # One malformed recipe must not abort the whole read (the pass would then
-            # fetch nothing) — skip it loudly; a recipe-source row can't fetch anyway.
-            print(f"[watchlist] {r['source']}/{r['slug']}: skipping row with "
-                  f"malformed recipe JSON")
-            continue
+            # fetch nothing). Only RECIPE_SOURCES (custom/browser) actually need a
+            # recipe to fetch — skip those loudly; a platform row fetches fine
+            # without one, so keep it with recipe=None instead of dropping it.
+            if r["source"] in RECIPE_SOURCES:
+                print(f"[watchlist] {r['source']}/{r['slug']}: skipping row with "
+                      f"malformed recipe JSON")
+                continue
+            print(f"[watchlist] {r['source']}/{r['slug']}: ignoring malformed "
+                  f"recipe JSON (platform source needs none)")
+            recipe = None
         out.append({"source": r["source"], "slug": r["slug"], "name": r["name"],
                     "recipe": recipe})
     return out

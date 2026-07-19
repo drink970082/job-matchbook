@@ -176,6 +176,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   server on save, losing the typed category. `StatusHistoryModal`'s edit form now uses a
   `<select>` over `CATEGORIES` (mirroring `AddApplicationForm`), so application edits no
   longer silently drop a category.
+- **`run_fetch` now raises immediately when no `fetch_fn` is injected**, instead of
+  swallowing the resulting `TypeError` per company and silently fetching nothing.
+- **`get_watchlist` no longer drops a platform-source watchlist row (greenhouse/workday/…)
+  when its `recipe` column is malformed JSON** — only recipe sources (`custom`/`browser`)
+  are skipped; a platform row is kept with `recipe=None` (it fetches without one).
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

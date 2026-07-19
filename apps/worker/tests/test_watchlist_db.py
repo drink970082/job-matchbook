@@ -101,3 +101,25 @@ def test_get_watchlist_skips_a_row_with_malformed_recipe(db_path, capsys):
     got = db.get_watchlist(conn)
     assert [c["slug"] for c in got] == ["good"]   # bad row skipped, not fatal
     assert "custom/bad" in capsys.readouterr().out
+
+
+def test_get_watchlist_keeps_platform_row_with_malformed_recipe(db_path, capsys):
+    # A platform source (greenhouse/lever/workday/...) doesn't use a recipe at all,
+    # so a corrupt recipe string must not drop the row from every pass — only
+    # RECIPE_SOURCES (custom/browser) genuinely can't fetch without one.
+    conn = db.connect(db_path)
+    db.import_watchlist(conn, [
+        {"source": "greenhouse", "slug": "good", "name": "Good", "recipe": None},
+    ], now=NOW)
+    conn.execute(
+        "INSERT INTO watched_companies (source, slug, name, recipe, created_at) "
+        "VALUES ('greenhouse', 'bad', 'Bad', '{not valid json', ?)",
+        (NOW,),
+    )
+    conn.commit()
+
+    got = db.get_watchlist(conn)
+    assert [c["slug"] for c in got] == ["good", "bad"]  # bad row kept, not dropped
+    bad = next(c for c in got if c["slug"] == "bad")
+    assert bad["recipe"] is None                        # fetchable without one
+    assert "greenhouse/bad" in capsys.readouterr().out

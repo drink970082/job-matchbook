@@ -37,6 +37,8 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None) -> int:
     A failing company is logged-and-skipped (no posting to mark failed yet —
     nothing is in the db), so the remaining companies still ingest.
     """
+    if fetch_fn is None:
+        raise ValueError("run_fetch requires an injected fetch_fn (wired in run.py)")
     inserted = 0
     for c in companies:
         try:
