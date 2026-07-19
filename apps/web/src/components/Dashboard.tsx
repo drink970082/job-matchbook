@@ -30,8 +30,7 @@ import {
 import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { ApplicationTable } from './ApplicationTable'
-import { DiscoveredJobsTable } from './DiscoveredJobsTable'
-import { CodexUsageBar } from './CodexUsageBar'
+import { DiscoveredJobsTab } from './DiscoveredJobsTab'
 import { WatchlistTab } from './WatchlistTab'
 import { UnresolvedTab } from './UnresolvedTab'
 import { JobDetailModal } from './JobDetailModal'
@@ -528,29 +527,21 @@ export function Dashboard({
             </div>
 
             {activeTab === 'discovered' ? (
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-lg">Discovered Jobs</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <CodexUsageBar />
-                        <DiscoveredJobsTable
-                            data={jobPostings}
-                            total={totalJobs}
-                            page={jobPage}
-                            size={JOB_PAGE_SIZE}
-                            onPageChange={handleJobPageChange}
-                            onFilterChange={handleJobFilterChange}
-                            onMarkApplied={handleMarkApplied}
-                            onDiscard={handleDiscardJob}
-                            onReopen={handleReopenJob}
-                            onViewJD={handleViewJD}
-                            onBulkRemove={handleBulkRemove}
-                            onBulkReopen={handleBulkReopen}
-                            onRemoveAllInView={handleRemoveAllInView}
-                        />
-                    </CardContent>
-                </Card>
+                <DiscoveredJobsTab
+                    data={jobPostings}
+                    total={totalJobs}
+                    page={jobPage}
+                    size={JOB_PAGE_SIZE}
+                    onPageChange={handleJobPageChange}
+                    onFilterChange={handleJobFilterChange}
+                    onMarkApplied={handleMarkApplied}
+                    onDiscard={handleDiscardJob}
+                    onReopen={handleReopenJob}
+                    onViewJD={handleViewJD}
+                    onBulkRemove={handleBulkRemove}
+                    onBulkReopen={handleBulkReopen}
+                    onRemoveAllInView={handleRemoveAllInView}
+                />
             ) : activeTab === 'watchlist' ? (
                 <WatchlistTab
                     promotions={promotions}
