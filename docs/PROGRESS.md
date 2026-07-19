@@ -52,11 +52,6 @@ unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects (D1 aut
 location · D3 seniority · D4 plus-skills · D5 location-leak · D6 calibration); see
 the [CHANGELOG](../CHANGELOG.md).)
 
-- **Next.js pinned at 14.2.0 with an applicable CVE** — `[S]`. The lockfile pins
-  exactly `14.2.0` (~25 patches behind); CVE-2024-56332 (server-actions DoS) applies
-  to this server-action-heavy app. Middleware / `next/image` CVEs are N/A (neither
-  feature is used). Bump to the latest 14.2.x.
-
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
 - **JD prompt-injection can still skew a score (credential leak is closed)** — `[S ·

@@ -727,6 +727,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   failure embeds the full Telegram URL (with the token) in its exception text; `run_notify`
   now redacts the token to `***` before writing `job_postings.pipeline_error` (shown in the
   web Failed bucket) or printing it.
+- **Bump Next.js 14.2.0 → 14.2.35 (CVE-2024-56332 server-actions DoS).**
 
 ## [0.2.0] — 2026-06-08
 
