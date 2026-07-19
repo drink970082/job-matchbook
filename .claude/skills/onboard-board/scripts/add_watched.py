@@ -33,17 +33,21 @@ from ats_worker import config, db  # noqa: E402
 DEFAULT_DB = os.path.normpath(os.path.join(WORKER, "../../db/applications.db"))
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="Add one board to the watchlist DB.")
     ap.add_argument("--source", required=True)
     ap.add_argument("--slug", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--recipe", help="path to a recipe JSON file (required for custom/browser)")
     ap.add_argument("--db", default=os.environ.get("DB_PATH", DEFAULT_DB))
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     if args.source not in config.VALID_SOURCES:
         sys.exit(f"error: unknown source {args.source!r}; must be one of {config.VALID_SOURCES}")
+
+    if not config._valid_slug(args.slug):
+        sys.exit(f"error: invalid slug {args.slug!r} (charset A-Za-z0-9._/-, no '..', "
+                  f"no leading/trailing/double '/')")
 
     recipe = None
     if args.recipe:

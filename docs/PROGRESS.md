@@ -107,7 +107,8 @@ the [CHANGELOG](../CHANGELOG.md).)
   navigations.
 - **Watchlist slug: structural guard only, no host-safety check** — `[note · accepted]`.
   Task 2.11 closed the host-injection SSRF gap by validating slug *structure* (charset +
-  no traversal) at both write boundaries (`actions.ts`, `config.py`) — but `phenom`/`workday`
+  no traversal) at all three write boundaries (`actions.ts`, `config.py`, the onboard-board
+  `add_watched.py` CLI, closed by Task T3) — but `phenom`/`workday`
   pack a hostname as the slug's first segment, so `"169.254.169.254/domain"` still passes the
   structural guard. Watchlist rows are operator-authored (single user), so this internal-IP-host
   case is accepted; closable later by calling `is_safe_public_url` on the built host inside

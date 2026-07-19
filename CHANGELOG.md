@@ -8,6 +8,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Security
+- **`add_watched.py` (onboard-board) now validates the slug charset before writing the
+  watchlist.** The script derives slugs from scraped, untrusted careers pages and wrote
+  `args.slug` straight to `db.import_watchlist` with no check — a third watchlist write
+  boundary the earlier slug guard missed (the web `actions.ts` and worker `config.py`
+  boundaries both validate). Now calls `config._valid_slug` right after the source check,
+  before the recipe load / DB-exists check / DB write, closing the host-injection SSRF gap
+  at all three boundaries.
 - **Redirect-following SSRF closed on the feed/custom paths; browser path's data-return
   harm closed, one residual GET remains.** `requests` (default `allow_redirects=True`)
   and Playwright's `page.goto` both follow 30x redirects, so a public URL that passed
