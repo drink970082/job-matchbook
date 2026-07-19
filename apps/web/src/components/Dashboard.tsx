@@ -29,20 +29,14 @@ import {
 } from '@/lib/actions'
 import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
-import { ApplicationTable } from './ApplicationTable'
+import { ApplicationsTab } from './ApplicationsTab'
 import { DiscoveredJobsTab } from './DiscoveredJobsTab'
 import { WatchlistTab } from './WatchlistTab'
 import { UnresolvedTab } from './UnresolvedTab'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
-import { AddApplicationForm } from './AddApplicationForm'
 import { StatusHistoryModal } from './StatusHistoryModal'
-import { StatusFunnel } from './StatusFunnel'
-import { TimelineHeatmap } from './TimelineHeatmap'
-import { CategoryDonut } from './CategoryDonut'
-import { SankeyChart } from './SankeyChart'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Download, Upload } from 'lucide-react'
 import { toast } from 'sonner'
@@ -554,76 +548,20 @@ export function Dashboard({
             ) : activeTab === 'unresolved' ? (
                 <UnresolvedTab data={unresolved} />
             ) : (
-            <>
-            {/* Form (4) + Table (8) side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Add Application Form */}
-                <div className="lg:col-span-4">
-                    <Card>
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-lg">Add Application</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <AddApplicationForm onSubmit={handleAddApplication} />
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Table */}
-                <div className="lg:col-span-8">
-                    <ApplicationTable
-                        data={apps}
-                        total={total}
-                        page={page}
-                        size={10}
-                        onPageChange={handlePageChange}
-                        onFilterChange={handleFilterChange}
-                        onStatusChange={handleStatusChange}
-                        onDelete={handleDeleteApplication}
-                        onHistory={handleViewHistory}
-                    />
-                </div>
-            </div>
-
-            {/* Charts */}
-            <div className="grid gap-6 lg:grid-cols-2">
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-lg">Application Timeline</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <TimelineHeatmap data={timeline} />
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-lg">Categories</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <CategoryDonut data={categories} />
-                    </CardContent>
-                </Card>
-            </div>
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Status Funnel</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <StatusFunnel data={statusFlow} />
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Status Flow</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <SankeyChart data={statusFlow} />
-                </CardContent>
-            </Card>
-            </>
+                <ApplicationsTab
+                    apps={apps}
+                    total={total}
+                    page={page}
+                    timeline={timeline}
+                    categories={categories}
+                    statusFlow={statusFlow}
+                    onAddApplication={handleAddApplication}
+                    onPageChange={handlePageChange}
+                    onFilterChange={handleFilterChange}
+                    onStatusChange={handleStatusChange}
+                    onDelete={handleDeleteApplication}
+                    onHistory={handleViewHistory}
+                />
             )}
 
             {/* Job Detail Modal */}

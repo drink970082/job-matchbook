@@ -170,6 +170,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   composition). `score/__init__.py` is now a ~40-line pure re-export shim (plus `import subprocess`,
   kept as the tests' monkeypatch lifeline) so every existing `score.<name>` caller (tests,
   `pipeline.py`, `run.py`, `tools/score_eval.py`) is unaffected.
+- **`Dashboard.tsx` (720-line god client component) split into per-tab components** —
+  behavior-preserving, render tree unchanged. The four tab bodies now live in
+  `ApplicationsTab.tsx`, `DiscoveredJobsTab.tsx`, `WatchlistTab.tsx`, and
+  `UnresolvedTab.tsx`, each taking the tab's slice of state as props; `Dashboard.tsx`
+  is now a thin shell holding the header/KPI grid, the tab-toggle bar, all state +
+  handlers, and the `StatusHistoryModal`/`JobDetailModal`/`ApplyCategoryDialog` that
+  span tabs.
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched
