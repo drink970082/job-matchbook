@@ -242,9 +242,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `markJobApplied:369`, `importApplicationsCSV:856`).
 - **`score.py` god-module (1089 ln)** — `[M]`. Six concerns; cleanest extraction seams are the
   codex quota telemetry (`820-930`) and the ~200-line location gazetteer (`559-739`).
-- **Non-transactional multi-step writes** — `[S]`. `deleteHistoryItem` (delete→read→update,
-  `actions.ts:584-617`) and `importApplicationsCSV` (per-row findFirst+create, no transaction, no
-  intra-file dedupe, `actions.ts:838-882`) can leave partial / inconsistent state.
 - **`Dashboard.tsx` 720-line god client component** — `[M]`. All state + 25 handlers for four
   tabs; every mutation calls `refreshData()` = 4 full-table findMany + in-JS aggregation.
 - **Duplicated parse / verdict helpers** — `[XS]`. `verdictClass` / score_detail JSON parsing in

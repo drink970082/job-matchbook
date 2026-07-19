@@ -1023,13 +1023,17 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 - **Dedup on `(company_name, job_title)`** for `addApplication`, `markJobApplied`,
   and CSV import.
 - **`deleteHistoryItem`** recomputes the application's current status to the most
-  recent remaining history entry, or `Applied` if none remain.
+  recent remaining history entry, or `Applied` if none remain — the delete +
+  recompute + status update run in one `$transaction`.
 - **KPIs** (`getKPIs`): `applied` = total; `active` = total − rejected − offer −
   withdrew − ghosted (offer bucket counts Offer + Accepted; interviewing bucket
   counts Phone Screen + any Interviewing + Final Round).
 - **CSV import** requires columns `company_name, job_title, date_applied`; unknown
   `status`/`category` values fall back to `Applied`/`Others`; existing
   `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
+  The whole per-row loop runs in one `$transaction` (`{ timeout: 60_000 }`) —
+  a mid-import DB error rolls back the entire file (all-or-nothing); per-row
+  validation `continue`s (missing field, duplicate) are unaffected.
 
 **Cross-service data invariant:** the schema is owned solely by Prisma; the worker
 reads/writes rows but issues **no DDL**. The worker's test fixture

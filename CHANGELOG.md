@@ -116,6 +116,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   connector already sets `busy_timeout=5000` ms with zero configuration — the planned
   `connection_limit=1` + explicit `PRAGMA` fix was de-scoped (Ponytail) since the
   behavior it would have added already exists; the test stays as a regression lock.
+- **`deleteHistoryItem` and CSV import run in transactions.**
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

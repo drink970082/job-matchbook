@@ -598,21 +598,23 @@ export async function deleteHistoryItem(id: number) {
             return { success: false, error: 'History item not found' }
         }
 
-        await prisma.status_history.delete({
-            where: { id },
-        })
+        await prisma.$transaction(async (tx) => {
+            await tx.status_history.delete({
+                where: { id },
+            })
 
-        // Find the most recent history item after deletion
-        const latestHistory = await prisma.status_history.findFirst({
-            where: { application_id: item.application_id },
-            orderBy: { timestamp: 'desc' }
-        })
+            // Find the most recent history item after deletion
+            const latestHistory = await tx.status_history.findFirst({
+                where: { application_id: item.application_id },
+                orderBy: { timestamp: 'desc' }
+            })
 
-        // Update application status to the most recent history, or 'Applied' if empty
-        const newStatus = latestHistory ? latestHistory.status : 'Applied'
-        await prisma.applications.update({
-            where: { id: item.application_id },
-            data: { status: newStatus }
+            // Update application status to the most recent history, or 'Applied' if empty
+            const newStatus = latestHistory ? latestHistory.status : 'Applied'
+            await tx.applications.update({
+                where: { id: item.application_id },
+                data: { status: newStatus }
+            })
         })
 
         return { success: true }
@@ -841,57 +843,61 @@ export async function importApplicationsCSV(csvText: string) {
         const statusSet = new Set<string>(STATUSES as readonly string[])
         const categorySet = new Set<string>(CATEGORIES as readonly string[])
 
-        let added = 0
-        let skipped = 0
-        const errors: string[] = []
+        const result = await prisma.$transaction(async (tx) => {
+            let added = 0
+            let skipped = 0
+            const errors: string[] = []
 
-        for (let i = 0; i < dataRows.length; i++) {
-            const row = dataRows[i]
-            const rowNum = i + 2
+            for (let i = 0; i < dataRows.length; i++) {
+                const row = dataRows[i]
+                const rowNum = i + 2
 
-            const get = (col: string) => {
-                const idx = colIndex(col)
-                return idx === -1 ? '' : (row[idx] ?? '').trim()
+                const get = (col: string) => {
+                    const idx = colIndex(col)
+                    return idx === -1 ? '' : (row[idx] ?? '').trim()
+                }
+
+                const company_name = get('company_name')
+                const job_title = get('job_title')
+                const date_applied = get('date_applied')
+
+                if (!company_name || !job_title || !date_applied) {
+                    errors.push(`Row ${rowNum}: missing required field`)
+                    continue
+                }
+
+                const existing = await tx.applications.findFirst({
+                    where: { company_name, job_title },
+                })
+                if (existing) {
+                    skipped++
+                    continue
+                }
+
+                const rawStatus = get('status') || 'Applied'
+                const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
+                const rawCategory = get('category') || 'Others'
+                const category = categorySet.has(rawCategory) ? rawCategory : 'Others'
+
+                await tx.applications.create({
+                    data: {
+                        company_name,
+                        job_title,
+                        date_applied,
+                        category,
+                        status,
+                        application_url: get('application_url') || '',
+                        notes: get('notes') || '',
+                        last_updated: new Date().toISOString(),
+                    },
+                })
+                added++
             }
 
-            const company_name = get('company_name')
-            const job_title = get('job_title')
-            const date_applied = get('date_applied')
+            return { added, skipped, errors }
+        }, { timeout: 60_000 })
 
-            if (!company_name || !job_title || !date_applied) {
-                errors.push(`Row ${rowNum}: missing required field`)
-                continue
-            }
-
-            const existing = await prisma.applications.findFirst({
-                where: { company_name, job_title },
-            })
-            if (existing) {
-                skipped++
-                continue
-            }
-
-            const rawStatus = get('status') || 'Applied'
-            const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
-            const rawCategory = get('category') || 'Others'
-            const category = categorySet.has(rawCategory) ? rawCategory : 'Others'
-
-            await prisma.applications.create({
-                data: {
-                    company_name,
-                    job_title,
-                    date_applied,
-                    category,
-                    status,
-                    application_url: get('application_url') || '',
-                    notes: get('notes') || '',
-                    last_updated: new Date().toISOString(),
-                },
-            })
-            added++
-        }
-
-        return { success: true, added, skipped, errors }
+        return { success: true, added: result.added, skipped: result.skipped, errors: result.errors }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

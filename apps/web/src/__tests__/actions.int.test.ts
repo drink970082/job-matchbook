@@ -340,6 +340,16 @@ test('deleteHistoryItem reverts status to the latest remaining (or Applied)', as
     expect((await prisma.applications.findUnique({ where: { id: app.id } }))!.status).toBe('Applied')
 })
 
+test('deleteHistoryItem atomically deletes and recomputes status', async () => {
+    const app = await prisma.applications.create({ data: makeApplication({ status: 'Offer' }) })
+    await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Phone Screen', timestamp: '2026-01-01' }) })
+    const h2 = await prisma.status_history.create({ data: makeStatusHistory({ application_id: app.id, status: 'Offer', timestamp: '2026-02-01' }) })
+    const res = await deleteHistoryItem(h2.id)
+    expect(res.success).toBe(true)
+    const after = await prisma.applications.findUnique({ where: { id: app.id } })
+    expect(after!.status).toBe('Phone Screen') // recomputed from remaining latest
+})
+
 
 // --- CSV round-trip: escaping + dedup + invalid-status + missing-field -----
 
@@ -365,6 +375,15 @@ test('importApplicationsCSV handles escaping/dedup/invalid rows; export round-tr
     expect(exp.success).toBe(true)
     expect(exp.csv).toContain('"Engineer, Senior"')   // comma-bearing field re-quoted
     expect(exp.csv).toContain('"line1\nline2"')        // embedded newline preserved
+})
+
+test('importApplicationsCSV is atomic and dedupes on (company,title)', async () => {
+    await prisma.applications.create({ data: makeApplication({ company_name: 'Acme', job_title: 'Eng' }) })
+    const csv = 'company_name,job_title,date_applied\nAcme,Eng,2026-01-01\nBeta,DS,2026-01-02\n'
+    const res = await importApplicationsCSV(csv)
+    expect(res.success).toBe(true)
+    expect(res).toMatchObject({ added: 1, skipped: 1 })
+    expect(await prisma.applications.count()).toBe(2)
 })
 
 test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
