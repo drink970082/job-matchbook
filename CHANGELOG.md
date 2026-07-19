@@ -860,6 +860,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `upload-artifact`) and `apps/web/Dockerfile`'s `FROM node:20-alpine` now resolve to an
   immutable commit/image digest (with a `# vN` / image-tag comment so renovate/dependabot
   can still bump them), closing the floating-tag supply-chain gap tracked in PROGRESS.
+- **Worker `main()` only merges the six argparse-read config keys from `.env` into
+  `os.environ`, no longer every key.** The previous unconditional merge promoted secrets
+  (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `ANTHROPIC_API_KEY`) into `os.environ`, which
+  are then inherited by any subprocess spawned without an explicit `env=` — the default
+  codex fit-score backend's `subprocess.run` call (`score/backends_codex.py`), handing the
+  Telegram bot token and Anthropic API key to the third-party `codex` CLI (and anything
+  reading `/proc/<pid>/environ`). Every secret consumer already reads the in-process `env`
+  dict (`run_once(..., env=env)` / `make_scorer`), never `os.environ`, so the secrets remain
+  fully plumbed without being promoted.
 
 ## [0.2.0] — 2026-06-08
 

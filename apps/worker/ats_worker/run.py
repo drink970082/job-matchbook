@@ -62,6 +62,17 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 
+# The ONLY six .env keys argparse defaults read from os.environ (grepped across
+# the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
+# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY) are deliberately excluded: every consumer
+# reads them from the in-process `env` dict (run_once(..., env=env) / make_scorer),
+# never os.environ, so promoting them would only leak them to subprocesses that
+# inherit the full environment (the codex CLI — see score/backends_codex.py).
+_ENV_ARGPARSE_KEYS = frozenset({
+    "DB_PATH", "OLLAMA_MODEL", "SCORE_BACKEND", "CODEX_SCORE_MODEL",
+    "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+})
+
 
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
@@ -293,7 +304,8 @@ def main(argv=None) -> None:
     pre.add_argument("--env", default=".env")
     env = load_env(pre.parse_known_args(argv)[0].env)
     for key, value in env.items():
-        os.environ.setdefault(key, value)
+        if key in _ENV_ARGPARSE_KEYS:
+            os.environ.setdefault(key, value)
 
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")

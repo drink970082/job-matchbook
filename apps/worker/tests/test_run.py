@@ -406,3 +406,56 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
     assert captured["db_path"] == "/tmp/from-env.db"
     assert captured["codex_score_model"] == "gpt-from-env"
     assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "t"   # dict still plumbed to run_once
+
+
+def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
+    # Regression guard for the secret-scoping regression: main() must only promote
+    # the six argparse-read config keys from .env into os.environ, never secrets —
+    # a leaked os.environ secret would be inherited by the codex CLI subprocess
+    # (subprocess.run with no env= in score/backends_codex.py).
+    import os as _os
+    monkeypatch.setattr(_os, "environ", dict(_os.environ))
+    for k in ("DB_PATH", "OLLAMA_MODEL", "SCORE_BACKEND", "CODEX_SCORE_MODEL",
+              "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY"):
+        _os.environ.pop(k, None)
+
+    envfile = tmp_path / ".env"
+    envfile.write_text(
+        "DB_PATH=/tmp/from-env.db\n"
+        "OLLAMA_MODEL=custom:1b\n"
+        "SCORE_BACKEND=claude\n"
+        "CODEX_SCORE_MODEL=gpt-from-env\n"
+        "ANTHROPIC_SCORE_MODEL=claude-from-env\n"
+        "CODEX_BATCH_SIZE=3\n"
+        "TELEGRAM_BOT_TOKEN=secret-tok\n"
+        "TELEGRAM_CHAT_ID=c\n"
+        "ANTHROPIC_API_KEY=secret-key\n"
+    )
+
+    captured = {}
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: captured.update(kw))
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config("companies: []\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+
+    run.main(["--once", "--env", str(envfile)])
+
+    # The six argparse-read config keys must be promoted into os.environ.
+    assert _os.environ["DB_PATH"] == "/tmp/from-env.db"
+    assert _os.environ["OLLAMA_MODEL"] == "custom:1b"
+    assert _os.environ["SCORE_BACKEND"] == "claude"
+    assert _os.environ["CODEX_SCORE_MODEL"] == "gpt-from-env"
+    assert _os.environ["ANTHROPIC_SCORE_MODEL"] == "claude-from-env"
+    assert _os.environ["CODEX_BATCH_SIZE"] == "3"
+
+    # Secrets must never be promoted into os.environ (would leak to codex subprocess).
+    assert "TELEGRAM_BOT_TOKEN" not in _os.environ
+    assert "TELEGRAM_CHAT_ID" not in _os.environ
+    assert "ANTHROPIC_API_KEY" not in _os.environ
+
+    # ... but secrets must still reach run_once via the in-process env dict.
+    assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "secret-tok"
+    assert captured["env"]["TELEGRAM_CHAT_ID"] == "c"
+    assert captured["env"]["ANTHROPIC_API_KEY"] == "secret-key"
