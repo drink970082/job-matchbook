@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from ats_worker.fetch._recipe import apply_fields, dotted_get
-from ats_worker.util import is_safe_public_url
+from ats_worker.util import get_redirect_safe, is_safe_public_url
 
 SOURCE = "custom"
 
@@ -47,10 +47,15 @@ def parse_jobs(payload, recipe: dict, company_name: str) -> list[dict]:
 
 
 def _request(http, method: str, url: str, params, body, headers, timeout):
+    # get_redirect_safe re-validates every redirect hop (see util.py) so a
+    # recipe.url that 302s into an internal target is refused mid-fetch, not
+    # just at the initial is_safe_public_url check below.
     if method == "POST":
-        return http.post(url, params=params or None, json=body or None,
-                         headers=headers or None, timeout=timeout)
-    return http.get(url, params=params or None, headers=headers or None, timeout=timeout)
+        return get_redirect_safe(http, url, method="post", timeout=timeout,
+                                 params=params or None, json=body or None,
+                                 headers=headers or None)
+    return get_redirect_safe(http, url, method="get", timeout=timeout,
+                             params=params or None, headers=headers or None)
 
 
 def _page_request(recipe: dict, page: dict, n: int):

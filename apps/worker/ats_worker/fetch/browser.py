@@ -34,6 +34,21 @@ _UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
 
 
+def _block_unsafe_navigation(route):
+    """Playwright route handler: abort any request to a non-public host.
+    Registered on every page and guards each request's OWN url — the initial
+    nav/pagination/detail URL, and any subresource (img/css/xhr) the rendered
+    page issues. It does NOT stop a navigation's redirect target: per the
+    Playwright docs, the route handler fires only for a navigation's initial
+    URL, so a 3xx Location is followed by Chromium without re-invoking this
+    handler. Closing that gap is `render()`'s post-goto `page.url` check
+    below, not this interceptor."""
+    if is_safe_public_url(route.request.url):
+        route.continue_()
+    else:
+        route.abort()
+
+
 def parse_jobs(pages: list[str], recipe: dict, company_name: str) -> list[dict]:
     """Parse rendered listing-page HTML into postings (pure; no browser).
     De-dups by external_id across pages."""
@@ -89,9 +104,20 @@ def fetch(slug: str, company_name: str, recipe: dict,
             headless=True, args=["--disable-blink-features=AutomationControlled"])
         page = browser.new_context(
             user_agent=_UA, viewport={"width": 1920, "height": 1080}).new_page()
+        page.route("**/*", _block_unsafe_navigation)
 
         def render(url: str, wait_sel: str | None = None) -> str:
             page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            if not is_safe_public_url(page.url):
+                # Redirect backstop for navigations: page.route fires only for a
+                # nav's INITIAL url (Playwright follows a 3xx without re-invoking
+                # the handler — see _block_unsafe_navigation's docstring), so a
+                # public href that redirects to an internal host would otherwise
+                # be scraped. Discard the response so an internal target's body
+                # never reaches a posting's description. (Residual: the single
+                # read-only redirect GET still fires before we discard here —
+                # accepted; browser sources are gated off by default.)
+                return ""
             # A Cloudflare "Just a moment" JS challenge auto-clears in a few seconds;
             # wait for the expected element rather than a fixed sleep (a fixed 3s left
             # 0 cards). Fall through on timeout so a genuinely empty page still returns

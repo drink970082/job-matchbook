@@ -6,7 +6,7 @@ import ipaddress
 import re
 import socket
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 # Canonical fields every adapter must produce. Aligned with the Prisma
 # job_postings model (worker writes a subset; scoring fills the rest).
@@ -94,3 +94,37 @@ def is_safe_public_url(url: str | None) -> bool:
     except OSError:
         return True   # a real DNS name (rebinding out of scope; see PROGRESS)
     return ipaddress.ip_address(socket.inet_ntoa(packed)).is_global
+
+
+def get_redirect_safe(http, url, *, timeout, method="get", max_redirects=5, **kwargs):
+    """GET/POST `url` via `http` (a `requests.Session` or the `requests` module),
+    following redirects MANUALLY so every hop — the initial URL and each 3xx
+    `Location` — is re-validated with `is_safe_public_url` before it is ever
+    requested. `requests`' default `allow_redirects=True` (and a browser's
+    `page.goto`) instead follow a redirect without re-checking, so a URL that
+    passes the initial guard can still 302 into an internal target; this is
+    what closes that gap for the plain-HTTP fetch paths.
+
+    A redirect hop is always re-issued as a GET with headers only — params/
+    body are dropped, since the Location is the full next target (this mirrors
+    browser 302-to-GET behavior and is sufficient for these scrapers).
+
+    Returns the final non-redirect `requests.Response`. Raises `ValueError` if
+    any hop (initial or via a `Location`) fails `is_safe_public_url`, or if
+    more than `max_redirects` hops are followed.
+    """
+    kwargs["allow_redirects"] = False
+    m = method.lower()
+    for _ in range(max_redirects + 1):
+        if not is_safe_public_url(url):
+            raise ValueError(f"unsafe url (initial or via redirect): {url!r}")
+        resp = getattr(http, m)(url, timeout=timeout, **kwargs)
+        if resp.is_redirect and resp.headers.get("location"):
+            url = urljoin(url, resp.headers["location"])
+            # ponytail: every hop is re-issued as GET, dropping params/body —
+            # 307/308's strict method+body preservation is intentionally not
+            # modeled (these scrapers never see 307/308 in practice).
+            m, kwargs = "get", {"allow_redirects": False, "headers": kwargs.get("headers")}
+            continue
+        return resp
+    raise ValueError(f"too many redirects (> {max_redirects})")

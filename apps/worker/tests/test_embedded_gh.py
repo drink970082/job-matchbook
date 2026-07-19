@@ -8,7 +8,7 @@ No network — the page fetch is a FakeSession.
 from __future__ import annotations
 
 from ats_worker.feed import embedded_gh
-from tests._helpers import FakeSession
+from tests._helpers import FakeResponse, FakeSession
 
 # Real embed markup from a steelpoint-llc.com careers page.
 _WITH_TOKEN = (
@@ -50,3 +50,23 @@ def test_refuses_internal_target_without_fetching():
     assert embedded_gh.resolve_embedded(
         "http://169.254.169.254/careers?gh_jid=1", session=sess) is None
     assert sess.calls == []  # blocked before any HTTP GET
+
+
+def test_redirect_to_internal_target_returns_none_without_fetching_it():
+    # A public careers page can 302 into an internal target (e.g. a compromised
+    # or misconfigured redirect). The initial-URL guard alone misses this —
+    # every hop must be re-validated, and the internal host must never be
+    # requested (proven via sess.calls, not just the return value).
+    #
+    # The 302 response body deliberately carries a *valid* embed token: a
+    # redirect-blind implementation ignores status/is_redirect and greps
+    # whatever text came back on the first hop, so it would wrongly resolve a
+    # token here instead of refusing the unsafe hop — this is what makes the
+    # test fail red for the right reason before get_redirect_safe exists.
+    redirect = FakeResponse(status_code=302, is_redirect=True, text=_WITH_TOKEN,
+                            headers={"location": "http://169.254.169.254/careers"})
+    sess = FakeSession(responses=[redirect])
+    assert embedded_gh.resolve_embedded(
+        "https://steelpoint-llc.com/careers/?gh_jid=7453484003", session=sess) is None
+    assert [c[1] for c in sess.calls] == ["https://steelpoint-llc.com/careers/?gh_jid=7453484003"]
+    assert not any("169.254.169.254" in c[1] for c in sess.calls)

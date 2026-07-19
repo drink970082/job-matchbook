@@ -79,12 +79,18 @@ def seed_scored(conn, scores, *, detail=None, description=None):
 
 class FakeResponse:
     """Mimics a requests.Response: json()/text + a raise_for_status that can
-    raise an injected exception (to exercise error propagation)."""
+    raise an injected exception (to exercise error propagation). Also exposes
+    the redirect-shaped surface (`status_code`, `headers`, `is_redirect`) that
+    `util.get_redirect_safe` inspects, defaulted to a plain 200 non-redirect."""
 
-    def __init__(self, payload=None, *, text="", raise_exc=None):
+    def __init__(self, payload=None, *, text="", raise_exc=None,
+                 status_code=200, headers=None, is_redirect=False):
         self._payload = payload
         self.text = text
         self._raise_exc = raise_exc
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.is_redirect = is_redirect
 
     def raise_for_status(self):
         if self._raise_exc is not None:
@@ -95,20 +101,27 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Records get/post calls and returns one configured FakeResponse.
+    """Records get/post calls and returns configured FakeResponse(s).
 
     Pass `payload`/`text` for the body, or `raise_exc` to make raise_for_status
-    raise. Inspect `.calls` (list of (METHOD, url, kwargs)) to assert URL/params.
+    raise, for the common one-response case. For a redirect chain, pass
+    `responses` — a list of FakeResponse to return in order, one per call
+    (get_redirect_safe re-validates and re-requests per hop). Inspect `.calls`
+    (list of (METHOD, url, kwargs)) to assert URL/params, e.g. to prove an
+    unsafe redirect target was never requested.
     """
 
-    def __init__(self, payload=None, *, text="", raise_exc=None):
+    def __init__(self, payload=None, *, text="", raise_exc=None, responses=None):
         self._payload = payload
         self._text = text
         self._raise_exc = raise_exc
+        self._responses = list(responses) if responses is not None else None
         self.calls = []
 
     def _resp(self, method, url, kwargs):
         self.calls.append((method, url, kwargs))
+        if self._responses is not None:
+            return self._responses.pop(0)
         return FakeResponse(self._payload, text=self._text, raise_exc=self._raise_exc)
 
     def get(self, url, **kwargs):

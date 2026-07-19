@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from ats_worker.util import html_to_text, is_safe_public_url, to_iso_date
+from ats_worker.util import get_redirect_safe, html_to_text, is_safe_public_url, to_iso_date
+from tests._helpers import FakeResponse, FakeSession
 
 
 def test_to_iso_date_keeps_iso_date_prefix():
@@ -94,3 +95,50 @@ def test_is_safe_public_url_blocks_legacy_ipv4_and_dotless_bypasses():
     assert is_safe_public_url("http://localhost./") is False  # trailing-dot FQDN
     assert is_safe_public_url("http://[::1%25eth0]/") is False  # IPv6 zone-id (%-host)
     assert is_safe_public_url("https://boards.greenhouse.io/x") is True  # still allowed
+
+
+# --- get_redirect_safe: per-hop redirect re-validation --------------------
+
+def test_get_redirect_safe_follows_a_legit_redirect_to_a_public_target():
+    redirect = FakeResponse(status_code=302, is_redirect=True,
+                            headers={"location": "https://boards.greenhouse.io/final"})
+    final = FakeResponse(text="the final body", status_code=200)
+    sess = FakeSession(responses=[redirect, final])
+
+    resp = get_redirect_safe(sess, "https://example.com/start", timeout=5)
+
+    assert resp.text == "the final body"
+    assert [c[1] for c in sess.calls] == [
+        "https://example.com/start", "https://boards.greenhouse.io/final",
+    ]
+
+
+def test_get_redirect_safe_refuses_redirect_to_internal_target_without_requesting_it():
+    # The security invariant: a hop's Location is validated BEFORE it is ever
+    # requested, so an internal target must never appear in the session's
+    # recorded calls, even though it was reachable via a 302 from a public URL.
+    redirect = FakeResponse(status_code=302, is_redirect=True,
+                            headers={"location": "http://169.254.169.254/latest/meta-data/"})
+    sess = FakeSession(responses=[redirect])
+
+    with pytest.raises(ValueError):
+        get_redirect_safe(sess, "https://example.com/start", timeout=5)
+
+    assert len(sess.calls) == 1  # only the initial (safe) hop was requested
+    assert not any("169.254.169.254" in c[1] for c in sess.calls)
+
+
+def test_get_redirect_safe_raises_after_too_many_redirects():
+    # Every hop targets a public host (so no ValueError from an unsafe target) —
+    # this must fail purely on hop count, not on safety.
+    responses = [
+        FakeResponse(status_code=302, is_redirect=True,
+                    headers={"location": f"https://example.com/hop{i}"})
+        for i in range(6)  # max_redirects defaults to 5 -> 6 hops is one too many
+    ]
+    sess = FakeSession(responses=responses)
+
+    with pytest.raises(ValueError):
+        get_redirect_safe(sess, "https://example.com/start", timeout=5)
+
+    assert len(sess.calls) == 6

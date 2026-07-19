@@ -79,18 +79,32 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
-- **SSRF guard is a pure check, so name/redirect-based internal targets are out of scope** —
-  `[note · accepted]`. `util.is_safe_public_url` (feed/embedded_gh.py, Task 2.9) rejects
-  `localhost` and private/loopback/link-local/reserved IP *literals* by inspecting the URL
-  string alone — it does no DNS lookup and does not follow redirects. So three shapes still
-  pass, all the same root cause: (a) DNS-rebinding (a name public at check time, internal at
-  fetch time); (b) a bare internal hostname that statically resolves internal (e.g.
-  `metadata.google.internal`); (c) a safe-looking public URL that 3xx-redirects to an internal
-  target (`page.goto` follows redirects). The `browser` detail/pagination guards (Task 2.x)
-  inherit exactly this residual — they block the IP-*literal* payload a malicious board would
-  embed, not the hostname/redirect spellings. Accepted for a single-user worker fetching a
-  curated board list with `browser` sources gated off by default; closing any of the three
-  needs the same resolve-then-check (and TOCTOU-safe connect).
+- **SSRF guard is a pure check, so name-based internal targets are out of scope
+  (redirect-to-internal is CLOSED for feed/custom; browser path has a narrower residual)**
+  — `[note · accepted]`. `util.is_safe_public_url` rejects `localhost` and
+  private/loopback/link-local/reserved IP *literals* by inspecting the URL string alone —
+  it does no DNS lookup. **Task T2 (2026-07-19) closed the redirect-to-internal gap on the
+  feed/custom paths**: a new `util.get_redirect_safe` follows redirects manually,
+  re-validating `is_safe_public_url` on every hop *before* it is requested, and is now used
+  by `feed/embedded_gh.resolve_embedded` and `fetch/custom._request` — the internal host is
+  never contacted on these two paths. `fetch/browser.py` registers a Playwright route
+  interceptor (`_block_unsafe_navigation`, via `page.route("**/*", ...)`) that blocks
+  internal *subresources* the rendered page issues, plus `render()` now discards the
+  response whenever the *landed* `page.url` (post-`page.goto`) is non-public — so an
+  internal redirect target's response body never reaches a posting (data-return harm
+  closed). **Browser-path residual: one read-only redirect GET still fires.** Per
+  Playwright's docs the route handler fires only for a navigation's initial URL, not a
+  followed 3xx, so `_block_unsafe_navigation` cannot stop Chromium issuing that single GET
+  before `render()`'s post-goto check discards the response — narrower than the pre-T2 gap
+  (no data leaves the pipeline) but still a live request reaching the internal target.
+  **Three shapes remain accepted residual:** (a) that single browser-path redirect GET,
+  above; (b) DNS-rebinding (a name public at check time, internal at fetch time), all
+  paths; (c) a bare internal hostname that statically resolves internal (e.g.
+  `metadata.google.internal`), all paths. Accepted for a single-user worker fetching a
+  curated board list with `browser` sources gated off by default; closing (b)/(c) needs a
+  resolve-then-check (and TOCTOU-safe connect); closing (a) needs a browser-side
+  intercept-before-connect mechanism Playwright's routing API doesn't expose for
+  navigations.
 - **Watchlist slug: structural guard only, no host-safety check** — `[note · accepted]`.
   Task 2.11 closed the host-injection SSRF gap by validating slug *structure* (charset +
   no traversal) at both write boundaries (`actions.ts`, `config.py`) — but `phenom`/`workday`

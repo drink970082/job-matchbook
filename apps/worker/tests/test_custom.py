@@ -9,7 +9,7 @@ import pytest
 from ats_worker import config
 from ats_worker.fetch import _recipe, custom
 from ats_worker.util import POSTING_FIELDS
-from tests._helpers import FakeSession
+from tests._helpers import FakeResponse, FakeSession
 
 FIXTURES = Path(__file__).parent / "fixtures"
 AMAZON = json.loads((FIXTURES / "amazon.json").read_text())
@@ -103,6 +103,71 @@ def test_custom_fetch_refuses_internal_url():
     assert sess.calls == []
 
 
+_REDIRECT_RECIPE = {
+    "url": "https://board.example.com/jobs",
+    "mode": "json",
+    "page": {"type": "none"},
+    "fields": {"title": "position", "external_id": "id",
+               "url": "https://board.example.com/{id}/", "location": "city"},
+}
+
+
+def test_custom_fetch_follows_legit_redirect_to_public_target():
+    redirect = FakeResponse(status_code=302, is_redirect=True,
+                            headers={"location": "https://board.example.com/jobs-moved"})
+    payload = [{"id": "1", "position": "Engineer", "city": "NYC"}]
+    final = FakeResponse(payload=payload, status_code=200)
+    sess = FakeSession(responses=[redirect, final])
+
+    out = custom.fetch("acme", "Acme", _REDIRECT_RECIPE, session=sess, timeout=20)
+
+    assert len(out) == 1
+    assert out[0]["external_id"] == "1"
+    assert [c[1] for c in sess.calls] == [
+        "https://board.example.com/jobs", "https://board.example.com/jobs-moved",
+    ]
+
+
+def test_custom_fetch_refuses_redirect_to_internal_target():
+    # Same body-content trap as embedded_gh's redirect test: the 302 response
+    # carries a JSON payload that WOULD parse into a posting if a redirect-blind
+    # implementation treated the first hop's body as the answer — proving the
+    # failure is "the hop was correctly refused", not "there was nothing to parse".
+    redirect = FakeResponse(status_code=302, is_redirect=True,
+                            payload=[{"id": "1", "position": "Engineer", "city": "NYC"}],
+                            headers={"location": "http://169.254.169.254/jobs"})
+    sess = FakeSession(responses=[redirect])
+
+    with pytest.raises(ValueError):
+        custom.fetch("acme", "Acme", _REDIRECT_RECIPE, session=sess, timeout=20)
+
+    assert len(sess.calls) == 1  # only the initial (safe) hop was requested
+    assert not any("169.254.169.254" in c[1] for c in sess.calls)
+
+
+def test_custom_fetch_post_recipe_follows_redirect_to_public_target():
+    # method="POST" exercises the other branch of `_request` (the two tests
+    # above default to GET): get_redirect_safe downgrades a redirect hop to
+    # GET regardless of the original method (see util.get_redirect_safe), so
+    # this proves the POST recipe's initial hop still gets a GET-on-redirect
+    # follow-through rather than erroring or re-POSTing the Location.
+    redirect = FakeResponse(status_code=302, is_redirect=True,
+                            headers={"location": "https://board.example.com/jobs-moved"})
+    payload = [{"id": "1", "position": "Engineer", "city": "NYC"}]
+    final = FakeResponse(payload=payload, status_code=200)
+    sess = FakeSession(responses=[redirect, final])
+
+    recipe = {**_REDIRECT_RECIPE, "method": "POST"}
+    out = custom.fetch("acme", "Acme", recipe, session=sess, timeout=20)
+
+    assert len(out) == 1
+    assert out[0]["external_id"] == "1"
+    assert [c[0] for c in sess.calls] == ["POST", "GET"]  # redirect hop downgrades to GET
+    assert [c[1] for c in sess.calls] == [
+        "https://board.example.com/jobs", "https://board.example.com/jobs-moved",
+    ]
+
+
 # --- recipe helpers ------------------------------------------------------
 
 def test_dotted_get_indexes_dicts_and_lists():
@@ -194,9 +259,13 @@ def test_parse_jobs_root_array_no_item_path():
 
 
 class _Resp:
-    def __init__(self, payload=None, *, text=""):
+    # is_redirect/headers default to a plain non-redirect response — the shape
+    # get_redirect_safe inspects on every hop before returning.
+    def __init__(self, payload=None, *, text="", is_redirect=False, headers=None):
         self._payload = payload
         self.text = text
+        self.is_redirect = is_redirect
+        self.headers = headers or {}
 
     def raise_for_status(self):
         pass
@@ -221,11 +290,11 @@ class _PagedJson:
             return body["offset"]
         return 0
 
-    def get(self, url, params=None, headers=None, timeout=None):
+    def get(self, url, params=None, headers=None, timeout=None, allow_redirects=None):
         self.calls.append(("GET", url, params, None, headers))
         return _Resp(self._full if self._offset(params, None) == 0 else self._empty)
 
-    def post(self, url, params=None, json=None, headers=None, timeout=None):
+    def post(self, url, params=None, json=None, headers=None, timeout=None, allow_redirects=None):
         self.calls.append(("POST", url, params, json, headers))
         return _Resp(self._full if self._offset(params, json) == 0 else self._empty)
 
@@ -261,7 +330,7 @@ def test_fetch_deshaw_next_data():
             self._html = html
             self.calls = []
 
-        def get(self, url, params=None, headers=None, timeout=None):
+        def get(self, url, params=None, headers=None, timeout=None, allow_redirects=None):
             self.calls.append((url, params))
             return _Resp(text=self._html)
 

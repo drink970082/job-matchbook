@@ -7,6 +7,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Security
+- **Redirect-following SSRF closed on the feed/custom paths; browser path's data-return
+  harm closed, one residual GET remains.** `requests` (default `allow_redirects=True`)
+  and Playwright's `page.goto` both follow 30x redirects, so a public URL that passed
+  `is_safe_public_url`'s initial check could still 302 into an internal target (e.g.
+  `169.254.169.254`, `localhost:11434`) — the first-hop-only guard missed it. A new
+  `util.get_redirect_safe` follows redirects manually, re-validating **every hop** with
+  `is_safe_public_url` before it is requested (so an internal host is never contacted),
+  and is now used by `feed/embedded_gh.resolve_embedded` (attacker-controllable:
+  Simplify feed data) and `fetch/custom._request` (operator-authored recipe URLs) — for
+  these two paths the internal host is never contacted, full stop. `fetch/browser.py`
+  adds a Playwright route interceptor (`_block_unsafe_navigation`, registered via
+  `page.route("**/*", ...)` right after page creation) that blocks internal
+  *subresources* (img/css/xhr) the rendered page issues, plus a post-`page.goto`
+  check in `render()` on the *landed* `page.url` that discards the response when it's
+  non-public. That combination closes the *data-return* harm (an internal target's
+  body never reaches a posting's description) but **not** the request itself: per
+  Playwright's docs the route handler fires only for a navigation's initial URL, so a
+  3xx redirect is followed by Chromium without re-invoking the interceptor — a single
+  read-only GET to the internal target still fires before `render()` discards the
+  response. Browser sources are gated off the default cycle, which bounds this residual.
+
 ### Added
 - Index on `status_history.application_id`.
 - Schema-drift guard now also checks column nullability (pytest guard).

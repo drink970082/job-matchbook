@@ -83,19 +83,66 @@ def test_browser_fetch_refuses_internal_url():
         browser.fetch("slug", "Acme", {"url": "http://169.254.169.254/", "item": ".job"})
 
 
+class _FakeRequest:
+    def __init__(self, url):
+        self.url = url
+
+
+class _FakeRoute:
+    """Fake Playwright `Route`: records whether continue_()/abort() was called."""
+
+    def __init__(self, url):
+        self.request = _FakeRequest(url)
+        self.continued = False
+        self.aborted = False
+
+    def continue_(self):
+        self.continued = True
+
+    def abort(self):
+        self.aborted = True
+
+
+def test_block_unsafe_navigation_aborts_internal_target():
+    # This is the redirect backstop: a 302 issued mid-navigation (initial nav,
+    # pagination, or detail) re-enters the router with the Location as the new
+    # request URL, so blocking here closes the redirect-to-internal SSRF gap
+    # regardless of which navigation triggered it.
+    route = _FakeRoute("http://169.254.169.254/latest/meta-data/")
+    browser._block_unsafe_navigation(route)
+    assert route.aborted is True
+    assert route.continued is False
+
+
+def test_block_unsafe_navigation_continues_public_target():
+    route = _FakeRoute("https://example.com/careers")
+    browser._block_unsafe_navigation(route)
+    assert route.continued is True
+    assert route.aborted is False
+
+
 class _FakePage:
     """Just enough of Playwright's Page surface for `fetch` to drive: goto()
     records the requested URL and switches content() to whatever `content_map`
-    has for it (missing -> ''), wait_for_* are no-ops."""
+    has for it (missing -> ''), wait_for_* are no-ops.
 
-    def __init__(self, content_map: dict[str, str]):
+    `final_url_map` (requested url -> landed url) models a server-side redirect:
+    Playwright's real `page.url` reflects the URL the browser actually landed on
+    after following any 3xx, not the one passed to goto(). Omitting it (the
+    default, `None`) leaves `self.url` equal to the requested URL — the existing
+    no-redirect tests are unaffected."""
+
+    def __init__(self, content_map: dict[str, str], final_url_map: dict[str, str] | None = None):
         self.goto_calls: list[str] = []
         self._content_map = content_map
+        self._final_url_map = final_url_map or {}
         self._current = ""
+        self.url = ""
 
     def goto(self, url, timeout=None, wait_until=None):
         self.goto_calls.append(url)
-        self._current = self._content_map.get(url, "")
+        self.url = self._final_url_map.get(url, url)
+        self._current = self._content_map.get(self.url, "")
 
     def wait_for_selector(self, *a, **kw):
         pass
@@ -105,6 +152,11 @@ class _FakePage:
 
     def content(self):
         return self._current
+
+    def route(self, pattern, handler):
+        """No-op: the SSRF route-interceptor registration itself isn't under
+        test here (see the direct _block_unsafe_navigation tests below) — this
+        just lets `fetch()` call `page.route(...)` without erroring."""
 
 
 class _FakeContext:
@@ -212,6 +264,52 @@ def test_browser_fetch_skips_unsafe_detail_url(monkeypatch):
     unsafe = next(p for p in postings if p["job_url"] == "http://169.254.169.254/secret")
     assert "Real description" in safe["description"]
     assert unsafe["description"] == ""
+
+
+def test_browser_fetch_discards_detail_page_that_redirects_to_internal_target(monkeypatch):
+    """A detail href that itself passes `is_safe_public_url` (it's a public URL)
+    but server-side 302s to an internal target (e.g. 169.254.169.254) must not
+    leak the internal response into the posting's description.
+
+    Playwright's own `page.route` interceptor does NOT catch this: per the
+    Playwright docs, the route handler fires only for a navigation's INITIAL
+    URL — a 3xx redirect is followed by Chromium without re-invoking the
+    handler for the Location target. So the only backstop is inspecting
+    `page.url` (the URL actually landed on) AFTER goto() returns, which is
+    what `render()` now does. Before that change this test fails RED: the
+    internal page's body ends up in `description`."""
+    listing_html = (
+        '<div><a class="job" href="https://example.com/job/1">Job One</a></div>'
+    )
+    internal_detail_html = "<div class='jd'>SECRET METADATA</div>"
+    page = _FakePage(
+        content_map={
+            "https://example.com/careers": listing_html,
+            "http://169.254.169.254/secret": internal_detail_html,
+        },
+        final_url_map={
+            # the requested (public, guard-passing) detail URL lands on the
+            # internal target after a server-side redirect Playwright follows
+            # transparently — page.url reflects the LANDED url, not the one
+            # passed to goto().
+            "https://example.com/job/1": "http://169.254.169.254/secret",
+        },
+    )
+    _install_fake_playwright(monkeypatch, page)
+
+    recipe = {
+        **_GUARD_RECIPE_BASE,
+        "page": {"type": "none"},
+        "detail": {"url_field": "job_url", "fields": {"description": ".jd"}},
+    }
+    postings = browser.fetch("slug", "Acme", recipe)
+
+    # the redirect IS followed (goto is called with the public href — this is
+    # the residual single read-only GET, accepted) but its response is discarded.
+    assert page.goto_calls == ["https://example.com/careers", "https://example.com/job/1"]
+    [posting] = postings
+    assert posting["description"] == ""
+    assert "SECRET" not in posting["description"]
 
 
 def test_browser_fetch_raises_on_unsafe_pagination_url(monkeypatch):

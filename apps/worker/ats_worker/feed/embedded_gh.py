@@ -28,7 +28,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 
-from ats_worker.util import is_safe_public_url
+from ats_worker.util import get_redirect_safe, is_safe_public_url
 
 # The greenhouse board token is the `for=` query param on the embed script URL.
 # Anchor to the greenhouse embed path so a stray `<label for="…">` can't match.
@@ -60,7 +60,10 @@ def resolve_embedded(url: str, session: requests.Session | None = None,
     if not is_safe_public_url(url):
         return None  # SSRF guard: never fetch an internal/loopback/non-http(s) target
     http = session or requests
-    resp = http.get(url, timeout=timeout)
+    try:
+        resp = get_redirect_safe(http, url, timeout=timeout)
+    except ValueError:
+        return None  # redirect to an unsafe target / too many hops -> unresolvable
     resp.raise_for_status()
     m = _TOKEN_RE.search(resp.text or "")
     if not m:
