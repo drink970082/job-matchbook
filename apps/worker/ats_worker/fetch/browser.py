@@ -8,8 +8,10 @@ Walled off so the pure-`requests` core never touches Chromium: Playwright is
 lazy-imported INSIDE fetch() and ships as an optional extra
 (requirements-browser.txt); importing this module needs only bs4. The pure
 `parse_jobs` / `apply_detail` are unit-tested against saved HTML fixtures; the
-browser-driving `fetch` glue is not (same as other adapters' network I/O). The
-executor is also gated off the default cycle in run.py (enable_browser_sources).
+`fetch` glue's SSRF guards (detail + pagination URLs) are exercised via a fake
+`sync_playwright` (test_browser.py) with no real Chromium, but the live browser
+I/O itself is not (same as other adapters' network I/O). The executor is also
+gated off the default cycle in run.py (enable_browser_sources).
 """
 from __future__ import annotations
 
@@ -82,7 +84,7 @@ def fetch(slug: str, company_name: str, recipe: dict,
     detail_desc = (detail.get("fields") or {}).get("description")
     detail_wait = detail_desc if isinstance(detail_desc, str) else None
 
-    with sync_playwright() as pw:  # pragma: no cover - browser-driving glue
+    with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True, args=["--disable-blink-features=AutomationControlled"])
         page = browser.new_context(
@@ -110,7 +112,12 @@ def fetch(slug: str, company_name: str, recipe: dict,
             while True:
                 page_url = template.format(n=n)
                 if not is_safe_public_url(page_url):
-                    break  # unsafe paginated url (defense-in-depth; operator-authored) — stop
+                    # Operator-authored pagination template produced an unsafe URL —
+                    # fail loudly like an unsafe recipe.url (pipeline logs + skips the
+                    # board), not a silent break that would return page-1 as success
+                    # and permanently drop pages 2+ on a broken template.
+                    raise ValueError(
+                        f"browser recipe pagination url is not a safe public http(s) URL: {page_url!r}")
                 fresh = [p for p in parse_jobs([render(page_url, item_sel)],
                                                recipe, company_name)
                          if p["external_id"] not in seen]

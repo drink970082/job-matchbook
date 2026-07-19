@@ -79,12 +79,18 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
-- **SSRF guard is a pure check, so DNS-rebinding is out of scope** — `[note · accepted]`.
-  `util.is_safe_public_url` (feed/embedded_gh.py, Task 2.9) rejects `localhost` and private/
-  loopback/link-local/reserved IP *literals* by inspecting the URL alone — it does no DNS
-  lookup, so a public hostname that resolves to an internal IP at fetch time (rebinding)
-  would still pass. Accepted for a single-user worker fetching a curated board list; would
-  need resolve-then-check (and TOCTOU-safe connect) to close for real.
+- **SSRF guard is a pure check, so name/redirect-based internal targets are out of scope** —
+  `[note · accepted]`. `util.is_safe_public_url` (feed/embedded_gh.py, Task 2.9) rejects
+  `localhost` and private/loopback/link-local/reserved IP *literals* by inspecting the URL
+  string alone — it does no DNS lookup and does not follow redirects. So three shapes still
+  pass, all the same root cause: (a) DNS-rebinding (a name public at check time, internal at
+  fetch time); (b) a bare internal hostname that statically resolves internal (e.g.
+  `metadata.google.internal`); (c) a safe-looking public URL that 3xx-redirects to an internal
+  target (`page.goto` follows redirects). The `browser` detail/pagination guards (Task 2.x)
+  inherit exactly this residual — they block the IP-*literal* payload a malicious board would
+  embed, not the hostname/redirect spellings. Accepted for a single-user worker fetching a
+  curated board list with `browser` sources gated off by default; closing any of the three
+  needs the same resolve-then-check (and TOCTOU-safe connect).
 - **Watchlist slug: structural guard only, no host-safety check** — `[note · accepted]`.
   Task 2.11 closed the host-injection SSRF gap by validating slug *structure* (charset +
   no traversal) at both write boundaries (`actions.ts`, `config.py`) — but `phenom`/`workday`

@@ -4,14 +4,17 @@ The browser-driving `fetch` glue is not unit-tested against a live Chromium
 (like other adapters' network I/O); the extraction logic all lives in the pure
 `parse_jobs` / `apply_detail`, tested here against captured Citadel HTML.
 
-The SSRF guards on the scraped detail URL and the pagination URL (`fetch`'s
-`with sync_playwright()` block, `# pragma: no cover` glue) ARE exercised here,
-though, by monkeypatching `playwright.sync_api.sync_playwright` with a stub
-implementing just enough of the Page/BrowserContext/Browser surface for `fetch`
-to drive — no real browser needed.
+The SSRF guards on the scraped detail URL and the pagination URL (inside
+`fetch`'s `with sync_playwright()` block) ARE exercised here, though, by
+registering a fake `playwright.sync_api` in sys.modules (see
+`_install_fake_playwright`) implementing just enough of the
+Page/BrowserContext/Browser surface for `fetch` to drive — no real browser and
+no installed `playwright` needed, so these run in the hermetic suite / CI.
 """
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -150,6 +153,20 @@ class _FakeSyncPlaywright:
         return False
 
 
+def _install_fake_playwright(monkeypatch, page):
+    """Register a fake `playwright.sync_api` in sys.modules so `fetch`'s lazy
+    `from playwright.sync_api import sync_playwright` resolves to the stub —
+    exercising the guards with NO playwright installed (it's an optional extra
+    absent from the hermetic test env / CI worker job). A string-target
+    monkeypatch.setattr would instead `__import__("playwright")` and ERROR."""
+    sync_api = types.ModuleType("playwright.sync_api")
+    sync_api.sync_playwright = lambda: _FakeSyncPlaywright(page)
+    pkg = types.ModuleType("playwright")
+    pkg.sync_api = sync_api
+    monkeypatch.setitem(sys.modules, "playwright", pkg)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+
 _GUARD_RECIPE_BASE = {
     "url": "https://example.com/careers",
     "item": "a.job",
@@ -180,7 +197,7 @@ def test_browser_fetch_skips_unsafe_detail_url(monkeypatch):
         # assertion on goto_calls below catches it regardless of what content()
         # would have returned.
     })
-    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: _FakeSyncPlaywright(page))
+    _install_fake_playwright(monkeypatch, page)
 
     recipe = {
         **_GUARD_RECIPE_BASE,
@@ -197,22 +214,24 @@ def test_browser_fetch_skips_unsafe_detail_url(monkeypatch):
     assert unsafe["description"] == ""
 
 
-def test_browser_fetch_stops_pagination_at_unsafe_url(monkeypatch):
+def test_browser_fetch_raises_on_unsafe_pagination_url(monkeypatch):
     """The pagination template is operator-authored (lower risk than the scraped
-    detail href), but is still guarded defense-in-depth: an unsafe rendered page
-    URL stops pagination rather than being rendered."""
+    detail href), but an unsafe rendered page URL must fail loudly — same as an
+    unsafe recipe.url — not silently return page-1 as success (which would hide a
+    broken template and permanently drop pages 2+). The listing page is rendered
+    first, then the guard raises before the bad page is ever goto()'d."""
     listing_html = '<div><a class="job" href="https://example.com/job/1">Job One</a></div>'
     page = _FakePage({"https://example.com/careers": listing_html})
-    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: _FakeSyncPlaywright(page))
+    _install_fake_playwright(monkeypatch, page)
 
     recipe = {
         **_GUARD_RECIPE_BASE,
         "page": {"type": "url", "template": "http://169.254.169.254/page/{n}", "start": 2},
     }
-    postings = browser.fetch("slug", "Acme", recipe)
+    with pytest.raises(ValueError):
+        browser.fetch("slug", "Acme", recipe)
 
     assert page.goto_calls == ["https://example.com/careers"]  # paginated url never rendered
-    assert len(postings) == 1
 
 
 def test_parse_jobs_extracts_cards():

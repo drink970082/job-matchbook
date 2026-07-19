@@ -380,7 +380,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   by `enable_browser_sources` (default off) — so a normal run stays pure `requests` and never imports
   Chromium. Members: Citadel Securities + Citadel (Cloudflare — list-only in practice, detail
   blocked) and Renaissance (Struts, JS-rendered, detail works). The pure `parse_jobs`/`apply_detail`
-  are fixture-tested; the browser-driving `fetch` is not (like other adapters' network I/O).
+  are fixture-tested, as are `fetch`'s SSRF guards on the scraped detail + pagination URLs (via a
+  fake `sync_playwright`, no Chromium); only the live browser I/O itself is not (like other adapters').
   **Dual-mode (Workday, SmartRecruiters):** the *watchlist* lists the whole board
   (`fetch`), but the *feed* routes them through `fetch_one` so it pulls ONLY the
   surfaced jobs — listing a 1500-job board (N+1 detail-per-job) just to keep the 1-2
