@@ -1137,7 +1137,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Privacy:** resume (`apps/worker/resume/`), secrets (`apps/worker/.env`),
   config (`config.yaml`), and the database (`db/`) are gitignored. The repo ships
   only `*.example` templates; real resume files are untracked, so no extra git
-  steps are needed (see `CONTRIBUTING.md`).
+  steps are needed for *new* work (see `CONTRIBUTING.md`). **Open defect (PROGRESS):**
+  gitignore prevents *future* commits only — `resume.txt` + the real `config.yaml`
+  were committed 2026-06-05 and untracked 2026-06-08, but the blobs remain in the
+  **public** repo's git history and need a history rewrite (or private repo) to purge.
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the failure is recorded on the row and processing continues. The scorer
   returning junk JSON marks that row `failed` rather than crashing. A notify send
@@ -1204,7 +1207,10 @@ automated coverage — those rely on code review or the human in the loop, not a
   container if deploying in a different zone from where you live.
 - **Security:** the RESUME / PERSONAL PROFILE / JOB text is marked as *data, not
   instructions* in the score prompt (a posting can't inject directives); secrets
-  live only in the gitignored `.env`, read by `run.py`.
+  live only in the gitignored `.env`, read by `run.py`. **Open defect (PROGRESS):** a
+  Telegram send error can embed the bot token (carried in the request URL) into an
+  exception string that is persisted to `job_postings.pipeline_error` and logged — so
+  the token can escape `.env` into the shared DB / logs until that path scrubs it.
 
 ---
 

@@ -45,10 +45,61 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-*None open.* (The two 2026-07-17 audit fixes — the notify/web thin-JD divergence and
-`run_score`'s unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects
-(D1 auth · D2 location · D3 seniority · D4 plus-skills · D5 location-leak · D6
-calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
+*Surfaced by the 2026-07-18 full audit (security / dead-code / architecture) —
+none fixed yet; this is the findings log.* (The **prior** defects all shipped: the
+two 2026-07-17 audit fixes — the notify/web thin-JD divergence and `run_score`'s
+unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects (D1 auth · D2
+location · D3 seniority · D4 plus-skills · D5 location-leak · D6 calibration); see
+the [CHANGELOG](../CHANGELOG.md).)
+
+- **Web UI published on `0.0.0.0` with no auth** — `[XS]`. `docker-compose.yml:14`
+  uses `"3000:3000"` (runtime-confirmed `0.0.0.0:3000`), so any LAN peer can reach
+  the 26 unauthenticated server actions and read/wipe/modify all data. Violates the
+  no-network-exposure requirement (no-auth is fine for *localhost* only). Fix:
+  `"127.0.0.1:3000:3000"`.
+- **Real résumé + `config.yaml` are in public git history** — `[S]`.
+  `apps/worker/resume/resume.txt` (real PII) and the real `config.yaml` were
+  committed 2026-06-05 (`8111d39`, moved `20cfe48`) and untracked 2026-06-08
+  (`afede45`), but the blobs remain reachable on `origin/dev` + `origin/master` of
+  the **public** repo. Gitignore stops *future* commits, not the historical blobs.
+  Violates Privacy-first (SPEC §3/§11). Remediation = history rewrite
+  (`git filter-repo`) + force-push + GitHub cache purge, or make the repo private.
+  (No API keys / bot tokens ever hit history — `.env.example` is placeholders only,
+  verified.)
+- **Next.js pinned at 14.2.0 with an applicable CVE** — `[S]`. The lockfile pins
+  exactly `14.2.0` (~25 patches behind); CVE-2024-56332 (server-actions DoS) applies
+  to this server-action-heavy app. Middleware / `next/image` CVEs are N/A (neither
+  feature is used). Bump to the latest 14.2.x.
+- **Telegram bot token can leak into the shared DB + logs** — `[S]`. `notify.py:16,60`
+  carries the token in the request URL; a `requests` error embeds the full URL in the
+  exception text, and `run_notify` writes `str(exc)` into `job_postings.pipeline_error`
+  (rendered by the web Failed bucket) and prints it (`pipeline.py:382`, `db.py:219-230`).
+  Scrub the token from recorded/printed errors.
+- **Status-change notes are silently dropped (data loss)** — `[S]`. The Update-Status
+  form collects `notes` and passes them to `updateApplicationStatus(id, status, date,
+  notes)` (`Dashboard.tsx:188`, `StatusHistoryModal.tsx:200`), but the action never
+  persists them (`actions.ts:490`) and `status_history` has no notes column
+  (`schema.prisma:56-62`). Users type notes that vanish. Fix: add the column, or remove
+  the field (+ the dead param / render branch under Enhancements).
+- **`run_fetch` swallows whole-company failures with no log** — `[XS]`.
+  `pipeline.py:51-52` bare `except Exception: continue`, though the docstring claims
+  "logged-and-skipped"; a dead board or typo'd source is invisible (contrast
+  `run_notify:385`, which prints).
+- **Malformed `recipe` JSON in one watchlist row aborts the entire pass** — `[XS]`.
+  `db.get_watchlist`'s comprehension `json.loads(r["recipe"])` (`db.py:83`,
+  `run.py:139`) runs before any per-company isolation, violating the "one bad row
+  never aborts the batch" invariant (SPEC §9).
+- **CI runs only on `master`; `dev` pushes are ungated** — `[XS]`. `ci.yml:3-8`
+  triggers on `push:[master]`, but all development lands on long-lived `dev` (master
+  stays far behind by design), so routine commits get zero CI and the gated e2e job
+  effectively never fires. Add `dev` to the push trigger. (Ties into
+  [[branch-integration-pattern]].)
+- **`SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH` / `CODEX_*` in `.env` are silently
+  ignored** — `[XS]`. argparse reads these from `os.environ` only (`run.py:295-317`),
+  but `load_env()`'s dict is never merged into `os.environ`, while `.env.example:3-8`
+  documents `SCORE_BACKEND=codex` as a `.env` key.
+- **Toaster hardcoded `theme="dark"`** — `[XS]`. `layout.tsx:29`; toasts stay dark
+  when the system theme flips light (ThemeProvider is `enableSystem`).
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
@@ -73,6 +124,52 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
   *destructive* change (drop/rename a column) has no backfill or rollback and can lose
   retained `applications` / `status_history` data. Back up `db/applications.db` before
   schema changes. (SPEC §8.)
+- **SSRF — feed resolver fetches arbitrary third-party URLs** — `[M]`. `resolve_embedded`
+  does `http.get(url)` verbatim on any Simplify-feed listing whose host carries `?gh_jid=`
+  (`embedded_gh.py:59`, `resolve.py:168-171`, `run.py:170`), so a malicious listing pointing
+  at `169.254.169.254` or the host Ollama gets fetched. No scheme / host allowlist.
+- **SSRF — watchlist `slug` interpolated into the URL authority** — `[S]`. `icims.py:20`,
+  `pinpoint.py:15`, `phenom.py:63`, `oracle.py:24`, `workday.py:19` build
+  `f"https://{slug}..."` with no validation (`db.get_watchlist` returns rows as-is; web
+  `actions.ts` accepts any slug string), so a hostile/typo'd row redirects worker requests
+  to an arbitrary host.
+- **SSRF — recipe `url` from the DB fetched / driven with no allowlist** — `[S]`.
+  `custom.py:82` (`_request(..., recipe["url"])`) and `browser.py:89,103` (`page.goto(url)`);
+  the browser path is at least gated behind `enable_browser_sources` (default off).
+- **`javascript:` URL execution via scraped `job_url`** — `[XS]`. Rendered straight into
+  `<a href>` with no scheme allowlist (`DiscoveredJobsTable.tsx:433`, `JobDetailModal.tsx:298`);
+  React only console-warns and still renders it.
+- **`_capture_usage` deletes a codex rollout picked by mtime** — `[S]`. A concurrent
+  interactive codex session's rollout can be read as the quota snapshot and then `os.remove`d
+  (`score.py:855-930`); the docstring's "assumes sequential scoring" can't hold for *other*
+  codex uses on the host.
+- **Usage capture leaves résumé text on disk on failure** — `[S]`. With capture on,
+  `--ephemeral` is dropped so the full prompt (résumé + profile + JD) is written to
+  `~/.codex/sessions`; only the single newest rollout is deleted, so a capture failure leaves
+  résumé text behind (`score.py:890-930`).
+- **`autoheal` holds the Docker socket, tag-pinned** — `[note · accepted]`.
+  `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
+  `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
+  component in the stack. Deliberate + documented; noted, not actioned.
+- **Health endpoint echoes raw `err.message`** — `[XS]`. `route.ts:18-21` returns container
+  paths / Prisma internals on 503 to any caller (compounded by the `0.0.0.0` bind above).
+- **CSV formula injection** — `[XS]`. `csvEscape` handles quotes / commas / newlines but not a
+  leading `= + - @` (`actions.ts:730-737`); scraped company / job names are emitted verbatim
+  into a file opened in Excel / Sheets.
+- **`$queryRawUnsafe` with interpolated `WATCHLIST_SOURCES`** — `[XS]`.
+  `promotion-actions.ts:30,53`; the only non-parameterized query in the app — safe only while
+  `VALID_SOURCES` stays a compile-time constant (turns into injection the day the list is dynamic).
+- **`db._update` builds the SET clause by f-string key interpolation** — `[XS]`.
+  `db.py:181-184`; safe while all three call-sites pass literal keys, but an injection-shaped
+  seam.
+- **Unvalidated server-action inputs** — `[XS]`. `addApplication` writes `data.status` ungated
+  (`actions.ts:447`, inconsistent with the STATUSES check elsewhere); `updateApplicationDetails`
+  validates nothing (`actions.ts:460-488` — category is a free-text Input, drifts past
+  CATEGORIES); `page` / `size` are unbounded (`actions.ts:7-15,203-215`).
+- **No security headers** — `[XS]`. `next.config.mjs:2` sets only `output:'standalone'` (no CSP
+  / X-Frame-Options / etc.).
+- **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
+  tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 
 ### Enhancements — not built, optional
 
@@ -196,6 +293,83 @@ calibration) all shipped; see the [CHANGELOG](../CHANGELOG.md).)
     alongside `check_schema_drift` is a cheap future option.
   - *Skip:* LaTeX/CV gen, `/setup`·`/interview`·`/upskill`, salary tool, `/html-report`, the
     no-DB architecture — out of scope or already done better here.
+
+#### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
+
+- **`.playwright-mcp/` — untracked, not gitignored** — `[XS]`. ~30 Playwright-MCP session
+  artifacts at repo root, one `git add -A` from being committed; add to `.gitignore`.
+- **`scrape_board.txt` — untracked scratch, not gitignored** — `[XS]`. Board-onboard checklist
+  a committed spec references; decide gitignore vs fold into docs.
+- **`score_posting` — production-dead (42 ln)** — `[XS]`. `score.py:345-386`; `run.py` imports
+  only `screen_posting` / `make_*_scorer` and `pipeline.run_score` composes its own — only
+  `test_score.py` calls it (deleting it drops ~600 test lines too).
+- **Worker `Dockerfile` — orphaned (25 ln)** — `[XS]`. De-containerized 2026-07-16; nothing
+  builds it (SPEC §6 already says so).
+- **`threshold` config key — parsed / validated / documented, never read** — `[XS]`.
+  `config.py:31,101,150`, `config.yaml.example:97`; notify gates on the verdict predicate, not
+  this — the example doc line actively misleads.
+- **`get_by_status` `min_score` / `limit` kwargs — test-only** — `[XS]`. `db.py:145-156`.
+- **`simplify.SOURCE` unused** — `[XS]`. `simplify.py:15`.
+- **`_flag` `"remote"` token — leftover from the removed LLM location check** — `[XS]`.
+  `score.py:738`.
+- **Web: `updateApplicationStatus` `notes` param + `StatusHistoryModal` notes branch — dead** —
+  `[XS]`. `actions.ts:490`, `StatusHistoryModal.tsx:34,182` (ties to the notes data-loss defect).
+- **`SankeyChart.getNodeColumn` `allNodes` param unused** — `[XS]`. `SankeyChart.tsx:63,105`.
+- **`tools/seed_db.mjs` — invoked by nothing** — `[XS]`. Make / e2e / CI all use other seeders.
+- **`package.json` `test:all` script — referenced nowhere** — `[XS]`. `package.json:12`.
+- **`.gitignore` stale entries** — `[XS]`. `logs/`, `screenshots/`, `.cursor`, `*.tar` match
+  nothing.
+- **Stale doc lines** — `[XS]`. `.env.example` `extra_hosts` note + `OLLAMA_HOST` default;
+  `ci.yml:49-51` requirements-dev comment; `CLAUDE.md` + `SPEC.md` "host.docker.internal" for the
+  now-native worker.
+- *Keep (NOT dead):* `POSTING_FIELDS` (`util.py:10-19`) is the live adapter-contract assertion in
+  12 test files; `CodexUsageBar` / `Pagination` test-only exports are used internally.
+
+#### Architecture / maintainability (2026-07-18 audit)
+
+- **Cross-service drift with no guard** — `[M]`. `VALID_SOURCES` / `RECIPE_SOURCES`
+  (`config.py:23-29` vs `fetch/__init__.py:11-33` vs web `constants.ts:35-52`), the
+  `pipeline_status` string literals (scattered across worker + web), and the notify / low-context
+  predicate (200-char + verdict JSON, `db.py:159-176` vs `actions.ts:171-198`) are all
+  hand-duplicated with "must match" comments but no drift test — unlike the schema, which has two.
+- **Schema-drift guard duplicated in two languages, names-only** — `[S]`.
+  `check_schema_drift.mjs` is a line-by-line port of `test_schema_sync.py` (CI runs both), and
+  both compare column *names* only — a type / nullability / default / index mismatch passes clean.
+- **Web Prisma client sets no `busy_timeout`** — `[S]`. `db.ts:7`; the worker sets 5000 ms
+  (`db.py:26`), so worker write locks can surface as unretried `SQLITE_BUSY` toasts.
+- **`status_history.application_id` missing index** — `[XS]`. `schema.prisma:56-62`; queried
+  per-application, and SQLite doesn't auto-index FK columns (`job_postings` got an index, this
+  didn't).
+- **`applications` missing `@@unique(company_name, job_title)`** — `[S]`. Three paths dedupe on
+  that pair via findFirst-then-create (`addApplication:427` is non-transactional → TOCTOU;
+  `markJobApplied:369`, `importApplicationsCSV:856`).
+- **`score.py` god-module (1089 ln)** — `[M]`. Six concerns; cleanest extraction seams are the
+  codex quota telemetry (`820-930`) and the ~200-line location gazetteer (`559-739`).
+- **Feed board-fetch failure drops surfaced ids silently** — `[S]`. `pipeline.py:110-111`; a
+  failed board-source listing fetch `_safe_call`s to `[]` with no `feed_unresolved` record (only
+  detail sources record failures).
+- **Non-transactional multi-step writes** — `[S]`. `deleteHistoryItem` (delete→read→update,
+  `actions.ts:584-617`) and `importApplicationsCSV` (per-row findFirst+create, no transaction, no
+  intra-file dedupe, `actions.ts:838-882`) can leave partial / inconsistent state.
+- **`Dashboard.tsx` 720-line god client component** — `[M]`. All state + 25 handlers for four
+  tabs; every mutation calls `refreshData()` = 4 full-table findMany + in-JS aggregation.
+- **Duplicated parse / verdict helpers** — `[XS]`. `verdictClass` / score_detail JSON parsing in
+  both `JobDetailModal.tsx:57-110` and `DiscoveredJobsTable.tsx:104-154`.
+- **Three near-identical list→detail adapter loops** — `[S]`. `workday` / `smartrecruiters` /
+  `phenom` share loop structure + boilerplate that belongs beside `_recipe.py`.
+- **DI defaults make "pure" worker modules network-capable** — `[S]`. Real callables bound as
+  module-level defaults (`pipeline.py:34,114-119`, `score.py:263`) instead of wired only in
+  `run.py`.
+- **`removeAllInView` bucket-`where` mismatch (latent)** — `[XS]`. `actions.ts:323-350` omits the
+  low-context exclusion; harmless only because the button shows on the Discarded bucket alone.
+- **UID/GID default mismatch** — `[XS]`. compose `${UID:-1000}` vs Dockerfile ARG default `1001`;
+  bare `docker compose up` also falls back to 1000 (shells don't export `UID`).
+- **`add_watched.py` `DEFAULT_DB` points at a gitignored symlink** — `[XS]`. Should target
+  `db/applications.db` directly.
+- **`requirements-dev.txt` duplicates base pins** — `[XS]`. No include mechanism, can drift from
+  `requirements.txt`.
+- **Nightly cron re-runs web + worker jobs** — `[XS]`. `ci.yml:7-8`; its stated purpose is only
+  the gated e2e job.
 
 ---
 
