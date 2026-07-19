@@ -75,11 +75,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   *destructive* change (drop/rename a column) has no backfill or rollback and can lose
   retained `applications` / `status_history` data. Back up `db/applications.db` before
   schema changes. (SPEC §8.)
-- **SSRF — watchlist `slug` interpolated into the URL authority** — `[S]`. `icims.py:20`,
-  `pinpoint.py:15`, `phenom.py:63`, `oracle.py:24`, `workday.py:19` build
-  `f"https://{slug}..."` with no validation (`db.get_watchlist` returns rows as-is; web
-  `actions.ts` accepts any slug string), so a hostile/typo'd row redirects worker requests
-  to an arbitrary host.
 - **`_capture_usage` deletes a codex rollout picked by mtime** — `[S]`. A concurrent
   interactive codex session's rollout can be read as the quota snapshot and then `os.remove`d
   (`score.py:855-930`); the docstring's "assumes sequential scoring" can't hold for *other*
@@ -98,6 +93,13 @@ the [CHANGELOG](../CHANGELOG.md).)
   lookup, so a public hostname that resolves to an internal IP at fetch time (rebinding)
   would still pass. Accepted for a single-user worker fetching a curated board list; would
   need resolve-then-check (and TOCTOU-safe connect) to close for real.
+- **Watchlist slug: structural guard only, no host-safety check** — `[note · accepted]`.
+  Task 2.11 closed the host-injection SSRF gap by validating slug *structure* (charset +
+  no traversal) at both write boundaries (`actions.ts`, `config.py`) — but `phenom`/`workday`
+  pack a hostname as the slug's first segment, so `"169.254.169.254/domain"` still passes the
+  structural guard. Watchlist rows are operator-authored (single user), so this internal-IP-host
+  case is accepted; closable later by calling `is_safe_public_url` on the built host inside
+  `phenom._parts`/`workday._parts`.
 - **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
   tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 

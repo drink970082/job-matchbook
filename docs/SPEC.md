@@ -292,7 +292,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
   are intentionally excluded); a `RECIPE_SOURCES` row (`custom`, `browser`) must carry a `recipe`
-  mapping (else a startup `ConfigError`). Exposes `companies` (each with an optional
+  mapping (else a startup `ConfigError`). Each company's `slug` is checked by `_valid_slug`
+  against the same charset rule as the web boundary — `[A-Za-z0-9._/-]`, no `..`, no
+  leading/trailing/doubled `/` — since the worker interpolates it straight into a fetch
+  URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
   `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
   `title_filter`, `candidate` (with `is_empty()`), `feeds`, `threshold` (parsed,
   but **inert** — notify no longer gates on it; see §9), `schedule_hours`. Bad
@@ -655,7 +658,11 @@ worker modules are pure and dependency-injected; real services are wired only in
     (category chosen at apply time, validated against `CATEGORIES`, default `Others`).
     Bucket definitions and `removed` semantics in §9.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
-    `source ∈ VALID_SOURCES`, dedups `(source, slug)`), `removeWatchedCompany`.
+    `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
+    `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
+    interpolated into a fetch URL host/path by the worker, so this blocks
+    host-injection metacharacters while still allowing multi-part slugs like
+    workday's `tenant/dc/site`), `removeWatchedCompany`.
   - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
     `lib/unresolved-actions.ts`, not `actions.ts`): `getPromotionSuggestions` (raw-SQL
     aggregate over `job_postings` by `(source, company_slug)`, watchlist-capable sources

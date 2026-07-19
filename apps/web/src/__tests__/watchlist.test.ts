@@ -70,6 +70,19 @@ describe('Watchlist actions', () => {
       expect(result.success).toBe(false)
       expect(mockPrisma.watched_companies.create).not.toHaveBeenCalled()
     })
+
+    it('rejects a slug with host-injection metacharacters', async () => {
+      const r = await addWatchedCompany({ source: 'greenhouse', slug: 'a@evil.com', name: 'X' })
+      expect(r.success).toBe(false)
+      expect(mockPrisma.watched_companies.create).not.toHaveBeenCalled()
+    })
+
+    it('accepts a legit multi-part slug', async () => {
+      mockPrisma.watched_companies.findFirst.mockResolvedValue(null)
+      mockPrisma.watched_companies.create.mockResolvedValue({ id: 1 } as any)
+      const r = await addWatchedCompany({ source: 'workday', slug: 'relx/wd3/relx', name: 'RELX' })
+      expect(r.success).toBe(true)
+    })
   })
 
   describe('removeWatchedCompany', () => {

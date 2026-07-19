@@ -716,6 +716,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   edited via `updateApplicationDetails`, are unaffected.)
 
 ### Security
+- **Validate watchlist slug structure at the web + config write boundaries.** Both
+  `addWatchedCompany` (web) and `_parse_companies` (worker `config.py`) now reject a
+  `slug` outside `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the
+  slug is interpolated straight into a fetch URL host/path by the board adapters, so this
+  blocks host-injection metacharacters (`@ : ? # % \` and whitespace) while still allowing
+  legitimate multi-part slugs (workday `tenant/dc/site`, phenom `host/domain`).
 - **CSV export prefixes formula-lead cells (= + - @) with `'` to block spreadsheet formula injection.** Cells whose first character is a character a spreadsheet may treat as a formula lead are now prefixed with a single quote before quote-wrapping, so Excel and Sheets render them as literal text instead of executing formulas.
 - **Web UI is published on loopback only (`127.0.0.1:3000`).** The Compose port bind
   was `0.0.0.0:3000`, exposing the unauthenticated server actions to any LAN peer;

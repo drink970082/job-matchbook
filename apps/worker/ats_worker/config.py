@@ -11,6 +11,7 @@ can pass tiny inline documents without touching the filesystem.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 import yaml
@@ -40,6 +41,18 @@ DEFAULT_FEED_CATEGORIES = ("Software", "AI/ML/Data", "Quant")
 
 class ConfigError(ValueError):
     """Raised when the config is structurally invalid (bad source, missing field)."""
+
+
+# Slug is interpolated into a fetch URL host/path by the board adapters (e.g.
+# f"https://{slug}.icims.com"). Allow alnum . _ - and single '/'-joined segments
+# (workday "tenant/dc/site", phenom "host/domain"); block host-injection
+# metacharacters (@ : ? # % \ whitespace) and path traversal.
+_SLUG_RE = re.compile(r"^[A-Za-z0-9._/-]+\Z")
+
+
+def _valid_slug(slug: str) -> bool:
+    return (bool(_SLUG_RE.match(slug)) and ".." not in slug
+            and not slug.startswith("/") and not slug.endswith("/") and "//" not in slug)
 
 
 @dataclass(frozen=True)
@@ -179,6 +192,9 @@ def _parse_companies(raw) -> list[Company]:
                 f"companies[{i}] has unknown source {source!r}; "
                 f"must be one of {VALID_SOURCES}"
             )
+        slug = str(c["slug"])
+        if not _valid_slug(slug):
+            raise ConfigError(f"companies[{i}] slug {slug!r} has invalid characters")
         recipe = c.get("recipe")
         if recipe is not None and not isinstance(recipe, dict):
             raise ConfigError(f"companies[{i}] `recipe` must be a mapping")
@@ -186,7 +202,7 @@ def _parse_companies(raw) -> list[Company]:
             raise ConfigError(
                 f"companies[{i}] source {source!r} requires a `recipe` mapping"
             )
-        out.append(Company(source=source, slug=str(c["slug"]),
+        out.append(Company(source=source, slug=slug,
                            name=str(c["name"]), recipe=recipe))
     return out
 

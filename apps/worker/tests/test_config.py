@@ -85,6 +85,28 @@ def test_missing_company_fields_raise():
         config.load_config(bad)
 
 
+def test_rejects_slug_with_bad_chars():
+    with pytest.raises(config.ConfigError):
+        config.load_config("companies:\n  - {source: greenhouse, slug: 'a b', name: X}")
+
+
+def test_allows_multipart_slug():
+    cfg = config.load_config("companies:\n  - {source: workday, slug: 't/wd3/site', name: X}")
+    assert cfg.companies[0].slug == "t/wd3/site"
+
+
+def test_rejects_slug_with_trailing_newline():
+    # Python's `re` `$` matches just before a trailing "\n", but JS `$` (no `m`
+    # flag) does not — so a bare `$`-anchored pattern would accept this slug on
+    # the worker side while the web guard rejects it. `_SLUG_RE` uses `\Z` (no
+    # trailing-newline exception) so both boundaries agree.
+    with pytest.raises(config.ConfigError):
+        config.load_config(
+            "companies:\n  - {source: workday, slug: \"relx/wd3/relx\\n\", name: X}"
+        )
+    assert config._valid_slug("relx/wd3/relx\n") is False
+
+
 def test_candidate_defaults_empty_when_absent():
     cfg = config.load_config("companies: []\n")
     assert cfg.candidate.locations == []
