@@ -31,3 +31,7 @@ apps/worker/eval/
 # themselves, ignore the per-run workspace outputs and the scheduler lock.
 .claude/scheduled_tasks.lock
 .claude/skills/*-workspace/
+
+# Untracked local scratch/debris — never commit (2026-07-18 audit).
+.playwright-mcp/
+scrape_board.txt

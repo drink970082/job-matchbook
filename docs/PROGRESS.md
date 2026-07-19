@@ -296,10 +296,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`.playwright-mcp/` — untracked, not gitignored** — `[XS]`. ~30 Playwright-MCP session
-  artifacts at repo root, one `git add -A` from being committed; add to `.gitignore`.
-- **`scrape_board.txt` — untracked scratch, not gitignored** — `[XS]`. Board-onboard checklist
-  a committed spec references; decide gitignore vs fold into docs.
 - **`score_posting` — production-dead (42 ln)** — `[XS]`. `score.py:345-386`; `run.py` imports
   only `screen_posting` / `make_*_scorer` and `pipeline.run_score` composes its own — only
   `test_score.py` calls it (deleting it drops ~600 test lines too).
