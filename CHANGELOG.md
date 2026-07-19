@@ -106,6 +106,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `db.get_watchlist` decoded every row's `recipe` JSON in a comprehension before any
   per-company isolation, so one corrupt row raised through the entire read (fetching
   nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
+- **Feed board-source fetch failures are recorded (`feed_unresolved`) instead of silently
+  dropping surfaced ids.**
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

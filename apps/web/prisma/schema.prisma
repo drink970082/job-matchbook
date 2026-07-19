@@ -89,7 +89,7 @@ model feed_unresolved {
   company_name String
   job_title    String
   host         String // parsed hostname, for prioritising (e.g. myworkdayjobs.com)
-  reason       String // workday_deferred | embedded_greenhouse | unsupported_host
+  reason       String // workday_deferred | embedded_greenhouse | unsupported_host | list_fetch_failed | detail_fetch_failed
   created_at   String
   updated_at   String?
 

@@ -107,8 +107,12 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
         # workday): fetch each surfaced id directly — external_id is exactly what we
         # fetched, so no keep-filter; _detail_fetch isolates per id.
         return _detail_fetch(detail_fetch_fn, source, slug, missing, name)
-    # Board source: list the whole board, keep only the feed-surfaced ids.
-    postings = _safe_call(fetch_fn, source, slug, name) or []
+    # Board source: list the whole board, keep only the feed-surfaced ids. A raise
+    # (None) is a real failure — return the surfaced ids as failed so run_feed
+    # records them, rather than silently dropping the feed-surfaced postings.
+    postings = _safe_call(fetch_fn, source, slug, name)
+    if postings is None:
+        return [], list(missing)
     return [p for p in postings if p.get("external_id") in missing], []
 
 
@@ -210,7 +214,9 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
                 conn, feed=feed_name, url=m["url"],
                 company_name=m["company_name"], job_title=m["job_title"],
                 host=(urlparse(m["url"]).hostname or ""),
-                reason="detail_fetch_failed", now=now)
+                reason=("detail_fetch_failed" if source in detail_sources
+                        else "list_fetch_failed"),
+                now=now)
         # A detail source that resolved ids but kept NONE = the scraper likely broke
         # (a genuinely-empty board never reaches here — missing is non-empty).
         if source in detail_sources and not keep:

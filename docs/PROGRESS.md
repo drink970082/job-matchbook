@@ -239,9 +239,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   `markJobApplied:369`, `importApplicationsCSV:856`).
 - **`score.py` god-module (1089 ln)** — `[M]`. Six concerns; cleanest extraction seams are the
   codex quota telemetry (`820-930`) and the ~200-line location gazetteer (`559-739`).
-- **Feed board-fetch failure drops surfaced ids silently** — `[S]`. `pipeline.py:110-111`; a
-  failed board-source listing fetch `_safe_call`s to `[]` with no `feed_unresolved` record (only
-  detail sources record failures).
 - **Non-transactional multi-step writes** — `[S]`. `deleteHistoryItem` (delete→read→update,
   `actions.ts:584-617`) and `importApplicationsCSV` (per-row findFirst+create, no transaction, no
   intra-file dedupe, `actions.ts:838-882`) can leave partial / inconsistent state.

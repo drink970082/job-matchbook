@@ -602,7 +602,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
   board via the existing adapter and keep **only** the surfaced ids (exact
-  `external_id` membership); **detail sources** (`fetch.DETAIL_SOURCES` — oracle,
+  `external_id` membership) — a **raising** list fetch is a real failure, not a
+  genuinely-empty board, so every surfaced id for that group is recorded rather than
+  silently dropped; **detail sources** (`fetch.DETAIL_SOURCES` — oracle,
   jobvite, plus the per-job feed routes for smartrecruiters/workday) fetch each
   surfaced id directly via `fetch_one_company` (per-id try/except, so one bad listing
   is skipped). The network work runs **concurrently** (a `ThreadPoolExecutor`; the
@@ -612,9 +614,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   and a shorter timeout. A fetched posting is **validated** (`_valid_posting`:
   non-empty `external_id` + `job_title` + `description`) before it counts — an empty JD
   means a scrape silently lost the body, the main way an HTML/JS scraper breaks without
-  raising. Any failed id (raise / `None` / invalid) is recorded in `feed_unresolved`
-  (`reason="detail_fetch_failed"`, host from the listing URL) so a broken scraper
-  surfaces on the unresolved board instead of vanishing; a source that resolves ids but
+  raising. Any failed id (board raise / detail raise / `None` / invalid) is recorded in
+  `feed_unresolved` — `reason="list_fetch_failed"` for a per-board source's raising list
+  fetch, `reason="detail_fetch_failed"` for a detail source's per-id failure (host from
+  the listing URL) — so a broken scraper or a down board surfaces on the unresolved
+  board instead of vanishing; a detail source that resolves ids but
   keeps **none** also prints a one-line collapse warning. Each kept posting is stamped
   with its `company_slug`.
   `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
@@ -788,7 +792,7 @@ model feed_unresolved {          // feed listings not resolvable to a board (bac
   company_name String
   job_title    String
   host         String  // parsed hostname, for prioritising
-  reason       String  // workday_deferred | embedded_greenhouse | unsupported_host
+  reason       String  // workday_deferred | embedded_greenhouse | unsupported_host | list_fetch_failed | detail_fetch_failed
   created_at   String
   updated_at   String?
   @@unique([url])                // upsert key — no pile-up across passes
@@ -888,7 +892,10 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   survivors are grouped by `(source, slug)`, ids already present are skipped, and the
   board is fetched with the existing adapter keeping **only** the surfaced postings
   (a feed company is never ingested in full like a watchlist company). Each kept
-  posting is stamped with its resolved `company_slug`.
+  posting is stamped with its resolved `company_slug`. A **raising** board list-fetch
+  is distinguished from a genuinely-empty board: the raise records every id that group's
+  feed listings surfaced into `feed_unresolved` (`reason="list_fetch_failed"`) instead of
+  silently dropping them — mirrors the detail-source failure recording below.
 - **Unresolvable listings are recorded, not dropped.** A URL the resolver can't map
   to a supported board+slug (an *unparseable* workday URL, embedded greenhouse,
   unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on

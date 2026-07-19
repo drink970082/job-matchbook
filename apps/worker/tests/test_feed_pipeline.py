@@ -147,6 +147,12 @@ def test_run_feed_isolates_a_failing_board(db_path):
     rows = db.get_by_status(conn, "new")
     assert {r["source"] for r in rows} == {"ashby", "lever", "smartrecruiters", "workday"}
 
+    # greenhouse's list fetch RAISED: its surfaced id is recorded, not dropped.
+    n = conn.execute(
+        "SELECT COUNT(*) FROM feed_unresolved WHERE reason='list_fetch_failed'"
+    ).fetchone()[0]
+    assert n == 1
+
 
 def test_run_feed_record_unresolved_upserts_on_repeat(db_path):
     conn = db.connect(db_path)
