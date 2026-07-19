@@ -34,7 +34,7 @@ import { DiscoveredJobsTable } from './DiscoveredJobsTable'
 import { CodexUsageBar } from './CodexUsageBar'
 import { WatchlistTable } from './WatchlistTable'
 import { PromotionSuggestions } from './PromotionSuggestions'
-import { UnresolvedFeedsTable } from './UnresolvedFeedsTable'
+import { UnresolvedTab } from './UnresolvedTab'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
@@ -591,18 +591,7 @@ export function Dashboard({
                     </Card>
                 </div>
             ) : activeTab === 'unresolved' ? (
-                <Card>
-                    <CardHeader className="pb-3">
-                        <CardTitle className="text-lg">Unresolved feed listings</CardTitle>
-                        <p className="text-sm text-muted-foreground">
-                            Feed listings whose apply URL couldn&apos;t be mapped to a supported
-                            board — the backlog for expanding feed coverage.
-                        </p>
-                    </CardHeader>
-                    <CardContent>
-                        <UnresolvedFeedsTable data={unresolved} />
-                    </CardContent>
-                </Card>
+                <UnresolvedTab data={unresolved} />
             ) : (
             <>
             {/* Form (4) + Table (8) side by side */}
