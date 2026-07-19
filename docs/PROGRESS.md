@@ -248,9 +248,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   both `JobDetailModal.tsx:57-110` and `DiscoveredJobsTable.tsx:104-154`.
 - **Three near-identical list→detail adapter loops** — `[S]`. `workday` / `smartrecruiters` /
   `phenom` share loop structure + boilerplate that belongs beside `_recipe.py`.
-- **DI defaults make "pure" worker modules network-capable** — `[S]`. Real callables bound as
-  module-level defaults (`pipeline.py:34,114-119`, `score.py:263`) instead of wired only in
-  `run.py`.
 - **`removeAllInView` bucket-`where` mismatch (latent)** — `[XS]`. `actions.ts:323-350` omits the
   low-context exclusion; harmless only because the button shows on the Discarded bucket alone.
 - **UID/GID default mismatch** — `[XS]`. compose `${UID:-1000}` vs Dockerfile ARG default `1001`;

@@ -118,6 +118,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `test:all` npm script, and 4 stale `.gitignore` entries.
 
 ### Changed
+- Worker pure modules no longer bind real network callables as defaults (wired only in run.py).
 - **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
   The old one-line domain prompt ("is their background in this role's domain?") had no
   criteria for `adjacent`, so the verdict was a vibe that drifted (a coin-flip on the

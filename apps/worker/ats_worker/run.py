@@ -149,7 +149,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                       f"(enable_browser_sources is off): {names}")
             companies = [c for c in companies if c["source"] != "browser"]
 
-        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now)
+        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now, fetch_fn=fetch_company)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs
         # before scoring so feed-discovered 'new' rows are scored this same pass.
@@ -191,6 +191,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         def screen_fn(posting):
             return screen_posting(
                 posting,
+                http=requests,
                 model=ollama_model,
                 ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
                 candidate=candidate,

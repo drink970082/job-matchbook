@@ -285,7 +285,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
-  secrets/external services.
+  secrets/external services — and the only place the real network callables are
+  bound: `pipeline.run_fetch`/`run_feed`'s `fetch_fn`/`detail_fetch_fn` and
+  `score.screen_posting`'s `http` all default to `None` in their pure modules
+  (a pure worker module must never bind a real network callable as its own
+  default), and `run.py` supplies `fetch_company`, `fetch_one_company`, and
+  `http=requests` explicitly at each call site.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite

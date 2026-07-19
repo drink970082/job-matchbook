@@ -24,14 +24,14 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import db, score
-from .fetch import DETAIL_SOURCES, fetch_company, fetch_one_company, filter_postings
+from .fetch import DETAIL_SOURCES, filter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 
 
 # --- fetch ----------------------------------------------------------------
 
-def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> int:
+def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None) -> int:
     """Fetch every company, title-filter, and upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
@@ -118,8 +118,8 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
 
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
-             classify_fn=_resolve.classify_reason, fetch_fn=fetch_company,
-             detail_fetch_fn=fetch_one_company, detail_sources=DETAIL_SOURCES,
+             classify_fn=_resolve.classify_reason, fetch_fn=None,
+             detail_fetch_fn=None, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved,
              resolve_embedded_fn=None, max_workers: int = 12) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to

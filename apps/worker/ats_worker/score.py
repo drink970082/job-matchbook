@@ -22,8 +22,9 @@ UP TO TWO calls per posting, from two different backends, SCREEN-gated:
 The screen call has no résumé so it can't anchor on where the candidate lives, and
 its output is small (no truncation).
 
-`http` is injected (defaults to `requests`) so tests exercise the SCREEN call's
-parsing with a fake transport and zero network. Ollama wraps output in
+`http` is injected (defaults to `None`; the real `requests` module is bound only
+in run.py) so tests exercise the SCREEN call's parsing with a fake transport and
+zero network. Ollama wraps output in
 {"response": "<json string>"} under format=json; we parse that inner string
 defensively and raise ScoreError on anything unusable so the pipeline can mark one
 posting failed, not abort the batch.
@@ -37,7 +38,6 @@ import subprocess
 import tempfile
 
 import pycountry
-import requests
 
 from ats_worker.prompts import (
     SCORE_C_AUTHORIZATION,
@@ -261,7 +261,7 @@ def _candidate_block(candidate) -> str:
 def screen_posting(
     posting: dict,
     *,
-    http=requests,
+    http=None,
     ollama_host: str,
     model: str | None = None,
     candidate: dict | None = None,

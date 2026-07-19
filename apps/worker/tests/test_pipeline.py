@@ -81,6 +81,12 @@ def test_run_fetch_logs_the_skipped_company(db_path, capsys):
     assert "greenhouse/bad" in out and "boom" in out
 
 
+def test_run_fetch_requires_injected_fetch_fn():
+    # fetch_fn defaults to None: the real adapter is wired only in run.py.
+    import inspect
+    assert inspect.signature(pipeline.run_fetch).parameters["fetch_fn"].default is None
+
+
 # --- run_score ------------------------------------------------------------
 
 def test_run_score_only_new_and_one_failure_isolated(db_path):
