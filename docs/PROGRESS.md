@@ -92,8 +92,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   structural guard. Watchlist rows are operator-authored (single user), so this internal-IP-host
   case is accepted; closable later by calling `is_safe_public_url` on the built host inside
   `phenom._parts`/`workday._parts`.
-- **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
-  tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 
 ### Enhancements — not built, optional
 

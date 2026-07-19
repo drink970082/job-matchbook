@@ -774,6 +774,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   call + exit-code check + result read, so the résumé-bearing rollout (written because
   capturing drops `--ephemeral`) is reaped even when the exec fails, instead of leaking
   the full résumé+profile+JD prompt onto disk.
+- **Pin CI actions and the web Docker base image by SHA digest.** All 10 `uses:` steps
+  in `.github/workflows/ci.yml` (`checkout`, `setup-node`, `setup-python`, `cache`,
+  `upload-artifact`) and `apps/web/Dockerfile`'s `FROM node:20-alpine` now resolve to an
+  immutable commit/image digest (with a `# vN` / image-tag comment so renovate/dependabot
+  can still bump them), closing the floating-tag supply-chain gap tracked in PROGRESS.
 
 ## [0.2.0] — 2026-06-08
 
