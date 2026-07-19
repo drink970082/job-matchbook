@@ -41,3 +41,12 @@ def test_missing_gh_jid_returns_none_without_fetching():
     assert embedded_gh.resolve_embedded(
         "https://x.com/careers", session=sess) is None
     assert sess.calls == []  # no fetch when there's nothing to resolve
+
+
+def test_refuses_internal_target_without_fetching():
+    # SSRF guard: an internal/loopback target must never be fetched, even
+    # though it carries a resolvable gh_jid.
+    sess = FakeSession(text=_WITH_TOKEN)
+    assert embedded_gh.resolve_embedded(
+        "http://169.254.169.254/careers?gh_jid=1", session=sess) is None
+    assert sess.calls == []  # blocked before any HTTP GET

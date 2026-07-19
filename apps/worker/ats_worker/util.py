@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import re
+import socket
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 # Canonical fields every adapter must produce. Aligned with the Prisma
 # job_postings model (worker writes a subset; scoring fills the rest).
@@ -59,3 +62,34 @@ def html_to_text(value: str | None) -> str:
     text = _WS_RE.sub(" ", text)
     text = _BLANKS_RE.sub("\n\n", text)
     return text.strip()
+
+
+def is_safe_public_url(url: str | None) -> bool:
+    """True only for an http(s) URL whose host is a public target. Pure (no DNS):
+    blocks the SSRF vectors a scraped URL can carry — non-http(s) schemes, `localhost`,
+    and private/loopback/link-local/reserved IP literals (incl. 169.254.169.254), incl.
+    legacy IPv4 notations (decimal/octal/hex/short) that the OS resolver accepts with NO
+    DNS query. A plain DNS name is allowed as-is (rebinding is out of scope; see
+    PROGRESS)."""
+    try:
+        p = urlparse(url or "")
+    except ValueError:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").strip().lower().rstrip(".")
+    if not host or host == "localhost" or host.endswith(".localhost") or "%" in host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    # Legacy IPv4 notations (decimal "2130706433", octal "0177.0.0.1", short "127.1",
+    # hex) are parsed by the OS resolver via inet_aton with NO DNS query, so
+    # ip_address() alone is bypassable. inet_aton is pure parsing — if it accepts
+    # the host, judge the decoded address; only a genuine DNS name falls through.
+    try:
+        packed = socket.inet_aton(host)
+    except OSError:
+        return True   # a real DNS name (rebinding out of scope; see PROGRESS)
+    return ipaddress.ip_address(socket.inet_ntoa(packed)).is_global

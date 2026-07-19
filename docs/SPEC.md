@@ -403,7 +403,10 @@ worker modules are pure and dependency-injected; real services are wired only in
     `("greenhouse", token, gh_jid)` — then the normal greenhouse list path ingests it
     (dedups with direct greenhouse). Wired only in `run.py` (DI). Recovers only the
     subset that embeds the token server-side; JS-injected embeds return None and stay
-    on the unresolved board.
+    on the unresolved board. **SSRF guard:** before fetching, `resolve_embedded` calls
+    `util.is_safe_public_url` — only a public `http(s)` host is fetched; `localhost`
+    and private/loopback/link-local/reserved IP literals (incl. `169.254.169.254`) are
+    refused with no HTTP call.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
   (optionally `min_score` — used only by `run_score` to select `new` rows; no

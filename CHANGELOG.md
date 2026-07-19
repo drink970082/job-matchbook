@@ -752,6 +752,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   removing the interpolation seam entirely.
 - Add X-Frame-Options/X-Content-Type-Options/Referrer-Policy/CSP response headers.
 - Server actions gate status/category to the constants sets and clamp page/size.
+- **Embedded-greenhouse resolver refuses non-public/non-http(s) fetch targets.** New
+  `util.is_safe_public_url` (pure, no DNS) rejects `localhost` and private/loopback/
+  link-local/reserved IP literals (incl. the `169.254.169.254` metadata endpoint) and
+  non-http(s) schemes; `feed/embedded_gh.py`'s `resolve_embedded` checks it before any
+  HTTP GET, so a malicious Simplify-feed listing can no longer make the worker fetch an
+  internal target.
 
 ## [0.2.0] — 2026-06-08
 

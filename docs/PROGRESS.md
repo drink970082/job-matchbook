@@ -75,10 +75,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   *destructive* change (drop/rename a column) has no backfill or rollback and can lose
   retained `applications` / `status_history` data. Back up `db/applications.db` before
   schema changes. (SPEC §8.)
-- **SSRF — feed resolver fetches arbitrary third-party URLs** — `[M]`. `resolve_embedded`
-  does `http.get(url)` verbatim on any Simplify-feed listing whose host carries `?gh_jid=`
-  (`embedded_gh.py:59`, `resolve.py:168-171`, `run.py:170`), so a malicious listing pointing
-  at `169.254.169.254` or the host Ollama gets fetched. No scheme / host allowlist.
 - **SSRF — watchlist `slug` interpolated into the URL authority** — `[S]`. `icims.py:20`,
   `pinpoint.py:15`, `phenom.py:63`, `oracle.py:24`, `workday.py:19` build
   `f"https://{slug}..."` with no validation (`db.get_watchlist` returns rows as-is; web
@@ -99,6 +95,12 @@ the [CHANGELOG](../CHANGELOG.md).)
   `docker-compose.yml:41-51` mounts `/var/run/docker.sock` (root-equivalent host control) into
   `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the highest-privilege
   component in the stack. Deliberate + documented; noted, not actioned.
+- **SSRF guard is a pure check, so DNS-rebinding is out of scope** — `[note · accepted]`.
+  `util.is_safe_public_url` (feed/embedded_gh.py, Task 2.9) rejects `localhost` and private/
+  loopback/link-local/reserved IP *literals* by inspecting the URL alone — it does no DNS
+  lookup, so a public hostname that resolves to an internal IP at fetch time (rebinding)
+  would still pass. Accepted for a single-user worker fetching a curated board list; would
+  need resolve-then-check (and TOCTOU-safe connect) to close for real.
 - **Floating image / action pins** — `[XS]`. `apps/web/Dockerfile:3` `node:20-alpine` (mutable
   tag) and `ci.yml` GH actions pinned by major tag (`@v4` / `@v5`), not by SHA.
 
