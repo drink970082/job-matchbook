@@ -32,8 +32,7 @@ import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { ApplicationTable } from './ApplicationTable'
 import { DiscoveredJobsTable } from './DiscoveredJobsTable'
 import { CodexUsageBar } from './CodexUsageBar'
-import { WatchlistTable } from './WatchlistTable'
-import { PromotionSuggestions } from './PromotionSuggestions'
+import { WatchlistTab } from './WatchlistTab'
 import { UnresolvedTab } from './UnresolvedTab'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
@@ -553,43 +552,14 @@ export function Dashboard({
                     </CardContent>
                 </Card>
             ) : activeTab === 'watchlist' ? (
-                <div className="space-y-6">
-                    {promotions.length > 0 && (
-                        <Card>
-                            <CardHeader className="pb-3">
-                                <CardTitle className="text-lg">Suggested companies</CardTitle>
-                                <p className="text-sm text-muted-foreground">
-                                    Non-watchlisted companies whose feed-discovered roles keep
-                                    scoring well or getting applied to. Approve to track them in
-                                    full, or dismiss.
-                                </p>
-                            </CardHeader>
-                            <CardContent>
-                                <PromotionSuggestions
-                                    data={promotions}
-                                    onApprove={handleApproveSuggestion}
-                                    onDismiss={handleDismissSuggestion}
-                                />
-                            </CardContent>
-                        </Card>
-                    )}
-                    <Card>
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-lg">Watchlist</CardTitle>
-                            <p className="text-sm text-muted-foreground">
-                                Companies the worker fetches in full each run. Seeded once from
-                                the worker config; manage it here.
-                            </p>
-                        </CardHeader>
-                        <CardContent>
-                            <WatchlistTable
-                                data={watchlist}
-                                onAdd={handleAddWatched}
-                                onRemove={handleRemoveWatched}
-                            />
-                        </CardContent>
-                    </Card>
-                </div>
+                <WatchlistTab
+                    promotions={promotions}
+                    watchlist={watchlist}
+                    onApprove={handleApproveSuggestion}
+                    onDismiss={handleDismissSuggestion}
+                    onAdd={handleAddWatched}
+                    onRemove={handleRemoveWatched}
+                />
             ) : activeTab === 'unresolved' ? (
                 <UnresolvedTab data={unresolved} />
             ) : (
