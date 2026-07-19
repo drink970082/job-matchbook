@@ -67,6 +67,20 @@ def test_run_fetch_one_company_failing_does_not_abort(db_path):
     assert inserted == 1
 
 
+def test_run_fetch_logs_the_skipped_company(db_path, capsys):
+    # The docstring promises "logged-and-skipped", but the bare except was silent —
+    # a dead board / typo'd source vanished with no trace. It must now print.
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        raise RuntimeError("boom")
+
+    companies = [{"source": "greenhouse", "slug": "bad", "name": "Bad"}]
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
+    out = capsys.readouterr().out
+    assert "greenhouse/bad" in out and "boom" in out
+
+
 # --- run_score ------------------------------------------------------------
 
 def test_run_score_only_new_and_one_failure_isolated(db_path):

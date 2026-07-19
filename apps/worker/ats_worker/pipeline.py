@@ -48,7 +48,8 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=fetch_company) -> 
             for p in kept:
                 p["company_slug"] = c["slug"]
             inserted += db.upsert_postings(conn, kept, now=now)
-        except Exception:  # noqa: BLE001 — one bad board must not abort the rest
+        except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
+            print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
             continue
     return inserted
 

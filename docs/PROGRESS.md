@@ -62,10 +62,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   persists them (`actions.ts:490`) and `status_history` has no notes column
   (`schema.prisma:56-62`). Users type notes that vanish. Fix: add the column, or remove
   the field (+ the dead param / render branch under Enhancements).
-- **`run_fetch` swallows whole-company failures with no log** — `[XS]`.
-  `pipeline.py:51-52` bare `except Exception: continue`, though the docstring claims
-  "logged-and-skipped"; a dead board or typo'd source is invisible (contrast
-  `run_notify:385`, which prints).
 - **Malformed `recipe` JSON in one watchlist row aborts the entire pass** — `[XS]`.
   `db.get_watchlist`'s comprehension `json.loads(r["recipe"])` (`db.py:83`,
   `run.py:139`) runs before any per-company isolation, violating the "one bad row
