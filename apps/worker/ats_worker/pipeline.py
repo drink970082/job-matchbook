@@ -225,6 +225,10 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
         for p in keep:
             p["company_slug"] = slug
         inserted += db.upsert_postings(conn, keep, now=now)
+        for p in keep:  # a URL that once failed now resolves — clear its stale row.
+            m = meta.get(p["external_id"])
+            if m:
+                db.delete_unresolved(conn, m["url"])
     return inserted
 
 

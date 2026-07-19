@@ -168,6 +168,31 @@ def test_run_feed_record_unresolved_upserts_on_repeat(db_path):
     assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 1
 
 
+def test_run_feed_clears_stale_unresolved_row_on_successful_reingest(db_path):
+    # A prior pass failed to resolve/fetch this URL and left a feed_unresolved
+    # row for it. THIS pass resolves + fetches it successfully — the stale row
+    # must be cleared, not left to permanently pollute the Unresolved tab.
+    conn = db.connect(db_path)
+    url = "https://jobs.ashbyhq.com/acme/aaaa-1111"
+    db.record_unresolved(conn, feed="simplify", url=url, company_name="Acme",
+                         job_title="Software Engineer", host="jobs.ashbyhq.com",
+                         reason="list_fetch_failed", now=NOW)
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 1
+
+    listings = [{
+        "url": url, "company_name": "Acme", "title": "Software Engineer",
+        "category": "Software", "sponsorship": "Other", "active": True,
+    }]
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: listings, keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]), detail_fetch_fn=_detail_serves,
+    )
+    assert inserted == 1
+    assert {(r["source"], r["external_id"]) for r in db.get_by_status(conn, "new")} == {
+        ("ashby", "aaaa-1111")}
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
+
+
 def test_run_feed_detail_source_fetches_each_surfaced_id(db_path):
     # Oracle is a detail-fetch source (no board-list endpoint): run_feed must call
     # detail_fetch_fn per surfaced id and stamp the resolved slug, no keep-filter.

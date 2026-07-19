@@ -53,6 +53,22 @@ def test_record_unresolved_inserts_then_upserts_on_url(db_path):
     assert rows[0]["updated_at"] == LATER       # second pass refreshed it
 
 
+def test_delete_unresolved_removes_row(db_path):
+    conn = db.connect(db_path)
+    url = "https://acme.wd5.myworkdayjobs.com/External/job/X_R1"
+    db.record_unresolved(conn, feed="simplify", url=url, company_name="Acme",
+                         job_title="SWE", host="acme.wd5.myworkdayjobs.com",
+                         reason="workday_deferred", now=NOW)
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 1
+
+    db.delete_unresolved(conn, url)
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
+
+    # a non-existent url is a no-op, not a raise
+    db.delete_unresolved(conn, "https://nope.example.com/job/1")
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
+
+
 def test_existing_external_ids(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [

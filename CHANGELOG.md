@@ -103,6 +103,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   change). (SPEC §7.1, §7.2; design `docs/superpowers/specs/2026-07-17-codex-quota-bar-design.md`.)
 
 ### Fixed
+- **`feed_unresolved` rows are now cleared when the posting they reference is
+  successfully (re-)ingested**, so a transient board failure no longer leaves
+  permanent stale entries in the Unresolved backlog. (New `db.delete_unresolved`,
+  called from `run_feed`'s write loop.)
 - **`.env` now feeds the argparse defaults.** `SCORE_BACKEND` / `OLLAMA_MODEL` / `DB_PATH`
   / `CODEX_*` set in `.env` were silently ignored — `load_env()` ran after `parse_args`
   and its dict was never merged into `os.environ`. `main()` now loads `.env` and

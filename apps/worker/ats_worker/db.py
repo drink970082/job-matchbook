@@ -134,6 +134,15 @@ def record_unresolved(conn: sqlite3.Connection, *, feed: str, url: str,
     conn.commit()
 
 
+def delete_unresolved(conn: sqlite3.Connection, url: str) -> None:
+    """Clear a feed_unresolved row by its url (the table's only join key back to
+    a posting). A no-op if the url isn't present — the caller doesn't know or
+    care whether a row existed before a posting successfully (re-)ingests.
+    """
+    conn.execute("DELETE FROM feed_unresolved WHERE url = ?", (url,))
+    conn.commit()
+
+
 def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str]:
     """The subset of `ids` already present for `source` — lets run_feed skip a
     board fetch when every surfaced posting is already ingested."""
