@@ -327,16 +327,23 @@ export async function removeAllInView(filter: {
     cause?: DisqualifyCause
 }) {
     try {
-        const matchIds = await matchedIds()
+        const [lowIds, matchIds] = await Promise.all([lowContextIds(), matchedIds()])
         const base = buildJobWhere(filter, matchIds)
         const causeClause =
             filter.bucket === 'discarded' && filter.cause
                 ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
                 : []
+        // Mirror getJobPostings' "every other bucket" exclusion (buildJobWhere has no
+        // lowcontext case of its own — see getJobPostings) so a bulk-remove can never
+        // sweep up a row that's actually showing under the Low-context tab. Same guard:
+        // an empty lowIds must not emit `NOT IN ()`. No-op today (the button only shows
+        // on Discarded, whose pipeline_status='discarded' never overlaps lowContextIds'
+        // scored|notified scope) — defensive if the button is ever exposed elsewhere.
         const where: Prisma.job_postingsWhereInput = {
             AND: [
                 ...(base.AND as Prisma.job_postingsWhereInput[]),
                 ...causeClause,
+                ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
             ],
         }
         const res = await prisma.job_postings.updateMany({

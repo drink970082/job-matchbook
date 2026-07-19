@@ -159,6 +159,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   have been updated to `localhost:11434` in `.env.example`, `CLAUDE.md` (Gotchas),
   `docs/SPEC.md` (§6 + setup steps), and the CI comment now accurately lists the actual
   requirements-dev dependencies (beautifulsoup4, pycountry, pytest, pytest-cov, requests, PyYAML).
+- Misc low-arch cleanups: align web Dockerfile UID/GID to the compose default, point add_watched
+  DEFAULT_DB at db/applications.db, scope the CI cron, align removeAllInView's where with the
+  visible bucket.
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched

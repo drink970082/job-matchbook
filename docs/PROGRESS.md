@@ -256,16 +256,8 @@ the [CHANGELOG](../CHANGELOG.md).)
   both `JobDetailModal.tsx:57-110` and `DiscoveredJobsTable.tsx:104-154`.
 - **Three near-identical list→detail adapter loops** — `[S]`. `workday` / `smartrecruiters` /
   `phenom` share loop structure + boilerplate that belongs beside `_recipe.py`.
-- **`removeAllInView` bucket-`where` mismatch (latent)** — `[XS]`. `actions.ts:323-350` omits the
-  low-context exclusion; harmless only because the button shows on the Discarded bucket alone.
-- **UID/GID default mismatch** — `[XS]`. compose `${UID:-1000}` vs Dockerfile ARG default `1001`;
-  bare `docker compose up` also falls back to 1000 (shells don't export `UID`).
-- **`add_watched.py` `DEFAULT_DB` points at a gitignored symlink** — `[XS]`. Should target
-  `db/applications.db` directly.
-- **`requirements-dev.txt` duplicates base pins** — `[XS]`. No include mechanism, can drift from
-  `requirements.txt`.
-- **Nightly cron re-runs web + worker jobs** — `[XS]`. `ci.yml:7-8`; its stated purpose is only
-  the gated e2e job.
+- **`requirements-dev.txt` duplicates base pins** — accepted as-is. No include mechanism exists to
+  share pins with `requirements.txt` without adding tooling; the duplication is low-value churn.
 
 ---
 

@@ -33,8 +33,9 @@ ENV NODE_ENV=production
 # UID/GID match the host owner of the mounted db file so bind-mount writes
 # work without chmod 777. Override at build time:
 #   docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) ...
-ARG UID=1001
-ARG GID=1001
+# match docker-compose default; host user is 1000
+ARG UID=1000
+ARG GID=1000
 
 # Standalone Next.js output + static assets + public
 COPY --from=builder --chown=${UID}:${GID} /app/.next/standalone ./

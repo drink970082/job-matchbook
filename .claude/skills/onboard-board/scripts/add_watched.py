@@ -28,7 +28,9 @@ sys.path.insert(0, WORKER)
 
 from ats_worker import config, db  # noqa: E402
 
-DEFAULT_DB = os.path.normpath(os.path.join(WORKER, "../web/prisma/applications.db"))
+# <repo>/db/applications.db — the real shared DB, not the (gitignored, may-not-exist)
+# apps/web/prisma/applications.db symlink, so the default works on a fresh checkout.
+DEFAULT_DB = os.path.normpath(os.path.join(WORKER, "../../db/applications.db"))
 
 
 def main():
