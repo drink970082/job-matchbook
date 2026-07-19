@@ -184,6 +184,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   import the shared helpers and route their own `parseScoreDetail`/`parseDetail`
   view-model shaping through `safeParseDetail`. The two components' distinct view-models
   are unchanged — only the genuinely-duplicated leaf helpers moved.
+- **Three near-identical list→detail adapter loops (`workday`, `smartrecruiters`,
+  `phenom`) now share `fetch/_paged.paged_details`** — behavior-preserving. The
+  shared helper owns `http = session or requests`, the page loop, the len-based
+  offset advance, and termination on an empty page or a reached honest total; each
+  adapter supplies only its list-page call (+ total key — `total` / `totalFound` /
+  `count`) and its per-row detail-fetch + failure policy via `fetch_page`/`build_row`.
+  `workday` and `smartrecruiters` still skip a posting outright on a failed detail
+  call; `phenom` still uniquely **keeps** it with an empty description (its `_row`
+  catches the detail-fetch exception and falls through to `parse_position(...)`
+  rather than returning `None`) — the adapters' distinct failure policies are
+  unchanged, only the duplicated loop scaffolding moved. **`smartrecruiters`' page-offset
+  advance changed from a fixed page-stride (`offset += PAGE`) to rows-returned
+  (`+= len(items)`)**, matching `workday` and `phenom` (which already advanced by
+  rows-returned before this refactor) — so a short non-final SmartRecruiters page no
+  longer silently skips postings. This is the one real behavior delta in the migration
+  set: a latent correctness gain, and behavior-identical on all current fixtures (no
+  fixture exercises a short non-final page).
 
 ### Added
 - **Drift probe (`tools/score_eval.py --drift-probe`) — answers whether the batched

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import requests
 
+from ats_worker.fetch._paged import paged_details
 from ats_worker.util import html_to_text, to_iso_date
 
 SOURCE = "phenom"
@@ -59,32 +60,27 @@ def parse_position(pos: dict, company_name: str, description: str = "") -> dict:
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     host, domain = _parts(slug)
-    http = session or requests
     search_url = f"https://{host}/api/pcsx/search"
     detail_url = f"https://{host}/api/pcsx/position_details"
-    out: list[dict] = []
-    start = 0
-    while True:
+
+    def _page(http, start):
         resp = http.get(search_url, params={"domain": domain, "start": start}, timeout=timeout)
         resp.raise_for_status()
         data = _require_ok(resp.json())
-        positions = data.get("positions") or []
-        for pos in positions:
-            pid = str(pos.get("id") or "")
-            if not pid:
-                continue  # no id can't dedup under (source, external_id)
-            description = ""
-            try:
-                detail = http.get(detail_url,
-                                  params={"domain": domain, "position_id": pid}, timeout=timeout)
-                detail.raise_for_status()
-                description = _require_ok(detail.json()).get("jobDescription") or ""
-            except Exception:
-                pass  # one bad detail: keep the posting (search has title/loc/url), no desc
-            out.append(parse_position(pos, company_name, description))
-        # Advance by rows actually returned; stop on an empty page or an honest total.
-        start += len(positions)
-        total = data.get("count")
-        if not positions or (isinstance(total, int) and start >= total):
-            break
-    return out
+        return data.get("positions") or [], data.get("count")
+
+    def _row(http, pos):
+        pid = str(pos.get("id") or "")
+        if not pid:
+            return None  # no id can't dedup under (source, external_id)
+        description = ""
+        try:
+            detail = http.get(detail_url,
+                              params={"domain": domain, "position_id": pid}, timeout=timeout)
+            detail.raise_for_status()
+            description = _require_ok(detail.json()).get("jobDescription") or ""
+        except Exception:
+            pass  # one bad detail: keep the posting (search has title/loc/url), no desc
+        return parse_position(pos, company_name, description)
+
+    return paged_details(session, fetch_page=_page, build_row=_row)
