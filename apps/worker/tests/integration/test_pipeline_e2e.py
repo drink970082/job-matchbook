@@ -19,7 +19,7 @@ from tests._helpers import LONG_DESC, bootstrap_db, make_posting
 
 pytestmark = pytest.mark.integration
 
-ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
+ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "test_token",
        "TELEGRAM_CHAT_ID": "c", "OLLAMA_HOST": "h"}
 
 # The notify gate is now the fit verdicts (db.get_notifiable), not the score —

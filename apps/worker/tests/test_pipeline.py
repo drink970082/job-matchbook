@@ -156,7 +156,7 @@ def test_run_notify_pings_only_verdict_matches(db_path):
     def notify_fn(posting, *, token, chat_id):
         notified.append(posting["external_id"])
 
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
     assert notified == ["hi"]
 
     statuses = {
@@ -432,7 +432,7 @@ def test_run_notify_send_error_retries_then_parks_failed(db_path):
         assert "telegram" in row["pipeline_error"]
     assert calls == ["a", "a", "a"]
     # Parked rows are terminal: a further pass must not retry them.
-    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
     assert calls == ["a", "a", "a"]
 
 
@@ -446,8 +446,8 @@ def test_run_notify_retry_then_success_clears_error(db_path):
         if len(sends) == 1:
             raise RuntimeError("telegram 429")
 
-    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
-    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="t", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="test_token", chat_id="c")
+    pipeline.run_notify(conn, now=NOW, notify_fn=flaky_notify, token="test_token", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None   # cleared on the successful send
