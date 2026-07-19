@@ -742,6 +742,8 @@ model status_history {
   timestamp      String
   applications   applications @relation(fields: [application_id], references: [id],
                                          onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([application_id])  // getApplicationHistory / deleteHistoryItem / getStatusFlow
 }
 
 model job_postings {

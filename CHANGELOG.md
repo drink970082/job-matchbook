@@ -8,6 +8,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ## [Unreleased]
 
 ### Added
+- Index on `status_history.application_id`.
 - Schema-drift guard now also checks column nullability (pytest guard).
 - **Cross-service drift guard for board-source allowlists + low-context threshold.**
 - **`browser` recipe executor (headless Chromium, isolated + opt-in).** The universal

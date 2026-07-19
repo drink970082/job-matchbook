@@ -234,9 +234,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   documented-not-guarded, hand-duplicated with "must match" comments only.
 - **Web Prisma client sets no `busy_timeout`** — `[S]`. `db.ts:7`; the worker sets 5000 ms
   (`db.py:26`), so worker write locks can surface as unretried `SQLITE_BUSY` toasts.
-- **`status_history.application_id` missing index** — `[XS]`. `schema.prisma:56-62`; queried
-  per-application, and SQLite doesn't auto-index FK columns (`job_postings` got an index, this
-  didn't).
 - **`applications` missing `@@unique(company_name, job_title)`** — `[S]`. Three paths dedupe on
   that pair via findFirst-then-create (`addApplication:427` is non-transactional → TOCTOU;
   `markJobApplied:369`, `importApplicationsCSV:856`).
