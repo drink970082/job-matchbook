@@ -905,7 +905,7 @@ def _rollout_line(used, window, resets, secondary=None, plan="plus"):
 def _fake_sessions(monkeypatch, tmp_path):
     sess = tmp_path / "sessions"
     sess.mkdir(exist_ok=True)
-    monkeypatch.setattr(score, "_sessions_dir", lambda: str(sess))
+    monkeypatch.setattr(score.usage, "_sessions_dir", lambda: str(sess))
     return sess
 
 
