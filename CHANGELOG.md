@@ -108,6 +108,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
 - **Feed board-source fetch failures are recorded (`feed_unresolved`) instead of silently
   dropping surfaced ids.**
+- **Web Prisma client's SQLite `busy_timeout` verified already sufficient — no code
+  change needed.** Suspected the web client (plain `new PrismaClient()`, no explicit
+  pragma) could throw `SQLITE_BUSY` on a colliding worker write-lock, unlike the
+  worker's explicit `busy_timeout=5000` (`db.py:26`). A new integration test
+  (`db-pragma.int.test.ts`) measured the real default and found Prisma 6's SQLite
+  connector already sets `busy_timeout=5000` ms with zero configuration — the planned
+  `connection_limit=1` + explicit `PRAGMA` fix was de-scoped (Ponytail) since the
+  behavior it would have added already exists; the test stays as a regression lock.
 
 ### Removed
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**

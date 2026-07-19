@@ -218,6 +218,12 @@ the operator's `~/.codex/auth.json` (`codex login`) — containerizing it would 
 baking a 285 MB binary into the image *and* mounting a live subscription token into it,
 for a process Ollama's GPU already pinned to the host.
 
+Both writers rely on SQLite's `busy_timeout` to survive brief co-writes: the worker
+sets it explicitly (`db.py:connect`, 5000 ms); the web Prisma client (`lib/db.ts`,
+§7.2) sets none explicitly but Prisma 6's SQLite connector already defaults to the
+same 5000 ms, verified by `db-pragma.int.test.ts` — no `connection_limit` tuning or
+pragma call was required on the web side.
+
 The `web` container runs as the host user (UID/GID build args) so bind-mount writes
 work without `chmod 777`. The database is mounted as a **directory** (not a single
 file) so SQLite's WAL `-wal`/`-shm` sidecars are visible to both processes — a
@@ -692,7 +698,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
     parser; validates status/category against enums; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
-  connection leaks).
+  connection leaks). No explicit `busy_timeout` pragma or `connection_limit` is set —
+  verified (`db-pragma.int.test.ts`) that Prisma 6's SQLite connector already defaults
+  `busy_timeout` to 5000 ms, matching the worker's `db.py` setting (§7.1), so a
+  worker write-lock already makes web block-and-retry instead of throwing
+  `SQLITE_BUSY`; no code change was needed.
 - **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
   `VALID_SOURCES` (7 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
@@ -1077,6 +1087,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
+| Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |

@@ -232,8 +232,11 @@ the [CHANGELOG](../CHANGELOG.md).)
   value):** the `pipeline_status` string literals (scattered across worker + web) and the full
   notify / matched verdict-predicate SQL (`db.py:159-176` vs `actions.ts:171-198`) — these stay
   documented-not-guarded, hand-duplicated with "must match" comments only.
-- **Web Prisma client sets no `busy_timeout`** — `[S]`. `db.ts:7`; the worker sets 5000 ms
-  (`db.py:26`), so worker write locks can surface as unretried `SQLITE_BUSY` toasts.
+- ~~Web Prisma client sets no `busy_timeout`~~ — **verified not a defect (2026-07-19,
+  Task 4.6).** `db-pragma.int.test.ts` measured the real default: Prisma 6's SQLite
+  connector already sets `busy_timeout=5000` ms with a plain `new PrismaClient()`
+  (`db.ts:7`), matching the worker's explicit `db.py:26` setting — no
+  `connection_limit`/pragma change was needed; the test stays as a regression lock.
 - **`applications` missing `@@unique(company_name, job_title)`** — `[S]`. Three paths dedupe on
   that pair via findFirst-then-create (`addApplication:427` is non-transactional → TOCTOU;
   `markJobApplied:369`, `importApplicationsCSV:856`).
