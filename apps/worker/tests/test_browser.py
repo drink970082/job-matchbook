@@ -1,8 +1,14 @@
 """Browser recipe executor: pure CSS extraction over rendered-DOM fixtures.
 
-The browser-driving `fetch` glue is not unit-tested (it needs a live Chromium,
-like other adapters' network I/O); the extraction logic all lives in the pure
+The browser-driving `fetch` glue is not unit-tested against a live Chromium
+(like other adapters' network I/O); the extraction logic all lives in the pure
 `parse_jobs` / `apply_detail`, tested here against captured Citadel HTML.
+
+The SSRF guards on the scraped detail URL and the pagination URL (`fetch`'s
+`with sync_playwright()` block, `# pragma: no cover` glue) ARE exercised here,
+though, by monkeypatching `playwright.sync_api.sync_playwright` with a stub
+implementing just enough of the Page/BrowserContext/Browser surface for `fetch`
+to drive — no real browser needed.
 """
 from __future__ import annotations
 
@@ -72,6 +78,141 @@ RENTEC_RECIPE = {
 def test_browser_fetch_refuses_internal_url():
     with pytest.raises(ValueError):
         browser.fetch("slug", "Acme", {"url": "http://169.254.169.254/", "item": ".job"})
+
+
+class _FakePage:
+    """Just enough of Playwright's Page surface for `fetch` to drive: goto()
+    records the requested URL and switches content() to whatever `content_map`
+    has for it (missing -> ''), wait_for_* are no-ops."""
+
+    def __init__(self, content_map: dict[str, str]):
+        self.goto_calls: list[str] = []
+        self._content_map = content_map
+        self._current = ""
+
+    def goto(self, url, timeout=None, wait_until=None):
+        self.goto_calls.append(url)
+        self._current = self._content_map.get(url, "")
+
+    def wait_for_selector(self, *a, **kw):
+        pass
+
+    def wait_for_timeout(self, *a, **kw):
+        pass
+
+    def content(self):
+        return self._current
+
+
+class _FakeContext:
+    def __init__(self, page):
+        self._page = page
+
+    def new_page(self):
+        return self._page
+
+
+class _FakeBrowser:
+    def __init__(self, page):
+        self._page = page
+        self.closed = False
+
+    def new_context(self, **kwargs):
+        return _FakeContext(self._page)
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeChromium:
+    def __init__(self, page):
+        self._page = page
+
+    def launch(self, **kwargs):
+        return _FakeBrowser(self._page)
+
+
+class _FakePlaywright:
+    def __init__(self, page):
+        self.chromium = _FakeChromium(page)
+
+
+class _FakeSyncPlaywright:
+    """Stands in for `playwright.sync_api.sync_playwright()`'s context manager."""
+
+    def __init__(self, page):
+        self._page = page
+
+    def __enter__(self):
+        return _FakePlaywright(self._page)
+
+    def __exit__(self, *exc):
+        return False
+
+
+_GUARD_RECIPE_BASE = {
+    "url": "https://example.com/careers",
+    "item": "a.job",
+    "fields": {
+        "title": {"selector": None},
+        "url": {"attr": "href"},
+        "external_id": {"attr": "href"},
+    },
+}
+
+
+def test_browser_fetch_skips_unsafe_detail_url(monkeypatch):
+    """A detail href scraped from third-party listing HTML that resolves to an
+    internal target (the real SSRF vector: a compromised/malicious board embeds
+    e.g. the cloud metadata IP as a job's href) must never be rendered — the
+    posting is kept, just description-less, same as a failed render."""
+    listing_html = (
+        '<div>'
+        '<a class="job" href="https://example.com/job/1">Job One</a>'
+        '<a class="job" href="http://169.254.169.254/secret">Job Two</a>'
+        '</div>'
+    )
+    detail_html = "<div class='jd'>Real description</div>"
+    page = _FakePage({
+        "https://example.com/careers": listing_html,
+        "https://example.com/job/1": detail_html,
+        # deliberately no entry for the internal URL: if it's ever goto()'d the
+        # assertion on goto_calls below catches it regardless of what content()
+        # would have returned.
+    })
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: _FakeSyncPlaywright(page))
+
+    recipe = {
+        **_GUARD_RECIPE_BASE,
+        "page": {"type": "none"},
+        "detail": {"url_field": "job_url", "fields": {"description": ".jd"}},
+    }
+    postings = browser.fetch("slug", "Acme", recipe)
+
+    assert page.goto_calls == ["https://example.com/careers", "https://example.com/job/1"]
+    assert len(postings) == 2
+    safe = next(p for p in postings if p["job_url"] == "https://example.com/job/1")
+    unsafe = next(p for p in postings if p["job_url"] == "http://169.254.169.254/secret")
+    assert "Real description" in safe["description"]
+    assert unsafe["description"] == ""
+
+
+def test_browser_fetch_stops_pagination_at_unsafe_url(monkeypatch):
+    """The pagination template is operator-authored (lower risk than the scraped
+    detail href), but is still guarded defense-in-depth: an unsafe rendered page
+    URL stops pagination rather than being rendered."""
+    listing_html = '<div><a class="job" href="https://example.com/job/1">Job One</a></div>'
+    page = _FakePage({"https://example.com/careers": listing_html})
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: _FakeSyncPlaywright(page))
+
+    recipe = {
+        **_GUARD_RECIPE_BASE,
+        "page": {"type": "url", "template": "http://169.254.169.254/page/{n}", "start": 2},
+    }
+    postings = browser.fetch("slug", "Acme", recipe)
+
+    assert page.goto_calls == ["https://example.com/careers"]  # paginated url never rendered
+    assert len(postings) == 1
 
 
 def test_parse_jobs_extracts_cards():

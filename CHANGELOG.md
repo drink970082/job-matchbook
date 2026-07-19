@@ -845,6 +845,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   HTTP GET, so a malicious Simplify-feed listing can no longer make the worker fetch an
   internal target.
 - **`custom` and `browser` recipe executors validate `recipe.url` against the SSRF guard before fetching.** Both `fetch()` functions now call `is_safe_public_url()` as their first statement (before the lazy Playwright import in `browser`), blocking non-http(s) schemes and private/loopback/link-local/reserved IP literals including legacy IPv4 notations.
+- **`browser` executor also guards the per-posting detail URL and the pagination URL, not just `recipe.url`.** The detail href (`p.get(url_field)`) is scraped from third-party board listing HTML, not operator-authored — a malicious/compromised board could otherwise embed an internal target (e.g. the cloud metadata IP) as a job's href and have headless Chromium fetch it, scraping the response into `description` (a data-return SSRF). `fetch()` now runs `is_safe_public_url()` on that URL before rendering and skips it (posting kept, description-less) when unsafe; the operator-authored pagination URL (`page.template.format(n=n)`) gets the same check for defense-in-depth, stopping pagination rather than rendering an unsafe page.
 - **Codex usage capture only deletes an unambiguous rollout and cleans up on failure.**
   `_capture_usage` now gathers every session rollout newer than the pre-call mtime mark
   and deletes the newest one only when it's the *sole* newer rollout — zero or several

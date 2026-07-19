@@ -108,7 +108,10 @@ def fetch(slug: str, company_name: str, recipe: dict,
         if ptype == "url":
             template, n = page_cfg["template"], page_cfg.get("start", 2)
             while True:
-                fresh = [p for p in parse_jobs([render(template.format(n=n), item_sel)],
+                page_url = template.format(n=n)
+                if not is_safe_public_url(page_url):
+                    break  # unsafe paginated url (defense-in-depth; operator-authored) — stop
+                fresh = [p for p in parse_jobs([render(page_url, item_sel)],
                                                recipe, company_name)
                          if p["external_id"] not in seen]
                 if not fresh:
@@ -129,8 +132,10 @@ def fetch(slug: str, company_name: str, recipe: dict,
             empties = 0
             for p in postings:
                 url = p.get(url_field)
-                if not url:
-                    continue
+                if not url or not is_safe_public_url(url):
+                    continue  # skip a missing OR unsafe (SSRF) detail url — the detail
+                              # href is scraped from third-party listing HTML; keep the
+                              # posting description-less (same policy as a failed render).
                 try:
                     apply_detail(p, render(url, detail_wait), recipe)
                 except Exception:  # noqa: BLE001 — keep the posting, description as-is
