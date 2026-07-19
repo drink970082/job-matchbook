@@ -11,13 +11,14 @@ UP TO TWO calls per posting, from two different backends, SCREEN-gated:
               requirement pass/fail; `disqualified` is derived from those verdicts.
               Runs FIRST (cheap, local Ollama). Skipped when no candidate
               constraints are configured.
-  2. SCORE  — fit score 0-100 + matched/missing keywords, from the injected
-              `score_fit(postings, resumes) -> list[dict]` callable (Claude/codex,
-              batch-first). Only reached when the screen did NOT disqualify — a
-              discarded posting never pays for a fit score. `score_posting` calls
-              it with a one-posting batch and normalizes the single result
-              (missing "score" raises). The SCREEN half lives in `screen_posting`,
-              composed by `score_posting`.
+  2. SCORE  — fit score 0-100 + matched/missing keywords, from an injected
+              `fit_fn(postings) -> list[dict]` callable (Claude/codex, batch-first).
+              Only reached when the screen did NOT disqualify — a discarded posting
+              never pays for a fit score. `pipeline.run_score` composes the two:
+              it calls `screen_posting` per row, gates the fit call on
+              `disqualified`, then `pipeline._persist_scored` normalizes each raw
+              fit result via `_normalize_score` (missing "score" raises) and merges
+              the screen verdict on top before persisting.
 The screen call has no résumé so it can't anchor on where the candidate lives, and
 its output is small (no truncation).
 
@@ -283,9 +284,9 @@ def screen_posting(
          `candidate["locations"]`, matched against the board's location string.
 
     Returns `{"screen": {...per-requirement verdicts...}, "disqualified": bool,
-    "disqualification_reason": str}`. Takes no `score_fit` — it structurally cannot
-    call the (paid) fit scorer; `score_posting` composes this and decides whether
-    `disqualified` gates out the fit call.
+    "disqualification_reason": str}`. Takes no fit-scorer callable — it structurally
+    cannot call the (paid) fit scorer; `pipeline.run_score` composes this and decides
+    whether `disqualified` gates out the fit call.
     """
     options = {
         "temperature": temperature,
@@ -340,50 +341,6 @@ def screen_posting(
             screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
 
     return screen
-
-
-def score_posting(
-    posting: dict,
-    resumes,
-    *,
-    score_fit,
-    http=requests,
-    ollama_host: str,
-    model: str | None = None,
-    timeout: int = 180,
-    candidate: dict | None = None,
-    temperature: float = 0.0,
-    seed: int = 0,
-    num_ctx: int = 8192,
-) -> dict:
-    """Screen `posting` (via `screen_posting`) against the candidate's hard
-    requirements, then fit-SCORE it.
-
-    SCREEN runs FIRST and GATES the fit score: when `screen_posting` disqualifies,
-    we return score 0 WITHOUT calling the (paid) fit scorer, since a disqualified
-    posting is discarded regardless of fit. When it passes, the injected
-    `score_fit(postings, resumes) -> list[dict]` (batch-first; Claude/codex, built
-    in run.py) is called with a ONE-posting batch and the single result normalized
-    here (a missing `score` raises ScoreError). `resumes` is the `{label: text}`
-    dict of resume versions — score_posting itself never reads it (pure
-    pass-through). Raises ScoreError on an unusable fit result.
-    """
-    screen = screen_posting(posting, http=http, ollama_host=ollama_host, model=model,
-                            candidate=candidate, temperature=temperature, seed=seed,
-                            num_ctx=num_ctx, timeout=timeout)
-
-    # GATE — a disqualified posting is discarded regardless of fit, so SKIP the paid
-    # fit scorer. Record score 0 (no fit assessed) + the screen verdict; run_score
-    # routes it to 'discarded' with the reason.
-    if screen["disqualified"]:
-        return {"score": 0, **screen}  # fit skipped -> no assessment (discarded row)
-
-    # SCORE — passed the screen, so pay for the fit score (injected, batch-first;
-    # called here with a single-posting batch). Normalized here (missing score ->
-    # raise).
-    result = _normalize_score(score_fit([posting], resumes)[0])
-    result.update(screen)
-    return result
 
 
 def _post(http, ollama_host: str, model: str, prompt: str, *, options: dict, timeout: int) -> dict:
@@ -489,8 +446,8 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     For each configured structured requirement the LLM only EXTRACTED a fact about
     the job; here CODE applies the candidate's constraint (degree rank, sponsorship,
     clearance). This takes the unreliable pass/fail judgment off a 4B model entirely.
-    (Location is NOT gated here — it is a deterministic pycountry gate in
-    `score_posting`; see `resolve_location`.) A requirement the candidate didn't
+    (Location is NOT gated here — it is a deterministic pycountry gate applied
+    in `screen_posting`; see `resolve_location`.) A requirement the candidate didn't
     configure is skipped, and a key the model invents (e.g. "skills") is ignored, so a
     skill gap can never disqualify. On missing/garbled extraction each checker errs
     toward PASS (don't discard on absent data).
@@ -779,7 +736,8 @@ def make_claude_scorer(api_key: str, model: str, *, profile: str = "",
     system prefix (flat per-call marginal cost already), not fewer round-trips, so
     batching would only buy request-count savings that don't matter on metered API
     billing. `fit` just loops the existing single-JD call and returns the RAW
-    parsed JSON per posting, in order; score_posting normalizes each one.
+    parsed JSON per posting, in order; `pipeline._persist_scored` normalizes
+    each one via `_normalize_score`.
     """
     cell: list = []
 

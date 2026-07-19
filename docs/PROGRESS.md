@@ -218,9 +218,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`score_posting` — production-dead (42 ln)** — `[XS]`. `score.py:345-386`; `run.py` imports
-  only `screen_posting` / `make_*_scorer` and `pipeline.run_score` composes its own — only
-  `test_score.py` calls it (deleting it drops ~600 test lines too).
 - **Worker `Dockerfile` — orphaned (25 ln)** — `[XS]`. De-containerized 2026-07-16; nothing
   builds it (SPEC §6 already says so).
 - **`threshold` config key — parsed / validated / documented, never read** — `[XS]`.

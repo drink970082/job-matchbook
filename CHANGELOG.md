@@ -714,6 +714,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   vanished. Removed the textarea, the dead `notes` param, the history-row render branch, the
   `notes?` history type field, and the `Dashboard` call-site arg. (Application-level notes,
   edited via `updateApplicationDetails`, are unaffected.)
+- **Worker `score_posting()` removed** (production-dead composer; screen/normalize unit
+  assertions migrated to direct tests, coverage floor held).
 
 ### Security
 - **Validate watchlist slug structure at the web + config write boundaries.** Both

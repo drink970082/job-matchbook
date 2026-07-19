@@ -261,10 +261,11 @@ def _chunks(seq: list, n: int):
 
 
 def _persist_scored(conn, row, screen: dict, card: dict, *, now) -> None:
-    """Normalize one raw fit scorecard, merge the screen verdict on top (mirrors
-    B2's score_posting: normalize-then-update), and persist 'scored'. A
-    structurally-bad scorecard (score.ScoreError from _normalize_score) fails
-    only THIS row — it must not abort the chunk it's part of."""
+    """Normalize one raw fit scorecard, merge the screen verdict on top
+    (normalize-then-update, the composition B2's now-removed score_posting used
+    to do), and persist 'scored'. A structurally-bad scorecard (score.ScoreError
+    from _normalize_score) fails only THIS row — it must not abort the chunk
+    it's part of."""
     try:
         result = {**score._normalize_score(card), **screen}
     except score.ScoreError as exc:
