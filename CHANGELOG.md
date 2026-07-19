@@ -105,6 +105,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   nothing). It now guards each row, skipping + logging the bad one (SPEC §9 invariant).
 
 ### Removed
+- **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**
+  Never invoked; both seeders satisfy all paths (Make, e2e, CI).
 - **`SankeyChart.getNodeColumn` unused `allNodes` param dropped.** The parameter was passed
   at the call site but never read in the function body.
 - Debris swept: unused `simplify.SOURCE`, dead `"remote"` token in `_flag`, orphaned

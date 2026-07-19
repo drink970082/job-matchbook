@@ -1,6 +1,6 @@
 // Deterministic e2e seed data + helpers, the single source of truth reused by
-// global-setup, every spec (re-seed in beforeEach for isolation), and the CLI
-// seeder (tools/seed_db.mjs). Seeds via a PrismaClient pointed at the throwaway DB.
+// global-setup and every spec (re-seed in beforeEach for isolation).
+// Seeds via a PrismaClient pointed at the throwaway DB.
 import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'
 

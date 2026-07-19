@@ -218,7 +218,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 
 #### Dead code / debris cleanup (2026-07-18 audit; ~120 production lines, grep-verified repo-wide)
 
-- **`tools/seed_db.mjs` — invoked by nothing** — `[XS]`. Make / e2e / CI all use other seeders.
 - **Stale doc lines** — `[XS]`. `.env.example` `extra_hosts` note + `OLLAMA_HOST` default;
   `ci.yml:49-51` requirements-dev comment; `CLAUDE.md` + `SPEC.md` "host.docker.internal" for the
   now-native worker.

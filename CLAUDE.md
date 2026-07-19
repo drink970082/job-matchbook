@@ -42,7 +42,7 @@ apps/worker/   Python worker (ats_worker/: fetch/ score notify pipeline run)
 db/            shared SQLite  (gitignored)
 docs/          SPEC.md · PROGRESS.md · PRINCIPLES.md · DEVELOPMENT.md ·
                superpowers/ (specs·plans) · SETUP.md (stub) · pipeline-design.md (historical)
-tools/         check_schema_drift.mjs · seed_db.mjs
+tools/         check_schema_drift.mjs
 ```
 
 ## Run / test / build (from repo root)
