@@ -707,6 +707,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
 
+### Removed
+- **Status-change notes field (was silently dropped).** The Update-Status form collected
+  `notes` and threaded them through `updateApplicationStatus(id,status,date,notes)`, but the
+  action never persisted them and `status_history` has no notes column, so users' notes
+  vanished. Removed the textarea, the dead `notes` param, the history-row render branch, the
+  `notes?` history type field, and the `Dashboard` call-site arg. (Application-level notes,
+  edited via `updateApplicationDetails`, are unaffected.)
+
 ### Security
 - **Web UI is published on loopback only (`127.0.0.1:3000`).** The Compose port bind
   was `0.0.0.0:3000`, exposing the unauthenticated server actions to any LAN peer;

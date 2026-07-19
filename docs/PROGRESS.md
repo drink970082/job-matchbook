@@ -56,12 +56,6 @@ the [CHANGELOG](../CHANGELOG.md).)
   exactly `14.2.0` (~25 patches behind); CVE-2024-56332 (server-actions DoS) applies
   to this server-action-heavy app. Middleware / `next/image` CVEs are N/A (neither
   feature is used). Bump to the latest 14.2.x.
-- **Status-change notes are silently dropped (data loss)** — `[S]`. The Update-Status
-  form collects `notes` and passes them to `updateApplicationStatus(id, status, date,
-  notes)` (`Dashboard.tsx:188`, `StatusHistoryModal.tsx:200`), but the action never
-  persists them (`actions.ts:490`) and `status_history` has no notes column
-  (`schema.prisma:56-62`). Users type notes that vanish. Fix: add the column, or remove
-  the field (+ the dead param / render branch under Enhancements).
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
@@ -270,8 +264,6 @@ the [CHANGELOG](../CHANGELOG.md).)
 - **`simplify.SOURCE` unused** — `[XS]`. `simplify.py:15`.
 - **`_flag` `"remote"` token — leftover from the removed LLM location check** — `[XS]`.
   `score.py:738`.
-- **Web: `updateApplicationStatus` `notes` param + `StatusHistoryModal` notes branch — dead** —
-  `[XS]`. `actions.ts:490`, `StatusHistoryModal.tsx:34,182` (ties to the notes data-loss defect).
 - **`SankeyChart.getNodeColumn` `allNodes` param unused** — `[XS]`. `SankeyChart.tsx:63,105`.
 - **`tools/seed_db.mjs` — invoked by nothing** — `[XS]`. Make / e2e / CI all use other seeders.
 - **`package.json` `test:all` script — referenced nowhere** — `[XS]`. `package.json:12`.

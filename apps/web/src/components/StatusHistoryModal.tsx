@@ -31,9 +31,8 @@ interface StatusHistoryModalProps {
         id: number
         status: string
         timestamp: string
-        notes?: string
     }>
-    onAddStatus: (data: { status: string; notes: string; date: string }) => void
+    onAddStatus: (data: { status: string; date: string }) => void
     onDeleteHistory: (id: number) => void
     onEditApplication: (
         id: number,
@@ -67,17 +66,14 @@ export function StatusHistoryModal({
         notes: application.notes || '',
     })
     const [newStatus, setNewStatus] = useState<string>(STATUSES[0])
-    const [newNotes, setNewNotes] = useState('')
     const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         onAddStatus({
             status: newStatus,
-            notes: newNotes,
             date: newDate,
         })
-        setNewNotes('')
     }
 
     const handleSaveEdit = async () => {
@@ -179,7 +175,6 @@ export function StatusHistoryModal({
                                                 <div className="text-xs text-muted-foreground">
                                                     {new Date(item.timestamp).toLocaleDateString()}
                                                 </div>
-                                                {item.notes && <div className="text-sm mt-0.5 text-muted-foreground">{item.notes}</div>}
                                             </div>
                                         </div>
                                         <Button
@@ -223,15 +218,6 @@ export function StatusHistoryModal({
                                     required
                                 />
                             </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="notes">Notes</Label>
-                            <Textarea
-                                id="notes"
-                                placeholder="Notes..."
-                                value={newNotes}
-                                onChange={(e) => setNewNotes(e.target.value)}
-                            />
                         </div>
                         <div className="flex justify-end">
                             <Button type="submit">Update Status</Button>

@@ -487,7 +487,7 @@ export async function updateApplicationDetails(
     }
 }
 
-export async function updateApplicationStatus(id: number, status: string, date?: string, notes?: string) {
+export async function updateApplicationStatus(id: number, status: string, date?: string) {
     try {
         if (!STATUSES.includes(status as any)) {
             return { success: false, error: 'Invalid status' }

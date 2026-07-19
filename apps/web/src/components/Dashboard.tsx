@@ -183,9 +183,9 @@ export function Dashboard({
         }
     }
 
-    const handleAddStatus = async (data: { status: string; notes: string; date: string }) => {
+    const handleAddStatus = async (data: { status: string; date: string }) => {
         if (selectedApp) {
-            const result = await updateApplicationStatus(selectedApp.id, data.status, data.date, data.notes)
+            const result = await updateApplicationStatus(selectedApp.id, data.status, data.date)
             if (result.success) {
                 toast.success('Status updated')
                 const historyResult = await getApplicationHistory(selectedApp.id)
