@@ -1,5 +1,6 @@
-// Deterministic e2e seed data + helpers, the single source of truth reused by
-// global-setup and every spec (re-seed in beforeEach for isolation).
+// Deterministic e2e seed data + helpers, the single source of truth imported
+// directly by every spec (re-seed in beforeEach for isolation). Schema init
+// happens separately, in the webServer command (see playwright.config.ts).
 // Seeds via a PrismaClient pointed at the throwaway DB.
 import { PrismaClient } from '@prisma/client'
 import { DATABASE_URL } from './db-path.mjs'

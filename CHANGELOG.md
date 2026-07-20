@@ -649,6 +649,22 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Playwright e2e harness now boots: the schema push moved into the `webServer`
+  command, ahead of the server, instead of `globalSetup`.** `make test-e2e` failed
+  locally before any test ran (180s webServer timeout), and CI's `e2e` job failed the
+  same way (webServer spamming `PrismaClientKnownRequestError`). Root cause: Playwright
+  starts `webServer` — a plugin "setup" task — *before* `globalSetup` runs, so the
+  `next start` server was booting against the throwaway SQLite before
+  `e2e/global-setup.ts`'s `prisma db push` ever ran; every request 500'd with
+  `P2021: table does not exist` and the url-poll never saw success. The prior diagnosis
+  (`docs/PROGRESS.md`) blamed an unmigrated DB and a `next start`/`output: standalone`
+  incompatibility — the DB-not-migrated part was right for the wrong reason (ordering,
+  not a missing call), and `next start` in fact serves fine on standalone builds
+  (prints a compatibility warning, live-tested 200 on `/api/health`) so the server was
+  left as-is. `playwright.config.ts`'s `webServer.command` now chains
+  `npm run build && npx prisma db push --skip-generate --accept-data-loss && npm run
+  start -- -p 3100`, and the now-redundant `e2e/global-setup.ts` is deleted (per-spec
+  seeding via `e2e/helpers/seed.mjs` was already independent of it).
 - **CI's worker job was red on a missing `geonamescache`, hidden by a local-green/CI-red
   asymmetry.** `requirements.txt` pinned `geonamescache>=3.0.1` for the location gate
   (`score/location.py`'s lazy city→country index), but `requirements-dev.txt` — the only

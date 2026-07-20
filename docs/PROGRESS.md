@@ -260,16 +260,6 @@ and the six 2026-07-13 cold-pass defects D1–D6; see the [CHANGELOG](../CHANGEL
 
 #### Architecture / maintainability (2026-07-18 audit)
 
-- **Playwright e2e harness can't launch locally** — `[S · dev/test infra; found
-  2026-07-19]`. `make test-e2e` fails before any test runs: `e2e/global-setup.ts`'s
-  throwaway SQLite is never migrated (`P2021: table main.applications does not exist`),
-  and `playwright.config.ts`'s `webServer` runs `npm run start` (= `next start`), which the
-  run log warns is incompatible with the `output: standalone` build — so the web server
-  never becomes ready and Playwright times out (180 s). Unit + integration + lint +
-  schema-drift all pass; only the browser e2e layer is dark locally. Fix: point `webServer`
-  at the standalone server (`node .next/standalone/server.js`) and have `global-setup` seed
-  the schema (`prisma db push` / equivalent) into the DB the server reads; verify CI's `e2e`
-  job (which builds/serves differently) isn't hitting the same gap.
 - **Cross-service drift — partially guarded** — `[M]`. `test_source_enums_sync.py` (Task 4.1) now
   guards the three genuinely-duplicated + cheaply-comparable items: `VALID_SOURCES` and
   `RECIPE_SOURCES` (`config.py:23-29` vs `fetch/__init__.py:11-33` vs web `constants.ts:35-52`,
