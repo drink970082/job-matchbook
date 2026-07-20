@@ -9,6 +9,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Security
 
+- **`npm audit fix` (no `--force`) clears the `defu`/`effect` Prisma-toolchain
+  advisories.** `defu` <=6.1.4 (prototype pollution via `__proto__` in a defaults
+  argument) and `effect` <3.20.0 (`AsyncLocalStorage` context loss/contamination
+  under concurrent RPC load — pulled in transitively via `@prisma/config` →
+  `prisma`) both had non-breaking fixes: defu 6.1.4→6.1.7, effect 3.18.4→3.21.0,
+  and `prisma`/`@prisma/config` took a same-major patch bump (6.19.2→6.19.3) to
+  pick up the new `effect`. `package.json` is unchanged; only the lockfile moved.
+  `npm audit --omit=dev` went from 6 advisories (1 moderate, 5 high) to 2 (1
+  moderate, 1 high). The remaining two — `next@14.2.35`'s high advisories and
+  the `postcss` moderate bundled with it — require the `next@16` major and are
+  an accepted risk for this release (kept off `--force`; SECURITY.md will
+  document them once written by a later task).
 - **`add_watched.py` (onboard-board) now validates the slug charset before writing the
   watchlist.** The script derives slugs from scraped, untrusted careers pages and wrote
   `args.slug` straight to `db.import_watchlist` with no check — a third watchlist write
