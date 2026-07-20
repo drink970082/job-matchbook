@@ -7,10 +7,11 @@
 > finished item *leaves* this file to land in SPEC + CHANGELOG. Update it in the same
 > change as the work it describes — see [How to update](#how-to-update) at the bottom.
 
-**Current phase:** v0.2.0, **validated live end-to-end.** Feature-set complete;
-testing/CI hardened (coverage gates, integration + Playwright e2e, schema-drift
-guard). **"Hardened" here means test/CI hardening, not security hardening** — a few
-unverified properties remain open (see [Open work](#open-work)). On **2026-07-13**
+**Current phase:** v1.0.0, **first public release — validated live end-to-end.**
+Feature-set complete; testing/CI hardened (coverage gates, integration + Playwright
+e2e, schema-drift guard). **"Hardened" here means test/CI hardening, not security
+hardening** — a few unverified properties remain open (see [Open
+work](#open-work)). On **2026-07-13**
 the full `fetch → screen → score → notify` pipeline ran against live services for
 the first time: one cold pass over 39 boards → **1169** postings fetched, **~45%**
 screened out (internship/location/visa), **642** fit-scored with **zero

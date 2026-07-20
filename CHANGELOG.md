@@ -7,6 +7,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-07-20
+
 ### Security
 
 - **`npm audit fix` (no `--force`) clears the `defu`/`effect` Prisma-toolchain
