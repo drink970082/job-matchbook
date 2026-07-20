@@ -17,11 +17,14 @@ SQLite database**:
 
 - [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
 - [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
-  scans company ATS boards (Greenhouse / Lever / Ashby / Workday / Pinpoint), screens
-  out hard-constraint mismatches with a local LLM, scores each posting's fit against
-  your resume with Claude, and pings you on Telegram for the best matches. You review
-  and apply by hand, then one-click **Mark Applied** turns a posting into a tracked
-  application. A human is always in the loop — no auto-apply.
+  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 6 more
+  platform adapters, plus generic custom/browser recipe executors (11 watchlist-capable
+  sources total) — screens out hard-constraint mismatches with a local LLM, scores each
+  posting's fit against your resume — by default via the **Codex CLI** (your ChatGPT
+  subscription, flat-rate), with **Claude** as a metered alternate — and pings you on
+  Telegram for the best matches. You review and apply by hand, then one-click **Mark
+  Applied** turns a posting into a tracked application. A human is always in the loop —
+  no auto-apply.
 
 > 📖 **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
 > system spec (architecture, data model, behaviors, setup, testing) and the current
@@ -48,9 +51,9 @@ the worker found. Open any row for the full JD plus the model's matched/missing
 keywords and reasoning, then **Mark Applied** to promote it into a tracked
 application that flows into every chart above.
 
-The pipeline: **fetch** (5 board APIs) → **screen** (local Ollama, GPU, hard
-requirements) + **score** fit (Claude, reason-first) → **notify** (Telegram) for
-every high scorer.
+The pipeline: **fetch** (11 board sources + recipe executors) → **screen** (local
+Ollama, GPU, hard requirements) + **score** fit (Codex CLI default / Claude
+alternate, reason-first) → **notify** (Telegram) for every high scorer.
 
 ---
 
@@ -68,18 +71,21 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Inline status editing + status history | ✅ | ✅ | each change appends a history row |
 | Status history modal (add / edit / delete) | ✅ | ✅ | delete recomputes current status |
 | KPI strip | ✅ | ✅ | |
-| Dashboards — heatmap · donut · funnel · Sankey | ✅ | ⚠ | render shipped; **chart-data actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test** |
+| Dashboards — heatmap · donut · funnel · Sankey | ✅ | ✅ | chart-data actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) covered by `charts.int.test.ts` |
 | CSV import / export | ✅ | ✅ | RFC-4180, enum validation, dedup |
 | Discovered Jobs queue + triage | ✅ | ✅ | unit + Playwright e2e |
 | JD + score-detail dialog | ✅ | ✅ | keywords, reasoning, screen verdicts |
 | Mark Applied (posting → application) | ✅ | ✅ | atomic transaction + dedup |
 | Discard / Reopen posting | ✅ | ✅ | reopen keeps disqualification reason |
+| Watchlist management (add / remove watched companies) | ✅ | ✅ | unit + integration |
+| Unresolved-feeds tab + promotion suggestions | ✅ | ✅ | grouped by host+reason; dismiss suggestion |
+| Codex usage bar (`/api/codex-usage`) | ✅ | ✅ | quota snapshot, degrades to empty state (not an error) when absent |
 | Responsive / mobile layout | ✅ | — | stacks below ~640px |
-| Fetch — Greenhouse / Lever / Ashby / Workday / Pinpoint | ✅ | ✅ | dedup on `(source, external_id)` |
+| Fetch — 11 board sources + recipe executors | ✅ | ✅ | dedup on `(source, external_id)` |
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
-| Score — Claude (reason-first) | ✅ | ✅ | |
+| Score — Codex CLI default / Claude alternate (reason-first) | ✅ | ✅ | |
 | Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
-| Notify — Telegram message (score ≥ threshold) | ✅ | ✅ | ⚠ transient failure can bury a match → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
+| Notify — Telegram message (verdict-gated: seniority=match AND domain=match) | ✅ | ✅ | 3-attempt retry budget (`NOTIFY_MAX_ATTEMPTS`), then requeued by `run_retry` for a fresh screen+score before parking `failed` |
 | Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
 | Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
 | Config load / validate | ✅ | ✅ | |
@@ -108,8 +114,10 @@ Or from the repo root: `make install && make db-push && make dev`.
 ```bash
 # web app only:
 UID=$(id -u) GID=$(id -g) docker compose up web --build -d
-# full pipeline too (after creating the worker's config + secrets — see the spec):
-UID=$(id -u) GID=$(id -g) docker compose up --build -d        # or: make up
+# web + autoheal (or: make up) — the worker is NOT containerized, it runs
+# natively on the host (see the spec) after creating its config + secrets:
+UID=$(id -u) GID=$(id -g) docker compose up --build -d
+cd apps/worker && python -m ats_worker.run   # scheduler; --once for a single pass
 ```
 
 The database is bind-mounted as a **directory** (`db/` → `/data`) so SQLite's WAL
@@ -123,7 +131,7 @@ user own the bind-mounted files. Full setup (Ollama, Telegram, worker config) is
 
 Next.js 14 (App Router, Server Actions) · TypeScript · Prisma 6 + SQLite ·
 React 18 · Tailwind CSS 4 · Radix UI · Recharts + hand-rolled SVG charts ·
-Python 3.11 worker (APScheduler, Ollama, Claude, Telegram) ·
+Python 3.11 worker (APScheduler, Ollama, Codex CLI, Claude, Telegram) ·
 Jest + Playwright + pytest · Docker Compose. Details in
 [`docs/SPEC.md` §6](./docs/SPEC.md#6-architecture).
 

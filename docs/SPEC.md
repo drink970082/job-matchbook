@@ -67,8 +67,9 @@ database**:
   lifecycle with KPIs and charts.
 - **`apps/worker`** — a scheduled Python pipeline that *feeds* the tracker: it
   scans company ATS boards, screens out hard-constraint mismatches with a local
-  LLM, scores each posting's fit against your resume version(s) with Claude, and
-  pings you on Telegram for the best matches.
+  LLM, scores each posting's fit against your resume version(s) — by default via
+  the Codex CLI (the operator's ChatGPT subscription), with Claude as a metered
+  alternate — and pings you on Telegram for the best matches.
 
 The two services never call each other. Their only contract is the **shared
 database**. The worker discovers and prepares; the web app is where a human
@@ -104,9 +105,11 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Local-first compute where it's cheap, Claude where judgment matters.** The
-  high-frequency hard-requirements screen runs on a local GPU (Ollama), not a paid
-  API; fit scoring (every posting, needs real seniority/domain judgment) hits Claude.
+- **Local-first compute where it's cheap, a frontier LLM where judgment matters.**
+  The high-frequency hard-requirements screen runs on a local GPU (Ollama), not a
+  paid API; fit scoring (every posting, needs real seniority/domain judgment) hits
+  the Codex CLI by default (flat-rate ChatGPT subscription), or Claude as a
+  metered alternate.
 
 ---
 
@@ -131,8 +134,8 @@ Two pains, addressed by the two services:
   GitHub data file** (SimplifyJobs `listings.json`) — not a scraped UI — and still
   fetches every JD from the official board the listing's URL resolves to; aggregator
   *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
-- **No cloud dependency** beyond the three external APIs the worker calls
-  (Anthropic Claude, the host's Ollama, Telegram).
+- **No cloud dependency** beyond the external services the worker calls (the
+  Codex CLI or Anthropic Claude for fit scoring, the host's Ollama, Telegram).
 - **The worker issues no schema DDL** — Prisma owns the schema.
 
 ---
@@ -262,7 +265,7 @@ a single-user localhost app, not a strict script CSP.
 | UI | React 18, Tailwind CSS 4, Radix UI primitives | — |
 | Charts | Recharts (donut) + hand-rolled SVG (heatmap, funnel, Sankey) | — |
 | Forms | react-hook-form + Zod | — |
-| External | — | Anthropic SDK (Claude), Ollama HTTP, Telegram Bot API |
+| External | — | Codex CLI subprocess (default fit scorer), Anthropic SDK (Claude, alternate), Ollama HTTP, Telegram Bot API |
 | Tests | Jest + Testing Library + jest-mock-extended; Playwright e2e | pytest (fully mocked) |
 | Container | Alpine multi-stage, non-root | python:3.11-slim |
 
@@ -1253,10 +1256,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Privacy:** resume (`apps/worker/resume/`), secrets (`apps/worker/.env`),
   config (`config.yaml`), and the database (`db/`) are gitignored. The repo ships
   only `*.example` templates; real resume files are untracked, so no extra git
-  steps are needed for *new* work (see `CONTRIBUTING.md`). **Open defect (PROGRESS):**
-  gitignore prevents *future* commits only — `resume.txt` + the real `config.yaml`
-  were committed 2026-06-05 and untracked 2026-06-08, but the blobs remain in the
-  **public** repo's git history and need a history rewrite (or private repo) to purge.
+  steps are needed for *new* work (see `CONTRIBUTING.md`). **Closed:** `resume.txt`
+  and the real `config.yaml` were committed 2026-06-05 and untracked 2026-06-08;
+  the blobs were purged from all history with `git filter-repo` and force-pushed
+  (see CHANGELOG).
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the failure is recorded on the row and processing continues. The scorer
   returning junk JSON marks that row `failed` rather than crashing. A notify send
@@ -1323,10 +1326,10 @@ automated coverage — those rely on code review or the human in the loop, not a
   container if deploying in a different zone from where you live.
 - **Security:** the RESUME / PERSONAL PROFILE / JOB text is marked as *data, not
   instructions* in the score prompt (a posting can't inject directives); secrets
-  live only in the gitignored `.env`, read by `run.py`. **Open defect (PROGRESS):** a
-  Telegram send error can embed the bot token (carried in the request URL) into an
-  exception string that is persisted to `job_postings.pipeline_error` and logged — so
-  the token can escape `.env` into the shared DB / logs until that path scrubs it.
+  live only in the gitignored `.env`, read by `run.py`. A Telegram send error's
+  exception text embeds the bot token (carried in the request URL); `run_notify`
+  scrubs it (replaced with `***`) before it reaches `job_postings.pipeline_error`
+  or stdout, so it never escapes `.env` into the shared DB or logs (see CHANGELOG).
 
 ---
 
@@ -1337,10 +1340,12 @@ automated coverage — those rely on code review or the human in the loop, not a
 Full prerequisites and step-by-step (Telegram bot, Ollama, troubleshooting) were
 historically in `docs/SETUP.md`; this section is now authoritative.
 
-**Prerequisites:** Docker + Compose (≥ 24); Node 20+ and Python 3.11+ only for
-local non-Docker dev/tests; Ollama + an NVIDIA GPU on the **host** for the
-hard-requirements screen; an Anthropic API key for fit scoring; a
-Telegram bot for alerts.
+**Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 20+ and Python
+3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
+not containerized (§6); Ollama + an NVIDIA GPU on the **host** for the
+hard-requirements screen; the Codex CLI on the operator's ChatGPT subscription
+for fit scoring by default (`codex login`), or an Anthropic API key for the
+metered `claude` alternate; a Telegram bot for alerts.
 
 **Web app only (no pipeline):**
 
@@ -1373,13 +1378,16 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    state (`auth_mode=chatgpt`), not from `.env` — run `codex login` once on the
    worker host and confirm with `codex doctor` (auth ✓). A logged-out host fails
    every fit call loudly; it never scores 0.
-4. On the host: `ollama pull qwen3.5:4b && ollama serve`.
-5. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build`
-   (or `make up`). The worker runs one pass immediately, then every
-   `schedule_hours`.
+5. On the host: `ollama pull qwen3.5:4b && ollama serve`.
+6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
+   (or `make up`) starts the **web app + autoheal only** — the worker is **not**
+   containerized (§6, removed 2026-07-16). Run it natively on the same host:
+   `cd apps/worker && python -m ats_worker.run`. It runs one pass immediately,
+   then every `schedule_hours`.
 
 **One-off test pass:**
-`docker compose run --rm worker python -m ats_worker.run --once --config /app/config.yaml --env /app/.env`
+`cd apps/worker && python -m ats_worker.run --once` (defaults to `config.yaml`/`.env`
+in the cwd; pass `--config`/`--env` for a different path).
 
 **Volumes & env:** `./db` → `/data` (directory mount; `DATABASE_URL=
 file:/data/applications.db`, worker `DB_PATH=/data/applications.db`). `make` targets

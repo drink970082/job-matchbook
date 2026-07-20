@@ -31,8 +31,9 @@ SQLite database**:
 
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
-- **`apps/worker`** — Python 3.11 pipeline: fetch (5 boards) → screen (Ollama) +
-  score fit (Claude) → notify (Telegram). Human applies by hand.
+- **`apps/worker`** — Python 3.11 pipeline: fetch (11 board sources + recipe
+  executors) → screen (Ollama) + score fit (Codex CLI default / Claude alternate)
+  → notify (Telegram). Human applies by hand.
 
 ## Repo map
 
@@ -82,6 +83,7 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
   silently breaks cross-container WAL.
 - **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web
   gated via `jest.all.config.ts`. CI also runs the schema-drift guard.
-- Default models: local `qwen3.5:4b` screens hard requirements, Claude `claude-sonnet-5`
-  scores fit (override via env / CLI — see SPEC §7.1).
+- Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on
+  the Codex CLI by default (`gpt-5.6-sol`), or Claude `claude-sonnet-5` when
+  `SCORE_BACKEND=claude` (override via env / CLI — see SPEC §7.1).
 ```

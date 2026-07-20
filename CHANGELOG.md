@@ -1004,6 +1004,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   old all-`✅` over-claim. Building it surfaced an untested gap: the chart-data
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
+- **README/CLAUDE.md/SPEC.md realigned with the shipped adapter set and
+  codex-default scorer.** The front-door docs still described a 5-board-API worker
+  scoring exclusively with Claude; the worker has shipped 13 adapters (11
+  watchlist-capable + 2 feed-resolution-only) and switched its default fit-score
+  backend to the Codex CLI (Claude demoted to a metered alternate,
+  `SCORE_BACKEND=claude`) since. Fixed the service description, pipeline line,
+  Stack line, and Feature-status table in README; the worker one-liner and default-
+  models gotcha in CLAUDE.md; and stale product-context mentions in SPEC.md §1/§3/
+  §4/§7. Also corrected two stale README notes (Dashboards' "no test" claim —
+  `charts.int.test.ts` covers it; Notify's transient-failure warning — the
+  3-attempt retry/requeue budget already handles it) and the Notify row's
+  superseded "score ≥ threshold" gate (replaced by the seniority/domain verdict
+  gate); added missing rows for the Watchlist tab, Unresolved-feeds tab +
+  promotion suggestions, and the Codex usage bar. SPEC §12's "Full pipeline" setup
+  steps and README's Quick Start still described `docker compose up` starting the
+  worker — stale since the worker was decontainerized 2026-07-16 (SPEC §6); both
+  now show the native `python -m ats_worker.run` invocation. Also closed two
+  SPEC §11 "Open defect (PROGRESS)" callouts (git-history purge, Telegram-token
+  scrub) that CHANGELOG already shows shipped.
 
 ## [0.2.0] — 2026-06-08
 
