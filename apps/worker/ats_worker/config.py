@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import yaml
 
@@ -148,6 +148,7 @@ def load_config(source) -> Config:
             "kept only if its TITLE contains one of these). Location filtering was "
             "removed — use `candidate.locations` for geography. See config.yaml.example."
         )
+    _reject_unknown_keys(data, Config, "top-level config")
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
     candidate = _parse_candidate(data.get("candidate") or {})
@@ -171,6 +172,19 @@ def _int_field(data: dict, key: str, default: int) -> int:
         return int(raw)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{key} must be an integer, got {raw!r}") from exc
+
+
+def _reject_unknown_keys(data: dict, cls, where: str) -> None:
+    """Fail loud on an unrecognised key so a stale or typo'd field can't silently
+    no-op — e.g. the removed top-level `threshold` or candidate `years_experience`,
+    which used to be read and now aren't. Allowed keys are the dataclass fields, so
+    this can't drift from the schema. Mirrors the `filters` migration guard above."""
+    allowed = {f.name for f in fields(cls)}
+    unknown = sorted(k for k in data if k not in allowed)
+    if unknown:
+        raise ConfigError(
+            f"unknown {where} key(s) {unknown}; allowed: {sorted(allowed)}"
+        )
 
 
 def _parse_companies(raw) -> list[Company]:
@@ -245,6 +259,7 @@ def _parse_title_filter(raw) -> list[str]:
 def _parse_candidate(raw) -> Candidate:
     if not isinstance(raw, dict):
         raise ConfigError("`candidate` must be a mapping")
+    _reject_unknown_keys(raw, Candidate, "candidate")
     locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
     return Candidate(
         highest_degree=str(raw.get("highest_degree") or "").strip(),

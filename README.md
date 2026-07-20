@@ -46,10 +46,18 @@ reconstructed from history.
   <img src="docs/images/sankey.png" alt="Status flow Sankey diagram" width="900">
 </p>
 
-**Discover:** a **Discovered Jobs** tab shows a scored, filterable queue of postings
-the worker found. Open any row for the full JD plus the model's matched/missing
-keywords and reasoning, then **Mark Applied** to promote it into a tracked
-application that flows into every chart above.
+**Discover:** a **Discovered Jobs** tab triages everything the worker surfaced into
+five buckets — **Matched** (cleared the seniority + domain verdict gate, the same
+predicate the worker notifies on), **Below bar** (scored but non-matching),
+**Discarded** (failed hard-requirement screening), **Failed** (pipeline error), and
+**Low-context** (JD too thin to score fairly) — sortable by best match / newest and
+filterable by score and disqualification cause. Every row carries a bucket-aware
+"why" subline — seniority/domain verdict pills plus the top missing must-have, or the
+disqualification reason, thin-JD size, or pipeline error — and a recommended-resume
+label. Open a row for the full JD and a fit assessment: seniority/domain verdicts,
+must-haves met vs. missing, and a one-line summary. Triage in bulk (Remove / Reopen /
+Remove-all-in-view), or **Mark Applied** — with a category picker — to promote a
+posting into a tracked application that flows into every chart above.
 
 The pipeline: **fetch** (9 platform adapters plus generic custom/browser recipe
 executors — 11 watchlist-capable sources total) → **screen** (local

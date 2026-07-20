@@ -47,8 +47,8 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 
 1. `config.yaml` — company list + an optional `title_filter` (title-keyword
    pre-filter) + the `candidate` screening block (degree / work authorization /
-   clearance / locations / internships; auto-discards conflicting postings) + score
-   threshold + schedule. See the committed sample.
+   clearance / locations / internships; auto-discards conflicting postings) +
+   schedule. See the committed sample.
 2. `resume/*.txt` — one or more labeled résumé versions (plus an optional
    `personal_profile.txt` about-me context), used for keyword/fit scoring.
    See `resume/README.md`.

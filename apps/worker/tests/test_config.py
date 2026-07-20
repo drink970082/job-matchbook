@@ -68,6 +68,19 @@ def test_old_filters_key_raises_migration_error():
         config.load_config(bad)
 
 
+def test_unknown_top_level_key_raises():
+    # A removed/typo'd top-level key must fail loud, not silently no-op (e.g. the
+    # retired score `threshold`, which used to gate notification and now doesn't).
+    with pytest.raises(config.ConfigError, match="threshold"):
+        config.load_config("companies: []\nthreshold: 75\n")
+
+
+def test_unknown_candidate_key_raises():
+    # Likewise for a stale key under `candidate` (e.g. the never-read years_experience).
+    with pytest.raises(config.ConfigError, match="years_experience"):
+        config.load_config("companies: []\ncandidate:\n  years_experience: 3\n")
+
+
 def test_load_from_path(tmp_path):
     p = tmp_path / "config.yaml"
     p.write_text(FULL)
