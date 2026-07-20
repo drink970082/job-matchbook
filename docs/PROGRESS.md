@@ -116,7 +116,9 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 - **Deployment / monitoring** — `[L · open-ended]`. `ats-web` has a DB-reachability
   healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the
   per-job Telegram notification, and the **worker** has no healthcheck — its failures
-  show only in the DB/logs.
+  show only in the DB/logs. Includes the deferred scraper **canary self-tests** and
+  proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
+  here).
 - **AI fetch+score fallback for unparseable JDs** — `[L · optional]`. Where text
   extraction fails (JS-rendered / bot-walled / odd markup), let the scorer's model
   fetch the job page and score fit directly from the raw page, bypassing

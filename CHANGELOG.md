@@ -9,6 +9,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Documentation
 
+- **SPEC audit — synced with code and deduplicated.** A five-way code audit surfaced
+  stale claims, now fixed: the workday feed path is per-job `fetch_one`, not a
+  board-list keep-filter substring (§9); `discardJobPosting` → `removed` in the
+  traceability table; bulk Remove is offered in every bucket; the §6 stack table and
+  §12 `DB_PATH` still described the removed worker container; `score.py` is now the
+  `score/` package; the iCIMS feed-backlog note predated the shipped list adapter;
+  §7.1's notify-gate summary was missing the thin-JD hold-back; §4/§10 now name the
+  iCIMS-HTML + custom/browser recipe surface instead of "official APIs only". The
+  traceability table gains the ~20 test files it omitted (recipe executors, SSRF
+  guard, sync guard, web routes/components) and its component-test paths. The
+  batching/retry/quota stories are deduplicated — one authoritative telling each
+  (§13 / §9 / §11), pointers elsewhere. Code side: refreshed stale `schema.prisma`
+  source/score/posted_at comments, `run.py`'s docker-era `DB_PATH` comments, and
+  documented the optional env overrides in `.env.example`.
+
 - **`PROGRESS.md` slimmed back to a pure live delta.** Shipped-work narratives it had
   accumulated (the remediated-defect recaps, the onboard-board / headless-browser
   "SHIPPED" write-ups, the batching post-mortem, resolved-item strikethroughs, the

@@ -30,7 +30,7 @@ model applications {
 
 model job_postings {
   id              Int           @id @default(autoincrement())
-  source          String // greenhouse | lever | ashby
+  source          String // any VALID_SOURCES board (src/lib/constants.ts, 11 watchlist-capable) or feed-only oracle | jobvite
   external_id     String // id returned by the board
   company_slug    String? // board slug this posting came from (for promotion grouping; null on legacy rows)
   company_name    String
@@ -38,7 +38,7 @@ model job_postings {
   location        String?
   job_url         String
   description     String // full JD text (fed to the LLM)
-  score           Int? // 0-100 fit score (Claude); screen verdicts are local (Ollama)
+  score           Int? // 0-100 fit score (codex CLI default / claude alternate); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
@@ -47,7 +47,7 @@ model job_postings {
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String
   updated_at      String?
-  posted_at       String? // board-provided posting date, normalized to YYYY-MM-DD; null only on legacy rows pre-backfill
+  posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])
@@ -69,7 +69,7 @@ model status_history {
 // `companies:` when empty; thereafter this table is authoritative.
 model watched_companies {
   id         Int    @id @default(autoincrement())
-  source     String // greenhouse | lever | ashby | workday | pinpoint
+  source     String // one of VALID_SOURCES (src/lib/constants.ts) — the 11 watchlist-capable boards
   slug       String // board identifier (workday packs tenant/datacenter/site)
   name       String // display name
   recipe     String? // JSON recipe for source=custom|browser (declarative fetch); NULL for platform/known-ATS rows

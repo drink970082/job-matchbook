@@ -304,7 +304,7 @@ def main(argv=None) -> None:
     # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
     # --score-backend/--codex-score-model/--batch-size read os.environ, so a .env value
     # has to be in os.environ by the time add_argument runs. setdefault = a real process
-    # env var still wins (docker-compose sets DB_PATH that way) and an explicit CLI flag
+    # env var (e.g. a shell-exported DB_PATH) still wins and an explicit CLI flag
     # still overrides; --env is peeked first so a custom path is honored.
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--env", default=".env")
@@ -319,8 +319,8 @@ def main(argv=None) -> None:
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--env", default=".env")
-    # DB_PATH is set by docker-compose to the shared-volume path; the default
-    # targets a local (non-Docker) checkout layout.
+    # The default targets the checkout layout — ../web/prisma/applications.db is a
+    # symlink onto the shared db/applications.db; override via DB_PATH or --db.
     parser.add_argument("--db",
                         default=os.environ.get("DB_PATH", "../web/prisma/applications.db"))
     parser.add_argument("--resume-dir", default="resume",
