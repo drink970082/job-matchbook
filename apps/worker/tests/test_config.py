@@ -213,3 +213,20 @@ def test_load_from_plain_string_path(tmp_path):
     p.write_text("companies: []\nschedule_hours: 18\n")
     cfg = config.load_config(str(p))
     assert cfg.schedule_hours == 18
+
+
+def test_config_defaults_new_filters_off():
+    cfg = config.load_config("companies: []\n")
+    assert cfg.max_age_days == 0
+    assert cfg.title_exclude == []
+
+
+def test_config_parses_new_filters():
+    cfg = config.load_config("companies: []\nmax_age_days: 30\ntitle_exclude: [intern, sales]\n")
+    assert cfg.max_age_days == 30
+    assert cfg.title_exclude == ["intern", "sales"]
+
+
+def test_config_rejects_non_int_max_age():
+    with pytest.raises(config.ConfigError):
+        config.load_config("companies: []\nmax_age_days: soon\n")

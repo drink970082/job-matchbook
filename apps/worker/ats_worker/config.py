@@ -108,6 +108,12 @@ class Config:
     # Optional coarse pre-filter: keep a posting only if its TITLE contains one of
     # these (case-insensitive). Empty = keep all and let the scorer decide.
     title_filter: list[str] = field(default_factory=list)
+    # Optional negative title pre-filter: DROP a posting whose title contains one of
+    # these (case-insensitive) — the complement of title_filter. Empty = drop none.
+    title_exclude: list[str] = field(default_factory=list)
+    # Optional fetch-time freshness gate: drop a posting whose posted_at is older than
+    # this many days. 0 = off. Dateless/unparseable posted_at is always kept.
+    max_age_days: int = 0
     candidate: Candidate = field(default_factory=Candidate)
     feeds: list[Feed] = field(default_factory=list)
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
@@ -157,6 +163,8 @@ def load_config(source) -> Config:
     return Config(
         companies=companies,
         title_filter=title_filter,
+        title_exclude=_parse_title_filter(data.get("title_exclude") or []),
+        max_age_days=_int_field(data, "max_age_days", 0),
         candidate=candidate,
         feeds=feeds,
         schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
