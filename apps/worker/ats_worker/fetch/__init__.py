@@ -1,6 +1,8 @@
 """Fetch adapters and shared post-processing for board APIs."""
 from __future__ import annotations
 
+from datetime import date
+
 from . import (ashby, browser, custom, greenhouse, icims, jobvite, lever, oracle,
                phenom, pinpoint, smartrecruiters, workable, workday)
 
@@ -52,6 +54,38 @@ def filter_postings(postings: list[dict], title_filter: list[str] | None) -> lis
     ]
 
 
+def _too_old(posted_at, now, max_age_days: int) -> bool:
+    """True only when posted_at is a parseable date strictly older than max_age_days.
+    A null/empty/unparseable date or max_age_days<=0 is never 'too old' (err toward keep)."""
+    if not max_age_days or not posted_at:
+        return False
+    try:
+        posted = date.fromisoformat(str(posted_at)[:10])
+        today = date.fromisoformat(str(now)[:10])
+    except ValueError:
+        return False  # unparseable -> keep
+    return (today - posted).days > max_age_days
+
+
+def prefilter_postings(postings, *, title_filter=None, title_exclude=None,
+                       max_age_days=0, now=None):
+    """Fetch-time coarse pre-filter (deterministic, no LLM). Drops a posting when it
+    fails the positive title keep-list, its title contains a title_exclude keyword,
+    or its posted_at is older than max_age_days (null/unparseable posted_at kept).
+    Title matching is case-insensitive and title-only, like filter_postings."""
+    kept = filter_postings(postings, title_filter)
+    excl = [k.lower() for k in (title_exclude or []) if k]
+    out = []
+    for p in kept:
+        title = (p.get("job_title") or "").lower()
+        if any(k in title for k in excl):
+            continue
+        if _too_old(p.get("posted_at"), now, max_age_days):
+            continue
+        out.append(p)
+    return out
+
+
 def fetch_company(source: str, slug: str, company_name: str, *,
                   recipe: dict | None = None, **kwargs) -> list[dict]:
     """Dispatch to the per-board adapter for `source` (lists a whole board).
@@ -80,7 +114,7 @@ def fetch_one_company(source: str, slug: str, external_id: str,
 
 
 __all__ = [
-    "ADAPTERS", "DETAIL_SOURCES", "filter_postings",
+    "ADAPTERS", "DETAIL_SOURCES", "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
     "workable", "icims", "phenom", "custom", "browser", "oracle", "jobvite",

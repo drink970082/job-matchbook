@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from ats_worker.fetch import ashby, greenhouse, lever, pinpoint
-from ats_worker.fetch import fetch_company, filter_postings
+from ats_worker.fetch import fetch_company, filter_postings, prefilter_postings
 from ats_worker.util import POSTING_FIELDS
 from tests._helpers import FakeSession
 
@@ -208,3 +208,39 @@ def test_ashby_captures_posted_at():
 def test_pinpoint_has_no_posted_at():
     posting = pinpoint.parse_jobs(load("pinpoint.json"), company_name="Acme")[0]
     assert posting["posted_at"] is None
+
+
+# --- prefilter_postings (title_exclude + max-age drop) ----------------------
+
+def test_prefilter_drops_title_exclude():
+    posts = [{"job_title": "Software Engineer", "posted_at": None},
+             {"job_title": "Sales Engineer", "posted_at": None}]
+    kept = prefilter_postings(posts, title_exclude=["sales"], now="2026-06-04")
+    assert [p["job_title"] for p in kept] == ["Software Engineer"]
+
+
+def test_prefilter_drops_stale_keeps_fresh_and_dateless():
+    posts = [{"job_title": "A", "posted_at": "2026-01-01"},   # ~5 months old
+             {"job_title": "B", "posted_at": "2026-06-01"},   # 3 days old
+             {"job_title": "C", "posted_at": None}]           # dateless -> keep
+    kept = prefilter_postings(posts, max_age_days=30, now="2026-06-04")
+    assert [p["job_title"] for p in kept] == ["B", "C"]
+
+
+def test_prefilter_zero_max_age_keeps_old_dates():
+    posts = [{"job_title": "A", "posted_at": "2020-01-01"}]
+    assert prefilter_postings(posts, max_age_days=0, now="2026-06-04") == posts
+
+
+def test_prefilter_unparseable_date_is_kept():
+    posts = [{"job_title": "A", "posted_at": "not-a-date"}]
+    assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == posts
+
+
+def test_prefilter_composes_keep_then_exclude():
+    posts = [{"job_title": "Senior Engineer", "posted_at": None},
+             {"job_title": "Sales Engineer", "posted_at": None},
+             {"job_title": "Designer", "posted_at": None}]
+    kept = prefilter_postings(posts, title_filter=["engineer"],
+                              title_exclude=["sales"], now="2026-06-04")
+    assert [p["job_title"] for p in kept] == ["Senior Engineer"]
