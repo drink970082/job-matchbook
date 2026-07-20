@@ -347,6 +347,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **`Dashboard.tsx`'s refresh after a mutation now has two tiers instead of one.**
+  `refreshData()` fired 5 server actions on every mutation — `getApplications` +
+  `getKPIs` + `getStatusFlow` + `getTimelineData` + `getCategoryData` (4 of them
+  full-table `findMany` + in-JS aggregation) — even for a plain status change, which
+  can't move `date_applied` or `category` and so can't affect the timeline/category
+  charts. A new light tier, `refreshStatusData()` (apps + KPIs + status flow), is
+  composed as the shared core; `refreshData()` is now that core plus the
+  timeline/category fetch. `handleStatusChange`/`handleAddStatus`/`handleDeleteHistory`
+  (status/history-only mutations) call the light tier; `handleAddApplication`/
+  `handleDeleteApplication`/`handleEditApplication`/`handleImportCSV`/
+  `handleConfirmApply` (which can change dates/categories/row count) keep the full tier.
 - Worker pure modules no longer bind real network callables as defaults (wired only in run.py).
 - **Domain verdict redesigned from "background" to "target-fit" (`prompts/score.txt`).**
   The old one-line domain prompt ("is their background in this role's domain?") had no

@@ -274,10 +274,6 @@ and the six 2026-07-13 cold-pass defects D1–D6; see the [CHANGELOG](../CHANGEL
   connector already sets `busy_timeout=5000` ms with a plain `new PrismaClient()`
   (`db.ts:7`), matching the worker's explicit `db.py:26` setting — no
   `connection_limit`/pragma change was needed; the test stays as a regression lock.
-- **`refreshData()` refetches everything on every mutation** — `[M]`. Each apply/discard/
-  status-change/delete triggers 4 full-table `findMany` + in-JS aggregation (all state lives
-  in the Dashboard shell). Not addressed by the 2026-07-18 tab split (presentational only,
-  per the plan's Ponytail scope call); an out-of-scope perf item kept open.
 - **`requirements-dev.txt` duplicates base pins** — accepted as-is, but the duplication already bit
   us once: `geonamescache` was added to `requirements.txt` for the location gate without being
   mirrored into `requirements-dev.txt`, and CI's worker job (which installs only the latter) ran

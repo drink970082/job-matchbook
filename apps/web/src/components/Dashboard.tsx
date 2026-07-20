@@ -96,7 +96,11 @@ export function Dashboard({
     const [isHistoryOpen, setIsHistoryOpen] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    const refreshData = async () => {
+    // Light tier: apps + KPIs + status flow only. A status edit can't move
+    // date_applied or category, so re-fetching the timeline/category charts on
+    // a status-only mutation would be pure waste — use this from handlers that
+    // only touch status/history.
+    const refreshStatusData = async () => {
         const { data, total } = await getApplications({ page, size: 10, ...filters })
         setApps(data)
         setTotal(total)
@@ -104,12 +108,19 @@ export function Dashboard({
         const newKpis = await getKPIs()
         setKpis(newKpis)
 
-        const [flowRes, timeRes, catRes] = await Promise.all([
-            getStatusFlow(),
+        const flowRes = await getStatusFlow()
+        if (flowRes.data) setStatusFlow(flowRes.data)
+    }
+
+    // Full tier: the light core plus the timeline/category charts. Use this
+    // from handlers that can change date_applied, category, or row count.
+    const refreshData = async () => {
+        await refreshStatusData()
+
+        const [timeRes, catRes] = await Promise.all([
             getTimelineData(),
             getCategoryData(),
         ])
-        if (flowRes.data) setStatusFlow(flowRes.data)
         if (timeRes.data) setTimeline(timeRes.data)
         if (catRes.data) setCategories(catRes.data)
     }
@@ -143,7 +154,7 @@ export function Dashboard({
         const result = await updateApplicationStatus(id, newStatus)
         if (result.success) {
             toast.success('Status updated')
-            refreshData()
+            refreshStatusData()
         } else {
             toast.error(result.error)
         }
@@ -182,7 +193,7 @@ export function Dashboard({
                 toast.success('Status updated')
                 const historyResult = await getApplicationHistory(selectedApp.id)
                 if (historyResult.success) setHistoryData(historyResult.data ?? [])
-                refreshData()
+                refreshStatusData()
             } else {
                 toast.error(result.error)
             }
@@ -195,7 +206,7 @@ export function Dashboard({
             toast.success('History entry deleted')
             const historyResult = await getApplicationHistory(selectedApp.id)
             if (historyResult.success) setHistoryData(historyResult.data ?? [])
-            refreshData()
+            refreshStatusData()
         } else {
             toast.error(result.error)
         }
