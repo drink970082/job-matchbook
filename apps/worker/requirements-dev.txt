@@ -1,11 +1,14 @@
 # Test/dev dependencies for the worker's hermetic suite. The suite is fully
 # dependency-injected and imports the heavy runtime deps (anthropic / apscheduler)
 # only lazily, so it needs just the test tooling + the libs imported at module
-# load (requests, PyYAML, pycountry). To actually RUN the worker, install requirements.txt.
+# load (requests, PyYAML, pycountry) plus geonamescache, which score/location.py
+# imports lazily at first use inside the suite (the location gate exercised by
+# test_score.py). To actually RUN the worker, install requirements.txt.
 # Install with:  pip install -r requirements-dev.txt
 requests>=2.31
 beautifulsoup4>=4.12
 PyYAML>=6.0
 pycountry>=23
+geonamescache>=3.0.1
 pytest>=8
 pytest-cov>=5

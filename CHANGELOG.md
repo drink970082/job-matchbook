@@ -649,6 +649,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **CI's worker job was red on a missing `geonamescache`, hidden by a local-green/CI-red
+  asymmetry.** `requirements.txt` pinned `geonamescache>=3.0.1` for the location gate
+  (`score/location.py`'s lazy city→country index), but `requirements-dev.txt` — the only
+  file CI's worker job installs — was never updated to match, so
+  `test_foreign_location_disqualifies_from_board_string` and friends failed with
+  `ModuleNotFoundError` on every push for a week (2026-07-13..19). Local runs stayed green
+  throughout because the host python had the full `requirements.txt` installed, masking the
+  gap. `requirements-dev.txt` now mirrors the `geonamescache` pin.
 - **The nightly CI cron now runs the web (Jest) and worker (pytest) unit suites again, not
   just e2e** — restoring early warning on the worker's unpinned dev-dependency drift. Both
   jobs' `if: github.event_name != 'schedule'` guard is removed from `ci.yml`.

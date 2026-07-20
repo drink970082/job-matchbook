@@ -288,8 +288,14 @@ and the six 2026-07-13 cold-pass defects D1–D6; see the [CHANGELOG](../CHANGEL
   status-change/delete triggers 4 full-table `findMany` + in-JS aggregation (all state lives
   in the Dashboard shell). Not addressed by the 2026-07-18 tab split (presentational only,
   per the plan's Ponytail scope call); an out-of-scope perf item kept open.
-- **`requirements-dev.txt` duplicates base pins** — accepted as-is. No include mechanism exists to
-  share pins with `requirements.txt` without adding tooling; the duplication is low-value churn.
+- **`requirements-dev.txt` duplicates base pins** — accepted as-is, but the duplication already bit
+  us once: `geonamescache` was added to `requirements.txt` for the location gate without being
+  mirrored into `requirements-dev.txt`, and CI's worker job (which installs only the latter) ran
+  red for a week (2026-07-13..19) while local runs stayed green — the host python had the full
+  `requirements.txt` installed, masking the gap. No include mechanism exists to share pins with
+  `requirements.txt` without adding tooling, so the duplication itself stays accepted, but the rule
+  is now: any new module-load or test-exercised runtime import MUST be mirrored into
+  `requirements-dev.txt` in the same commit that adds it to `requirements.txt`.
 
 ---
 
