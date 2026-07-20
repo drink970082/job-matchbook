@@ -63,11 +63,13 @@ def test_load_env_on_a_directory_returns_empty_not_crash(tmp_path):
     assert run.load_env(str(d)) == {}
 
 
-def test_run_once_calls_three_stages_in_order(monkeypatch):
+def test_run_once_calls_four_stages_in_order(monkeypatch):
     order = []
 
     monkeypatch.setattr(run.pipeline, "run_fetch",
                         lambda *a, **k: order.append("fetch") or 0)
+    monkeypatch.setattr(run.pipeline, "run_retry",
+                        lambda *a, **k: order.append("retry") or 0)
     monkeypatch.setattr(run.pipeline, "run_score",
                         lambda *a, **k: order.append("score"))
     monkeypatch.setattr(run.pipeline, "run_notify",
@@ -100,7 +102,7 @@ def test_run_once_calls_three_stages_in_order(monkeypatch):
             "OLLAMA_HOST": "h",
         },
     )
-    assert order == ["fetch", "score", "notify"]
+    assert order == ["fetch", "retry", "score", "notify"]
 
 
 # --- watchlist bootstrap + feed wiring ------------------------------------
@@ -110,7 +112,7 @@ _ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
 
 
 def _stub_stages(monkeypatch):
-    for stage in ("run_fetch", "run_score", "run_notify"):
+    for stage in ("run_fetch", "run_retry", "run_score", "run_notify"):
         monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
 
 

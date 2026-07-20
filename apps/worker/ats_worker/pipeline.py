@@ -1,4 +1,5 @@
-"""Orchestration: drive postings through new -> scored -> notified.
+"""Orchestration: drive postings through new -> scored -> notified, with a
+capped loop back from failed -> new (run_retry).
 
 WHY a per-stage, per-item try/except: each stage talks to a flaky external
 (board API, Ollama, Claude, Telegram). The cardinal rule is that ONE
@@ -9,6 +10,13 @@ deterministic and testable without network.
 
 Stage gating:
   run_fetch  -> inserts brand-new postings ('new')
+  run_retry  -> processes ONLY 'failed' rows whose cumulative attempts are
+                still under RETRY_MAX_ATTEMPTS, requeuing them to 'new' so
+                they're rescored THIS SAME pass (runs before run_score).
+                attempts is a single shared budget across score AND notify
+                failures, so a row parked by run_notify's exhausted retries
+                (attempts >= NOTIFY_MAX_ATTEMPTS, the same cap) never
+                qualifies — 'failed' stays terminal for it.
   run_score  -> processes ONLY 'new', advances to 'scored'
   run_notify -> processes ONLY 'scored' rows whose fit verdicts are a strong
                 match (db.get_notifiable — the rest stay 'scored', untouched);
@@ -361,6 +369,31 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
         else:
             for (row, posting, screen), card in zip(chunk, cards):
                 _persist_scored(conn, row, screen, card, now=now)
+
+
+# --- retry ------------------------------------------------------------------
+
+# Requeue budget for a parked 'failed' row. attempts is ONE cumulative counter
+# shared across score AND notify failures (mark_failed and record_notify_failure
+# both increment the SAME column) — a row that already burned 2 score failures
+# has only 1 notify try left before it hits this same cap. So RETRY_MAX_ATTEMPTS
+# reads the identical ceiling NOTIFY_MAX_ATTEMPTS (below) writes: a row parked by
+# an exhausted notify retry already has attempts >= 3 and can never requeue.
+# Persistent failures increment attempts each requeued pass until the 3rd trip
+# parks it 'failed' for good — a hard ceiling of 3 total failures per row.
+RETRY_MAX_ATTEMPTS = 3
+
+
+def run_retry(conn, *, now) -> int:
+    """Requeue every 'failed' row whose cumulative attempts are still under
+    RETRY_MAX_ATTEMPTS back to 'new', so it's rescored THIS SAME pass (called
+    before run_score in run.run_once). A requeued row re-runs the full
+    screen+score — flipping to 'discarded' on retry is a legitimate outcome,
+    not a bug. Rows a prior notify-retry exhausted (attempts >= 3, the same
+    counter) never qualify, so 'failed' stays terminal for those. Returns the
+    number of rows requeued.
+    """
+    return db.requeue_failed(conn, now, RETRY_MAX_ATTEMPTS)
 
 
 # --- notify ---------------------------------------------------------------

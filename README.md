@@ -83,7 +83,7 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
 | Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
 | Config load / validate | ✅ | ✅ | |
-| Auto-retry of `failed` postings | ⛔ | — | not built → [PROGRESS Defects](./docs/PROGRESS.md#open-work) |
+| Auto-retry of `failed` postings | ✅ | ✅ | requeued next pass until 3 cumulative failures |
 | Docker Compose · shared SQLite (WAL) | ✅ | ✅ | |
 | CI · coverage gates · schema-drift guard | ✅ | ✅ | |
 

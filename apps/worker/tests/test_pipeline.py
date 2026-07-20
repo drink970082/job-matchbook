@@ -11,6 +11,7 @@ import pytest
 
 from ats_worker import db, pipeline, score
 from tests._helpers import (
+    LATER,
     NOW,
     make_posting as _posting,
     seed_new as _seed_new,
@@ -512,3 +513,108 @@ def test_stages_ignore_wrong_status_rows(db_path):
     }
     assert statuses["n"] == "new"
     assert statuses["lo"] == "scored"
+
+
+# --- run_retry --------------------------------------------------------------
+
+def test_run_retry_requeues_then_caps_at_retry_max_attempts(db_path):
+    # A row that keeps failing SCREEN: each run_score pass parks it 'failed'
+    # (attempts+1); run_retry requeues it to 'new' while attempts < RETRY_MAX_ATTEMPTS
+    # (3) so it's rescored next pass. On the 3rd cumulative failure the cap is hit
+    # and run_retry requeues NOTHING — permanently parked.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    def screen_fn(posting):
+        raise RuntimeError("ollama down")
+
+    def fit_fn(postings):
+        raise AssertionError("fit must not run — the screen failed")
+
+    for expected_attempts in (1, 2, 3):
+        pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+        row = conn.execute("SELECT * FROM job_postings").fetchone()
+        assert row["attempts"] == expected_attempts
+        assert row["pipeline_status"] == "failed"
+
+        requeued = pipeline.run_retry(conn, now=NOW)
+        if expected_attempts < pipeline.RETRY_MAX_ATTEMPTS:
+            assert requeued == 1
+            assert conn.execute(
+                "SELECT pipeline_status FROM job_postings"
+            ).fetchone()[0] == "new"
+        else:
+            assert requeued == 0    # cap hit — the 3rd failure never comes back
+            assert conn.execute(
+                "SELECT pipeline_status FROM job_postings"
+            ).fetchone()[0] == "failed"
+
+
+def test_run_retry_does_not_requeue_notify_exhausted_rows(db_path):
+    # A row parked 'failed' via the NOTIFY_MAX_ATTEMPTS-th notify send failure has
+    # attempts == 3 == RETRY_MAX_ATTEMPTS — the SAME shared counter — so it must
+    # never requeue. No other code path writes pipeline_status='failed'.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
+
+    def failing_notify(posting, *, token, chat_id):
+        raise RuntimeError("telegram 429")
+
+    for _ in range(3):
+        pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["attempts"] == 3
+    assert row["pipeline_status"] == "failed"
+
+    requeued = pipeline.run_retry(conn, now=LATER)
+    assert requeued == 0
+    assert conn.execute(
+        "SELECT pipeline_status FROM job_postings"
+    ).fetchone()[0] == "failed"
+
+
+def test_run_retry_recovery_clears_pipeline_error_keeps_attempts(db_path):
+    # fail once -> requeue -> the retry SCREEN survives and fit_fn succeeds ->
+    # 'scored', pipeline_error cleared (None), attempts preserved at 1 (not reset).
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    def failing_screen(posting):
+        raise RuntimeError("ollama down")
+
+    pipeline.run_score(
+        conn, now=NOW, screen_fn=failing_screen,
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "failed"
+    assert row["attempts"] == 1
+    assert row["pipeline_error"]
+
+    requeued = pipeline.run_retry(conn, now=LATER)
+    assert requeued == 1
+
+    def ok_screen(posting):
+        return {"disqualified": False}
+
+    def ok_fit(postings):
+        return [{"score": 90, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=LATER, screen_fn=ok_screen, fit_fn=ok_fit)
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "scored"
+    assert row["pipeline_error"] is None     # no stale error survives a recovery
+    assert row["attempts"] == 1              # the earlier failure stays counted
+
+
+def test_run_retry_sets_updated_at_to_passed_now(db_path):
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pid = conn.execute("SELECT id FROM job_postings").fetchone()[0]
+    db.mark_failed(conn, pid, error="boom", now=NOW)
+
+    requeued = pipeline.run_retry(conn, now=LATER)
+    assert requeued == 1
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "new"
+    assert row["updated_at"] == LATER

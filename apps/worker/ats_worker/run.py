@@ -3,7 +3,8 @@
 WHY the env/adapter wiring lives only here: every other module is pure and
 injected, so this is the single place that knows about secrets and external
 services. `run_once` takes already-loaded config/secrets and the worker
-callables it builds from them, calling the three pipeline stages in order.
+callables it builds from them, calling the pipeline stages in order (fetch,
+retry, score, notify).
 
 APScheduler is imported lazily inside the cron path so the test environment —
 which lacks apscheduler — can still import and exercise this module.
@@ -136,9 +137,10 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE) -> None:
-    """Run fetch -> score -> notify exactly once. `resumes` is the {label: text}
-    dict of resume versions; `profile` is optional candidate context — both are
-    baked into the fit scorer (the Ollama SCREEN never sees either)."""
+    """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
+    {label: text} dict of resume versions; `profile` is optional candidate
+    context — both are baked into the fit scorer (the Ollama SCREEN never
+    sees either)."""
     conn = db.connect(db_path)
     try:
         now = _now()
@@ -181,6 +183,10 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                     resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
                         url, session=_feed_session(), timeout=_FEED_TIMEOUT),
                 )
+
+        # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
+        # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
+        pipeline.run_retry(conn, now=now)
 
         # Build the screening checklist only when the candidate actually configured
         # hard requirements; an empty candidate skips the SCREEN call entirely (no

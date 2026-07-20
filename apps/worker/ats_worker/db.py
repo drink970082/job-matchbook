@@ -220,11 +220,15 @@ def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
                status: str = "scored") -> None:
     # status is normally 'scored'; the scorer can route a disqualified posting
     # straight to 'discarded' (see pipeline.run_score) while still keeping its
-    # score + reason for the UI.
+    # score + reason for the UI. pipeline_error is cleared so a row that
+    # recovered from a prior score failure (e.g. via a run_retry requeue)
+    # doesn't carry a stale error string — mirrors mark_notified's clear on
+    # the notify side.
     _update(conn, posting_id, {
         "score": score,
         "score_detail": json.dumps(score_detail),
         "pipeline_status": status,
+        "pipeline_error": None,
         "updated_at": now,
     })
 
@@ -259,3 +263,18 @@ def record_notify_failure(conn, posting_id: int, *, error: str, now: str,
         ("failed" if exhausted else "scored", error, now, posting_id),
     )
     conn.commit()
+
+
+def requeue_failed(conn, now: str, max_attempts: int) -> int:
+    """Requeue every 'failed' row that hasn't burned its cumulative attempts
+    budget (attempts < max_attempts) back to 'new'. The cap is passed in by the
+    caller (pipeline.RETRY_MAX_ATTEMPTS) rather than hard-coded here — this
+    module stays policy-free, same as every other mutator. Returns the number
+    of rows requeued."""
+    cur = conn.execute(
+        "UPDATE job_postings SET pipeline_status='new', updated_at=? "
+        "WHERE pipeline_status='failed' AND attempts < ?",
+        (now, max_attempts),
+    )
+    conn.commit()
+    return cur.rowcount

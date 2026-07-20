@@ -427,10 +427,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
   (selects rows by pipeline status), `get_notifiable` (the notify gate: `scored`
   rows whose `score_detail` verdicts read `seniority=match AND domain=match AND
-  NOT insufficient_context`, via `json_extract`), `save_score`,
-  `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal),
-  `record_notify_failure` (retry-aware: keeps the row `scored` until the caller
-  declares the budget exhausted, then parks it `failed`). Watchlist + feed
+  NOT insufficient_context`, via `json_extract`), `save_score` (also clears
+  `pipeline_error`, so a row recovering via a retry requeue drops its stale
+  error), `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal —
+  aside from `requeue_failed`, below), `record_notify_failure` (retry-aware:
+  keeps the row `scored` until the caller declares the budget exhausted, then
+  parks it `failed`), `requeue_failed(conn, now, max_attempts)` (bulk
+  `UPDATE ... SET pipeline_status='new' WHERE pipeline_status='failed' AND
+  attempts < max_attempts`, returns rows requeued — the cap is passed in by the
+  caller, `pipeline.RETRY_MAX_ATTEMPTS`, so this module stays policy-free like
+  every other mutator here). Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
@@ -618,7 +624,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
-  `run_fetch` → (`run_feed`) → `run_score` → `run_notify`. Every stage
+  `run_fetch` → (`run_feed`) → `run_retry` → `run_score` → `run_notify`. Every stage
   wraps each item in try/except: one bad posting/company is recorded
   (`db.mark_failed`; at the notify stage `db.record_notify_failure`, which retries —
   §9) or skipped, and the batch continues. `run_feed` (optional) runs
@@ -658,6 +664,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   description, §11 quota math) — but the live batched==single guard failed on
   domain-verdict bleed, so `batch_size` stays at its parked default of 1 until that's
   fixed.
+  `run_retry` requeues every `failed` row whose cumulative `attempts` are still
+  under `RETRY_MAX_ATTEMPTS` (3, mirroring `NOTIFY_MAX_ATTEMPTS`) back to `new`
+  — one bulk `db.requeue_failed` UPDATE, no per-item loop needed since a plain
+  `WHERE` clause is what to requeue. Runs **after** the fetch/feed ingest and
+  **before** `run_score`, so a requeued row is rescored in the same pass as
+  fresh ingests. `attempts` is a single counter shared across the score and
+  notify stages (`mark_failed` and `record_notify_failure` both increment it),
+  so a row parked by `run_notify`'s exhausted retries already has
+  `attempts >= NOTIFY_MAX_ATTEMPTS` (the same value) and never requeues —
+  `failed` stays terminal for it. A requeued row re-runs the full screen+fit;
+  flipping to `discarded` on retry is a legitimate outcome. A persistently
+  failing row is requeued, fails, and reparks each pass until its 3rd
+  cumulative failure — a hard ceiling of 3 total failures per row, at which
+  point it's permanently parked (recovery from there is the human act,
+  `reopenJobPosting`/`bulkReopen`).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -869,6 +890,8 @@ them when changing behavior.
 ```
 fetch:   (new posting)            → new
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
+retry:   failed, attempts < 3     → new             (requeued next pass, BEFORE score;
+                                                    attempts unchanged until re-failed)
 score:   new                      → scored        (default)
                                   → discarded      (candidate hard-constraint fail)
 notify:  scored, seniority=match AND domain=match AND NOT insufficient_context → notified
@@ -883,7 +906,8 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 
 - **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
-- **Stage gating is strict:** `run_score` processes only `new`; `run_notify` only
+- **Stage gating is strict:** `run_retry` processes only `failed` rows with
+  `attempts < RETRY_MAX_ATTEMPTS`; `run_score` processes only `new`; `run_notify` only
   `scored` rows the fit verdicts mark a strong match (`db.get_notifiable` —
   `seniority=match AND domain=match AND NOT insufficient_context`; non-matching rows
   stay `scored`, untouched). The score is not the gate — it quantizes to a rubric
@@ -1060,15 +1084,30 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
 **Failure handling and recovery limits:**
 
-- **`failed` is terminal.** No stage transitions a row *out* of `failed`
-  (`run_score`←`new`, `run_notify`←`scored`); recovery is a human act
-  (`reopenJobPosting`/`bulkReopen` write `scored`). A fetch/score exception parks the
-  row `failed` immediately.
+- **`failed` is retried automatically, capped — not fully terminal.** A fetch/score
+  exception parks the row `failed` immediately (`db.mark_failed`, `attempts+1`,
+  `pipeline_error` set). `run_retry` requeues it back to `new` on the **next** pass
+  as long as `attempts < RETRY_MAX_ATTEMPTS` (3) — a bulk, non-per-item UPDATE
+  (`db.requeue_failed`), run before `run_score` so the requeued row is rescored
+  the same pass. `attempts` is **one counter shared across score and notify
+  failures** (`mark_failed` and `record_notify_failure` both increment the same
+  column) — a row that already burned 2 score failures has only 1 notify try
+  left before hitting the same cap. A row parked by `run_notify`'s exhausted
+  retries (`attempts >= NOTIFY_MAX_ATTEMPTS`, the identical value) therefore
+  already reads `attempts >= RETRY_MAX_ATTEMPTS` and never requeues — no other
+  code path writes `pipeline_status='failed'`. A requeued row re-runs the full
+  screen+fit; flipping to `discarded` on a retry is a legitimate outcome, not a
+  bug. Persistent failures requeue, fail, and repark each pass until the 3rd
+  cumulative failure — a hard ceiling of **3 total failures per row** — at
+  which point `run_retry` no longer requeues it and it stays parked for good;
+  from there, recovery is still the human act (`reopenJobPosting`/`bulkReopen`
+  write `scored`, resetting nothing about `attempts`).
 - **Notify send errors are retried, bounded.** `run_notify` treats a Telegram send
   error as transient: the row **stays `scored`** (`attempts+1`, `pipeline_error`
   recorded) so the next scheduled pass retries the send — the match never leaves the
   default Discovered-Jobs view while retrying. The `NOTIFY_MAX_ATTEMPTS`-th (3)
-  cumulative failure parks it `failed` (terminal, the Failed tab), so a *persistent*
+  cumulative failure parks it `failed` (terminal *for the notify stage* — see the
+  shared-budget retry bullet above), so a *persistent*
   channel failure (revoked token, wrong chat id) surfaces in a visible queue instead
   of retrying silently forever. A successful send clears `pipeline_error`. Delivery
   is **at-least-once**: the send is a single atomic `sendMessage`, so a timeout after
@@ -1117,6 +1156,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/components/__tests__/JobDetailModal.test.tsx` |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Notify send error → stays `scored` + `attempts+1` + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
+| `run_retry` requeues `failed`→`new` while `attempts < RETRY_MAX_ATTEMPTS` (3, shared with `NOTIFY_MAX_ATTEMPTS`), caps at the 3rd cumulative failure, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_four_stages_in_order`) |
+| A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
 | Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `components/__tests__/DiscoveredJobsTable.test.tsx` |
 | Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |

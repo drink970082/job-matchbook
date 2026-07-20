@@ -331,6 +331,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   trails) to the local DB for populating the dashboard. Unlike the e2e fixture it
   **never clears** existing rows, so it is safe to run against a DB holding real
   worker `job_postings`.
+- **Auto-retry of `failed` postings, attempts-capped.** A new pipeline stage
+  `run_retry` (`ats_worker/pipeline.py`, run before `run_score`) requeues every
+  `failed` row back to `new` while its cumulative `attempts` — a single counter
+  shared across score **and** notify failures — stays under `RETRY_MAX_ATTEMPTS`
+  (3, mirroring `NOTIFY_MAX_ATTEMPTS`): one bulk `db.requeue_failed` UPDATE, no
+  per-item loop needed. A requeued row re-runs the full screen+fit this same pass;
+  a row already parked by `run_notify`'s exhausted retries reads `attempts >= 3`
+  and never requeues, so `failed` stays terminal for that path. Persistent
+  failures requeue-fail-repark each pass until the 3rd cumulative failure parks
+  the row for good — a hard ceiling of 3 total failures per row. `db.save_score`
+  now also clears `pipeline_error` on a successful (re-)score, so a recovering
+  row doesn't carry a stale error string (mirrors `mark_notified`'s existing
+  clear on the notify side).
 
 ### Changed
 
