@@ -1035,7 +1035,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `apps/worker/README.md` and `CONTRIBUTING.md` — fixed there too: the worker
   README's service description, ASCII pipeline diagram, board table, `.env`
   setup step, and test-suite note; CONTRIBUTING's prerequisites and
-  dependency-injection note.
+  dependency-injection note. Missed by that pass: the worker README's own **Run**
+  section still led with "Docker (recommended)" and `docker compose up` — also
+  stale since the 2026-07-16 decontainerization. Rewritten so the native
+  `python -m ats_worker.run` path (host-Ollama prerequisite folded in) is the
+  only run path, with a short note that `docker compose up` starts the web
+  stack alone and a pointer to SPEC §6.
 
 ## [0.2.0] — 2026-06-08
 

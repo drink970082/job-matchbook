@@ -59,20 +59,19 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 
 ## Run
 
-**Docker (recommended)** — from the repo root:
+The worker runs **natively on the host** — needs the Python deps installed, and
+Ollama running on the **host** (uses the GPU):
 ```bash
-# Ollama runs on the HOST (uses the GPU):  ollama pull qwen3.5:4b && ollama serve
-UID=$(id -u) GID=$(id -g) docker compose up --build
-```
-The worker shares the `./db` directory with the web app. The db is mounted as a
-**directory** (not a single file) so SQLite WAL works across both containers.
-
-**Local (no Docker)** — needs the Python deps installed:
-```bash
+ollama pull qwen3.5:4b && ollama serve
 pip install -r requirements.txt
 python -m ats_worker.run --once     # single test pass
 python -m ats_worker.run            # scheduler (immediate pass + every N hours)
 ```
+
+`docker compose up` (from the repo root) only starts the **web** stack — the
+worker isn't containerized (its default fit-score backend shells out to the
+Codex CLI, which authenticates from the operator's host `~/.codex`, and it's
+already pinned to the host by Ollama's GPU). See `docs/SPEC.md` §6.
 
 ## Tests
 
