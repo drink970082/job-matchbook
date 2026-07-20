@@ -524,7 +524,11 @@ worker modules are pure and dependency-injected; real services are wired only in
     **No determinism:** codex exposes no `seed`/`temperature`, so score noise cannot be
     turned off — but routing no longer depends on the noisy number (§9), so
     `make eval-score` gates on whether the per-dimension `seniority`/`domain` verdicts
-    stay accurate, not on whether the score moves a band.
+    stay accurate, not on whether the score moves a band. Score stability is therefore a
+    *measured* property, not a guaranteed one; if the eval gate ever starts failing, the
+    escape hatch is raising K (majority-of-K draws) or A/B-ing `--score-backend claude` —
+    there is no seed to reach for. The residual ±10–15 score noise affects only
+    display/ranking fidelity, never routing.
     **Quota-usage capture (free):** when `run.py` passes a `usage_path`, the scorer reads
     codex's own `/status` accounting (`used_percent`, `window_minutes`, `resets_at`,
     `plan_type`) off the **session rollout** the scoring call writes, and snapshots it to
@@ -915,7 +919,7 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   `seniority=match AND domain=match AND NOT insufficient_context`; non-matching rows
   stay `scored`, untouched). The score is not the gate — it quantizes to a rubric
   band edge and flipped run-to-run near the old `≥75` threshold, while the verdicts
-  held stable across every draw (see `PROGRESS.md`). A failure in one posting never
+  held stable across every draw (see §13). A failure in one posting never
   aborts the batch (per-item try/except → `mark_failed`, or the notify stage's
   bounded retry — see "Failure handling and recovery limits" below).
 - **Screening is part of scoring, not a separate stage.** With an empty `candidate`
@@ -1311,7 +1315,7 @@ automated coverage — those rely on code review or the human in the loop, not a
   size >1: `run.py`'s `DEFAULT_BATCH_SIZE=1`, and the queue re-score stays on the
   unbatched, multi-window path. **The ~64-call / ~6×-token win is therefore off the
   table via batching** — the message-quota problem needs a different lever (pacing across
-  windows + the usage tracker in `PROGRESS.md`), not a bigger batch. A fix would have to
+  windows + the codex usage bar, §7.2), not a bigger batch. A fix would have to
   be *stronger per-JD prompt isolation*, but on this backend isolation is what one-JD-per-
   call already buys — i.e. the win and the fix are in tension. At the cap Codex hard-
   blocks (no degraded fallback) and `codex exec` exits **1 with no distinct rate-limit
@@ -1333,6 +1337,32 @@ automated coverage — those rely on code review or the human in the loop, not a
   exception text embeds the bot token (carried in the request URL); `run_notify`
   scrubs it (replaced with `***`) before it reaches `job_postings.pipeline_error`
   or stdout, so it never escapes `.env` into the shared DB or logs (see CHANGELOG).
+- **Accepted security residuals** (deliberate, documented — single-user,
+  loopback-bound, curated-input deployment; also see `SECURITY.md`):
+  - **`autoheal` holds the Docker socket** — `docker-compose.yml` mounts
+    `/var/run/docker.sock` (root-equivalent host control) into
+    `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the
+    highest-privilege component in the stack. Deliberate: it is what closes the
+    stale-mount self-heal loop (§6).
+  - **SSRF guard is a pure string check** (`util.is_safe_public_url`, §7.1): it does
+    no DNS resolution, so three shapes remain reachable — (a) one read-only redirect
+    GET on the `browser` path (Playwright's route interceptor can't fire on a
+    followed 3xx; the response is discarded, so no data returns), (b) DNS-rebinding
+    (public at check time, internal at fetch), (c) a hostname that statically
+    resolves internal (e.g. `metadata.google.internal`). Accepted for a single-user
+    worker fetching a curated board list with `browser` sources gated off by
+    default; the feed/custom paths re-validate every redirect hop before it is
+    requested (`util.get_redirect_safe`, §7.1).
+  - **Watchlist slug is structurally validated, not host-checked** — all three
+    write boundaries (`actions.ts`, `config.py`, `add_watched.py`) reject bad
+    charset/traversal, but `phenom`/`workday` pack a hostname as the slug's first
+    segment, so an internal-IP host would pass the structural guard. Watchlist rows
+    are operator-authored.
+  - **JD prompt-injection can skew a score, not leak a secret** — the codex scorer
+    is tool-less by construction (§7.1), so a hostile JD can't read or exfiltrate
+    anything; it could still talk the model into a wrong number/verdict. Probed
+    behaviorally (a canary JD demanding score 99 got 0); blast radius is one bogus
+    Telegram alert.
 
 ---
 
@@ -1439,7 +1469,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   score via context bleed from its batch-mates, and it is the **acceptance gate** for
   trusting `batch_size>1` on a real re-score of the queue. **Run 2026-07-16
   (`gpt-5.6-sol`, `batch_size=10`, 23 golden rows) — FAILED, 19/23 agree** (see
-  `PROGRESS.md`, `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict, two of
+  `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict, two of
   them (`adjacent`→`match`) appearing to cross the notify predicate. Per the design's
   rollout rule, batching **does not ship** — the shipped default is `batch_size=1`
   (§7.1, §9, §11), and the batching machinery + this guard stay in place for a future

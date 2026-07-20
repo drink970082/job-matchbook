@@ -7,7 +7,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Documentation
+
+- **`PROGRESS.md` slimmed back to a pure live delta.** Shipped-work narratives it had
+  accumulated (the remediated-defect recaps, the onboard-board / headless-browser
+  "SHIPPED" write-ups, the batching post-mortem, resolved-item strikethroughs, the
+  external-reference mining notes' historical validation) moved out: capabilities and
+  accepted limitations now live in `SPEC.md` (new §11 "Accepted security residuals"
+  block; §7.1 score-stability escape hatch), history stays here. PROGRESS retains only
+  genuinely open items — pending publish steps, unverified properties, deferred
+  decisions, and unbuilt enhancements.
+
 ## [1.0.0] — 2026-07-20
+
+*Milestone:* on **2026-07-13** the full `fetch → screen → score → notify` pipeline ran
+against live services for the first time — one cold pass over 39 boards → **1169**
+postings fetched, **~45%** screened out (internship/location/visa), **642** fit-scored
+with zero failures, matches delivered to Telegram.
 
 ### Security
 
