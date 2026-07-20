@@ -32,15 +32,18 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import db, score
-from .fetch import DETAIL_SOURCES, filter_postings
+from .fetch import DETAIL_SOURCES, prefilter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 
 
 # --- fetch ----------------------------------------------------------------
 
-def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None) -> int:
-    """Fetch every company, title-filter, and upsert. Returns rows inserted.
+def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
+              title_exclude=None, max_age_days=0, candidate=None) -> int:
+    """Fetch every company, pre-filter (title keep/exclude + max-age), tag any
+    deterministic disqualification (intern/location) so it lands 'discarded' WITHOUT
+    an Ollama call, then upsert. Returns rows inserted.
 
     A failing company is logged-and-skipped (no posting to mark failed yet —
     nothing is in the db), so the remaining companies still ingest.
@@ -54,9 +57,18 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None) -> int:
             # (and every non-recipe adapter) is called exactly as before.
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
-            kept = filter_postings(postings, title_filter)
+            kept = prefilter_postings(
+                postings, title_filter=title_filter, title_exclude=title_exclude,
+                max_age_days=max_age_days, now=now)
             for p in kept:
                 p["company_slug"] = c["slug"]
+                if candidate:
+                    verdict = score.deterministic_screen(
+                        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+                        p, candidate)
+                    if verdict.get("disqualified"):
+                        p["pipeline_status"] = "discarded"
+                        p["score_detail"] = _score_detail(verdict, disqualified=True)
             inserted += db.upsert_postings(conn, kept, now=now)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")

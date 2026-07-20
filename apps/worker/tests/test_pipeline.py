@@ -99,6 +99,50 @@ def test_run_fetch_raises_when_fetch_fn_missing(db_path):
         pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=None)
 
 
+def test_run_fetch_marks_location_miss_discarded(db_path):
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        return [_posting("1", location="Shanghai, China"),
+                _posting("2", location="Remote")]
+
+    companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
+    inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn,
+                                  candidate={"locations": ["remote", "USA"]})
+    assert inserted == 2  # both rows recorded; the miss is discarded, not dropped
+    assert [r["external_id"] for r in db.get_by_status(conn, "discarded")] == ["1"]
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["2"]
+    detail = _json.loads(db.get_by_status(conn, "discarded")[0]["score_detail"])
+    assert detail["disqualified"] is True
+    assert detail["screen"]["location"]["pass"] is False
+
+
+def test_run_fetch_drops_stale_by_max_age(db_path):
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        return [_posting("fresh", posted_at="2026-06-01"),
+                _posting("stale", posted_at="2026-01-01")]
+
+    companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
+    inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn,
+                                  max_age_days=30)
+    assert inserted == 1
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["fresh"]
+
+
+def test_run_fetch_no_candidate_leaves_all_new(db_path):
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        return [_posting("1", location="Shanghai, China")]
+
+    companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"}]
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["1"]
+    assert db.get_by_status(conn, "discarded") == []
+
+
 # --- run_score ------------------------------------------------------------
 
 def test_run_score_only_new_and_one_failure_isolated(db_path):
