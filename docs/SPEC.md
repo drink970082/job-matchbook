@@ -1277,8 +1277,6 @@ automated coverage — those rely on code review or the human in the loop, not a
   (`cached_input_tokens` stayed 0 on back-to-back identical prompts) — the opposite
   of the `claude` backend's cached prefix, and the strongest standing argument for
   the metered API if the flat rate ever stops paying for itself.
-- **Responsive UI:** the web layout is responsive and stacks to a single column
-  below ~640px.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
 - **Security:** the RESUME / PERSONAL PROFILE / JOB text is marked as *data, not

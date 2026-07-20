@@ -62,9 +62,9 @@ export function WatchlistTable({ data, onAdd, onRemove }: WatchlistTableProps) {
     return (
         <div className="space-y-4">
             {/* Add company row */}
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-row gap-2">
                 <Select value={source} onValueChange={setSource}>
-                    <SelectTrigger className="w-full sm:w-[150px]">
+                    <SelectTrigger className="w-[150px]">
                         <SelectValue placeholder="Source" />
                     </SelectTrigger>
                     <SelectContent>

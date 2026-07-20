@@ -77,13 +77,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
-- **Drop mobile/responsive layout** — `[XS]`. Go desktop-only: strip the `flex-col
-  sm:flex-row` / `w-full sm:w-[...]` breakpoint patterns from `ApplicationTable`,
-  `DiscoveredJobsTable`, `Pagination`, `WatchlistTable` (currently stack below
-  ~640px, README feature table + SPEC §11); the app is a self-hosted,
-  single-operator tool and the mobile layout isn't earning its upkeep. Also drops
-  the README feature-status row, the SPEC §11 "Responsive UI" bullet, and the
-  orphaned `docs/images/mobile.png`.
 - **Enhance the Discovered Jobs section in the README** — `[XS]`. It should read at
   the same weight as the "Track" section above it (which gets 3 inline
   screenshots + a dense feature list) — right now "Discover" is one thin paragraph

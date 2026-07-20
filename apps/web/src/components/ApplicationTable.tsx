@@ -70,7 +70,7 @@ export function ApplicationTable({
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-row gap-4">
                 <div className="flex-1">
                     <Input
                         placeholder="Search companies or job titles..."

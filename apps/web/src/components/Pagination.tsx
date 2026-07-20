@@ -43,7 +43,7 @@ export function Pagination({ page, size, total, onPageChange }: PaginationProps)
     }
 
     return (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 py-2">
+        <div className="flex flex-row items-center justify-between gap-3 py-2">
             <div className="text-sm text-muted-foreground">
                 {total === 0
                     ? '0 results'

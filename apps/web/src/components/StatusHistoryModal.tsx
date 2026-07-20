@@ -155,7 +155,7 @@ export function StatusHistoryModal({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="max-w-[600px]">
                 <DialogHeader>
                     <DialogTitle asChild>
                         <div>{titleContent}</div>

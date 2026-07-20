@@ -299,7 +299,7 @@ export function DiscoveredJobsTable({
                     </button>
                 ))}
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+            <div className="flex flex-row gap-3 items-center">
                 <div className="flex-1">
                     <Input
                         placeholder="Search companies or job titles..."

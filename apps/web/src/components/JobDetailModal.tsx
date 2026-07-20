@@ -112,7 +112,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[640px]">
+            <DialogContent className="max-w-[640px]">
                 <DialogHeader>
                     <DialogTitle asChild>
                         <div className="flex justify-between items-start pr-6">

@@ -40,9 +40,9 @@ export function ApplicationsTab({
     return (
         <>
             {/* Form (4) + Table (8) side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="grid grid-cols-12 gap-6">
                 {/* Add Application Form */}
-                <div className="lg:col-span-4">
+                <div className="col-span-4">
                     <Card>
                         <CardHeader className="pb-3">
                             <CardTitle className="text-lg">Add Application</CardTitle>
@@ -54,7 +54,7 @@ export function ApplicationsTab({
                 </div>
 
                 {/* Table */}
-                <div className="lg:col-span-8">
+                <div className="col-span-8">
                     <ApplicationTable
                         data={apps}
                         total={total}
@@ -70,7 +70,7 @@ export function ApplicationsTab({
             </div>
 
             {/* Charts */}
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6 grid-cols-2">
                 <Card>
                     <CardHeader className="pb-3">
                         <CardTitle className="text-lg">Application Timeline</CardTitle>

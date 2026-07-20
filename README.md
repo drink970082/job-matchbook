@@ -81,7 +81,6 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Watchlist management (add / remove watched companies) | ✅ | ✅ | unit + integration |
 | Unresolved-feeds tab + promotion suggestions | ✅ | ✅ | grouped by host+reason; dismiss suggestion |
 | Codex usage bar (`/api/codex-usage`) | ✅ | ✅ | quota snapshot, degrades to empty state (not an error) when absent |
-| Responsive / mobile layout | ✅ | — | stacks below ~640px |
 | Fetch — 9 platform adapters plus generic custom/browser recipe executors (11 sources total) | ✅ | ✅ | per-adapter parse/fetch unit tests + dedup on `(source, external_id)` |
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
 | Score — Codex CLI default / Claude alternate (reason-first) | ✅ | ✅ | |
@@ -144,7 +143,7 @@ Jest + Playwright + pytest · Docker Compose. Details in
 |-----|------|
 | [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec + capability map** — architecture, components, data model, behaviors, setup, testing |
 | [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — what's in flight and open (capabilities → SPEC, history → CHANGELOG) |
-| [`docs/SETUP.md`](./docs/SETUP.md) | Setup pointer (→ spec §12) |
+| [`docs/SETUP.md`](./docs/SETUP.md) | Setup front door — prerequisites, gotchas, tracker-only vs. full-pipeline paths, and where each setting lives (→ spec §12 for authoritative commands) |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release history |
 | [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) | Community expectations (Contributor Covenant) |

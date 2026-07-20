@@ -39,7 +39,7 @@ export function ApplyCategoryDialog({ open, companyName, jobTitle, onConfirm, on
 
     return (
         <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-            <DialogContent className="sm:max-w-[420px]">
+            <DialogContent className="max-w-[420px]">
                 <DialogHeader>
                     <DialogTitle>Mark applied</DialogTitle>
                 </DialogHeader>
