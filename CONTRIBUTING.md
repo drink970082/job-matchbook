@@ -16,7 +16,9 @@ the product overview.
 
 - Node.js 20+ and npm
 - Python 3.11+
-- (Optional, for the full pipeline) Docker + Docker Compose, Ollama
+- (Optional, for the full pipeline) Docker + Docker Compose, Ollama, and either
+  the Codex CLI (`codex login` — the default fit-score backend) or an
+  Anthropic API key (`SCORE_BACKEND=claude`, metered alternate)
 
 ## Getting started
 
@@ -39,8 +41,8 @@ make test-worker    # pytest (cd apps/worker && python -m pytest)
 ```
 
 The worker suite is **fully dependency-injected** — every external service
-(Ollama, Claude, Telegram) is mocked, so it runs anywhere Python + pytest
-exist, with no network and no API keys.
+(Ollama, the Codex CLI, Claude, Telegram) is mocked, so it runs anywhere
+Python + pytest exist, with no network and no API keys.
 
 CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
 

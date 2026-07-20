@@ -3,20 +3,28 @@
 The Python pipeline service of the ATS project — one of two services in this
 repo (the other is the [`../web`](../web) app). On a schedule it: **fetch**
 postings from company ATS boards → **score** each against your resume (hard
-requirements screened locally on Ollama; fit scored by Claude) → **notify** you
-on Telegram for every high scorer. You still apply by hand, then one-click
-"Mark Applied" in the web UI.
+requirements screened locally on Ollama; fit scored by the Codex CLI by
+default, Claude as a metered alternate) → **notify** you on Telegram for every
+high scorer. You still apply by hand, then one-click "Mark Applied" in the web
+UI.
 
 ```
 fetch ──► score ─────────────► notify
 (boards) (Ollama screen +      (Telegram)
-          Claude fit score)
+          Codex/Claude fit score)
 ```
 
 Postings live in the `job_postings` table of the SQLite db shared with the
 Next.js app. Prisma owns the schema; the worker only reads/writes rows.
 
 ## Supported boards
+
+11 watchlist-capable sources are registered in `fetch/ADAPTERS`: the five
+detailed below, plus `smartrecruiters`, `workable`, `icims`, `phenom` (same
+pattern — a public per-board API) and `custom`/`browser` (generic recipe
+executors driven by a declarative recipe in `config.yaml`, not a fixed public
+API). Two more sources, `oracle` and `jobvite`, are feed-resolution-only (no
+public list endpoint, so they can't be enumerated as a watchlist company).
 
 Set per company in `config.yaml`. `slug` is the handle in the board's public URL.
 
@@ -44,8 +52,10 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 2. `resume/*.txt` — one or more labeled résumé versions (plus an optional
    `personal_profile.txt` about-me context), used for keyword/fit scoring.
    See `resume/README.md`.
-3. `.env` — copy `.env.example` → `.env` and fill in `ANTHROPIC_API_KEY`,
-   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`.
+3. `.env` — copy `.env.example` → `.env` and fill in `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`. Fit-scoring auth is `codex login` (Codex
+   CLI, the default `SCORE_BACKEND`, no env var needed) or `ANTHROPIC_API_KEY`
+   only when `SCORE_BACKEND=claude`.
 
 ## Run
 
@@ -67,7 +77,7 @@ python -m ats_worker.run            # scheduler (immediate pass + every N hours)
 ## Tests
 
 ```bash
-python -m pytest        # pure unit tests; no network / Ollama / Claude needed
+python -m pytest        # pure unit tests; no network / Ollama / Codex / Claude needed
 ```
 All external services are dependency-injected, so the suite runs anywhere
 Python + pytest exist.

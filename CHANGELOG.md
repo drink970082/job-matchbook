@@ -1030,7 +1030,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   worker — stale since the worker was decontainerized 2026-07-16 (SPEC §6); both
   now show the native `python -m ats_worker.run` invocation. Also closed two
   SPEC §11 "Open defect (PROGRESS)" callouts (git-history purge, Telegram-token
-  scrub) that CHANGELOG already shows shipped.
+  scrub) that CHANGELOG already shows shipped. The same two staleness patterns
+  (Claude-only scorer claims, 5-board mentions) were also present in
+  `apps/worker/README.md` and `CONTRIBUTING.md` — fixed there too: the worker
+  README's service description, ASCII pipeline diagram, board table, `.env`
+  setup step, and test-suite note; CONTRIBUTING's prerequisites and
+  dependency-injection note.
 
 ## [0.2.0] — 2026-06-08
 
