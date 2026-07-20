@@ -1041,6 +1041,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `python -m ats_worker.run` path (host-Ollama prerequisite folded in) is the
   only run path, with a short note that `docker compose up` starts the web
   stack alone and a pointer to SPEC §6.
+- **The 6 README/`docs/images/*.png` screenshots now come from seeded sample
+  data, not the operator's real job search.** Regenerated all of them
+  (`kpi-and-table`, `charts-row`, `status-funnel`, `sankey`, `dashboard`,
+  `mobile`) against a throwaway DB seeded via `apps/web/prisma/seed-dev.mjs`
+  (400 rows of fictional companies — Hooli, Stark Industries, Wayne
+  Enterprises, etc.) — closing a privacy blocker for going public. Image
+  paths and filenames are unchanged.
 
 ## [0.2.0] — 2026-06-08
 
