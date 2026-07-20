@@ -664,7 +664,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   left as-is. `playwright.config.ts`'s `webServer.command` now chains
   `npm run build && npx prisma db push --skip-generate --accept-data-loss && npm run
   start -- -p 3100`, and the now-redundant `e2e/global-setup.ts` is deleted (per-spec
-  seeding via `e2e/helpers/seed.mjs` was already independent of it).
+  seeding via `e2e/helpers/seed.mjs` was already independent of it). Fixing the boot
+  order surfaced a second, independently pre-existing defect: `e2e/helpers/seed.mjs`'s
+  `POSTINGS` fixtures predated the 2026-07-16 verdict-routing change
+  (`matchedIds()`/`get_notifiable` now key the Matched bucket and notify gate on
+  `score_detail.assessment.{seniority,domain}.verdict === 'match'`, not score) and the
+  2026-07-14 S2.1 assessment scorecard, so Acme/Globex never landed in Matched (empty
+  bucket) regardless of the harness fix, and their JD-modal descriptions were under the
+  200-char low-context floor. Seeded a real `assessment` scorecard shape (mirroring the
+  worker's `_score_detail`/`_assessment`) with match/match verdicts and >=200-char
+  descriptions for Acme/Globex, moved Initech to `pipeline_status: 'discarded'` with a
+  `disqualified` reason so it lands in the literal Discarded bucket (a below-bar scored
+  row lands in Below bar instead), and updated `discovered.spec.ts`'s JD-modal toggle
+  assertion ("Match details" → "Fit assessment", the scorecard-era label) and
+  `discard.spec.ts`'s stale `getByTitle('Discard')` (the row action is titled "Remove").
 - **CI's worker job was red on a missing `geonamescache`, hidden by a local-green/CI-red
   asymmetry.** `requirements.txt` pinned `geonamescache>=3.0.1` for the location gate
   (`score/location.py`'s lazy city→country index), but `requirements-dev.txt` — the only

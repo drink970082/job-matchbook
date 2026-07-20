@@ -1,7 +1,7 @@
 // Single source of truth for the e2e throwaway DB path. Deliberately Prisma-free
 // so playwright.config.ts can import it without loading the client. Deterministic
-// path (not a random tmpdir) so config, global-setup, specs, and the CLI seeder
-// all agree without a pointer file. NEVER the real db/applications.db.
+// path (not a random tmpdir) so config, specs, and the CLI seeder all agree
+// without a pointer file. NEVER the real db/applications.db.
 import os from 'node:os'
 import path from 'node:path'
 
