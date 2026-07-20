@@ -162,7 +162,23 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                       f"(enable_browser_sources is off): {names}")
             companies = [c for c in companies if c["source"] != "browser"]
 
-        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now, fetch_fn=fetch_company)
+        # Build the screening checklist (candidate hard-requirements) once, up front:
+        # run_fetch uses it for the deterministic pre-screen gate, and screen_fn below
+        # reuses it. Empty candidate => None => no gate, no SCREEN call.
+        if cfg.candidate.is_empty():
+            candidate = None
+        else:
+            candidate = {
+                "highest_degree": cfg.candidate.highest_degree,
+                "work_authorization": cfg.candidate.work_authorization,
+                "security_clearance": cfg.candidate.security_clearance,
+                "locations": list(cfg.candidate.locations),
+                "exclude_internships": cfg.candidate.exclude_internships,
+            }
+
+        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
+                           fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
+                           max_age_days=cfg.max_age_days, candidate=candidate)
 
         # Discovery feeds: broad listing streams resolved back to boards. Runs
         # before scoring so feed-discovered 'new' rows are scored this same pass.
@@ -188,19 +204,6 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
         pipeline.run_retry(conn, now=now)
 
-        # Build the screening checklist only when the candidate actually configured
-        # hard requirements; an empty candidate skips the SCREEN call entirely (no
-        # disqualification), so don't pay for a second Ollama call per posting.
-        if cfg.candidate.is_empty():
-            candidate = None
-        else:
-            candidate = {
-                "highest_degree": cfg.candidate.highest_degree,
-                "work_authorization": cfg.candidate.work_authorization,
-                "security_clearance": cfg.candidate.security_clearance,
-                "locations": list(cfg.candidate.locations),
-                "exclude_internships": cfg.candidate.exclude_internships,
-            }
         # num_ctx is set explicitly (Ollama's default is small enough to truncate
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))

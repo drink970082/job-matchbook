@@ -81,6 +81,15 @@ feeds:
 # candidate.locations below (the LLM understands a New York role satisfies "USA").
 title_filter: []              # e.g. ["engineer", "developer"]
 
+# Optional negative title pre-filter: DROP a posting whose title contains any of
+# these (case-insensitive), the complement of title_filter. Empty/omitted = drop none.
+title_exclude: [intern, "co-op", sales, principal, staff, director]
+
+# Optional fetch-time freshness gate: drop a posting whose posted_at is older than
+# this many days before it is ever screened/scored. 0 or omitted = off. Boards that
+# don't publish a date (posted_at null) are always kept.
+max_age_days: 30
+
 candidate:
   # Your HARD requirements — the ONLY things that DISQUALIFY (discard) a posting.
   # The LLM screens each field below pass/fail per posting (judged semantically, so

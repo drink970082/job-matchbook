@@ -313,6 +313,35 @@ def test_run_once_defaults_to_the_codex_scorer(monkeypatch, tmp_path):
     assert seen["model"] == run.DEFAULT_CODEX_SCORE_MODEL
 
 
+def test_run_once_threads_fetch_filters(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(run.pipeline, "run_fetch",
+                        lambda *a, **k: captured.update(k) or 0)
+    for stage in ("run_retry", "run_score", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+
+    from ats_worker import config as cfgmod
+    cfg = cfgmod.load_config(
+        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
+        "max_age_days: 30\n"
+        "title_exclude: [intern]\n"
+        "candidate: { locations: [USA] }\n"
+    )
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "resume"}, env=_ENV)
+    assert captured["max_age_days"] == 30
+    assert captured["title_exclude"] == ["intern"]
+    assert captured["candidate"]["locations"] == ["USA"]
+
+
 def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
     env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
