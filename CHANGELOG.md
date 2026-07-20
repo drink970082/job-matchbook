@@ -1020,8 +1020,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Stack line, and Feature-status table in README; the worker one-liner and default-
   models gotcha in CLAUDE.md; and stale product-context mentions in SPEC.md §1/§3/
   §4/§7. Also corrected two stale README notes (Dashboards' "no test" claim —
-  `charts.int.test.ts` covers it; Notify's transient-failure warning — the
-  3-attempt retry/requeue budget already handles it) and the Notify row's
+  `charts.int.test.ts` covers it; Notify's transient-failure warning — a send
+  error auto-retries for up to 3 attempts and parks `failed` for a manual
+  reopen, never silently buried) and the Notify row's
   superseded "score ≥ threshold" gate (replaced by the seniority/domain verdict
   gate); added missing rows for the Watchlist tab, Unresolved-feeds tab +
   promotion suggestions, and the Codex usage bar. SPEC §12's "Full pipeline" setup

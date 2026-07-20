@@ -17,7 +17,7 @@ SQLite database**:
 
 - [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
 - [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
-  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 6 more
+  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 4 more
   platform adapters, plus generic custom/browser recipe executors (11 watchlist-capable
   sources total) — screens out hard-constraint mismatches with a local LLM, scores each
   posting's fit against your resume — by default via the **Codex CLI** (your ChatGPT
@@ -85,7 +85,7 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
 | Score — Codex CLI default / Claude alternate (reason-first) | ✅ | ✅ | |
 | Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
-| Notify — Telegram message (verdict-gated: seniority=match AND domain=match) | ✅ | ✅ | 3-attempt retry budget (`NOTIFY_MAX_ATTEMPTS`), then requeued by `run_retry` for a fresh screen+score before parking `failed` |
+| Notify — Telegram message (verdict-gated: seniority=match AND domain=match) | ✅ | ✅ | send errors auto-retry (`NOTIFY_MAX_ATTEMPTS`=3) while the row stays `scored`; the 3rd failure parks `failed` for manual reopen, not silently buried |
 | Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
 | Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
 | Config load / validate | ✅ | ✅ | |
