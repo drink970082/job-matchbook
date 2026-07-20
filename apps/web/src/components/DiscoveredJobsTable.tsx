@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
     Table,
     TableBody,
@@ -254,11 +254,9 @@ export function DiscoveredJobsTable({
         })
     const ids = () => [...selected]
 
-    const stableFilterChange = useCallback(onFilterChange, [])
-
     useEffect(() => {
         const timer = setTimeout(() => {
-            stableFilterChange({
+            onFilterChange({
                 search,
                 bucket,
                 minScore: minScore === '' ? undefined : Number(minScore),
@@ -267,7 +265,7 @@ export function DiscoveredJobsTable({
             })
         }, 300)
         return () => clearTimeout(timer)
-    }, [search, bucket, minScore, cause, sort, stableFilterChange])
+    }, [search, bucket, minScore, cause, sort, onFilterChange])
 
     return (
         <div className="space-y-4">

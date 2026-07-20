@@ -662,6 +662,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Filter-change callbacks are memoized at the source instead of frozen on the child.**
+  `Dashboard.tsx`'s `handleFilterChange`/`handleJobFilterChange` got a new identity every
+  render; `ApplicationTable`/`DiscoveredJobsTable` worked around it with
+  `useCallback(onFilterChange, [])`, a stale-closure hack that froze the render-0 prop and
+  was the repo's only 2 lint warnings (`react-hooks/exhaustive-deps`). Both Dashboard
+  handlers are now `useCallback`-wrapped with honest (empty) dep arrays — they only call
+  stable setters and a server action with explicit args — and the tables' debounce effects
+  depend on `onFilterChange` directly. Lint is clean (0 warnings).
 - **Playwright e2e harness now boots: the schema push moved into the `webServer`
   command, ahead of the server, instead of `globalSetup`.** `make test-e2e` failed
   locally before any test ran (180s webServer timeout), and CI's `e2e` job failed the

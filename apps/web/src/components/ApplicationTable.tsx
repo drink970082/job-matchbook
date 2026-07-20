@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
     Table,
     TableBody,
@@ -60,15 +60,13 @@ export function ApplicationTable({
     const [historicalStatusFilter, setHistoricalStatusFilter] = useState('all')
     const [categoryFilter, setCategoryFilter] = useState('all')
 
-    const stableFilterChange = useCallback(onFilterChange, [])
-
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            stableFilterChange({ search, status: statusFilter, historicalStatus: historicalStatusFilter, category: categoryFilter })
+            onFilterChange({ search, status: statusFilter, historicalStatus: historicalStatusFilter, category: categoryFilter })
         }, 300)
         return () => clearTimeout(timer)
-    }, [search, statusFilter, historicalStatusFilter, categoryFilter, stableFilterChange])
+    }, [search, statusFilter, historicalStatusFilter, categoryFilter, onFilterChange])
 
     return (
         <div className="space-y-4">

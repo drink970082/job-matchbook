@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
     getApplications,
     addApplication,
@@ -114,13 +114,13 @@ export function Dashboard({
         if (catRes.data) setCategories(catRes.data)
     }
 
-    const handleFilterChange = async (newFilters: any) => {
+    const handleFilterChange = useCallback(async (newFilters: any) => {
         setFilters(newFilters)
         setPage(0)
         const { data, total } = await getApplications({ page: 0, size: 10, ...newFilters })
         setApps(data)
         setTotal(total)
-    }
+    }, [])
 
     const handlePageChange = async (newPage: number) => {
         setPage(newPage)
@@ -334,11 +334,13 @@ export function Dashboard({
         }
     }
 
-    const handleJobFilterChange = async (newFilters: any) => {
+    const handleJobFilterChange = useCallback(async (newFilters: any) => {
         setJobFilters(newFilters)
         setJobPage(0)
-        await refreshJobPostings(newFilters, 0)
-    }
+        const { data, total } = await getJobPostings({ ...newFilters, page: 0, size: JOB_PAGE_SIZE })
+        setJobPostings(data)
+        setTotalJobs(total)
+    }, [])
 
     const handleJobPageChange = async (newPage: number) => {
         setJobPage(newPage)
