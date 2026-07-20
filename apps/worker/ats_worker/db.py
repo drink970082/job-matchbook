@@ -35,10 +35,10 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, posted_at, pipeline_status, attempts, created_at)
+     description, posted_at, score_detail, pipeline_status, attempts, created_at)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, :posted_at, 'new', 0, :created_at)
+     :description, :posted_at, :score_detail, :pipeline_status, 0, :created_at)
 ON CONFLICT(source, external_id) DO NOTHING
 """
 
@@ -64,6 +64,13 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
                 # posted_at is date-only; fall back to the scrape day so it's never null.
                 "posted_at": (p.get("posted_at") or now)[:10],
                 "created_at": now,
+                # Optional per-row overrides: the fetch-time deterministic gate marks
+                # a location/intern miss 'discarded' with a screen verdict, skipping
+                # the Ollama call. Everything else inserts as a fresh 'new' row.
+                "pipeline_status": p.get("pipeline_status") or "new",
+                "score_detail": (
+                    json.dumps(p["score_detail"]) if p.get("score_detail") is not None else None
+                ),
             },
         )
         inserted += cur.rowcount

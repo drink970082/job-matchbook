@@ -293,3 +293,25 @@ def test_get_notifiable_orders_by_score_desc_then_id_asc(db_path):
 
     got = [r["id"] for r in db.get_notifiable(conn)]
     assert got == [tie_a_id, tie_b_id, low_id]
+
+
+# --- upsert with optional per-row pipeline_status + score_detail ----------
+
+def test_upsert_honors_pipeline_status_and_score_detail(db_path):
+    conn = db.connect(db_path)
+    p = posting("1", pipeline_status="discarded",
+                score_detail={"disqualified": True,
+                              "disqualification_reason": "location: on-site in China"})
+    db.upsert_postings(conn, [p], now=NOW)
+    rows = db.get_by_status(conn, "discarded")
+    assert [r["external_id"] for r in rows] == ["1"]
+    detail = json.loads(rows[0]["score_detail"])
+    assert detail["disqualified"] is True
+
+
+def test_upsert_defaults_status_new_and_null_detail(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("2")], now=NOW)
+    row = db.get_by_status(conn, "new")[0]
+    assert row["external_id"] == "2"
+    assert row["score_detail"] is None
