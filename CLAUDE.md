@@ -31,8 +31,9 @@ SQLite database**:
 
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
-- **`apps/worker`** — Python 3.11 pipeline: fetch (11 board sources + recipe
-  executors) → screen (Ollama) + score fit (Codex CLI default / Claude alternate)
+- **`apps/worker`** — Python 3.11 pipeline: fetch (9 platform adapters plus
+  generic custom/browser recipe executors — 11 watchlist-capable sources total)
+  → screen (Ollama) + score fit (Codex CLI default / Claude alternate)
   → notify (Telegram). Human applies by hand.
 
 ## Repo map

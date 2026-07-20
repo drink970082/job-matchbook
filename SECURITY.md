@@ -42,15 +42,19 @@ app's single-user, loopback-only deployment model — revisit if that model
 ever changes.
 
 - **`next@14.2.35` dependency advisories.** `npm audit --omit=dev` currently
-  reports the `next` package as a high-severity finding (several individual
-  GHSA advisories roll up into it — DoS via Server Components, HTTP request
-  smuggling in rewrites, SSRF via WebSocket upgrades, among others) and a
-  moderate finding for `postcss@8.4.31`, a version Next.js 14 bundles
+  reports the `next` package as a high-severity finding — three individual GHSA
+  advisories roll up into it: DoS via the Image Optimizer's `remotePatterns`
+  configuration ([GHSA-9g9p-9gw9-jx7f](https://github.com/advisories/GHSA-9g9p-9gw9-jx7f)),
+  HTTP request deserialization DoS with insecure React Server Components
+  ([GHSA-h25m-26qc-wcjf](https://github.com/advisories/GHSA-h25m-26qc-wcjf)),
+  and HTTP request smuggling in rewrites
+  ([GHSA-ggv3-7p47-pfv8](https://github.com/advisories/GHSA-ggv3-7p47-pfv8)) —
+  and a moderate finding for `postcss@8.4.31`, a version Next.js 14 bundles
   internally for its own build pipeline (distinct from — and older than — the
   project's own top-level `postcss` dependency, which is already patched).
-  Both require the `next@16` major to clear; see `CHANGELOG.md`'s
+  All four require the `next@16` major to clear; see `CHANGELOG.md`'s
   `npm audit fix` entry for the exact before/after counts. Accepted because
-  these are server-side web-request attack surfaces (DoS, smuggling, SSRF)
+  these are server-side web-request attack surfaces (DoS, request smuggling)
   that presume a reachable, adversarial network client — not a concern for a
   server that only ever accepts connections from `127.0.0.1`. Revisit at the
   next Next.js major upgrade.

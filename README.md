@@ -51,7 +51,8 @@ the worker found. Open any row for the full JD plus the model's matched/missing
 keywords and reasoning, then **Mark Applied** to promote it into a tracked
 application that flows into every chart above.
 
-The pipeline: **fetch** (11 board sources + recipe executors) → **screen** (local
+The pipeline: **fetch** (9 platform adapters plus generic custom/browser recipe
+executors — 11 watchlist-capable sources total) → **screen** (local
 Ollama, GPU, hard requirements) + **score** fit (Codex CLI default / Claude
 alternate, reason-first) → **notify** (Telegram) for every high scorer.
 
@@ -81,7 +82,7 @@ At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
 | Unresolved-feeds tab + promotion suggestions | ✅ | ✅ | grouped by host+reason; dismiss suggestion |
 | Codex usage bar (`/api/codex-usage`) | ✅ | ✅ | quota snapshot, degrades to empty state (not an error) when absent |
 | Responsive / mobile layout | ✅ | — | stacks below ~640px |
-| Fetch — 11 board sources + recipe executors | ✅ | ✅ | dedup on `(source, external_id)` |
+| Fetch — 9 platform adapters plus generic custom/browser recipe executors (11 sources total) | ✅ | ✅ | per-adapter parse/fetch unit tests + dedup on `(source, external_id)` |
 | Title pre-filter (fetch-time) | ✅ | ✅ | |
 | Score — Codex CLI default / Claude alternate (reason-first) | ✅ | ✅ | |
 | Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
