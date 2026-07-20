@@ -174,6 +174,15 @@ stream resolved back to boards, JD fetched with the same adapters). Both dedup o
 `(source, external_id)` of the underlying board, so the feed is a *transport*, never
 a `source`.
 
+The watchlist path additionally runs deterministic, no-LLM filtering **at fetch**,
+before either ingestion path ever reaches Ollama: `fetch.prefilter_postings` (the
+`title_filter` keep-list + a `title_exclude` drop + a `max_age_days` freshness drop)
+narrows what each company fetch returns, and the same intern/location gate the
+screen stage uses (`score.deterministic_screen`) runs immediately after — a gate
+miss is upserted straight to `discarded` (with its reason), skipping the Ollama call
+entirely. The feed path is unaffected; its postings still gate at the screen stage
+via `screen_posting`, which runs the identical `deterministic_screen` helper.
+
 A posting moves through a `pipeline_status` state machine in the database
 (§[9](#9-behaviors-and-invariants)). "Mark Applied" is the seam between the two
 phases: it promotes a `job_postings` row into an `applications` row.
@@ -313,7 +322,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   leading/trailing/doubled `/` — since the worker interpolates it straight into a fetch
   URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
   `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
-  `title_filter`, `candidate` (with `is_empty()`), `feeds`, `schedule_hours`. Bad
+  `title_filter`, `title_exclude` (negative title list — drop a posting whose title
+  contains any listed keyword, the complement of `title_filter`), `max_age_days`
+  (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
+  `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
+  `is_empty()`), `feeds`, `schedule_hours`. Bad
   source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
@@ -329,6 +342,12 @@ worker modules are pure and dependency-injected; real services are wired only in
     `fetch.DETAIL_SOURCES` / `fetch_one_company`.
   - `filter_postings(postings, title_filter)` — optional case-insensitive
     title-substring pre-filter (title only; geography is handled by the scorer).
+  - `prefilter_postings(postings, *, title_filter, title_exclude, max_age_days, now)`
+    — the fetch-time coarse pre-filter the watchlist path runs (deterministic, no
+    LLM): the positive `title_filter` keep-list above, a negative `title_exclude`
+    drop (title contains any listed keyword), and a `max_age_days` freshness drop (a
+    parsed `posted_at` older than N days is dropped; `0`/omitted `max_age_days` and a
+    null/unparseable `posted_at` both keep the posting — err toward keep).
 
   **Source coverage matrix** (the at-a-glance support map — keep it current when a
   source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps
@@ -623,7 +642,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_fetch` → (`run_feed`) → `run_retry` → `run_score` → `run_notify`. Every stage
   wraps each item in try/except: one bad posting/company is recorded
   (`db.mark_failed`; at the notify stage `db.record_notify_failure`, which retries —
-  §9) or skipped, and the batch continues. `run_feed` (optional) runs
+  §9) or skipped, and the batch continues. `run_fetch` runs the watchlist path: fetch
+  each company, apply `fetch.prefilter_postings` (title keep/exclude + max-age), then
+  — when a `candidate` is configured — run the **same** deterministic intern/location
+  gate as the post-LLM screen (`score.deterministic_screen`, shared code, not a
+  reimplementation) against each surviving posting *before* it is ever upserted. A
+  gate miss is tagged `pipeline_status="discarded"` with a screen-shaped
+  `score_detail` right there at fetch time — visible in the Discovered "Discarded"
+  bucket with its reason — **without** an Ollama call; a company that raises is
+  logged-and-skipped so the rest of the watchlist still ingests. `screen_posting`
+  still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
+  clearance disqualification the SCREEN call found), so the feed path — which never
+  goes through `run_fetch` — gates identically, just one stage later.
+  `run_feed` (optional) runs
   the feed: prefilter → resolve → record-unresolved, then groups survivors by
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
@@ -1144,6 +1175,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
+| Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
+| Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |

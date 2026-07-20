@@ -98,23 +98,16 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   (2026-07-20), but the operator explicitly deferred specifics — hold this open,
   discuss and scope it in a future session before touching `DEVELOPMENT.md` §6 /
   `CONTRIBUTING.md` / any GitHub settings.
-- **Fetch-time filtering — by date + per-board settings** — `[M · design call · NEXT UP]`. Add
-  deterministic, pre-scorer filters applied at FETCH time to cut volume/noise (the only fetch-time
-  filter today is the coarse *global* `title_filter`):
-  - **By date** — drop postings whose `posted_at` is older than a max-age (keep the last N days).
-    Postings already carry `posted_at`; nothing filters on it yet. Note dateless boards fall back to
-    the scrape date (SPEC §8), so a max-age keeps those through.
-  - **Per-board settings** — move keep-rules onto the watchlist row so each board carries its own
-    query / keywords / locations / max-age (e.g. Amazon's `base_query` is hardcoded in the recipe
-    today, and high-volume boards like Amazon/Microsoft flood the scorer). Set at onboard time from
-    the candidate **profile / `config.yaml`**.
-  **Design forks (take to the operator):** where filters live — global `config.yaml` vs a new
-  nullable `filters` JSON column on `watched_companies` (Prisma-owned, mirrored in the drift
-  fixture) vs both (global default + per-board override); how they compose with the existing
-  `title_filter` + `candidate.*` disqualifiers and the LLM scorer (stay a cheap deterministic
-  pre-filter — **no LLM at fetch** — the scorer still does the real relevance judging); and whether
-  "from my profile" means the `onboard-board` skill / web UI *generates* the per-board filter or the
-  operator hand-sets it. Ties into [[design-work-preference]] — research the forks, operator decides.
+- **Fetch-time filtering — Phase 2 (per-board settings)** — `[M · design call]`.
+  Phase 1 shipped (global `max_age_days` + `title_exclude` drops, and the deterministic
+  intern/location gates hoisted ahead of the Ollama call on the watchlist path — see
+  `docs/superpowers/specs/2026-07-20-fetch-time-filtering-design.md`). Still open: move
+  keep-rules onto the watchlist row so each board carries its own query / keywords /
+  locations / max-age (Amazon/Microsoft flood the scorer). **Design forks:** a nullable
+  `filters` JSON column on `watched_companies` (Prisma-owned + drift fixture) vs staying
+  global-only; source-side query narrowing (recipe `base_query` — the only lever that
+  cuts the scrape itself); and whether the `onboard-board` skill / Watchlist UI generates
+  the per-board filter or the operator hand-sets it. Ties into [[design-work-preference]].
 - **Privacy-guard CI test** — `[S]`. A small test alongside `check_schema_drift`
   asserting no secrets / PII are committed (idea mined from
   `MadsLorentzen/ai-job-search`'s `security_guards.py`; echoes

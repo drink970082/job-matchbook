@@ -23,6 +23,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **`onboard-me` skill (scaffold).** Interviews a new user for their category vocabulary and
   persists it via a bundled `set_categories.py` (writing `app_settings` through the worker DB
   layer, `db.upsert_setting`). Categories-only for now; profile/config onboarding to follow.
+- **Fetch-time filtering (watchlist path).** Two global `config.yaml` knobs cut
+  local-LLM volume before any model runs: `max_age_days` drops postings whose
+  `posted_at` is older than N days (dateless boards kept; `0` = off), and
+  `title_exclude` drops titles containing any listed keyword (the negative
+  complement of `title_filter`). The deterministic intern/location screen gates now
+  also run **at fetch** (`deterministic_screen`), so a location/intern miss is
+  recorded `discarded` — visible in the Discovered "Discarded" bucket with its reason —
+  **without** an Ollama call, instead of after it. No schema change. (Phase 1 of
+  `docs/superpowers/specs/2026-07-20-fetch-time-filtering-design.md`; per-board rules
+  remain future work in PROGRESS.)
 
 ### Changed
 
