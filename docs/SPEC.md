@@ -11,7 +11,7 @@
 
 - **Project:** personal-ats — a self-hosted, semi-automated job-application system
 - **Repo:** https://github.com/drink970082/personal-ats
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-12 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-20 · **License:** MIT
 
 ---
 
@@ -1262,10 +1262,13 @@ automated coverage — those rely on code review or the human in the loop, not a
   (see CHANGELOG).
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the failure is recorded on the row and processing continues. The scorer
-  returning junk JSON marks that row `failed` rather than crashing. A notify send
-  error is retried across passes (bounded at 3) before parking `failed`; `failed`
-  itself stays terminal and manual-reopen-only — see §9, "Failure handling and
-  recovery limits."
+  returning junk JSON marks that row `failed` rather than crashing, but `failed`
+  is not immediately terminal: `run_retry` requeues it back to `new` on the next
+  pass, and a notify send error is retried across passes too — both draw from the
+  same shared `attempts` budget, capped at 3 cumulative failures
+  (`RETRY_MAX_ATTEMPTS`). Only past that cap, or once notify's own retries are
+  exhausted, does the row park `failed` for good; recovery from there is a manual
+  reopen — see §9, "Failure handling and recovery limits."
 - **Concurrency safety:** WAL + `busy_timeout=5000`ms (+ the directory mount) keep the
   containerized web app and the host worker from hitting `database is locked` **under
   low write-contention**

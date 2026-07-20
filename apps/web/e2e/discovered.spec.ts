@@ -18,7 +18,8 @@ test('discovered jobs render in score buckets and the JD modal shows match detai
     // Default = Matched bucket: only high scorers (>=75).
     await expect(page.getByText('Acme Robotics')).toBeVisible()
     await expect(page.getByText('Globex Analytics')).toBeVisible()
-    // Initech (score 65) is below the match threshold -> Discarded, not Matched.
+    // Initech is hard-disqualified (pipeline_status 'discarded' + disqualified
+    // verdict in the seed) -> Discarded, not Matched — not a below-threshold score.
     await expect(page.getByText('Initech Cloud')).toHaveCount(0)
 
     // Open Acme's JD modal.

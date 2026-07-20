@@ -21,8 +21,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `npm audit --omit=dev` went from 6 advisories (1 moderate, 5 high) to 2 (1
   moderate, 1 high). The remaining two — `next@14.2.35`'s high advisories and
   the `postcss` moderate bundled with it — require the `next@16` major and are
-  an accepted risk for this release (kept off `--force`; SECURITY.md will
-  document them once written by a later task).
+  an accepted risk for this release (kept off `--force`; documented in the
+  shipped `SECURITY.md`'s accepted-risk list — see "Community health files"
+  below).
 - **`add_watched.py` (onboard-board) now validates the slug charset before writing the
   watchlist.** The script derives slugs from scraped, untrusted careers pages and wrote
   `args.slug` straight to `db.import_watchlist` with no check — a third watchlist write
