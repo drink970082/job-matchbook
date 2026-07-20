@@ -44,6 +44,11 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Rename the GitHub repo** — `[XS · blocked on target name]`. Local checkout dir
+  is already `ats`; the GitHub remote is still `drink970082/personal-ats`. Decided
+  to rename, target name not yet picked (operator deferred 2026-07-20) — once
+  chosen, rename on GitHub and update the README badge/link + `SPEC.md` §1 repo URL
+  (GitHub redirects the old clone URL once, not indefinitely).
 - **Watchlist slug host-safety check** — `[XS]`. Slug *structure* is validated at all
   three write boundaries, but `phenom`/`workday` pack a hostname as the slug's first
   segment, so an internal-IP host passes (accepted meanwhile — SPEC §11). Closable by
@@ -72,6 +77,27 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
+- **Drop mobile/responsive layout** — `[XS]`. Go desktop-only: strip the `flex-col
+  sm:flex-row` / `w-full sm:w-[...]` breakpoint patterns from `ApplicationTable`,
+  `DiscoveredJobsTable`, `Pagination`, `WatchlistTable` (currently stack below
+  ~640px, README feature table + SPEC §11); the app is a self-hosted,
+  single-operator tool and the mobile layout isn't earning its upkeep. Also drops
+  the README feature-status row, the SPEC §11 "Responsive UI" bullet, and the
+  orphaned `docs/images/mobile.png`.
+- **Enhance the Discovered Jobs section in the README** — `[XS]`. It should read at
+  the same weight as the "Track" section above it (which gets 3 inline
+  screenshots + a dense feature list) — right now "Discover" is one thin paragraph
+  and no image. Expand the text to cover bucket triage (Matched/Below
+  bar/Discarded/Failed/Low-context), the per-row "why" line, the fit-assessment
+  modal, and bulk actions; add an inline screenshot of the tab (needs a seeded
+  throwaway DB, never the real `db/applications.db` — see the privacy note in
+  §11/CHANGELOG on the existing screenshots).
+- **Adjust dev/release workflow** — `[? · design call · scope not yet set, DO NOT
+  EXECUTE until the operator says so]`. Branch management, tagging, and
+  version-control/GitHub workflow conventions flagged as needing a change
+  (2026-07-20), but the operator explicitly deferred specifics — hold this open,
+  discuss and scope it in a future session before touching `DEVELOPMENT.md` §6 /
+  `CONTRIBUTING.md` / any GitHub settings.
 - **Fetch-time filtering — by date + per-board settings** — `[M · design call · NEXT UP]`. Add
   deterministic, pre-scorer filters applied at FETCH time to cut volume/noise (the only fetch-time
   filter today is the coarse *global* `title_filter`):
