@@ -36,6 +36,8 @@ const props = {
     initialCategories: [],
     initialJobPostings: [],
     totalJobPostings: 0,
+    initialCategoryOptions: ['SWE', 'Others'],
+    initialCategoriesConfigured: true,
 }
 
 test('renders both tabs and the KPI grid from initial props', () => {

@@ -16,10 +16,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { CATEGORIES } from '@/lib/constants'
 
 interface ApplyCategoryDialogProps {
     open: boolean
+    categories: string[]
     companyName?: string
     jobTitle?: string
     onConfirm: (category: string) => void
@@ -28,14 +28,14 @@ interface ApplyCategoryDialogProps {
 
 // Pick the application category when marking a discovered job applied (instead of
 // always defaulting to 'Others'). Defaults to the first category; editable later in
-// the Applications table.
-export function ApplyCategoryDialog({ open, companyName, jobTitle, onConfirm, onClose }: ApplyCategoryDialogProps) {
-    const [category, setCategory] = useState<string>(CATEGORIES[0])
+// the Applications table. The category vocabulary is user-configured (passed in).
+export function ApplyCategoryDialog({ open, categories, companyName, jobTitle, onConfirm, onClose }: ApplyCategoryDialogProps) {
+    const [category, setCategory] = useState<string>(categories[0] ?? '')
 
-    // Reset to the default each time the dialog opens for a new job.
+    // Reset to the first category each time the dialog opens for a new job.
     useEffect(() => {
-        if (open) setCategory(CATEGORIES[0])
-    }, [open])
+        if (open) setCategory(categories[0] ?? '')
+    }, [open, categories])
 
     return (
         <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
@@ -58,7 +58,7 @@ export function ApplyCategoryDialog({ open, companyName, jobTitle, onConfirm, on
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {CATEGORIES.map((c) => (
+                                {categories.map((c) => (
                                     <SelectItem key={c} value={c}>{c}</SelectItem>
                                 ))}
                             </SelectContent>

@@ -37,8 +37,9 @@ import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
 import { StatusHistoryModal } from './StatusHistoryModal'
+import { CategoriesDialog } from './CategoriesDialog'
 import { Button } from '@/components/ui/button'
-import { Download, Upload } from 'lucide-react'
+import { Download, Upload, Tags } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Page size for the Discovered Jobs table (must match page.tsx's initial load,
@@ -54,6 +55,8 @@ interface DashboardProps {
     initialCategories: any[]
     initialJobPostings?: any[]
     totalJobPostings?: number
+    initialCategoryOptions: string[]
+    initialCategoriesConfigured: boolean
 }
 
 export function Dashboard({
@@ -65,6 +68,8 @@ export function Dashboard({
     initialCategories,
     initialJobPostings = [],
     totalJobPostings = 0,
+    initialCategoryOptions,
+    initialCategoriesConfigured,
 }: DashboardProps) {
     const [activeTab, setActiveTab] = useState<'applications' | 'discovered' | 'watchlist' | 'unresolved'>('applications')
 
@@ -90,6 +95,12 @@ export function Dashboard({
     const [statusFlow, setStatusFlow] = useState(initialStatusFlow)
     const [timeline, setTimeline] = useState(initialTimeline)
     const [categories, setCategories] = useState(initialCategories)
+
+    // Category VOCABULARY (the user's chosen labels) — distinct from `categories`
+    // above, which is the donut's per-category counts. Editable via CategoriesDialog.
+    const [categoryOptions, setCategoryOptions] = useState<string[]>(initialCategoryOptions)
+    const [categoriesConfigured, setCategoriesConfigured] = useState(initialCategoriesConfigured)
+    const [categoriesDialogOpen, setCategoriesDialogOpen] = useState(false)
 
     const [selectedApp, setSelectedApp] = useState<any>(null)
     const [historyData, setHistoryData] = useState<any[]>([])
@@ -304,6 +315,12 @@ export function Dashboard({
         refreshUnresolved()
     }, [])
 
+    // First run (no categories saved yet): open the picker once so the user sets
+    // their own vocabulary instead of living with the defaults.
+    useEffect(() => {
+        if (!initialCategoriesConfigured) setCategoriesDialogOpen(true)
+    }, [initialCategoriesConfigured])
+
     const handleAddWatched = async (c: { source: string; slug: string; name: string; recipe?: string }) => {
         const result = await addWatchedCompany(c)
         if (result.success) {
@@ -452,6 +469,9 @@ export function Dashboard({
                 <div className="flex items-center justify-between mb-3 gap-3">
                     <h1 className="text-2xl font-bold tracking-tight">Application Tracker</h1>
                     <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setCategoriesDialogOpen(true)}>
+                            <Tags className="mr-2 h-4 w-4" /> Categories
+                        </Button>
                         <Button variant="outline" size="sm" onClick={handleExportCSV}>
                             <Download className="mr-2 h-4 w-4" /> Export CSV
                         </Button>
@@ -563,6 +583,7 @@ export function Dashboard({
             ) : (
                 <ApplicationsTab
                     apps={apps}
+                    categoryOptions={categoryOptions}
                     total={total}
                     page={page}
                     timeline={timeline}
@@ -595,6 +616,7 @@ export function Dashboard({
             {/* Apply category picker */}
             <ApplyCategoryDialog
                 open={!!applyJob}
+                categories={categoryOptions}
                 companyName={applyJob?.company_name}
                 jobTitle={applyJob?.job_title}
                 onConfirm={handleConfirmApply}
@@ -609,6 +631,7 @@ export function Dashboard({
                         setIsHistoryOpen(false)
                         setSelectedApp(null)
                     }}
+                    categories={categoryOptions}
                     application={selectedApp}
                     history={historyData}
                     onAddStatus={handleAddStatus}
@@ -616,6 +639,18 @@ export function Dashboard({
                     onEditApplication={handleEditApplication}
                 />
             )}
+
+            {/* Category vocabulary editor (also auto-opens on first run) */}
+            <CategoriesDialog
+                open={categoriesDialogOpen}
+                onOpenChange={setCategoriesDialogOpen}
+                initial={categoryOptions}
+                firstRun={!categoriesConfigured}
+                onSaved={(list) => {
+                    setCategoryOptions(list)
+                    setCategoriesConfigured(true)
+                }}
+            />
         </div>
     )
 }

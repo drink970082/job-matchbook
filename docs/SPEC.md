@@ -80,8 +80,9 @@ triages, applies by hand, and tracks.
 ## 2. Problem and motivation
 
 Job hunting generates a lot of state per application — company, role, date applied,
-current status, interview rounds, where it stalled, category (SWE / MLE / DS /
-Quant / …). A spreadsheet handles the first two columns but falls over once you
+current status, interview rounds, where it stalled, category (a user-defined label
+set — engineering, finance, product, … — see §8). A spreadsheet handles the first two
+columns but falls over once you
 want to ask "what's my offer rate by category?" or "where do most of my
 applications die?"
 
@@ -694,7 +695,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     sub-filter). `discardJobPosting`,
     `reopenJobPosting`, `bulkRemove(ids)` (terminal `removed`, UI-only hide, worker-inert),
     `bulkReopen(ids)`, `removeAllInView(bucket, filters)`, `markJobApplied(id, category)`
-    (category chosen at apply time, validated against `CATEGORIES`, default `Others`).
+    (category chosen at apply time from the user-configured vocabulary — free-form,
+    default `Others` when blank), `getCategories`/`setCategories` (the user-editable
+    category list, stored in `app_settings`).
     Bucket definitions and `removed` semantics in §9.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
@@ -709,19 +712,21 @@ worker modules are pure and dependency-injected; real services are wired only in
     `getUnresolvedFeeds` (groups
     `feed_unresolved` by host + reason). Approve reuses `addWatchedCompany`.
   - *CSV:* `exportApplicationsCSV`, `importApplicationsCSV` (hand-rolled RFC-4180
-    parser; validates status/category against enums; dedups).
+    parser; validates status against `STATUSES`; keeps category free-form; dedups).
 - **`lib/db.ts`** — process-singleton Prisma client (avoids dev hot-reload
   connection leaks). No explicit `busy_timeout` pragma or `connection_limit` is set —
   verified (`db-pragma.int.test.ts`) that Prisma 6's SQLite connector already defaults
   `busy_timeout` to 5000 ms, matching the worker's `db.py` setting (§7.1), so a
   worker write-lock already makes web block-and-retry instead of throwing
   `SQLITE_BUSY`; no code change was needed.
-- **`lib/constants.ts`** — `STATUSES` (14), `CATEGORIES` (9),
+- **`lib/constants.ts`** — `STATUSES` (14), `DEFAULT_CATEGORIES` (9 — the *seed* for the
+  user-editable category vocabulary, which is stored per-install in `app_settings` and
+  managed in the UI, no longer a fixed enum),
   `VALID_SOURCES` (11 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
   (200; the trimmed-`description` char count below which a scored posting is bucketed
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
-  to extend statuses/categories/sources.** `MATCH_SCORE_THRESHOLD` was **removed** — the
+  to extend statuses/sources (categories are edited in-app, not here).** `MATCH_SCORE_THRESHOLD` was **removed** — the
   Discovered-Jobs matched/below-bar split is now the verdict predicate (`matchedIds()` in
   `lib/actions.ts`, mirroring the worker's `db.get_notifiable`), not a score cutoff; the
   fit score is display/ranking only.
@@ -751,9 +756,9 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Six tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Seven tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `feed_unresolved`,
-`promotion_dismissed`). Dates are stored as **ISO-8601 strings** for sortability and
+`promotion_dismissed`, `app_settings`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -764,7 +769,7 @@ model applications {
   job_title       String
   application_url String?
   date_applied    String           // YYYY-MM-DD
-  category        String?          // one of CATEGORIES
+  category        String?          // free-form user label (vocabulary in app_settings)
   status          String           // one of STATUSES
   notes           String?
   last_updated    String?
@@ -839,6 +844,12 @@ model promotion_dismissed {      // companies the user dismissed from suggestion
   created_at  String
   @@unique([source, slug])
 }
+
+model app_settings {             // web-only key-value prefs (worker never reads it)
+  key         String  @id        // e.g. 'categories'
+  value       String             // JSON — for 'categories', the user's label list
+  updated_at  String?
+}
 ```
 
 Relationships: deleting an application **cascades** to its `status_history` and
@@ -850,8 +861,12 @@ on `(source, external_id)`.
 - **Statuses** (funnel order): `Applied` → `Online Assessment` → `Phone Screen` →
   `Interviewing: 1st…5th round` → `Final Round` → `Offer` → `Accepted`; terminals
   `Rejected`, `Withdrew`, `Ghosted`.
-- **Categories:** SWE, MLE, DS, DA, Quant Dev, Quant Analyst, Quant Trader, AI
-  Engineer, Others.
+- **Categories:** user-configurable, **not a fixed enum** — the list lives per-install
+  in `app_settings` (key `categories`) and is edited in-app (the header **Categories**
+  button, auto-opened on first run). `DEFAULT_CATEGORIES` in `constants.ts` (Software
+  Engineering, Data & Analytics, Product, Design, Finance, Marketing, Operations, Sales,
+  Others) is only the seed/fallback before the user chooses. Category values are free-form
+  labels — nothing in the pipeline reads them.
 
 **Schema changes and migrations.** The schema is applied with `prisma db push`
 (`make db-push`), so there is **no migration history**. This is a deliberate tradeoff
@@ -1016,8 +1031,8 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   returns every row's `created_at` + `posted_at` (the table shows both dates).
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
-  application (`status='Applied'`, `category` chosen by the user at apply time —
-  validated against `CATEGORIES`, default `Others` — url from `job_url`) and atomically
+  application (`status='Applied'`, `category` chosen by the user at apply time from the
+  configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
 - **`reopenJobPosting(id)`** reverses a disqualification (from the Discarded view) back

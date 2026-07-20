@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { Trash2, History } from 'lucide-react'
 import { Pagination } from './Pagination'
-import { STATUSES, CATEGORIES, getStatusColor } from '@/lib/constants'
+import { STATUSES, getStatusColor } from '@/lib/constants'
 
 interface Application {
     id: number
@@ -34,6 +34,7 @@ interface Application {
 
 interface ApplicationTableProps {
     data: Application[]
+    categories: string[]
     total: number
     page: number
     size: number
@@ -46,6 +47,7 @@ interface ApplicationTableProps {
 
 export function ApplicationTable({
     data,
+    categories,
     total,
     page,
     size,
@@ -106,7 +108,7 @@ export function ApplicationTable({
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">All Category</SelectItem>
-                        {CATEGORIES.map((c) => (
+                        {categories.map((c) => (
                             <SelectItem key={c} value={c}>{c}</SelectItem>
                         ))}
                     </SelectContent>

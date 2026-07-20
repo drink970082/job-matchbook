@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface ApplicationsTabProps {
     apps: any[]
+    categoryOptions: string[]
     total: number
     page: number
     timeline: any[]
@@ -25,6 +26,7 @@ interface ApplicationsTabProps {
 
 export function ApplicationsTab({
     apps,
+    categoryOptions,
     total,
     page,
     timeline,
@@ -48,7 +50,7 @@ export function ApplicationsTab({
                             <CardTitle className="text-lg">Add Application</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <AddApplicationForm onSubmit={onAddApplication} />
+                            <AddApplicationForm categories={categoryOptions} onSubmit={onAddApplication} />
                         </CardContent>
                     </Card>
                 </div>
@@ -57,6 +59,7 @@ export function ApplicationsTab({
                 <div className="col-span-8">
                     <ApplicationTable
                         data={apps}
+                        categories={categoryOptions}
                         total={total}
                         page={page}
                         size={10}

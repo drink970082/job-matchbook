@@ -147,26 +147,30 @@ describe('Backend Actions', () => {
         expect.objectContaining({ data: expect.objectContaining({ status: 'Applied' }) }))
     })
 
-    it('coerces an out-of-set category to Others', async () => {
+    it('keeps a free-form category (blank falls back to Others)', async () => {
       mockPrisma.$transaction.mockImplementation(async (callback: any) => await callback(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 1 } as any)
 
-      await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', category: 'Hacked' })
+      await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', category: 'Private Equity' })
+      expect(mockPrisma.applications.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'Private Equity' }) }))
 
+      mockPrisma.applications.create.mockClear()
+      await addApplication({ company_name: 'A', job_title: 'B', date_applied: '2026-01-01', category: '   ' })
       expect(mockPrisma.applications.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) }))
     })
   })
 
   describe('updateApplicationDetails', () => {
-    it('coerces an out-of-set category to Others', async () => {
+    it('keeps a free-form category', async () => {
       mockPrisma.applications.update.mockResolvedValue({ id: 1 } as any)
 
-      await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Hacked' })
+      await updateApplicationDetails(1, { company_name: 'A', job_title: 'B', category: 'Investment Banking' })
 
       expect(mockPrisma.applications.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) }))
+        expect.objectContaining({ data: expect.objectContaining({ category: 'Investment Banking' }) }))
     })
   })
 
@@ -517,7 +521,7 @@ describe('Backend Actions', () => {
       )
     })
 
-    it('uses the chosen category, falling back to Others for an invalid one', async () => {
+    it('keeps the chosen category, defaulting a blank one to Others', async () => {
       const posting = { id: 7, company_name: 'Acme', job_title: 'Backend Engineer', job_url: 'u', pipeline_status: 'scored' }
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
@@ -531,7 +535,7 @@ describe('Backend Actions', () => {
       )
 
       mockPrisma.applications.create.mockClear()
-      await markJobApplied(7, 'NotACategory')
+      await markJobApplied(7, '   ')
       expect(mockPrisma.applications.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) })
       )

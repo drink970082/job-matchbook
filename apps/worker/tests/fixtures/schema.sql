@@ -73,6 +73,12 @@ CREATE TABLE "promotion_dismissed" (
     "created_at" TEXT NOT NULL
 );
 
+CREATE TABLE "app_settings" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "value" TEXT NOT NULL,
+    "updated_at" TEXT
+);
+
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");
 CREATE UNIQUE INDEX "watched_companies_source_slug_key" ON "watched_companies"("source", "slug");

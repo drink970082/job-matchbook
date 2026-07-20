@@ -13,7 +13,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { CATEGORIES } from '@/lib/constants'
 import { Plus } from 'lucide-react'
 
 const formSchema = z.object({
@@ -26,17 +25,19 @@ const formSchema = z.object({
 })
 
 interface AddApplicationFormProps {
+  categories: string[]
   onSubmit: (data: z.infer<typeof formSchema>) => void
 }
 
-export function AddApplicationForm({ onSubmit }: AddApplicationFormProps) {
+export function AddApplicationForm({ categories, onSubmit }: AddApplicationFormProps) {
+  const defaultCategory = categories[0] ?? ''
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       company_name: '',
       job_title: '',
       application_url: '',
-      category: 'SWE',
+      category: defaultCategory,
       date_applied: new Date().toISOString().split('T')[0],
       notes: '',
     },
@@ -48,7 +49,7 @@ export function AddApplicationForm({ onSubmit }: AddApplicationFormProps) {
       company_name: '',
       job_title: '',
       application_url: '',
-      category: 'SWE',
+      category: defaultCategory,
       date_applied: new Date().toISOString().split('T')[0],
       notes: '',
     })
@@ -108,7 +109,7 @@ export function AddApplicationForm({ onSubmit }: AddApplicationFormProps) {
                     {...field}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
-                    {CATEGORIES.map((category) => (
+                    {categories.map((category) => (
                       <option key={category} value={category}>
                         {category}
                       </option>

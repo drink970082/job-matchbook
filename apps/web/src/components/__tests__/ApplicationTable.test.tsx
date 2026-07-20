@@ -11,6 +11,7 @@ const mockApps = [
 function renderTable(overrides: Partial<ComponentProps<typeof ApplicationTable>> = {}) {
   const props: ComponentProps<typeof ApplicationTable> = {
     data: mockApps,
+    categories: ['SWE', 'MLE', 'Others'],
     total: 2,
     page: 0,
     size: 10,

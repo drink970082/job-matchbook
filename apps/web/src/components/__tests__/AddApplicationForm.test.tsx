@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 describe('AddApplicationForm', () => {
   it('should submit valid data and reset the form afterward', async () => {
     const onSubmit = jest.fn()
-    render(<AddApplicationForm onSubmit={onSubmit} />)
+    render(<AddApplicationForm categories={['SWE', 'Others']} onSubmit={onSubmit} />)
 
     const companyInput = screen.getByPlaceholderText(/company name/i)
     const jobInput = screen.getByPlaceholderText(/job title/i)
@@ -37,7 +37,7 @@ describe('AddApplicationForm', () => {
 
   it('should show validation error for missing fields', async () => {
     const onSubmit = jest.fn()
-    render(<AddApplicationForm onSubmit={onSubmit} />)
+    render(<AddApplicationForm categories={['SWE', 'Others']} onSubmit={onSubmit} />)
 
     await act(async () => {
       fireEvent.change(screen.getByPlaceholderText(/company name/i), { target: { value: '' } })

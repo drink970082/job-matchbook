@@ -1,0 +1,41 @@
+# personal_profile.txt — about-you context for the FIT SCORER (optional).
+#
+# Copy this to `personal_profile.txt` and rewrite every section for YOUR search.
+# This is NOT a résumé: it never adds a skill you can't show on paper — it only
+# shapes fit (target direction, career stage, genuine interest, honest caveats).
+# The scorer reads it to answer "does this role SUIT this person?" — the `domain`
+# verdict is decided against the TARGET / ANTI-TARGET tiers below. Keep it short
+# and stable (it is sent on every scoring call). Works for ANY field — the bracketed
+# examples are illustrative; replace them with yours (finance, product, design, …).
+#
+# Lines starting with '#' are guidance you can delete. Everything else is fed to the
+# model as-is.
+
+STAGE
+[Your career stage in a line or two — this sets what "right seniority" means for you.
+ e.g. "Mid-level PM, ~4 years, moving from feature work toward 0-to-1 product ownership."
+ or "Rising-senior undergrad seeking a summer internship."]
+
+TARGET, priority order   (the domain verdict matches roles against these; 1 = best)
+1. [Your #1 target — describe the actual day-to-day work, not just a title.
+    e.g. "Product management for B2B SaaS: discovery, roadmap, cross-functional delivery."]
+2. [Second-choice target.]
+3. [Third. Lower tiers (4-5) score as 'adjacent' rather than a full match — list them
+    only if you'd genuinely take them.]
+
+ANTI-TARGETS — roles you'd pass the screen for but are a poor fit, so score them down
+- [e.g. "Pure people-management / EM roles — I want to stay on the individual-contributor track."]
+- [e.g. "Agency / client-services work."]
+# An ANTI-TARGET always wins over any TARGET a role also seems to match.
+
+POSITIONING
+[One or two lines on how you frame yourself / what you're optimizing for — comp, mission,
+ learning, domain, remote, team size, etc. A sideways signal, not a skill.]
+
+INTERESTS
+[Genuine interests that legitimately raise fit when a role hits them — the one honest
+ upward lever (interest is not skill). e.g. "fintech, developer tools, climate."]
+
+CAVEATS
+[Honest downward notes, if any. e.g. "No formal ML background — deprioritize research-heavy
+ roles." Leave blank if none.]

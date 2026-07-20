@@ -19,6 +19,7 @@ describe('StatusHistoryModal', () => {
     const makeProps = () => ({
         isOpen: true,
         onClose: jest.fn(),
+        categories: ['SWE', 'MLE', 'Others'],
         application: mockApplication,
         history: mockHistory,
         onAddStatus: jest.fn(),

@@ -13,6 +13,7 @@ apps/worker/config.yaml
 apps/worker/resume/*
 !apps/worker/resume/README.md
 !apps/worker/resume/resume.txt.example
+!apps/worker/resume/personal_profile.txt.example
 
 # Orphaned tailored-PDF output dir (tailoring removed; kept ignored so any
 # leftover personal PDFs are never committed).

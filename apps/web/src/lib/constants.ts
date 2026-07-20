@@ -15,15 +15,20 @@ export const STATUSES = [
   'Ghosted',
 ] as const
 
-export const CATEGORIES = [
-  'SWE',
-  'MLE',
-  'DS',
-  'DA',
-  'Quant Dev',
-  'Quant Analyst',
-  'Quant Trader',
-  'AI Engineer',
+// Default application-category vocabulary — the SEED / fallback for a fresh install.
+// Users pick their own labels at onboarding or via the Categories editor (stored in
+// the app_settings table; see actions.ts getCategories/setCategories), so this list is
+// only what shows before they choose. Categories are free-form; keep an 'Others'
+// catch-all. Broad and cross-industry on purpose — the app is not tech-only.
+export const DEFAULT_CATEGORIES = [
+  'Software Engineering',
+  'Data & Analytics',
+  'Product',
+  'Design',
+  'Finance',
+  'Marketing',
+  'Operations',
+  'Sales',
   'Others',
 ] as const
 

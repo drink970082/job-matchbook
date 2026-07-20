@@ -12,12 +12,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { STATUSES, CATEGORIES, getStatusColor } from '@/lib/constants'
+import { STATUSES, getStatusColor } from '@/lib/constants'
 import { Trash2 } from 'lucide-react'
 
 interface StatusHistoryModalProps {
     isOpen: boolean
     onClose: () => void
+    categories: string[]
     application: {
         id: number
         company_name: string
@@ -50,6 +51,7 @@ interface StatusHistoryModalProps {
 export function StatusHistoryModal({
     isOpen,
     onClose,
+    categories,
     application,
     history,
     onAddStatus,
@@ -114,7 +116,7 @@ export function StatusHistoryModal({
                     onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
                     className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                    {CATEGORIES.map((c) => (
+                    {categories.map((c) => (
                         <option key={c} value={c}>{c}</option>
                     ))}
                 </select>

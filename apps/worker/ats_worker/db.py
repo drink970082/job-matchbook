@@ -123,6 +123,23 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
     return inserted
 
 
+# --- app settings ---------------------------------------------------------
+# A web-owned key-value preferences table (app_settings). The worker never reads
+# it; this single mutator exists only so an onboarding script can seed a preference
+# (the category vocabulary) through the same Python DB layer as the watchlist.
+
+def upsert_setting(conn: sqlite3.Connection, key: str, value: str, *, now: str) -> None:
+    """Insert or overwrite one app_settings row. `value` is stored verbatim (the
+    caller JSON-encodes structured values, mirroring watched_companies.recipe)."""
+    conn.execute(
+        "INSERT INTO app_settings (key, value, updated_at) "
+        "VALUES (:key, :value, :now) "
+        "ON CONFLICT(key) DO UPDATE SET value=:value, updated_at=:now",
+        {"key": key, "value": value, "now": now},
+    )
+    conn.commit()
+
+
 # --- feed bookkeeping -----------------------------------------------------
 
 def record_unresolved(conn: sqlite3.Connection, *, feed: str, url: str,

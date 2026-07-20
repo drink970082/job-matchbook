@@ -18,6 +18,22 @@ def test_connect_enables_wal_and_busy_timeout(db_path):
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
 
+# --- app settings ---------------------------------------------------------
+
+def test_upsert_setting_inserts_then_overwrites(db_path):
+    conn = db.connect(db_path)
+    db.upsert_setting(conn, "categories", '["Finance","Others"]', now=NOW)
+    row = conn.execute(
+        "SELECT value, updated_at FROM app_settings WHERE key='categories'"
+    ).fetchone()
+    assert row["value"] == '["Finance","Others"]'
+    assert row["updated_at"] == NOW
+    # a second call overwrites the same key in place (no duplicate row, bumps ts)
+    db.upsert_setting(conn, "categories", '["Product"]', now=LATER)
+    rows = conn.execute("SELECT value FROM app_settings WHERE key='categories'").fetchall()
+    assert [r["value"] for r in rows] == ['["Product"]']
+
+
 # --- upsert / dedup -------------------------------------------------------
 
 def test_upsert_inserts_new_rows_as_new_status(db_path):

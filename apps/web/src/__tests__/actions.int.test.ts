@@ -13,10 +13,12 @@ import {
     exportApplicationsCSV,
     getApplications,
     getJobPostings,
+    getCategories,
     getKPIs,
     importApplicationsCSV,
     markJobApplied,
     removeAllInView,
+    setCategories,
     updateApplicationStatus,
 } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
@@ -30,6 +32,33 @@ afterAll(() => prisma.$disconnect())
 // score_detail for any row a test expects to land in `matched`.
 const MATCH_VERDICT = JSON.stringify({
     assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } },
+})
+
+
+// --- categories: the user-configurable vocabulary (app_settings) ----------
+
+test('getCategories returns defaults and configured=false before anything is set', async () => {
+    const { categories, configured } = await getCategories()
+    expect(configured).toBe(false)
+    expect(categories).toContain('Others')
+    expect(categories.length).toBeGreaterThan(1)
+})
+
+test('setCategories persists a de-duplicated list that getCategories reads back', async () => {
+    const res = await setCategories(['Investment Banking', 'Private Equity', 'investment banking', '  '])
+    expect(res.success).toBe(true)
+    const { categories, configured } = await getCategories()
+    expect(configured).toBe(true)
+    // trimmed, blanks dropped, case-insensitive dedupe (first spelling wins)
+    expect(categories).toEqual(['Investment Banking', 'Private Equity'])
+})
+
+test('setCategories rejects an empty list and leaves the stored value untouched', async () => {
+    await setCategories(['Product'])
+    const res = await setCategories([])
+    expect(res.success).toBe(false)
+    const { categories } = await getCategories()
+    expect(categories).toEqual(['Product'])
 })
 
 

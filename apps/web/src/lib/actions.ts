@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 
 export async function getApplications(params: {
     page?: number
@@ -363,11 +363,9 @@ export async function markJobApplied(id: number, category?: string) {
             return { success: false, error: 'Job posting not found' }
         }
 
-        // Category is chosen by the user at apply time; fall back to 'Others' for an
-        // unknown/missing value (and old callers that pass nothing).
-        const cat = category && (CATEGORIES as readonly string[]).includes(category)
-            ? category
-            : 'Others'
+        // Category is a free-form user label chosen at apply time; keep whatever's
+        // given, falling back to 'Others' only when blank (or old callers pass nothing).
+        const cat = category?.trim() || 'Others'
         const today = new Date().toISOString().split('T')[0]
 
         // Create the application and backfill the job_postings link atomically so we
@@ -432,7 +430,7 @@ export async function addApplication(data: {
         }
 
         const status = (STATUSES as readonly string[]).includes(data.status ?? '') ? data.status! : 'Applied'
-        const category = (CATEGORIES as readonly string[]).includes(data.category ?? '') ? data.category! : 'Others'
+        const category = data.category?.trim() || 'Others'
 
         const newApp = await prisma.$transaction(async (tx) => {
             const existing = await tx.applications.findFirst({
@@ -480,7 +478,7 @@ export async function updateApplicationDetails(
     }
 ) {
     try {
-        const category = (CATEGORIES as readonly string[]).includes(data.category) ? data.category : 'Others'
+        const category = data.category?.trim() || 'Others'
 
         await prisma.applications.update({
             where: { id },
@@ -852,7 +850,6 @@ export async function importApplicationsCSV(csvText: string) {
 
         const colIndex = (name: string) => header.indexOf(name)
         const statusSet = new Set<string>(STATUSES as readonly string[])
-        const categorySet = new Set<string>(CATEGORIES as readonly string[])
 
         const CHUNK = 100
         let added = 0
@@ -904,8 +901,9 @@ export async function importApplicationsCSV(csvText: string) {
 
                     const rawStatus = get('status') || 'Applied'
                     const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
-                    const rawCategory = get('category') || 'Others'
-                    const category = categorySet.has(rawCategory) ? rawCategory : 'Others'
+                    // Category is free-form (the user's own vocabulary) — keep whatever
+                    // the CSV supplies, defaulting only when blank.
+                    const category = (get('category') || '').trim() || 'Others'
 
                     await tx.applications.create({
                         data: {
@@ -1013,6 +1011,58 @@ export async function removeWatchedCompany(id: number) {
     try {
         await prisma.watched_companies.delete({ where: { id } })
         return { success: true }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+// --- Categories (DB-backed vocabulary the user picks at onboarding) ----------
+// The application-category list lives in one app_settings row (key='categories',
+// value = a JSON string array) so a user can pick their own field's labels instead
+// of the built-in DEFAULT_CATEGORIES. Categories are free-form: they drive only the
+// dropdowns and the donut, never any pipeline logic.
+
+export async function getCategories(): Promise<{ categories: string[]; configured: boolean }> {
+    const row = await prisma.app_settings.findUnique({ where: { key: 'categories' } })
+    if (!row) return { categories: [...DEFAULT_CATEGORIES], configured: false }
+    try {
+        const parsed = JSON.parse(row.value)
+        const categories = Array.isArray(parsed)
+            ? parsed.map((c) => String(c)).filter((c) => c.trim())
+            : []
+        // An empty / garbage stored value falls back to defaults and reads as
+        // NOT configured, so the first-run prompt still offers to set a real list.
+        if (categories.length === 0) return { categories: [...DEFAULT_CATEGORIES], configured: false }
+        return { categories, configured: true }
+    } catch {
+        return { categories: [...DEFAULT_CATEGORIES], configured: false }
+    }
+}
+
+export async function setCategories(list: string[]) {
+    try {
+        // Trim, drop blanks, dedupe case-insensitively (first spelling wins). Order
+        // is preserved — it's the dropdown order the user sees.
+        const seen = new Set<string>()
+        const categories: string[] = []
+        for (const raw of list ?? []) {
+            const c = String(raw).trim()
+            if (c && !seen.has(c.toLowerCase())) {
+                seen.add(c.toLowerCase())
+                categories.push(c)
+            }
+        }
+        if (categories.length === 0) {
+            return { success: false, error: 'Pick at least one category' }
+        }
+        const now = new Date().toISOString()
+        const value = JSON.stringify(categories)
+        await prisma.app_settings.upsert({
+            where: { key: 'categories' },
+            update: { value, updated_at: now },
+            create: { key: 'categories', value, updated_at: now },
+        })
+        return { success: true, data: categories }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

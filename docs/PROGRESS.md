@@ -26,6 +26,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 - 🚧 **Run the pipeline as a daemon** — the recurring 24h scheduler
   (`python -m ats_worker.run`) remains the operator's standing launch step; passes
   are currently run by hand.
+- 🚧 **General-purpose pivot (in progress).** Broadening the product from a quant/SWE
+  niche to any field. **Shipped:** user-configurable job categories (`app_settings`,
+  first-run modal + header editor, free-form labels); a persona-neutral
+  `personal_profile.txt.example` + TARGET/ANTI-TARGET/STAGE docs in `resume/README.md`;
+  an `onboard-me` skill scaffold (categories only). **Remaining:** expand `onboard-me`
+  to the full profile/résumé/config interview (Stage 2); non-tech discovery feeds are
+  **deferred** (the watchlist already covers any company — decide before building). By
+  design the fit-scoring prompt (`score.txt`) is **left untouched** — generality lives in
+  `personal_profile.txt`, and scorer-prompt edits have destabilized verdicts before.
 
 ---
 
@@ -77,14 +86,12 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
-- **Enhance the Discovered Jobs section in the README** — `[XS]`. It should read at
-  the same weight as the "Track" section above it (which gets 3 inline
-  screenshots + a dense feature list) — right now "Discover" is one thin paragraph
-  and no image. Expand the text to cover bucket triage (Matched/Below
-  bar/Discarded/Failed/Low-context), the per-row "why" line, the fit-assessment
-  modal, and bulk actions; add an inline screenshot of the tab (needs a seeded
-  throwaway DB, never the real `db/applications.db` — see the privacy note in
-  §11/CHANGELOG on the existing screenshots).
+- **Discovered Jobs README screenshot** — `[XS]`. The prose is now expanded to Track
+  parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
+  actions). Still missing: an inline screenshot of the tab to match the "Track"
+  images. Needs a seeded throwaway DB (never the real `db/applications.db` — see the
+  privacy note in §11/CHANGELOG on the existing screenshots) and a richer fixture than
+  the e2e seed, which only populates the Matched + Discarded buckets.
 - **Adjust dev/release workflow** — `[? · design call · scope not yet set, DO NOT
   EXECUTE until the operator says so]`. Branch management, tagging, and
   version-control/GitHub workflow conventions flagged as needing a change

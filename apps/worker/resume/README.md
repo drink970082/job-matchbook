@@ -32,3 +32,28 @@ The directory is mounted read-only into the worker container at `/app/resume`.
 cp resume.txt.example resume.txt       # single version, or
 cp resume.txt.example resume_swe.txt   # one file per targeted version
 ```
+
+## The personal profile (optional but high-leverage)
+
+`personal_profile.txt` is **not a résumé** — it's short about-you context that shapes
+*fit*, and it's what the scorer's **domain verdict** matches a role against. Copy the
+template and rewrite it for your search:
+
+```bash
+cp personal_profile.txt.example personal_profile.txt
+```
+
+It has a light structure the scorer relies on (works for any field — finance, product,
+design, engineering, …):
+
+- **STAGE** — your career stage, so "right seniority" means the right thing for you.
+- **TARGET (priority order)** — the roles/fields you actually want, described by their
+  day-to-day work. A role matching priority 1-3 and backed by your résumé scores as a
+  domain `match`; lower tiers are `adjacent`.
+- **ANTI-TARGETS** — roles you'd pass the screen for but don't want; they score *down*
+  and always beat any TARGET a role also seems to match.
+- **POSITIONING / INTERESTS / CAVEATS** — how you frame yourself, genuine interests (the
+  one honest lever that raises fit), and any honest downward caveats.
+
+It never adds a skill your résumé lacks (a recruiter sees the résumé, not this) — a real
+gap is fix-the-résumé signal. Keep it concise and stable; it's sent on every scoring call.

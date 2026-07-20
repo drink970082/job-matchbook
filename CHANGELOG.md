@@ -7,6 +7,33 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **User-configurable job categories (general-purpose pivot).** The application-category
+  vocabulary is no longer a fixed quant/SWE enum — it's chosen per user and stored in a new
+  `app_settings` table (key `categories`, JSON value). A first-run modal prompts new users to
+  pick their own categories; a header **Categories** button edits them anytime; the Add form,
+  Mark-Applied dialog, table filter, and donut all read the chosen list. `getCategories` /
+  `setCategories` server actions back it. Categories are now **free-form labels** (the dropdown
+  supplies the vocabulary), so the old "coerce an unknown category to Others" behavior is gone —
+  only a blank value falls back to `Others`.
+- **`personal_profile.txt.example` + docs.** A persona-neutral profile template, plus
+  documentation in `apps/worker/resume/README.md` of the TARGET / ANTI-TARGET / STAGE structure
+  the scorer's domain verdict reads (previously only in `SPEC.md`).
+- **`onboard-me` skill (scaffold).** Interviews a new user for their category vocabulary and
+  persists it via a bundled `set_categories.py` (writing `app_settings` through the worker DB
+  layer, `db.upsert_setting`). Categories-only for now; profile/config onboarding to follow.
+
+### Changed
+
+- **Worker config rejects unknown keys instead of silently ignoring them.**
+  `load_config` now fails loud on any unrecognised top-level or `candidate` key
+  (allowed keys are derived from the dataclass fields, so the guard can't drift from
+  the schema). Previously a stale or mistyped field — notably the retired `threshold`
+  and the never-read `candidate.years_experience` — was accepted and quietly did
+  nothing, so tuning it changed no behaviour. The shipped `config.yaml` dropped both
+  dead keys. Mirrors the existing `filters` migration guard.
+
 ### Removed
 
 - **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the

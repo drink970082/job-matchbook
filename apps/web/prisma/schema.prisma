@@ -107,3 +107,14 @@ model promotion_dismissed {
 
   @@unique([source, slug])
 }
+
+// Generic key-value store for web-app user preferences. Currently one row,
+// key='categories', whose `value` is a JSON string array — the user-chosen
+// application category vocabulary (see src/lib/actions.ts getCategories/setCategories).
+// Web-only: the Python worker never reads this, but the schema-drift guard
+// (tools/check_schema_drift.mjs) still requires it in the worker fixture.
+model app_settings {
+  key        String  @id
+  value      String
+  updated_at String?
+}

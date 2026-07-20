@@ -1,5 +1,5 @@
 
-import { getApplications, getKPIs, getStatusFlow, getTimelineData, getCategoryData, getJobPostings } from '@/lib/actions'
+import { getApplications, getKPIs, getStatusFlow, getTimelineData, getCategoryData, getJobPostings, getCategories } from '@/lib/actions'
 import { Dashboard } from '@/components/Dashboard'
 
 export const dynamic = 'force-dynamic'
@@ -12,6 +12,7 @@ export default async function Page() {
     timelineData,
     categoryData,
     { data: jobPostings, total: totalJobPostings },
+    { categories: categoryOptions, configured: categoriesConfigured },
   ] = await Promise.all([
     getApplications({ page: 0, size: 10 }),
     getKPIs(),
@@ -19,6 +20,7 @@ export default async function Page() {
     getTimelineData(),
     getCategoryData(),
     getJobPostings({}),
+    getCategories(),
   ])
 
   return (
@@ -32,6 +34,8 @@ export default async function Page() {
         initialCategories={categoryData.data || []}
         initialJobPostings={jobPostings}
         totalJobPostings={totalJobPostings}
+        initialCategoryOptions={categoryOptions}
+        initialCategoriesConfigured={categoriesConfigured}
       />
     </div>
   )
