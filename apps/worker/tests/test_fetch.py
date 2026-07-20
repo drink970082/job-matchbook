@@ -237,6 +237,24 @@ def test_prefilter_unparseable_date_is_kept():
     assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == posts
 
 
+def test_prefilter_age_boundary_exactly_max_age_is_kept():
+    # posted exactly max_age_days before now -> (today-posted).days == max_age_days,
+    # strict `>` keeps it.
+    posts = [{"job_title": "A", "posted_at": "2026-05-05"}]  # 30 days before 2026-06-04
+    assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == posts
+
+
+def test_prefilter_age_boundary_one_day_over_is_dropped():
+    posts = [{"job_title": "A", "posted_at": "2026-05-04"}]  # 31 days before 2026-06-04
+    assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == []
+
+
+def test_prefilter_future_posted_at_is_kept():
+    # negative age is never "too old"
+    posts = [{"job_title": "A", "posted_at": "2026-12-01"}]
+    assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == posts
+
+
 def test_prefilter_composes_keep_then_exclude():
     posts = [{"job_title": "Senior Engineer", "posted_at": None},
              {"job_title": "Sales Engineer", "posted_at": None},
