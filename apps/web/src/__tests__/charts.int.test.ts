@@ -70,7 +70,26 @@ test('getStatusFlow: identical transitions across apps are counted', async () =>
     expect(res.data).toEqual([{ from: 'Applied', to: 'No Response', value: 2 }])
 })
 
+test('getStatusFlow: a multi-hop chain (>=3 distinct statuses) emits every consecutive edge once', async () => {
+    // 4 distinct statuses via 3 history rows + a final status that differs from the
+    // tail: Applied -> OA -> Interviewing -> Rejected. No edge should be skipped or
+    // duplicated (no phantom Applied->Interviewing or Applied->Rejected edges).
+    await appWithHistory('Rejected', ['Applied', 'OA', 'Interviewing'])
+    const res = await getStatusFlow()
+    expect(res.data).toEqual([
+        { from: 'Applied', to: 'OA', value: 1 },
+        { from: 'OA', to: 'Interviewing', value: 1 },
+        { from: 'Interviewing', to: 'Rejected', value: 1 },
+    ])
+})
+
 // --- getTimelineData ------------------------------------------------------
+
+test('getTimelineData returns no buckets for an empty DB', async () => {
+    const res = await getTimelineData()
+    expect(res.success).toBe(true)
+    expect(res.data).toEqual([])
+})
 
 test('getTimelineData counts per day (T-split) sorted ascending', async () => {
     await prisma.applications.create({ data: makeApplication({ date_applied: '2026-01-02' }) })
@@ -99,4 +118,21 @@ test('getCategoryData counts per category (null -> Others) sorted desc', async (
         { name: 'MLE', value: 2 },
         { name: 'Others', value: 1 },
     ])
+})
+
+test('getCategoryData: a tie on count still returns both categories with correct values', async () => {
+    for (const category of ['SWE', 'SWE', 'MLE', 'MLE']) {
+        await prisma.applications.create({ data: makeApplication({ category }) })
+    }
+    const res = await getCategoryData()
+    expect(res.success).toBe(true)
+    // Both tied entries must be present with the right counts. The sort
+    // (`b.value - a.value`) is stable, but which of the two ties first depends on
+    // Map-insertion order, which in turn depends on findMany's row order — not
+    // guaranteed absent an orderBy. So assert membership, not the tie order.
+    expect(res.data).toHaveLength(2)
+    expect(res.data).toEqual(expect.arrayContaining([
+        { name: 'SWE', value: 2 },
+        { name: 'MLE', value: 2 },
+    ]))
 })

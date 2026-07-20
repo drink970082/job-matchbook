@@ -1165,7 +1165,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `reopenJobPosting`→`scored`, `discardJobPosting`→`discarded`, `bulkRemove`→`removed`, `bulkReopen`→`scored`, `removeAllInView` | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
-| ⚠ Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`) | **none** — no unit/integration/e2e coverage; only the components render |
+| Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
 | CSV import/export rules (dedup, enum fallback) | `actions.int.test.ts` |
 | Feed resolve (URL→board incl. workday/smartrecruiters/workable/oracle/jobvite + GH-EU host) + classify-reason | `test_feed_resolve.py` |
 | SmartRecruiters adapter (two-step list+detail) | `test_smartrecruiters.py` |
