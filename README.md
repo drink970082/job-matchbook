@@ -146,6 +146,8 @@ Jest + Playwright + pytest · Docker Compose. Details in
 | [`docs/SETUP.md`](./docs/SETUP.md) | Setup pointer (→ spec §12) |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release history |
+| [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) | Community expectations (Contributor Covenant) |
+| [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting + accepted-risk scope |
 
 ---
 

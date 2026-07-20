@@ -356,6 +356,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now also clears `pipeline_error` on a successful (re-)score, so a recovering
   row doesn't carry a stale error string (mirrors `mark_notified`'s existing
   clear on the notify side).
+- **Community health files.** `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1,
+  reports via this repo's issue tracker — no personal contact info), `SECURITY.md`
+  (single-user/loopback threat model, GitHub Security Advisories reporting flow,
+  and the accepted-risk list: `next`/bundled `postcss` advisories pending the
+  `next@16` major, plus pointers to the `autoheal` Docker-socket and SSRF-guard
+  items already tracked in `PROGRESS.md`), and `.github/ISSUE_TEMPLATE/`
+  (`bug_report.md`, `feature_request.md`).
 
 ### Changed
 
