@@ -415,10 +415,14 @@ worker modules are pure and dependency-injected; real services are wired only in
     `("greenhouse", token, gh_jid)` — then the normal greenhouse list path ingests it
     (dedups with direct greenhouse). Wired only in `run.py` (DI). Recovers only the
     subset that embeds the token server-side; JS-injected embeds return None and stay
-    on the unresolved board. **SSRF guard:** before fetching, `resolve_embedded` calls
-    `util.is_safe_public_url` — only a public `http(s)` host is fetched; `localhost`
-    and private/loopback/link-local/reserved IP literals (incl. `169.254.169.254`) are
-    refused with no HTTP call.
+    on the unresolved board. **SSRF guard:** `resolve_embedded` fetches via
+    `util.get_redirect_safe`, which re-validates `util.is_safe_public_url` on the initial
+    URL **and every redirect hop** before issuing it — only public `http(s)` hosts are
+    contacted; `localhost` and private/loopback/link-local/reserved IP literals (incl.
+    `169.254.169.254`) are refused with no HTTP call, and a public URL that 3xx-redirects
+    to an internal target is refused mid-chain (→ unresolvable/`None`). Same
+    `get_redirect_safe` guards the `custom` recipe fetch; the `browser` executor validates
+    each navigation URL and discards a render whose post-redirect `page.url` is non-public.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
   (selects rows by pipeline status), `get_notifiable` (the notify gate: `scored`
@@ -427,8 +431,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal),
   `record_notify_failure` (retry-aware: keeps the row `scored` until the caller
   declares the budget exhausted, then parks it `failed`). Watchlist + feed
-  helpers: `get_watchlist`, `count_watchlist`, `import_watchlist` (idempotent),
-  `record_unresolved` (upsert on `url`), `existing_external_ids`. Issues no DDL.
+  helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
+  but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
+  `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
+  `delete_unresolved` (clears a row once its posting is re-ingested),
+  `existing_external_ids`. Issues no DDL.
 - **`score.py` — `screen_posting` / `_normalize_score`.** Up to two calls, two backends,
   **SCREEN-gated**: the cheap local screen runs FIRST and gates the paid fit score. (1) The
   hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
@@ -920,7 +927,10 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 - **Unresolvable listings are recorded, not dropped.** A URL the resolver can't map
   to a supported board+slug (an *unparseable* workday URL, embedded greenhouse,
   unsupported host) is upserted into `feed_unresolved` (`host` + `reason`), keyed on
-  `url`. One bad board never aborts the batch (per-group try/except, mirroring `run_fetch`).
+  `url`. When a later pass successfully (re-)ingests a posting for that URL, its
+  `feed_unresolved` row is cleared (`db.delete_unresolved`), so a transient board failure
+  doesn't permanently pollute the backlog. One bad board never aborts the batch (per-group
+  try/except, mirroring `run_fetch`).
 - **Detail-fetch sources fetch one job per surfaced id.** A source with no public
   board-list endpoint (`fetch.DETAIL_SOURCES`, e.g. `oracle`, `jobvite`) is ingested by
   fetching each surfaced id directly via `fetch_one` (per-id try/except → one bad
@@ -1035,9 +1045,13 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
 - **CSV import** requires columns `company_name, job_title, date_applied`; unknown
   `status`/`category` values fall back to `Applied`/`Others`; existing
   `(company, title)` rows are skipped (reported in `{added, skipped, errors}`).
-  The whole per-row loop runs in one `$transaction` (`{ timeout: 60_000 }`) —
-  a mid-import DB error rolls back the entire file (all-or-nothing); per-row
-  validation `continue`s (missing field, duplicate) are unaffected.
+  The per-row loop runs in **chunked** `$transaction`s (100 rows each), so a large
+  import doesn't hold SQLite's single write lock long enough to starve a concurrent
+  worker pass; a mid-import DB error rolls back only the current chunk, and re-import is
+  idempotent (per-`(company, title)` dedup) so it completes the rest. Import also
+  **reverses the export formula-injection guard** — it strips a leading `'` that precedes
+  a formula-lead char (`= + - @`, tab, CR) — so an export→import round-trip is lossless.
+  Per-row validation `continue`s (missing field, duplicate) are unaffected.
 
 **Cross-service data invariant:** the schema is owned solely by Prisma; the worker
 reads/writes rows but issues **no DDL**. The worker's test fixture

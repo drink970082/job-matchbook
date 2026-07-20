@@ -45,12 +45,18 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-*Surfaced by the 2026-07-18 full audit (security / dead-code / architecture) —
-none fixed yet; this is the findings log.* (The **prior** defects all shipped: the
-two 2026-07-17 audit fixes — the notify/web thin-JD divergence and `run_score`'s
-unchecked batch-persist zip — and the six 2026-07-13 cold-pass defects (D1 auth · D2
-location · D3 seniority · D4 plus-skills · D5 location-leak · D6 calibration); see
-the [CHANGELOG](../CHANGELOG.md).)
+*Empty — no known shipped defects open.* The 2026-07-18 full audit's defects were **all
+remediated** (2026-07-18/19; see the [CHANGELOG](../CHANGELOG.md) and
+[`superpowers/plans/2026-07-18-audit-remediation.md`](./superpowers/plans/2026-07-18-audit-remediation.md)).
+A 2026-07-19 whole-branch review of that remediation then surfaced **10 follow-up
+defects** — a `.env` secret-scoping regression, redirect-following SSRF on the
+feed/custom/browser fetch paths, a missed `add_watched.py` slug write-boundary, CSV
+export→import corruption + import lock-starvation, silent category coercion on edit,
+permanent `feed_unresolved` pollution, silent `fetch_fn`/`get_watchlist` degradations,
+and the nightly-CI unit-suite gap — **all fixed** (commits `aef11c1..9bdb5e2`; see the
+[CHANGELOG](../CHANGELOG.md)). (Earlier defects also shipped: the two 2026-07-17 audit
+fixes — the notify/web thin-JD divergence and `run_score`'s unchecked batch-persist zip —
+and the six 2026-07-13 cold-pass defects D1–D6; see the [CHANGELOG](../CHANGELOG.md).)
 
 ### Unverified / unguaranteed properties — behavior may be fine, but nothing proves it (should address)
 
