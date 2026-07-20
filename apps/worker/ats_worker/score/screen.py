@@ -67,6 +67,32 @@ NO_SPONSOR_PHRASES = (
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
 
+def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) -> dict:
+    """Apply the two CODE-only screen gates — intern/co-op title, and location string
+    (resolve_location off posting['location']) — merging their verdicts into `screen`
+    in place. Shared by screen_posting (after the LLM screen, preserving prior
+    degree/auth/clearance reasons) and the fetch-time gate (fresh empty screen). No
+    LLM. Returns `screen`."""
+    if candidate and candidate.get("exclude_internships") and _is_internship(
+        str(posting.get("job_title") or "")
+    ):
+        screen.setdefault("screen", {})["internships"] = {"pass": False, "note": "internship/co-op role"}
+        prior = screen.get("disqualification_reason") or ""
+        screen["disqualified"] = True
+        screen["disqualification_reason"] = (
+            f"{prior}; internship/co-op role" if prior else "internship/co-op role"
+        )
+    if candidate and candidate.get("locations"):
+        passed, note = resolve_location(posting.get("location"), candidate["locations"])
+        screen.setdefault("screen", {})["location"] = {"pass": passed, "note": note}
+        if not passed:
+            prior = screen.get("disqualification_reason") or ""
+            reason = f"location: {note}" if note else "location"
+            screen["disqualified"] = True
+            screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
+    return screen
+
+
 def screen_posting(
     posting: dict,
     *,
@@ -123,31 +149,10 @@ def screen_posting(
     else:
         screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
-    # Deterministic intern/co-op exclusion — title-only (free, no LLM), so it runs
-    # even when no SCREEN call was made. The 4B model is unreliable here; the title
-    # is a clean signal. Merges a hard fail into the screen verdict.
-    if candidate and candidate.get("exclude_internships") and _is_internship(
-        str(posting.get("job_title") or "")
-    ):
-        screen.setdefault("screen", {})["internships"] = {"pass": False, "note": "internship/co-op role"}
-        prior = screen.get("disqualification_reason") or ""
-        screen["disqualified"] = True
-        screen["disqualification_reason"] = (
-            f"{prior}; internship/co-op role" if prior else "internship/co-op role"
-        )
-
-    # Deterministic LOCATION gate — matched in CODE against the board's location
-    # string (posting["location"]) via pycountry, NOT the LLM. Runs when the
-    # candidate configured allowed locations; merged into the screen verdict like
-    # the internship check above.
-    if candidate and candidate.get("locations"):
-        passed, note = resolve_location(posting.get("location"), candidate["locations"])
-        screen.setdefault("screen", {})["location"] = {"pass": passed, "note": note}
-        if not passed:
-            prior = screen.get("disqualification_reason") or ""
-            reason = f"location: {note}" if note else "location"
-            screen["disqualified"] = True
-            screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
+    # Deterministic CODE gates (intern title + location string), hoisted into a
+    # shared helper so the fetch-time pre-filter can apply the SAME verdict before
+    # the Ollama call. No LLM. Merged on top of the LLM screen verdict above.
+    screen = deterministic_screen(screen, posting, candidate)
 
     return screen
 

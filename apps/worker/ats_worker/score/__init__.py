@@ -28,6 +28,7 @@ from .screen import (  # noqa: F401  (re-export)
     _is_internship,
     _needs_sponsorship,
     _normalize_score,
+    deterministic_screen,
     screen_posting,
 )
 from .usage import (  # noqa: F401  (re-export)

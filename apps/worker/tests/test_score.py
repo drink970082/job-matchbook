@@ -252,6 +252,31 @@ def test_missing_board_location_is_kept():
     assert out["disqualified"] is False                       # err toward keep
 
 
+def test_deterministic_screen_flags_intern_and_location():
+    base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    posting = {"job_title": "Data Science Intern", "location": "Shanghai, China"}
+    out = score.deterministic_screen(
+        base, posting, {"exclude_internships": True, "locations": ["remote", "USA"]})
+    assert out["disqualified"] is True
+    assert out["screen"]["internships"]["pass"] is False
+    assert out["screen"]["location"]["pass"] is False
+    assert "internship/co-op role" in out["disqualification_reason"]
+    assert "location: on-site in China" in out["disqualification_reason"]
+
+
+def test_deterministic_screen_passes_clean_row():
+    base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    posting = {"job_title": "Software Engineer", "location": "New York, New York"}
+    out = score.deterministic_screen(base, posting, {"locations": ["remote", "USA"]})
+    assert out["disqualified"] is False
+
+
+def test_deterministic_screen_noop_without_candidate():
+    base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    out = score.deterministic_screen(base, {"job_title": "Intern"}, None)
+    assert out == {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+
 # degree: LLM extracts required_degree, code compares rank
 def test_higher_required_degree_disqualifies():
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
