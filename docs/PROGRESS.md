@@ -62,11 +62,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   to rename, target name not yet picked (operator deferred 2026-07-20) — once
   chosen, rename on GitHub and update the README badge/link + `SPEC.md` §1 repo URL
   (GitHub redirects the old clone URL once, not indefinitely).
-- **Watchlist slug host-safety check** — `[XS]`. Slug *structure* is validated at all
-  three write boundaries, but `phenom`/`workday` pack a hostname as the slug's first
-  segment, so an internal-IP host passes (accepted meanwhile — SPEC §11). Closable by
-  calling `is_safe_public_url` on the built host inside `phenom._parts` /
-  `workday._parts`.
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).

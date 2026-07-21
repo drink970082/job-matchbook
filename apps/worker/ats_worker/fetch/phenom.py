@@ -17,7 +17,7 @@ from __future__ import annotations
 import requests
 
 from ats_worker.fetch._paged import paged_details
-from ats_worker.util import html_to_text, to_iso_date
+from ats_worker.util import html_to_text, is_safe_public_url, to_iso_date
 
 SOURCE = "phenom"
 
@@ -26,6 +26,11 @@ def _parts(slug: str):
     host, _, domain = slug.partition("/")
     if not host or not domain:
         raise ValueError(f"phenom slug must be 'host/domain', got {slug!r}")
+    # The slug's first segment IS the request host, and the config/UI slug charset
+    # ([A-Za-z0-9._/-]) can't tell a careers hostname from an internal IP literal —
+    # so the host is checked here, where it's known. (SPEC §11.)
+    if not is_safe_public_url(f"https://{host}/"):
+        raise ValueError(f"phenom slug host is not a public target: {host!r}")
     return host, domain
 
 

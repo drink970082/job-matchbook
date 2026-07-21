@@ -99,6 +99,14 @@ with zero failures, matches delivered to Telegram.
 
 ### Security
 
+- **Watchlist slug host-safety check (closes a SPEC §11 residual).** `phenom` and
+  `workday` pack a hostname into the slug, and the slug charset check
+  (`[A-Za-z0-9._/-]`) can't distinguish a careers hostname from an internal IP
+  literal — so `phenom` slugs like `127.0.0.1/x` or `169.254.169.254/x` reached the
+  fetch. Both adapters now run the built host through `util.is_safe_public_url` in
+  `_parts` and raise `ValueError` instead. `workday`'s check is belt-and-braces (its
+  `.myworkdayjobs.com` suffix is hardcoded today) and guards the built URL so it
+  holds if the slug charset ever loosens.
 - **`npm audit fix` (no `--force`) clears the `defu`/`effect` Prisma-toolchain
   advisories.** `defu` <=6.1.4 (prototype pollution via `__proto__` in a defaults
   argument) and `effect` <3.20.0 (`AsyncLocalStorage` context loss/contamination

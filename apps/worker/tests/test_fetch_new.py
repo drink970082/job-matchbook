@@ -99,6 +99,14 @@ def test_workday_slug_must_have_three_parts():
         workday.fetch("justtenant", "X", session=object())
 
 
+def test_workday_slug_building_an_unsafe_host_is_rejected():
+    # Today the `.myworkdayjobs.com` suffix is hardcoded so no slug can reach an
+    # internal host; the guard is on the BUILT url so that stays true if the slug
+    # charset ever loosens.
+    with pytest.raises(ValueError):
+        workday._parts("127.0.0.1#/dc/site")  # '#' truncates the hardcoded suffix
+
+
 def test_workday_fetch_pages_and_enriches_via_detail():
     # Inject a fake transport to exercise the real pagination + N+1 detail flow
     # without network (the adapter already takes a `session` for this).

@@ -1333,6 +1333,12 @@ automated coverage — those rely on code review or the human in the loop, not a
   exception text embeds the bot token (carried in the request URL); `run_notify`
   scrubs it (replaced with `***`) before it reaches `job_postings.pipeline_error`
   or stdout, so it never escapes `.env` into the shared DB or logs (see CHANGELOG).
+  Watchlist **slugs** are structurally validated at all three write boundaries
+  (`actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
+  in the slug additionally run the built host through `is_safe_public_url` in their
+  `_parts` (`phenom` — the segment *is* the host; `workday` — belt-and-braces, its
+  `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead
+  of being fetched.
 - **Accepted security residuals** (deliberate, documented — single-user,
   loopback-bound, curated-input deployment; also see `SECURITY.md`):
   - **`autoheal` holds the Docker socket** — `docker-compose.yml` mounts
@@ -1349,11 +1355,6 @@ automated coverage — those rely on code review or the human in the loop, not a
     worker fetching a curated board list with `browser` sources gated off by
     default; the feed/custom paths re-validate every redirect hop before it is
     requested (`util.get_redirect_safe`, §7.1).
-  - **Watchlist slug is structurally validated, not host-checked** — all three
-    write boundaries (`actions.ts`, `config.py`, `add_watched.py`) reject bad
-    charset/traversal, but `phenom`/`workday` pack a hostname as the slug's first
-    segment, so an internal-IP host would pass the structural guard. Watchlist rows
-    are operator-authored.
   - **JD prompt-injection can skew a score, not leak a secret** — the codex scorer
     is tool-less by construction (§7.1), so a hostile JD can't read or exfiltrate
     anything; it could still talk the model into a wrong number/verdict. Probed

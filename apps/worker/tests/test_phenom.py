@@ -80,6 +80,19 @@ def test_bad_slug_raises():
         phenom.fetch("no-domain", "X", session=_FakeSession())
 
 
+@pytest.mark.parametrize("slug", [
+    "127.0.0.1/microsoft.com",      # loopback
+    "169.254.169.254/x",            # cloud metadata
+    "10.0.0.5/x",                   # private
+    "2130706433/x",                 # decimal-notation loopback
+])
+def test_internal_host_slug_rejected(slug):
+    # The slug's first segment IS the request host and the charset check can't tell
+    # a public hostname from an internal IP literal — so the host itself is guarded.
+    with pytest.raises(ValueError):
+        phenom.fetch(slug, "X", session=_FakeSession())
+
+
 def test_fetch_two_step_hydrates_and_paginates():
     sess = _FakeSession()
     out = phenom.fetch(SLUG, "Microsoft", session=sess, timeout=20)

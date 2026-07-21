@@ -14,7 +14,7 @@ from __future__ import annotations
 import requests
 
 from ats_worker.fetch._paged import paged_details
-from ats_worker.util import html_to_text, to_iso_date
+from ats_worker.util import html_to_text, is_safe_public_url, to_iso_date
 
 SOURCE = "workday"
 _CXS = "https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
@@ -26,6 +26,11 @@ def _parts(slug: str):
     bits = slug.split("/")
     if len(bits) != 3 or not all(bits):
         raise ValueError(f"workday slug must be 'tenant/datacenter/site', got {slug!r}")
+    # The `.myworkdayjobs.com` suffix is hardcoded, so today no slug can build an
+    # internal host; guard the BUILT url anyway so that holds if the slug charset
+    # ever loosens (a '#' would truncate the suffix). (SPEC §11.)
+    if not is_safe_public_url(_CXS.format(tenant=bits[0], dc=bits[1], site=bits[2])):
+        raise ValueError(f"workday slug builds an unsafe host: {slug!r}")
     return bits  # tenant, dc, site
 
 
