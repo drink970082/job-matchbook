@@ -121,3 +121,83 @@ def test_fetch_propagates_search_http_error():
 
     with pytest.raises(requests.HTTPError):
         phenom.fetch(SLUG, "Microsoft", session=_BoomSession())
+
+
+# --- stub-gate: skip the detail GET for postings the gates already reject ----
+
+_GATE_SEARCH = {"status": 200, "data": {"count": 3, "positions": [
+    {"id": 11, "name": "Sales Manager", "locations": ["United States, Washington, Redmond"],
+     "postedTs": 1784386514, "positionUrl": "/careers/job/11"},
+    {"id": 22, "name": "Software Engineer II", "locations": ["India, Telangana, Hyderabad"],
+     "postedTs": 1784386514, "positionUrl": "/careers/job/22"},
+    {"id": 33, "name": "Software Engineer, AI", "locations": ["United States, Washington, Redmond"],
+     "postedTs": 1784386514, "positionUrl": "/careers/job/33"},
+]}}
+
+
+class _GateSession:
+    """Serves _GATE_SEARCH on the first page, an empty page after, and the detail
+    fixture for any position. Records every detail position_id it is asked for."""
+
+    def __init__(self):
+        self.detail_ids: list[str] = []
+
+    def get(self, url, params=None, timeout=None):
+        params = params or {}
+        if url.endswith("/search"):
+            if params.get("start", 0) == 0:
+                return _Resp(_GATE_SEARCH)
+            return _Resp({"status": 200, "data": {"count": 3, "positions": []}})
+        self.detail_ids.append(str(params.get("position_id")))
+        return _Resp(DETAIL)
+
+
+def _gate(stub):
+    """Title miss -> drop; India on-site -> discard; otherwise hydrate."""
+    if "engineer" not in (stub["job_title"] or "").lower():
+        return "drop"
+    if "India" in (stub["location"] or ""):
+        return "discard"
+    return "hydrate"
+
+
+def test_stub_gate_hydrates_only_the_survivor():
+    sess = _GateSession()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, keep=_gate)
+
+    assert sess.detail_ids == ["33"]                       # exactly ONE detail GET
+    assert sorted(o["external_id"] for o in out) == ["22", "33"]
+    dropped = [o for o in out if o["external_id"] == "11"]
+    assert dropped == []                                   # title miss never returned
+    discarded = next(o for o in out if o["external_id"] == "22")
+    assert discarded["description"] == ""                  # stored, never hydrated
+    assert discarded["job_title"] == "Software Engineer II"
+    assert discarded["location"] == "India, Telangana, Hyderabad"
+    hydrated = next(o for o in out if o["external_id"] == "33")
+    assert hydrated["description"]                          # JD fetched
+
+
+def test_stub_gate_row_ids_match_the_hydrated_ids():
+    # A stub row and a hydrated row for the same position must carry the same
+    # (source, external_id) dedup key, or a later pass double-inserts.
+    ungated = phenom.fetch(SLUG, "Microsoft", session=_GateSession())
+    gated = phenom.fetch(SLUG, "Microsoft", session=_GateSession(), keep=_gate)
+    ungated_by_id = {o["external_id"]: o for o in ungated}
+    for row in gated:
+        assert row["external_id"] in ungated_by_id
+        assert row["job_title"] == ungated_by_id[row["external_id"]]["job_title"]
+
+
+def test_stub_gate_fails_open_on_an_unknown_verdict():
+    sess = _GateSession()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, keep=lambda stub: "nonsense")
+    assert len(out) == 3                       # nothing lost
+    assert sorted(sess.detail_ids) == ["11", "22", "33"]   # all hydrated
+
+
+def test_no_keep_is_todays_behavior():
+    sess = _GateSession()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess)
+    assert len(out) == 3
+    assert sorted(sess.detail_ids) == ["11", "22", "33"]
+    assert all(o["description"] for o in out)

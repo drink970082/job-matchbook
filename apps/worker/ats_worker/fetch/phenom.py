@@ -63,7 +63,15 @@ def parse_position(pos: dict, company_name: str, description: str = "") -> dict:
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20) -> list[dict]:
+          timeout: int = 20, keep=None) -> list[dict]:
+    """List a phenom board. `keep(stub) -> 'drop' | 'discard' | 'hydrate'` is an
+    OPTIONAL fetch-cost optimization: the search stub already carries the title and
+    location, which is everything the deterministic gates read, so a rejected
+    posting can skip its detail GET (the dominant cost — one per position). 'drop'
+    omits the posting entirely, 'discard' returns it un-hydrated (empty
+    description) so the caller can still record it, 'hydrate' is the normal path.
+    Any other value hydrates: a broken predicate must cost requests, never
+    postings. keep=None disables the gate entirely."""
     host, domain = _parts(slug)
     search_url = f"https://{host}/api/pcsx/search"
     detail_url = f"https://{host}/api/pcsx/position_details"
@@ -78,6 +86,13 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         pid = str(pos.get("id") or "")
         if not pid:
             return None  # no id can't dedup under (source, external_id)
+        stub = parse_position(pos, company_name)  # description="" until hydrated
+        if keep is not None:
+            verdict = keep(stub)
+            if verdict == "drop":
+                return None       # never stored, no detail call
+            if verdict == "discard":
+                return stub       # stored un-hydrated, no detail call
         description = ""
         try:
             detail = http.get(detail_url,
