@@ -13,6 +13,7 @@ from ats_worker import db, pipeline, score
 from tests._helpers import (
     LATER,
     NOW,
+    bootstrap_db,
     make_posting as _posting,
     seed_new as _seed_new,
     seed_scored as _seed_scored,
@@ -141,6 +142,81 @@ def test_run_fetch_no_candidate_leaves_all_new(db_path):
     pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
     assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["1"]
     assert db.get_by_status(conn, "discarded") == []
+
+
+def test_run_fetch_passes_keep_only_to_stub_gate_sources(db_path):
+    conn = db.connect(db_path)
+    seen = {}
+
+    def fetch_fn(source, slug, name, **kw):
+        seen[source] = kw
+        return [_posting(f"{source}-1", job_title="Python Engineer", location="Remote")]
+
+    companies = [{"source": "greenhouse", "slug": "acme", "name": "Acme"},
+                 {"source": "phenom", "slug": "h/d", "name": "Big Co"}]
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn,
+                       candidate={"locations": ["remote", "USA"]})
+    assert "keep" not in seen["greenhouse"]
+    assert callable(seen["phenom"]["keep"])
+
+
+def test_run_fetch_keep_predicate_classifies_stubs(db_path):
+    conn = db.connect(db_path)
+    verdicts = {}
+
+    def fetch_fn(source, slug, name, keep=None):
+        for stub in (_posting("a", job_title="Sales Rep", location="Remote"),
+                     _posting("b", job_title="Python Engineer", location="Shanghai, China"),
+                     _posting("c", job_title="Python Engineer", location="Remote"),
+                     _posting("d", job_title="Python Engineer", location="Remote",
+                              posted_at="2026-01-01"),
+                     _posting("e", job_title="Python Engineer", location=None)):
+            verdicts[stub["external_id"]] = keep(stub)
+        return []
+
+    companies = [{"source": "phenom", "slug": "h/d", "name": "Big Co"}]
+    pipeline.run_fetch(conn, companies, ["engineer"], now=NOW, fetch_fn=fetch_fn,
+                       max_age_days=30, candidate={"locations": ["remote", "USA"]})
+    assert verdicts == {"a": "drop",        # title miss -> silent drop
+                        "b": "discard",     # location miss -> stored, un-hydrated
+                        "c": "hydrate",     # survivor
+                        "d": "drop",        # too old -> silent drop
+                        "e": "hydrate"}     # no location -> resolve_location's
+                                            # rule (A) treats missing as keep -> survivor
+    # The predicate must be TOTAL — nothing try/excepts the keep() call in the
+    # adapter, so a raise on a location-less stub would abort the whole board.
+    assert verdicts["e"] == "hydrate"
+
+
+def test_run_fetch_gated_batch_matches_the_ungated_statuses(db_path, tmp_path):
+    # The gate must change which HTTP calls happen, never which status a row gets.
+    rows = [_posting("1", job_title="Python Engineer", location="Shanghai, China"),
+            _posting("2", job_title="Python Engineer", location="Remote"),
+            _posting("3", job_title="Sales Rep", location="Remote")]
+    cand = {"locations": ["remote", "USA"]}
+
+    def gated_fetch_fn(source, slug, name, keep=None):
+        # Mimics the adapter: 'drop' never comes back, 'discard' comes back
+        # un-hydrated, survivors come back whole.
+        return [dict(r, description="") if keep(r) == "discard" else r
+                for r in rows if keep(r) != "drop"]
+
+    def plain_fetch_fn(source, slug, name):
+        return list(rows)
+
+    conn = db.connect(db_path)
+    pipeline.run_fetch(conn, [{"source": "phenom", "slug": "h/d", "name": "Co"}],
+                       ["engineer"], now=NOW, fetch_fn=gated_fetch_fn, candidate=cand)
+    gated = {s: [r["external_id"] for r in db.get_by_status(conn, s)]
+             for s in ("new", "discarded")}
+
+    conn2 = db.connect(bootstrap_db(tmp_path / "plain.db"))
+    pipeline.run_fetch(conn2, [{"source": "greenhouse", "slug": "acme", "name": "Co"}],
+                       ["engineer"], now=NOW, fetch_fn=plain_fetch_fn, candidate=cand)
+    plain = {s: [r["external_id"] for r in db.get_by_status(conn2, s)]
+             for s in ("new", "discarded")}
+
+    assert gated == plain == {"new": ["2"], "discarded": ["1"]}
 
 
 # --- run_score ------------------------------------------------------------

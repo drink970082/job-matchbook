@@ -35,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import db, score
-from .fetch import DETAIL_SOURCES, prefilter_postings
+from .fetch import DETAIL_SOURCES, STUB_GATE_SOURCES, prefilter_postings
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 
@@ -54,11 +54,32 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
     if fetch_fn is None:
         raise ValueError("run_fetch requires an injected fetch_fn (wired in run.py)")
     inserted = 0
+
+    def _keep(stub):
+        """Fetch-cost gate handed to the two-step adapters: decide from the search
+        stub alone (title + location) whether a posting is worth its detail call.
+        Pure optimization — the loop below still re-runs both filters over whatever
+        comes back and owns every status decision, so a wrong verdict here can only
+        cost or save HTTP requests."""
+        if not prefilter_postings([stub], title_filter=title_filter,
+                                  title_exclude=title_exclude,
+                                  max_age_days=max_age_days, now=now):
+            return "drop"
+        if candidate:
+            verdict = score.deterministic_screen(
+                {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+                stub, candidate)
+            if verdict.get("disqualified"):
+                return "discard"
+        return "hydrate"
+
     for c in companies:
         try:
             # Pass recipe only for recipe-driven rows so a plain 3-arg fetch_fn
             # (and every non-recipe adapter) is called exactly as before.
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
+            if c["source"] in STUB_GATE_SOURCES:
+                kw["keep"] = _keep
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             kept = prefilter_postings(
                 postings, title_filter=title_filter, title_exclude=title_exclude,
