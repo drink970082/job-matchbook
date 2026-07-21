@@ -1,17 +1,18 @@
 ---
 name: onboard-me
 description: >-
-  Guided, conversational first-time setup for a NEW user of this ATS — turn a
-  fresh checkout into a running, personalized pipeline for THEIR job search. Use
-  whenever someone says "onboard me", "set me up", "set up the tracker/worker for
-  me", "personalize this for my search", "I'm a finance/product/design person, get
-  this ready", "build my profile", "configure my job hunt", "help me get started",
-  or asks to set up their categories, résumé, hard requirements, or fit profile.
-  Interviews the user once, then writes the gitignored personal inputs the engine
-  reads (fit profile, résumé text, categories, candidate constraints, a starter
-  watchlist, .env) and ends on the first pipeline run. This is the WHOLE-USER
-  setup; a single "add <company> to the watchlist" is the onboard-board skill's
-  job (this skill delegates to it for companies).
+  Use when someone wants this job-search tool (ATS / tracker / worker / pipeline)
+  set up, configured, or personalized for THEIR own hunt — so it screens and scores
+  real postings against their background and résumé. Trigger on "set me up", "get me
+  started", "onboard me", or "walk me through setup" — and, just as important,
+  whenever they simply describe themselves (target roles, level, a career switch, a
+  résumé file or path) or their must-haves (remote-only, no relocation, visa
+  sponsorship, a degree, clearance) and want the tool tuned to match jobs for them.
+  Covers the full fresh-checkout walkthrough AND configuring any single input on its
+  own: fit profile, résumé ingestion, tracking categories, or hard requirements. Do
+  NOT trigger for operating an already-set-up tool: adding one company (that's
+  onboard-board), rewording a loaded résumé, scheduling runs, fixing broken alerts,
+  or explaining scorer verdicts.
 ---
 
 # Onboard a new user
