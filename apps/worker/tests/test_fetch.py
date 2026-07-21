@@ -8,8 +8,9 @@ import pytest
 
 import requests
 
-from ats_worker.fetch import ashby, greenhouse, lever, pinpoint
-from ats_worker.fetch import fetch_company, filter_postings, prefilter_postings
+from ats_worker.fetch import ashby, greenhouse, lever, phenom, pinpoint
+from ats_worker.fetch import (STUB_GATE_SOURCES, fetch_company, filter_postings,
+                              prefilter_postings)
 from ats_worker.util import POSTING_FIELDS
 from tests._helpers import FakeSession
 
@@ -161,6 +162,33 @@ def test_fetch_company_dispatches_to_the_right_adapter():
 def test_fetch_company_unknown_source_raises():
     with pytest.raises(ValueError, match="unknown source"):
         fetch_company("monster", "x", "X")
+
+
+def test_fetch_company_forwards_keep_to_a_stub_gate_source(monkeypatch):
+    seen = {}
+
+    def fake_fetch(slug, company_name, **kw):
+        seen.update(kw)
+        return []
+
+    monkeypatch.setattr(phenom, "fetch", fake_fetch)
+    gate = lambda stub: "hydrate"  # noqa: E731
+    fetch_company("phenom", "apply.example.com/example.com", "Example", keep=gate)
+    assert seen.get("keep") is gate
+
+
+def test_fetch_company_omits_keep_for_a_plain_adapter(monkeypatch):
+    # A plain adapter's fetch takes no `keep`; passing one must not reach it.
+    # This strict double has no **kwargs, so a leaked kwarg raises TypeError.
+    def strict_fetch(slug, company_name):
+        return []
+
+    monkeypatch.setattr(greenhouse, "fetch", strict_fetch)
+    assert fetch_company("greenhouse", "acme", "Acme", keep=lambda stub: "drop") == []
+
+
+def test_stub_gate_sources_is_exactly_phenom():
+    assert STUB_GATE_SOURCES == frozenset({"phenom"})
 
 
 # --- fetch_one_company dispatcher (per-listing detail sources) -------------

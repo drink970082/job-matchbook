@@ -30,6 +30,13 @@ ADAPTERS = {
 # dispatcher passes `recipe` only to these — plain adapters would reject the kwarg.
 RECIPE_SOURCES = frozenset({"custom", "browser"})
 
+# Sources whose fetch accepts a `keep` stub-gate predicate — the two-step (N+1)
+# adapters where skipping a per-item detail call is the dominant saving. Passed
+# only to these; every other adapter's fetch would reject the kwarg. `workday` is
+# deliberately absent: its list stub carries no GUID, so a stub row would key on
+# jobReqId and could double-insert (see the 2026-07-21 stub-gate design).
+STUB_GATE_SOURCES = frozenset({"phenom"})
+
 # Sources fetched ONE job at a time (no public board-list endpoint), via
 # adapter.fetch_one. The feed's detail-fetch path routes these.
 DETAIL_SOURCES = frozenset(s for s, m in ADAPTERS.items() if hasattr(m, "fetch_one"))
@@ -87,15 +94,18 @@ def prefilter_postings(postings, *, title_filter=None, title_exclude=None,
 
 
 def fetch_company(source: str, slug: str, company_name: str, *,
-                  recipe: dict | None = None, **kwargs) -> list[dict]:
+                  recipe: dict | None = None, keep=None, **kwargs) -> list[dict]:
     """Dispatch to the per-board adapter for `source` (lists a whole board).
 
-    `recipe` is forwarded only to the recipe-driven executors (custom/browser);
-    plain adapters don't accept it, so it's dropped for them."""
+    `recipe` is forwarded only to the recipe-driven executors (custom/browser) and
+    `keep` only to the stub-gate adapters; plain adapters accept neither, so each
+    is dropped for them."""
     try:
         adapter = ADAPTERS[source]
     except KeyError:
         raise ValueError(f"unknown source: {source!r}")
+    if keep is not None and source in STUB_GATE_SOURCES:
+        kwargs["keep"] = keep
     if source in RECIPE_SOURCES:
         return adapter.fetch(slug, company_name, recipe=recipe, **kwargs)
     return adapter.fetch(slug, company_name, **kwargs)
@@ -114,7 +124,7 @@ def fetch_one_company(source: str, slug: str, external_id: str,
 
 
 __all__ = [
-    "ADAPTERS", "DETAIL_SOURCES", "filter_postings", "prefilter_postings",
+    "ADAPTERS", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
     "workable", "icims", "phenom", "custom", "browser", "oracle", "jobvite",
