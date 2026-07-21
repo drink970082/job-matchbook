@@ -82,6 +82,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   predicate fails open — any unrecognised verdict hydrates. Other adapters are
   untouched; `workday` is deliberately not gated (its list stub carries no GUID).
 
+### Fixed
+
+- **Phenom `job_url` is now absolute.** `parse_position` absolutizes a relative
+  `positionUrl` against the board's host (`urljoin`, a no-op on an already-absolute
+  `publicUrl`) instead of storing it bare. The real captured board never sends
+  `publicUrl` — every position carries only a relative `positionUrl` — so a
+  stub-gated `"discard"` row (empty `description`, per the fetch-time filtering
+  above) was landing with a link neither the web UI (`safeHref`'s bare `new
+  URL(url)` throws on a relative path and falls back to `'#'`) nor the Telegram
+  alert (`notify.py` interpolates `job_url` bare) could open — defeating the
+  stub-gate's compensating control that a discarded row still has a clickable
+  link. `upsert_postings`'s `ON CONFLICT DO NOTHING` meant it would never be
+  back-filled either.
+
 ### Removed
 
 - **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the

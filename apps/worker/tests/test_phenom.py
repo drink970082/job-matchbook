@@ -201,3 +201,60 @@ def test_no_keep_is_todays_behavior():
     assert len(out) == 3
     assert sorted(sess.detail_ids) == ["11", "22", "33"]
     assert all(o["description"] for o in out)
+
+
+# --- job_url must be absolute: a discarded (un-hydrated) row's compensating -----
+# --- control ("it still has a clickable link") only works if the link resolves. -
+
+def test_fetch_builds_absolute_job_url_from_slug_host():
+    # Every position in phenom_search.json carries only a relative positionUrl
+    # ("/careers/job/<id>") — no publicUrl. Absolutized against the slug's host.
+    sess = _FakeSession()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess)
+    assert len(out) == 2
+    for o in out:
+        assert o["job_url"].startswith("https://apply.careers.microsoft.com/")
+
+
+def test_fetch_keeps_an_already_absolute_public_url_unchanged():
+    class _AbsSession:
+        def get(self, url, params=None, timeout=None):
+            params = params or {}
+            if url.endswith("/search"):
+                if params.get("start", 0) == 0:
+                    return _Resp({"status": 200, "data": {"count": 1, "positions": [
+                        {"id": 99, "name": "Some Role", "locations": ["Remote"],
+                         "postedTs": 1784386514,
+                         "publicUrl": "https://careers.microsoft.com/us/en/job/99"},
+                    ]}})
+                return _Resp({"status": 200, "data": {"count": 1, "positions": []}})
+            return _Resp(DETAIL)
+
+    out = phenom.fetch(SLUG, "Microsoft", session=_AbsSession())
+    assert len(out) == 1
+    assert out[0]["job_url"] == "https://careers.microsoft.com/us/en/job/99"
+
+
+# --- stub-gate against the REAL captured fixture (19-digit ids, positionUrl- -----
+# --- only, standardizedLocations, workLocationOption) — not the hand-written --
+# --- synthetic _GATE_SEARCH payload above. -------------------------------------
+
+def _keep_india(stub):
+    if "India" in (stub["location"] or ""):
+        return "discard"
+    return "hydrate"
+
+
+def test_stub_gate_against_real_fixture_discards_india_positions():
+    sess = _FakeSession()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, keep=_keep_india)
+
+    fixture_positions = SEARCH["data"]["positions"]
+    assert len(out) == len(fixture_positions)              # both India -> discard, not drop
+    detail_gets = [p for u, p in sess.gets if u.endswith("/position_details")]
+    assert detail_gets == []                                # no detail GET for either
+    by_id = {o["external_id"]: o for o in out}
+    for pos in fixture_positions:
+        row = by_id[str(pos["id"])]
+        assert row["description"] == ""
+        assert row["job_url"].startswith("https://apply.careers.microsoft.com/")

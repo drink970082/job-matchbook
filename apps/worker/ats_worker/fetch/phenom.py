@@ -14,6 +14,8 @@ multi-part slug so no schema change is needed.
 """
 from __future__ import annotations
 
+from urllib.parse import urljoin
+
 import requests
 
 from ats_worker.fetch._paged import paged_details
@@ -45,17 +47,26 @@ def _require_ok(env: dict) -> dict:
     return data
 
 
-def parse_position(pos: dict, company_name: str, description: str = "") -> dict:
-    """Build one canonical posting from a search position + its (optional) description."""
+def parse_position(pos: dict, company_name: str, description: str = "",
+                    base_url: str = "") -> dict:
+    """Build one canonical posting from a search position + its (optional) description.
+
+    `base_url` (e.g. "https://{host}") absolutizes a relative `positionUrl` —
+    every position in the real captured board carries only that, never
+    `publicUrl`. `urljoin` leaves an already-absolute URL (a `publicUrl`)
+    untouched, so one expression handles both cases. Defaults to "" so direct
+    callers that don't pass it keep today's (possibly relative) behavior.
+    """
     locs = pos.get("locations") or []
     ts = pos.get("postedTs")
+    raw_url = pos.get("publicUrl") or pos.get("positionUrl") or ""
     return {
         "source": SOURCE,
         "external_id": str(pos.get("id") or ""),
         "company_name": company_name,
         "job_title": (pos.get("name") or "").strip(),
         "location": ", ".join(locs) if locs else None,
-        "job_url": pos.get("publicUrl") or pos.get("positionUrl") or "",
+        "job_url": urljoin(base_url, raw_url) if raw_url else "",
         "description": html_to_text(description),
         # postedTs is epoch SECONDS; to_iso_date expects epoch ms, so scale up.
         "posted_at": to_iso_date(ts * 1000) if isinstance(ts, (int, float)) else None,
@@ -75,6 +86,7 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     host, domain = _parts(slug)
     search_url = f"https://{host}/api/pcsx/search"
     detail_url = f"https://{host}/api/pcsx/position_details"
+    base_url = f"https://{host}"
 
     def _page(http, start):
         resp = http.get(search_url, params={"domain": domain, "start": start}, timeout=timeout)
@@ -86,7 +98,7 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         pid = str(pos.get("id") or "")
         if not pid:
             return None  # no id can't dedup under (source, external_id)
-        stub = parse_position(pos, company_name)  # description="" until hydrated
+        stub = parse_position(pos, company_name, base_url=base_url)  # description="" until hydrated
         if keep is not None:
             verdict = keep(stub)
             if verdict == "drop":
@@ -101,6 +113,6 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
             description = _require_ok(detail.json()).get("jobDescription") or ""
         except Exception:
             pass  # one bad detail: keep the posting (search has title/loc/url), no desc
-        return parse_position(pos, company_name, description)
+        return parse_position(pos, company_name, description, base_url=base_url)
 
     return paged_details(session, fetch_page=_page, build_row=_row)
