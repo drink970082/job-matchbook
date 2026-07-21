@@ -25,6 +25,8 @@ jobs:
       - run: npx prisma generate
       # Guard: the worker's test schema.sql must not drift from prisma/schema.prisma.
       - run: node ../../tools/check_schema_drift.mjs
+      # Guard: no private file (.env / resume / db / config.yaml) may be tracked.
+      - run: node ../../tools/check_privacy.mjs --self-test && node ../../tools/check_privacy.mjs
       - run: npm run lint
       # Unit + integration with the merged coverage gate (jest.all.config.ts).
       - run: npm run test:coverage

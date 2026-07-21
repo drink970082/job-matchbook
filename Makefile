@@ -9,7 +9,7 @@ DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: ma
 COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install dev build lint test test-web test-worker \
-        test-integration test-e2e test-coverage check-schema up down db-push seed-dev \
+        test-integration test-e2e test-coverage check-schema check-privacy up down db-push seed-dev \
         eval-score
 
 help: ## Show this help
@@ -52,6 +52,9 @@ eval-score: ## Verdict-accuracy eval vs the frozen golden set (~70 calls on the 
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 	node tools/check_schema_drift.mjs
+
+check-privacy: ## Fail if a private file (.env, resume, db, config.yaml) is tracked by git
+	node tools/check_privacy.mjs
 
 db-push: ## Sync the Prisma schema into the SQLite db
 	cd $(WEB) && npx prisma db push

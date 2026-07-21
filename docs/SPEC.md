@@ -1220,6 +1220,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
+| No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---
 
@@ -1453,11 +1454,18 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a temp SQLite. Coverage floor `fail_under = 85` (single source of truth in
   `pyproject.toml`, read by both `make test-coverage` and CI).
 - **CI** (`.github/workflows/ci.yml`): runs both suites on push / PR / nightly, with
-  coverage gates, web lint + `prisma generate`, the schema-drift guard, and a gated
-  Playwright e2e job.
+  coverage gates, web lint + `prisma generate`, the schema-drift and privacy guards,
+  and a gated Playwright e2e job.
 - **Schema-drift guard:** `tools/check_schema_drift.mjs` fails if
   `apps/worker/tests/fixtures/schema.sql` and `apps/web/prisma/schema.prisma` fall
   out of sync.
+- **Privacy guard:** `tools/check_privacy.mjs` (`make check-privacy`) fails if git
+  *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
+  `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`,
+  `resumes/`. `.gitignore` only guards the default path; this catches `git add -f`,
+  a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
+  scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
+  both.
 - **Batched==single drift guard (`tools/score_eval.py --batched`, no `make` target —
   invoked directly, e.g. `apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
   --batched`):** a **separate, LIVE, quota-spending** check from the K=3 gate above —

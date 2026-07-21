@@ -107,10 +107,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   global-only; source-side query narrowing (recipe `base_query` — the only lever that
   cuts the scrape itself); and whether the `onboard-board` skill / Watchlist UI generates
   the per-board filter or the operator hand-sets it. Ties into [[design-work-preference]].
-- **Privacy-guard CI test** — `[S]`. A small test alongside `check_schema_drift`
-  asserting no secrets / PII are committed (idea mined from
-  `MadsLorentzen/ai-job-search`'s `security_guards.py`; echoes
-  [[user-security-privacy-prefs]]).
 - **Mark dead postings `expired`** — `[S]`. Fetch hygiene worth mirroring from the
   same reference: a dead / redirected / expired posting gets marked, never scored
   from its title alone.

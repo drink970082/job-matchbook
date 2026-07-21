@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Privacy guard (`tools/check_privacy.mjs`, `make check-privacy`, CI).** Fails if git
+  *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
+  `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`, `resumes/`.
+  `.gitignore` only guards the default path; this catches `git add -f`, a loosened ignore
+  rule, or a file committed before its rule existed. Path deny-list, no content scan;
+  `--self-test` pins the allow/deny regexes and CI runs it alongside the schema-drift guard.
+
 - **User-configurable job categories (general-purpose pivot).** The application-category
   vocabulary is no longer a fixed quant/SWE enum — it's chosen per user and stored in a new
   `app_settings` table (key `categories`, JSON value). A first-run modal prompts new users to
