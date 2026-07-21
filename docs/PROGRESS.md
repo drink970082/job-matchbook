@@ -30,11 +30,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   niche to any field. **Shipped:** user-configurable job categories (`app_settings`,
   first-run modal + header editor, free-form labels); a persona-neutral
   `personal_profile.txt.example` + TARGET/ANTI-TARGET/STAGE docs in `resume/README.md`;
-  an `onboard-me` skill scaffold (categories only). **Remaining:** expand `onboard-me`
-  to the full profile/résumé/config interview (Stage 2); non-tech discovery feeds are
-  **deferred** (the watchlist already covers any company — decide before building). By
+  a full guided **`onboard-me` skill** — an adaptive interview that writes the fit
+  profile, résumé text, categories, `candidate` hard-constraints, a starter watchlist
+  (delegated to `onboard-board`), and `.env`, then ends on the first pipeline run
+  (**Stage 2 — done**; validated with a skill-creator eval suite; see CHANGELOG). By
   design the fit-scoring prompt (`score.txt`) is **left untouched** — generality lives in
-  `personal_profile.txt`, and scorer-prompt edits have destabilized verdicts before.
+  `personal_profile.txt`, and scorer-prompt edits have destabilized verdicts before
+  (SPEC §7.1).
+  - **Stage 3 — non-tech discovery feeds: deferred.** The watchlist already covers any
+    company; decide the need before building (brittle, anti-bot handling, dilutes the moat).
 
 ---
 

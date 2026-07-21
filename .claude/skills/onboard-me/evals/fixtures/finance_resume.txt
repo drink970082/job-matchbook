@@ -1,0 +1,28 @@
+JORDAN REYES
+New York, NY · jordan.reyes@example.com · linkedin.com/in/jreyes
+
+SUMMARY
+Finance professional with ~4 years across equity research and corporate
+development, moving toward buy-side investing. CFA Level II candidate. Strong
+financial modeling, valuation (DCF/LBO/comps), and industry diligence.
+
+EXPERIENCE
+Meridian Capital — Equity Research Associate (2023–present)
+  · Cover 12 names across fintech and payments; publish initiation and
+    quarterly update notes.
+  · Build and maintain three-statement models; run DCF and comparable-company
+    valuations feeding the desk's ratings.
+  · Present theses to portfolio managers; two ideas added to the model book.
+
+Northgate Advisors — Corporate Development Analyst (2021–2023)
+  · Supported four M&A processes ($50M–$400M) end to end: modeling, diligence,
+    CIM review.
+  · Built LBO and accretion/dilution models used in IC memos.
+
+EDUCATION
+M.S. Finance, Columbia University (2021)
+B.A. Economics, University of Michigan (2019)
+
+SKILLS
+Financial modeling · Valuation (DCF, LBO, comps) · Bloomberg · Capital IQ ·
+Python (pandas) · SQL · Advanced Excel

@@ -20,9 +20,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **`personal_profile.txt.example` + docs.** A persona-neutral profile template, plus
   documentation in `apps/worker/resume/README.md` of the TARGET / ANTI-TARGET / STAGE structure
   the scorer's domain verdict reads (previously only in `SPEC.md`).
-- **`onboard-me` skill (scaffold).** Interviews a new user for their category vocabulary and
-  persists it via a bundled `set_categories.py` (writing `app_settings` through the worker DB
-  layer, `db.upsert_setting`). Categories-only for now; profile/config onboarding to follow.
+- **`onboard-me` skill — full guided setup.** A conversational, adaptive first-time
+  onboarding: one interview (step-by-step for a bare "onboard me", or straight to writing when
+  the user front-loads details) that builds `personal_profile.txt` (STAGE / TARGET tiers /
+  ANTI-TARGETS / POSITIONING / INTERESTS / CAVEATS, with explicit rules keeping it
+  résumé-backed — interests never inflate a top target, anti-targets scoped so they don't sink
+  wanted roles), ingests the résumé into `resume/resume.txt` (`.txt`/PDF/`.docx`, no new
+  dependency), sets the DB categories (bundled `set_categories.py`), fills the `config.yaml`
+  `candidate` block, seeds a starter watchlist (delegated to the `onboard-board` skill), guides
+  `.env`/prereqs (verify, never fabricate secrets), and ends on `python -m ats_worker.run
+  --once`. Steps are ordered-but-independent — a narrow ask ("just set my categories") does one
+  step and stops. `score.txt` is never touched — generality lives in the profile. Validated with
+  a skill-creator eval suite (`.claude/skills/onboard-me/evals/`).
 - **Fetch-time filtering (watchlist path).** Two global `config.yaml` knobs cut
   local-LLM volume before any model runs: `max_age_days` drops postings whose
   `posted_at` is older than N days (dateless boards kept; `0` = off), and
