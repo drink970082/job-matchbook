@@ -111,8 +111,10 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   notified are >365 days old, including the four highest scorers (93 @ 416d, 91 @
   448d, 85 @ 545d, 85 @ 400d): these boards run evergreen requisitions and
   `posted_at` is first-published, not freshness. `max_age_days: 30` would have kept
-  7 of 39 matches. Genuinely dead postings are the separate "mark dead postings
-  `expired`" item below — liveness, not age.
+  7 of 39 matches. Genuinely dead postings are the separate **Dead-link sweep** item
+  below — liveness, not age. (The one true zombie found, an Ansatz row dated
+  2016-05-25 that still scored 80, is a `greenhouse` posting — a board source, which
+  is precisely the case `run_expire` does not yet cover.)
 - **Dead-link sweep — board sources uncovered** — `[M · needs a per-board signal]`.
   `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
   endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead
