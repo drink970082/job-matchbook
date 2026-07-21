@@ -68,6 +68,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and the never-read `candidate.years_experience` — was accepted and quietly did
   nothing, so tuning it changed no behaviour. The shipped `config.yaml` dropped both
   dead keys. Mirrors the existing `filters` migration guard.
+- **Phenom boards skip the detail fetch for postings the deterministic gates already
+  reject.** `phenom` is a two-step adapter — a paged search, then ONE detail GET per
+  position for the description — and every filter used to run *after* the whole board
+  was hydrated. The search stub already carries the title and location, which is
+  everything `title_filter` / `title_exclude` / `max_age_days` and the intern/location
+  gates read, so `run_fetch` now hands `phenom.fetch` a `keep` predicate that decides
+  from the stub: a title/age miss is dropped, an intern/location miss is recorded
+  un-hydrated, and only survivors cost a detail GET. Measured on the live Microsoft
+  board (1,580 postings): **1,580 → ~458 detail GETs, −71%**. Statuses and
+  `score_detail` are unchanged; a stub-gated discard simply has an empty
+  `description` (and `ON CONFLICT DO NOTHING` means it is never back-filled). The
+  predicate fails open — any unrecognised verdict hydrates. Other adapters are
+  untouched; `workday` is deliberately not gated (its list stub carries no GUID).
 
 ### Removed
 

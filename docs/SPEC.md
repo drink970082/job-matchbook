@@ -384,6 +384,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
+  `phenom` also accepts an optional `keep` stub-gate from `run_fetch`: the search
+  stub carries the title and location — everything the deterministic gates read — so
+  a posting rejected on either skips its per-position detail GET (measured
+  2026-07-21: 1,580 -> ~458 detail calls on the Microsoft board). A stub-gated
+  discard is still recorded, with an EMPTY description; because `upsert_postings` is
+  `ON CONFLICT DO NOTHING`, that row is never back-filled later. `workday` shares the
+  N+1 shape but is deliberately not gated — its list stub carries no GUID (see
+  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`).
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
@@ -1229,6 +1237,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `feeds:` config parsing + defaults | `test_feed_config.py` |
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
+| A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
+| An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
+| The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
 | Custom-recipe executor (`json`/`next-data` modes, paging, fields map) | `test_custom.py` |
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |
