@@ -88,7 +88,9 @@ blank section beats a made-up one.
 This is the biggest lever. `personal_profile.txt` is short about-you context the fit
 scorer reads on **every** call; its **domain verdict** (does this role *suit* this
 person?) is judged against the TARGET / ANTI-TARGET tiers you write here. Get this
-right and the whole pipeline points the right way.
+right and the whole pipeline points the right way. (The tiers must be *résumé-backed*,
+so read their résumé first if you haven't already — you'll ingest it properly in
+Step 5, but you need its content now to place the targets honestly.)
 
 Read the template so you match its structure exactly — the scorer relies on these
 section headers:
@@ -166,11 +168,15 @@ disable disqualification):
 
 Optionally set `title_filter` — a coarse, **title-only** substring keep-list applied
 before the scorer. Leave it empty unless a high-volume company floods them with
-off-target titles; the scorer does the real relevance work.
+off-target titles; the scorer does the real relevance work. **`title_filter` is a
+top-level key (a sibling of `candidate:`, at column 0), NOT a `candidate:` subkey** —
+nesting it under `candidate:` fails loud at startup.
 
 **Edit the file directly — don't script it** (a YAML writer would strip the template's
-comments). Two rules that bite: **unknown / mistyped keys now fail loud at startup**,
-so only use the keys above — don't invent fields; and set values, don't add sections.
+comments). Two rules that bite: **unknown / mistyped keys fail loud at startup** — both
+at the top level and inside `candidate:` — so use only the documented keys and keep each
+at its right level (the five above under `candidate:`, `title_filter` at the top); and
+set values, don't add sections.
 
 ## Step 5 — ingest their résumé
 
@@ -178,9 +184,12 @@ The scorer judges fit on résumé *content*, not formatting, so all it needs is 
 readable text at `apps/worker/resume/resume.txt`.
 
 - **`.txt`** — copy it in.
-- **PDF** — read it directly (your Read tool renders PDFs), then write the text out.
-- **`.docx`** — unzip and read `word/document.xml`, or just ask them to export a PDF
-  or paste the text. Don't add a parsing dependency for this.
+- **PDF** — read it directly (your Read tool renders PDFs), then write the text out. If
+  it won't render (a scanned/image-only PDF, or no rasterizer available), ask them to
+  paste the text or export a `.txt` — don't dead-end on it.
+- **`.docx`** — unzip and read `word/document.xml`, **extracting the visible text (the
+  `<w:t>` runs), not the raw markup** — or just ask them to export a PDF or paste the
+  text. Don't add a parsing dependency for this.
 
 Write the plain text to `apps/worker/resume/resume.txt`. It must be UTF-8 (a
 non-UTF-8 file aborts worker startup). Two gotchas from `resume/README.md`: **every
