@@ -639,7 +639,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   applies by hand.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
-  `run_fetch` → (`run_feed`) → `run_retry` → `run_score` → `run_notify`. Every stage
+  `run_fetch` → (`run_feed`) → `run_expire` → `run_retry` → `run_score` →
+  `run_notify`. Every stage
   wraps each item in try/except: one bad posting/company is recorded
   (`db.mark_failed`; at the notify stage `db.record_notify_failure`, which retries —
   §9) or skipped, and the batch continues. `run_fetch` runs the watchlist path: fetch
@@ -689,6 +690,17 @@ worker modules are pure and dependency-injected; real services are wired only in
   `failed`. `batch_size` is harmless on the `claude` backend (which loops internally
   regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13).
+  `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
+  (`scored`/`notified`) postings from **detail sources only** — the ones with a real
+  per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
+  with a real HTTP status and board sources are untouched — least-recently-updated
+  first. A **404/410** marks the row `pipeline_status='expired'` (terminal; it drops
+  out of the live Discovered buckets like `removed`). **Every other outcome leaves
+  the row alone** — a timeout, a 403 bot wall, a 5xx, or a `None` from the adapter is
+  treated as alive, because wrongly expiring a live match costs the operator a job
+  while a missed dead link costs one stale row. A successful check rewrites
+  `updated_at`, which rotates the row to the back of the queue — that's the whole
+  scheduling mechanism, no extra column.
   `run_retry` requeues every `failed` row with `attempts < RETRY_MAX_ATTEMPTS` (3)
   back to `new` — one bulk `db.requeue_failed` UPDATE, run **after** the fetch/feed
   ingest and **before** `run_score` so a requeued row is rescored in the same pass.
@@ -831,7 +843,7 @@ model job_postings {
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100 fit score (codex default / claude alternate)
   score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
-  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
   pipeline_error  String?       // last stage/send error; cleared on successful notify
   attempts        Int           @default(0)     // cumulative failures (notify retries until 3, then parks failed)
   application_id  Int?          // back-link once marked applied
@@ -930,11 +942,20 @@ notify:  scored, seniority=match AND domain=match AND NOT insufficient_context �
          on send error            → scored         (attempts+1, pipeline_error recorded;
                                                     retried next pass — the 3rd cumulative
                                                     failure parks the row failed)
+expire:  scored|notified, detail source, board 404/410 → expired
+                                                   (terminal; capped at 50/pass,
+                                                    least-recently-updated first;
+                                                    any other error → left alone)
 fetch/score, on exception         → failed         (pipeline_error set; batch continues)
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
 - **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
+
+- **`expired` is terminal too**, and like `removed` it drops the row out of every
+  Discovered bucket (the live buckets filter on `scored`/`notified`). It's written
+  only by `run_expire`, only on an unambiguous 404/410 from the board's own per-job
+  endpoint — never on a timeout, bot wall, or 5xx.
 
 - **Stage gating is strict:** `run_retry` processes only `failed` rows with
   `attempts < RETRY_MAX_ATTEMPTS`; `run_score` processes only `new`; `run_notify` only
@@ -1219,6 +1240,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `/api/health` 200/503 probe; `/api/codex-usage` snapshot route; usage-bar rendering | `web/src/__tests__/health.test.ts`, `codex-usage.test.ts`, `web/src/components/__tests__/CodexUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
+| Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
 | Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 

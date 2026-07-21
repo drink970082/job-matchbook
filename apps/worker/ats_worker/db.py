@@ -198,6 +198,22 @@ def get_by_status(conn: sqlite3.Connection, status: str):
     ).fetchall()
 
 
+def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
+    """Live postings (scored|notified) from per-listing sources, least-recently
+    touched first — the expiry re-check queue (pipeline.run_expire). Every check
+    rewrites updated_at, so the queue rotates itself; no extra column needed."""
+    sources = list(sources)
+    if not sources or limit <= 0:
+        return []
+    placeholders = ",".join("?" for _ in sources)
+    return conn.execute(
+        "SELECT * FROM job_postings WHERE pipeline_status IN ('scored','notified') "
+        f"AND source IN ({placeholders}) "
+        "ORDER BY COALESCE(updated_at,'') ASC, id ASC LIMIT ?",
+        [*sources, limit],
+    ).fetchall()
+
+
 def get_notifiable(conn: sqlite3.Connection):
     """Scored rows the fit verdicts mark a strong match — the notify gate.
     Replaces the old score>=threshold gate: seniority AND domain must both be
@@ -262,6 +278,18 @@ def mark_notified(conn, posting_id: int, *, now: str) -> None:
     # doesn't carry a stale error string.
     _update(conn, posting_id, {"pipeline_status": "notified", "pipeline_error": None,
                                "updated_at": now})
+
+
+def mark_expired(conn, posting_id: int, *, now: str) -> None:
+    """The listing is gone from its board (404/410) — park it out of the live
+    buckets. Terminal, like 'removed': nothing requeues an expired row."""
+    _update(conn, posting_id, {"pipeline_status": "expired", "updated_at": now})
+
+
+def touch(conn, posting_id: int, *, now: str) -> None:
+    """Bump updated_at only — re-checked and still live, so rotate it to the back
+    of get_recheck_candidates' queue."""
+    _update(conn, posting_id, {"updated_at": now})
 
 
 def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:

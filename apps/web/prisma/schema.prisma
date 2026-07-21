@@ -40,7 +40,7 @@ model job_postings {
   description     String // full JD text (fed to the LLM)
   score           Int? // 0-100 fit score (codex CLI default / claude alternate); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
-  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed
+  pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired ('expired' = the board 404/410'd the listing; terminal, drops out of the live buckets like 'removed')
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
   attempts        Int           @default(0) // cumulative failure count shared across score+notify stages; failed rows requeue to 'new' (run_retry) while attempts < 3, else parked terminal
   application_id  Int? // back-link once marked applied

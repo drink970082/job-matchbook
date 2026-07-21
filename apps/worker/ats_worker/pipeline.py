@@ -17,6 +17,9 @@ Stage gating:
                 failures, so a row parked by run_notify's exhausted retries
                 (attempts >= NOTIFY_MAX_ATTEMPTS, the same cap) never
                 qualifies — 'failed' stays terminal for it.
+  run_expire -> re-checks a capped batch of live (scored|notified) rows from
+                per-listing sources and marks the 404/410 ones 'expired'
+                (terminal); every other outcome leaves the row alone.
   run_score  -> processes ONLY 'new', advances to 'scored'
   run_notify -> processes ONLY 'scored' rows whose fit verdicts are a strong
                 match (db.get_notifiable — the rest stay 'scored', untouched);
@@ -252,6 +255,50 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             if m:
                 db.delete_unresolved(conn, m["url"])
     return inserted
+
+
+# --- expire ---------------------------------------------------------------
+
+# Per-pass re-check budget — one detail fetch each, so this is the only knob that
+# bounds the extra network the expiry pass costs. ponytail: fixed cap, no config
+# key; raise it here if a backlog ever needs draining faster.
+EXPIRE_BATCH = 50
+
+
+def _gone(exc) -> bool:
+    """True ONLY for an unambiguous 'this listing no longer exists' HTTP status.
+    Duck-typed off the exception's response so this module stays import-pure (no
+    requests here). Everything else — timeout, 403 bot wall, 5xx, a parse error —
+    is transient and must never expire a live posting."""
+    return getattr(getattr(exc, "response", None), "status_code", None) in (404, 410)
+
+
+def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
+               limit=EXPIRE_BATCH) -> int:
+    """Re-fetch the least-recently-checked live postings and mark the dead ones
+    'expired', so a closed req stops sitting in the queue as a dead link. Returns
+    rows expired.
+
+    Per-LISTING sources only: they already have a per-job endpoint, so the check is
+    one honest request with a real status. Board sources would need an invented one.
+    Err toward alive — only a 404/410 expires a row (`_gone`); anything else leaves
+    it untouched for the next pass, because wrongly expiring a live match costs the
+    operator a job while a missed dead link costs one stale row.
+    """
+    expired = 0
+    for row in db.get_recheck_candidates(conn, sorted(detail_sources), limit):
+        try:
+            detail_fetch_fn(row["source"], row["company_slug"] or "",
+                            row["external_id"], row["company_name"])
+        except Exception as exc:  # noqa: BLE001 — one bad check never aborts the pass
+            if _gone(exc):
+                db.mark_expired(conn, row["id"], now=now)
+                expired += 1
+            continue
+        # Alive (or the adapter declined with None — treat as alive): rotate it to
+        # the back of the queue so the next pass checks different rows.
+        db.touch(conn, row["id"], now=now)
+    return expired
 
 
 # --- score ----------------------------------------------------------------

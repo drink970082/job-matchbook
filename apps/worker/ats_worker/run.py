@@ -200,6 +200,15 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                         url, session=_feed_session(), timeout=_FEED_TIMEOUT),
                 )
 
+        # Re-check a capped batch of live postings and expire the dead ones, so a
+        # closed req stops sitting in the queue as a dead link.
+        gone = pipeline.run_expire(
+            conn, now=now,
+            detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
+        if gone:
+            print(f"expired {gone} dead posting(s)")
+
         # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
         pipeline.run_retry(conn, now=now)

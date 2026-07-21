@@ -107,9 +107,12 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   global-only; source-side query narrowing (recipe `base_query` — the only lever that
   cuts the scrape itself); and whether the `onboard-board` skill / Watchlist UI generates
   the per-board filter or the operator hand-sets it. Ties into [[design-work-preference]].
-- **Mark dead postings `expired`** — `[S]`. Fetch hygiene worth mirroring from the
-  same reference: a dead / redirected / expired posting gets marked, never scored
-  from its title alone.
+- **Dead-link sweep — board sources uncovered** — `[M · needs a per-board signal]`.
+  `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
+  endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead
+  silently. Closing it means diffing each board's current listing against the
+  ingested rows — a different mechanism, and a *fetch failure* must never be read as
+  "the whole board's jobs closed".
 - **`onboard-board` skill — eval iteration 2** — `[M · optional]`. Re-run the
   skill-creator eval loop on the add-or-fail flow (with-skill agents add to a
   *throwaway* DB via `--db`) with tougher/undocumented boards — iteration 1 hit 100%

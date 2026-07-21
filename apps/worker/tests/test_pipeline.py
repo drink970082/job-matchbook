@@ -559,6 +559,110 @@ def test_stages_ignore_wrong_status_rows(db_path):
     assert statuses["lo"] == "scored"
 
 
+# --- run_expire -------------------------------------------------------------
+
+DETAIL_SRC = "smartrecruiters"   # a real per-listing source (has fetch_one)
+
+
+class _HTTPError(Exception):
+    """Shaped like requests.HTTPError: carries .response.status_code."""
+
+    def __init__(self, status):
+        super().__init__(str(status))
+        self.response = type("R", (), {"status_code": status})()
+
+
+def _seed_live(conn, ids, *, source=DETAIL_SRC, status="scored"):
+    db.upsert_postings(conn, [_posting(i, source=source) for i in ids], now=NOW)
+    for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
+        if r["external_id"] in ids:
+            db.save_score(conn, r["id"], score=80, score_detail={}, now=NOW,
+                          status=status)
+
+
+def _statuses(conn):
+    return {r["external_id"]: r["pipeline_status"]
+            for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_run_expire_marks_gone_listings_expired(db_path, status):
+    conn = db.connect(db_path)
+    _seed_live(conn, ["dead"])
+
+    def fetch_one(source, slug, ext, name):
+        raise _HTTPError(status)
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
+    assert _statuses(conn)["dead"] == "expired"
+
+
+@pytest.mark.parametrize("exc", [_HTTPError(403), _HTTPError(500), RuntimeError("timeout")])
+def test_run_expire_keeps_row_on_any_non_gone_error(db_path, exc):
+    # A bot wall / 5xx / timeout must NEVER expire a live posting — wrongly
+    # expiring a match costs the operator a job.
+    conn = db.connect(db_path)
+    _seed_live(conn, ["alive"])
+
+    def fetch_one(source, slug, ext, name):
+        raise exc
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 0
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "scored"
+    assert row["updated_at"] == NOW      # untouched, so it's re-checked next pass
+
+
+def test_run_expire_touches_live_rows_to_rotate_the_queue(db_path):
+    # A successful check rewrites updated_at, so the least-recently-checked
+    # ordering hands the NEXT pass different rows (no dedicated column needed).
+    conn = db.connect(db_path)
+    _seed_live(conn, ["a", "b"])
+    checked = []
+
+    def fetch_one(source, slug, ext, name):
+        checked.append(ext)
+        return _posting(ext, source=DETAIL_SRC)
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one, limit=1) == 0
+    assert checked == ["a"]
+    pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one, limit=1)
+    assert checked == ["a", "b"]         # 'a' rotated to the back
+
+
+def test_run_expire_zero_budget_checks_nothing(db_path):
+    conn = db.connect(db_path)
+    _seed_live(conn, ["x"])
+    assert pipeline.run_expire(
+        conn, now=LATER, limit=0,
+        detail_fetch_fn=lambda *a: (_ for _ in ()).throw(AssertionError("no fetch"))) == 0
+
+
+def test_run_expire_ignores_board_sources_and_dead_statuses(db_path):
+    # Only live (scored|notified) rows from per-LISTING sources are re-checked:
+    # a board source has no per-job endpoint, and 'new'/'discarded' rows aren't
+    # in the operator's queue.
+    conn = db.connect(db_path)
+    _seed_live(conn, ["board"], source="greenhouse")
+    _seed_live(conn, ["dropped"], status="discarded")
+    _seed_new(conn, ["fresh"])
+
+    def fetch_one(source, slug, ext, name):
+        raise AssertionError(f"must not re-check {source}/{ext}")
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 0
+
+
+def test_run_expire_declined_fetch_is_treated_as_alive(db_path):
+    # fetch_one returning None means "couldn't build a request", not "gone".
+    conn = db.connect(db_path)
+    _seed_live(conn, ["x"], status="notified")
+
+    assert pipeline.run_expire(
+        conn, now=LATER, detail_fetch_fn=lambda *a: None) == 0
+    assert _statuses(conn)["x"] == "notified"
+
+
 # --- run_retry --------------------------------------------------------------
 
 def test_run_retry_requeues_then_caps_at_retry_max_attempts(db_path):

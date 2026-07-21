@@ -9,6 +9,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Dead-link sweep (`pipeline.run_expire`).** Each pass re-fetches up to 50 live
+  (`scored`/`notified`) postings from **detail sources** — the ones with a real per-job
+  endpoint — least-recently-updated first, and marks the ones the board answers 404/410
+  for as `pipeline_status='expired'` (new terminal status; drops out of the live
+  Discovered buckets like `removed`). Every other outcome — timeout, 403 bot wall, 5xx,
+  a `None` from the adapter — leaves the row live, because wrongly expiring a match costs
+  a job while a missed dead link costs one stale row. A successful check rewrites
+  `updated_at`, which is the entire queue-rotation mechanism (no new column). Runs after
+  fetch/feed, before retry.
 - **Privacy guard (`tools/check_privacy.mjs`, `make check-privacy`, CI).** Fails if git
   *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
   `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`, `resumes/`.

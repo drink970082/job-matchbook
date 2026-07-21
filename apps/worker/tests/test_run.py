@@ -63,11 +63,13 @@ def test_load_env_on_a_directory_returns_empty_not_crash(tmp_path):
     assert run.load_env(str(d)) == {}
 
 
-def test_run_once_calls_four_stages_in_order(monkeypatch):
+def test_run_once_calls_five_stages_in_order(monkeypatch):
     order = []
 
     monkeypatch.setattr(run.pipeline, "run_fetch",
                         lambda *a, **k: order.append("fetch") or 0)
+    monkeypatch.setattr(run.pipeline, "run_expire",
+                        lambda *a, **k: order.append("expire") or 0)
     monkeypatch.setattr(run.pipeline, "run_retry",
                         lambda *a, **k: order.append("retry") or 0)
     monkeypatch.setattr(run.pipeline, "run_score",
@@ -102,7 +104,7 @@ def test_run_once_calls_four_stages_in_order(monkeypatch):
             "OLLAMA_HOST": "h",
         },
     )
-    assert order == ["fetch", "retry", "score", "notify"]
+    assert order == ["fetch", "expire", "retry", "score", "notify"]
 
 
 # --- watchlist bootstrap + feed wiring ------------------------------------
@@ -317,7 +319,7 @@ def test_run_once_threads_fetch_filters(monkeypatch):
     captured = {}
     monkeypatch.setattr(run.pipeline, "run_fetch",
                         lambda *a, **k: captured.update(k) or 0)
-    for stage in ("run_retry", "run_score", "run_notify"):
+    for stage in ("run_expire", "run_retry", "run_score", "run_notify"):
         monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
 
     class FakeConn:
