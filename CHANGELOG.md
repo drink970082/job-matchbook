@@ -82,6 +82,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   predicate fails open — any unrecognised verdict hydrates. Other adapters are
   untouched; `workday` is deliberately not gated (its list stub carries no GUID).
 
+### Removed
+
+- **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the
+  `sm:`/`lg:`/`md:` breakpoint pairs to their desktop value across the app
+  (`ApplicationsTab`'s form/table + charts grids, the `ApplicationTable` /
+  `DiscoveredJobsTable` / `Pagination` / `WatchlistTable` toolbars, and the vendored
+  `ui/` dialog/input/textarea primitives), so nothing stacks or reflows below
+  ~640/1024px anymore. This is a self-hosted, single-operator tool; the mobile layout
+  wasn't earning its upkeep. Also drops the README feature-status row, the SPEC §11
+  "Responsive UI" bullet, and the orphaned `docs/images/mobile.png`.
+
 ### Fixed
 
 - **Phenom `job_url` is now absolute.** `parse_position` absolutizes a relative
@@ -95,17 +106,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   stub-gate's compensating control that a discarded row still has a clickable
   link. `upsert_postings`'s `ON CONFLICT DO NOTHING` meant it would never be
   back-filled either.
-
-### Removed
-
-- **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the
-  `sm:`/`lg:`/`md:` breakpoint pairs to their desktop value across the app
-  (`ApplicationsTab`'s form/table + charts grids, the `ApplicationTable` /
-  `DiscoveredJobsTable` / `Pagination` / `WatchlistTable` toolbars, and the vendored
-  `ui/` dialog/input/textarea primitives), so nothing stacks or reflows below
-  ~640/1024px anymore. This is a self-hosted, single-operator tool; the mobile layout
-  wasn't earning its upkeep. Also drops the README feature-status row, the SPEC §11
-  "Responsive UI" bullet, and the orphaned `docs/images/mobile.png`.
 
 ### Documentation
 
