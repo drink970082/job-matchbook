@@ -82,6 +82,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   predicate fails open — any unrecognised verdict hydrates. Other adapters are
   untouched; `workday` is deliberately not gated (its list stub carries no GUID).
 
+  **Decided against, in the same pass** (recorded here so neither is re-proposed;
+  full numbers and rejected alternatives in
+  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`):
+  - **Per-board fetch settings.** Phase 2 was originally specced as per-board
+    keep-rules — a `filters` JSON column on `watched_companies` plus a Watchlist
+    editor. Measurement killed it: the only board large enough to matter is
+    Microsoft/`phenom` (1,580 postings), its cost is the per-position detail GET,
+    and stub-gating cuts that to ~458 using the *existing* global filters. The
+    source-side params the column would have carried reach only 369 — for a schema
+    column, a UI editor and `onboard-board` capture. Reopen only if a board appears
+    that stub-gating can't tame.
+  - **`max_age_days` stays `0`.** 13 of the 39 postings ever notified are >365 days
+    old, including the four highest scorers (93 @ 416d, 91 @ 448d, 85 @ 545d, 85 @
+    400d): these boards run evergreen requisitions and `posted_at` is
+    first-published, not freshness. `max_age_days: 30` would have kept 7 of 39
+    matches. Genuinely dead postings are a liveness problem, not an age one — see
+    the Dead-link sweep item in [`docs/PROGRESS.md`](./docs/PROGRESS.md). (The one
+    true zombie found, an Ansatz row dated 2016-05-25 that still scored 80, is a
+    `lever` posting — a board source, precisely the case `run_expire` does not yet
+    cover.)
+
 ### Removed
 
 - **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the

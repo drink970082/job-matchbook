@@ -97,24 +97,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   (2026-07-20), but the operator explicitly deferred specifics — hold this open,
   discuss and scope it in a future session before touching `DEVELOPMENT.md` §6 /
   `CONTRIBUTING.md` / any GitHub settings.
-- **Per-board fetch settings — measured and rejected** — `[closed 2026-07-21]`.
-  Phase 2 was specced as per-board keep-rules (a `filters` JSON column on
-  `watched_companies` + a Watchlist editor). Measurement killed it: the only board
-  large enough to matter is Microsoft/`phenom` (1,580 postings), its cost is the
-  per-position detail GET, and stub-gating cuts that to ~458 using the *existing*
-  global filters — the source-side params the column would have carried reach only
-  369, for a schema column, a UI editor and skill capture. Shipped instead:
-  the phenom stub-gate. Reopen only if a board appears that stub-gating can't tame.
-  Full numbers + rejected alternatives:
-  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.
-- **`max_age_days` stays `0`** — `[decided 2026-07-21]`. 13 of the 39 postings ever
-  notified are >365 days old, including the four highest scorers (93 @ 416d, 91 @
-  448d, 85 @ 545d, 85 @ 400d): these boards run evergreen requisitions and
-  `posted_at` is first-published, not freshness. `max_age_days: 30` would have kept
-  7 of 39 matches. Genuinely dead postings are the separate **Dead-link sweep** item
-  below — liveness, not age. (The one true zombie found, an Ansatz row dated
-  2016-05-25 that still scored 80, is a `lever` posting — a board source, which is
-  precisely the case `run_expire` does not yet cover.)
 - **Dead-link sweep — board sources uncovered** — `[M · needs a per-board signal]`.
   `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
   endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead
