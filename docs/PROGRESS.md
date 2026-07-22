@@ -97,11 +97,15 @@ non-destructive, the detail leg's circuit-breaker bails after 3 empties, so the 
 cost is a handful of Chromium renders per cycle and the rows self-heal if the Cloudflare
 behavior changes. Revisit only if the run shows the renders are expensive.
 
-1. **Run the pipeline** — `[S · in flight 2026-07-22]`. It closes the
-   *"`custom`/`browser` have never produced a posting"* unknown, exercises the 172-board
-   watchlist for the first time, and is the standing daemon step. Everything else about
-   board coverage is speculation until it runs. Expect it to surface new defects — that
-   is the point.
+1. **Run the pipeline** — `[S · IN FLIGHT since 2026-07-22]`. Started against the
+   172-board watchlist with `enable_browser_sources: true`. Interim, at 13 minutes:
+   **2,733 rows ingested** (custom 2,254 · phenom 411 · workday 239 · icims 144 ·
+   greenhouse 134 · browser 8 · pinpoint 2 · lever 1), 1,713 sitting `new`, and **zero**
+   `dropped ... no description` lines — the body guard has not fired on a real board yet.
+   Two things to settle when it lands: (a) **scorer quota exposure** — every screen
+   survivor costs one Codex message against a ~2,000/week budget, and this intake is
+   ~3x any previous pass, so the first run may want batching or a cap; (b) `custom` is
+   ~4/5 of the intake, which is a `title_filter` question, not a fetch question.
 
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
@@ -185,28 +189,43 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   Consequence, since the body-required guard shipped: both rows simply **yield nothing**
   — the title-only postings are dropped at `run_fetch` and logged, never written. The
   residual cost is a handful of Chromium renders per cycle (the detail leg's 3-empty
-  circuit-breaker bails early). **Decision: keep both rows as-is** — they cost almost
-  nothing, and they start producing on their own if Citadel's Cloudflare behavior
-  changes. The alternatives (drop the `detail:` block for deliberate title-only rows,
-  slow the detail navigations, remove the rows) all cost work for no more postings.
-  Revisit if a live run shows the renders are not cheap. `quant_job_boards.txt` still
-  lists Citadel as unscrapable-by-plain-HTTP, which is true and is why these are
-  browser rows; the wall simply also defeats the detail leg.
+  circuit-breaker bails early).
+
+  **The JD is unreachable at this rung — measured 2026-07-22, do not re-derive.** Three
+  probes against `citadelsecurities.com` detail pages, each with the worker's own
+  Chromium config (UA + viewport + `--disable-blink-features=AutomationControlled`):
+  (a) plain-HTTP GET of the listing → `403`, so the wall is real and it is not a stale
+  selector; (b) deep-link `goto` + 15s dwell on `.single-job-post-description` →
+  `title='Just a moment...'`, 273-char body, 0 selector matches; (c) same tab,
+  **clicking** the card from the already-cleared listing (user gesture + same-origin
+  referer) plus a further 30s dwell → byte-identical result. So the detail route is
+  challenged regardless of arrival path and does not self-clear in ~45s. Slowing or
+  re-ordering the navigations does not help; everything past this rung is a stealth
+  plugin / real browser profile / residential proxy, i.e. detection evasion plus a new
+  dependency — out of scope for this repo.
+
+  **Decision: keep both rows as-is** — they cost almost nothing and start producing on
+  their own if Citadel's Cloudflare behavior relaxes. The only other honest option is
+  deleting the two rows; dropping the `detail:` block to take title-only is now a no-op
+  (the guard would drop those rows anyway). `quant_job_boards.txt` still lists Citadel as
+  unscrapable-by-plain-HTTP, which is true and is why these are browser rows; the wall
+  simply also defeats the detail leg.
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
   Unproven: recovery from an *actual* WSL2 stale-bind-mount event — never observed,
   not unit-testable (needs a live event or manual drill). (SPEC §6.)
-- **The `custom` and `browser` executors have never produced a posting in
-  production** — `[S · needs one live run]`. Both are unit-tested against fixtures and
-  both were exercised live by hand on 2026-07-22, but `job_postings` holds **zero** rows
-  from either source: 1,169 postings, all from greenhouse/lever/pinpoint/workday. The
-  last pipeline run was 2026-07-13; every `custom`/`browser` row (Jane Street,
-  D. E. Shaw, Amazon, ByteDance, TikTok, both Citadel entries, and the 2026-07-22
-  additions) was added *after* it. So the whole recipe-driven half of the fetch layer
-  is unproven end-to-end **through `run_fetch`** — recipe JSON round-tripping out of
-  the DB, `enable_browser_sources` gating, per-board error isolation, and upsert of
-  recipe-sourced postings have never run together. The first real cycle is the test.
+- **The `custom` and `browser` executors — first production rows observed, run still in
+  flight** — `[S · closing]`. Until 2026-07-22 `job_postings` held **zero** rows from
+  either source (1,169 postings, all greenhouse/lever/pinpoint/workday), so the whole
+  recipe-driven half of the fetch layer was unproven end-to-end through `run_fetch`:
+  recipe JSON round-tripping out of the DB, `enable_browser_sources` gating, per-board
+  error isolation, and upsert of recipe-sourced postings had never run together. The
+  2026-07-22 pass changes that — at the 13-minute mark it had ingested **custom 2,254 ·
+  browser 8** (plus phenom 411 · workday 239 · icims 144 · greenhouse 134 · pinpoint 2 ·
+  lever 1). Close this entry with the final tally when the pass completes; the open
+  question is no longer *"does it work"* but *"which boards over-produce"* — `custom`
+  alone accounts for ~4/5 of the intake.
 - **Boards deliberately held off the watchlist** — `[XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
