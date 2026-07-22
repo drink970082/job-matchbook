@@ -89,8 +89,12 @@ Run everything the change touches:
   (Unreleased section).
 - Commit style: short imperative subject, `type(scope):` prefix. Keep each commit
   green.
-- **Branch discipline:** work on `dev`, push `origin/dev`; `master` stays behind —
-  integration to master is an explicit, separate act, never a side effect of a task.
+- **Branch discipline:** `main` is the only long-lived branch and is always
+  releasable. Substantive work goes on a short-lived `feat/` · `fix/` · `docs/` ·
+  `chore/` branch cut from `main`, lands via a squash-merged PR once CI is green,
+  and the branch is deleted. Small doc fixes may go straight to `main`. Never
+  force-push `main`. Releasing is an explicit, separate act — see
+  [`CONTRIBUTING.md`](../CONTRIBUTING.md) "Branching and releases".
 - Never commit: `apps/worker/resume/`, `.env`, `config.yaml`, `db/`
   (PRINCIPLES #12).
 
@@ -120,7 +124,8 @@ Non-negotiables:
   before you finalize anything (PRINCIPLES.md, Decision procedure).
 - Definition of done = the §5 evidence table for everything you touched, plus
   same-commit doc updates per §6.
-- Work on dev; push origin/dev; leave master alone.
+- Branch off main for anything substantive; land it as a squash-merged PR with
+  CI green. Never force-push main.
 - Your final report must state what you did NOT verify.
 ```
 

@@ -60,6 +60,27 @@ CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
   (e.g. `feat(worker): ...`, `fix(web): ...`). Keep each commit self-consistent
   and green.
 
+## Branching and releases
+
+`main` is the only long-lived branch, and it is always releasable.
+
+```bash
+git switch -c feat/dead-link-sweep main   # feat/ · fix/ · docs/ · chore/
+# ... commits ...
+gh pr create --fill                       # CI runs; squash-merge when green
+```
+
+- **Pull requests** are the norm for anything substantive — they're squash-merged
+  (one commit per PR on `main`) and the branch is deleted automatically. Small doc
+  fixes may be pushed straight to `main`.
+- **`main` is protected**: CI (`Web` + `Worker`) must pass, force-pushes and branch
+  deletion are blocked, and history stays linear. Long-lived `dev`/`release/*`
+  branches are deliberately not used.
+- **Releases** are [SemVer](https://semver.org/) tags on `main`. To cut one: move
+  `CHANGELOG.md`'s `[Unreleased]` entries into a new dated version section, bump the
+  version in `apps/web/package.json` and `apps/worker/pyproject.toml`, tag, then
+  `gh release create vX.Y.Z` with that section as the notes.
+
 ## Keeping your real resume private
 
 Real resume files (`resume/*.txt`, `resume/personal_profile.txt`) are
