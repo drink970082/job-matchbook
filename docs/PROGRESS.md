@@ -97,15 +97,20 @@ non-destructive, the detail leg's circuit-breaker bails after 3 empties, so the 
 cost is a handful of Chromium renders per cycle and the rows self-heal if the Cloudflare
 behavior changes. Revisit only if the run shows the renders are expensive.
 
-1. **Run the pipeline** — `[S · IN FLIGHT since 2026-07-22]`. Started against the
-   172-board watchlist with `enable_browser_sources: true`. Interim, at 13 minutes:
-   **2,733 rows ingested** (custom 2,254 · phenom 411 · workday 239 · icims 144 ·
-   greenhouse 134 · browser 8 · pinpoint 2 · lever 1), 1,713 sitting `new`, and **zero**
-   `dropped ... no description` lines — the body guard has not fired on a real board yet.
-   Two things to settle when it lands: (a) **scorer quota exposure** — every screen
-   survivor costs one Codex message against a ~2,000/week budget, and this intake is
-   ~3x any previous pass, so the first run may want batching or a cap; (b) `custom` is
-   ~4/5 of the intake, which is a `title_filter` question, not a fetch question.
+1. **Run the pipeline** — `[S · fetch ran 2026-07-22; scoring PENDING]`. Ran against the
+   172-board watchlist with `enable_browser_sources: true`, then was **killed at session
+   teardown during fetch/feed — before `run_score`** (`scored`/`notified` counts
+   unchanged, so **no Codex quota was spent**). The fetch that did land ingested **4,179
+   new rows** across 9 sources (custom 2,254 · greenhouse 920 · phenom 411 · workday 294 ·
+   icims 144 · ashby 132 · lever 14 · browser 8 · pinpoint 2); **2,456** sit `new`
+   awaiting the screen. **Body guard held:** every bodyless row in the DB (183: 181
+   phenom + 2 Citadel, all stub-gate discards stored un-hydrated by design) is
+   `discarded` — **zero** reached a scorable state. Not yet settled: (a) **scorer quota**
+   — screening 2,456 `new` rows, each survivor one Codex message against ~2,000/week
+   (~3x any prior pass), wants a cap or batching before `run_score`; (b) `custom` is
+   ~half the intake, a `title_filter` question not a fetch one; (c) whether fetch reached
+   all 172 boards or was cut mid-list (log was lost — buffered stdout, never flushed on
+   the kill).
 
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
@@ -215,17 +220,19 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
   Unproven: recovery from an *actual* WSL2 stale-bind-mount event — never observed,
   not unit-testable (needs a live event or manual drill). (SPEC §6.)
-- **The `custom` and `browser` executors — first production rows observed, run still in
-  flight** — `[S · closing]`. Until 2026-07-22 `job_postings` held **zero** rows from
+- **The `custom` and `browser` executors — PROVEN end-to-end 2026-07-22** —
+  `[resolved · fetch only]`. Until 2026-07-22 `job_postings` held **zero** rows from
   either source (1,169 postings, all greenhouse/lever/pinpoint/workday), so the whole
-  recipe-driven half of the fetch layer was unproven end-to-end through `run_fetch`:
-  recipe JSON round-tripping out of the DB, `enable_browser_sources` gating, per-board
-  error isolation, and upsert of recipe-sourced postings had never run together. The
-  2026-07-22 pass changes that — at the 13-minute mark it had ingested **custom 2,254 ·
-  browser 8** (plus phenom 411 · workday 239 · icims 144 · greenhouse 134 · pinpoint 2 ·
-  lever 1). Close this entry with the final tally when the pass completes; the open
-  question is no longer *"does it work"* but *"which boards over-produce"* — `custom`
-  alone accounts for ~4/5 of the intake.
+  recipe-driven half of the fetch layer was unproven through `run_fetch`: recipe JSON
+  round-tripping out of the DB, `enable_browser_sources` gating, per-board error
+  isolation, and upsert of recipe-sourced postings had never run together. The
+  2026-07-22 pass exercised all of it: **custom produced 2,254 rows** (1,140 `new` +
+  1,114 stub-gate `discarded`) and **browser produced 8** — six real rentec.com
+  postings with full JDs (1,400–2,285 chars) plus the two expected empty-body Citadel
+  discards. So both executors work through `run_fetch`. Caveat: this proves the
+  **fetch** path only; the scored/notified path over recipe-sourced rows still awaits
+  `run_score` (see the pending run above). "Which boards over-produce" is the live
+  follow-up — `custom` alone is ~half the intake.
 - **Boards deliberately held off the watchlist** — `[XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
