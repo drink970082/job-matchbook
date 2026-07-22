@@ -1,7 +1,13 @@
-# ATS — Application Tracking System
+# Job Matchbook
 
-[![CI](https://github.com/drink970082/personal-ats/actions/workflows/ci.yml/badge.svg)](https://github.com/drink970082/personal-ats/actions/workflows/ci.yml)
+**The job tracker that finds your matches for you.**
+
+[![CI](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+*match* — it watches company job boards, screens each posting against your hard
+requirements, and scores fit against your résumé.
+*book* — every match you act on is tracked: status history, KPIs, charts.
 
 A self-hosted, semi-automated job-application system built with **Next.js 14**,
 **Prisma/SQLite**, and a **Python** pipeline. Keep every application, status

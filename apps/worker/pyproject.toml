@@ -1,7 +1,7 @@
 [project]
 name = "ats-worker"
 version = "1.0.0"
-description = "Semi-automated job-hunt pipeline worker for personal-ats"
+description = "Semi-automated job-hunt pipeline worker for Job Matchbook"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]

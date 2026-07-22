@@ -19,11 +19,11 @@ API, Telegram) using operator-supplied credentials in a gitignored `.env` /
 
 ## Reporting a Vulnerability
 
-Please use GitHub's **["Report a vulnerability"](https://github.com/drink970082/personal-ats/security/advisories/new)**
+Please use GitHub's **["Report a vulnerability"](https://github.com/drink970082/job-matchbook/security/advisories/new)**
 private advisory flow on this repository — this keeps the report out of the
 public issue tracker until a fix is available.
 
-If that's not workable, [open an issue](https://github.com/drink970082/personal-ats/issues/new)
+If that's not workable, [open an issue](https://github.com/drink970082/job-matchbook/issues/new)
 describing the concern without exploit details in the public body; a
 maintainer will follow up to move it to a private channel.
 

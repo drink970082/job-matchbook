@@ -57,11 +57,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Rename the GitHub repo** — `[XS · blocked on target name]`. Local checkout dir
-  is already `ats`; the GitHub remote is still `drink970082/personal-ats`. Decided
-  to rename, target name not yet picked (operator deferred 2026-07-20) — once
-  chosen, rename on GitHub and update the README badge/link + `SPEC.md` §1 repo URL
-  (GitHub redirects the old clone URL once, not indefinitely).
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
@@ -91,12 +86,15 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   images. Needs a seeded throwaway DB (never the real `db/applications.db` — see the
   privacy note in §11/CHANGELOG on the existing screenshots) and a richer fixture than
   the e2e seed, which only populates the Matched + Discarded buckets.
-- **Adjust dev/release workflow** — `[? · design call · scope not yet set, DO NOT
-  EXECUTE until the operator says so]`. Branch management, tagging, and
-  version-control/GitHub workflow conventions flagged as needing a change
-  (2026-07-20), but the operator explicitly deferred specifics — hold this open,
-  discuss and scope it in a future session before touching `DEVELOPMENT.md` §6 /
-  `CONTRIBUTING.md` / any GitHub settings.
+- 🚧 **Repo & release workflow overhaul** — `[in flight · designed 2026-07-21]`.
+  Scoped and approved by the operator; spec:
+  `docs/superpowers/specs/2026-07-21-repo-workflow-design.md`. **Done:** repo renamed
+  `personal-ats` → **`job-matchbook`** (brand *Job Matchbook*), About description +
+  topics filled, README/SECURITY/SPEC URLs updated. **Left:** collapse `dev`+`master`
+  into a single `main` (blocked until every session's work is pushed to `origin/dev`),
+  branch ruleset + squash-only merges, retro-tag `v1.0.0` and cut `v1.1.0` with GitHub
+  Releases, rewrite `DEVELOPMENT.md` §6 + `CONTRIBUTING.md` for the new flow, then flip
+  the repo public.
 - **Dead-link sweep — board sources uncovered** — `[M · needs a per-board signal]`.
   `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
   endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead

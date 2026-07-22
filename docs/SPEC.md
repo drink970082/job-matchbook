@@ -9,8 +9,9 @@
 > [`../CHANGELOG.md`](../CHANGELOG.md) (release history),
 > [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (conventions).
 
-- **Project:** personal-ats — a self-hosted, semi-automated job-application system
-- **Repo:** https://github.com/drink970082/personal-ats
+- **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
+  job-application system
+- **Repo:** https://github.com/drink970082/job-matchbook
 - **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-20 · **License:** MIT
 
 ---
