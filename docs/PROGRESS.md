@@ -61,6 +61,32 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
   Unproven: recovery from an *actual* WSL2 stale-bind-mount event — never observed,
   not unit-testable (needs a live event or manual drill). (SPEC §6.)
+- **Fit-score gate not re-run since the 2026-07-22 profile edit** — `[S · costs ~69
+  Codex messages · deferred by operator]`. `personal_profile.txt` changed on two
+  lines: target #1 widened from "buy-side or prop" to "buy-side / prop / HFT /
+  market-making / hedge fund", and the anti-target moved from "Low-latency / HFT / C++
+  systems engineering" to "Low-latency systems engineering, in any language, and
+  C++/Java systems-level roles where the deliverable is the engine itself rather than
+  the research and trading tooling built on it". The point of both edits is that the
+  anti-target is a **role**, not an **employer** — an HFT firm is a target-#1 employer;
+  the latency seat inside it is not.
+
+  The scorer reads this file verbatim as the domain verdict's target-fit rule, so the
+  wording is load-bearing (a past prompt tweak destabilised verdicts where a profile
+  edit fixed them). `tools/score_eval.py` has NOT been re-run against the 23-row
+  golden set; shipping a profile change wants two consecutive PASS.
+
+  Two specific things to check when it runs. (1) All 23 golden labels were reviewed by
+  hand on 2026-07-22 and none rests on the old firm-vs-role conflation — 813 is a
+  floor-trader seat, 222 IT/desktop, 824 infra-platform, 592 hardware, 64/125/83
+  research/analyst — so no relabelling is expected, and a flip would be a real signal.
+  (2) **Blind spot: no golden row is a Java posting**, so the gate cannot detect
+  over-rejection of Java-based quant-dev seats at banks (Goldman, Morgan Stanley,
+  BlackRock Aladdin, CME, Nasdaq) — exactly the tier-2 employers the watchlist just
+  expanded into. Adding one such row to the golden set would close it.
+
+  Note `tools/score_eval.py` has no argparse: any unrecognised flag (`--help`) starts a
+  LIVE, quota-spending run. `--selftest` is the free hermetic path.
 - **SSRF residual shapes** — `[M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
