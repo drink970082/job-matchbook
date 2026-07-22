@@ -61,6 +61,27 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
   Unproven: recovery from an *actual* WSL2 stale-bind-mount event — never observed,
   not unit-testable (needs a live event or manual drill). (SPEC §6.)
+- **The `custom` and `browser` executors have never produced a posting in
+  production** — `[S · needs one live run]`. Both are unit-tested against fixtures and
+  both were exercised live by hand on 2026-07-22, but `job_postings` holds **zero** rows
+  from either source: 1,169 postings, all from greenhouse/lever/pinpoint/workday. The
+  last pipeline run was 2026-07-13; every `custom`/`browser` row (Jane Street,
+  D. E. Shaw, Amazon, ByteDance, TikTok, both Citadel entries, and the 2026-07-22
+  additions) was added *after* it. So the whole recipe-driven half of the fetch layer
+  is unproven end-to-end **through `run_fetch`** — recipe JSON round-tripping out of
+  the DB, `enable_browser_sources` gating, per-board error isolation, and upsert of
+  recipe-sourced postings have never run together. The first real cycle is the test.
+- **Boards deliberately held off the watchlist** — `[XS · decision recorded]`. Nine
+  boards were validated but NOT added, for two reasons that are properties of the
+  board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
+  (1,350), Brevan Howard (13), Campbell (1) — their list endpoints carry no
+  description, and the body-required guard (`_valid_posting`) is applied only on the
+  feed path (`pipeline.py:130`), so these would insert title-only rows and be scored
+  blind on the paid backend. (2) *Render cost*: Citi (3,567 postings), Barclays
+  (1,074), Bloomberg (490), Moody's (249) — a `browser` `detail:` block costs one
+  Chromium render per posting with no stub gate (`browser.py:159`), all of it before
+  screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a
+  chained detail call; Citi/Barclays if `custom` gains an HTML mode (both above).
 - **Fit-score gate not re-run since the 2026-07-22 profile edit** — `[S · costs ~69
   Codex messages · deferred by operator]`. `personal_profile.txt` changed on two
   lines: target #1 widened from "buy-side or prop" to "buy-side / prop / HFT /
@@ -105,6 +126,21 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
+- **Bulk watchlist onboarding as a skill** — `[M · proposed, not built]`. The
+  2026-07-22 expansion (49 → 172 boards) ran an ad-hoc pipeline worth encoding:
+  read `personal_profile.txt` → parallel company research per target tier → **verify
+  every slug independently of the agent that proposed it** → estimate per-board fetch
+  cost → gated bulk insert. It is NOT a phase of `onboard-me`: that skill configures
+  the *candidate*, and this one consumes its output to find *companies*, so the natural
+  shape is a separate skill `onboard-me` recommends as a closing step. Four things the
+  run proved are load-bearing: (a) research and verification must be separate passes —
+  five agent "verified" claims failed re-running (Workday-needs-a-browser, Wintermute
+  bot-blocked, Nasdaq's site name, FactSet's datacenter, Geode SOLVED-but-returns-0);
+  (b) squatted slugs are the real hazard — greenhouse `proof` serves a live 216-job
+  board belonging to a different company, which poisons the feed more quietly than a
+  failure; (c) cost must be estimated *before* insert (a row cheap to add can cost
+  3,567 renders to run); (d) the empty-JD check above. `onboard-board` handles one
+  board well; nothing handles a hundred.
 - **Workday stub gate cannot use `max_age_days`** — `[S · needs a prose-date parser]`.
   The `drop`-only gate shipped 2026-07-22 cut workday detail calls 14,902 → 6,703
   (-55%) on the 28-board watchlist, but only via `title_filter`/`title_exclude`. The
