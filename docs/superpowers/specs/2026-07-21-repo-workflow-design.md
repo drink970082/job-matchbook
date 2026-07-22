@@ -1,7 +1,7 @@
 # Repo & release workflow overhaul — design
 
 **Date:** 2026-07-21
-**Status:** approved, not yet executed
+**Status:** executed 2026-07-22 (Phase 3 amended mid-flight — see below)
 **Closes:** PROGRESS "Adjust dev/release workflow" + "Rename the GitHub repo"
 
 ## Problem
@@ -34,7 +34,7 @@ already exist.
 ## Target state
 
 ```
-main ──o──o──o──o──o──▶     tags: v1.0.0 (retro), v1.1.0
+main ──o──o──o──o──o──▶     tags: v1.0.0
         \    /  \    /
       feat/a      fix/b     short-lived, squash-merged, auto-deleted
 ```
@@ -75,16 +75,25 @@ main ──o──o──o──o──o──▶     tags: v1.0.0 (retro), v1.1
 7. `git push origin --delete dev`.
 8. Locally: `git branch -m dev main && git branch -u origin/main`, then
    `git remote set-url origin` to the new repo name and `git fetch --prune`.
-9. Apply the ruleset and the merge-strategy settings from **Target state**.
+9. Apply the merge-strategy settings from **Target state**. **The ruleset must wait
+   until after the visibility flip (step 15)** — GitHub rulesets are a paid feature on
+   private repos and the API returns 403.
 
 ### Phase 3 — releases
 
-10. Retro-tag **v1.0.0** at the commit that cut the `[1.0.0]` CHANGELOG section, and
-    `gh release create v1.0.0` with that section as the notes.
-11. Cut **v1.1.0** at `main` HEAD: rename `[Unreleased]` → `[1.1.0]` dated the day it
-    is cut (and open a fresh empty `[Unreleased]` above it), bump
-    `apps/web/package.json` and `apps/worker/pyproject.toml` `1.0.0` → `1.1.0`, tag,
-    and `gh release create v1.1.0`. Minor bump: features added, nothing breaking.
+**Amended 2026-07-22 (operator call).** The original plan — retro-tag `v1.0.0` at
+`bf453b5`, then cut `v1.1.0` at HEAD — was dropped once it turned out the `[1.0.0]`
+CHANGELOG section had kept *growing* after that commit (it now carries entries written
+days later). Retro-tagging would have published release notes describing code the
+tagged commit doesn't contain. Since v1.0.0 was never tagged or published, there is no
+history to preserve, so:
+
+10. Fold `[Unreleased]` into `[1.0.0]` per subsection (newest first), re-date it the
+    day it ships, and open a fresh empty `[Unreleased]`.
+11. Tag one **v1.0.0** at `main` HEAD and `gh release create v1.0.0` — the honest
+    first public release. Version strings already read `1.0.0`, so no bump. Release
+    notes are curated highlights linking to the full CHANGELOG section, which runs
+    ~1,200 lines.
 
 ### Phase 4 — docs and go-public
 
@@ -94,9 +103,10 @@ main ──o──o──o──o──o──▶     tags: v1.0.0 (retro), v1.1
 13. `CONTRIBUTING.md`: add the branch/PR/release conventions (it currently documents
     tests and code style only). `CLAUDE.md` mentions no branches — no change.
 14. `docs/PROGRESS.md`: close "Rename the GitHub repo" and "Adjust dev/release
-    workflow"; `CHANGELOG.md` gets the v1.1.0 entry from step 11.
+    workflow"; `CHANGELOG.md` gets a **Repository** section recording the rename and
+    the branch collapse.
 15. `make check-privacy` must pass on the final tree, then
-    `gh repo edit --visibility public`.
+    `gh repo edit --visibility public`, then apply the `main` ruleset (step 9).
 
 ## Verification
 
@@ -105,7 +115,7 @@ main ──o──o──o──o──o──▶     tags: v1.0.0 (retro), v1.1
 | No history lost in the branch collapse | record `dev`'s tip sha before step 5; afterwards `git rev-list --count <that sha>..origin/main` = 0 |
 | `main` is the default branch, `dev`/`master` gone | `gh repo view --json defaultBranchRef` + `git branch -r` |
 | Protection is live | `gh api repos/:owner/:repo/rulesets` shows the required checks; a force-push attempt is rejected |
-| Releases render | `gh release list` shows v1.0.0 and v1.1.0 |
+| Releases render | `gh release list` shows v1.0.0 |
 | Nothing private went public | `make check-privacy` green immediately before the visibility flip |
 | No stale URLs | `git grep personal-ats` returns only `docs/pipeline-design.md` and historical plan docs |
 

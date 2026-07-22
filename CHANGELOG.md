@@ -7,166 +7,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
-### Added
+*Nothing yet.*
 
-- **Dead-link sweep (`pipeline.run_expire`).** Each pass re-fetches up to 50 live
-  (`scored`/`notified`) postings from **detail sources** — the ones with a real per-job
-  endpoint — least-recently-updated first, and marks the ones the board answers 404/410
-  for as `pipeline_status='expired'` (new terminal status; drops out of the live
-  Discovered buckets like `removed`). Every other outcome — timeout, 403 bot wall, 5xx,
-  a `None` from the adapter — leaves the row live, because wrongly expiring a match costs
-  a job while a missed dead link costs one stale row. A successful check rewrites
-  `updated_at`, which is the entire queue-rotation mechanism (no new column). Runs after
-  fetch/feed, before retry.
-- **Privacy guard (`tools/check_privacy.mjs`, `make check-privacy`, CI).** Fails if git
-  *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
-  `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`, `resumes/`.
-  `.gitignore` only guards the default path; this catches `git add -f`, a loosened ignore
-  rule, or a file committed before its rule existed. Path deny-list, no content scan;
-  `--self-test` pins the allow/deny regexes and CI runs it alongside the schema-drift guard.
-
-- **User-configurable job categories (general-purpose pivot).** The application-category
-  vocabulary is no longer a fixed quant/SWE enum — it's chosen per user and stored in a new
-  `app_settings` table (key `categories`, JSON value). A first-run modal prompts new users to
-  pick their own categories; a header **Categories** button edits them anytime; the Add form,
-  Mark-Applied dialog, table filter, and donut all read the chosen list. `getCategories` /
-  `setCategories` server actions back it. Categories are now **free-form labels** (the dropdown
-  supplies the vocabulary), so the old "coerce an unknown category to Others" behavior is gone —
-  only a blank value falls back to `Others`.
-- **`personal_profile.txt.example` + docs.** A persona-neutral profile template, plus
-  documentation in `apps/worker/resume/README.md` of the TARGET / ANTI-TARGET / STAGE structure
-  the scorer's domain verdict reads (previously only in `SPEC.md`).
-- **`onboard-me` skill — full guided setup.** A conversational, adaptive first-time
-  onboarding: one interview (step-by-step for a bare "onboard me", or straight to writing when
-  the user front-loads details) that builds `personal_profile.txt` (STAGE / TARGET tiers /
-  ANTI-TARGETS / POSITIONING / INTERESTS / CAVEATS, with explicit rules keeping it
-  résumé-backed — interests never inflate a top target, anti-targets scoped so they don't sink
-  wanted roles), ingests the résumé into `resume/resume.txt` (`.txt`/PDF/`.docx`, no new
-  dependency), sets the DB categories (bundled `set_categories.py`), fills the `config.yaml`
-  `candidate` block, seeds a starter watchlist (delegated to the `onboard-board` skill), guides
-  `.env`/prereqs (verify, never fabricate secrets), and ends on `python -m ats_worker.run
-  --once`. Steps are ordered-but-independent — a narrow ask ("just set my categories") does one
-  step and stops. `score.txt` is never touched — generality lives in the profile. Validated with
-  a skill-creator eval suite (`.claude/skills/onboard-me/evals/`).
-- **Fetch-time filtering (watchlist path).** Two global `config.yaml` knobs cut
-  local-LLM volume before any model runs: `max_age_days` drops postings whose
-  `posted_at` is older than N days (dateless boards kept; `0` = off), and
-  `title_exclude` drops titles containing any listed keyword (the negative
-  complement of `title_filter`). The deterministic intern/location screen gates now
-  also run **at fetch** (`deterministic_screen`), so a location/intern miss is
-  recorded `discarded` — visible in the Discovered "Discarded" bucket with its reason —
-  **without** an Ollama call, instead of after it. No schema change. (Phase 1 of
-  `docs/superpowers/specs/2026-07-20-fetch-time-filtering-design.md`; per-board rules
-  remain future work in PROGRESS.)
-
-### Changed
-
-- **Worker config rejects unknown keys instead of silently ignoring them.**
-  `load_config` now fails loud on any unrecognised top-level or `candidate` key
-  (allowed keys are derived from the dataclass fields, so the guard can't drift from
-  the schema). Previously a stale or mistyped field — notably the retired `threshold`
-  and the never-read `candidate.years_experience` — was accepted and quietly did
-  nothing, so tuning it changed no behaviour. The shipped `config.yaml` dropped both
-  dead keys. Mirrors the existing `filters` migration guard.
-- **Phenom boards skip the detail fetch for postings the deterministic gates already
-  reject.** `phenom` is a two-step adapter — a paged search, then ONE detail GET per
-  position for the description — and every filter used to run *after* the whole board
-  was hydrated. The search stub already carries the title and location, which is
-  everything `title_filter` / `title_exclude` / `max_age_days` and the intern/location
-  gates read, so `run_fetch` now hands `phenom.fetch` a `keep` predicate that decides
-  from the stub: a title/age miss is dropped, an intern/location miss is recorded
-  un-hydrated, and only survivors cost a detail GET. Measured on the live Microsoft
-  board (1,580 postings): **1,580 → ~458 detail GETs, −71%**. Statuses and
-  `score_detail` are unchanged; a stub-gated discard simply has an empty
-  `description` (and `ON CONFLICT DO NOTHING` means it is never back-filled). The
-  predicate fails open — any unrecognised verdict hydrates. Other adapters are
-  untouched; `workday` is deliberately not gated (its list stub carries no GUID).
-
-  **Decided against, in the same pass** (recorded here so neither is re-proposed;
-  full numbers and rejected alternatives in
-  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`):
-  - **Per-board fetch settings.** Phase 2 was originally specced as per-board
-    keep-rules — a `filters` JSON column on `watched_companies` plus a Watchlist
-    editor. Measurement killed it: the only board large enough to matter is
-    Microsoft/`phenom` (1,580 postings), its cost is the per-position detail GET,
-    and stub-gating cuts that to ~458 using the *existing* global filters. The
-    source-side params the column would have carried reach only 369 — for a schema
-    column, a UI editor and `onboard-board` capture. Reopen only if a board appears
-    that stub-gating can't tame.
-  - **`max_age_days` stays `0`.** 13 of the 39 postings ever notified are >365 days
-    old, including the four highest scorers (93 @ 416d, 91 @ 448d, 85 @ 545d, 85 @
-    400d): these boards run evergreen requisitions and `posted_at` is
-    first-published, not freshness. `max_age_days: 30` would have kept 7 of 39
-    matches. Genuinely dead postings are a liveness problem, not an age one — see
-    the Dead-link sweep item in [`docs/PROGRESS.md`](./docs/PROGRESS.md). (The one
-    true zombie found, an Ansatz row dated 2016-05-25 that still scored 80, is a
-    `lever` posting — a board source, precisely the case `run_expire` does not yet
-    cover.)
-
-### Removed
-
-- **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the
-  `sm:`/`lg:`/`md:` breakpoint pairs to their desktop value across the app
-  (`ApplicationsTab`'s form/table + charts grids, the `ApplicationTable` /
-  `DiscoveredJobsTable` / `Pagination` / `WatchlistTable` toolbars, and the vendored
-  `ui/` dialog/input/textarea primitives), so nothing stacks or reflows below
-  ~640/1024px anymore. This is a self-hosted, single-operator tool; the mobile layout
-  wasn't earning its upkeep. Also drops the README feature-status row, the SPEC §11
-  "Responsive UI" bullet, and the orphaned `docs/images/mobile.png`.
-
-### Fixed
-
-- **Playwright e2e was red on every spec (CI-only, since the categories feature).**
-  The e2e seed never wrote an `app_settings` row, so the dashboard read the throwaway
-  DB as a **first run** and auto-opened the category picker; its overlay swallowed the
-  first `Discovered Jobs` tab click and all 4 specs timed out (`element was detached
-  from the DOM, retrying`). `e2e/helpers/seed.mjs` now seeds a stored `categories`
-  row in `clear()`, so both `seed()` and `seedEmpty()` produce an already-configured
-  install — which is what every spec is actually exercising.
-- **Phenom `job_url` is now absolute.** `parse_position` absolutizes a relative
-  `positionUrl` against the board's host (`urljoin`, a no-op on an already-absolute
-  `publicUrl`) instead of storing it bare. The real captured board never sends
-  `publicUrl` — every position carries only a relative `positionUrl` — so a
-  stub-gated `"discard"` row (empty `description`, per the fetch-time filtering
-  above) was landing with a link neither the web UI (`safeHref`'s bare `new
-  URL(url)` throws on a relative path and falls back to `'#'`) nor the Telegram
-  alert (`notify.py` interpolates `job_url` bare) could open — defeating the
-  stub-gate's compensating control that a discarded row still has a clickable
-  link. `upsert_postings`'s `ON CONFLICT DO NOTHING` meant it would never be
-  back-filled either.
-
-### Documentation
-
-- **SPEC audit — synced with code and deduplicated.** A five-way code audit surfaced
-  stale claims, now fixed: the workday feed path is per-job `fetch_one`, not a
-  board-list keep-filter substring (§9); `discardJobPosting` → `removed` in the
-  traceability table; bulk Remove is offered in every bucket; the §6 stack table and
-  §12 `DB_PATH` still described the removed worker container; `score.py` is now the
-  `score/` package; the iCIMS feed-backlog note predated the shipped list adapter;
-  §7.1's notify-gate summary was missing the thin-JD hold-back; §4/§10 now name the
-  iCIMS-HTML + custom/browser recipe surface instead of "official APIs only". The
-  traceability table gains the ~20 test files it omitted (recipe executors, SSRF
-  guard, sync guard, web routes/components) and its component-test paths. The
-  batching/retry/quota stories are deduplicated — one authoritative telling each
-  (§13 / §9 / §11), pointers elsewhere. Code side: refreshed stale `schema.prisma`
-  source/score/posted_at comments, `run.py`'s docker-era `DB_PATH` comments, and
-  documented the optional env overrides in `.env.example`.
-
-- **`PROGRESS.md` slimmed back to a pure live delta.** Shipped-work narratives it had
-  accumulated (the remediated-defect recaps, the onboard-board / headless-browser
-  "SHIPPED" write-ups, the batching post-mortem, resolved-item strikethroughs, the
-  external-reference mining notes' historical validation) moved out: capabilities and
-  accepted limitations now live in `SPEC.md` (new §11 "Accepted security residuals"
-  block; §7.1 score-stability escape hatch), history stays here. PROGRESS retains only
-  genuinely open items — pending publish steps, unverified properties, deferred
-  decisions, and unbuilt enhancements.
-
-## [1.0.0] — 2026-07-20
+## [1.0.0] — 2026-07-22
 
 *Milestone:* on **2026-07-13** the full `fetch → screen → score → notify` pipeline ran
 against live services for the first time — one cold pass over 39 boards → **1169**
 postings fetched, **~45%** screened out (internship/location/visa), **642** fit-scored
 with zero failures, matches delivered to Telegram.
+
+### Repository
+
+- **Renamed to Job Matchbook (`job-matchbook`) and published.** The repo went public
+  under a product name instead of `personal-ats`, with the About description and topics
+  filled in. *match* = the worker (screen + fit score), *book* = the tracker (the kept
+  record). Code identifiers (`ats_worker`, `ats-web`, `apps/`) are deliberately unchanged.
+- **`dev` + `master` collapsed into a single `main`.** `master` was a strict ancestor of
+  `dev`, so the 274-commit lag closed as a fast-forward with no merge commit and no
+  history rewritten. `main` is now the only long-lived branch: substantive work lands as
+  a squash-merged PR with CI green, small doc fixes go direct, and the branch is
+  protected (required `Web` + `Worker` checks, linear history, no force-push or
+  deletion). `CONTRIBUTING.md` and `DEVELOPMENT.md` §6 document the flow; design and
+  rationale in `docs/superpowers/specs/2026-07-21-repo-workflow-design.md`.
 
 ### Security
 
@@ -293,7 +155,58 @@ with zero failures, matches delivered to Telegram.
   dict (`run_once(..., env=env)` / `make_scorer`), never `os.environ`, so the secrets remain
   fully plumbed without being promoted.
 
+
 ### Added
+
+- **Dead-link sweep (`pipeline.run_expire`).** Each pass re-fetches up to 50 live
+  (`scored`/`notified`) postings from **detail sources** — the ones with a real per-job
+  endpoint — least-recently-updated first, and marks the ones the board answers 404/410
+  for as `pipeline_status='expired'` (new terminal status; drops out of the live
+  Discovered buckets like `removed`). Every other outcome — timeout, 403 bot wall, 5xx,
+  a `None` from the adapter — leaves the row live, because wrongly expiring a match costs
+  a job while a missed dead link costs one stale row. A successful check rewrites
+  `updated_at`, which is the entire queue-rotation mechanism (no new column). Runs after
+  fetch/feed, before retry.
+- **Privacy guard (`tools/check_privacy.mjs`, `make check-privacy`, CI).** Fails if git
+  *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
+  `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`, `resumes/`.
+  `.gitignore` only guards the default path; this catches `git add -f`, a loosened ignore
+  rule, or a file committed before its rule existed. Path deny-list, no content scan;
+  `--self-test` pins the allow/deny regexes and CI runs it alongside the schema-drift guard.
+
+- **User-configurable job categories (general-purpose pivot).** The application-category
+  vocabulary is no longer a fixed quant/SWE enum — it's chosen per user and stored in a new
+  `app_settings` table (key `categories`, JSON value). A first-run modal prompts new users to
+  pick their own categories; a header **Categories** button edits them anytime; the Add form,
+  Mark-Applied dialog, table filter, and donut all read the chosen list. `getCategories` /
+  `setCategories` server actions back it. Categories are now **free-form labels** (the dropdown
+  supplies the vocabulary), so the old "coerce an unknown category to Others" behavior is gone —
+  only a blank value falls back to `Others`.
+- **`personal_profile.txt.example` + docs.** A persona-neutral profile template, plus
+  documentation in `apps/worker/resume/README.md` of the TARGET / ANTI-TARGET / STAGE structure
+  the scorer's domain verdict reads (previously only in `SPEC.md`).
+- **`onboard-me` skill — full guided setup.** A conversational, adaptive first-time
+  onboarding: one interview (step-by-step for a bare "onboard me", or straight to writing when
+  the user front-loads details) that builds `personal_profile.txt` (STAGE / TARGET tiers /
+  ANTI-TARGETS / POSITIONING / INTERESTS / CAVEATS, with explicit rules keeping it
+  résumé-backed — interests never inflate a top target, anti-targets scoped so they don't sink
+  wanted roles), ingests the résumé into `resume/resume.txt` (`.txt`/PDF/`.docx`, no new
+  dependency), sets the DB categories (bundled `set_categories.py`), fills the `config.yaml`
+  `candidate` block, seeds a starter watchlist (delegated to the `onboard-board` skill), guides
+  `.env`/prereqs (verify, never fabricate secrets), and ends on `python -m ats_worker.run
+  --once`. Steps are ordered-but-independent — a narrow ask ("just set my categories") does one
+  step and stops. `score.txt` is never touched — generality lives in the profile. Validated with
+  a skill-creator eval suite (`.claude/skills/onboard-me/evals/`).
+- **Fetch-time filtering (watchlist path).** Two global `config.yaml` knobs cut
+  local-LLM volume before any model runs: `max_age_days` drops postings whose
+  `posted_at` is older than N days (dateless boards kept; `0` = off), and
+  `title_exclude` drops titles containing any listed keyword (the negative
+  complement of `title_filter`). The deterministic intern/location screen gates now
+  also run **at fetch** (`deterministic_screen`), so a location/intern miss is
+  recorded `discarded` — visible in the Discovered "Discarded" bucket with its reason —
+  **without** an Ollama call, instead of after it. No schema change. (Phase 1 of
+  `docs/superpowers/specs/2026-07-20-fetch-time-filtering-design.md`; per-board rules
+  remain future work in PROGRESS.)
 
 - Index on `status_history.application_id`.
 - Schema-drift guard now also checks column nullability (pytest guard).
@@ -534,7 +447,50 @@ with zero failures, matches delivered to Telegram.
   items already tracked in `PROGRESS.md`), and `.github/ISSUE_TEMPLATE/`
   (`bug_report.md`, `feature_request.md`).
 
+
 ### Changed
+
+- **Worker config rejects unknown keys instead of silently ignoring them.**
+  `load_config` now fails loud on any unrecognised top-level or `candidate` key
+  (allowed keys are derived from the dataclass fields, so the guard can't drift from
+  the schema). Previously a stale or mistyped field — notably the retired `threshold`
+  and the never-read `candidate.years_experience` — was accepted and quietly did
+  nothing, so tuning it changed no behaviour. The shipped `config.yaml` dropped both
+  dead keys. Mirrors the existing `filters` migration guard.
+- **Phenom boards skip the detail fetch for postings the deterministic gates already
+  reject.** `phenom` is a two-step adapter — a paged search, then ONE detail GET per
+  position for the description — and every filter used to run *after* the whole board
+  was hydrated. The search stub already carries the title and location, which is
+  everything `title_filter` / `title_exclude` / `max_age_days` and the intern/location
+  gates read, so `run_fetch` now hands `phenom.fetch` a `keep` predicate that decides
+  from the stub: a title/age miss is dropped, an intern/location miss is recorded
+  un-hydrated, and only survivors cost a detail GET. Measured on the live Microsoft
+  board (1,580 postings): **1,580 → ~458 detail GETs, −71%**. Statuses and
+  `score_detail` are unchanged; a stub-gated discard simply has an empty
+  `description` (and `ON CONFLICT DO NOTHING` means it is never back-filled). The
+  predicate fails open — any unrecognised verdict hydrates. Other adapters are
+  untouched; `workday` is deliberately not gated (its list stub carries no GUID).
+
+  **Decided against, in the same pass** (recorded here so neither is re-proposed;
+  full numbers and rejected alternatives in
+  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`):
+  - **Per-board fetch settings.** Phase 2 was originally specced as per-board
+    keep-rules — a `filters` JSON column on `watched_companies` plus a Watchlist
+    editor. Measurement killed it: the only board large enough to matter is
+    Microsoft/`phenom` (1,580 postings), its cost is the per-position detail GET,
+    and stub-gating cuts that to ~458 using the *existing* global filters. The
+    source-side params the column would have carried reach only 369 — for a schema
+    column, a UI editor and `onboard-board` capture. Reopen only if a board appears
+    that stub-gating can't tame.
+  - **`max_age_days` stays `0`.** 13 of the 39 postings ever notified are >365 days
+    old, including the four highest scorers (93 @ 416d, 91 @ 448d, 85 @ 545d, 85 @
+    400d): these boards run evergreen requisitions and `posted_at` is
+    first-published, not freshness. `max_age_days: 30` would have kept 7 of 39
+    matches. Genuinely dead postings are a liveness problem, not an age one — see
+    the Dead-link sweep item in [`docs/PROGRESS.md`](./docs/PROGRESS.md). (The one
+    true zombie found, an Ansatz row dated 2016-05-25 that still scored 80, is a
+    `lever` posting — a board source, precisely the case `run_expire` does not yet
+    cover.)
 
 - **`Dashboard.tsx`'s refresh after a mutation now has two tiers instead of one.**
   `refreshData()` fired 5 server actions on every mutation — `getApplications` +
@@ -803,7 +759,17 @@ with zero failures, matches delivered to Telegram.
 - CI now gates coverage on both suites, runs a schema-drift guard (worker SQL
   fixture vs. `prisma/schema.prisma`), and runs a gated Playwright e2e job.
 
+
 ### Removed
+
+- **Mobile/responsive layout — the tracker UI is now desktop-only.** Collapsed the
+  `sm:`/`lg:`/`md:` breakpoint pairs to their desktop value across the app
+  (`ApplicationsTab`'s form/table + charts grids, the `ApplicationTable` /
+  `DiscoveredJobsTable` / `Pagination` / `WatchlistTable` toolbars, and the vendored
+  `ui/` dialog/input/textarea primitives), so nothing stacks or reflows below
+  ~640/1024px anymore. This is a self-hosted, single-operator tool; the mobile layout
+  wasn't earning its upkeep. Also drops the README feature-status row, the SPEC §11
+  "Responsive UI" bullet, and the orphaned `docs/images/mobile.png`.
 
 - **`tools/seed_db.mjs` deleted (superseded by `prisma/seed-dev.mjs` + `e2e/helpers/seed.mjs`).**
   Never invoked; both seeders satisfy all paths (Make, e2e, CI).
@@ -860,7 +826,27 @@ with zero failures, matches delivered to Telegram.
 - **Worker `score_posting()` removed** (production-dead composer; screen/normalize unit
   assertions migrated to direct tests, coverage floor held).
 
+
 ### Fixed
+
+- **Playwright e2e was red on every spec (CI-only, since the categories feature).**
+  The e2e seed never wrote an `app_settings` row, so the dashboard read the throwaway
+  DB as a **first run** and auto-opened the category picker; its overlay swallowed the
+  first `Discovered Jobs` tab click and all 4 specs timed out (`element was detached
+  from the DOM, retrying`). `e2e/helpers/seed.mjs` now seeds a stored `categories`
+  row in `clear()`, so both `seed()` and `seedEmpty()` produce an already-configured
+  install — which is what every spec is actually exercising.
+- **Phenom `job_url` is now absolute.** `parse_position` absolutizes a relative
+  `positionUrl` against the board's host (`urljoin`, a no-op on an already-absolute
+  `publicUrl`) instead of storing it bare. The real captured board never sends
+  `publicUrl` — every position carries only a relative `positionUrl` — so a
+  stub-gated `"discard"` row (empty `description`, per the fetch-time filtering
+  above) was landing with a link neither the web UI (`safeHref`'s bare `new
+  URL(url)` throws on a relative path and falls back to `'#'`) nor the Telegram
+  alert (`notify.py` interpolates `job_url` bare) could open — defeating the
+  stub-gate's compensating control that a discarded row still has a clickable
+  link. `upsert_postings`'s `ON CONFLICT DO NOTHING` meant it would never be
+  back-filled either.
 
 - **Filter-change callbacks are memoized at the source instead of frozen on the child.**
   `Dashboard.tsx`'s `handleFilterChange`/`handleJobFilterChange` got a new identity every
@@ -1164,7 +1150,32 @@ with zero failures, matches delivered to Telegram.
 - Workday pagination and adapter robustness; hardened hard-constraint screening;
   HTML-to-text now collapses non-breaking spaces; config errors surface clearly.
 
+
 ### Documentation
+
+- **SPEC audit — synced with code and deduplicated.** A five-way code audit surfaced
+  stale claims, now fixed: the workday feed path is per-job `fetch_one`, not a
+  board-list keep-filter substring (§9); `discardJobPosting` → `removed` in the
+  traceability table; bulk Remove is offered in every bucket; the §6 stack table and
+  §12 `DB_PATH` still described the removed worker container; `score.py` is now the
+  `score/` package; the iCIMS feed-backlog note predated the shipped list adapter;
+  §7.1's notify-gate summary was missing the thin-JD hold-back; §4/§10 now name the
+  iCIMS-HTML + custom/browser recipe surface instead of "official APIs only". The
+  traceability table gains the ~20 test files it omitted (recipe executors, SSRF
+  guard, sync guard, web routes/components) and its component-test paths. The
+  batching/retry/quota stories are deduplicated — one authoritative telling each
+  (§13 / §9 / §11), pointers elsewhere. Code side: refreshed stale `schema.prisma`
+  source/score/posted_at comments, `run.py`'s docker-era `DB_PATH` comments, and
+  documented the optional env overrides in `.env.example`.
+
+- **`PROGRESS.md` slimmed back to a pure live delta.** Shipped-work narratives it had
+  accumulated (the remediated-defect recaps, the onboard-board / headless-browser
+  "SHIPPED" write-ups, the batching post-mortem, resolved-item strikethroughs, the
+  external-reference mining notes' historical validation) moved out: capabilities and
+  accepted limitations now live in `SPEC.md` (new §11 "Accepted security residuals"
+  block; §7.1 score-stability escape hatch), history stays here. PROGRESS retains only
+  genuinely open items — pending publish steps, unverified properties, deferred
+  decisions, and unbuilt enhancements.
 
 - Added an authoritative system spec ([`docs/SPEC.md`](./docs/SPEC.md)), a progress
   tracker ([`docs/PROGRESS.md`](./docs/PROGRESS.md)), and an auto-loaded `CLAUDE.md`;

@@ -12,7 +12,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-20 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-22 · **License:** MIT
 
 ---
 

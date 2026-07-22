@@ -7,9 +7,11 @@
 > finished item *leaves* this file to land in SPEC + CHANGELOG. Update it in the same
 > change as the work it describes — see [How to update](#how-to-update) at the bottom.
 
-**Current phase:** v1.0.0 cut on `dev` (2026-07-20), CI fully green (web / worker /
-e2e). Feature-set complete and validated live end-to-end; testing/CI hardened
-(coverage gates, integration + Playwright e2e, schema-drift guard). **"Hardened"
+**Current phase:** **v1.0.0 released** (2026-07-22) — tagged on `main`, repo public
+as [`drink970082/job-matchbook`](https://github.com/drink970082/job-matchbook), CI
+fully green (web / worker / e2e). Feature-set complete and validated live end-to-end;
+testing/CI hardened (coverage gates, integration + Playwright e2e, schema-drift and
+privacy guards). **"Hardened"
 means test/CI hardening, not security hardening** — accepted residuals are documented
 in SPEC §11 + `SECURITY.md`; genuinely open items are below.
 
@@ -20,9 +22,6 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- 🚧 **Publish v1.0.0** — operator steps remaining: flip the GitHub repo
-  private → **public**, merge `dev` → `master`, tag `v1.0.0` on master. (Version
-  strings + CHANGELOG are already cut; see [CHANGELOG](../CHANGELOG.md).)
 - 🚧 **Run the pipeline as a daemon** — the recurring 24h scheduler
   (`python -m ats_worker.run`) remains the operator's standing launch step; passes
   are currently run by hand.
@@ -86,15 +85,6 @@ history in the [CHANGELOG](../CHANGELOG.md).)
   images. Needs a seeded throwaway DB (never the real `db/applications.db` — see the
   privacy note in §11/CHANGELOG on the existing screenshots) and a richer fixture than
   the e2e seed, which only populates the Matched + Discarded buckets.
-- 🚧 **Repo & release workflow overhaul** — `[in flight · designed 2026-07-21]`.
-  Scoped and approved by the operator; spec:
-  `docs/superpowers/specs/2026-07-21-repo-workflow-design.md`. **Done:** repo renamed
-  `personal-ats` → **`job-matchbook`** (brand *Job Matchbook*), About description +
-  topics filled, README/SECURITY/SPEC URLs updated. **Left:** collapse `dev`+`master`
-  into a single `main` (blocked until every session's work is pushed to `origin/dev`),
-  branch ruleset + squash-only merges, retro-tag `v1.0.0` and cut `v1.1.0` with GitHub
-  Releases, rewrite `DEVELOPMENT.md` §6 + `CONTRIBUTING.md` for the new flow, then flip
-  the repo public.
 - **Dead-link sweep — board sources uncovered** — `[M · needs a per-board signal]`.
   `run_expire` (shipped) only re-checks **detail sources**, the ones with a per-job
   endpoint. A posting from a board source (greenhouse/lever/ashby/…) goes dead
