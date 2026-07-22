@@ -20,6 +20,7 @@ const RULES = [
     [/^apps\/worker\/resume\//, 'the real resume / personal profile'],
     [/^apps\/worker\/eval\//, 'eval data (real postings + resume context)'],
     [/^resumes\//, 'tailored resume PDFs'],
+    [/^apps\/worker\/quant_job_boards\.txt$/, 'board research keyed to the operator\'s watchlist'],
 ]
 const ALLOW = /\.example$|(^|\/)README\.md$/
 
@@ -38,9 +39,10 @@ if (process.argv.includes('--self-test')) {
         'apps/worker/.env.example',
         'apps/worker/config.yaml',
         'db/applications.db-wal',
+        'apps/worker/quant_job_boards.txt',
         'apps/web/src/lib/actions.ts',
     ]).map(([p]) => p))
-    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', 'apps/worker/config.yaml', 'db/applications.db-wal']
+    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', 'apps/worker/config.yaml', 'db/applications.db-wal', 'apps/worker/quant_job_boards.txt']
     const wantNot = ['apps/worker/resume/resume.txt.example', 'apps/worker/resume/README.md', 'apps/worker/.env.example', 'apps/web/src/lib/actions.ts']
     const bad = [...want.filter((p) => !flagged.has(p)), ...wantNot.filter((p) => flagged.has(p))]
     if (bad.length) { console.error('SELF-TEST FAILED: ' + bad.join(', ')); process.exit(1) }
