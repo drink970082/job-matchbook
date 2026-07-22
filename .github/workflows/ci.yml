@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, dev]
+    branches: [main]
   pull_request:
   schedule:
     - cron: '0 7 * * *'   # nightly — full CI (unit suites + the otherwise-gated e2e job)
