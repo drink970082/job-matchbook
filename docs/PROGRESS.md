@@ -38,6 +38,41 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (SPEC §7.1).
   - **Stage 3 — non-tech discovery feeds: deferred.** The watchlist already covers any
     company; decide the need before building (brittle, anti-bot handling, dilutes the moat).
+- 🚧 **Provider choice + universal onboarding — design agreed, spec pending.** Design
+  notes:
+  [`superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md`](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md).
+  Two premises the tool currently fails: the screen runs *only* on host Ollama, so a
+  GPU-less user cannot run the pipeline at all; and nothing installs worker deps,
+  creates the DB, or reports what is missing, so `onboard-me` starts at a step 2 whose
+  step 0 does not exist. **Five tracks**, no code yet:
+  1. **Screen backends** — `SCREEN_BACKEND = ollama | codex | claude-code |
+     claude-api | openai-api | none`, default `ollama`. Six configs, three adapter
+     shapes (HTTP+schema · CLI subprocess+`--output-schema` · deterministic-only).
+     **Auto-detection must never select a paid backend.** Also: batch the screen (the
+     domain-verdict bleed that parked `DEFAULT_BATCH_SIZE = 1` is a cross-JD
+     *judgment* problem and does not transfer to per-JD fact extraction) and run
+     screens concurrently (`run_score` screens in a serial loop today).
+  2. **Universality fixes** — Telegram is currently *mandatory*
+     (`run_once` does `env["TELEGRAM_BOT_TOKEN"]` → `KeyError`), so someone happy to
+     review the Discovered Jobs tab cannot run the worker; `make setup` (deps + DB +
+     template copies) and `make doctor` (✓/✗ preflight); document that `OLLAMA_HOST`
+     already supports a remote/cloud Ollama, which `SETUP.md` currently denies.
+  3. **`onboard-me` Step 0** — run `make setup`, then `make doctor`, then pick the
+     provider path from what is actually installed, before the interview. The skill
+     reads `doctor` output instead of carrying its own prereq prose.
+  4. **Agent portability** — `SKILL.md` is a cross-agent standard, but the *paths*
+     differ: Claude Code reads `.claude/skills/`, Codex reads `.agents/skills/`, so
+     both skills are invisible to every agent but Claude Code. Move to
+     `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` (a Linux
+     Foundation standard read by 30+ agents; the repo has none).
+  5. **Sponsorship screen rework** — the defect below; shares the screen call with
+     track 1, so the two should land together.
+
+  **Open questions:** the OpenAI API model string is unchosen; `gpt-5.6-luna` is the
+  pick for the Codex screen (`run.py` rejects it, but that verdict was measured on
+  *fit scoring* — a calibration-sensitive judgment where its loose spread was fatal —
+  and does not transfer to extraction; re-measure, do not assume); and it is unverified
+  whether Claude Code discovers skills through a symlinked `.claude/skills`.
 
 ---
 
@@ -51,8 +86,57 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-*Empty — no known shipped defects open.* (All previously tracked defects were fixed;
-history in the [CHANGELOG](../CHANGELOG.md).)
+- **Both Citadel watchlist rows return descriptions-less postings** — `[S · measured
+  2026-07-22]`. `browser/citadel.com` and `browser/citadelsecurities.com` (added
+  2026-07-18, never fetched — the last cycle ran 2026-07-13) scrape their listing
+  pages fine: 10 postings each, 10/10 on `external_id`, `job_title`, `location` and
+  `job_url` (URLs verified well-formed). But **0/10 on `description`** — precisely the
+  failure `browser.py:159` predicts: Cloudflare clears once for the listing render,
+  then re-challenges the rapid deep-link detail navigations, so every JD comes back
+  blank and the 3-empty circuit-breaker bails. `posted_at` is 0/10 too (the cards
+  carry no date). The 10-posting count also implies pagination stops at page 1
+  (`page.start: 2` renders page 2, gets nothing fresh, breaks).
+
+  Consequence: on the next cycle these insert **20 title-only rows** that the paid
+  scorer then judges blind — and `upsert_postings` is `ON CONFLICT DO NOTHING`, so
+  they are never back-filled once written. This is the same empty-JD property that
+  kept Uber/Netflix/Morgan Stanley off the watchlist, except these two are already
+  *on* it. Options: drop the `detail:` block and accept title-only deliberately,
+  slow the detail navigations to let the wall clear, or remove both rows.
+  `quant_job_boards.txt` still lists Citadel as unscrapable-by-plain-HTTP, which is
+  true and is why these are browser rows; the wall simply also defeats the detail leg.
+- **The sponsorship gate misses ~9 of 11 realistic no-sponsorship phrasings** —
+  `[M · fix designed, needs a labeled set]`. `NO_SPONSOR_PHRASES`
+  (`score/screen.py`) is a closed 12-phrase substring list, so it catches only JDs
+  whose wording happens to be on it. Measured against realistic phrasings for a
+  candidate with `work_authorization: "needs visa sponsorship"`, these all pass
+  through un-disqualified: *"US Citizenship is required"*, *"Must be a U.S. citizen
+  or Green Card holder"*, *"requires US Person status as defined by ITAR"*,
+  *"permanent work authorization … now and in the future"*, *"unable to offer
+  immigration support at this time"*, *"Visa sponsorship is not available for this
+  position"*, *"must not require employer-sponsored work authorization"*, *"No H-1B
+  transfers"*. Only the two containing a literal listed phrase are caught.
+
+  This is the highest-value gate for any sponsorship-needing user, and it is the
+  **one check in the screen not using the LLM** — while degree and clearance, the two
+  a phrase list could nearly handle, do. The list is the **D1** fix: the 4B model
+  invented `offers_sponsorship: "no"` from silence, so it was taken off the check
+  entirely rather than grounded.
+
+  Fix designed (see the notes below): keep the LLM as the primary check but ground
+  it in a **verbatim quote** — the model returns the exact JD sentence stating
+  sponsorship is unavailable, and code verifies that sentence actually appears in the
+  description before acting on it. A hallucinated quote fails the check and the
+  posting is *kept*, so hallucination cannot disqualify anything by construction
+  rather than by trust — which works on `qwen3.5:4b` too, so D1 needs no
+  re-litigating. `NO_SPONSOR_PHRASES` is demoted to a floor that can only *add*
+  disqualifications. **Residual risk:** quote-grounding kills hallucination but not
+  *misclassification* (a model quoting real-but-irrelevant text — the shape of the
+  old "company-sponsored sports teams" false positive, though that was the previous
+  substring guard's failure, not the model's). Needs a labeled set
+  (*no-sponsorship / offers / silent*) to gate; cheap route is to diff the new screen
+  against the phrase list over the ~600 already-scored rows and hand-label only the
+  disagreements. (SPEC §7.1.)
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
