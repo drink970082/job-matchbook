@@ -116,6 +116,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Playwright e2e was red on every spec (CI-only, since the categories feature).**
+  The e2e seed never wrote an `app_settings` row, so the dashboard read the throwaway
+  DB as a **first run** and auto-opened the category picker; its overlay swallowed the
+  first `Discovered Jobs` tab click and all 4 specs timed out (`element was detached
+  from the DOM, retrying`). `e2e/helpers/seed.mjs` now seeds a stored `categories`
+  row in `clear()`, so both `seed()` and `seedEmpty()` produce an already-configured
+  install — which is what every spec is actually exercising.
 - **Phenom `job_url` is now absolute.** `parse_position` absolutizes a relative
   `positionUrl` against the board's host (`urljoin`, a no-op on an already-absolute
   `publicUrl`) instead of storing it bare. The real captured board never sends
