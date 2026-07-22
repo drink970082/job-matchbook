@@ -109,6 +109,16 @@ export const WATCHED_COMPANIES = [
     { source: 'lever', slug: 'globex', name: 'Globex Analytics', created_at: '2026-01-01T00:00:00.000Z' },
 ]
 
+// Every spec drives an ALREADY-CONFIGURED install. Without a stored categories
+// row the dashboard treats the DB as a first run and auto-opens the category
+// picker (Dashboard.tsx), whose overlay swallows the very first tab click — so
+// omitting this fails every spec on `getByRole('button', {name:/Discovered Jobs/})`.
+const CATEGORIES = {
+    key: 'categories',
+    value: JSON.stringify(['SWE', 'Quant', 'Data', 'Others']),
+    updated_at: '2026-01-01T00:00:00.000Z',
+}
+
 function client(url) {
     return new PrismaClient({ datasourceUrl: url })
 }
@@ -120,6 +130,8 @@ async function clear(prisma) {
     await prisma.watched_companies.deleteMany()
     await prisma.feed_unresolved.deleteMany()
     await prisma.promotion_dismissed.deleteMany()
+    await prisma.app_settings.deleteMany()
+    await prisma.app_settings.create({ data: CATEGORIES })
 }
 
 export async function seed(url = DATABASE_URL) {
