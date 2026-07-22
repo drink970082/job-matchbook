@@ -370,3 +370,90 @@ def test_workday_captures_posted_at():
     info = {"jobPostingInfo": {"id": "g1", "title": "X", "externalUrl": "http://x",
                                "jobDescription": "y", "startDate": "2026-04-17"}}
     assert workday.parse_job(info, "Acme")["posted_at"] == "2026-04-17"
+
+
+# --- workday stub gate (drop-only) ----------------------------------------
+# workday shares phenom's N+1 shape but its list stub carries NO GUID (parse_job
+# reads external_id from the DETAIL payload), so a stored stub would key on
+# jobReqId and could double-insert. The gate therefore honours ONLY 'drop' —
+# which stores nothing and so has no id at all. See the 2026-07-21 stub-gate
+# design, §Scope.
+
+class _WdGateSession:
+    """Fake transport that records every detail GET, so a skipped N+1 is visible."""
+
+    def __init__(self):
+        self.gets = []
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        if json["offset"] == 0:
+            return self._Resp(load("workday_list.json"))
+        return self._Resp({"total": 2, "jobPostings": []})
+
+    def get(self, url, headers=None, timeout=None):
+        self.gets.append(url)
+        return self._Resp(load("workday_detail.json"))
+
+
+SLUG_WD = "arrowstreetcapital/wd5/Campus_Careers"
+
+
+def _drop_research(stub):
+    return "drop" if "research" in (stub["job_title"] or "").lower() else "hydrate"
+
+
+def test_workday_stub_gate_skips_the_dropped_detail_call():
+    sess = _WdGateSession()
+    out = workday.fetch(SLUG_WD, "Arrowstreet", session=sess, keep=_drop_research)
+    assert len(sess.gets) == 1                       # Research Engineer never hydrated
+    assert "Quantitative-Developer_R1433" in sess.gets[0]
+    assert len(out) == 1
+
+
+def test_workday_stub_gate_hydrates_a_discard_instead_of_storing_it():
+    # THE safety property: 'discard' stores an un-hydrated stub on phenom, but a
+    # workday stub has no GUID, so storing one risks a double-insert. workday must
+    # fall through and hydrate instead — never emit a row keyed on jobReqId.
+    sess = _WdGateSession()
+    out = workday.fetch(SLUG_WD, "Arrowstreet", session=sess, keep=lambda stub: "discard")
+    assert len(sess.gets) == 2                       # both hydrated, nothing short-circuited
+    guid = "11628fe60202100110ab9934d5870000"
+    assert all(p["external_id"] == guid for p in out)           # GUID, never jobReqId "R1433"
+    assert all(p["description"] for p in out)
+
+
+def test_workday_stub_gate_fails_open_on_an_unknown_verdict():
+    sess = _WdGateSession()
+    out = workday.fetch(SLUG_WD, "Arrowstreet", session=sess, keep=lambda stub: "nonsense")
+    assert len(sess.gets) == 2 and len(out) == 2     # a broken predicate costs, never loses
+
+
+def test_workday_no_keep_is_todays_behavior():
+    sess = _WdGateSession()
+    assert len(workday.fetch(SLUG_WD, "Arrowstreet", session=sess)) == 2
+    assert len(sess.gets) == 2
+
+
+def test_workday_parse_stub_carries_no_external_id():
+    # The gate's stub is deliberately unstorable: it has the fields the
+    # deterministic filters read and nothing that could be mistaken for a row.
+    stub = workday.parse_stub(load("workday_list.json")["jobPostings"][0], "Arrowstreet")
+    assert stub["job_title"] == "Quantitative Developer"
+    assert stub["location"] == "Boston"
+    assert stub["posted_at"] is None          # list stub has only "Posted 30+ Days Ago"
+    assert "external_id" not in stub
+
+
+def test_workday_is_wired_into_the_pipeline_stub_gate():
+    from ats_worker.fetch import STUB_GATE_SOURCES
+    assert "workday" in STUB_GATE_SOURCES

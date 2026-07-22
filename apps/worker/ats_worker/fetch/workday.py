@@ -39,6 +39,21 @@ def parse_listing(payload: dict) -> list[dict]:
     return payload.get("jobPostings", []) if isinstance(payload, dict) else []
 
 
+def parse_stub(stub: dict, company_name: str) -> dict:
+    """A PARTIAL posting from a list stub — only what the deterministic fetch-cost
+    gate reads (title + location). Deliberately carries no `external_id`: the GUID
+    lives in the detail payload, so this shape must never be stored as a row.
+    `postedOn` is prose ("Posted 30+ Days Ago"), so posted_at is None — which the
+    age filter treats as keep, erring toward the detail call."""
+    return {
+        "source": SOURCE,
+        "company_name": company_name,
+        "job_title": (stub.get("title") or "").strip(),
+        "location": stub.get("locationsText") or None,
+        "posted_at": None,
+    }
+
+
 def parse_job(detail_payload: dict, company_name: str) -> dict:
     """Build one canonical posting from a CXS detail response."""
     info = (detail_payload or {}).get("jobPostingInfo", {})
@@ -75,7 +90,18 @@ def fetch_one(slug: str, external_id: str, company_name: str,
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20) -> list[dict]:
+          timeout: int = 20, keep=None) -> list[dict]:
+    """List a workday board. `keep(stub) -> 'drop' | ...` is an OPTIONAL fetch-cost
+    gate: the list stub already carries the title, so a title/age-rejected posting
+    can skip its detail GET (the dominant cost — one per posting on boards that run
+    to thousands).
+
+    Unlike phenom, ONLY 'drop' is honoured. 'discard' would store an un-hydrated
+    stub, but a workday stub has no GUID — `parse_job` takes external_id from the
+    detail payload — so the row would key on jobReqId and a later hydration would
+    insert a SECOND row under the GUID. Every non-'drop' verdict therefore falls
+    through and hydrates, which is also the fail-open path for a broken predicate.
+    See docs/superpowers/specs/2026-07-21-stub-gate-design.md §Scope."""
     tenant, dc, site = _parts(slug)
     cxs = _CXS.format(tenant=tenant, dc=dc, site=site)
 
@@ -92,6 +118,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     def _row(http, stub):
         # m1: skip one bad posting, don't abort the company. (m3: an empty
         # external_id — no id, no jobReqId — is skipped by paged_details.)
+        if keep is not None and keep(parse_stub(stub, company_name)) == "drop":
+            return None       # never stored, no detail call, no id to reconcile
         try:
             detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
             detail.raise_for_status()

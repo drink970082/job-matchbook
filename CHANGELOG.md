@@ -7,6 +7,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
+  `workday` shares `phenom`'s N+1 shape — a cheap paged list, then one detail GET per
+  posting for the description — but was deliberately left ungated by the 2026-07-21
+  stub-gate design, whose §Scope reasoned that its three boards held five postings
+  total and so the id-reconciliation work wasn't worth it. A profile-driven watchlist
+  expansion invalidated that premise: 28 workday boards, 14,902 postings, every one
+  paying a detail GET *before* `title_filter` ever ran.
+
+  The exclusion's underlying risk is narrower than the exclusion was. A workday list
+  stub carries no GUID (`parse_job` reads `external_id` from the **detail** payload),
+  so a *stored* stub keys on `jobReqId` and a later hydration inserts a second row
+  under the GUID. That risk belongs entirely to the `discard` verdict, which stores an
+  un-hydrated row. `drop` stores nothing at all, so it has no id to reconcile. The
+  gate therefore honours **only** `drop`; `discard` and every unrecognised verdict
+  fall through and hydrate exactly as before (also the fail-open path — a broken
+  predicate can cost requests, never postings).
+
+  New `workday.parse_stub` builds the title/location shape the gate reads and
+  deliberately omits `external_id`, so it is unstorable by construction. Measured
+  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**.
+  `max_age_days` cannot contribute — the stub's only date is prose ("Posted 30+ Days
+  Ago") — so `parse_stub` sets `posted_at: None`, which the age filter treats as keep;
+  tracked in PROGRESS as an enhancement.
+
 ### Documentation
 
 - **Docs audit — drift corrected and duplication collapsed.** Fixed every claim that

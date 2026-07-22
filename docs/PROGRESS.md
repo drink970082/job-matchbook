@@ -79,6 +79,35 @@ history in the [CHANGELOG](../CHANGELOG.md).)
 
 ### Enhancements — not built, optional
 
+- **Workday stub gate cannot use `max_age_days`** — `[S · needs a prose-date parser]`.
+  The `drop`-only gate shipped 2026-07-22 cut workday detail calls 14,902 → 6,703
+  (-55%) on the 28-board watchlist, but only via `title_filter`/`title_exclude`. The
+  list stub's sole date is prose (`"Posted 30+ Days Ago"`, `"Posted Today"`), so
+  `parse_stub` sets `posted_at: None` and the age filter errs toward keeping. Parsing
+  that string would drop much of the remaining 6,703 on stale boards. Deferred because
+  the wording is locale- and tenant-dependent and a mis-parse silently drops good
+  postings — the failure mode the null-keeps-it default exists to avoid.
+- **`browser` recipes have no `{field}` URL template** — `[S]`. `custom` recipes
+  interpolate `{dotted.field}` into `url`; `browser` recipes cannot, so a board whose
+  cards carry no `href` (the id is in a `data-*` attribute and routing is JS-side) can
+  only produce a broken or empty `job_url`. This is the *sole* blocker for Balyasny
+  (`data-id="…_REQ8036"` → `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles,
+  one static page, apply-by-email). Closing it in `_recipe.apply_css_fields` unblocks
+  both without touching an adapter.
+- **`custom` has no HTML/CSS mode** — `[M]`. Bloomberg, Two Sigma, Citi, Barclays,
+  Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
+  forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
+  JSON / `__NEXT_DATA__`. An `html` mode reusing the browser executor's CSS extractor
+  would drop all six to plain HTTP. Related: a `browser` `detail:` block costs **one
+  Chromium render per posting** with no stub gate (`browser.py:159`), which is why
+  Citi (3,567 postings) and Barclays (1,074) are not on the watchlist.
+- **Boards blocked on an executor primitive, not an adapter** — `[L]`. Meta needs a
+  fetch-page-then-POST handshake (its GraphQL requires a per-session `lsd` CSRF token
+  scraped from the HTML) *and* a scroll hook (the rendered DOM holds 11 of 692 cards
+  in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
+  endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
+  so the next attempt starts from the known blocker rather than re-deriving it.
+
 - **Discovered Jobs README screenshot** — `[XS]`. The prose is now expanded to Track
   parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
   actions). Still missing: an inline screenshot of the tab to match the "Track"

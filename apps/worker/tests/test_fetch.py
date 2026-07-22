@@ -187,8 +187,11 @@ def test_fetch_company_omits_keep_for_a_plain_adapter(monkeypatch):
     assert fetch_company("greenhouse", "acme", "Acme", keep=lambda stub: "drop") == []
 
 
-def test_stub_gate_sources_is_exactly_phenom():
-    assert STUB_GATE_SOURCES == frozenset({"phenom"})
+def test_stub_gate_sources_is_exactly_the_two_step_adapters():
+    # Pinned deliberately: `keep` is only safe for adapters that accept the kwarg
+    # AND can honour a verdict without breaking their dedup key. Adding a source
+    # here without wiring its fetch raises TypeError on every board it owns.
+    assert STUB_GATE_SOURCES == frozenset({"phenom", "workday"})
 
 
 # --- fetch_one_company dispatcher (per-listing detail sources) -------------

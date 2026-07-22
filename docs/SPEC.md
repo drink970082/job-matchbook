@@ -391,9 +391,17 @@ worker modules are pure and dependency-injected; real services are wired only in
   a posting rejected on either skips its per-position detail GET (measured
   2026-07-21: 1,580 -> ~458 detail calls on the Microsoft board). A stub-gated
   discard is still recorded, with an EMPTY description; because `upsert_postings` is
-  `ON CONFLICT DO NOTHING`, that row is never back-filled later. `workday` shares the
-  N+1 shape but is deliberately not gated — its list stub carries no GUID (see
-  `docs/superpowers/specs/2026-07-21-stub-gate-design.md`).
+  `ON CONFLICT DO NOTHING`, that row is never back-filled later.
+  `workday` shares the N+1 shape and is gated too, but honours **only** the `drop`
+  verdict (`parse_stub` builds the title/location stub the gate reads). Its list stub
+  carries no GUID — `parse_job` takes `external_id` from the *detail* payload — so a
+  *stored* stub would key on `jobReqId` and a later hydration would insert a second
+  row under the GUID. A dropped posting is never stored, so it has no id to reconcile;
+  every other verdict falls through and hydrates, which is also the fail-open path.
+  Measured 2026-07-22 across 28 watchlist boards: 14,902 -> 6,703 detail calls (-55%).
+  `max_age_days` cannot gate a workday stub — its only date is prose ("Posted 30+ Days
+  Ago"), so `parse_stub` sets `posted_at: None`, which the age filter treats as keep.
+  (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
@@ -1241,6 +1249,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
+| A stub-rejected workday posting costs no detail GET | `test_fetch_new.py::test_workday_stub_gate_skips_the_dropped_detail_call` |
+| A workday `discard` HYDRATES rather than storing a GUID-less stub row | `test_fetch_new.py::test_workday_stub_gate_hydrates_a_discard_instead_of_storing_it` |
+| The workday gate stub carries no `external_id` (unstorable by construction) | `test_fetch_new.py::test_workday_parse_stub_carries_no_external_id` |
 | The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
 | Custom-recipe executor (`json`/`next-data` modes, paging, fields map) | `test_custom.py` |

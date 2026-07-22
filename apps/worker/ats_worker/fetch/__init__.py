@@ -32,10 +32,11 @@ RECIPE_SOURCES = frozenset({"custom", "browser"})
 
 # Sources whose fetch accepts a `keep` stub-gate predicate — the two-step (N+1)
 # adapters where skipping a per-item detail call is the dominant saving. Passed
-# only to these; every other adapter's fetch would reject the kwarg. `workday` is
-# deliberately absent: its list stub carries no GUID, so a stub row would key on
-# jobReqId and could double-insert (see the 2026-07-21 stub-gate design).
-STUB_GATE_SOURCES = frozenset({"phenom"})
+# only to these; every other adapter's fetch would reject the kwarg. `workday`
+# honours ONLY the 'drop' verdict: its list stub carries no GUID, so a STORED stub
+# would key on jobReqId and could double-insert — but a dropped one is never
+# stored, so it has no id to reconcile (see the 2026-07-21 stub-gate design).
+STUB_GATE_SOURCES = frozenset({"phenom", "workday"})
 
 # Sources fetched ONE job at a time (no public board-list endpoint), via
 # adapter.fetch_one. The feed's detail-fetch path routes these.
