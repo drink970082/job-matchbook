@@ -84,8 +84,75 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 **XS** (~an hour) · **S** (~an afternoon) · **M** (~a day + a design call) · **L**
 (multi-day / new dependency / architectural). Blocked items name their blocker.
 
+### Do next — the pick order
+
+The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
+take first and why. Each numbered item is independently pickable.
+
+**P0 — before the next pipeline run.** The last run was 2026-07-13; the watchlist has
+since tripled to **172 boards** (101 greenhouse · 28 workday · 10 custom · 8 lever ·
+11 ashby · 5 browser · rest tail). That run is the single highest-leverage action open —
+and the single biggest hazard, because two guards are missing on the path it will take.
+
+1. **Body-required guard on the board insert path** — `[XS]`. `_valid_posting` runs on
+   the *feed* path only (`pipeline.py:130`), and `run_score` never checks the
+   description, so an empty JD reaches the **paid** fit scorer and, because
+   `upsert_postings` is `ON CONFLICT DO NOTHING`, is never back-filled. Do this first:
+   it converts the Citadel defect, the nine held-off boards, and every future
+   empty-list-endpoint board from *permanent DB poison* into *a board that yields
+   nothing this cycle*. One guard, one place, retroactively fixes a whole class.
+2. **Citadel rows — decide** — `[S]` (defect below). After (1) this is no longer
+   destructive, so the decision shrinks to: drop the `detail:` block and take
+   title-only, slow the detail navigations, or remove both rows.
+3. **Run the pipeline** — `[S]`. It closes the *"`custom`/`browser` have never produced
+   a posting"* unknown, exercises the 172-board watchlist for the first time, and is the
+   standing daemon step. Everything else about board coverage is speculation until it
+   runs. Expect it to surface new defects — that is the point.
+
+**P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
+dependency order (design: [In flight](#in-flight)).
+
+4. **Track 2, universality** — `[S]`. Telegram is a hard `KeyError` (`run.py:257`), so a
+   user content with the Discovered Jobs tab cannot run the worker at all. Plus
+   `make setup` / `make doctor`, and the `OLLAMA_HOST` remote-Ollama correction in
+   `SETUP.md`. Cheapest, unblocks the most people, and (3) is a live rehearsal for it.
+5. **Track 1, screen backends + track 5, sponsorship gate** — `[M]`. Land together:
+   both rewrite the screen call. A GPU-less user currently cannot screen at all, and the
+   sponsorship gate — the highest-value check for any sponsorship-needing user — is the
+   *only* screen check not using the LLM. Batching + concurrency ride along.
+6. **Track 3 (`onboard-me` Step 0)** and **track 4 (agent portability)** — `[S each]`.
+   Both are downstream of (4)/(5); 3 needs `make doctor` to exist, 4 is independent and
+   can be picked any time.
+
+**P2 — correctness of the scoring path.**
+
+7. **Fit-score gate re-run** — `[S · ~69 Codex messages]`. Gate the 2026-07-22 profile
+   edit. Do it *after* (3) so any newly-ingested Java quant-dev row can close the golden
+   set's documented Java blind spot in the same pass.
+
+**P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
+(`[S]`, unblocks 2 boards) → `custom` HTML mode (`[M]`, drops 6 boards off Chromium and
+unblocks Citi/Barclays) → workday prose-date parser (`[S]`, cuts the remaining 6,703
+detail calls) → bulk watchlist skill (`[M]`).
+
+**P4 — everything else below.** SSRF residuals, the `@@unique` migration, schema
+migration path, deployment/monitoring, dead-link sweep, more adapters, README
+screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
+
 ### Defects — shipped behavior that is wrong (should fix)
 
+- **Empty-description postings are inserted and then scored on the paid backend** —
+  `[XS · read 2026-07-22]`. `_valid_posting` (`pipeline.py:112`) requires a body, but is
+  called on the **feed** path only (`pipeline.py:130`); the board path upserts whatever
+  an adapter returns, and `run_score` (`pipeline.py:383`) screens and fit-scores without
+  ever checking `description`. Because `upsert_postings` is `ON CONFLICT DO NOTHING`, a
+  title-only row is **permanent** — a later cycle that *could* read the JD will not
+  back-fill it. This is the mechanism behind the Citadel defect below and behind the
+  nine boards held off the watchlist; both are symptoms, this is the cause. Applying the
+  same guard on the board path (or refusing to fit-score a bodyless row) makes an
+  empty-list-endpoint board simply yield nothing, which is already the documented policy
+  for Uber/Netflix/Morgan Stanley. Highest priority open item: the fix is one guard and
+  the next run is overdue against a watchlist that tripled to 172 boards.
 - **Both Citadel watchlist rows return descriptions-less postings** — `[S · measured
   2026-07-22]`. `browser/citadel.com` and `browser/citadelsecurities.com` (added
   2026-07-18, never fetched — the last cycle ran 2026-07-13) scrape their listing
