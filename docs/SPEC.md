@@ -504,7 +504,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   phrase gate** (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when
   the candidate needs sponsorship *and* the description literally contains an explicit
   no-sponsorship phrase — the **D1** fix (the model's `offers_sponsorship` guess had
-  invented "no" from silence and is no longer consulted). `disqualified` is
+  invented "no" from silence and is no longer consulted). **Known cost:**
+  `NO_SPONSOR_PHRASES` is a closed set, so the gate trades recall for precision — 9 of
+  11 realistic phrasings pass through un-disqualified ("US Citizenship is required",
+  "US Person status as defined by ITAR", "unable to offer immigration support",
+  "Visa sponsorship is not available for this position"). Tracked as a defect in
+  [`PROGRESS.md`](./PROGRESS.md). `disqualified` is
   derived from those per-requirement verdicts. **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
