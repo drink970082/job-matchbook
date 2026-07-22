@@ -1,6 +1,7 @@
 # Design: Fetch-time filtering (Phase 1) — global age + title-exclude drops, hoisted deterministic gates
 
-**Status:** designed, approved (Phase 1 scope + Option B), not yet built.
+**Status:** shipped 2026-07-20 (v1.0.0) — Phase 1 (Option B). Phase 2 was
+respecified and shipped separately as `2026-07-21-stub-gate-design.md`.
 **Date:** 2026-07-20.
 
 ## Problem / motivation

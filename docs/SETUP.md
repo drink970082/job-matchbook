@@ -50,24 +50,14 @@ make install && make db-push && make dev     # → http://localhost:3000
 
 ## Path B — full pipeline
 
-Do Path A first, then wire up the worker. The exact commands live in
-[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment); the shape is:
+Do Path A first, then follow the numbered steps in
+[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment) — copy the three gitignored
+inputs (`config.yaml`, `.env`, `resume/`), fill them in, and run one pass.
 
-- [ ] **Prereqs** — Ollama + GPU running; `codex login` done (or Claude key ready).
-- [ ] **Copy the three inputs:**
-      `cp apps/worker/config.yaml.example …/config.yaml`,
-      `cp apps/worker/.env.example …/.env`,
-      `cp apps/worker/resume/resume.txt.example …/resume/resume.txt`.
-- [ ] **Fill `config.yaml`** — your `candidate` hard-constraints, an optional
-      `title_filter`, and a starter `companies` list. *(Unknown/typo'd keys now fail
-      loud at startup, so a stale field can't silently do nothing.)*
-- [ ] **Fill `.env`** — `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`
-      (+ `ANTHROPIC_API_KEY` only for `SCORE_BACKEND=claude`).
-- [ ] **Fill `resume/`** — paste your real résumé as plain text; optional
-      `personal_profile.txt` for about-you context (see `apps/worker/resume/README.md`).
-- [ ] **First value:** `cd apps/worker && python -m ats_worker.run --once` — one pass;
-      matches land in Telegram and the Discovered-Jobs tab. Then drop `--once` to run
-      on a schedule.
+Two things worth knowing before you start: unknown or typo'd `config.yaml` keys
+fail loud at startup (a stale field can never silently do nothing), and the first
+run to aim for is `python -m ats_worker.run --once` — a single pass whose matches
+land in Telegram and the Discovered-Jobs tab. Drop `--once` to run on a schedule.
 
 ## Where each setting lives (this trips people up)
 

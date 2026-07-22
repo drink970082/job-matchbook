@@ -1,6 +1,6 @@
 # Design: Multi-resume fit scoring — score against every resume version, recommend which to send
 
-**Status:** approved (user fork decisions, 2026-07-12 session), ready to plan.
+**Status:** shipped 2026-07-12 (v1.0.0).
 **Date:** 2026-07-12.
 
 ## Problem / motivation

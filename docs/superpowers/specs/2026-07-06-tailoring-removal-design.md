@@ -1,7 +1,7 @@
 # Design: Remove résumé tailoring — pipeline ends at score → notify
 
 **Date:** 2026-07-06
-**Status:** Approved (design) — pending implementation
+**Status:** shipped 2026-07-07 (v1.0.0)
 **Scope:** Remove the tailor stage end-to-end. Follows the scoring spec
 (`2026-07-05-claude-scoring-design.md` §8, which deferred this).
 

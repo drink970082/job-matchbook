@@ -1,6 +1,6 @@
 # Design: Bounded notify retry — a transient Telegram error must not bury a match
 
-**Status:** approved (user fork decision, 2026-07-09 session), ready to implement.
+**Status:** shipped 2026-07-09 (v1.0.0).
 **Date:** 2026-07-09.
 
 ## Problem / motivation

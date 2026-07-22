@@ -23,9 +23,10 @@ SQLite database**:
 
 - [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
 - [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
-  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 4 more
-  platform adapters, plus generic custom/browser recipe executors (11 watchlist-capable
-  sources total) — screens out hard-constraint mismatches with a local LLM, scores each
+  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 6 more
+  platform adapters, plus generic custom/browser recipe executors (11 of these are
+  watchlist-capable; Oracle and Jobvite resolve discovery-feed listings only) —
+  screens out hard-constraint mismatches with a local LLM, scores each
   posting's fit against your resume — by default via the **Codex CLI** (your ChatGPT
   subscription, flat-rate), with **Claude** as a metered alternate — and pings you on
   Telegram for the best matches. You review and apply by hand, then one-click **Mark
@@ -65,47 +66,10 @@ must-haves met vs. missing, and a one-line summary. Triage in bulk (Remove / Reo
 Remove-all-in-view), or **Mark Applied** — with a category picker — to promote a
 posting into a tracked application that flows into every chart above.
 
-The pipeline: **fetch** (9 platform adapters plus generic custom/browser recipe
-executors — 11 watchlist-capable sources total) → **screen** (local
-Ollama, GPU, hard requirements) + **score** fit (Codex CLI default / Claude
-alternate, reason-first) → **notify** (Telegram) for every high scorer.
-
----
-
-## Feature status
-
-At-a-glance maturity. **Status:** ✅ shipped · 🚧 in flight · ⛔ planned.
-**Tested:** ✅ automated tests · ⚠ shipped but unverified or with a known caveat
-(see note) · — UI, not separately tested. The authoritative invariant→test map is
-[`SPEC.md` §9](./docs/SPEC.md#9-behaviors-and-invariants); open items live in
-[`PROGRESS.md`](./docs/PROGRESS.md).
-
-| Feature | Status | Tested | Notes |
-|---------|:---:|:---:|-------|
-| Applications table — paginate / filter / search | ✅ | ✅ | |
-| Inline status editing + status history | ✅ | ✅ | each change appends a history row |
-| Status history modal (add / edit / delete) | ✅ | ✅ | delete recomputes current status |
-| KPI strip | ✅ | ✅ | |
-| Dashboards — heatmap · donut · funnel · Sankey | ✅ | ✅ | chart-data actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) covered by `charts.int.test.ts` |
-| CSV import / export | ✅ | ✅ | RFC-4180, enum validation, dedup |
-| Discovered Jobs queue + triage | ✅ | ✅ | unit + Playwright e2e |
-| JD + score-detail dialog | ✅ | ✅ | keywords, reasoning, screen verdicts |
-| Mark Applied (posting → application) | ✅ | ✅ | atomic transaction + dedup |
-| Discard / Reopen posting | ✅ | ✅ | reopen keeps disqualification reason |
-| Watchlist management (add / remove watched companies) | ✅ | ✅ | unit + integration |
-| Unresolved-feeds tab + promotion suggestions | ✅ | ✅ | grouped by host+reason; dismiss suggestion |
-| Codex usage bar (`/api/codex-usage`) | ✅ | ✅ | quota snapshot, degrades to empty state (not an error) when absent |
-| Fetch — 9 platform adapters plus generic custom/browser recipe executors (11 sources total) | ✅ | ✅ | per-adapter parse/fetch unit tests + dedup on `(source, external_id)` |
-| Title pre-filter (fetch-time) | ✅ | ✅ | |
-| Score — Codex CLI default / Claude alternate (reason-first) | ✅ | ✅ | |
-| Hard-constraint screening — local Ollama | ✅ | ✅ | disqualified → `discarded` |
-| Notify — Telegram message (verdict-gated: seniority=match AND domain=match) | ✅ | ✅ | send errors auto-retry (`NOTIFY_MAX_ATTEMPTS`=3) while the row stays `scored`; the 3rd failure parks `failed` for manual reopen, not silently buried |
-| Pipeline state machine + per-item failure isolation | ✅ | ✅ | |
-| Scheduler (APScheduler) | ✅ | ✅ | immediate pass + every `schedule_hours` |
-| Config load / validate | ✅ | ✅ | |
-| Auto-retry of `failed` postings | ✅ | ✅ | requeued next pass until 3 cumulative failures |
-| Docker Compose · shared SQLite (WAL) | ✅ | ✅ | |
-| CI · coverage gates · schema-drift guard | ✅ | ✅ | |
+The pipeline: **fetch** (11 platform adapters plus generic custom/browser recipe
+executors) → **screen** (local Ollama, GPU, hard requirements) + **score** fit
+(Codex CLI default / Claude alternate, reason-first) → **notify** (Telegram) for
+every high scorer.
 
 ---
 

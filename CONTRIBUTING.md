@@ -44,7 +44,9 @@ The worker suite is **fully dependency-injected** — every external service
 (Ollama, the Codex CLI, Claude, Telegram) is mocked, so it runs anywhere
 Python + pytest exist, with no network and no API keys.
 
-CI (`.github/workflows/ci.yml`) runs both suites on every push and pull request.
+CI (`.github/workflows/ci.yml`) runs both suites on every pull request, on pushes
+to `main`, and nightly. Pushes to a feature branch do **not** trigger it — open the
+PR to get a run.
 
 ## Conventions
 
@@ -83,9 +85,9 @@ gh pr create --fill                       # CI runs; squash-merge when green
 
 ## Keeping your real resume private
 
-Real resume files (`resume/*.txt`, `resume/personal_profile.txt`) are
-gitignored — the repo ships only a tracked `resume/resume.txt.example`
-template. Copy it to get started:
+All of `apps/worker/resume/` is gitignored; the only tracked files there are
+`README.md`, `resume.txt.example`, and `personal_profile.txt.example`. Copy the
+template to get started:
 
 ```bash
 cd apps/worker

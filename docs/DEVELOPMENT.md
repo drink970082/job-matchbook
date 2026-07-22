@@ -87,6 +87,10 @@ Run everything the change touches:
   + test; structure → the §5–§8/§12 snapshot sections), `PROGRESS.md` (open a 🚧 line
   when starting; the line *leaves* when the work lands), and `CHANGELOG.md`
   (Unreleased section).
+- **Close the spec you built from.** If the work came from a `docs/superpowers/`
+  spec, move its `**Status:**` header to `shipped <date>` in the same commit. §2
+  treats that line as the license to build, so a stale one misleads the next
+  session about what is and isn't already live.
 - Commit style: short imperative subject, `type(scope):` prefix. Keep each commit
   green.
 - **Branch discipline:** `main` is the only long-lived branch and is always

@@ -43,15 +43,17 @@ kept, not dropped.
 - *Smell:* a new gate whose default branch discards; tightening a filter without
   stating the false-drop story.
 
-**4. Local for frequency, Claude for judgment, cache the static.** High-frequency
-cheap checks run on the host GPU; paid calls happen only where judgment matters, with
-the static prefix cached.
+**4. Local for frequency, a hosted model for judgment, cache the static.**
+High-frequency cheap checks run on the host GPU; metered or quota-bound calls happen
+only where judgment matters, with the static prefix cached.
 - *Why:* per-posting cost compounds across every scheduled pass; judgment quality is
   worth paying for only where rules can't reach (principle 2 first!).
-- *In this repo:* hard-requirements screen on Ollama (`qwen3.5:4b`, free,
-  rate-limit-free) gates the paid Claude fit score; the résumé+rubric system prefix is
-  byte-identical and cached (`cache_control: ephemeral`) so only the JD is fresh.
-- *Smell:* a new per-posting Claude call for something a local model or a rule could
+- *In this repo:* the hard-requirements screen on Ollama (`qwen3.5:4b`, free,
+  rate-limit-free) gates the hosted fit score — the Codex CLI on a flat-rate ChatGPT
+  subscription by default, Claude as the metered alternate. On the Claude path the
+  résumé+rubric system prefix is byte-identical and cached (`cache_control:
+  ephemeral`) so only the JD is fresh.
+- *Smell:* a new per-posting hosted call for something a local model or a rule could
   do; a prompt assembled in a way that breaks byte-identical caching.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;
@@ -82,9 +84,10 @@ leaves.
 - *Why:* the worker's portability and hermetic test suite are load-bearing; every dep
   is a standing tax.
 - *In this repo:* `pycountry` was accepted (offline data, small, keeps tests
-  hermetic) over shipping a curated list; the planned Playwright path is explicitly
-  optional + isolated + config-gated; `tectonic`/`pypdf` were deleted with the
-  tailoring feature.
+  hermetic) over shipping a curated list; Playwright ships exactly this way — its own
+  `requirements-browser.txt`, confined to `fetch/browser.py`, and off unless
+  `enable_browser_sources` is set; `tectonic`/`pypdf` were deleted with the tailoring
+  feature.
 - *Smell:* `pip install` as the first move; a heavy dep imported at module top-level
   of core pipeline code; a dep that outlives its feature.
 
