@@ -22,10 +22,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- 🚧 **Run the pipeline as a daemon** — the recurring 24h scheduler
+- **Run the pipeline as a daemon** — the recurring 24h scheduler
   (`python -m ats_worker.run`) remains the operator's standing launch step; passes
   are currently run by hand.
-- 🚧 **General-purpose pivot (in progress).** Broadening the product from a quant/SWE
+- **General-purpose pivot (in progress).** Broadening the product from a quant/SWE
   niche to any field. **Shipped:** user-configurable job categories (`app_settings`,
   first-run modal + header editor, free-form labels); a persona-neutral
   `personal_profile.txt.example` + TARGET/ANTI-TARGET/STAGE docs in `resume/README.md`;
@@ -38,7 +38,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (SPEC §7.1).
   - **Stage 3 — non-tech discovery feeds: deferred.** The watchlist already covers any
     company; decide the need before building (brittle, anti-bot handling, dilutes the moat).
-- 🚧 **Provider choice + universal onboarding — design agreed, spec pending.** Design
+- **Provider choice + universal onboarding — design agreed, spec pending.** Design
   notes:
   [`superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md`](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md).
   Two premises the tool currently fails: the screen runs *only* on host Ollama, so a
@@ -55,7 +55,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   2. **Universality fixes** — Telegram is currently *mandatory*
      (`run_once` does `env["TELEGRAM_BOT_TOKEN"]` → `KeyError`), so someone happy to
      review the Discovered Jobs tab cannot run the worker; `make setup` (deps + DB +
-     template copies) and `make doctor` (✓/✗ preflight); document that `OLLAMA_HOST`
+     template copies) and `make doctor` (pass/fail preflight); document that `OLLAMA_HOST`
      already supports a remote/cloud Ollama, which `SETUP.md` currently denies.
   3. **`onboard-me` Step 0** — run `make setup`, then `make doctor`, then pick the
      provider path from what is actually installed, before the interview. The skill
@@ -369,7 +369,7 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 This file tracks only *movement*; it should never accumulate a wall of finished
 items. When state changes:
 
-- **Starting work** → add a 🚧 line under [In flight](#in-flight).
+- **Starting work** → add an in-flight line under [In flight](#in-flight).
 - **Closing a gap / shipping a feature** → remove its line here, add a
   [`CHANGELOG.md`](../CHANGELOG.md) entry (history), and update the matching section
   of [`SPEC.md`](./SPEC.md) (the capability map / behavior) — **all in the same

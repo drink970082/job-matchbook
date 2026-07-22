@@ -359,20 +359,20 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   | Platform | Host(s) | Adapter | Feed router | Watchlist |
   |---|---|---|---|---|
-  | Greenhouse | `boards.greenhouse.io`, `job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io` | list | ✅ | ✅ |
-  | Lever | `jobs.lever.co` | list | ✅ | ✅ |
-  | Ashby | `jobs.ashbyhq.com` | list | ✅ | ✅ |
-  | Workday | `*.myworkdayjobs.com` | list (watchlist) + per-job (feed) | ✅ (per-job by externalPath) | ✅ |
-  | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | ✅ (per-job by id) | ✅ |
-  | Pinpoint | `{slug}.pinpointhq.com` | list | ❌ | ✅ |
-  | Workable | `apply.workable.com` | list | ✅ | ✅ |
-  | iCIMS | `{slug}.icims.com` | list (server HTML) | ❌ | ✅ |
-  | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | ❌ | ✅ |
-  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | ❌ | ✅ (needs `recipe`) |
-  | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | ❌ | ✅ (needs `recipe`; opt-in) |
-  | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | ✅ | ❌ feed-only |
-  | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | ✅ | ❌ feed-only |
-  | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | ✅ enriching (I/O token scrape) | ❌ feed-only |
+  | Greenhouse | `boards.greenhouse.io`, `job-boards.greenhouse.io`, `job-boards.eu.greenhouse.io` | list | yes | yes |
+  | Lever | `jobs.lever.co` | list | yes | yes |
+  | Ashby | `jobs.ashbyhq.com` | list | yes | yes |
+  | Workday | `*.myworkdayjobs.com` | list (watchlist) + per-job (feed) | yes (per-job by externalPath) | yes |
+  | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | yes (per-job by id) | yes |
+  | Pinpoint | `{slug}.pinpointhq.com` | list | no | yes |
+  | Workable | `apply.workable.com` | list | yes | yes |
+  | iCIMS | `{slug}.icims.com` | list (server HTML) | no | yes |
+  | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | no | yes |
+  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | no | yes (needs `recipe`) |
+  | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | no | yes (needs `recipe`; opt-in) |
+  | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | yes | no (feed-only) |
+  | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | yes | no (feed-only) |
+  | Embedded Greenhouse | custom domains `?gh_jid=` | via greenhouse | yes, enriching (I/O token scrape) | no (feed-only) |
 
   Endpoints: greenhouse `boards-api.greenhouse.io/v1/boards/{slug}/jobs` (the US
   api host serves EU boards too); lever `api.lever.co/v0/postings/{slug}`; ashby
@@ -1214,7 +1214,7 @@ guarantee:
 
 ### Invariant → test traceability
 
-Grounds the "verifiable" claim. ⚠ marks an invariant with **no** (or only indirect)
+Grounds the "verifiable" claim. **(no test)** marks an invariant with **no** (or only indirect)
 automated coverage — those rely on code review or the human in the loop, not a test.
 
 | Invariant | Test(s) |
@@ -1480,7 +1480,7 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`, `CODEX_BATCH_SIZE`.
 4. The default `codex` fit backend authenticates from the operator's `codex login`
    state (`auth_mode=chatgpt`), not from `.env` — run `codex login` once on the
-   worker host and confirm with `codex doctor` (auth ✓). A logged-out host fails
+   worker host and confirm with `codex doctor` (auth ok). A logged-out host fails
    every fit call loudly; it never scores 0.
 5. On the host: `ollama pull qwen3.5:4b && ollama serve`.
 6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`

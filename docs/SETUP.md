@@ -31,7 +31,7 @@ Two things to internalise before anything else:
    *not* containerised (it needs the host GPU and your `codex login`). You start it
    yourself: `cd apps/worker && python -m ats_worker.run`.
 2. **The default fit scorer needs a ChatGPT subscription**, not an API key. Run
-   `codex login` once on the worker host (`codex doctor` should show auth ✓). No
+   `codex login` once on the worker host (`codex doctor` should show auth ok). No
    subscription → switch the backend to `claude` and supply `ANTHROPIC_API_KEY`.
 3. **The screen needs a GPU.** Ollama runs on the host and the worker reaches it at
    `localhost:11434`. There's no cloud fallback for the hard-requirements screen.

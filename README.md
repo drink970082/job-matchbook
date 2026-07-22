@@ -33,7 +33,7 @@ SQLite database**:
   Applied** turns a posting into a tracked application. A human is always in the loop —
   no auto-apply.
 
-> 📖 **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
+> **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
 > system spec (architecture, data model, behaviors, setup, testing) and the current
 > capability map. [`docs/PROGRESS.md`](./docs/PROGRESS.md) tracks only open work
 > (in-flight + known gaps).

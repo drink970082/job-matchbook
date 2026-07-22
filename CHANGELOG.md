@@ -395,7 +395,7 @@ with zero failures, matches delivered to Telegram.
   each row of a frozen hand-labeled golden set K=3× and judges the **majority
   keep/near/skip band** — not the noisy exact score — against the label in code. PASS =
   0 hard-invariant violations + ≥85% band agreement + <20% flip-rate over the gate rows;
-  `marked` rows route to a ⚑ watch list, excluded from the gate. Uses `max_tokens=8192` +
+  `marked` rows route to a flagged watch list, excluded from the gate. Uses `max_tokens=8192` +
   a per-draw retry so a truncated response (adaptive thinking overruns the prod 4096 cap
   and is *not* an SDK-retried transient) can't abort a paid run. Replaces the retired
   ad-hoc "edit prompt → paid re-score → eyeball 20 rows" loop; the golden labels
@@ -1266,8 +1266,8 @@ with zero failures, matches delivered to Telegram.
   summary (no "feature-complete and stable"), and surfaces the shipped notify
   data-loss defect as a graded defect rather than one bullet among nice-to-haves.
 - Added a user-facing **Feature status** matrix to the README with an honest
-  *Tested* axis (✅ / ⚠ / —) that distinguishes shipped from verified — fixing the
-  old all-`✅` over-claim. Building it surfaced an untested gap: the chart-data
+  *Tested* axis (yes / partial / —) that distinguishes shipped from verified — fixing the
+  old all-`yes` over-claim. Building it surfaced an untested gap: the chart-data
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
 - **README/CLAUDE.md/SPEC.md realigned with the shipped adapter set and

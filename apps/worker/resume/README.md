@@ -20,7 +20,7 @@ the Claude fit scorer sees all of them, scores the best-fitting version, and
 reports which one to send (`recommended_resume` — shown in the Telegram alert
 and the job detail modal).
 
-> ⚠️ Every `*.txt` here is loaded. When you split into targeted versions,
+> Note: every `*.txt` here is loaded. When you split into targeted versions,
 > **delete the old `resume.txt`** or it becomes a third scored version.
 
 Files only need to be clean readable text — the scorer judges fit on content,
