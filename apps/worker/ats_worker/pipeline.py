@@ -93,6 +93,17 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     if verdict.get("disqualified"):
                         p["pipeline_status"] = "discarded"
                         p["score_detail"] = _score_detail(verdict, disqualified=True)
+            # A bodyless row is permanent (upsert is ON CONFLICT DO NOTHING) and would
+            # be fit-scored blind on the PAID backend. Drop it loudly instead: a board
+            # whose list endpoint carries no JD simply yields nothing this cycle.
+            # 'discarded' rows are exempt — the stub gate returns them deliberately
+            # un-hydrated, and they never reach the scorer.
+            bodyless = {id(p) for p in kept
+                        if p.get("pipeline_status") != "discarded" and not _valid_posting(p)}
+            if bodyless:
+                print(f"[fetch] {c['source']}/{c['slug']}: dropped {len(bodyless)} "
+                      f"posting(s) with no description")
+                kept = [p for p in kept if id(p) not in bodyless]
             inserted += db.upsert_postings(conn, kept, now=now)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
@@ -104,8 +115,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
 
 # A scraped posting is only usable if it carries an id, a title, AND a body. An
 # empty description means the scrape silently lost the JD (a moved selector) —
-# the #1 way a detail/scraping adapter breaks without raising. ponytail: detail
-# sources only; the stable list path keeps inserting postings with empty JDs.
+# the #1 way a detail/scraping adapter breaks without raising. Applied on BOTH
+# insert paths: the feed's detail fetch (records the id as failed) and run_fetch's
+# board path (logs and drops).
 _REQUIRED_FIELDS = ("external_id", "job_title", "description")
 
 

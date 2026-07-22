@@ -89,45 +89,39 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-**P0 — before the next pipeline run.** The last run was 2026-07-13; the watchlist has
-since tripled to **172 boards** (101 greenhouse · 28 workday · 10 custom · 8 lever ·
-11 ashby · 5 browser · rest tail). That run is the single highest-leverage action open —
-and the single biggest hazard, because two guards are missing on the path it will take.
+**P0 — the first run against the 172-board watchlist.** The body-required guard shipped
+2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board — the two
+Citadel rows included — now yields nothing instead of poisoning the DB with permanent
+title-only rows. **Citadel decision: keep both rows as-is** — the guard makes them
+non-destructive, the detail leg's circuit-breaker bails after 3 empties, so the residual
+cost is a handful of Chromium renders per cycle and the rows self-heal if the Cloudflare
+behavior changes. Revisit only if the run shows the renders are expensive.
 
-1. **Body-required guard on the board insert path** — `[XS]`. `_valid_posting` runs on
-   the *feed* path only (`pipeline.py:130`), and `run_score` never checks the
-   description, so an empty JD reaches the **paid** fit scorer and, because
-   `upsert_postings` is `ON CONFLICT DO NOTHING`, is never back-filled. Do this first:
-   it converts the Citadel defect, the nine held-off boards, and every future
-   empty-list-endpoint board from *permanent DB poison* into *a board that yields
-   nothing this cycle*. One guard, one place, retroactively fixes a whole class.
-2. **Citadel rows — decide** — `[S]` (defect below). After (1) this is no longer
-   destructive, so the decision shrinks to: drop the `detail:` block and take
-   title-only, slow the detail navigations, or remove both rows.
-3. **Run the pipeline** — `[S]`. It closes the *"`custom`/`browser` have never produced
-   a posting"* unknown, exercises the 172-board watchlist for the first time, and is the
-   standing daemon step. Everything else about board coverage is speculation until it
-   runs. Expect it to surface new defects — that is the point.
+1. **Run the pipeline** — `[S · in flight 2026-07-22]`. It closes the
+   *"`custom`/`browser` have never produced a posting"* unknown, exercises the 172-board
+   watchlist for the first time, and is the standing daemon step. Everything else about
+   board coverage is speculation until it runs. Expect it to surface new defects — that
+   is the point.
 
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
 
-4. **Track 2, universality** — `[S]`. Telegram is a hard `KeyError` (`run.py:257`), so a
+2. **Track 2, universality** — `[S]`. Telegram is a hard `KeyError` (`run.py:257`), so a
    user content with the Discovered Jobs tab cannot run the worker at all. Plus
    `make setup` / `make doctor`, and the `OLLAMA_HOST` remote-Ollama correction in
-   `SETUP.md`. Cheapest, unblocks the most people, and (3) is a live rehearsal for it.
-5. **Track 1, screen backends + track 5, sponsorship gate** — `[M]`. Land together:
+   `SETUP.md`. Cheapest, unblocks the most people, and (1) is a live rehearsal for it.
+3. **Track 1, screen backends + track 5, sponsorship gate** — `[M]`. Land together:
    both rewrite the screen call. A GPU-less user currently cannot screen at all, and the
    sponsorship gate — the highest-value check for any sponsorship-needing user — is the
    *only* screen check not using the LLM. Batching + concurrency ride along.
-6. **Track 3 (`onboard-me` Step 0)** and **track 4 (agent portability)** — `[S each]`.
-   Both are downstream of (4)/(5); 3 needs `make doctor` to exist, 4 is independent and
+4. **Track 3 (`onboard-me` Step 0)** and **track 4 (agent portability)** — `[S each]`.
+   Both are downstream of (2)/(3); 3 needs `make doctor` to exist, 4 is independent and
    can be picked any time.
 
 **P2 — correctness of the scoring path.**
 
-7. **Fit-score gate re-run** — `[S · ~69 Codex messages]`. Gate the 2026-07-22 profile
-   edit. Do it *after* (3) so any newly-ingested Java quant-dev row can close the golden
+5. **Fit-score gate re-run** — `[S · ~69 Codex messages]`. Gate the 2026-07-22 profile
+   edit. Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
    set's documented Java blind spot in the same pass.
 
 **P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
@@ -141,37 +135,6 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **Empty-description postings are inserted and then scored on the paid backend** —
-  `[XS · read 2026-07-22]`. `_valid_posting` (`pipeline.py:112`) requires a body, but is
-  called on the **feed** path only (`pipeline.py:130`); the board path upserts whatever
-  an adapter returns, and `run_score` (`pipeline.py:383`) screens and fit-scores without
-  ever checking `description`. Because `upsert_postings` is `ON CONFLICT DO NOTHING`, a
-  title-only row is **permanent** — a later cycle that *could* read the JD will not
-  back-fill it. This is the mechanism behind the Citadel defect below and behind the
-  nine boards held off the watchlist; both are symptoms, this is the cause. Applying the
-  same guard on the board path (or refusing to fit-score a bodyless row) makes an
-  empty-list-endpoint board simply yield nothing, which is already the documented policy
-  for Uber/Netflix/Morgan Stanley. Highest priority open item: the fix is one guard and
-  the next run is overdue against a watchlist that tripled to 172 boards.
-- **Both Citadel watchlist rows return descriptions-less postings** — `[S · measured
-  2026-07-22]`. `browser/citadel.com` and `browser/citadelsecurities.com` (added
-  2026-07-18, never fetched — the last cycle ran 2026-07-13) scrape their listing
-  pages fine: 10 postings each, 10/10 on `external_id`, `job_title`, `location` and
-  `job_url` (URLs verified well-formed). But **0/10 on `description`** — precisely the
-  failure `browser.py:159` predicts: Cloudflare clears once for the listing render,
-  then re-challenges the rapid deep-link detail navigations, so every JD comes back
-  blank and the 3-empty circuit-breaker bails. `posted_at` is 0/10 too (the cards
-  carry no date). The 10-posting count also implies pagination stops at page 1
-  (`page.start: 2` renders page 2, gets nothing fresh, breaks).
-
-  Consequence: on the next cycle these insert **20 title-only rows** that the paid
-  scorer then judges blind — and `upsert_postings` is `ON CONFLICT DO NOTHING`, so
-  they are never back-filled once written. This is the same empty-JD property that
-  kept Uber/Netflix/Morgan Stanley off the watchlist, except these two are already
-  *on* it. Options: drop the `detail:` block and accept title-only deliberately,
-  slow the detail navigations to let the wall clear, or remove both rows.
-  `quant_job_boards.txt` still lists Citadel as unscrapable-by-plain-HTTP, which is
-  true and is why these are browser rows; the wall simply also defeats the detail leg.
 - **The sponsorship gate misses ~9 of 11 realistic no-sponsorship phrasings** —
   `[M · fix designed, needs a labeled set]`. `NO_SPONSOR_PHRASES`
   (`score/screen.py`) is a closed 12-phrase substring list, so it catches only JDs
@@ -207,6 +170,28 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Both Citadel watchlist rows return description-less postings — kept anyway** —
+  `[S · measured 2026-07-22 · decision recorded 2026-07-22]`. `browser/citadel.com`
+  and `browser/citadelsecurities.com` (added
+  2026-07-18, never fetched — the last cycle ran 2026-07-13) scrape their listing
+  pages fine: 10 postings each, 10/10 on `external_id`, `job_title`, `location` and
+  `job_url` (URLs verified well-formed). But **0/10 on `description`** — precisely the
+  failure `browser.py:159` predicts: Cloudflare clears once for the listing render,
+  then re-challenges the rapid deep-link detail navigations, so every JD comes back
+  blank and the 3-empty circuit-breaker bails. `posted_at` is 0/10 too (the cards
+  carry no date). The 10-posting count also implies pagination stops at page 1
+  (`page.start: 2` renders page 2, gets nothing fresh, breaks).
+
+  Consequence, since the body-required guard shipped: both rows simply **yield nothing**
+  — the title-only postings are dropped at `run_fetch` and logged, never written. The
+  residual cost is a handful of Chromium renders per cycle (the detail leg's 3-empty
+  circuit-breaker bails early). **Decision: keep both rows as-is** — they cost almost
+  nothing, and they start producing on their own if Citadel's Cloudflare behavior
+  changes. The alternatives (drop the `detail:` block for deliberate title-only rows,
+  slow the detail navigations, remove the rows) all cost work for no more postings.
+  Revisit if a live run shows the renders are not cheap. `quant_job_boards.txt` still
+  lists Citadel as unscrapable-by-plain-HTTP, which is true and is why these are
+  browser rows; the wall simply also defeats the detail leg.
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
@@ -226,9 +211,10 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
   (1,350), Brevan Howard (13), Campbell (1) — their list endpoints carry no
-  description, and the body-required guard (`_valid_posting`) is applied only on the
-  feed path (`pipeline.py:130`), so these would insert title-only rows and be scored
-  blind on the paid backend. (2) *Render cost*: Citi (3,567 postings), Barclays
+  description. Since the body-required guard shipped these are no longer *dangerous*
+  to add (they would insert nothing), but they still produce nothing, so adding them
+  only buys fetch cost until `custom` gains a chained detail call.
+  (2) *Render cost*: Citi (3,567 postings), Barclays
   (1,074), Bloomberg (490), Moody's (249) — a `browser` `detail:` block costs one
   Chromium render per posting with no stub gate (`browser.py:159`), all of it before
   screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a

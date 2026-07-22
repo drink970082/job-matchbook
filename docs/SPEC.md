@@ -674,7 +674,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   gate miss is tagged `pipeline_status="discarded"` with a screen-shaped
   `score_detail` right there at fetch time — visible in the Discovered "Discarded"
   bucket with its reason — **without** an Ollama call; a company that raises is
-  logged-and-skipped so the rest of the watchlist still ingests. `screen_posting`
+  logged-and-skipped so the rest of the watchlist still ingests. Finally, a surviving
+  posting with **no description is dropped and logged** (`_valid_posting`, the same
+  body-required guard the feed path applies): a bodyless row is permanent
+  (`upsert_postings` is `ON CONFLICT DO NOTHING`, so a later cycle never back-fills it)
+  and would reach the paid fit scorer blind, so a board whose list endpoint carries no
+  JD simply yields nothing that cycle. Rows already tagged `discarded` are exempt —
+  the stub gate returns those deliberately un-hydrated and they never reach the scorer. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
   clearance disqualification the SCREEN call found), so the feed path — which never
   goes through `run_fetch` — gates identically, just one stage later.

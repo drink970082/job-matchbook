@@ -132,6 +132,21 @@ def test_run_fetch_drops_stale_by_max_age(db_path):
     assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["fresh"]
 
 
+def test_run_fetch_drops_bodyless_postings(db_path, capsys):
+    # A title-only row is permanent (ON CONFLICT DO NOTHING) and would reach the paid
+    # fit scorer with no JD. It must be dropped at the board insert path, and logged.
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        return [_posting("body"), _posting("empty", description="")]
+
+    companies = [{"source": "browser", "slug": "citadel.com", "name": "Citadel"}]
+    inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
+    assert inserted == 1
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["body"]
+    assert "browser/citadel.com" in capsys.readouterr().out
+
+
 def test_run_fetch_no_candidate_leaves_all_new(db_path):
     conn = db.connect(db_path)
 

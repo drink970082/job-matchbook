@@ -7,6 +7,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
+  (non-empty id + title + description) ran on the feed's detail path only; the watchlist
+  board path upserted whatever an adapter returned, and `run_score` never checked the
+  description. Because `upsert_postings` is `ON CONFLICT DO NOTHING`, a title-only row
+  was **permanent**: a later cycle that *could* read the JD would not back-fill it, and
+  the row was fit-scored blind on the paid backend meanwhile. `run_fetch` now applies the
+  same guard, logging `dropped N posting(s) with no description` per board, so a board
+  whose list endpoint carries no JD yields nothing that cycle instead of poisoning the
+  DB. Stub-gated `discarded` rows are exempt — they are deliberately un-hydrated and
+  never reach the scorer. This is the mechanism behind the two Citadel `browser` rows
+  (0/10 descriptions) and behind the nine boards held off the watchlist for empty JDs;
+  both are now non-destructive by construction.
+
 ### Changed
 
 - **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
