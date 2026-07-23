@@ -48,6 +48,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **`SCREEN_BACKEND` — five more ways to run the hard-requirements screen, so a user
+  with no local GPU (or no Ollama at all) can still run the pipeline.** The screen was
+  hard-wired to one Ollama HTTP call; it is now injected as a single seam,
+  `extract(prompt, schema) -> dict`, and `run.make_screener(backend, ...)` builds that
+  callable from `SCREEN_BACKEND`/`--screen-backend` across **six** values in **three**
+  adapter shapes: HTTP + JSON schema (`ollama` — **default**, free, local; `claude-api`
+  — metered, Anthropic SDK structured outputs, default `claude-haiku-4-5`; `openai-api`
+  — metered, plain `requests` against `chat/completions`, default `gpt-5.6-luna`), CLI
+  subprocess + schema (`codex` — the operator's ChatGPT-subscription CLI, default
+  `gpt-5.6-sol`, runs tool-less as a security boundary, passes the schema as a **file**
+  via `--output-schema`; `claude-code` — the operator's Claude Code CLI subscription,
+  passes the schema **inline** via `--json-schema <json>`, **not** a file path despite
+  the flag name — verified behaviorally against the CLI, so the two subprocess backends
+  are **not** symmetric), and deterministic-only (`none` — no LLM call at all, runs only
+  the location + intern gates, and is **low recall on sponsorship**: the
+  work-authorization check falls back to the closed ~2/11-recall `NO_SPONSOR_PHRASES`
+  list). **Auto-detection never selects a paid backend** — the default stays `ollama`
+  and `make_screener` never guesses from what's installed; spending money is explicit
+  opt-in via `SCREEN_BACKEND`. New `--screen-model`/`SCREEN_MODEL` overrides whichever
+  backend's default model. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the
+  in-process `env` dict only — never promoted to an argparse default, never leaked to a
+  subprocess's inherited environment — the same secret-scoping discipline the fit
+  scorer already follows. Screen batching and concurrent execution are **not** part of
+  this change (`run_score` still screens one row at a time); tracked separately.
+  (SPEC §7.1.)
+
 - **`onboard-me` skill gained a Step 0 and stopped carrying its own prereq prose.** The
   skill began at "write the profile", assuming a checkout that already worked, and
   hand-asserted prerequisites that had since gone stale (Telegram "required for the

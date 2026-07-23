@@ -274,6 +274,23 @@ def test_run_once_screen_backend_none_makes_no_provider_call(monkeypatch, tmp_pa
     assert seen["backend"] == "none"
 
 
+def test_run_once_uses_screen_model_override(monkeypatch, tmp_path):
+    # --screen-model/SCREEN_MODEL must reach the hosted adapter's build call.
+    # make_screener itself already threads screen_model per-call (Task 5); the gap
+    # this closes is run_once accepting and forwarding it at all.
+    _stub_stages(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(
+        run, "make_claude_api_extract",
+        lambda key, model, **kw: seen.update(model=model) or (lambda p, s: {}))
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile),
+                 resumes={"resume": "r"}, env=_ENV, screen_backend="claude-api",
+                 screen_model="claude-sonnet-5")
+    assert seen["model"] == "claude-sonnet-5"
+
+
 # --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---
 
 def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
@@ -630,12 +647,13 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
 
 def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     # Regression guard for the secret-scoping regression: main() must only promote
-    # the six argparse-read config keys from .env into os.environ, never secrets —
+    # the eight argparse-read config keys from .env into os.environ, never secrets —
     # a leaked os.environ secret would be inherited by the codex CLI subprocess
     # (subprocess.run with no env= in score/backends_codex.py).
     import os as _os
     monkeypatch.setattr(_os, "environ", dict(_os.environ))
-    for k in ("DB_PATH", "OLLAMA_MODEL", "SCORE_BACKEND", "CODEX_SCORE_MODEL",
+    for k in ("DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
+              "SCORE_BACKEND", "CODEX_SCORE_MODEL",
               "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
               "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY"):
         _os.environ.pop(k, None)
@@ -644,6 +662,8 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     envfile.write_text(
         "DB_PATH=/tmp/from-env.db\n"
         "OLLAMA_MODEL=custom:1b\n"
+        "SCREEN_BACKEND=claude-api\n"
+        "SCREEN_MODEL=claude-opus-4-8\n"
         "SCORE_BACKEND=claude\n"
         "CODEX_SCORE_MODEL=gpt-from-env\n"
         "ANTHROPIC_SCORE_MODEL=claude-from-env\n"
@@ -662,9 +682,11 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
 
     run.main(["--once", "--env", str(envfile)])
 
-    # The six argparse-read config keys must be promoted into os.environ.
+    # The eight argparse-read config keys must be promoted into os.environ.
     assert _os.environ["DB_PATH"] == "/tmp/from-env.db"
     assert _os.environ["OLLAMA_MODEL"] == "custom:1b"
+    assert _os.environ["SCREEN_BACKEND"] == "claude-api"
+    assert _os.environ["SCREEN_MODEL"] == "claude-opus-4-8"
     assert _os.environ["SCORE_BACKEND"] == "claude"
     assert _os.environ["CODEX_SCORE_MODEL"] == "gpt-from-env"
     assert _os.environ["ANTHROPIC_SCORE_MODEL"] == "claude-from-env"

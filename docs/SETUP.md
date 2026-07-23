@@ -21,7 +21,7 @@ Two things to internalise before anything else:
 | Docker + Compose (≥ 24) | The web app | Required for the web app |
 | Node 20+ | Web dev/tests (and non-Docker run) | Required unless you only use Docker |
 | Python 3.11+ | **The worker** (native) | Required for the pipeline |
-| **Ollama** reachable (local GPU, or remote via `OLLAMA_HOST`) | The hard-requirements screen | Required for the pipeline; no local GPU? point `OLLAMA_HOST` at a remote/cloud Ollama |
+| **Ollama** reachable (local GPU, or remote via `OLLAMA_HOST`) — or any of five other screen backends | The hard-requirements screen | Required for the pipeline in some form; no GPU and no Ollama at all? set `SCREEN_BACKEND` to `codex`/`claude-code`/`claude-api`/`openai-api`/`none` instead (SPEC §7.1) |
 | **Codex CLI + a ChatGPT subscription** | Fit scoring (the **default** backend) | No subscription? Use `SCORE_BACKEND=claude` + an `ANTHROPIC_API_KEY` (metered) |
 | A Telegram bot | Match alerts (**optional**) | Skip it — matches still land in the web Discovered-Jobs tab, just without a push alert |
 
@@ -33,9 +33,10 @@ Two things to internalise before anything else:
 2. **The default fit scorer needs a ChatGPT subscription**, not an API key. Run
    `codex login` once on the worker host (`codex doctor` should show auth ok). No
    subscription → switch the backend to `claude` and supply `ANTHROPIC_API_KEY`.
-3. **The screen needs Ollama, not necessarily a local GPU.** The worker reaches it at
-   `localhost:11434` by default; set `OLLAMA_HOST` to point at a remote or cloud Ollama
-   if the worker host has no GPU.
+3. **The screen doesn't need Ollama at all, and Ollama doesn't need a local GPU.**
+   The worker reaches Ollama at `localhost:11434` by default; set `OLLAMA_HOST` to
+   point at a remote or cloud Ollama if the worker host has no GPU, or skip Ollama
+   entirely with `SCREEN_BACKEND=codex`/`claude-code`/`claude-api`/`openai-api`/`none`.
 
 ## Path A — tracker only (~5 min)
 
@@ -72,7 +73,7 @@ Config is split across a file and the database, with different lifecycles:
 |---------|----------|-------|
 | Candidate hard-constraints, `title_filter`, `schedule_hours` | `config.yaml` | File-only; edit and restart the worker. |
 | **Watched companies** | `config.yaml` **→ then the DB** | The `companies:` list is a **one-time seed**. After the first run it's managed in the web app's **Watchlist** tab; later edits to the file are ignored (re-seed with `--import-companies`). |
-| Secrets (Telegram / Ollama / API key) | `.env` | Gitignored. |
+| Secrets + backend choice (Telegram / Ollama / `SCREEN_BACKEND` / `SCORE_BACKEND` / API keys) | `.env` | Gitignored. `SCREEN_BACKEND` picks the hard-requirements screen — `ollama` (default, free, local) or `codex`/`claude-code`/`claude-api`/`openai-api`/`none`; `none` is low-recall on sponsorship (SPEC §7.1). |
 | Résumé + profile | `apps/worker/resume/*.txt` | Gitignored personal data; every `*.txt` is loaded as a résumé version. |
 
 All of `config.yaml`, `.env`, `resume/`, and `db/` are gitignored — the repo ships

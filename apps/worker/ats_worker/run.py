@@ -71,14 +71,15 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 
-# The ONLY seven .env keys argparse defaults read from os.environ (grepped across
+# The ONLY eight .env keys argparse defaults read from os.environ (grepped across
 # the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
-# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY) are deliberately excluded: every consumer
-# reads them from the in-process `env` dict (run_once(..., env=env) / make_scorer),
-# never os.environ, so promoting them would only leak them to subprocesses that
-# inherit the full environment (the codex CLI — see score/backends_codex.py).
+# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every
+# consumer reads them from the in-process `env` dict (run_once(..., env=env) /
+# make_scorer / make_screener), never os.environ, so promoting them would only leak
+# them to subprocesses that inherit the full environment (the codex CLI — see
+# score/backends_codex.py).
 _ENV_ARGPARSE_KEYS = frozenset({
-    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCORE_BACKEND",
+    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
     "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
 })
 
@@ -183,6 +184,7 @@ def _now() -> str:
 def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
              screen_backend=DEFAULT_SCREEN_BACKEND,
+             screen_model=None,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
@@ -282,7 +284,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
         screen_extract = make_screener(screen_backend, env=env, http=requests,
-                                       model=ollama_model, num_ctx=num_ctx)
+                                       model=ollama_model, screen_model=screen_model,
+                                       num_ctx=num_ctx)
 
         def screen_fn(posting):
             return screen_posting(posting, extract=screen_extract,
@@ -423,6 +426,11 @@ def main(argv=None) -> None:
                         help="hard-requirements screen backend. Default 'ollama' "
                              "(free, local). 'none' runs the deterministic gates "
                              "only and is LOW RECALL on sponsorship")
+    parser.add_argument("--screen-model",
+                        default=os.environ.get("SCREEN_MODEL"),
+                        help="model for the screen backend (default: per-backend — "
+                             "qwen3.5:4b / claude-haiku-4-5 / gpt-5.6-luna / "
+                             "gpt-5.6-sol)")
     parser.add_argument("--codex-score-model",
                         default=os.environ.get("CODEX_SCORE_MODEL",
                                                DEFAULT_CODEX_SCORE_MODEL),
@@ -460,6 +468,7 @@ def main(argv=None) -> None:
         run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                  env=env, ollama_model=args.model,
                  screen_backend=args.screen_backend,
+                 screen_model=args.screen_model,
                  score_backend=args.score_backend,
                  codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model,

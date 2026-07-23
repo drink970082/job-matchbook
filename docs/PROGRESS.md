@@ -49,20 +49,31 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (SPEC §7.1).
   - **Stage 3 — non-tech discovery feeds: deferred.** The watchlist already covers any
     company; decide the need before building (brittle, anti-bot handling, dilutes the moat).
-- **Provider choice + universal onboarding — design agreed, spec pending.** Design
-  notes:
-  [`superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md`](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md).
-  Two premises the tool currently fails: the screen runs *only* on host Ollama, so a
-  GPU-less user cannot run the pipeline at all; and nothing installs worker deps,
-  creates the DB, or reports what is missing, so `onboard-me` starts at a step 2 whose
-  step 0 does not exist. **Five tracks**, no code yet:
-  1. **Screen backends** — `SCREEN_BACKEND = ollama | codex | claude-code |
-     claude-api | openai-api | none`, default `ollama`. Six configs, three adapter
-     shapes (HTTP+schema · CLI subprocess+`--output-schema` · deterministic-only).
-     **Auto-detection must never select a paid backend.** Also: batch the screen (the
-     domain-verdict bleed that parked `DEFAULT_BATCH_SIZE = 1` is a cross-JD
-     *judgment* problem and does not transfer to per-JD fact extraction) and run
-     screens concurrently (`run_score` screens in a serial loop today).
+- **Provider choice + universal onboarding.** Design:
+  [`superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md`](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md)
+  (the original premises), formalized into
+  [`superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md`](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md)
+  and an 11-task
+  [implementation plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
+  across 5 stages. Two premises the tool used to fail: the screen ran *only* on host
+  Ollama, so a GPU-less user could not run the pipeline at all; and nothing installed
+  worker deps, created the DB, or reported what was missing, so `onboard-me` started
+  at a step 2 whose step 0 did not exist. **Five tracks:**
+  1. **Screen backends — DONE 2026-07-23 (plan Stage 2, tasks 1-6).**
+     `SCREEN_BACKEND = ollama | codex | claude-code | claude-api | openai-api | none`,
+     default `ollama`. Six configs, three adapter shapes: HTTP+schema (`ollama`,
+     `claude-api`, `openai-api`); CLI subprocess+schema (`codex` writes the schema to
+     a **file**, `--output-schema`; `claude-code` passes it **inline**,
+     `--json-schema <json>` — not a file path despite the flag name, verified
+     behaviorally against the CLI, so the two subprocess backends are **not**
+     symmetric — earlier notes in this file that described them symmetrically were
+     stale); deterministic-only (`none`, low recall on sponsorship — falls back to the
+     closed ~2/11-recall `NO_SPONSOR_PHRASES` list). **Auto-detection never selects a
+     paid backend** — the default is always `ollama` and `make_screener` never
+     guesses. `--screen-model`/`SCREEN_MODEL` overrides the per-backend default.
+     **Not shipped here:** batching the screen and running screens concurrently
+     (`run_score` still screens one row at a time) — that's plan Stage 5 (Task 11),
+     independent of this track and can land any time. (SPEC §7.1, CHANGELOG.)
   2. **Universality fixes — DONE 2026-07-23.** Telegram-optional (`run_once` skips notify
      when the bot creds are absent), `make setup`, `make doctor` (`ats_worker.doctor`,
      core-hard exit / provider rows soft), and the `OLLAMA_HOST` remote-Ollama `SETUP.md`
@@ -77,14 +88,19 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
      both skills are invisible to every agent but Claude Code. Move to
      `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` (a Linux
      Foundation standard read by 30+ agents; the repo has none).
-  5. **Sponsorship screen rework** — the defect below; shares the screen call with
-     track 1, so the two should land together.
+  5. **Sponsorship screen rework — plan Stage 3 (tasks 7-8), not started.** The defect
+     below, redesigned as a quote-grounded LLM check (spec/plan linked above). No
+     longer gated on track 1 landing first — the plan sequences them as separate
+     stages instead of one combined change.
 
-  **Open questions:** the OpenAI API model string is unchosen; `gpt-5.6-luna` is the
-  pick for the Codex screen (`run.py` rejects it, but that verdict was measured on
-  *fit scoring* — a calibration-sensitive judgment where its loose spread was fatal —
-  and does not transfer to extraction; re-measure, do not assume); and it is unverified
-  whether Claude Code discovers skills through a symlinked `.claude/skills`.
+  **Open questions:** it remains unverified whether Claude Code discovers skills
+  through a symlinked `.claude/skills` (track 4). The prior open question about the
+  OpenAI/codex screen model choice is now resolved by track 1's shipped code —
+  `openai-api` defaults to `gpt-5.6-luna`, `codex` keeps the already-trusted
+  `gpt-5.6-sol` rather than switching (the golden-set rejection of `luna` was measured
+  on *fit scoring*, a calibration-sensitive judgment that may not transfer to
+  extraction; re-measure before ever revisiting this, don't assume the fit verdict
+  carries over).
 
 ---
 
@@ -142,10 +158,15 @@ dependency order (design: [In flight](#in-flight)).
    soft) shipped; and the `OLLAMA_HOST` remote-Ollama correction landed in `SETUP.md`.
    Tests + CHANGELOG + SPEC §7/§12. **Unblocks Track 3** (`onboard-me` Step 0 reads
    `make doctor` output).
-3. **Track 1, screen backends + track 5, sponsorship gate** — `[M]`. Land together:
-   both rewrite the screen call. A GPU-less user currently cannot screen at all, and the
-   sponsorship gate — the highest-value check for any sponsorship-needing user — is the
-   *only* screen check not using the LLM. Batching + concurrency ride along.
+3. **Track 1, screen backends** — `[M · DONE 2026-07-23]`. `SCREEN_BACKEND` now covers
+   six configs across three adapter shapes, `--screen-model`/`SCREEN_MODEL` overrides
+   the per-backend default, and auto-detection never selects a paid backend (see
+   [In flight](#in-flight) for the full writeup; SPEC §7.1, CHANGELOG). **Not shipped:**
+   screen batching/concurrency (`[S]`, independent, plan Stage 5). **Track 5,
+   sponsorship gate** — `[M]`, still open; the quote-grounded rework (plan Stage 3) is
+   designed but not built — the sponsorship gate is the highest-value check for any
+   sponsorship-needing user and the *only* screen check not using the LLM (see the
+   Defects section below).
 4. **Track 3 (`onboard-me` Step 0) — DONE 2026-07-23.** The skill now opens with
    `make setup` + `make doctor` and reads doctor's status lines to pick the provider path,
    replacing its stale hand-written prereq prose (Telegram "required", "host GPU / no
