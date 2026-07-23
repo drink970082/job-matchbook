@@ -426,6 +426,27 @@ def test_make_screener_ollama_builds_a_working_extract(monkeypatch):
     assert calls == ["http://x:11434/api/generate"]
 
 
+def test_make_screener_codex_wires_model(monkeypatch):
+    # Same dispatch pattern as the HTTP backends: the seam only needs to pass the
+    # right model through, so the real (subprocess-shelling) adapter is faked out.
+    monkeypatch.setattr(run, "make_codex_extract", lambda model: ("codex", model))
+    assert run.make_screener("codex", env={}, http=None) == (
+        "codex", run.DEFAULT_CODEX_SCREEN_MODEL)
+    assert run.make_screener("codex", env={}, http=None,
+                             screen_model="gpt-5.6-luna") == ("codex", "gpt-5.6-luna")
+
+
+def test_make_screener_claude_code_wires_model(monkeypatch):
+    # Same dispatch pattern. screen_model=None (the default) must pass through as
+    # None rather than a hard-coded default — make_claude_code_extract's own
+    # `model=None` picks the CLI's default model in that case.
+    monkeypatch.setattr(run, "make_claude_code_extract", lambda model: ("claude-code", model))
+    assert run.make_screener("claude-code", env={}, http=None) == ("claude-code", None)
+    assert run.make_screener("claude-code", env={}, http=None,
+                             screen_model="claude-opus-4-8") == (
+        "claude-code", "claude-opus-4-8")
+
+
 def test_make_screener_claude_api_wires_key_and_model(monkeypatch):
     # Same dispatch pattern as test_make_scorer_picks_the_backend: the seam only
     # needs to pass the right key/model through, so the real adapter is faked out.

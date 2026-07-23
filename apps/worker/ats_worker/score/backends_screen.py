@@ -4,7 +4,9 @@
 Six SCREEN_BACKEND values, three shapes:
   · HTTP + JSON schema — ollama (see score.screen.make_ollama_extract), claude-api,
     openai-api
-  · CLI subprocess + a schema file — codex, claude-code
+  · CLI subprocess — codex (schema written to a file, `--output-schema`), claude-code
+    (schema passed inline, `--json-schema` takes JSON text and errors on a bare path —
+    verified behaviorally 2026-07-23, contrary to what the flag name suggests)
   · none — no adapter at all; run.make_screener returns None
 
 Every adapter returns the PARSED dict or raises ScoreError. Nothing here decides
@@ -18,6 +20,9 @@ and building an adapter in tests — never needs the SDK or a key.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
 
 from .errors import ScoreError
 
@@ -105,5 +110,91 @@ def make_openai_api_extract(api_key: str, model: str = DEFAULT_OPENAI_SCREEN_MOD
         if not choices:
             raise ScoreError(f"openai-api returned no choices: {payload!r}")
         return _parse(choices[0].get("message", {}).get("content", ""), "openai-api")
+
+    return extract
+
+
+# The codex screen ships on the model already trusted for fit scoring. gpt-5.6-luna is
+# the cheaper candidate, but run.py rejects luna on MEASURED golden-set grounds (~3x
+# looser spread) — a verdict measured on calibration-sensitive JUDGMENT, which does not
+# obviously transfer to extraction. Re-measure before switching; do not assume.
+DEFAULT_CODEX_SCREEN_MODEL = "gpt-5.6-sol"
+
+
+def _run_cli(runner, cmd, prompt, timeout, provider):
+    """Shared subprocess call for the CLI-shaped backends."""
+    try:
+        proc = runner(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise ScoreError(f"{provider} timed out after {timeout}s") from exc
+    except FileNotFoundError as exc:
+        raise ScoreError(f"{provider} binary not found: {cmd[0]!r}") from exc
+    if proc.returncode != 0:
+        tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+        raise ScoreError(f"{provider} failed (exit {proc.returncode}): {tail}")
+    return proc
+
+
+def make_codex_extract(model: str = DEFAULT_CODEX_SCREEN_MODEL, *,
+                       codex_bin: str = "codex", timeout: int = 180, runner=None):
+    """Screen via the Codex CLI on the operator's ChatGPT subscription.
+
+    Runs TOOL-LESS (`--disable shell_tool`, `web_search="disabled"`) — a security
+    boundary, not a tuning choice: a JD is untrusted scraped text and `codex exec` is
+    natively an agent holding a shell, so a posting could otherwise ask it to read
+    ~/.codex/auth.json and echo a secret into the output. Same posture as the fit
+    backend. `--ephemeral` suppresses the session rollout so a JD never lands on disk;
+    the screen does not capture quota usage (that rides the fit call).
+    """
+    runner = runner or subprocess.run
+
+    def extract(prompt: str, schema: dict) -> dict:
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = os.path.join(tmp, "schema.json")
+            out_path = os.path.join(tmp, "out.json")
+            with open(schema_path, "w", encoding="utf-8") as fh:
+                json.dump(schema, fh)
+            cmd = [codex_bin, "exec", "--model", model,
+                   "--disable", "shell_tool",
+                   "-c", 'web_search="disabled"',
+                   "--output-schema", schema_path,
+                   "--output-last-message", out_path,
+                   "--sandbox", "read-only", "--skip-git-repo-check",
+                   "--ephemeral", "--color", "never", "-C", tmp, "-"]
+            _run_cli(runner, cmd, prompt, timeout, "codex screen")
+            try:
+                with open(out_path, encoding="utf-8") as fh:
+                    return _parse(fh.read(), "codex screen")
+            except OSError as exc:
+                raise ScoreError(f"codex screen wrote no output: {exc}") from exc
+
+    return extract
+
+
+def make_claude_code_extract(model: str | None = None, *, claude_bin: str = "claude",
+                             timeout: int = 180, runner=None):
+    """Screen via the Claude Code CLI on the operator's subscription.
+
+    `--json-schema` constrains the structured output and `--output-format json` wraps
+    the result; both require `--print`. The wrapper's `result` field carries the model's
+    text, which is the schema-constrained JSON we want.
+
+    `--json-schema` takes the schema INLINE (JSON text), not a file path — verified
+    behaviorally 2026-07-23: `claude --print --json-schema <missing-path> ...` fails
+    with "not valid JSON", not a missing-file error, despite the flag name suggesting
+    otherwise. So unlike the codex adapter (which writes `--output-schema` to a temp
+    file), this one passes `json.dumps(schema)` directly and needs no temp directory.
+    """
+    runner = runner or subprocess.run
+
+    def extract(prompt: str, schema: dict) -> dict:
+        cmd = [claude_bin, "--print",
+               "--json-schema", json.dumps(schema),
+               "--output-format", "json"]
+        if model:
+            cmd += ["--model", model]
+        proc = _run_cli(runner, cmd, prompt, timeout, "claude-code screen")
+        envelope = _parse(proc.stdout, "claude-code screen")
+        return _parse(str(envelope.get("result", "")), "claude-code screen")
 
     return extract

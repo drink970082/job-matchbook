@@ -27,8 +27,11 @@ from .notify import notify_posting
 from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
                     screen_posting)
 from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
+                                    DEFAULT_CODEX_SCREEN_MODEL,
                                     DEFAULT_OPENAI_SCREEN_MODEL,
                                     make_claude_api_extract,
+                                    make_claude_code_extract,
+                                    make_codex_extract,
                                     make_openai_api_extract)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
@@ -124,6 +127,10 @@ def make_screener(backend: str, *, env, http=None, model=None, screen_model=None
             ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
             num_ctx=num_ctx,
         )
+    if backend == "codex":
+        return make_codex_extract(screen_model or DEFAULT_CODEX_SCREEN_MODEL)
+    if backend == "claude-code":
+        return make_claude_code_extract(screen_model)
     if backend == "claude-api":
         return make_claude_api_extract(env["ANTHROPIC_API_KEY"],
                                        screen_model or DEFAULT_CLAUDE_SCREEN_MODEL)
