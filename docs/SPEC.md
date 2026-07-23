@@ -304,8 +304,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--fetch-only` (run fetch/feed/expire/retry then stop before any screen/scorer call —
-  a quota-free board refresh), `--score-limit N` (cap `new` rows scored this pass, 0 =
-  no cap — bounds the paid fit scorer on a large fresh intake),
+  a quota-free board refresh), `--score-only` (skip the network ingest and score the
+  existing `new` backlog — the inverse of `--fetch-only`), `--score-limit N` (cap `new`
+  rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,

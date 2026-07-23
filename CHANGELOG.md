@@ -39,11 +39,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
-- **`--fetch-only` and `--score-limit` operator flags (`ats_worker.run`).**
-  `--fetch-only` runs fetch/feed/expire/retry then stops before any screen or scorer call
-  — a quota-free board refresh (and a real log). `--score-limit N` caps how many `new`
-  rows `run_score` touches in one pass (0 = no cap), bounding the paid fit scorer over a
-  large fresh intake; the remainder stays `new` for the next pass.
+- **`--fetch-only`, `--score-only`, and `--score-limit` operator flags
+  (`ats_worker.run`).** `--fetch-only` runs fetch/feed/expire/retry then stops before any
+  screen or scorer call — a quota-free board refresh (and a real log). `--score-only` is
+  the inverse: it skips the network ingest and scores the existing `new` backlog without
+  a full re-fetch. `--score-limit N` caps how many `new` rows `run_score` touches in one
+  pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
+  remainder stays `new` for the next pass.
 
 ### Changed
 

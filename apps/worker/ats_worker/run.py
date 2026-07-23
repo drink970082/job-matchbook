@@ -137,7 +137,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
-             fetch_only: bool = False, score_limit: int = 0) -> None:
+             fetch_only: bool = False, score_only: bool = False,
+             score_limit: int = 0) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -177,38 +178,42 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 "exclude_internships": cfg.candidate.exclude_internships,
             }
 
-        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
-                           fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
-                           max_age_days=cfg.max_age_days, candidate=candidate)
+        # --score-only skips the whole network ingest (fetch/feed/expire) and scores
+        # the existing 'new' backlog — the inverse of --fetch-only, so an operator can
+        # score a large intake without paying a full re-fetch first.
+        if not score_only:
+            pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
+                               fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
+                               max_age_days=cfg.max_age_days, candidate=candidate)
 
-        # Discovery feeds: broad listing streams resolved back to boards. Runs
-        # before scoring so feed-discovered 'new' rows are scored this same pass.
-        for feed in cfg.feeds:
-            if not feed.enabled:
-                continue
-            if feed.name == "simplify":
-                pipeline.run_feed(
-                    conn, now=now,
-                    feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
-                    keep_categories=feed.categories, feed_name=feed.name,
-                    # Bind a per-thread Session + shorter timeout into the network fns
-                    # so the concurrent fetches reuse connections and don't stall long.
-                    fetch_fn=lambda s, sl, n: fetch_company(
-                        s, sl, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                    detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
-                        s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                    resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
-                        url, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                )
+            # Discovery feeds: broad listing streams resolved back to boards. Runs
+            # before scoring so feed-discovered 'new' rows are scored this same pass.
+            for feed in cfg.feeds:
+                if not feed.enabled:
+                    continue
+                if feed.name == "simplify":
+                    pipeline.run_feed(
+                        conn, now=now,
+                        feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
+                        keep_categories=feed.categories, feed_name=feed.name,
+                        # Bind a per-thread Session + shorter timeout into the network fns
+                        # so the concurrent fetches reuse connections and don't stall long.
+                        fetch_fn=lambda s, sl, n: fetch_company(
+                            s, sl, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                        detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                            s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                        resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
+                            url, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    )
 
-        # Re-check a capped batch of live postings and expire the dead ones, so a
-        # closed req stops sitting in the queue as a dead link.
-        gone = pipeline.run_expire(
-            conn, now=now,
-            detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
-                s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
-        if gone:
-            print(f"expired {gone} dead posting(s)")
+            # Re-check a capped batch of live postings and expire the dead ones, so a
+            # closed req stops sitting in the queue as a dead link.
+            gone = pipeline.run_expire(
+                conn, now=now,
+                detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                    s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
+            if gone:
+                print(f"expired {gone} dead posting(s)")
 
         # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
@@ -339,6 +344,9 @@ def main(argv=None) -> None:
     parser.add_argument("--fetch-only", action="store_true",
                         help="run fetch/feed/expire/retry then stop, before any "
                              "screen or scorer call (quota-free board refresh)")
+    parser.add_argument("--score-only", action="store_true",
+                        help="skip the network ingest (fetch/feed/expire) and score "
+                             "the existing 'new' backlog — inverse of --fetch-only")
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
@@ -400,7 +408,8 @@ def main(argv=None) -> None:
                  codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model,
                  batch_size=args.batch_size,
-                 fetch_only=args.fetch_only, score_limit=args.score_limit)
+                 fetch_only=args.fetch_only, score_only=args.score_only,
+                 score_limit=args.score_limit)
 
     if args.once:
         once()
