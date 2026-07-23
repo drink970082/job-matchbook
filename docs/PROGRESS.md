@@ -22,6 +22,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Branch `fix/bodyless-guard-and-quota-flags` — landed, unmerged (2026-07-22).**
+  Worker code + docs on a local branch, full suite green, not yet PR'd to `main`.
+  **Shipped:** body-required guard on the board path (bodyless rows dropped + recorded
+  in `feed_unresolved`); thin-JD (< 200 char) rows skip the paid fit call; operator
+  flags `--fetch-only` / `--score-only` / `--score-limit N` (see SPEC §7.1, CHANGELOG).
+  **Exercised live:** a full `--fetch-only` pass (7,746 postings, 11 sources, 172 boards,
+  clean) and one bounded `--score-only --score-limit 50` (41 Codex calls, 4 matches).
+  **Open on this branch:** ~3,985 rows still `new` (scoring at scale is an operator
+  call); the `custom`/`browser` **scored** path is still unexercised (the bounded batch
+  hit the low-id greenhouse/phenom rows); then PR to `main`. Detail in the P0 run entry
+  below.
 - **Run the pipeline as a daemon** — the recurring 24h scheduler
   (`python -m ats_worker.run`) remains the operator's standing launch step; passes
   are currently run by hand.
