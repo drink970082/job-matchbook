@@ -22,12 +22,15 @@ UP TO TWO calls per posting, from two different backends, SCREEN-gated:
 The screen call has no résumé so it can't anchor on where the candidate lives, and
 its output is small (no truncation).
 
-`http` is injected (defaults to `None`; the real `requests` module is bound only
-in run.py) so tests exercise the SCREEN call's parsing with a fake transport and
-zero network. Ollama wraps output in
-{"response": "<json string>"} under format=json; we parse that inner string
-defensively and raise ScoreError on anything unusable so the pipeline can mark one
-posting failed, not abort the batch.
+The SCREEN call is injected as `extract(prompt, schema) -> dict` (see
+`screen_posting`'s docstring) — the ENTIRE backend contract, so a non-Ollama
+backend is a new callable, not a new branch here. `make_ollama_extract` builds the
+default one; `http` is injected into IT (defaults to `None`; the real `requests`
+module is bound only in run.py) so tests exercise the SCREEN call's parsing with a
+fake transport and zero network. Ollama wraps output in
+{"response": "<json string>"} under format=json; `_post` parses that inner string
+defensively and raises ScoreError on anything unusable, which `screen_posting`
+catches (errs toward keep) rather than letting it abort the batch.
 """
 from __future__ import annotations
 
@@ -38,7 +41,7 @@ from ats_worker.prompts import SCREEN_HEADER
 
 from .errors import ScoreError
 from .location import resolve_location
-from .prompts import _candidate_block, _job_block
+from .prompts import SCREEN_SCHEMA, _candidate_block, _job_block
 
 # How each configured hard requirement is screened. For the structured fields the
 # LLM only EXTRACTS a fact about the JOB and CODE applies the candidate's
@@ -93,35 +96,53 @@ def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) ->
     return screen
 
 
-def screen_posting(
-    posting: dict,
-    *,
-    http=None,
-    ollama_host: str,
-    model: str | None = None,
-    candidate: dict | None = None,
-    temperature: float = 0.0,
-    seed: int = 0,
-    num_ctx: int = 8192,
-    timeout: int = 180,
-) -> dict:
-    """Screen `posting` against the candidate's hard requirements — the CHEAP, local
-    half of scoring (Ollama, no résumé, no paid fit call). Combines three signals
-    into one verdict:
+def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None,
+                   num_ctx: int = 8192) -> dict:
+    """Screen `posting` against the candidate's hard requirements — the CHEAP half of
+    scoring (no résumé, no paid fit call). Combines three signals into one verdict:
 
-      1. The Ollama SCREEN call (`http`/`ollama_host`/`model`) extracts structured
-         JOB facts (required degree, sponsorship, clearance) for whatever the
-         candidate configured; CODE (`_screen_verdict`) applies the candidate's
-         constraint. Skipped entirely when no candidate constraints are configured.
-         A parse failure errs toward KEEP (not disqualified), never toward discard.
+      1. The LLM extraction call (`extract`) reports structured JOB facts (required
+         degree, sponsorship, clearance) for whatever the candidate configured; CODE
+         (`_screen_verdict`) applies the candidate's constraint. Skipped entirely when
+         no candidate constraints are configured OR when `extract` is None
+         (SCREEN_BACKEND=none). A failure errs toward KEEP, never toward discard.
       2. A deterministic intern/co-op title check, gated by `exclude_internships`.
       3. A deterministic pycountry LOCATION gate (`resolve_location`), gated by
          `candidate["locations"]`, matched against the board's location string.
 
-    Returns `{"screen": {...per-requirement verdicts...}, "disqualified": bool,
-    "disqualification_reason": str}`. Takes no fit-scorer callable — it structurally
-    cannot call the (paid) fit scorer; `pipeline.run_score` composes this and decides
-    whether `disqualified` gates out the fit call.
+    `extract(prompt, schema) -> dict` is the ENTIRE backend contract — the one step
+    that differs between ollama / codex / claude / openai / none. Build it with
+    `make_ollama_extract` or `score.backends_screen.make_extract`; run.py wires it.
+
+    Returns `{"screen": {...}, "disqualified": bool, "disqualification_reason": str}`.
+    Takes no fit-scorer callable — it structurally cannot pay for the fit call.
+    """
+    job = _job_block(posting, num_ctx * 2)
+    description = str(posting.get("description") or "")
+    checklist = _candidate_block(candidate)
+    screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    if checklist and extract is not None:
+        try:
+            data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
+            screen = _screen_verdict(data, candidate or {}, description)
+        except Exception:  # noqa: BLE001 — err toward KEEP on any provider failure
+            screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+    # Deterministic CODE gates (intern title + location string), hoisted into a
+    # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.
+    return deterministic_screen(screen, posting, candidate)
+
+
+def make_ollama_extract(*, http, ollama_host: str, model: str | None = None,
+                        temperature: float = 0.0, seed: int = 0,
+                        num_ctx: int = 8192, timeout: int = 180):
+    """Build the `extract(prompt, schema) -> dict` callable for the local Ollama
+    screen — the default backend, and the only free one.
+
+    `schema` is accepted and ignored: this call uses Ollama's `format="json"` mode,
+    which constrains output to *some* JSON object rather than to a schema. Keeping
+    the parameter means every backend has one signature; the schema-enforcing
+    backends use it. Behavior is byte-identical to the pre-seam call.
     """
     options = {
         "temperature": temperature,
@@ -132,29 +153,10 @@ def screen_posting(
         "num_predict": 512,
     }
 
-    # SCREEN — hard requirements only (job + checklist, NO résumé), the CHEAP
-    # local call. Skipped when nothing is configured. A parse failure must NOT
-    # discard the posting (or fail the row) — the design errs toward keep — so it
-    # falls back to not-screened / not-disqualified.
-    job = _job_block(posting, num_ctx * 2)
-    description = str(posting.get("description") or "")
-    checklist = _candidate_block(candidate)
-    if checklist:
-        try:
-            screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
-                                options=options, timeout=timeout)
-            screen = _screen_verdict(screen_data, candidate or {}, description)
-        except ScoreError:
-            screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    else:
-        screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    def extract(prompt: str, schema: dict) -> dict:
+        return _post(http, ollama_host, model, prompt, options=options, timeout=timeout)
 
-    # Deterministic CODE gates (intern title + location string), hoisted into a
-    # shared helper so the fetch-time pre-filter can apply the SAME verdict before
-    # the Ollama call. No LLM. Merged on top of the LLM screen verdict above.
-    screen = deterministic_screen(screen, posting, candidate)
-
-    return screen
+    return extract
 
 
 def _post(http, ollama_host: str, model: str, prompt: str, *, options: dict, timeout: int) -> dict:

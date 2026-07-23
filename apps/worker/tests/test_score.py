@@ -42,6 +42,13 @@ class FakeHttp:
         return FakeResponse({"response": self._responses[idx]})
 
 
+def _ollama(http, **kw):
+    """Build the Ollama extract for tests that assert on the HTTP request shape."""
+    kw.setdefault("ollama_host", "h")
+    kw.setdefault("model", "m")
+    return score.make_ollama_extract(http=http, **kw)
+
+
 POSTING = {
     "job_title": "Senior Python Engineer",
     "company_name": "Acme",
@@ -144,7 +151,7 @@ def test_screen_posting_disqualifies_without_calling_fit():
     # it at all, so it structurally cannot pay for a fit call — pipeline.run_score is
     # what gates on `disqualified` before ever calling the injected fit_fn.
     http = FakeHttp(json.dumps({"screen": {"clearance": {"requires_clearance": True}}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"}, num_ctx=8192)
     assert out["disqualified"] is True
     assert "screen" in out
@@ -156,7 +163,7 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     # keep on garbled extraction — not disqualified, and the screen verdict is empty.
     http = FakeHttp("this is not json {{{")
     out = score.screen_posting(
-        POSTING, http=http, ollama_host="h", model="m",
+        POSTING, extract=_ollama(http),
         candidate={"highest_degree": "Master's"},
     )
     assert out["disqualified"] is False
@@ -165,12 +172,50 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     assert len(http.calls) == 1                    # the (failed) SCREEN call
 
 
+# --- extract seam: the injected extract(prompt, schema) -> dict callable -
+
+def test_screen_posting_uses_injected_extract():
+    # The screen's only backend-specific step is "give me JSON from this prompt".
+    seen = {}
+
+    def extract(prompt, schema):
+        seen["prompt"] = prompt
+        return {"screen": {"clearance": {"requires_clearance": True}}}
+
+    out = score.screen_posting(POSTING, extract=extract,
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "clearance: requires security clearance"
+    assert "=== JOB:" in seen["prompt"]
+
+
+def test_screen_posting_without_extract_runs_deterministic_gates_only():
+    # SCREEN_BACKEND=none: no LLM call, but the intern/location gates still fire.
+    posting = dict(POSTING, job_title="Software Engineering Intern")
+    out = score.screen_posting(posting, extract=None,
+                               candidate={"exclude_internships": True,
+                                          "security_clearance": "none"})
+    assert out["disqualified"] is True
+    assert "internship" in out["disqualification_reason"]
+
+
+def test_extract_failure_errs_toward_keep():
+    # A broken provider must NEVER discard the queue.
+    def extract(prompt, schema):
+        raise score.ScoreError("provider down")
+
+    out = score.screen_posting(POSTING, extract=extract,
+                               candidate={"highest_degree": "Master's"})
+    assert out["disqualified"] is False
+    assert out["screen"] == {}
+
+
 # --- determinism / Ollama options ----------------------------------------
 
 def test_screen_request_sends_deterministic_options():
     http = FakeHttp(_screen_resp({}))
-    score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
-                         seed=7, num_ctx=4096, candidate={"highest_degree": "Master's"})
+    score.screen_posting(POSTING, extract=_ollama(http, seed=7, num_ctx=4096),
+                         num_ctx=4096, candidate={"highest_degree": "Master's"})
     opts = http.calls[0][1]["json"]["options"]
     assert opts["temperature"] == 0          # deterministic by default
     assert opts["seed"] == 7
@@ -184,7 +229,7 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     # posting["location"]), so it renders no extraction clause in the SCREEN prompt.
     http = FakeHttp(json.dumps({"screen": {}}))
     score.screen_posting(
-        POSTING, http=http, ollama_host="h", model="m",
+        POSTING, extract=_ollama(http),
         candidate={
             "highest_degree": "Master's",
             "work_authorization": "needs visa sponsorship",
@@ -206,7 +251,7 @@ def test_empty_candidate_fields_render_no_screen_call():
     # and nothing is disqualified.
     for candidate in (None, {"highest_degree": "", "locations": []}):
         http = FakeHttp()
-        out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+        out = score.screen_posting(POSTING, extract=_ollama(http),
                                    candidate=candidate)
         assert len(http.calls) == 0, candidate
         assert out["disqualified"] is False, candidate
@@ -221,7 +266,7 @@ def _screen_resp(screen):
 # location: gated in CODE off posting["location"] (pycountry), not the LLM screen
 def test_foreign_location_disqualifies_from_board_string():
     posting = {**POSTING, "location": "Shanghai, China"}
-    out = score.screen_posting(posting, http=FakeHttp(), ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "location: on-site in China"
@@ -230,7 +275,7 @@ def test_foreign_location_disqualifies_from_board_string():
 
 def test_us_state_only_location_kept():
     posting = {**POSTING, "location": "New York, New York"}
-    out = score.screen_posting(posting, http=FakeHttp(), ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is False
     assert out["screen"]["location"]["pass"] is True
@@ -239,7 +284,7 @@ def test_us_state_only_location_kept():
 def test_locations_only_candidate_makes_no_ollama_call():
     posting = {**POSTING, "location": "Sydney, Australia"}
     http = FakeHttp()
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"locations": ["remote", "USA"]})
     assert len(http.calls) == 0                               # location needs no LLM
     assert out["disqualified"] is True
@@ -247,7 +292,7 @@ def test_locations_only_candidate_makes_no_ollama_call():
 
 def test_missing_board_location_is_kept():
     posting = {**POSTING, "location": None}
-    out = score.screen_posting(posting, http=FakeHttp(), ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is False                       # err toward keep
 
@@ -280,7 +325,7 @@ def test_deterministic_screen_noop_without_candidate():
 # degree: LLM extracts required_degree, code compares rank
 def test_higher_required_degree_disqualifies():
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is True
     assert "degree" in out["disqualification_reason"]
@@ -289,7 +334,7 @@ def test_higher_required_degree_disqualifies():
 def test_lower_or_no_required_degree_passes():
     for req in ("bachelor's", "none", ""):
         http = FakeHttp(_screen_resp({"degree": {"required_degree": req}}))
-        out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+        out = score.screen_posting(POSTING, extract=_ollama(http),
                                    candidate={"highest_degree": "Master's"})
         assert out["disqualified"] is False, req
 
@@ -298,7 +343,7 @@ def test_lower_or_no_required_degree_passes():
 def test_no_sponsorship_disqualifies_when_jd_says_so():
     posting = {**POSTING, "description": "We will not sponsor visas for this role."}
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
 
@@ -307,21 +352,21 @@ def test_sponsorship_no_ignored_when_jd_silent():
     # The model invents "no" from silence; if the JD never mentions sponsorship/visa,
     # we don't trust it (treat as unknown -> pass).
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is False
 
 
 def test_unknown_sponsorship_passes():
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "unknown"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is False
 
 
 def test_citizen_never_fails_authorization():
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"work_authorization": "US citizen"})
     assert out["disqualified"] is False
 
@@ -338,7 +383,7 @@ def test_authorization_ignores_sponsor_boilerplate():
     ):
         posting = {**POSTING, "description": desc}
         http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-        out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+        out = score.screen_posting(posting, extract=_ollama(http),
                                    candidate={"work_authorization": "needs visa sponsorship"})
         assert out["disqualified"] is False, desc
 
@@ -348,7 +393,7 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
     # the phrase gate, not the 4B verdict, decides.
     posting = {**POSTING, "description": "Strong team. This position offers no visa sponsorship."}
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "unknown"}}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
 
@@ -356,14 +401,14 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
 # clearance: LLM extracts requires_clearance, code checks
 def test_clearance_required_disqualifies():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
 
 
 def test_clearance_not_required_passes():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": False}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is False
 
@@ -373,7 +418,7 @@ def test_clearance_not_required_passes():
 def test_exclude_internships_disqualifies_intern_title():
     posting = {**POSTING, "job_title": "Software Engineer Intern"}
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert out["disqualified"] is True
     assert "internship/co-op role" in out["disqualification_reason"]
@@ -381,7 +426,7 @@ def test_exclude_internships_disqualifies_intern_title():
 
 def test_exclude_internships_passes_non_intern_title():
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert out["disqualified"] is False
 
@@ -390,7 +435,7 @@ def test_intern_title_not_excluded_without_the_flag():
     # No exclude_internships -> an intern title is not auto-disqualified.
     posting = {**POSTING, "job_title": "Software Engineer Intern"}
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -400,7 +445,7 @@ def test_exclude_internships_only_makes_no_screen_call():
     # not trigger a SCREEN Ollama call.
     posting = {**POSTING, "job_title": "Backend Intern"}
     http = FakeHttp()
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert len(http.calls) == 0
     assert out["disqualified"] is True
@@ -419,7 +464,7 @@ def test_skill_gap_and_unknown_keys_do_not_disqualify():
     # An invented key (skills) is ignored; a passing configured gate doesn't fail.
     http = FakeHttp(_screen_resp({"skills": {"pass": False, "note": "no C++"},
                                   "degree": {"required_degree": "bachelor's"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert "skills" not in out["screen"]
@@ -429,7 +474,7 @@ def test_unconfigured_requirement_is_not_checked():
     # Candidate sets only degree; a stray clearance extraction must be ignored.
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True},
                                   "degree": {"required_degree": "bachelor's"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert "clearance" not in out["screen"]
@@ -449,13 +494,19 @@ def _raw_http(envelope=None, *, raise_exc=None):
     return http
 
 
-def test_screen_http_error_bubbles_up():
-    # A transport error on the SCREEN Ollama call propagates (marks the posting
-    # failed -> retried), unlike a *parse* failure which is swallowed toward keep.
+def test_screen_transport_failure_errs_toward_keep():
+    # A transport-level failure on the real Ollama-backed extract (e.g. Ollama
+    # unreachable) must ALSO err toward keep, same as a parse failure — screen_posting
+    # catches ANY extract failure, not just ScoreError (see
+    # test_extract_failure_errs_toward_keep for the same invariant via a hand-rolled
+    # extract). Before the extract seam this propagated instead; now the backend
+    # contract is "extract raised", full stop — screen_posting doesn't distinguish
+    # transport failures from parse failures, so neither can discard the posting.
     http = _raw_http(raise_exc=requests.HTTPError("ollama 500"))
-    with pytest.raises(requests.HTTPError):
-        score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
-                             candidate={"highest_degree": "Master's"})
+    out = score.screen_posting(POSTING, extract=_ollama(http),
+                               candidate={"highest_degree": "Master's"})
+    assert out["disqualified"] is False
+    assert out["screen"] == {}
 
 
 # --- the core safety invariant: empty/garbled extraction never disqualifies --
@@ -469,7 +520,7 @@ def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
     # Each gate is CONFIGURED, but the model returns an empty fact for it. The
     # design never discards on absent data, so disqualified must be False.
     http = FakeHttp(_screen_resp({gate: {}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate=candidate)
     assert out["disqualified"] is False, gate
 
@@ -477,7 +528,7 @@ def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
 def test_non_dict_gate_entry_is_treated_as_empty():
     # A garbled (non-dict) extraction for a configured gate must not crash or fail.
     http = FakeHttp(_screen_resp({"degree": "nonsense"}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -487,7 +538,7 @@ def test_non_dict_gate_entry_is_treated_as_empty():
 def test_equal_required_degree_passes_pinning_greater_than():
     # required == candidate (master's) must PASS — pins `>` (not `>=`) in the gate.
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "master's"}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -497,14 +548,14 @@ def test_equal_required_degree_passes_pinning_greater_than():
 def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
     posting = {**POSTING, "description": "We do not offer visa sponsorship."}
     http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "no sponsorship needed"})
     assert out["disqualified"] is False
 
 
 def test_candidate_holding_clearance_passes_when_role_requires_one():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "Secret"})
     assert out["disqualified"] is False
 
@@ -514,7 +565,7 @@ def test_candidate_holding_clearance_passes_when_role_requires_one():
 def test_multiple_failing_gates_join_reasons():
     posting = {**POSTING, "location": "Singapore"}
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
-    out = score.screen_posting(posting, http=http, ollama_host="h", model="m",
+    out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"highest_degree": "Master's", "locations": ["USA"]})
     assert out["disqualified"] is True
     reason = out["disqualification_reason"]

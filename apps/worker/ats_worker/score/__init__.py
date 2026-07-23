@@ -16,6 +16,7 @@ from .errors import ScoreError  # noqa: F401  (re-export)
 from .location import resolve_location, _token_country  # noqa: F401  (re-export)
 from .prompts import (  # noqa: F401  (re-export)
     _SCORE_SCHEMA,
+    SCREEN_SCHEMA,
     _job_block,
     _score_schema,
     _scorer_system_blocks,
@@ -29,6 +30,7 @@ from .screen import (  # noqa: F401  (re-export)
     _needs_sponsorship,
     _normalize_score,
     deterministic_screen,
+    make_ollama_extract,
     screen_posting,
 )
 from .usage import (  # noqa: F401  (re-export)
