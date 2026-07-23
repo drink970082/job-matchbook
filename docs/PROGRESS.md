@@ -44,94 +44,40 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Worker code + docs on a local branch, full suite green, not yet PR'd to `main`.
   **Shipped:** body-required guard on the board path (bodyless rows dropped + recorded
   in `feed_unresolved`); thin-JD (< 200 char) rows skip the paid fit call; operator
-  flags `--fetch-only` / `--score-only` / `--score-limit N` (see SPEC §7.1, CHANGELOG).
-  **Exercised live:** a full `--fetch-only` pass (7,746 postings, 11 sources, 172 boards,
-  clean) and one bounded `--score-only --score-limit 50` (41 Codex calls, 4 matches).
-  **Open on this branch:** ~3,985 rows still `new` (scoring at scale is an operator
-  call); the `custom`/`browser` **scored** path is still unexercised (the bounded batch
-  hit the low-id greenhouse/phenom rows); then PR to `main`. Detail in the P0 run entry
-  below.
+  flags `--fetch-only` / `--score-only` / `--score-limit N` (SPEC §7.1, CHANGELOG).
+  Exercised live over the full watchlist — see the run entry (P0 item 1) for the
+  intake and what it left open, then PR to `main`.
 - **Run the pipeline as a daemon** — the recurring 24h scheduler
   (`python -m ats_worker.run`) remains the operator's standing launch step; passes
   are currently run by hand.
-- **General-purpose pivot (in progress).** Broadening the product from a quant/SWE
-  niche to any field. **Shipped:** user-configurable job categories (`app_settings`,
-  first-run modal + header editor, free-form labels); a persona-neutral
-  `personal_profile.txt.example` + TARGET/ANTI-TARGET/STAGE docs in `resume/README.md`;
-  a full guided **`onboard-me` skill** — an adaptive interview that writes the fit
-  profile, résumé text, categories, `candidate` hard-constraints, a starter watchlist
-  (delegated to `onboard-board`), and `.env`, then ends on the first pipeline run
-  (**Stage 2 — done**; validated with a skill-creator eval suite; see CHANGELOG). By
-  design the fit-scoring prompt (`score.txt`) is **left untouched** — generality lives in
-  `personal_profile.txt`, and scorer-prompt edits have destabilized verdicts before
-  (SPEC §7.1).
-  - **Stage 3 — non-tech discovery feeds: deferred.** The watchlist already covers any
-    company; decide the need before building (brittle, anti-bot handling, dilutes the moat).
-- **Provider choice + universal onboarding.** Design:
-  [`superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md`](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md)
-  (the original premises), formalized into
-  [`superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md`](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md)
-  and an 11-task
-  [implementation plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
-  across 5 stages. Two premises the tool used to fail: the screen ran *only* on host
-  Ollama, so a GPU-less user could not run the pipeline at all; and nothing installed
-  worker deps, created the DB, or reported what was missing, so `onboard-me` started
-  at a step 2 whose step 0 did not exist. **Five tracks:**
-  1. **Screen backends — DONE 2026-07-23 (plan Stage 2, tasks 1-6).**
-     `SCREEN_BACKEND = ollama | codex | claude-code | claude-api | openai-api | none`,
-     default `ollama`. Six configs, three adapter shapes: HTTP+schema (`ollama`,
-     `claude-api`, `openai-api`); CLI subprocess+schema (`codex` writes the schema to
-     a **file**, `--output-schema`; `claude-code` passes it **inline**,
-     `--json-schema <json>` — not a file path despite the flag name, verified
-     behaviorally against the CLI, so the two subprocess backends are **not**
-     symmetric — earlier notes in this file that described them symmetrically were
-     stale); deterministic-only (`none`, low recall on sponsorship — falls back to the
-     closed ~2/11-recall `NO_SPONSOR_PHRASES` list). **Auto-detection never selects a
-     paid backend** — the default is always `ollama` and `make_screener` never
-     guesses. `--screen-model`/`SCREEN_MODEL` overrides the per-backend default.
-     **Not shipped here:** running the screen and fit calls concurrently
-     (`run_score` screened one row at a time) — that landed separately as plan Stage
-     5 (Task 11, DONE 2026-07-23, run independently of and before this track's
-     Stages 3-4): both loops now use the read-serial / network-parallel /
-     write-serial shape `run_feed` already proved, gated by new
-     `--screen-workers`/`--score-workers` flags (per-backend screen default: 1 for
-     `ollama`/`none`, 4 for the rest); fit concurrency is quota-neutral. (SPEC
-     §7.1/§9/§11, CHANGELOG.)
-  2. **Universality fixes — DONE 2026-07-23.** Telegram-optional (`run_once` skips notify
-     when the bot creds are absent), `make setup`, `make doctor` (`ats_worker.doctor`,
-     core-hard exit / provider rows soft), and the `OLLAMA_HOST` remote-Ollama `SETUP.md`
-     fix all shipped. (Left here as the completed anchor for tracks 3/5 that reference it;
-     see the P1 queue entry.)
-  3. **`onboard-me` Step 0 — DONE 2026-07-23.** The skill runs `make setup`, then
-     `make doctor`, then picks the provider path from what is actually installed, before
-     the interview; it reads `doctor` output instead of carrying its own prereq prose.
-     New eval id 4 covers it but has **not been executed** (see the P1 queue entry).
-  4. **Agent portability** — `SKILL.md` is a cross-agent standard, but the *paths*
-     differ: Claude Code reads `.claude/skills/`, Codex reads `.agents/skills/`, so
-     both skills are invisible to every agent but Claude Code. Move to
-     `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` (a Linux
-     Foundation standard read by 30+ agents; the repo has none).
-  5. **Sponsorship screen rework — plan Stage 3 (tasks 7-8) — SHIPPED 2026-07-23.**
-     The former defect (below) is fixed in code: `_check_authorization` /
-     `_quote_in` (`score/screen.py`) now ground the check in a quote-grounded LLM
-     primary check — the model returns `no_sponsorship_quote`, and code verifies
-     that sentence is actually present in the JD before disqualifying, so a
-     hallucinated quote is kept, not disqualified. `NO_SPONSOR_PHRASES` is demoted
-     to a floor that can only *add* a disqualification, never veto a model pass.
-     `tools/sponsor_diff.py` (also shipped) diffs the new check against the old
-     phrase list over already-scored rows. **Open operator gate:** the
-     precision/recall measurement against a hand-labeled set has not run — see
-     [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
-     below.
-
-  **Open questions:** it remains unverified whether Claude Code discovers skills
-  through a symlinked `.claude/skills` (track 4). The prior open question about the
-  OpenAI/codex screen model choice is now resolved by track 1's shipped code —
-  `openai-api` defaults to `gpt-5.6-luna`, `codex` keeps the already-trusted
-  `gpt-5.6-sol` rather than switching (the golden-set rejection of `luna` was measured
-  on *fit scoring*, a calibration-sensitive judgment that may not transfer to
-  extraction; re-measure before ever revisiting this, don't assume the fit verdict
-  carries over).
+- **General-purpose pivot — Stage 2 done, Stage 3 deferred.** Broadening the product
+  from a quant/SWE niche to any field. Stage 2 shipped: configurable job categories, a
+  persona-neutral `personal_profile.txt.example`, and the guided `onboard-me` skill
+  (CHANGELOG). **Stage 3, non-tech discovery feeds — deferred:** the watchlist already
+  covers any company, so decide the need before building (brittle, anti-bot handling,
+  dilutes the moat).
+  **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
+  fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is
+  why every `score.txt` change is gated behind `score_eval` — including the additive
+  Stage 4 block now sitting unmerged (SPEC §7.1).
+- **Provider choice + universal onboarding — 4 of 5 tracks done.** Design:
+  [notes](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md) →
+  [design](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md) →
+  [11-task plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md).
+  It closed two premises that locked out every user but the author: the screen ran
+  *only* on host Ollama, and nothing installed worker deps, created the DB, or
+  reported what was missing. **Shipped 2026-07-23** — screen backends (track 1),
+  universality fixes (track 2), `onboard-me` Step 0 (track 3) and the sponsorship
+  rework (track 5), plus screen/fit concurrency: all on the branch above, all
+  documented in SPEC §7.1/§9/§11 + CHANGELOG.
+  **Still open — track 4, agent portability** — `[S · independent, pick any time]`.
+  `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
+  `.claude/skills/`, Codex reads `.agents/skills/`, so both skills are invisible to
+  every agent but Claude Code. Move to `.agents/skills/`, symlink `.claude/skills`,
+  add a root `AGENTS.md` (a Linux Foundation standard read by 30+ agents; the repo
+  has none). **Settle first:** whether Claude Code discovers skills *through* a
+  symlinked `.claude/skills` is unverified — if it doesn't, the symlink half of the
+  plan is wrong.
 
 ---
 
@@ -149,12 +95,8 @@ The buckets below are a *catalogue* sorted by severity. This is the **queue**: w
 take first and why. Each numbered item is independently pickable.
 
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
-2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board — the two
-Citadel rows included — now yields nothing instead of poisoning the DB with permanent
-title-only rows. **Citadel decision: keep both rows as-is** — the guard makes them
-non-destructive, the detail leg's circuit-breaker bails after 3 empties, so the residual
-cost is a handful of Chromium renders per cycle and the rows self-heal if the Cloudflare
-behavior changes. Revisit only if the run shows the renders are expensive.
+2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
+yields nothing instead of poisoning the DB with permanent title-only rows.
 
 1. **Run the pipeline** — `[S · FETCH DONE 2026-07-22 (full, clean); scoring in bounded
    batches]`. A `--fetch-only` pass (unbuffered log) completed cleanly (exit 0) over the
@@ -171,63 +113,31 @@ behavior changes. Revisit only if the run shows the renders are expensive.
    50 rows → 9 screen-discarded, 41 fit-scored (**41 Codex messages, ~2% of the weekly
    budget**; 0 thin-JD skips — these all had full JDs), **4 match/match → notified**
    (Akuna x2, DRW, HRT — all on-target; DRW notified at score 58, confirming the
-   verdict, not the number, gates notify). Ordering (`score DESC, id ASC`) meant the 50
-   oldest `new` rows were the original **greenhouse+phenom** config boards, so **the
-   recipe (`custom`/`browser`) scored path is still unexercised** — a targeted score of
-   those rows is the next check. The remaining ~4k `new` rows await an operator call on
-   scoring at scale. Still open: `custom` is ~a third of the intake — a `title_filter`
-   tightening question, not a fetch bug.
+   verdict, not the number, gates notify). **Left open:** ~3,985 rows still `new` —
+   scoring at scale is an operator call; the recipe-sourced scored path is still
+   unexercised (entry below); and `custom` is ~a third of the intake, a `title_filter`
+   tightening question rather than a fetch bug.
 
-**P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
-dependency order (design: [In flight](#in-flight)).
+**P1 — unblock the branch merge.** Both gates below are cheap relative to what they
+unblock; neither has run.
 
-2. **Track 2, universality** — `[S · DONE 2026-07-23]`. Telegram is now optional (was a
-   hard `KeyError` at `run.py:271` — `run_once` skips notify when the bot creds are
-   absent, matched rows stay `scored` and show in the Discovered Jobs tab); `make setup`
-   (web+worker deps, `db-push`, non-clobbering template copies) and `make doctor`
-   (`ats_worker.doctor` — status line per prerequisite, core-hard exit, provider rows
-   soft) shipped; and the `OLLAMA_HOST` remote-Ollama correction landed in `SETUP.md`.
-   Tests + CHANGELOG + SPEC §7/§12. **Unblocks Track 3** (`onboard-me` Step 0 reads
-   `make doctor` output).
-3. **Track 1, screen backends** — `[M · DONE 2026-07-23]`. `SCREEN_BACKEND` now covers
-   six configs across three adapter shapes, `--screen-model`/`SCREEN_MODEL` overrides
-   the per-backend default, and auto-detection never selects a paid backend (see
-   [In flight](#in-flight) for the full writeup; SPEC §7.1, CHANGELOG). Screen/fit
-   concurrency (plan Stage 5, Task 11) has since shipped too — see
-   [In flight](#in-flight). **Track 5, sponsorship gate** — `[M · SHIPPED 2026-07-23]`.
-   The quote-grounded rework (plan Stage 3) is built and shipped — `_check_authorization`
-   grounds the model's `no_sponsorship_quote` against the JD text before disqualifying,
-   with `NO_SPONSOR_PHRASES` demoted to a floor that can only *add* a disqualification.
-   **Open:** the precision/recall measurement against a hand-labeled set (via
-   `tools/sponsor_diff.py`) has not run — see the
-   [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
-   section below.
-4. **Track 3 (`onboard-me` Step 0) — DONE 2026-07-23.** The skill now opens with
-   `make setup` + `make doctor` and reads doctor's status lines to pick the provider path,
-   replacing its stale hand-written prereq prose (Telegram "required", "host GPU / no
-   cloud fallback", ad-hoc `curl`/`codex doctor` probes). Step 7 shrank to
-   user-supplied values only. **Track 4 (agent portability)** — `[S]`, still open and
-   independent; can be picked any time.
-   **Caveat on 3:** the new eval scenario (`fresh-checkout-no-telegram-remote-ollama`,
-   evals.json id 4) is **written but not executed** — the eval harness is subagent-driven
-   and was not run this session. The edit's factual claims were verified against the
-   shipped code (all 9 doctor row labels match live output); the *behavioral* assertion
-   that an agent actually leads with Step 0 is unverified until that eval runs.
-
-**P2 — correctness of the scoring path.**
-
-5. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
-   BLOCKER]`. One re-run now gates **two** changes: the 2026-07-22 profile edit *and*
+2. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
+   BLOCKER]`. One re-run gates **two** changes: the 2026-07-22 profile edit *and*
    plan Stage 4's `score.txt` block (`66dfb65`). Two consecutive PASS or
    `git revert 66dfb65`; until then `feat/universality-and-onboarding` does not merge.
    Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
    set's documented Java blind spot in the same pass.
-6. **Sponsorship precision/recall labeled set** — `[M · MERGE BLOCKER · free on the
+3. **Sponsorship precision/recall labeled set** — `[M · MERGE BLOCKER · free on the
    default ollama backend]`. Run `tools/sponsor_diff.py` over the already-scored
    rows, hand-label the disagreements, record the numbers. The rework is shipped and
    its hallucination-safety holds by construction; what is unmeasured is precision —
-   specifically the misclassification residual. Detail in
-   [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
+   specifically the misclassification residual.
+
+**P2 — the last provider-choice track.**
+
+4. **Track 4, agent portability** — `[S · independent]`. Move the skills to
+   `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` — settle the
+   symlink-discovery question first (see [In flight](#in-flight)).
 
 **P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
 (`[S]`, unblocks 2 boards) → `custom` HTML mode (`[M]`, drops 6 boards off Chromium and
@@ -240,49 +150,28 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-None open. The sponsorship-gate defect that lived here shipped a fix 2026-07-23 —
-see the sponsorship-gate entry under
-[Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
-below (the fix is shipped; its precision/recall is what remains unproven).
+None open. The sponsorship-gate defect that lived here shipped its fix 2026-07-23;
+what remains is measuring it, tracked under
+[Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Both Citadel watchlist rows return description-less postings — kept anyway** —
-  `[S · measured 2026-07-22 · decision recorded 2026-07-22]`. `browser/citadel.com`
-  and `browser/citadelsecurities.com` (added
-  2026-07-18, never fetched — the last cycle ran 2026-07-13) scrape their listing
-  pages fine: 10 postings each, 10/10 on `external_id`, `job_title`, `location` and
-  `job_url` (URLs verified well-formed). But **0/10 on `description`** — precisely the
-  failure `browser.py:159` predicts: Cloudflare clears once for the listing render,
-  then re-challenges the rapid deep-link detail navigations, so every JD comes back
-  blank and the 3-empty circuit-breaker bails. `posted_at` is 0/10 too (the cards
-  carry no date). The 10-posting count also implies pagination stops at page 1
-  (`page.start: 2` renders page 2, gets nothing fresh, breaks).
-
-  Consequence, since the body-required guard shipped: both rows simply **yield nothing**
-  — the title-only postings are dropped at `run_fetch` and logged, never written. The
-  residual cost is a handful of Chromium renders per cycle (the detail leg's 3-empty
-  circuit-breaker bails early).
-
-  **The JD is unreachable at this rung — measured 2026-07-22, do not re-derive.** Three
-  probes against `citadelsecurities.com` detail pages, each with the worker's own
-  Chromium config (UA + viewport + `--disable-blink-features=AutomationControlled`):
-  (a) plain-HTTP GET of the listing → `403`, so the wall is real and it is not a stale
-  selector; (b) deep-link `goto` + 15s dwell on `.single-job-post-description` →
-  `title='Just a moment...'`, 273-char body, 0 selector matches; (c) same tab,
-  **clicking** the card from the already-cleared listing (user gesture + same-origin
-  referer) plus a further 30s dwell → byte-identical result. So the detail route is
-  challenged regardless of arrival path and does not self-clear in ~45s. Slowing or
-  re-ordering the navigations does not help; everything past this rung is a stealth
-  plugin / real browser profile / residential proxy, i.e. detection evasion plus a new
-  dependency — out of scope for this repo.
-
-  **Decision: keep both rows as-is** — they cost almost nothing and start producing on
-  their own if Citadel's Cloudflare behavior relaxes. The only other honest option is
-  deleting the two rows; dropping the `detail:` block to take title-only is now a no-op
-  (the guard would drop those rows anyway). `quant_job_boards.txt` still lists Citadel as
-  unscrapable-by-plain-HTTP, which is true and is why these are browser rows; the wall
-  simply also defeats the detail leg.
+- **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
+  `[decided 2026-07-22 · do not re-derive]`. `browser/citadel.com` and
+  `browser/citadelsecurities.com` scrape their listing pages fine (10 postings each,
+  clean on id/title/location/url) but **0/10 on `description`**: Cloudflare clears once
+  for the listing render, then re-challenges the deep-link detail navigations.
+  Three probes settled it — plain-HTTP listing GET → `403`; deep-link `goto` + 15s
+  dwell → `Just a moment...`; **clicking** the card from the already-cleared listing
+  (user gesture + same-origin referer) + 30s dwell → byte-identical. The detail route
+  is challenged regardless of arrival path and does not self-clear; everything past
+  this rung is a stealth plugin / real browser profile / residential proxy — detection
+  evasion plus a new dependency, out of scope here.
+  **Decision: keep both rows.** Since the body-required guard shipped they simply yield
+  nothing (dropped at `run_fetch`, logged), costing a few Chromium renders per cycle,
+  and they self-heal if Citadel's Cloudflare behavior relaxes. The only other honest
+  option is deleting them; dropping the `detail:` block to take title-only is now a
+  no-op, since the guard would drop those rows anyway.
 - **Stale-mount recovery — sidecar half PROVEN 2026-07-22, detection half still
   unobserved** — `[S · needs a real event]`. A live drill with a throwaway container
   (`--label autoheal=true`, always-failing healthcheck) confirmed the recovery leg
@@ -296,22 +185,20 @@ below (the fix is shipped; its precision/recall is what remains unproven).
   `chmod` is not a valid proxy, and any failure mode that spares open fds would slip
   past the probe; the observed real symptom is `SQLITE_CANTOPEN` (an *open* failure),
   which would trip it. Needs a real suspend/resume event to confirm. (SPEC §6.)
-- **The `custom` and `browser` executors — PROVEN end-to-end 2026-07-22** —
-  `[resolved · fetch only]`. Until 2026-07-22 `job_postings` held **zero** rows from
-  either source (1,169 postings, all greenhouse/lever/pinpoint/workday), so the whole
-  recipe-driven half of the fetch layer was unproven through `run_fetch`: recipe JSON
-  round-tripping out of the DB, `enable_browser_sources` gating, per-board error
-  isolation, and upsert of recipe-sourced postings had never run together. The
-  full 2026-07-22 `--fetch-only` pass exercised all of it: **custom 1,411 `new`** and
-  **browser 662 `new`** — the browser rows are google (623), careers.twosigma.com (33),
-  and rentec.com (6), all with real JDs (Citadel correctly contributes 0, dropped by the
-  guard). So both executors work through `run_fetch`. Caveat: this proves the **fetch**
-  path only. The first bounded `--score-only` batch scored the oldest `new` rows, which
-  by id were the original greenhouse+phenom config boards — so the scored/notified path
-  over **recipe-sourced** rows is **still unexercised**. Closing it needs a score run
-  that reaches `custom`/`browser` ids (e.g. a larger `--score-limit`, or scoring a
-  source-filtered slice). "Which boards over-produce" is the live follow-up — `custom` is
-  ~a third of the intake, google alone is 623 rows.
+- **`onboard-me` Step 0 — shipped, but its eval was never executed** — `[S]`. The
+  skill now opens with `make setup` + `make doctor` and reads doctor's status lines to
+  pick the provider path. Its *factual* claims were verified against shipped code (all
+  9 doctor row labels match live output), but the new eval scenario
+  (`fresh-checkout-no-telegram-remote-ollama`, evals.json id 4) is **written and never
+  run** — the harness is subagent-driven. So the *behavioral* assertion, that an agent
+  actually leads with Step 0, is unproven.
+- **The recipe-sourced `custom`/`browser` SCORED path is still unexercised** — `[S]`.
+  The 2026-07-22 full fetch proved both executors work through `run_fetch` (custom
+  1,411 `new`, browser 662 — CHANGELOG). But the one bounded `--score-only` batch hit
+  the oldest ids, which were the original greenhouse+phenom config boards, so no
+  recipe-sourced row has ever been screened, fit-scored or notified. Closing it needs a
+  score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
+  source-filtered slice.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
@@ -400,39 +287,22 @@ below (the fix is shipped; its precision/recall is what remains unproven).
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
-- **Sponsorship gate — quote-grounded rework SHIPPED 2026-07-23, precision/recall
-  still unmeasured** — `[M · needs a labeled set]`. The prior gate
-  (`NO_SPONSOR_PHRASES`, a closed 12-phrase substring list in `score/screen.py`)
-  missed ~9 of 11 realistic no-sponsorship phrasings for a candidate needing
-  sponsorship: *"US Citizenship is required"*, *"Must be a U.S. citizen or Green
-  Card holder"*, *"requires US Person status as defined by ITAR"*, *"permanent work
-  authorization … now and in the future"*, *"unable to offer immigration support at
-  this time"*, *"Visa sponsorship is not available for this position"*, *"must not
-  require employer-sponsored work authorization"*, *"No H-1B transfers"* — only the
-  two containing a literal listed phrase were caught. It was also the **one** check
-  in the screen not using the LLM, while degree and clearance — the two a phrase
-  list could nearly handle — do.
-
-  The rework (`_check_authorization` / `_quote_in`, `score/screen.py`) is now
-  shipped: the model returns `no_sponsorship_quote`, the exact JD sentence it
-  claims states sponsorship is unavailable, and CODE verifies that sentence
-  actually appears in the description before disqualifying — a hallucinated quote
-  fails verification and the posting is *kept*, so hallucination cannot disqualify
-  anything by construction rather than by trust (this holds on `qwen3.5:4b` too, so
-  **D1** needs no re-litigating). `NO_SPONSOR_PHRASES` is demoted to a floor that
-  can only *add* a disqualification, never veto a model pass, so
-  `SCREEN_BACKEND=none` (no LLM call at all) still gets its blunt catch.
-
-  **Residual risk, unclosed by quote-grounding:** *misclassification* — the model
-  quoting real-but-irrelevant text (the shape of the earlier "company-sponsored
-  sports teams" false positive, though that was the previous substring guard's
-  failure, not the model's).
-
-  **Open operator gate:** precision/recall on the new check has not been measured.
-  `tools/sponsor_diff.py` (shipped alongside the rework) diffs the quote-grounded
-  screen against the old phrase list over the ~600 already-scored rows, so only the
-  disagreements need hand-labeling (*no-sponsorship / offers / silent*) rather than
-  the full set — that labeled-set run has not happened yet. (SPEC §7.1.)
+- **Sponsorship gate — shipped 2026-07-23, precision/recall never measured** —
+  `[M · MERGE BLOCKER · needs a labeled set]`. The quote-grounded rework is in the
+  code and described in SPEC §7.1 + CHANGELOG (it replaced a closed 12-phrase
+  substring list that caught only ~2 of 11 realistic phrasings). What is *unproven* is
+  its precision.
+  **Safe by construction, so not at risk here:** hallucination. A quote absent from
+  the JD fails `_quote_in` verification and the posting is kept, so an invented
+  sentence cannot disqualify anything — this holds on `qwen3.5:4b` too, so **D1**
+  needs no re-litigating.
+  **The actual residual:** *misclassification* — the model quoting real-but-irrelevant
+  JD text and reading it as a no-sponsorship statement. Quote-grounding cannot close
+  this, which is exactly what the labeled set is for.
+  **Open operator gate:** run `tools/sponsor_diff.py` over the ~600 already-scored
+  rows — it diffs the new check against the old phrase list so only the
+  *disagreements* need hand-labeling (*no-sponsorship / offers / silent*), not the
+  full set. That run has not happened.
 
 ### Enhancements — not built, optional
 
@@ -479,7 +349,6 @@ below (the fix is shipped; its precision/recall is what remains unproven).
   in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
-
 - **Discovered Jobs README screenshot** — `[XS]`. The prose is now expanded to Track
   parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
   actions). Still missing: an inline screenshot of the tab to match the "Track"
