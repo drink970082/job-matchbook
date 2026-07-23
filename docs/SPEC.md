@@ -663,7 +663,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link, plus an optional `Resume: <label>` line when `score_detail`
   carries `recommended_resume`) — a single atomic message per match; the human
-  applies by hand.
+  applies by hand. **Telegram is optional:** if `TELEGRAM_BOT_TOKEN` /
+  `TELEGRAM_CHAT_ID` are absent from `.env`, `run_once` skips `run_notify` and matched
+  rows stay `scored` — still visible in the web Discovered Jobs Matched bucket
+  (`pipeline_status IN ('scored','notified')`), just with no push alert.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
   `run_fetch` → (`run_feed`) → `run_expire` → `run_retry` → `run_score` →
@@ -1461,10 +1464,18 @@ form, the tracker-only vs. full-pipeline decision, and which settings live in
 
 **Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 20+ and Python
 3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
-not containerized (§6); Ollama + an NVIDIA GPU on the **host** for the
-hard-requirements screen; the Codex CLI on the operator's ChatGPT subscription
-for fit scoring by default (`codex login`), or an Anthropic API key for the
-metered `claude` alternate; a Telegram bot for alerts.
+not containerized (§6); Ollama reachable for the hard-requirements screen — a
+local GPU, or a remote/cloud instance via `OLLAMA_HOST`; the Codex CLI on the
+operator's ChatGPT subscription for fit scoring by default (`codex login`), or an
+Anthropic API key for the metered `claude` alternate; and **optionally** a
+Telegram bot for push alerts — without it, matches still surface in the web
+Discovered Jobs tab (§7), just with no push.
+
+`make setup` bootstraps a checkout in one command (web + worker deps, `db-push`,
+and non-clobbering `*.example` template copies); `make doctor` is the preflight —
+one status line per prerequisite, exiting non-zero only when a *universal* one
+(worker deps + a set-up DB) is missing, while provider rows (ollama/codex/claude/
+telegram/…) report `ok`/`no` without failing the exit code.
 
 **Web app only (no pipeline):**
 
@@ -1476,7 +1487,10 @@ npx prisma db push          # if db/applications.db doesn't exist yet
 UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 ```
 
-**Full pipeline:**
+**Full pipeline:** `make setup` does deps, `db-push`, and steps 1 and 3's **config**
+copies (only when the target is absent); then fill in the copied files. It does *not*
+do step 2 — a placeholder `resume.txt` would be loaded as a real résumé version, so an
+absent file (which fails loudly) is safer. Longhand:
 
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ the eleven watchlist-capable boards {greenhouse, lever, ashby,

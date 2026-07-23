@@ -8,7 +8,7 @@ PY     := python3   # the host ships python3, not a bare `python`
 DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: make seed-dev DB=...)
 COUNT  := 40                                 # rows for seed-dev
 
-.PHONY: help install dev build lint test test-web test-worker \
+.PHONY: help install setup doctor dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema check-privacy up down db-push seed-dev \
         eval-score
 
@@ -18,6 +18,24 @@ help: ## Show this help
 
 install: ## Install web dependencies
 	cd $(WEB) && npm install
+
+setup: install ## Full local setup: web + worker deps, DB, and non-clobbering template copies
+	$(PY) -m pip install -r $(WORKER)/requirements.txt -r $(WORKER)/requirements-dev.txt
+	$(MAKE) db-push
+	@# Only the two inert config templates. resume.txt / personal_profile.txt are
+	@# deliberately NOT copied: every resume/*.txt is loaded as a resume version, so a
+	@# forgotten placeholder would silently score against "TEMPLATE - REPLACE ME",
+	@# while an absent file fails loudly and points at resume/README.md.
+	@for f in .env config.yaml; do \
+		src=$(WORKER)/$$f.example; dst=$(WORKER)/$$f; \
+		if [ -e "$$dst" ]; then echo "kept existing $$dst"; \
+		elif [ -f "$$src" ]; then cp "$$src" "$$dst"; echo "created $$dst (fill it in)"; fi; \
+	done
+	@echo "setup done — run 'make doctor', then edit $(WORKER)/.env and config.yaml"
+	@echo "then add your resume: $(WORKER)/resume/resume.txt (see resume/README.md)"
+
+doctor: ## Preflight: report worker prerequisites (exits non-zero only if a core one is missing)
+	cd $(WORKER) && $(PY) -m ats_worker.doctor
 
 dev: ## Run the Next.js dev server (http://localhost:3000)
 	cd $(WEB) && npm run dev

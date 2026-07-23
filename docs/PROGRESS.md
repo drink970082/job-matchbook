@@ -63,14 +63,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
      domain-verdict bleed that parked `DEFAULT_BATCH_SIZE = 1` is a cross-JD
      *judgment* problem and does not transfer to per-JD fact extraction) and run
      screens concurrently (`run_score` screens in a serial loop today).
-  2. **Universality fixes** — Telegram is currently *mandatory*
-     (`run_once` does `env["TELEGRAM_BOT_TOKEN"]` → `KeyError`), so someone happy to
-     review the Discovered Jobs tab cannot run the worker; `make setup` (deps + DB +
-     template copies) and `make doctor` (pass/fail preflight); document that `OLLAMA_HOST`
-     already supports a remote/cloud Ollama, which `SETUP.md` currently denies.
-  3. **`onboard-me` Step 0** — run `make setup`, then `make doctor`, then pick the
-     provider path from what is actually installed, before the interview. The skill
-     reads `doctor` output instead of carrying its own prereq prose.
+  2. **Universality fixes — DONE 2026-07-23.** Telegram-optional (`run_once` skips notify
+     when the bot creds are absent), `make setup`, `make doctor` (`ats_worker.doctor`,
+     core-hard exit / provider rows soft), and the `OLLAMA_HOST` remote-Ollama `SETUP.md`
+     fix all shipped. (Left here as the completed anchor for tracks 3/5 that reference it;
+     see the P1 queue entry.)
+  3. **`onboard-me` Step 0 — DONE 2026-07-23.** The skill runs `make setup`, then
+     `make doctor`, then picks the provider path from what is actually installed, before
+     the interview; it reads `doctor` output instead of carrying its own prereq prose.
+     New eval id 4 covers it but has **not been executed** (see the P1 queue entry).
   4. **Agent portability** — `SKILL.md` is a cross-agent standard, but the *paths*
      differ: Claude Code reads `.claude/skills/`, Codex reads `.agents/skills/`, so
      both skills are invisible to every agent but Claude Code. Move to
@@ -133,17 +134,29 @@ behavior changes. Revisit only if the run shows the renders are expensive.
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
 
-2. **Track 2, universality** — `[S]`. Telegram is a hard `KeyError` (`run.py:257`), so a
-   user content with the Discovered Jobs tab cannot run the worker at all. Plus
-   `make setup` / `make doctor`, and the `OLLAMA_HOST` remote-Ollama correction in
-   `SETUP.md`. Cheapest, unblocks the most people, and (1) is a live rehearsal for it.
+2. **Track 2, universality** — `[S · DONE 2026-07-23]`. Telegram is now optional (was a
+   hard `KeyError` at `run.py:271` — `run_once` skips notify when the bot creds are
+   absent, matched rows stay `scored` and show in the Discovered Jobs tab); `make setup`
+   (web+worker deps, `db-push`, non-clobbering template copies) and `make doctor`
+   (`ats_worker.doctor` — status line per prerequisite, core-hard exit, provider rows
+   soft) shipped; and the `OLLAMA_HOST` remote-Ollama correction landed in `SETUP.md`.
+   Tests + CHANGELOG + SPEC §7/§12. **Unblocks Track 3** (`onboard-me` Step 0 reads
+   `make doctor` output).
 3. **Track 1, screen backends + track 5, sponsorship gate** — `[M]`. Land together:
    both rewrite the screen call. A GPU-less user currently cannot screen at all, and the
    sponsorship gate — the highest-value check for any sponsorship-needing user — is the
    *only* screen check not using the LLM. Batching + concurrency ride along.
-4. **Track 3 (`onboard-me` Step 0)** and **track 4 (agent portability)** — `[S each]`.
-   Both are downstream of (2)/(3); 3 needs `make doctor` to exist, 4 is independent and
-   can be picked any time.
+4. **Track 3 (`onboard-me` Step 0) — DONE 2026-07-23.** The skill now opens with
+   `make setup` + `make doctor` and reads doctor's status lines to pick the provider path,
+   replacing its stale hand-written prereq prose (Telegram "required", "host GPU / no
+   cloud fallback", ad-hoc `curl`/`codex doctor` probes). Step 7 shrank to
+   user-supplied values only. **Track 4 (agent portability)** — `[S]`, still open and
+   independent; can be picked any time.
+   **Caveat on 3:** the new eval scenario (`fresh-checkout-no-telegram-remote-ollama`,
+   evals.json id 4) is **written but not executed** — the eval harness is subagent-driven
+   and was not run this session. The edit's factual claims were verified against the
+   shipped code (all 9 doctor row labels match live output); the *behavioral* assertion
+   that an agent actually leads with Step 0 is unverified until that eval runs.
 
 **P2 — correctness of the scoring path.**
 
@@ -233,11 +246,19 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   (the guard would drop those rows anyway). `quant_job_boards.txt` still lists Citadel as
   unscrapable-by-plain-HTTP, which is true and is why these are browser rows; the wall
   simply also defeats the detail leg.
-- **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
-  `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
-  healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
-  Unproven: recovery from an *actual* WSL2 stale-bind-mount event — never observed,
-  not unit-testable (needs a live event or manual drill). (SPEC §6.)
+- **Stale-mount recovery — sidecar half PROVEN 2026-07-22, detection half still
+  unobserved** — `[S · needs a real event]`. A live drill with a throwaway container
+  (`--label autoheal=true`, always-failing healthcheck) confirmed the recovery leg
+  end-to-end: unhealthy at ~17s, `autoheal` logged *"found to be unhealthy - Restarting
+  container now"* and restarted it ~31s after start. So label + Docker socket + poll
+  interval all work; combined with `health.test.ts` (200/503 logic) the only unproven
+  link is **detection** — that a real WSL2 stale mount actually makes Prisma's probe
+  fail. That half is not simulable: a `chmod 000` drill on the live DB left
+  `/api/health` at **200 for 5 minutes**, because Prisma holds an open fd and POSIX
+  checks permissions at `open()`, not on reads through an existing descriptor. So
+  `chmod` is not a valid proxy, and any failure mode that spares open fds would slip
+  past the probe; the observed real symptom is `SQLITE_CANTOPEN` (an *open* failure),
+  which would trip it. Needs a real suspend/resume event to confirm. (SPEC §6.)
 - **The `custom` and `browser` executors — PROVEN end-to-end 2026-07-22** —
   `[resolved · fetch only]`. Until 2026-07-22 `job_postings` held **zero** rows from
   either source (1,169 postings, all greenhouse/lever/pinpoint/workday), so the whole

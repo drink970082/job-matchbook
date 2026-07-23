@@ -9,6 +9,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Telegram is now optional — a bot token is no longer required to run the worker.**
+  `run_once` read `env["TELEGRAM_BOT_TOKEN"]` / `env["TELEGRAM_CHAT_ID"]` as bare dict
+  access, so a user without a bot hit a hard `KeyError` at the notify stage after a full
+  fetch/score — locking out anyone happy to review matches in the web **Discovered Jobs**
+  tab (whose Matched bucket already surfaces `scored` rows, not just `notified`). When
+  either credential is absent the worker now skips `run_notify` with a one-line notice and
+  leaves matched rows `scored`; supply both to re-enable push alerts. (SETUP.md,
+  SPEC §7.)
+
 - **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
   (non-empty id + title + description) ran on the feed's detail path only; the watchlist
   board path upserted whatever an adapter returned, and `run_score` never checked the
@@ -38,6 +47,37 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   shared by the pre-fit gate and `get_notifiable`.
 
 ### Added
+
+- **`onboard-me` skill gained a Step 0 and stopped carrying its own prereq prose.** The
+  skill began at "write the profile", assuming a checkout that already worked, and
+  hand-asserted prerequisites that had since gone stale (Telegram "required for the
+  pipeline"; the screen running on a "host GPU … no cloud fallback"; ad-hoc `curl` /
+  `codex doctor` probes). It now opens with **Step 0 — `make setup` then `make doctor`**,
+  and reads doctor's status lines to pick the user's provider path instead of describing
+  prerequisites from memory, with a row-by-row table of what a `[no]` means for each
+  check. Step 7 shrank to just the values only a user can supply. Because doctor's
+  provider rows are informational, the skill is explicitly told they are "a status line,
+  not a verdict" — Telegram absent is a fine outcome, and a remote `OLLAMA_HOST` replaces
+  the local-GPU requirement. Also makes the skill agent-agnostic: it reads a command's
+  output rather than embedding harness-specific prereq prose. New eval scenario
+  (`fresh-checkout-no-telegram-remote-ollama`) covers the behavior.
+
+- **`make setup` and `make doctor` — one-command bootstrap and a preflight.** A fresh
+  checkout had no path to a runnable worker: nothing installed deps, created the DB, or
+  reported what was missing. `make setup` now installs web + worker deps, runs `db-push`,
+  and copies the two **config** templates (`config.yaml`, `.env`) to their targets **only
+  when the target is absent** (never clobbering a filled-in file). It deliberately does
+  *not* create `resume.txt`/`personal_profile.txt`: every `resume/*.txt` is loaded as a
+  résumé version, so a forgotten placeholder would silently be scored as the user's real
+  résumé, whereas an absent file fails loudly and points at `resume/README.md`.
+  `make doctor`
+  (`python -m ats_worker.doctor`) prints one ASCII status line per prerequisite
+  (worker deps · database · ollama · codex · claude · anthropic key · node · docker ·
+  telegram) and exits non-zero **only** when a *universal* prerequisite is missing
+  (worker deps + a set-up DB); provider rows report `ok`/`no` but never fail the exit
+  code, since which provider is required depends on the path the user picks — the data
+  `onboard-me` Step 0 will read to pick it. Doctor imports only the standard library, so
+  it runs even on a checkout whose deps are missing — the state it exists to diagnose.
 
 - **`--fetch-only`, `--score-only`, and `--score-limit` operator flags
   (`ats_worker.run`).** `--fetch-only` runs fetch/feed/expire/retry then stops before any

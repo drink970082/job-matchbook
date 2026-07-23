@@ -50,6 +50,8 @@ tools/         check_schema_drift.mjs · check_privacy.mjs
 ## Run / test / build (from repo root)
 
 ```bash
+make setup          # one-command bootstrap: web+worker deps, DB, non-clobbering template copies
+make doctor         # preflight: status line per prerequisite (core-hard exit, provider rows soft)
 make dev            # Next.js dev server → http://localhost:3000
 make test           # both suites (Jest + pytest)
 make test-web       # Jest only       make test-worker   # pytest only

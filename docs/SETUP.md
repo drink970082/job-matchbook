@@ -21,20 +21,21 @@ Two things to internalise before anything else:
 | Docker + Compose (≥ 24) | The web app | Required for the web app |
 | Node 20+ | Web dev/tests (and non-Docker run) | Required unless you only use Docker |
 | Python 3.11+ | **The worker** (native) | Required for the pipeline |
-| **NVIDIA GPU + Ollama** on the host | The local hard-requirements screen | Required for the pipeline; the screen has no cloud fallback |
+| **Ollama** reachable (local GPU, or remote via `OLLAMA_HOST`) | The hard-requirements screen | Required for the pipeline; no local GPU? point `OLLAMA_HOST` at a remote/cloud Ollama |
 | **Codex CLI + a ChatGPT subscription** | Fit scoring (the **default** backend) | No subscription? Use `SCORE_BACKEND=claude` + an `ANTHROPIC_API_KEY` (metered) |
-| A Telegram bot | Match alerts | Required for the pipeline (only notify channel) |
+| A Telegram bot | Match alerts (**optional**) | Skip it — matches still land in the web Discovered-Jobs tab, just without a push alert |
 
 ## Three things that surprise everyone
 
 1. **`docker compose up` starts only the web app.** The worker is deliberately
-   *not* containerised (it needs the host GPU and your `codex login`). You start it
+   *not* containerised (it needs host-side Ollama and your `codex login`). You start it
    yourself: `cd apps/worker && python -m ats_worker.run`.
 2. **The default fit scorer needs a ChatGPT subscription**, not an API key. Run
    `codex login` once on the worker host (`codex doctor` should show auth ok). No
    subscription → switch the backend to `claude` and supply `ANTHROPIC_API_KEY`.
-3. **The screen needs a GPU.** Ollama runs on the host and the worker reaches it at
-   `localhost:11434`. There's no cloud fallback for the hard-requirements screen.
+3. **The screen needs Ollama, not necessarily a local GPU.** The worker reaches it at
+   `localhost:11434` by default; set `OLLAMA_HOST` to point at a remote or cloud Ollama
+   if the worker host has no GPU.
 
 ## Path A — tracker only (~5 min)
 
@@ -50,14 +51,18 @@ make install && make db-push && make dev     # → http://localhost:3000
 
 ## Path B — full pipeline
 
-Do Path A first, then follow the numbered steps in
-[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment) — copy the three gitignored
-inputs (`config.yaml`, `.env`, `resume/`), fill them in, and run one pass.
+Fastest start: **`make setup`** — installs web + worker deps, creates the DB, and copies
+the gitignored config templates (`config.yaml`, `.env`) *only where they don't already
+exist*. Fill those in, add your own `resume/resume.txt` (deliberately not templated — a
+placeholder there would be scored as your real résumé), then run **`make doctor`** to
+check what's present before the first pass. (Or follow the longhand numbered steps in
+[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment).)
 
 Two things worth knowing before you start: unknown or typo'd `config.yaml` keys
 fail loud at startup (a stale field can never silently do nothing), and the first
 run to aim for is `python -m ats_worker.run --once` — a single pass whose matches
-land in Telegram and the Discovered-Jobs tab. Drop `--once` to run on a schedule.
+land in the Discovered-Jobs tab (and Telegram too, if you configured a bot). Drop
+`--once` to run on a schedule.
 
 ## Where each setting lives (this trips people up)
 

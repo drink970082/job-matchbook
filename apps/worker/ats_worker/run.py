@@ -264,13 +264,15 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
                            batch_size=batch_size, limit=score_limit)
 
-        pipeline.run_notify(
-            conn,
-            now=now,
-            notify_fn=notify_posting,
-            token=env["TELEGRAM_BOT_TOKEN"],
-            chat_id=env["TELEGRAM_CHAT_ID"],
-        )
+        # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
+        # rows show there at 'scored', not just 'notified') can run with no bot creds.
+        token, chat_id = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_CHAT_ID")
+        if token and chat_id:
+            pipeline.run_notify(conn, now=now, notify_fn=notify_posting,
+                                token=token, chat_id=chat_id)
+        else:
+            print("no TELEGRAM_BOT_TOKEN/CHAT_ID: skipping notify "
+                  "(matched rows are in the web Discovered Jobs tab)")
     finally:
         conn.close()
 

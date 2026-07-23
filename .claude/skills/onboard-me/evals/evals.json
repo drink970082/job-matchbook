@@ -6,19 +6,51 @@
       "id": 0,
       "name": "full-onboard-finance",
       "prompt": "Onboard me — set up this whole thing for my job search. I'm a mid-level finance person, about 4 years in, currently in equity research and trying to move to the buy-side. My #1 target is private equity, then investment banking, and I'd still take equity research roles. I definitely do NOT want sales & trading or back-office / operations roles. Hard requirements: I need visa sponsorship, I can only work in New York City or fully remote, I have a Master's degree, no security clearance, and no internships. I'm genuinely into fintech and payments. My résumé is the text file at .claude/skills/onboard-me/evals/fixtures/finance_resume.txt . Also please get Databricks (boards.greenhouse.io/databricks) onto my watchlist. Take me all the way to the point of the first run, but don't actually launch the pipeline — I'll kick it off myself.",
-      "files": [".claude/skills/onboard-me/evals/fixtures/finance_resume.txt"],
+      "files": [
+        ".claude/skills/onboard-me/evals/fixtures/finance_resume.txt"
+      ],
       "expected_output": "A full guided setup: writes apps/worker/resume/personal_profile.txt with all six sections (STAGE, TARGET priority order, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS), PE ranked above IB and sales&trading/ops as anti-targets; writes apps/worker/resume/resume.txt from the fixture's real text; fills config.yaml candidate block (needs visa sponsorship, Master's, NYC+remote, exclude_internships true); sets finance categories in the DB with an Others catch-all; delegates the Databricks add to the onboard-board flow (greenhouse platform, no new adapter); ends by presenting `python -m ats_worker.run --once`. Never edits score.txt.",
       "assertions": [
-        {"name": "profile_file_written", "text": "apps/worker/resume/personal_profile.txt was created."},
-        {"name": "profile_has_all_sections", "text": "The profile contains all six section headers: STAGE, TARGET, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS."},
-        {"name": "profile_target_order_correct", "text": "In the TARGET section, private equity is priority 1 and appears before investment banking."},
-        {"name": "profile_anti_targets_correct", "text": "ANTI-TARGETS lists sales & trading and/or back-office/operations."},
-        {"name": "resume_text_ingested", "text": "apps/worker/resume/resume.txt exists and contains real résumé content from the fixture (e.g. 'Equity Research' and 'Columbia'), not a placeholder."},
-        {"name": "candidate_constraints_set", "text": "config.yaml candidate block sets work_authorization to 'needs visa sponsorship', highest_degree 'Master\\'s', exclude_internships true, and locations covering NYC + remote."},
-        {"name": "categories_persisted", "text": "The app_settings 'categories' DB row is set to finance labels and includes an Others catch-all."},
-        {"name": "watchlist_delegated", "text": "Databricks is added via the onboard-board platform path (greenhouse/databricks) — no new adapter file and no hand-rolled scraper."},
-        {"name": "first_run_surfaced", "text": "The run ends by presenting `python -m ats_worker.run --once` as the activation step."},
-        {"name": "score_txt_untouched", "text": "apps/worker/ats_worker/prompts/score.txt was not modified."}
+        {
+          "name": "profile_file_written",
+          "text": "apps/worker/resume/personal_profile.txt was created."
+        },
+        {
+          "name": "profile_has_all_sections",
+          "text": "The profile contains all six section headers: STAGE, TARGET, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS."
+        },
+        {
+          "name": "profile_target_order_correct",
+          "text": "In the TARGET section, private equity is priority 1 and appears before investment banking."
+        },
+        {
+          "name": "profile_anti_targets_correct",
+          "text": "ANTI-TARGETS lists sales & trading and/or back-office/operations."
+        },
+        {
+          "name": "resume_text_ingested",
+          "text": "apps/worker/resume/resume.txt exists and contains real résumé content from the fixture (e.g. 'Equity Research' and 'Columbia'), not a placeholder."
+        },
+        {
+          "name": "candidate_constraints_set",
+          "text": "config.yaml candidate block sets work_authorization to 'needs visa sponsorship', highest_degree 'Master\\'s', exclude_internships true, and locations covering NYC + remote."
+        },
+        {
+          "name": "categories_persisted",
+          "text": "The app_settings 'categories' DB row is set to finance labels and includes an Others catch-all."
+        },
+        {
+          "name": "watchlist_delegated",
+          "text": "Databricks is added via the onboard-board platform path (greenhouse/databricks) — no new adapter file and no hand-rolled scraper."
+        },
+        {
+          "name": "first_run_surfaced",
+          "text": "The run ends by presenting `python -m ats_worker.run --once` as the activation step."
+        },
+        {
+          "name": "score_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+        }
       ]
     },
     {
@@ -28,26 +60,61 @@
       "files": [],
       "expected_output": "Does the ONE thing asked: sets the DB categories to Product Management / Growth / Product Marketing plus an Others catch-all, and stops. Does not build a profile, edit config.yaml, ingest a résumé, or run the pipeline — the user only asked for categories.",
       "assertions": [
-        {"name": "categories_persisted", "text": "The app_settings 'categories' DB row is set to Product Management, Growth, Product Marketing, plus an Others catch-all."},
-        {"name": "scope_respected_no_profile", "text": "personal_profile.txt was NOT created (the user only asked for categories)."},
-        {"name": "scope_respected_no_config", "text": "The config.yaml candidate block was NOT written/edited."},
-        {"name": "score_txt_untouched", "text": "apps/worker/ats_worker/prompts/score.txt was not modified."}
+        {
+          "name": "categories_persisted",
+          "text": "The app_settings 'categories' DB row is set to Product Management, Growth, Product Marketing, plus an Others catch-all."
+        },
+        {
+          "name": "scope_respected_no_profile",
+          "text": "personal_profile.txt was NOT created (the user only asked for categories)."
+        },
+        {
+          "name": "scope_respected_no_config",
+          "text": "The config.yaml candidate block was NOT written/edited."
+        },
+        {
+          "name": "score_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+        }
       ]
     },
     {
       "id": 2,
       "name": "profile-and-docx-resume-design",
       "prompt": "Help me build my fit profile and pull in my résumé. I'm a senior product designer, 7 years in. I want to move toward staff/lead IC design and design-systems ownership — I'm not interested in pure visual/marketing design or agency / client-services work. I care a lot about design tools and developer-facing products. My résumé is the Word doc at .claude/skills/onboard-me/evals/fixtures/design_resume.docx . Just the profile and résumé for now.",
-      "files": [".claude/skills/onboard-me/evals/fixtures/design_resume.docx"],
+      "files": [
+        ".claude/skills/onboard-me/evals/fixtures/design_resume.docx"
+      ],
       "expected_output": "Writes apps/worker/resume/personal_profile.txt (all six sections; STAGE reflects senior/~7yr; TARGET is design-systems / staff-lead IC design; ANTI-TARGETS covers agency/client-services and marketing/visual design) and extracts the .docx into apps/worker/resume/resume.txt as clean text. Does the profile + résumé only — no categories, watchlist, or .env, since that's all the user asked for. Never edits score.txt.",
       "assertions": [
-        {"name": "profile_file_written", "text": "apps/worker/resume/personal_profile.txt was created."},
-        {"name": "profile_has_all_sections", "text": "The profile contains all six section headers: STAGE, TARGET, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS."},
-        {"name": "profile_stage_senior", "text": "The STAGE section reflects a senior designer with roughly 7 years of experience."},
-        {"name": "profile_targets_correct", "text": "TARGET mentions design systems and/or staff-lead IC design; ANTI-TARGETS covers agency/client-services and/or marketing/visual design."},
-        {"name": "resume_docx_extracted", "text": "apps/worker/resume/resume.txt exists and contains real content from the .docx (e.g. 'Northwind' and 'design system'), proving the docx was extracted — not XML tags and not a punt."},
-        {"name": "scope_respected_partial", "text": "The run does profile + résumé only; it does NOT set categories, add watchlist boards, or write .env."},
-        {"name": "score_txt_untouched", "text": "apps/worker/ats_worker/prompts/score.txt was not modified."}
+        {
+          "name": "profile_file_written",
+          "text": "apps/worker/resume/personal_profile.txt was created."
+        },
+        {
+          "name": "profile_has_all_sections",
+          "text": "The profile contains all six section headers: STAGE, TARGET, ANTI-TARGETS, POSITIONING, INTERESTS, CAVEATS."
+        },
+        {
+          "name": "profile_stage_senior",
+          "text": "The STAGE section reflects a senior designer with roughly 7 years of experience."
+        },
+        {
+          "name": "profile_targets_correct",
+          "text": "TARGET mentions design systems and/or staff-lead IC design; ANTI-TARGETS covers agency/client-services and/or marketing/visual design."
+        },
+        {
+          "name": "resume_docx_extracted",
+          "text": "apps/worker/resume/resume.txt exists and contains real content from the .docx (e.g. 'Northwind' and 'design system'), proving the docx was extracted — not XML tags and not a punt."
+        },
+        {
+          "name": "scope_respected_partial",
+          "text": "The run does profile + résumé only; it does NOT set categories, add watchlist boards, or write .env."
+        },
+        {
+          "name": "score_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+        }
       ]
     },
     {
@@ -58,10 +125,57 @@
       "note": "Discriminating case for the conversational path: the user's whole message is 'onboard me' with zero context. Correct behavior is to ASK (walk them through it) — NOT to invent a persona, targets, résumé, or companies and write personal files from made-up data. Unlike evals 0-2, this run is allowed to ask questions and stop.",
       "expected_output": "Follows the skill's adaptive Step 1: recognizes there is nothing to work with and asks the user for their targets/stage/dealbreakers/résumé/companies (conversationally), then stops awaiting answers. Does NOT fabricate a profile, does NOT set categories or a watchlist from invented data, does NOT run the pipeline, and never touches score.txt.",
       "assertions": [
-        {"name": "asks_not_fabricates", "text": "The run asks the user for their information (targets, stage, dealbreakers, résumé, companies) rather than inventing a persona and proceeding."},
-        {"name": "no_fabricated_profile", "text": "No personal_profile.txt with invented career specifics was written (ideally the file isn't written at all, because there's nothing real to write)."},
-        {"name": "no_invented_db_writes", "text": "No categories row and no watchlist rows were written from made-up data (categories empty, watched_companies empty)."},
-        {"name": "score_txt_untouched", "text": "apps/worker/ats_worker/prompts/score.txt was not modified."}
+        {
+          "name": "asks_not_fabricates",
+          "text": "The run asks the user for their information (targets, stage, dealbreakers, résumé, companies) rather than inventing a persona and proceeding."
+        },
+        {
+          "name": "no_fabricated_profile",
+          "text": "No personal_profile.txt with invented career specifics was written (ideally the file isn't written at all, because there's nothing real to write)."
+        },
+        {
+          "name": "no_invented_db_writes",
+          "text": "No categories row and no watchlist rows were written from made-up data (categories empty, watched_companies empty)."
+        },
+        {
+          "name": "score_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "fresh-checkout-no-telegram-remote-ollama",
+      "prompt": "I just cloned this repo fresh and want it running for my job hunt. Two things about my setup: I don't have a Telegram account and don't want push alerts — I'm happy just checking the web UI. And this laptop has no NVIDIA GPU, but I do have Ollama running on my home server at http://192.168.1.50:11434 . I have a ChatGPT Plus subscription. About me: mid-level finance, ~4 years, equity research moving to the buy-side; #1 target private equity, then investment banking. Not sales & trading or back-office. I need visa sponsorship, NYC or fully remote, Master's, no clearance, no internships. My résumé is .claude/skills/onboard-me/evals/fixtures/finance_resume.txt . Get the checkout ready and set me up, but don't launch the pipeline.",
+      "files": [
+        ".claude/skills/onboard-me/evals/fixtures/finance_resume.txt"
+      ],
+      "expected_output": "Runs Step 0 (`make setup` then `make doctor`) before/early in the setup and reads the status lines rather than treating every row as mandatory. Accepts that Telegram is optional and proceeds without it, telling the user matches appear in the Discovered Jobs tab. Sets OLLAMA_HOST to the remote server URL instead of insisting on a local GPU. Uses the codex fit backend given the ChatGPT subscription. Then does the normal profile/resume/config/categories work and stops before launching the pipeline. Fabricates no secrets.",
+      "assertions": [
+        {
+          "name": "step0_consults_doctor",
+          "text": "The run determines prerequisites by running Step 0's tooling — `make doctor` (and/or `make setup`) — and reasons from its status lines, rather than asserting prerequisites from memory or hand-probing with ad-hoc curl / `codex doctor` commands. (Sandbox note: `make setup`'s npm/pip installs may legitimately be skipped or fail offline; consulting `make doctor` is the behavior under test.)"
+        },
+        {
+          "name": "telegram_treated_as_optional",
+          "text": "The run does NOT tell the user Telegram is required or block setup on it; it proceeds without TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID and notes matches still appear in the web Discovered Jobs tab."
+        },
+        {
+          "name": "remote_ollama_accepted",
+          "text": "OLLAMA_HOST is set to the user's remote server http://192.168.1.50:11434, and the run does NOT claim a local GPU is mandatory or that the screen has no remote/cloud option."
+        },
+        {
+          "name": "no_fabricated_secrets",
+          "text": "No invented token, API key, or chat id values were written into apps/worker/.env — only values the user actually supplied (or left blank/commented)."
+        },
+        {
+          "name": "resume_is_real_not_placeholder",
+          "text": "apps/worker/resume/resume.txt contains the fixture's real resume content (e.g. 'Equity Research') and NOT the 'TEMPLATE plain-text resume' placeholder text."
+        },
+        {
+          "name": "score_txt_untouched",
+          "text": "apps/worker/ats_worker/prompts/score.txt was not modified."
+        }
       ]
     }
   ]

@@ -157,6 +157,32 @@ def test_run_once_score_only_skips_ingest(monkeypatch):
     assert order == ["run_retry", "run_score", "run_notify"]  # no fetch/expire
 
 
+def test_run_once_without_telegram_skips_notify(monkeypatch, capsys):
+    # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
+    # rows show there at 'scored', not just 'notified') runs the worker with no bot
+    # creds. run_once must score then skip notify, not KeyError.
+    order = []
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage,
+                            lambda *a, _s=stage, **k: order.append(_s) or 0)
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+
+    from ats_worker import config as cfgmod
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"},
+                 env={"ANTHROPIC_API_KEY": "k", "OLLAMA_HOST": "h"})  # no telegram
+    assert order == ["run_fetch", "run_expire", "run_retry", "run_score"]  # no notify
+    assert "notify" in capsys.readouterr().out.lower()
+
+
 # --- watchlist bootstrap + feed wiring ------------------------------------
 
 _ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
