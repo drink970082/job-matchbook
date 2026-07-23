@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 
 
 def _find_key(obj, key):
@@ -108,7 +109,9 @@ def _capture_usage(path: str, since_mtime: float) -> None:
     cases leave every rollout in place (still safe under the assumed-sequential
     `run_once` loop, just conservative when that assumption breaks). The snapshot is
     still read from the newest rollout regardless of the delete decision. The web reads
-    `path` across the container boundary, so the write is atomic (tmp + os.replace)."""
+    `path` across the container boundary, so the write is atomic (tmp + os.replace);
+    the tmp filename is per-call-unique (pid + thread id) so concurrent score_workers
+    calling this at once never share one tmp file and clobber each other mid-write."""
     try:
         newer = _rollouts_after(since_mtime)
         if not newer:
@@ -135,7 +138,10 @@ def _capture_usage(path: str, since_mtime: float) -> None:
         snapshot = _usage_snapshot(rl)
         if not snapshot["limits"]:
             return
-        tmp = path + ".tmp"
+        # Unique per-call tmp name (same directory as path, so os.replace stays
+        # atomic/same-filesystem): concurrent score_workers must never share one
+        # tmp file, or one thread's write can truncate another's mid-flight.
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(snapshot, fh)
         os.replace(tmp, path)

@@ -115,6 +115,22 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **`run_score` now screens and fit-scores concurrently, instead of one posting at a
+  time.** Both loops were serial; they now use the same read-serial /
+  network-parallel / write-serial shape `run_feed` already proved (§7.1): every
+  `db.*` call stays on the calling thread (SQLite connections aren't safe across
+  threads), only the screen (`screen_fn`) and fit (`fit_fn`) I/O calls run in a
+  `ThreadPoolExecutor`, and futures are consumed in **submission order** so writes
+  stay deterministic and correctly row-associated. A failing screen or fit call
+  still fails only its own row — the singles-fallback in the fit loop is unchanged.
+  New `--screen-workers`/`--score-workers` (`SCREEN_WORKERS`/`SCORE_WORKERS`) knobs
+  bound each pool; screen defaults to a **per-backend** value
+  (`DEFAULT_SCREEN_WORKERS`) — **1** for `ollama`/`none` (a single GPU serializes
+  the compute, so parallel requests interleave rather than speed up), **4** for the
+  subprocess/hosted backends. Fit concurrency is **quota-neutral**: N parallel
+  `codex exec` calls spend exactly the same number of messages as N serial ones —
+  only wall-clock changes (§11).
+
 - **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
   `workday` shares `phenom`'s N+1 shape — a cheap paged list, then one detail GET per
   posting for the description — but was deliberately left ungated by the 2026-07-21

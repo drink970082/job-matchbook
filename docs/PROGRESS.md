@@ -71,9 +71,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
      closed ~2/11-recall `NO_SPONSOR_PHRASES` list). **Auto-detection never selects a
      paid backend** — the default is always `ollama` and `make_screener` never
      guesses. `--screen-model`/`SCREEN_MODEL` overrides the per-backend default.
-     **Not shipped here:** batching the screen and running screens concurrently
-     (`run_score` still screens one row at a time) — that's plan Stage 5 (Task 11),
-     independent of this track and can land any time. (SPEC §7.1, CHANGELOG.)
+     **Not shipped here:** running the screen and fit calls concurrently
+     (`run_score` screened one row at a time) — that landed separately as plan Stage
+     5 (Task 11, DONE 2026-07-23, run independently of and before this track's
+     Stages 3-4): both loops now use the read-serial / network-parallel /
+     write-serial shape `run_feed` already proved, gated by new
+     `--screen-workers`/`--score-workers` flags (per-backend screen default: 1 for
+     `ollama`/`none`, 4 for the rest); fit concurrency is quota-neutral. (SPEC
+     §7.1/§9/§11, CHANGELOG.)
   2. **Universality fixes — DONE 2026-07-23.** Telegram-optional (`run_once` skips notify
      when the bot creds are absent), `make setup`, `make doctor` (`ats_worker.doctor`,
      core-hard exit / provider rows soft), and the `OLLAMA_HOST` remote-Ollama `SETUP.md`
@@ -161,9 +166,10 @@ dependency order (design: [In flight](#in-flight)).
 3. **Track 1, screen backends** — `[M · DONE 2026-07-23]`. `SCREEN_BACKEND` now covers
    six configs across three adapter shapes, `--screen-model`/`SCREEN_MODEL` overrides
    the per-backend default, and auto-detection never selects a paid backend (see
-   [In flight](#in-flight) for the full writeup; SPEC §7.1, CHANGELOG). **Not shipped:**
-   screen batching/concurrency (`[S]`, independent, plan Stage 5). **Track 5,
-   sponsorship gate** — `[M]`, still open; the quote-grounded rework (plan Stage 3) is
+   [In flight](#in-flight) for the full writeup; SPEC §7.1, CHANGELOG). Screen/fit
+   concurrency (plan Stage 5, Task 11) has since shipped too — see
+   [In flight](#in-flight). **Track 5, sponsorship gate** — `[M]`, still open; the
+   quote-grounded rework (plan Stage 3) is
    designed but not built — the sponsorship gate is the highest-value check for any
    sponsorship-needing user and the *only* screen check not using the LLM (see the
    Defects section below).

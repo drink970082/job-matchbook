@@ -425,7 +425,8 @@ def _persist_low_context(conn, row, screen: dict, *, now) -> None:
 
 
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
-              limit: int = 0) -> None:
+              limit: int = 0, screen_workers: int = 1, score_workers: int = 4,
+              candidate=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -434,6 +435,12 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     only the paid fit scorer costs quota, so a bounded first pass over a huge fresh
     intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
     'new' for the next pass.
+
+    `screen_workers`/`score_workers` bound how many screen/fit calls run
+    concurrently (each I/O-bound: an HTTP round trip or a subprocess spawn) —
+    see the read-serial / network-parallel / write-serial shape below, the same
+    one `run_feed` uses. `candidate` is currently unused here (forward-compat
+    seam for a later stage's fallback-screen merge).
 
     Three phases:
       1. SCREEN every 'new' row (cheap, local Ollama, per-item — one bad screen
@@ -456,63 +463,80 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     rows = db.get_by_status(conn, "new")
     if limit > 0:
         rows = rows[:limit]
-    for row in rows:
-        posting = dict(row)
-        try:
-            screen = screen_fn(posting)
-        except Exception as exc:  # noqa: BLE001 — one bad screen must not abort the pass
-            db.mark_failed(conn, row["id"], error=str(exc), now=now)
-            continue
-        if screen.get("disqualified"):
-            db.save_score(
-                conn, row["id"], score=0,
-                score_detail=_score_detail(screen, disqualified=True),
-                now=now, status="discarded",
-            )
-        elif len((posting.get("description") or "").strip()) < \
-                db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
-            # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
-            # paid fit call (the UI/notify gate would hold it back anyway). Screen was
-            # free (Ollama), so hard-disqualifications on thin JDs are still caught above.
-            _persist_low_context(conn, row, screen, now=now)
-        else:
-            survivors.append((row, posting, screen))
+    postings = [dict(row) for row in rows]
 
-    for chunk in _chunks(survivors, batch_size):
-        postings = [p for (_row, p, _screen) in chunk]
-        try:
-            cards = fit_fn(postings)
-        except Exception:  # noqa: BLE001 — see below
-            # ANY batch failure falls back to singles, not just ScoreError: the
-            # codex backend wraps every failure as ScoreError, but make_claude_scorer
-            # lets a transient anthropic.RateLimitError/APIConnectionError from
-            # client.messages.create() propagate. A narrow `except ScoreError` would
-            # let that escape run_score entirely — aborting every remaining chunk AND
-            # skipping run_notify this pass, violating the cardinal "one bad posting
-            # never aborts the batch" invariant. Falling back to singles here means a
-            # transient API hiccup fails only the row(s) it actually hits (via the
-            # singles-level mark_failed), matching the old broad per-row catch.
-            cards = None
-        if cards is not None and len(cards) != len(postings):
-            # A backend returning fewer/more cards than postings without raising
-            # would misalign the zip below and silently orphan the tail (stuck
-            # 'new', re-scored every pass). codex raises on a missing job_ref and
-            # claude loops one-per-posting, so this is latent today — but treat a
-            # count mismatch as a batch failure so every posting is scored 1:1.
-            cards = None
-        if cards is None:
-            # Fallback: retry this chunk's postings one fit_fn call each, so one
-            # bad JD in the batch doesn't sink its batch-mates.
-            for row, posting, screen in chunk:
-                try:
-                    card = fit_fn([posting])[0]
-                except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
-                    db.mark_failed(conn, row["id"], error=str(exc), now=now)
-                    continue
-                _persist_scored(conn, row, screen, card, now=now)
-        else:
-            for (row, posting, screen), card in zip(chunk, cards):
-                _persist_scored(conn, row, screen, card, now=now)
+    # Screen calls are I/O-bound (an HTTP round trip, or a subprocess spawn on the CLI
+    # backends), so they run CONCURRENTLY while every DB call stays on this thread —
+    # the same read-serial / network-parallel / write-serial shape run_feed uses,
+    # because SQLite connections are not safe across threads. Consuming futures in
+    # submission order keeps writes deterministic and correctly row-associated.
+    with ThreadPoolExecutor(max_workers=max(1, screen_workers)) as ex:
+        futures = [ex.submit(screen_fn, posting) for posting in postings]
+        for row, posting, future in zip(rows, postings, futures):
+            try:
+                screen = future.result()
+            except Exception as exc:  # noqa: BLE001 — one bad screen never aborts the pass
+                db.mark_failed(conn, row["id"], error=str(exc), now=now)
+                continue
+            if screen.get("disqualified"):
+                db.save_score(
+                    conn, row["id"], score=0,
+                    score_detail=_score_detail(screen, disqualified=True),
+                    now=now, status="discarded",
+                )
+            elif len((posting.get("description") or "").strip()) < \
+                    db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
+                # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
+                # paid fit call (the UI/notify gate would hold it back anyway). Screen was
+                # free (Ollama), so hard-disqualifications on thin JDs are still caught above.
+                _persist_low_context(conn, row, screen, now=now)
+            else:
+                survivors.append((row, posting, screen))
+
+    # Fit calls are also I/O-bound. Concurrency is QUOTA-NEUTRAL: N parallel codex
+    # execs spend exactly the same number of messages as N serial ones — it only
+    # changes wall-clock. (The 2026-07-15 "parallelism can't help" note assumed a
+    # rolling 5-hour message window; that was corrected to WEEKLY two days later, and
+    # pacing is served by --score-limit. See CHANGELOG and SPEC §11.)
+    chunks = list(_chunks(survivors, batch_size))
+    with ThreadPoolExecutor(max_workers=max(1, score_workers)) as ex:
+        futures = [ex.submit(fit_fn, [p for (_row, p, _screen) in chunk])
+                   for chunk in chunks]
+        for chunk, future in zip(chunks, futures):
+            postings = [p for (_row, p, _screen) in chunk]
+            try:
+                cards = future.result()
+            except Exception:  # noqa: BLE001 — see below
+                # ANY batch failure falls back to singles, not just ScoreError: the
+                # codex backend wraps every failure as ScoreError, but make_claude_scorer
+                # lets a transient anthropic.RateLimitError/APIConnectionError from
+                # client.messages.create() propagate. A narrow `except ScoreError` would
+                # let that escape run_score entirely — aborting every remaining chunk AND
+                # skipping run_notify this pass, violating the cardinal "one bad posting
+                # never aborts the batch" invariant. Falling back to singles here means a
+                # transient API hiccup fails only the row(s) it actually hits (via the
+                # singles-level mark_failed), matching the old broad per-row catch.
+                cards = None
+            if cards is not None and len(cards) != len(postings):
+                # A backend returning fewer/more cards than postings without raising
+                # would misalign the zip below and silently orphan the tail (stuck
+                # 'new', re-scored every pass). codex raises on a missing job_ref and
+                # claude loops one-per-posting, so this is latent today — but treat a
+                # count mismatch as a batch failure so every posting is scored 1:1.
+                cards = None
+            if cards is None:
+                # Fallback: retry this chunk's postings one fit_fn call each, so one
+                # bad JD in the batch doesn't sink its batch-mates.
+                for row, posting, screen in chunk:
+                    try:
+                        card = fit_fn([posting])[0]
+                    except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
+                        db.mark_failed(conn, row["id"], error=str(exc), now=now)
+                        continue
+                    _persist_scored(conn, row, screen, card, now=now)
+            else:
+                for (row, posting, screen), card in zip(chunk, cards):
+                    _persist_scored(conn, row, screen, card, now=now)
 
 
 # --- retry ------------------------------------------------------------------

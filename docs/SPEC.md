@@ -783,7 +783,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`.
+  large fresh intake; the remainder stays `new`. Both the screen phase and the
+  per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
+  write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
+  `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),
+  while every DB read/write stays on the calling thread, and futures are consumed in
+  **submission order** so a screen verdict or fit card is never mis-associated with
+  the wrong posting and writes stay deterministic. `--screen-workers`/
+  `--score-workers` (`SCREEN_WORKERS`/`SCORE_WORKERS`) bound each pool; the screen
+  pool defaults **per backend** (`run.DEFAULT_SCREEN_WORKERS`) — **1** for
+  `ollama`/`none` (a single GPU serializes the compute, so parallel requests
+  interleave rather than speed up the underlying inference), **4** for the
+  subprocess/hosted backends, which are latency- not compute-bound. The singles
+  fallback in (3) stays serial. Fit concurrency is quota-neutral (§11).
   `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
   (`scored`/`notified`) postings from **detail sources only** — the ones with a real
   per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
@@ -1071,6 +1083,11 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   catches that (or any other exception the batch call raises) and retries the batch's
   postings **singly** — one malformed batch costs latency, not correctness or
   misattribution, and only a single that still fails marks just that one row `failed`.
+- **Concurrent screen/fit calls never reorder or mis-associate a write.** `run_score`
+  (§7.1) submits every `screen_fn`/`fit_fn` call to a thread pool up front, then
+  consumes the futures **in the same order they were submitted** — never
+  `as_completed` — so a slow call finishing late still lands its result on the
+  correct row, and every `db.*` write stays on the calling thread throughout.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -1440,7 +1457,12 @@ automated coverage — those rely on code review or the human in the loop, not a
   acceptance guard and is parked at every size >1 (post-mortem + numbers in §13) —
   and a fix would need *stronger per-JD prompt isolation*, which is exactly what
   one-JD-per-call already buys, so the win and the fix are in tension; the quota
-  problem needs pacing, not a bigger batch. At the cap Codex hard-blocks (no
+  problem needs pacing, not a bigger batch. **Concurrency (`--score-workers`, §7.1) is
+  a different lever from batching and does not change the message count**: N parallel
+  `codex exec` calls still spend N messages, exactly like N serial ones — only
+  wall-clock shrinks. So the weekly-window bound argues for **pacing** the fit loop
+  (`--score-limit`, run across multiple passes) against remaining headroom, not
+  against running those N calls concurrently. At the cap Codex hard-blocks (no
   degraded fallback) and `codex exec` exits **1 with no distinct rate-limit code**,
   so pacing logic must match the stderr text, not the exit status. Each call also
   pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools

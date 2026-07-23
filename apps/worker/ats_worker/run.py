@@ -71,7 +71,15 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 
-# The ONLY eight .env keys argparse defaults read from os.environ (grepped across
+# Per-backend screen concurrency. Ollama defaults to 1: a single GPU SERIALIZES the
+# compute, so parallel requests interleave rather than speed up (weights load once and
+# are not duplicated per slot — only KV cache is, so RAM is the secondary constraint,
+# not the binding one). The subprocess and HTTP backends are latency-bound and benefit.
+# Configurable so a multi-GPU or remote-Ollama user can raise it.
+DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
+                          "claude-api": 4, "openai-api": 4}
+
+# The ONLY ten .env keys argparse defaults read from os.environ (grepped across
 # the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
 # TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every
 # consumer reads them from the in-process `env` dict (run_once(..., env=env) /
@@ -81,6 +89,7 @@ DEFAULT_BATCH_SIZE = 1
 _ENV_ARGPARSE_KEYS = frozenset({
     "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
     "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+    "SCREEN_WORKERS", "SCORE_WORKERS",
 })
 
 
@@ -190,7 +199,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
-             score_limit: int = 0) -> None:
+             score_limit: int = 0, screen_workers: int = 0,
+             score_workers: int = 4) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -295,6 +305,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # anthropic SDK import / the codex subprocess are deferred to the first call,
         # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
+        _scorer_lock = threading.Lock()
         # Land the codex quota snapshot next to the REAL db file (resolve the
         # prisma/applications.db symlink) so it sits in the shared db/ mount the
         # web reads as /data/codex_usage.json. See docs/SPEC.md §7.1.
@@ -303,16 +314,23 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
         def fit_fn(postings):
             if not _scorer_cell:
-                _scorer_cell.append(
-                    make_scorer(score_backend, env=env, profile=profile,
-                                codex_score_model=codex_score_model,
-                                anthropic_score_model=anthropic_score_model,
-                                usage_path=usage_path)
-                )
+                # Double-checked lock: score_workers>1 means multiple threads can
+                # race here on the first call. Without the lock each would see the
+                # cell empty and construct + append its own scorer concurrently.
+                with _scorer_lock:
+                    if not _scorer_cell:
+                        _scorer_cell.append(
+                            make_scorer(score_backend, env=env, profile=profile,
+                                        codex_score_model=codex_score_model,
+                                        anthropic_score_model=anthropic_score_model,
+                                        usage_path=usage_path)
+                        )
             return _scorer_cell[0](postings, resumes)
 
+        workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
-                           batch_size=batch_size, limit=score_limit)
+                           batch_size=batch_size, limit=score_limit,
+                           screen_workers=workers, score_workers=score_workers)
 
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.
@@ -446,6 +464,14 @@ def main(argv=None) -> None:
                              "(batching PARKED — failed the batched==single guard; "
                              "see DEFAULT_BATCH_SIZE); raise once the domain-verdict "
                              "drift is fixed. No-op on the claude backend (loops).")
+    parser.add_argument("--screen-workers", type=int,
+                        default=int(os.environ.get("SCREEN_WORKERS", "0")),
+                        help="concurrent screen calls (0 = per-backend default: 1 for "
+                             "ollama, 4 for the hosted backends)")
+    parser.add_argument("--score-workers", type=int,
+                        default=int(os.environ.get("SCORE_WORKERS", "4")),
+                        help="concurrent fit-scorer calls. Quota-neutral: parallel "
+                             "calls spend the same messages, only less wall-clock")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -474,7 +500,9 @@ def main(argv=None) -> None:
                  anthropic_score_model=args.anthropic_score_model,
                  batch_size=args.batch_size,
                  fetch_only=args.fetch_only, score_only=args.score_only,
-                 score_limit=args.score_limit)
+                 score_limit=args.score_limit,
+                 screen_workers=args.screen_workers,
+                 score_workers=args.score_workers)
 
     if args.once:
         once()

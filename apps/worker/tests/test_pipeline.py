@@ -6,6 +6,7 @@ The critical invariant: one bad row must never abort a batch — it is marked
 from __future__ import annotations
 
 import json as _json
+import time
 
 import pytest
 
@@ -33,6 +34,24 @@ def _assessment(**over):
     }
     base.update(over)
     return base
+
+
+def _card(**over):
+    """A minimally-valid fit scorecard (score + assessment) — the shape a real
+    fit_fn returns, for tests that don't care about the score value itself."""
+    base = {"score": 80, "assessment": _assessment()}
+    base.update(over)
+    return base
+
+
+def _seeded_conn(tmp_path, rows: int):
+    """A fresh, connected DB seeded with `rows` 'new' postings titled row-1..row-N
+    (1-indexed, so a test can pick one out by name) with a realistic (long-enough)
+    description that clears the low-context gate and reaches the fit scorer."""
+    conn = db.connect(bootstrap_db(tmp_path / "applications.db"))
+    postings = [_posting(str(i), job_title=f"row-{i}") for i in range(1, rows + 1)]
+    db.upsert_postings(conn, postings, now=NOW)
+    return conn
 
 
 # --- run_fetch ------------------------------------------------------------
@@ -630,6 +649,66 @@ def test_run_score_fallback_single_failure_is_isolated(db_path):
     }
     assert statuses["1"] == "failed"
     assert statuses["2"] == "scored"
+
+
+# --- run_score concurrency -------------------------------------------------
+
+def test_run_score_screens_concurrently(tmp_path):
+    # The screen calls must overlap; the DB writes must not.
+    import threading
+    conn = _seeded_conn(tmp_path, rows=6)
+    inflight, peak, lock = 0, [0], threading.Lock()
+
+    def screen_fn(posting):
+        nonlocal inflight
+        with lock:
+            inflight += 1
+            peak[0] = max(peak[0], inflight)
+        time.sleep(0.05)
+        with lock:
+            inflight -= 1
+        return {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [_card() for _ in ps], screen_workers=4)
+    assert peak[0] > 1, "screen calls did not overlap"
+
+
+def test_run_score_preserves_write_order_and_row_association(tmp_path):
+    # A pool must not mis-associate a screen verdict with the wrong posting.
+    conn = _seeded_conn(tmp_path, rows=5)
+
+    def screen_fn(posting):
+        # Disqualify exactly one known row. Make its call slower than the rest so
+        # its future completes OUT of submission order — proving row-association
+        # is keyed by submission order, not completion order (a broken
+        # as_completed-based impl would otherwise often still pass by luck).
+        dq = posting["job_title"] == "row-3"
+        if dq:
+            time.sleep(0.05)
+        return {"screen": {}, "disqualified": dq,
+                "disqualification_reason": "test" if dq else ""}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [_card() for _ in ps], screen_workers=4)
+    discarded = [dict(r)["job_title"] for r in db.get_by_status(conn, "discarded")]
+    assert discarded == ["row-3"]
+
+
+def test_run_score_screen_failure_fails_only_its_own_row(tmp_path):
+    conn = _seeded_conn(tmp_path, rows=3)
+
+    def screen_fn(posting):
+        if posting["job_title"] == "row-1":
+            raise RuntimeError("provider blew up")
+        return {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [_card() for _ in ps], screen_workers=4)
+    assert [dict(r)["job_title"] for r in db.get_by_status(conn, "failed")] == ["row-1"]
+    # One row's screen failure must not abort the pass for the others.
+    scored_titles = {dict(r)["job_title"] for r in db.get_by_status(conn, "scored")}
+    assert scored_titles == {"row-2", "row-3"}
 
 
 def test_run_notify_send_error_retries_then_parks_failed(db_path):

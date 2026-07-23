@@ -1045,7 +1045,8 @@ def test_capture_usage_reads_rollout_and_deletes_it(tmp_path, monkeypatch):
     assert snap["limits"] == [
         {"key": "primary", "used_percent": 32.0, "window_minutes": 10080, "resets_at": 1784839672}]
     assert not roll.exists()                                 # rollout deleted after capture
-    assert not (tmp_path / "codex_usage.json.tmp").exists()  # atomic write, no tmp left
+    # atomic write leaves no tmp behind, whatever its (now per-call-unique) name
+    assert not list(tmp_path.glob("codex_usage.json*.tmp"))
 
 
 def test_capture_usage_latest_line_wins_and_includes_secondary(tmp_path, monkeypatch):
