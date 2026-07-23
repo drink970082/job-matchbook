@@ -239,7 +239,7 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     prompt = http.calls[0][1]["json"]["prompt"]                # the SCREEN call
     # each structured requirement asks the model to EXTRACT a job fact
     assert "required_degree" in prompt
-    assert "offers_sponsorship" in prompt
+    assert "no_sponsorship_quote" in prompt
     assert "requires_clearance" in prompt
     assert '"screen"' in prompt
     assert RESUME not in prompt                               # no résumé in the screen call
@@ -339,33 +339,21 @@ def test_lower_or_no_required_degree_passes():
         assert out["disqualified"] is False, req
 
 
-# authorization: LLM extracts offers_sponsorship, code checks against candidate need
+# authorization: these exercise the NO_SPONSOR_PHRASES floor specifically — the model's
+# response carries no "authorization" key, so `_quote_in` sees no quote and the verdict
+# falls through to the phrase floor. The quote-grounded PRIMARY path (and the
+# no-quote/silent-JD -> kept invariant) has its own "quote-grounded sponsorship" section
+# further below.
 def test_no_sponsorship_disqualifies_when_jd_says_so():
     posting = {**POSTING, "description": "We will not sponsor visas for this role."}
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+    http = FakeHttp(_screen_resp({"authorization": {}}))
     out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
 
 
-def test_sponsorship_no_ignored_when_jd_silent():
-    # The model invents "no" from silence; if the JD never mentions sponsorship/visa,
-    # we don't trust it (treat as unknown -> pass).
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
-                               candidate={"work_authorization": "needs visa sponsorship"})
-    assert out["disqualified"] is False
-
-
-def test_unknown_sponsorship_passes():
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "unknown"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
-                               candidate={"work_authorization": "needs visa sponsorship"})
-    assert out["disqualified"] is False
-
-
 def test_citizen_never_fails_authorization():
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+    http = FakeHttp(_screen_resp({"authorization": {"no_sponsorship_quote": "We do not sponsor."}}))
     out = score.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"work_authorization": "US citizen"})
     assert out["disqualified"] is False
@@ -374,25 +362,24 @@ def test_citizen_never_fails_authorization():
 def test_authorization_ignores_sponsor_boilerplate():
     # D1 repro: a JD mentioning 'sponsor'/'citizen' only in boilerplate must NOT
     # disqualify. Tower matched "sponsor" in "company-sponsored sports teams" (id=986);
-    # WorldQuant matched "citizen" in the EEO line (id=1071). The 4B model even invents
-    # offers_sponsorship='no' from silence — it must be ignored; only an explicit
-    # no-sponsorship phrase in the JD text disqualifies.
+    # WorldQuant matched "citizen" in the EEO line (id=1071). Neither the phrase floor
+    # nor a (here-absent) quote should fire on boilerplate mentions.
     for desc in (
         "We field company-sponsored sports teams and a great engineering culture.",
         "EEO: we do not discriminate on citizenship, national origin, disability, or age.",
     ):
         posting = {**POSTING, "description": desc}
-        http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+        http = FakeHttp(_screen_resp({"authorization": {}}))
         out = score.screen_posting(posting, extract=_ollama(http),
                                    candidate={"work_authorization": "needs visa sponsorship"})
         assert out["disqualified"] is False, desc
 
 
 def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
-    # D1: an explicit phrase disqualifies even when the model guessed 'unknown' —
-    # the phrase gate, not the 4B verdict, decides.
+    # D1: an explicit floor phrase disqualifies even with no quote from the model — the
+    # floor, not model trust, decides here.
     posting = {**POSTING, "description": "Strong team. This position offers no visa sponsorship."}
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "unknown"}}))
+    http = FakeHttp(_screen_resp({"authorization": {}}))
     out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
@@ -547,7 +534,8 @@ def test_equal_required_degree_passes_pinning_greater_than():
 
 def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
     posting = {**POSTING, "description": "We do not offer visa sponsorship."}
-    http = FakeHttp(_screen_resp({"authorization": {"offers_sponsorship": "no"}}))
+    http = FakeHttp(_screen_resp(
+        {"authorization": {"no_sponsorship_quote": "We do not offer visa sponsorship."}}))
     out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "no sponsorship needed"})
     assert out["disqualified"] is False
@@ -561,6 +549,61 @@ def test_candidate_holding_clearance_passes_when_role_requires_one():
 
 
 # --- multi-gate failure reason join --------------------------------------
+
+# --- quote-grounded sponsorship ------------------------------------------
+
+_NEEDS_VISA = {"work_authorization": "needs visa sponsorship"}
+
+
+def _screen_with(quote, description):
+    http = FakeHttp(json.dumps(
+        {"screen": {"authorization": {"no_sponsorship_quote": quote}}}))
+    posting = dict(POSTING, description=description)
+    return score.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
+
+
+def test_verified_quote_disqualifies():
+    jd = "Great role. US Citizenship is required for this position. Apply now."
+    out = _screen_with("US Citizenship is required for this position.", jd)
+    assert out["disqualified"] is True
+    assert "sponsorship" in out["disqualification_reason"]
+
+
+def test_hallucinated_quote_keeps_the_posting():
+    # THE security property of this design: a quote that is not in the JD fails
+    # verification, so hallucination cannot disqualify anything BY CONSTRUCTION.
+    jd = "Great role. We welcome applicants from all backgrounds."
+    out = _screen_with("We do not sponsor visas.", jd)
+    assert out["disqualified"] is False
+
+
+def test_quote_match_tolerates_line_wraps_and_casing():
+    # A faithful quote legitimately differs in whitespace and case; invented text does not.
+    jd = "We will NOT sponsor\n   employment visas for this role."
+    out = _screen_with("we will not sponsor employment visas for this role.", jd)
+    assert out["disqualified"] is True
+
+
+def test_null_quote_falls_through_to_the_phrase_floor():
+    # The list is demoted to a floor that can only ADD a disqualification.
+    jd = "This employer does not sponsor applicants for work visas."
+    out = _screen_with(None, jd)
+    assert out["disqualified"] is True
+
+
+def test_silent_jd_with_null_quote_is_kept():
+    out = _screen_with(None, "A normal job description with no mention of immigration status.")
+    assert out["disqualified"] is False
+
+
+def test_candidate_not_needing_sponsorship_is_never_gated():
+    http = FakeHttp(json.dumps(
+        {"screen": {"authorization": {"no_sponsorship_quote": "We will not sponsor."}}}))
+    posting = dict(POSTING, description="We will not sponsor.")
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"work_authorization": "citizen"})
+    assert out["disqualified"] is False
+
 
 def test_multiple_failing_gates_join_reasons():
     posting = {**POSTING, "location": "Singapore"}

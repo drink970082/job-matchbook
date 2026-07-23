@@ -51,12 +51,11 @@ from .prompts import SCREEN_SCHEMA, _candidate_block, _job_block
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
-# Authorization is gated deterministically off the JD text, NOT the 4B model's
-# offers_sponsorship guess (D1): it invents "no" from silence, and the old loose
-# substring guard fired on unrelated boilerplate — "sponsor" in "company-sponsored
-# sports teams" (id=986), "citizen" in an EEO "citizenship" line (id=1071). Disqualify
-# ONLY when the JD literally contains one of these explicit no-sponsorship phrases,
-# substring-matched over the lowercased, whitespace-collapsed description.
+# The FLOOR for the sponsorship gate, not the gate itself. The primary check is the
+# quote-grounded LLM extraction in _check_authorization; this closed list runs after it
+# and can only ADD a disqualification, never veto a model pass. Measured recall on its
+# own is ~2/11 realistic phrasings, which is why it was demoted. Kept because it costs
+# nothing and catches the blunt wordings even on SCREEN_BACKEND=none.
 NO_SPONSOR_PHRASES = (
     "will not sponsor", "does not sponsor", "do not sponsor", "cannot sponsor",
     "unable to sponsor", "not able to sponsor", "no visa sponsorship", "no sponsorship",
@@ -284,7 +283,8 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
-         *_check_authorization(candidate.get("work_authorization"), description))
+         *_check_authorization(candidate.get("work_authorization"), description,
+                               entry("authorization")))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
@@ -306,14 +306,35 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
-def _check_authorization(cand_auth, description: str = "") -> tuple[bool, str]:
-    """Fail only when the candidate needs sponsorship AND the JD literally states it
-    won't sponsor. The 4B model's offers_sponsorship guess is NOT consulted — it
-    invents "no" from silence, and 'unknown' (the JD is silent) passes. We trust only
-    an explicit no-sponsorship PHRASE in the JD text (D1); the whitespace-collapse
-    keeps a phrase matching across line wraps."""
+def _quote_in(quote, description: str) -> bool:
+    """Is `quote` actually present in the JD? Whitespace-collapsed and case-insensitive,
+    matching the normalization the phrase floor already uses — that tolerates the ways a
+    FAITHFUL quote legitimately differs (line wraps, casing) without tolerating invented
+    text. This is what makes hallucination unable to disqualify."""
+    needle = " ".join(str(quote or "").lower().split())
+    if not needle:
+        return False
+    return needle in " ".join((description or "").lower().split())
+
+
+def _check_authorization(cand_auth, description: str = "",
+                         entry: dict | None = None) -> tuple[bool, str]:
+    """Fail only when the candidate needs sponsorship AND the JD says it isn't offered.
+
+    Primary check: the model returns `no_sponsorship_quote`, the verbatim JD sentence
+    saying so, and CODE verifies that sentence actually appears in the description
+    before acting on it. A hallucinated quote fails verification and the posting is
+    KEPT — hallucination cannot disqualify anything by construction, not by trust.
+    This holds on qwen3.5:4b too, so D1 needs no re-litigating.
+
+    Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
+    vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
+    """
     if not _needs_sponsorship(cand_auth):
         return True, ""
+    quote = (entry or {}).get("no_sponsorship_quote")
+    if _quote_in(quote, description):
+        return False, "no visa sponsorship offered"
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
         return False, "no visa sponsorship offered"
