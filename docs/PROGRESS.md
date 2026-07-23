@@ -140,6 +140,15 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[S · needs
+  a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"` prose
+  (given `now`), so the max-age gate can drop stale workday stubs before the detail call
+  (CHANGELOG, SPEC §7.1). Only the confident English `"N[+] Days Ago"` form is parsed —
+  a lower bound on age — so "Today"/"Yesterday" and any other locale/wording leave
+  `posted_at` None and are kept; a mis-parse can never drop a good posting. Unmeasured:
+  how much of the ~6,703 remaining detail calls this actually cuts (depends on
+  `max_age_days` config and how stale each board is) — the enhancement's projected drop
+  awaits a live run.
 - **Stale-mount recovery is unobserved end-to-end** — `[S · needs a live drill]`. The
   `/api/health` probe + Docker `healthcheck` + `autoheal` sidecar are wired, the
   healthy path is confirmed, and the 200/503 logic has a unit test (`health.test.ts`).
@@ -225,21 +234,6 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
   failure; (c) cost must be estimated *before* insert (a row cheap to add can cost
   3,567 renders to run); (d) the empty-JD check above. `onboard-board` handles one
   board well; nothing handles a hundred.
-- **Workday stub gate cannot use `max_age_days`** — `[S · needs a prose-date parser]`.
-  The `drop`-only gate shipped 2026-07-22 cut workday detail calls 14,902 → 6,703
-  (-55%) on the 28-board watchlist, but only via `title_filter`/`title_exclude`. The
-  list stub's sole date is prose (`"Posted 30+ Days Ago"`, `"Posted Today"`), so
-  `parse_stub` sets `posted_at: None` and the age filter errs toward keeping. Parsing
-  that string would drop much of the remaining 6,703 on stale boards. Deferred because
-  the wording is locale- and tenant-dependent and a mis-parse silently drops good
-  postings — the failure mode the null-keeps-it default exists to avoid.
-- **`browser` recipes have no `{field}` URL template** — `[S]`. `custom` recipes
-  interpolate `{dotted.field}` into `url`; `browser` recipes cannot, so a board whose
-  cards carry no `href` (the id is in a `data-*` attribute and routing is JS-side) can
-  only produce a broken or empty `job_url`. This is the *sole* blocker for Balyasny
-  (`data-id="…_REQ8036"` → `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles,
-  one static page, apply-by-email). Closing it in `_recipe.apply_css_fields` unblocks
-  both without touching an adapter.
 - **`custom` has no HTML/CSS mode** — `[M]`. Bloomberg, Two Sigma, Citi, Barclays,
   Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
   forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
