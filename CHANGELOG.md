@@ -20,7 +20,30 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   DB. Stub-gated `discarded` rows are exempt — they are deliberately un-hydrated and
   never reach the scorer. This is the mechanism behind the two Citadel `browser` rows
   (0/10 descriptions) and behind the nine boards held off the watchlist for empty JDs;
-  both are now non-destructive by construction.
+  both are now non-destructive by construction. Each dropped row is recorded in
+  `feed_unresolved` (`feed="watchlist"`, `reason="empty_description"`) so a
+  silently-broken scraper surfaces on the Unresolved board instead of only in a log
+  line — the same visibility the feed path already gives detail-fetch failures.
+
+- **Thin JDs (< 200 chars) no longer spend a paid fit-score call.** The low-context
+  hold-back (`LENGTH(TRIM(description)) < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) was applied
+  only at *display/notify* time, so a short JD was still fit-scored on the paid Codex
+  backend and *then* filtered into the Low-context bucket where its verdict is distrusted
+  — paying to score something already pre-judged unscoreable. `run_score` now applies the
+  threshold **before** the fit call: a screen survivor under the length bar is persisted
+  `scored` + `insufficient_context` directly (score 0, screen verdicts kept), skipping the
+  scorer. It lands in the same Low-context bucket a human can eyeball, minus the wasted
+  message. The `200` threshold is now a single worker constant
+  (`db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, still hand-synced with web `constants.ts`)
+  shared by the pre-fit gate and `get_notifiable`.
+
+### Added
+
+- **`--fetch-only` and `--score-limit` operator flags (`ats_worker.run`).**
+  `--fetch-only` runs fetch/feed/expire/retry then stops before any screen or scorer call
+  — a quota-free board refresh (and a real log). `--score-limit N` caps how many `new`
+  rows `run_score` touches in one pass (0 = no cap), bounding the paid fit scorer over a
+  large fresh intake; the remainder stays `new` for the next pass.
 
 ### Changed
 

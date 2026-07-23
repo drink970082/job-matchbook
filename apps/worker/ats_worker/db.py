@@ -14,6 +14,12 @@ import sqlite3
 
 from .config import RECIPE_SOURCES
 
+# A JD shorter than this is "low-context": too thin to trust a fit verdict on.
+# Hand-synced with apps/web/src/lib/constants.ts (LOW_CONTEXT_MAX_DESCRIPTION_LENGTH).
+# Used by get_notifiable's hold-back AND (imported) by pipeline.run_score to skip the
+# PAID fit call on a JD it would only bucket as low-context anyway.
+LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
+
 
 def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
     """Open a connection configured for cross-process co-writing.
@@ -229,7 +235,7 @@ def get_notifiable(conn: sqlite3.Connection):
         "AND json_extract(score_detail,'$.assessment.seniority.verdict')='match' "
         "AND json_extract(score_detail,'$.assessment.domain.verdict')='match' "
         "AND COALESCE(json_extract(score_detail,'$.insufficient_context'),0)<>1 "
-        "AND LENGTH(TRIM(description)) >= 200 "
+        f"AND LENGTH(TRIM(description)) >= {LOW_CONTEXT_MAX_DESCRIPTION_LENGTH} "
         "ORDER BY score DESC, id ASC"
     ).fetchall()
 

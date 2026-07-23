@@ -136,7 +136,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
-             batch_size: int = DEFAULT_BATCH_SIZE) -> None:
+             batch_size: int = DEFAULT_BATCH_SIZE,
+             fetch_only: bool = False, score_limit: int = 0) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -213,6 +214,14 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
         pipeline.run_retry(conn, now=now)
 
+        # Operator quota control: --fetch-only stops here so a board refresh (and
+        # its log) costs zero screen/scorer calls. The 'new' rows just wait for a
+        # later scoring pass — fetch is idempotent (upsert DO NOTHING).
+        if fetch_only:
+            print(f"fetch-only: {len(db.get_by_status(conn, 'new'))} row(s) left "
+                  f"'new', skipping score/notify")
+            return
+
         # num_ctx is set explicitly (Ollama's default is small enough to truncate
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
@@ -248,7 +257,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             return _scorer_cell[0](postings, resumes)
 
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
-                           batch_size=batch_size)
+                           batch_size=batch_size, limit=score_limit)
 
         pipeline.run_notify(
             conn,
@@ -327,6 +336,12 @@ def main(argv=None) -> None:
 
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
+    parser.add_argument("--fetch-only", action="store_true",
+                        help="run fetch/feed/expire/retry then stop, before any "
+                             "screen or scorer call (quota-free board refresh)")
+    parser.add_argument("--score-limit", type=int, default=0,
+                        help="cap 'new' rows scored this pass (0 = no cap); bounds "
+                             "the paid fit scorer on a large fresh intake")
     parser.add_argument("--import-companies", action="store_true",
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -384,7 +399,8 @@ def main(argv=None) -> None:
                  score_backend=args.score_backend,
                  codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model,
-                 batch_size=args.batch_size)
+                 batch_size=args.batch_size,
+                 fetch_only=args.fetch_only, score_limit=args.score_limit)
 
     if args.once:
         once()

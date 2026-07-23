@@ -303,6 +303,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--score-backend` (`SCORE_BACKEND`, `codex`|`claude`),
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
+  `--fetch-only` (run fetch/feed/expire/retry then stop before any screen/scorer call —
+  a quota-free board refresh), `--score-limit N` (cap `new` rows scored this pass, 0 =
+  no cap — bounds the paid fit scorer on a large fresh intake),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
@@ -675,11 +678,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   `score_detail` right there at fetch time — visible in the Discovered "Discarded"
   bucket with its reason — **without** an Ollama call; a company that raises is
   logged-and-skipped so the rest of the watchlist still ingests. Finally, a surviving
-  posting with **no description is dropped and logged** (`_valid_posting`, the same
-  body-required guard the feed path applies): a bodyless row is permanent
+  posting with **no description is dropped, logged, and recorded in `feed_unresolved`**
+  (`feed="watchlist"`, `reason="empty_description"`) — `_valid_posting`, the same
+  body-required guard the feed path applies: a bodyless row is permanent
   (`upsert_postings` is `ON CONFLICT DO NOTHING`, so a later cycle never back-fills it)
   and would reach the paid fit scorer blind, so a board whose list endpoint carries no
-  JD simply yields nothing that cycle. Rows already tagged `discarded` are exempt —
+  JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
+  silently-broken scraper on the Unresolved board (dropping, not storing as `discarded`,
+  keeps the id re-fetchable so the board self-heals if a later cycle returns the body).
+  Rows already tagged `discarded` are exempt —
   the stub gate returns those deliberately un-hydrated and they never reach the scorer. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
   clearance disqualification the SCREEN call found), so the feed path — which never
@@ -711,14 +718,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
   (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
   that row `failed`), and a disqualified one is persisted `discarded` right here,
-  **never** reaching the fit call; (2) the survivors are chunked into batches of
-  `batch_size` (**default 1 — batching parked**, see below) and each chunk is **one**
-  `fit_fn` call; (3) a chunk whose call raises — `ScoreError` or any other exception —
-  falls back to scoring that chunk's postings **singly**, so one malformed batch costs
-  latency, not correctness, and a single that still fails marks only that row
-  `failed`. `batch_size` is harmless on the `claude` backend (which loops internally
-  regardless) and is the parked codex quota lever — default 1 until the
-  batched==single guard passes (§13).
+  **never** reaching the fit call; a screen survivor whose trimmed `description` is
+  shorter than `db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (200, the shared low-context
+  threshold) is persisted `scored` + `insufficient_context` right here too — the
+  UI/notify gate hold back any scored row that thin, so a paid fit call would only buy
+  a verdict that is then hidden, and it is skipped; the row still shows under
+  Low-context for a human to eyeball; (2) the (substantial) survivors are chunked into
+  batches of `batch_size` (**default 1 — batching parked**, see below) and each chunk
+  is **one** `fit_fn` call; (3) a chunk whose call raises — `ScoreError` or any other
+  exception — falls back to scoring that chunk's postings **singly**, so one malformed
+  batch costs latency, not correctness, and a single that still fails marks only that
+  row `failed`. `batch_size` is harmless on the `claude` backend (which loops
+  internally regardless) and is the parked codex quota lever — default 1 until the
+  batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
+  pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
+  large fresh intake; the remainder stays `new`.
   `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
   (`scored`/`notified`) postings from **detail sources only** — the ones with a real
   per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
