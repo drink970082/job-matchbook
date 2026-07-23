@@ -97,20 +97,21 @@ non-destructive, the detail leg's circuit-breaker bails after 3 empties, so the 
 cost is a handful of Chromium renders per cycle and the rows self-heal if the Cloudflare
 behavior changes. Revisit only if the run shows the renders are expensive.
 
-1. **Run the pipeline** — `[S · fetch ran 2026-07-22; scoring PENDING]`. Ran against the
-   172-board watchlist with `enable_browser_sources: true`, then was **killed at session
-   teardown during fetch/feed — before `run_score`** (`scored`/`notified` counts
-   unchanged, so **no Codex quota was spent**). The fetch that did land ingested **4,179
-   new rows** across 9 sources (custom 2,254 · greenhouse 920 · phenom 411 · workday 294 ·
-   icims 144 · ashby 132 · lever 14 · browser 8 · pinpoint 2); **2,456** sit `new`
-   awaiting the screen. **Body guard held:** every bodyless row in the DB (183: 181
-   phenom + 2 Citadel, all stub-gate discards stored un-hydrated by design) is
-   `discarded` — **zero** reached a scorable state. Not yet settled: (a) **scorer quota**
-   — screening 2,456 `new` rows, each survivor one Codex message against ~2,000/week
-   (~3x any prior pass), wants a cap or batching before `run_score`; (b) `custom` is
-   ~half the intake, a `title_filter` question not a fetch one; (c) whether fetch reached
-   all 172 boards or was cut mid-list (log was lost — buffered stdout, never flushed on
-   the kill).
+1. **Run the pipeline** — `[S · FETCH DONE 2026-07-22 (full, clean); scoring in bounded
+   batches]`. A `--fetch-only` pass (unbuffered log) completed cleanly (exit 0) over the
+   full 172-board watchlist with `enable_browser_sources: true` — the coverage question
+   is answered. Intake: **7,746 postings total, 4,035 `new`** across all **11** sources
+   (custom 1,411 · greenhouse 704 · browser 662 · workday 588 · phenom 238 · ashby 178 ·
+   icims 155 · smartrecruiters 69 · workable 18 · lever 11 · pinpoint 1). Only **one board
+   failed**: `phenom/careers.qualcomm.com` 429-rate-limited at deep pagination
+   (start=930), isolated, rest continued. **Body guard fired live and held:** dropped
+   citadelsecurities 7 · citadel 3 · **MSCI icims 43** (a *new* empty-JD board — see
+   below) — and **0** bodyless rows reached `new`. **Scoring** is now bounded, not blind:
+   `--score-limit N` caps the paid scorer and thin JDs (< 200 chars) skip it entirely
+   (CHANGELOG). First bounded batch (`--score-only --score-limit 50`) running 2026-07-22;
+   the remaining ~4k `new` rows await an operator call on scoring at scale. Still open:
+   `custom` is ~a third of the intake — a `title_filter` tightening question, not a fetch
+   bug.
 
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
@@ -226,13 +227,20 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   recipe-driven half of the fetch layer was unproven through `run_fetch`: recipe JSON
   round-tripping out of the DB, `enable_browser_sources` gating, per-board error
   isolation, and upsert of recipe-sourced postings had never run together. The
-  2026-07-22 pass exercised all of it: **custom produced 2,254 rows** (1,140 `new` +
-  1,114 stub-gate `discarded`) and **browser produced 8** — six real rentec.com
-  postings with full JDs (1,400–2,285 chars) plus the two expected empty-body Citadel
-  discards. So both executors work through `run_fetch`. Caveat: this proves the
-  **fetch** path only; the scored/notified path over recipe-sourced rows still awaits
-  `run_score` (see the pending run above). "Which boards over-produce" is the live
-  follow-up — `custom` alone is ~half the intake.
+  full 2026-07-22 `--fetch-only` pass exercised all of it: **custom 1,411 `new`** and
+  **browser 662 `new`** — the browser rows are google (623), careers.twosigma.com (33),
+  and rentec.com (6), all with real JDs (Citadel correctly contributes 0, dropped by the
+  guard). So both executors work through `run_fetch`. Caveat: this proves the **fetch**
+  path only; the scored/notified path over recipe-sourced rows is being exercised now by
+  the first bounded `--score-only` batch (see the run above). "Which boards over-produce"
+  is the live follow-up — `custom` is ~a third of the intake, google alone is 623 rows.
+- **Empty-JD boards ON the watchlist — MSCI icims** — `[XS · found 2026-07-22]`. The
+  full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
+  iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
+  tier below, except this one is already on the watchlist. Non-destructive now (the guard
+  drops them; the next run will also record them in `feed_unresolved`), but it produces
+  nothing, so it is a candidate to drop or to route through a detail-fetch once one
+  exists. `citadelsecurities`/`citadel` (browser) are the same story (dropped 7 + 3).
 - **Boards deliberately held off the watchlist** — `[XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
