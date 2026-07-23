@@ -45,7 +45,7 @@ def test_all_present_no_core_failure(tmp_path):
     _make_db(str(db))
     checks = _run(db_path=str(db),
                   env={"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c",
-                       "ANTHROPIC_API_KEY": "k"})
+                       "ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k"})
     assert all(c.ok for c in checks)
     assert [c for c in checks if c.core and not c.ok] == []
 

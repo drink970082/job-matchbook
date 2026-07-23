@@ -47,3 +47,52 @@ def test_claude_api_extract_raises_score_error_on_non_json(monkeypatch):
     extract = backends_screen.make_claude_api_extract("sk-test")
     with pytest.raises(ScoreError):
         extract("p", {})
+
+
+class _FakeResp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHttp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self._status = status
+        self.calls = []
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.calls.append({"url": url, "json": json, "headers": headers})
+        return _FakeResp(self._payload, self._status)
+
+
+def test_openai_api_extract_returns_parsed_json():
+    http = _FakeHttp({"choices": [{"message": {"content": '{"screen": {}}'}}]})
+    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
+    assert extract("the prompt", {"type": "object"}) == {"screen": {}}
+    assert http.calls[0]["url"] == "https://api.openai.com/v1/chat/completions"
+    body = http.calls[0]["json"]
+    assert body["model"] == "gpt-5.6-luna"
+    assert http.calls[0]["headers"]["Authorization"] == "Bearer sk-oa"
+    assert body["response_format"]["type"] == "json_schema"
+
+
+def test_openai_api_extract_raises_score_error_on_empty_choices():
+    http = _FakeHttp({"choices": []})
+    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
+    with pytest.raises(ScoreError):
+        extract("p", {})
+
+
+def test_openai_api_extract_raises_score_error_on_non_json():
+    http = _FakeHttp({"choices": [{"message": {"content": "not json {{{"}}]})
+    extract = backends_screen.make_openai_api_extract("sk-oa", http=http)
+    with pytest.raises(ScoreError):
+        extract("p", {})

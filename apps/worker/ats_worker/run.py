@@ -27,7 +27,9 @@ from .notify import notify_posting
 from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
                     screen_posting)
 from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
-                                    make_claude_api_extract)
+                                    DEFAULT_OPENAI_SCREEN_MODEL,
+                                    make_claude_api_extract,
+                                    make_openai_api_extract)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -125,6 +127,10 @@ def make_screener(backend: str, *, env, http=None, model=None, screen_model=None
     if backend == "claude-api":
         return make_claude_api_extract(env["ANTHROPIC_API_KEY"],
                                        screen_model or DEFAULT_CLAUDE_SCREEN_MODEL)
+    if backend == "openai-api":
+        return make_openai_api_extract(env["OPENAI_API_KEY"],
+                                       screen_model or DEFAULT_OPENAI_SCREEN_MODEL,
+                                       http=http)
     raise ValueError(
         f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
 

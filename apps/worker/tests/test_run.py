@@ -438,6 +438,17 @@ def test_make_screener_claude_api_wires_key_and_model(monkeypatch):
         "claude-api", "k", "claude-opus-4-8")
 
 
+def test_make_screener_openai_api_wires_key_and_model(monkeypatch):
+    # Same dispatch pattern as test_make_screener_claude_api_wires_key_and_model.
+    monkeypatch.setattr(run, "make_openai_api_extract",
+                        lambda key, model, *, http=None: ("openai-api", key, model, http))
+    assert run.make_screener("openai-api", env={"OPENAI_API_KEY": "k"}, http="H") == (
+        "openai-api", "k", run.DEFAULT_OPENAI_SCREEN_MODEL, "H")
+    assert run.make_screener("openai-api", env={"OPENAI_API_KEY": "k"},
+                             screen_model="gpt-6") == (
+        "openai-api", "k", "gpt-6", None)
+
+
 def test_make_screener_rejects_unknown_backend():
     with pytest.raises(ValueError, match="unknown screen backend"):
         run.make_screener("gpt9", env={}, http=None)

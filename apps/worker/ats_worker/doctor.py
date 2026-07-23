@@ -92,6 +92,7 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path) -> list[Che
     main() wires importlib / shutil / requests / sqlite3."""
     telegram_ok = bool(env.get("TELEGRAM_BOT_TOKEN") and env.get("TELEGRAM_CHAT_ID"))
     anthropic_ok = bool(env.get("ANTHROPIC_API_KEY"))
+    openai_ok = bool(env.get("OPENAI_API_KEY"))
     return [
         _dep_row(find_spec),
         _db_row(db_path, connect),
@@ -101,6 +102,9 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path) -> list[Che
         Check("anthropic api key", anthropic_ok,
               "set" if anthropic_ok else "unset (needed only for SCORE_BACKEND=claude)",
               core=False),
+        Check("openai api key", openai_ok,
+              "set" if openai_ok
+              else "unset (needed only for SCREEN_BACKEND=openai-api)", core=False),
         _which_row("node", "node", which),
         _which_row("docker", "docker", which),
         Check("telegram", telegram_ok,

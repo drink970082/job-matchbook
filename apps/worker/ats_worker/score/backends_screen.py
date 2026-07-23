@@ -62,3 +62,48 @@ def make_claude_api_extract(api_key: str, model: str = DEFAULT_CLAUDE_SCREEN_MOD
         return _parse(text, "claude-api")
 
     return extract
+
+
+# Cheapest of the three frontier models ($1/$6 per MTok, 1.05M ctx) and it supports
+# structured outputs. Aggregator sites claim a cheaper "nano" tier; OpenAI's own models
+# page does not list one, so it is deliberately not hard-coded here.
+DEFAULT_OPENAI_SCREEN_MODEL = "gpt-5.6-luna"
+
+
+def make_openai_api_extract(api_key: str, model: str = DEFAULT_OPENAI_SCREEN_MODEL, *,
+                            http=None, base_url: str = "https://api.openai.com/v1",
+                            timeout: int = 60):
+    """Screen via the metered OpenAI API over plain `requests` — no new dependency.
+    `http` is injected (the real `requests` module is bound only in run.py) so tests
+    exercise the parsing with a fake transport and zero network.
+
+    Wire shape verified against current docs (2026-07-23): POST chat/completions
+    with response_format={"type": "json_schema", "json_schema": {...}}, reading
+    choices[0].message.content. (The newer /v1/responses endpoint nests the schema
+    under text.format instead, but chat/completions remains supported and current —
+    not the deprecated legacy /v1/completions.)
+    """
+    def extract(prompt: str, schema: dict) -> dict:
+        resp = http.post(
+            f"{base_url}/chat/completions",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "screen", "strict": True,
+                                    "schema": schema},
+                },
+            },
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        choices = payload.get("choices") if isinstance(payload, dict) else None
+        if not choices:
+            raise ScoreError(f"openai-api returned no choices: {payload!r}")
+        return _parse(choices[0].get("message", {}).get("content", ""), "openai-api")
+
+    return extract
