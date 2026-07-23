@@ -93,10 +93,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
      both skills are invisible to every agent but Claude Code. Move to
      `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` (a Linux
      Foundation standard read by 30+ agents; the repo has none).
-  5. **Sponsorship screen rework — plan Stage 3 (tasks 7-8), not started.** The defect
-     below, redesigned as a quote-grounded LLM check (spec/plan linked above). No
-     longer gated on track 1 landing first — the plan sequences them as separate
-     stages instead of one combined change.
+  5. **Sponsorship screen rework — plan Stage 3 (tasks 7-8) — SHIPPED 2026-07-23.**
+     The former defect (below) is fixed in code: `_check_authorization` /
+     `_quote_in` (`score/screen.py`) now ground the check in a quote-grounded LLM
+     primary check — the model returns `no_sponsorship_quote`, and code verifies
+     that sentence is actually present in the JD before disqualifying, so a
+     hallucinated quote is kept, not disqualified. `NO_SPONSOR_PHRASES` is demoted
+     to a floor that can only *add* a disqualification, never veto a model pass.
+     `tools/sponsor_diff.py` (also shipped) diffs the new check against the old
+     phrase list over already-scored rows. **Open operator gate:** the
+     precision/recall measurement against a hand-labeled set has not run — see
+     [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+     below.
 
   **Open questions:** it remains unverified whether Claude Code discovers skills
   through a symlinked `.claude/skills` (track 4). The prior open question about the
@@ -168,11 +176,14 @@ dependency order (design: [In flight](#in-flight)).
    the per-backend default, and auto-detection never selects a paid backend (see
    [In flight](#in-flight) for the full writeup; SPEC §7.1, CHANGELOG). Screen/fit
    concurrency (plan Stage 5, Task 11) has since shipped too — see
-   [In flight](#in-flight). **Track 5, sponsorship gate** — `[M]`, still open; the
-   quote-grounded rework (plan Stage 3) is
-   designed but not built — the sponsorship gate is the highest-value check for any
-   sponsorship-needing user and the *only* screen check not using the LLM (see the
-   Defects section below).
+   [In flight](#in-flight). **Track 5, sponsorship gate** — `[M · SHIPPED 2026-07-23]`.
+   The quote-grounded rework (plan Stage 3) is built and shipped — `_check_authorization`
+   grounds the model's `no_sponsorship_quote` against the JD text before disqualifying,
+   with `NO_SPONSOR_PHRASES` demoted to a floor that can only *add* a disqualification.
+   **Open:** the precision/recall measurement against a hand-labeled set (via
+   `tools/sponsor_diff.py`) has not run — see the
+   [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+   section below.
 4. **Track 3 (`onboard-me` Step 0) — DONE 2026-07-23.** The skill now opens with
    `make setup` + `make doctor` and reads doctor's status lines to pick the provider path,
    replacing its stale hand-written prereq prose (Telegram "required", "host GPU / no
@@ -202,38 +213,10 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **The sponsorship gate misses ~9 of 11 realistic no-sponsorship phrasings** —
-  `[M · fix designed, needs a labeled set]`. `NO_SPONSOR_PHRASES`
-  (`score/screen.py`) is a closed 12-phrase substring list, so it catches only JDs
-  whose wording happens to be on it. Measured against realistic phrasings for a
-  candidate with `work_authorization: "needs visa sponsorship"`, these all pass
-  through un-disqualified: *"US Citizenship is required"*, *"Must be a U.S. citizen
-  or Green Card holder"*, *"requires US Person status as defined by ITAR"*,
-  *"permanent work authorization … now and in the future"*, *"unable to offer
-  immigration support at this time"*, *"Visa sponsorship is not available for this
-  position"*, *"must not require employer-sponsored work authorization"*, *"No H-1B
-  transfers"*. Only the two containing a literal listed phrase are caught.
-
-  This is the highest-value gate for any sponsorship-needing user, and it is the
-  **one check in the screen not using the LLM** — while degree and clearance, the two
-  a phrase list could nearly handle, do. The list is the **D1** fix: the 4B model
-  invented `offers_sponsorship: "no"` from silence, so it was taken off the check
-  entirely rather than grounded.
-
-  Fix designed (see the notes below): keep the LLM as the primary check but ground
-  it in a **verbatim quote** — the model returns the exact JD sentence stating
-  sponsorship is unavailable, and code verifies that sentence actually appears in the
-  description before acting on it. A hallucinated quote fails the check and the
-  posting is *kept*, so hallucination cannot disqualify anything by construction
-  rather than by trust — which works on `qwen3.5:4b` too, so D1 needs no
-  re-litigating. `NO_SPONSOR_PHRASES` is demoted to a floor that can only *add*
-  disqualifications. **Residual risk:** quote-grounding kills hallucination but not
-  *misclassification* (a model quoting real-but-irrelevant text — the shape of the
-  old "company-sponsored sports teams" false positive, though that was the previous
-  substring guard's failure, not the model's). Needs a labeled set
-  (*no-sponsorship / offers / silent*) to gate; cheap route is to diff the new screen
-  against the phrase list over the ~600 already-scored rows and hand-label only the
-  disagreements. (SPEC §7.1.)
+None open. The sponsorship-gate defect that lived here shipped a fix 2026-07-23 —
+see the sponsorship-gate entry under
+[Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+below (the fix is shipped; its precision/recall is what remains unproven).
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
@@ -362,6 +345,39 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
+- **Sponsorship gate — quote-grounded rework SHIPPED 2026-07-23, precision/recall
+  still unmeasured** — `[M · needs a labeled set]`. The prior gate
+  (`NO_SPONSOR_PHRASES`, a closed 12-phrase substring list in `score/screen.py`)
+  missed ~9 of 11 realistic no-sponsorship phrasings for a candidate needing
+  sponsorship: *"US Citizenship is required"*, *"Must be a U.S. citizen or Green
+  Card holder"*, *"requires US Person status as defined by ITAR"*, *"permanent work
+  authorization … now and in the future"*, *"unable to offer immigration support at
+  this time"*, *"Visa sponsorship is not available for this position"*, *"must not
+  require employer-sponsored work authorization"*, *"No H-1B transfers"* — only the
+  two containing a literal listed phrase were caught. It was also the **one** check
+  in the screen not using the LLM, while degree and clearance — the two a phrase
+  list could nearly handle — do.
+
+  The rework (`_check_authorization` / `_quote_in`, `score/screen.py`) is now
+  shipped: the model returns `no_sponsorship_quote`, the exact JD sentence it
+  claims states sponsorship is unavailable, and CODE verifies that sentence
+  actually appears in the description before disqualifying — a hallucinated quote
+  fails verification and the posting is *kept*, so hallucination cannot disqualify
+  anything by construction rather than by trust (this holds on `qwen3.5:4b` too, so
+  **D1** needs no re-litigating). `NO_SPONSOR_PHRASES` is demoted to a floor that
+  can only *add* a disqualification, never veto a model pass, so
+  `SCREEN_BACKEND=none` (no LLM call at all) still gets its blunt catch.
+
+  **Residual risk, unclosed by quote-grounding:** *misclassification* — the model
+  quoting real-but-irrelevant text (the shape of the earlier "company-sponsored
+  sports teams" false positive, though that was the previous substring guard's
+  failure, not the model's).
+
+  **Open operator gate:** precision/recall on the new check has not been measured.
+  `tools/sponsor_diff.py` (shipped alongside the rework) diffs the quote-grounded
+  screen against the old phrase list over the ~600 already-scored rows, so only the
+  disagreements need hand-labeling (*no-sponsorship / offers / silent*) rather than
+  the full set — that labeled-set run has not happened yet. (SPEC §7.1.)
 
 ### Enhancements — not built, optional
 

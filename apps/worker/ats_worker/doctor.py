@@ -100,7 +100,8 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path) -> list[Che
         _which_row("codex CLI", "codex", which),
         _which_row("claude CLI", "claude", which),
         Check("anthropic api key", anthropic_ok,
-              "set" if anthropic_ok else "unset (needed only for SCORE_BACKEND=claude)",
+              "set" if anthropic_ok
+              else "unset (needed for SCORE_BACKEND=claude or SCREEN_BACKEND=claude-api)",
               core=False),
         Check("openai api key", openai_ok,
               "set" if openai_ok

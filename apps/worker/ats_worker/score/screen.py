@@ -124,7 +124,8 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
             screen = _screen_verdict(data, candidate or {}, description)
-        except Exception:  # noqa: BLE001 — err toward KEEP on any provider failure
+        except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
+            print(f"[screen] provider error, keeping posting unscreened: {exc}")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
     # Deterministic CODE gates (intern title + location string), hoisted into a

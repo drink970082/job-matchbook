@@ -70,8 +70,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   backend's default model. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the
   in-process `env` dict only — never promoted to an argparse default, never leaked to a
   subprocess's inherited environment — the same secret-scoping discipline the fit
-  scorer already follows. Screen batching and concurrent execution are **not** part of
-  this change (`run_score` still screens one row at a time); tracked separately.
+  scorer already follows. Screen batching is **not** part of this change; concurrent
+  execution shipped separately later in this branch (see Changed, below).
   (SPEC §7.1.)
 
 - **`onboard-me` skill gained a Step 0 and stopped carrying its own prereq prose.** The
@@ -130,6 +130,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   subprocess/hosted backends. Fit concurrency is **quota-neutral**: N parallel
   `codex exec` calls spend exactly the same number of messages as N serial ones —
   only wall-clock changes (§11).
+
+- **The sponsorship screen is now a quote-grounded LLM check, not a closed phrase
+  list.** The prior gate (`NO_SPONSOR_PHRASES`, a 12-phrase substring list) missed
+  ~9 of 11 realistic no-sponsorship phrasings because it only matched wording
+  literally on the list. `_check_authorization` (`score/screen.py`) now asks the
+  model for `no_sponsorship_quote` — the exact JD sentence it claims states
+  sponsorship is unavailable — and CODE (`_quote_in`) verifies that sentence is
+  actually present in the description (whitespace-collapsed, case-insensitive)
+  before disqualifying: a hallucinated quote fails verification and the posting is
+  *kept*, so hallucination cannot disqualify anything by construction. This holds
+  on the free `qwen3.5:4b` default too. `NO_SPONSOR_PHRASES` is demoted to a floor
+  underneath the quote check: it still runs and can only *add* a disqualification,
+  never veto a model pass, so `SCREEN_BACKEND=none` (no LLM at all) still gets the
+  closed-list's blunt catch. New `tools/sponsor_diff.py` diffs the quote-grounded
+  screen against the old phrase list over already-scored rows, so only the
+  disagreements need hand-labeling. **Precision/recall on the new check is pending
+  measurement against a hand-labeled set — not yet run** (PROGRESS.md, SPEC §7.1).
 
 - **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
   `workday` shares `phenom`'s N+1 shape — a cheap paged list, then one detail GET per

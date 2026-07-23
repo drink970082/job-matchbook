@@ -550,16 +550,23 @@ worker modules are pure and dependency-injected; real services are wired only in
   judgment itself, and keeping it code-side means the check behaves the same
   regardless of which backend did the extracting): for degree/clearance by applying
   the candidate's configured constraint to the extracted fact; for **work
-  authorization by a deterministic JD-text
-  phrase gate** (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when
-  the candidate needs sponsorship *and* the description literally contains an explicit
-  no-sponsorship phrase — the **D1** fix (the model's `offers_sponsorship` guess had
-  invented "no" from silence and is no longer consulted). **Known cost:**
-  `NO_SPONSOR_PHRASES` is a closed set, so the gate trades recall for precision — 9 of
-  11 realistic phrasings pass through un-disqualified ("US Citizenship is required",
-  "US Person status as defined by ITAR", "unable to offer immigration support",
-  "Visa sponsorship is not available for this position"). Tracked as a defect in
-  [`PROGRESS.md`](./PROGRESS.md). `disqualified` is
+  authorization by a quote-grounded LLM check** (`_check_authorization` / `_quote_in`)
+  — the model returns `no_sponsorship_quote`, the verbatim JD sentence it claims
+  states sponsorship is unavailable, and CODE verifies that sentence is actually
+  present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
+  *before* disqualifying — a hallucinated quote fails verification and the posting is
+  *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
+  This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
+  "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
+  verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
+  demoted to a **floor** underneath the quote check: it still runs and can only *add*
+  a disqualification, never veto a model pass, so it still catches blunt closed-list
+  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall on
+  the quote-grounded check is pending measurement:** `tools/sponsor_diff.py` diffs it
+  against the old phrase list over already-scored rows so only the disagreements need
+  hand-labeling against a three-class truth (*no-sponsorship / offers / silent*) — that
+  labeled-set run has not happened yet, so no recall/precision number is claimed here
+  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)). `disqualified` is
   derived from those per-requirement verdicts. **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
@@ -1282,9 +1289,11 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening**: work authorization is the deterministic phrase gate
-  (**D1**, §7.1) and errs toward keep when a JD declines to sponsor in wording
-  outside the phrase set; **clearance** remains an LLM *semantic* extraction with a
+- **Hard-constraint screening**: work authorization is the quote-grounded LLM check
+  (**D1**, §7.1) — the model's extracted quote is verified against the JD text before
+  it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
+  and its precision/recall have not yet been measured against a labeled set (open
+  item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
   code check — a misjudgment sends a spurious alert or discards an applicable role.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
 - **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual

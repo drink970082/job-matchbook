@@ -655,7 +655,8 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     for k in ("DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
               "SCORE_BACKEND", "CODEX_SCORE_MODEL",
               "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
-              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY"):
+              "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "ANTHROPIC_API_KEY",
+              "OPENAI_API_KEY"):
         _os.environ.pop(k, None)
 
     envfile = tmp_path / ".env"
@@ -671,6 +672,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
         "TELEGRAM_BOT_TOKEN=secret-tok\n"
         "TELEGRAM_CHAT_ID=c\n"
         "ANTHROPIC_API_KEY=secret-key\n"
+        "OPENAI_API_KEY=secret-openai-key\n"
     )
 
     captured = {}
@@ -696,8 +698,10 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     assert "TELEGRAM_BOT_TOKEN" not in _os.environ
     assert "TELEGRAM_CHAT_ID" not in _os.environ
     assert "ANTHROPIC_API_KEY" not in _os.environ
+    assert "OPENAI_API_KEY" not in _os.environ
 
     # ... but secrets must still reach run_once via the in-process env dict.
     assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "secret-tok"
     assert captured["env"]["TELEGRAM_CHAT_ID"] == "c"
     assert captured["env"]["ANTHROPIC_API_KEY"] == "secret-key"
+    assert captured["env"]["OPENAI_API_KEY"] == "secret-openai-key"
