@@ -108,10 +108,16 @@ behavior changes. Revisit only if the run shows the renders are expensive.
    citadelsecurities 7 · citadel 3 · **MSCI icims 43** (a *new* empty-JD board — see
    below) — and **0** bodyless rows reached `new`. **Scoring** is now bounded, not blind:
    `--score-limit N` caps the paid scorer and thin JDs (< 200 chars) skip it entirely
-   (CHANGELOG). First bounded batch (`--score-only --score-limit 50`) running 2026-07-22;
-   the remaining ~4k `new` rows await an operator call on scoring at scale. Still open:
-   `custom` is ~a third of the intake — a `title_filter` tightening question, not a fetch
-   bug.
+   (CHANGELOG). First bounded batch (`--score-only --score-limit 50`) ran 2026-07-22:
+   50 rows → 9 screen-discarded, 41 fit-scored (**41 Codex messages, ~2% of the weekly
+   budget**; 0 thin-JD skips — these all had full JDs), **4 match/match → notified**
+   (Akuna x2, DRW, HRT — all on-target; DRW notified at score 58, confirming the
+   verdict, not the number, gates notify). Ordering (`score DESC, id ASC`) meant the 50
+   oldest `new` rows were the original **greenhouse+phenom** config boards, so **the
+   recipe (`custom`/`browser`) scored path is still unexercised** — a targeted score of
+   those rows is the next check. The remaining ~4k `new` rows await an operator call on
+   scoring at scale. Still open: `custom` is ~a third of the intake — a `title_filter`
+   tightening question, not a fetch bug.
 
 **P1 — the repo is public and only its author can run it.** Provider-choice tracks, in
 dependency order (design: [In flight](#in-flight)).
@@ -231,9 +237,12 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **browser 662 `new`** — the browser rows are google (623), careers.twosigma.com (33),
   and rentec.com (6), all with real JDs (Citadel correctly contributes 0, dropped by the
   guard). So both executors work through `run_fetch`. Caveat: this proves the **fetch**
-  path only; the scored/notified path over recipe-sourced rows is being exercised now by
-  the first bounded `--score-only` batch (see the run above). "Which boards over-produce"
-  is the live follow-up — `custom` is ~a third of the intake, google alone is 623 rows.
+  path only. The first bounded `--score-only` batch scored the oldest `new` rows, which
+  by id were the original greenhouse+phenom config boards — so the scored/notified path
+  over **recipe-sourced** rows is **still unexercised**. Closing it needs a score run
+  that reaches `custom`/`browser` ids (e.g. a larger `--score-limit`, or scoring a
+  source-filtered slice). "Which boards over-produce" is the live follow-up — `custom` is
+  ~a third of the intake, google alone is 623 rows.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
