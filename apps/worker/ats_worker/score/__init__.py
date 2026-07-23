@@ -31,6 +31,7 @@ from .screen import (  # noqa: F401  (re-export)
     _normalize_score,
     deterministic_screen,
     make_ollama_extract,
+    merge_fallback_screen,
     screen_posting,
 )
 from .usage import (  # noqa: F401  (re-export)

@@ -403,6 +403,48 @@ def _flag(value) -> bool:
     return False
 
 
+def merge_fallback_screen(screen: dict, card: dict, posting: dict,
+                          candidate: dict | None) -> dict:
+    """Consume the fit scorer's secondary hard-requirement extraction — but ONLY for
+    checks the screen produced no verdict for.
+
+    Why fallback and not a second vote: on a working screen backend a second independent
+    checker doubles the false-positive surface, and a spurious "requires PhD" would
+    SILENTLY DISCARD a good posting — the exact failure the err-toward-keep design
+    exists to avoid. This is insurance for the gap (SCREEN_BACKEND=none, or a screen
+    failure that err-toward-keep already swallowed), not redundancy.
+
+    Sponsorship keeps the same quote verification as the screen, so a hallucinated
+    quote cannot disqualify here either.
+
+    A screen that already disqualified has nothing left to gap-fill, so it is
+    returned untouched.
+    """
+    if not candidate or not isinstance(card, dict):
+        return screen
+    if screen.get("disqualified"):
+        return screen
+    extracted = card.get("screen")
+    if not isinstance(extracted, dict):
+        return screen
+    already = screen.get("screen") or {}
+    gaps = {k: v for k, v in extracted.items() if k not in already}
+    if not gaps:
+        return screen
+    verdict = _screen_verdict({"screen": gaps}, candidate,
+                              str(posting.get("description") or ""))
+    merged = dict(already)
+    merged.update({k: v for k, v in (verdict.get("screen") or {}).items() if k in gaps})
+    prior = screen.get("disqualification_reason") or ""
+    extra = verdict.get("disqualification_reason") or ""
+    reason = "; ".join(r for r in (prior, extra) if r)
+    return {
+        "screen": merged,
+        "disqualified": bool(screen.get("disqualified")) or bool(verdict.get("disqualified")),
+        "disqualification_reason": reason,
+    }
+
+
 def _as_str_list(value) -> list[str]:
     """Coerce the model's keyword field to a flat list of strings.
 

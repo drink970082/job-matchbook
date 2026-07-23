@@ -1128,3 +1128,69 @@ def test_codex_scorer_cleans_rollout_on_failure(monkeypatch, tmp_path):
         score.make_codex_scorer("gpt-5.6-sol", usage_path=str(tmp_path / "u.json"))(
             [{**POSTING, "id": 1}], {"swe": "r"})
     assert not (sess / "rollout-x.jsonl").exists()   # résumé prompt not left on disk
+
+
+# --- scorer fallback screen check ----------------------------------------
+
+def test_fallback_screen_used_when_screen_produced_nothing():
+    # SCREEN_BACKEND=none: the screen has no verdict, so the scorer's extraction is
+    # the ONLY check. It must be consumed.
+    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"clearance": {"requires_clearance": True}}}
+    out = score.merge_fallback_screen(empty, card, POSTING,
+                                      {"security_clearance": "none"})
+    assert out["disqualified"] is True
+
+
+def test_fallback_screen_ignored_when_screen_already_ruled():
+    # On a working backend the screen wins. A second independent checker would double
+    # the false-positive surface, and a spurious "requires PhD" silently discards a
+    # good posting — the exact failure err-toward-keep exists to avoid.
+    ruled = {"screen": {"clearance": {"pass": True, "note": ""}},
+             "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"clearance": {"requires_clearance": True}}}
+    out = score.merge_fallback_screen(ruled, card, POSTING,
+                                      {"security_clearance": "none"})
+    assert out["disqualified"] is False
+
+
+def test_fallback_sponsorship_quote_is_verified_too():
+    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"authorization": {"no_sponsorship_quote": "We never sponsor."}}}
+    posting = dict(POSTING, description="A perfectly normal JD.")
+    out = score.merge_fallback_screen(empty, card, posting,
+                                      {"work_authorization": "needs visa sponsorship"})
+    assert out["disqualified"] is False   # hallucinated quote -> keep, same as the screen
+
+
+def test_fallback_screen_returns_untouched_when_screen_already_disqualified():
+    # A screen that already disqualified has nothing left to gap-fill — and must not
+    # be handed to _screen_verdict at all, whose recompute could produce a different
+    # (or emptied) reason. This is the function's own guard, independent of any
+    # caller precondition.
+    screen = {"screen": {"degree": {"pass": False, "note": "requires master's"}},
+              "disqualified": True, "disqualification_reason": "degree: requires master's"}
+    card = {"screen": {"clearance": {"requires_clearance": True}}}
+    out = score.merge_fallback_screen(screen, card, POSTING,
+                                      {"highest_degree": "Bachelor's", "security_clearance": "none"})
+    assert out is screen or out == screen
+    assert out["screen"]["degree"] == {"pass": False, "note": "requires master's"}
+    assert out["disqualified"] is True
+
+
+def test_fallback_screen_preserves_already_ruled_nongap_check():
+    # clearance is already ruled (a distinctive note the recompute would not produce);
+    # degree is the only genuine gap. The ruled clearance entry must survive verbatim
+    # -- not be overwritten by _screen_verdict's recomputation of the whole card,
+    # which would evaluate clearance too (candidate holds no clearance -> requires
+    # clearance -> {"pass": False, ...}, an entirely different verdict from the
+    # marker below).
+    screen = {"screen": {"clearance": {"pass": True, "note": "MARKER-not-recomputed"}},
+              "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"clearance": {"requires_clearance": True},
+                       "degree": {"required_degree": "phd"}}}
+    out = score.merge_fallback_screen(screen, card, POSTING,
+                                      {"security_clearance": "none", "highest_degree": "Bachelor's"})
+    assert out["screen"]["clearance"] == {"pass": True, "note": "MARKER-not-recomputed"}
+    assert "degree" in out["screen"]   # the real gap was filled
+    assert out["screen"]["degree"]["pass"] is False   # PhD required, candidate holds Bachelor's

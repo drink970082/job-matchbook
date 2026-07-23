@@ -75,6 +75,30 @@ _SCORE_SCHEMA = {
         # True when the JD is too thin/boilerplate to score with confidence; routes the
         # row to the low-context bucket regardless of the (still-required) score.
         "insufficient_context": {"type": "boolean"},
+        # Fallback hard-requirement extraction, consumed ONLY where the screen produced
+        # nothing (SCREEN_BACKEND=none, or a swallowed screen failure). Not required:
+        # a scorer that omits it must not fail the whole card.
+        "screen": {
+            "type": "object",
+            "properties": {
+                "degree": {
+                    "type": "object",
+                    "properties": {"required_degree": {"type": ["string", "null"]}},
+                    "additionalProperties": False,
+                },
+                "authorization": {
+                    "type": "object",
+                    "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
+                    "additionalProperties": False,
+                },
+                "clearance": {
+                    "type": "object",
+                    "properties": {"requires_clearance": {"type": "boolean"}},
+                    "additionalProperties": False,
+                },
+            },
+            "additionalProperties": False,
+        },
     },
     "required": ["assessment", "score", "insufficient_context"],
     "additionalProperties": False,

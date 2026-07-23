@@ -388,12 +388,30 @@ def _chunks(seq: list, n: int):
         yield seq[i:i + n]
 
 
-def _persist_scored(conn, row, screen: dict, card: dict, *, now) -> None:
-    """Normalize one raw fit scorecard, merge the screen verdict on top
-    (normalize-then-update, the composition B2's now-removed score_posting used
-    to do), and persist 'scored'. A structurally-bad scorecard (score.ScoreError
-    from _normalize_score) fails only THIS row — it must not abort the chunk
-    it's part of."""
+def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
+                    now, candidate=None) -> None:
+    """Normalize one raw fit scorecard, apply the scorer's fallback hard-requirement
+    extraction (fills gaps ONLY where the screen produced no verdict for a check —
+    see score.merge_fallback_screen), merge the (possibly-updated) screen verdict on
+    top (normalize-then-update, the composition B2's now-removed score_posting used
+    to do), and persist. A structurally-bad scorecard (score.ScoreError from
+    _normalize_score) fails only THIS row — it must not abort the chunk it's part of.
+
+    A row the fallback newly disqualifies lands 'discarded' (score 0, screen alone —
+    same shape the screen-loop's own disqualified branch persists), never 'scored' —
+    it never earned a fit assessment in spirit, even though the fit call already ran.
+    On a working screen backend merge_fallback_screen is a no-op (the screen already
+    ruled on every check), so this branch and the 'scored' outcome below are
+    byte-identical to pre-fallback behavior.
+    """
+    screen = score.merge_fallback_screen(screen, card, posting, candidate)
+    if screen.get("disqualified"):
+        db.save_score(
+            conn, row["id"], score=0,
+            score_detail=_score_detail(screen, disqualified=True),
+            now=now, status="discarded",
+        )
+        return
     try:
         result = {**score._normalize_score(card), **screen}
     except score.ScoreError as exc:
@@ -439,8 +457,10 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     `screen_workers`/`score_workers` bound how many screen/fit calls run
     concurrently (each I/O-bound: an HTTP round trip or a subprocess spawn) —
     see the read-serial / network-parallel / write-serial shape below, the same
-    one `run_feed` uses. `candidate` is currently unused here (forward-compat
-    seam for a later stage's fallback-screen merge).
+    one `run_feed` uses. `candidate` is threaded into `_persist_scored`, which
+    applies the fit scorer's fallback hard-requirement extraction — insurance for
+    whatever check the screen produced no verdict for (see
+    `score.merge_fallback_screen`).
 
     Three phases:
       1. SCREEN every 'new' row (cheap, local Ollama, per-item — one bad screen
@@ -533,10 +553,12 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                     except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
                         db.mark_failed(conn, row["id"], error=str(exc), now=now)
                         continue
-                    _persist_scored(conn, row, screen, card, now=now)
+                    _persist_scored(conn, row, screen, card, posting,
+                                    now=now, candidate=candidate)
             else:
                 for (row, posting, screen), card in zip(chunk, cards):
-                    _persist_scored(conn, row, screen, card, now=now)
+                    _persist_scored(conn, row, screen, card, posting,
+                                    now=now, candidate=candidate)
 
 
 # --- retry ------------------------------------------------------------------

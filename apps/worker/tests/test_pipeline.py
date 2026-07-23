@@ -625,6 +625,33 @@ def test_run_score_persists_disqualified_without_fit(db_path):
     assert db.get_by_status(conn, "discarded")[0]["id"] == 1
 
 
+def test_run_score_scorer_fallback_disqualifies_lands_discarded(db_path):
+    # The screen produced NO verdict for this row (e.g. SCREEN_BACKEND=none); only
+    # the fit scorer's fallback extraction catches the hard requirement. It must
+    # land 'discarded' — not 'scored' — even though the (paid) fit call already ran.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    def screen_fn(posting):
+        return {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+    def fit_fn(postings):
+        return [{"score": 90, "assessment": _assessment(),
+                 "screen": {"clearance": {"requires_clearance": True}}}
+                for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn,
+                       candidate={"security_clearance": "none"})
+
+    assert db.get_by_status(conn, "scored") == []
+    row = db.get_by_status(conn, "discarded")[0]
+    assert row["external_id"] == "1"
+    assert row["score"] == 0
+    detail = _json.loads(row["score_detail"])
+    assert detail["disqualified"] is True
+    assert "clearance" in detail["disqualification_reason"]
+
+
 def test_run_score_fallback_single_failure_is_isolated(db_path):
     # The batch fails (forcing the single-item fallback); within that fallback,
     # ONE posting's single fit_fn call still fails — it alone is marked 'failed',

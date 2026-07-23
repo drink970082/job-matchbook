@@ -330,7 +330,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
                            batch_size=batch_size, limit=score_limit,
-                           screen_workers=workers, score_workers=score_workers)
+                           screen_workers=workers, score_workers=score_workers,
+                           candidate=candidate)
 
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.
