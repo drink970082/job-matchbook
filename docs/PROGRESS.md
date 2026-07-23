@@ -22,6 +22,24 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Branch `feat/universality-and-onboarding` — landed, unmerged, BLOCKED on two
+  operator gates (2026-07-23).** All 11 tasks of the
+  [screen-backends plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
+  are implemented and reviewed; suites green (worker 578, coverage 93.27%; web 136;
+  privacy + schema-drift clean) and a whole-branch review found **no correctness
+  blockers**. Shipped on it: plan Stages 1-2 (screen backends — track 1), Stage 3
+  (quote-grounded sponsorship — track 5), Stage 5 (screen/fit concurrency).
+  **Committed but NOT shippable — plan Stage 4** (Task 9, `66dfb65`): the fit scorer
+  now also extracts the three hard-requirement facts, consumed as a *fallback* only
+  where the screen produced no verdict (`merge_fallback_screen` — a working backend's
+  verdict still wins, so the false-positive surface does not double). It edits the
+  gated `score.txt` (an appended block only; rubric and verdict definitions
+  untouched), so it **does not ship until the fit-score gate passes, and is reverted
+  — not shipped anyway — on a FAIL**. It was deliberately ordered last so it stays
+  cleanly revertible. **Both blocking gates** — the sponsorship precision/recall
+  labeled-set run and the `score_eval` re-run — are in
+  [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
+  Nothing else on the branch depends on Stage 4.
 - **Branch `fix/bodyless-guard-and-quota-flags` — landed, unmerged (2026-07-22).**
   Worker code + docs on a local branch, full suite green, not yet PR'd to `main`.
   **Shipped:** body-required guard on the board path (bodyless rows dropped + recorded
@@ -198,9 +216,18 @@ dependency order (design: [In flight](#in-flight)).
 
 **P2 — correctness of the scoring path.**
 
-5. **Fit-score gate re-run** — `[S · ~69 Codex messages]`. Gate the 2026-07-22 profile
-   edit. Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
+5. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
+   BLOCKER]`. One re-run now gates **two** changes: the 2026-07-22 profile edit *and*
+   plan Stage 4's `score.txt` block (`66dfb65`). Two consecutive PASS or
+   `git revert 66dfb65`; until then `feat/universality-and-onboarding` does not merge.
+   Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
    set's documented Java blind spot in the same pass.
+6. **Sponsorship precision/recall labeled set** — `[M · MERGE BLOCKER · free on the
+   default ollama backend]`. Run `tools/sponsor_diff.py` over the already-scored
+   rows, hand-label the disagreements, record the numbers. The rework is shipped and
+   its hallucination-safety holds by construction; what is unmeasured is precision —
+   specifically the misclassification residual. Detail in
+   [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
 
 **P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
 (`[S]`, unblocks 2 boards) → `custom` HTML mode (`[M]`, drops 6 boards off Chromium and
@@ -304,8 +331,24 @@ below (the fix is shipped; its precision/recall is what remains unproven).
   Chromium render per posting with no stub gate (`browser.py:159`), all of it before
   screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a
   chained detail call; Citi/Barclays if `custom` gains an HTML mode (both above).
-- **Fit-score gate not re-run since the 2026-07-22 profile edit** — `[S · costs ~69
-  Codex messages · deferred by operator]`. `personal_profile.txt` changed on two
+- **Fit-score gate not re-run — now gates TWO changes, and blocks a merge** — `[S ·
+  ~69 Codex messages per run, two runs · deferred by operator]`. One `score_eval`
+  re-run discharges both pending scorer changes:
+  1. the 2026-07-22 `personal_profile.txt` edit (detail below), and
+  2. **plan Stage 4** (Task 9, `66dfb65` on `feat/universality-and-onboarding`) — the
+     appended `score.txt` extraction block feeding `merge_fallback_screen`. The block
+     is additive and instructs the model not to let it change the score or the
+     verdicts, and the rubric/verdict definitions are untouched — but it is still a
+     `score.txt` edit, and this file has destabilised verdicts before.
+
+  **Gate:** two *consecutive* PASS — 0 hard-invariant violations, >=85% per-dimension
+  verdict agreement, <20% flip rate. **On any FAIL, `git revert 66dfb65`** — Stage 4
+  is dropped, not shipped anyway; Stages 1-3 and 5 are unaffected either way. Until
+  this runs, `feat/universality-and-onboarding` should not merge (see
+  [In flight](#in-flight)). Run the free hermetic `python3 tools/score_eval.py
+  --selftest` first.
+
+  On the profile edit specifically: `personal_profile.txt` changed on two
   lines: target #1 widened from "buy-side or prop" to "buy-side / prop / HFT /
   market-making / hedge fund", and the anti-target moved from "Low-latency / HFT / C++
   systems engineering" to "Low-latency systems engineering, in any language, and
@@ -330,6 +373,18 @@ below (the fix is shipped; its precision/recall is what remains unproven).
 
   Note `tools/score_eval.py` has no argparse: any unrecognised flag (`--help`) starts a
   LIVE, quota-spending run. `--selftest` is the free hermetic path.
+- **`score_workers` defaults to 4 for every fit backend — codex rollout cleanup
+  regresses under it** — `[XS · decision pending]`. Plan Stage 5 made the fit loop
+  concurrent (quota-neutral: N parallel `codex exec` calls spend the same messages as
+  N serial ones). But the codex quota capture reads its figures from the session
+  *rollout*, and its cleanup deletes that rollout **only when exactly one new rollout
+  exists** — a deliberate guard against nuking a concurrent session's history. At 4
+  workers two or more rollouts always co-occur, so the delete never fires and
+  `~/.codex/sessions` accumulates. Telemetry itself stays correct (the snapshot write
+  is atomic and its temp file is per-call unique, so concurrent captures cannot tear
+  it); only the cleanup degrades. **Decision:** leave it (documented-safe, litter only)
+  or default the codex/`claude-code` fit path to 1 worker. Screen concurrency already
+  defaults to 1 for `ollama` for an unrelated reason (a single GPU serialises anyway).
 - **SSRF residual shapes** — `[M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
