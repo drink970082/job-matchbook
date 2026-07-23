@@ -24,7 +24,8 @@ from . import db, pipeline
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import make_claude_scorer, make_codex_scorer, screen_posting
+from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
+                    screen_posting)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -63,15 +64,15 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 
-# The ONLY six .env keys argparse defaults read from os.environ (grepped across
+# The ONLY seven .env keys argparse defaults read from os.environ (grepped across
 # the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
 # TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY) are deliberately excluded: every consumer
 # reads them from the in-process `env` dict (run_once(..., env=env) / make_scorer),
 # never os.environ, so promoting them would only leak them to subprocesses that
 # inherit the full environment (the codex CLI — see score/backends_codex.py).
 _ENV_ARGPARSE_KEYS = frozenset({
-    "DB_PATH", "OLLAMA_MODEL", "SCORE_BACKEND", "CODEX_SCORE_MODEL",
-    "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCORE_BACKEND",
+    "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
 })
 
 
@@ -91,6 +92,31 @@ def make_scorer(backend: str, *, env, profile="",
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
     raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+
+# The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
+# A PAID BACKEND — spending money is explicit opt-in via SCREEN_BACKEND. `make doctor`
+# reports which providers are actually installed; the operator (or onboard-me Step 0)
+# chooses from that, and this function never guesses.
+DEFAULT_SCREEN_BACKEND = "ollama"
+SCREEN_BACKENDS = ("ollama", "codex", "claude-code", "claude-api", "openai-api", "none")
+
+
+def make_screener(backend: str, *, env, http=None, model=None, num_ctx: int = 8192):
+    """Pick the screen backend, returning the `extract(prompt, schema) -> dict`
+    callable `screen_posting` consumes — or None for `none`, which runs the
+    deterministic gates only (documented as LOW RECALL on sponsorship: it falls back
+    to the closed NO_SPONSOR_PHRASES list, ~2/11 recall).
+    """
+    if backend == "none":
+        return None
+    if backend == "ollama":
+        return make_ollama_extract(
+            http=http, model=model or DEFAULT_OLLAMA_MODEL,
+            ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
+            num_ctx=num_ctx,
+        )
+    raise ValueError(
+        f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own
@@ -133,6 +159,7 @@ def _now() -> str:
 
 def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
+             screen_backend=DEFAULT_SCREEN_BACKEND,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
@@ -231,15 +258,12 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
+        screen_extract = make_screener(screen_backend, env=env, http=requests,
+                                       model=ollama_model, num_ctx=num_ctx)
+
         def screen_fn(posting):
-            return screen_posting(
-                posting,
-                http=requests,
-                model=ollama_model,
-                ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
-                candidate=candidate,
-                num_ctx=num_ctx,
-            )
+            return screen_posting(posting, extract=screen_extract,
+                                  candidate=candidate, num_ctx=num_ctx)
 
         # Build the fit scorer lazily on first use (both twins are import-safe: the
         # anthropic SDK import / the codex subprocess are deferred to the first call,
@@ -370,6 +394,12 @@ def main(argv=None) -> None:
                         default=os.environ.get("SCORE_BACKEND", DEFAULT_SCORE_BACKEND),
                         help="fit-score backend: codex (ChatGPT subscription, flat-rate) "
                              "or claude (metered API)")
+    parser.add_argument("--screen-backend", choices=SCREEN_BACKENDS,
+                        default=os.environ.get("SCREEN_BACKEND",
+                                               DEFAULT_SCREEN_BACKEND),
+                        help="hard-requirements screen backend. Default 'ollama' "
+                             "(free, local). 'none' runs the deterministic gates "
+                             "only and is LOW RECALL on sponsorship")
     parser.add_argument("--codex-score-model",
                         default=os.environ.get("CODEX_SCORE_MODEL",
                                                DEFAULT_CODEX_SCORE_MODEL),
@@ -406,6 +436,7 @@ def main(argv=None) -> None:
     def once():
         run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                  env=env, ollama_model=args.model,
+                 screen_backend=args.screen_backend,
                  score_backend=args.score_backend,
                  codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model,

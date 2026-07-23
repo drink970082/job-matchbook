@@ -261,14 +261,29 @@ def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
     assert calls == []
 
 
+def test_run_once_screen_backend_none_makes_no_provider_call(monkeypatch, tmp_path):
+    # A GPU-less user: the pass must complete with zero screen calls.
+    _stub_stages(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(run, "make_screener",
+                        lambda backend, **kw: seen.setdefault("backend", backend))
+    dbfile = tmp_path / "applications.db"
+    bootstrap_db(str(dbfile))
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile),
+                 resumes={"resume": "r"}, env=_ENV, screen_backend="none")
+    assert seen["backend"] == "none"
+
+
 # --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---
 
 def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
     """Drive the REAL run_score over one 'new' row, capturing the kwargs the wired
-    screen_fn passes to screen_posting. fetch/notify are stubbed, and the fit
-    scorer's BUILD is stubbed to a trivial hermetic callable — the fake screen
-    always survives (not disqualified), so run_score's fit phase does run, and
-    it must not shell out to a real codex/Claude backend."""
+    screen_fn passes to screen_posting, plus the kwargs the REAL make_screener (not
+    mocked here) passes on to make_ollama_extract — that is where OLLAMA_HOST now
+    lands, since it is no longer a screen_posting kwarg (Task 2). fetch/notify are
+    stubbed, and the fit scorer's BUILD is stubbed to a trivial hermetic callable —
+    the fake screen always survives (not disqualified), so run_score's fit phase does
+    run, and it must not shell out to a real codex/Claude backend."""
     captured = {}
 
     def fake_screen_posting(posting, **kwargs):
@@ -276,7 +291,12 @@ def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
         captured["posting"] = posting
         return {"disqualified": False}
 
+    def fake_make_ollama_extract(**kwargs):
+        captured["extract_kwargs"] = kwargs
+        return lambda prompt, schema: {}
+
     monkeypatch.setattr(run, "screen_posting", fake_screen_posting)
+    monkeypatch.setattr(run, "make_ollama_extract", fake_make_ollama_extract)
     monkeypatch.setattr(
         run, "make_scorer",
         lambda backend, **kw: (lambda postings, resumes: [
@@ -304,13 +324,14 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     )
     env = {"OLLAMA_NUM_CTX": "4096", "OLLAMA_HOST": "http://ol:11434",
            "ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    kw = _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env)["kwargs"]
+    captured = _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env)
+    kw = captured["kwargs"]
     cand = kw["candidate"]
     assert cand["highest_degree"] == "Master's"
     assert cand["locations"] == ["remote", "USA"]
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
-    assert kw["ollama_host"] == "http://ol:11434"
+    assert captured["extract_kwargs"]["ollama_host"] == "http://ol:11434"
     # (fit-scorer wiring — which backend/model builds fit_fn — is verified by the
     # score-model/backend tests below via make_scorer/make_claude_scorer/
     # make_codex_scorer; screen_posting has no score_fit kwarg to inspect here.)
@@ -372,6 +393,52 @@ def test_make_scorer_rejects_an_unknown_backend():
     # A typo'd --score-backend must fail loudly, not silently fall back to a paid API.
     with pytest.raises(ValueError, match="unknown score backend"):
         run.make_scorer("gpt", env={})
+
+
+def test_make_screener_none_returns_no_extract():
+    # SCREEN_BACKEND=none must produce NO callable at all — screen_posting then runs
+    # the deterministic gates only and never attempts a provider call.
+    assert run.make_screener("none", env={}, http=None) is None
+
+
+def test_make_screener_ollama_builds_a_working_extract(monkeypatch):
+    calls = []
+
+    class FakeHttp:
+        def post(self, url, json=None, timeout=None):
+            calls.append(url)
+
+            class R:
+                status_code = 200
+
+                @staticmethod
+                def raise_for_status():
+                    pass
+
+                @staticmethod
+                def json():
+                    return {"response": '{"screen": {}}'}
+            return R()
+
+    extract = run.make_screener("ollama", env={"OLLAMA_HOST": "http://x:11434"},
+                                http=FakeHttp(), model="m")
+    assert extract("prompt", {}) == {"screen": {}}
+    assert calls == ["http://x:11434/api/generate"]
+
+
+def test_make_screener_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="unknown screen backend"):
+        run.make_screener("gpt9", env={}, http=None)
+
+
+def test_default_screen_backend_is_free():
+    # "Auto-detection must never select a paid backend" is satisfied BY CONSTRUCTION:
+    # there is no auto-detection. The backend is always explicit and defaults to the
+    # free local one, so no code path can reach a metered provider without the operator
+    # naming it. This test pins that property against a future "helpfully" added probe.
+    assert run.DEFAULT_SCREEN_BACKEND == "ollama"
+    assert run.make_screener(run.DEFAULT_SCREEN_BACKEND, env={}, http=None,
+                             model="m") is not None
 
 
 def test_run_once_defaults_to_the_codex_scorer(monkeypatch, tmp_path):
