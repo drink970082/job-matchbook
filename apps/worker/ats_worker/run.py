@@ -26,6 +26,8 @@ from .feed import embedded_gh, simplify
 from .notify import notify_posting
 from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
                     screen_posting)
+from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
+                                    make_claude_api_extract)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -101,11 +103,16 @@ DEFAULT_SCREEN_BACKEND = "ollama"
 SCREEN_BACKENDS = ("ollama", "codex", "claude-code", "claude-api", "openai-api", "none")
 
 
-def make_screener(backend: str, *, env, http=None, model=None, num_ctx: int = 8192):
+def make_screener(backend: str, *, env, http=None, model=None, screen_model=None,
+                  num_ctx: int = 8192):
     """Pick the screen backend, returning the `extract(prompt, schema) -> dict`
     callable `screen_posting` consumes — or None for `none`, which runs the
     deterministic gates only (documented as LOW RECALL on sponsorship: it falls back
     to the closed NO_SPONSOR_PHRASES list, ~2/11 recall).
+
+    `model` is the Ollama model tag (--model); `screen_model` is the hosted-backend
+    model override (--screen-model, added in Task 6) — kept separate so a `--model`
+    aimed at Ollama never leaks into a claude-api/openai-api call and vice versa.
     """
     if backend == "none":
         return None
@@ -115,6 +122,9 @@ def make_screener(backend: str, *, env, http=None, model=None, num_ctx: int = 81
             ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
             num_ctx=num_ctx,
         )
+    if backend == "claude-api":
+        return make_claude_api_extract(env["ANTHROPIC_API_KEY"],
+                                       screen_model or DEFAULT_CLAUDE_SCREEN_MODEL)
     raise ValueError(
         f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
 

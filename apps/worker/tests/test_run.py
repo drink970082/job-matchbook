@@ -426,6 +426,18 @@ def test_make_screener_ollama_builds_a_working_extract(monkeypatch):
     assert calls == ["http://x:11434/api/generate"]
 
 
+def test_make_screener_claude_api_wires_key_and_model(monkeypatch):
+    # Same dispatch pattern as test_make_scorer_picks_the_backend: the seam only
+    # needs to pass the right key/model through, so the real adapter is faked out.
+    monkeypatch.setattr(run, "make_claude_api_extract",
+                        lambda key, model: ("claude-api", key, model))
+    assert run.make_screener("claude-api", env={"ANTHROPIC_API_KEY": "k"}) == (
+        "claude-api", "k", run.DEFAULT_CLAUDE_SCREEN_MODEL)
+    assert run.make_screener("claude-api", env={"ANTHROPIC_API_KEY": "k"},
+                             screen_model="claude-opus-4-8") == (
+        "claude-api", "k", "claude-opus-4-8")
+
+
 def test_make_screener_rejects_unknown_backend():
     with pytest.raises(ValueError, match="unknown screen backend"):
         run.make_screener("gpt9", env={}, http=None)
