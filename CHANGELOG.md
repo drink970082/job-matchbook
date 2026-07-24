@@ -398,7 +398,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   **authority table** splits what a session decides alone (branch, commit, push, open a
   PR, record a defect) from what needs the operator (**merging to `main`**, force-pushes,
   releases, reverting another session's work, anything spending money or quota) — with
-  the note that "just merge" authorizes *that* merge, not a standing one. `CLAUDE.md`
+  the note that "just merge" authorizes *that* merge, not a standing one. A session may
+  merge **its own** green PR, but only behind a **fresh-subagent review**: an author
+  cannot review its own diff (it re-reads its intent and checks the code against the
+  plan, rather than checking the plan), so the reviewer gets the diff and the spec and
+  explicitly *not* the working session's reasoning, and any finding that survives
+  verification blocks the merge. CI green is not a review. `CLAUDE.md`
   carries the short form. **Deliberately rejected: GitHub issues as the queue** —
   `PROGRESS.md` already is one, in-repo and greppable, and a second list would drift.
 

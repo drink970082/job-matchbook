@@ -49,8 +49,9 @@ Claude Opus 5 is the dev model for this repo; effort levels are in
   its `PROGRESS.md` In-flight entry; read that section before touching anything.
   Branch/PR/merge rules and the authority split — what a session decides alone vs. what
   needs the operator — are [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7. The short
-  version: open PRs freely, **never merge to `main` unasked**, and "just merge"
-  authorizes that merge, not a standing one.
+  version: open PRs freely; you may merge **your own** PR once CI is green **and a fresh
+  subagent has reviewed it** — never review your own diff, and never merge another
+  session's work. "Just merge" authorizes that merge, not a standing one.
 
 ## What this is
 

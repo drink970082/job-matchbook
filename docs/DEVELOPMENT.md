@@ -157,14 +157,41 @@ Each rule below was paid for by an incident on 2026-07-24:
 
 | Do it | Ask first |
 |---|---|
-| Create a branch, commit, push it, open a PR | **Merging to `main`** |
+| Create a branch, commit, push it, open a PR | Merging a PR whose review raised anything unresolved |
+| **Merge your own PR — CI green *and* a passing fresh-subagent review (below)** | Merging **another session's** work |
 | Resolve conflicts; keep SPEC/PROGRESS/CHANGELOG in sync | Force-push anything; deleting unmerged work |
-| Open/close a PR of your own work | Tags and releases |
-| Record a defect you found instead of fixing it | Reverting another session's commit |
-| Anything free and reversible | Anything that **spends money or quota** |
+| Record a defect you found instead of fixing it | Tags and releases |
+| Anything free and reversible | Reverting another session's commit |
+| | Anything that **spends money or quota** |
 
-The split is a normal team's: a dev opens PRs freely, trunk is reviewed. An operator
-who says "just merge" has authorized *that* merge, not a standing one.
+The split is a normal team's: a dev opens and merges their own work once it has passed
+review, and everything irreversible or shared stays with the operator. An operator who
+says "just merge" has authorized *that* merge, not a standing one.
+
+### The review is a fresh subagent, never the author
+
+**A session must not review its own PR.** Having written the diff, it re-reads its own
+intent instead of the code: it already believes the edge case is handled, so it checks
+that the code matches the plan rather than that the plan was right. That is the failure
+mode a review exists to catch, and it is exactly the one an author cannot catch.
+
+So before self-merging, dispatch a **fresh subagent** and give it only what a reviewer
+would have:
+
+- the diff (`git diff main...HEAD`), the branch's commits, and the spec or PROGRESS
+  entry the work claims to satisfy;
+- **not** the working session's reasoning, its justifications, or its summary of what
+  the change does. Those are the very claims under review.
+
+Ask it to find defects, not to confirm the work. Treat what it returns as
+[`receiving-code-review`](../CLAUDE.md) does — verify the technical claims rather than
+implementing or dismissing them on sight; a reviewer with no context also has no
+context, and some findings will be wrong. **Any finding that survives verification
+blocks the merge** until it is fixed or the operator waives it.
+
+If no subagent capability is available in the session, the merge goes to the operator.
+"CI is green" is not a review: CI proves the suite passes, which is a claim about the
+tests, not about whether the change is right.
 
 ### Issues: deliberately not used as the queue
 
