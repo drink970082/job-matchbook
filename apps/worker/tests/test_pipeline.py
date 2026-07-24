@@ -132,6 +132,27 @@ def test_run_fetch_drops_stale_by_max_age(db_path):
     assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["fresh"]
 
 
+def test_run_fetch_drops_bodyless_postings(db_path, capsys):
+    # A title-only row is permanent (ON CONFLICT DO NOTHING) and would reach the paid
+    # fit scorer with no JD. It must be dropped at the board insert path, logged, and
+    # recorded in feed_unresolved so the broken scraper surfaces (not just a log line).
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name):
+        return [_posting("body"),
+                _posting("empty", description="", job_url="https://x.co/empty")]
+
+    companies = [{"source": "browser", "slug": "citadel.com", "name": "Citadel"}]
+    inserted = pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn)
+    assert inserted == 1
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] == ["body"]
+    assert "browser/citadel.com" in capsys.readouterr().out
+    unresolved = conn.execute(
+        "SELECT feed, url, reason FROM feed_unresolved").fetchall()
+    assert [(r["feed"], r["url"], r["reason"]) for r in unresolved] == [
+        ("watchlist", "https://x.co/empty", "empty_description")]
+
+
 def test_run_fetch_no_candidate_leaves_all_new(db_path):
     conn = db.connect(db_path)
 
@@ -244,6 +265,66 @@ def test_run_score_only_new_and_one_failure_isolated(db_path):
     assert statuses["1"] == "scored"
     assert statuses["3"] == "scored"
     assert statuses["2"] == "failed"
+
+
+def test_run_score_limit_caps_rows_scored(db_path):
+    # Operator quota control: limit=N screens/scores only N 'new' rows; the rest
+    # stay 'new' for a later pass. The paid scorer is what limit protects.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4", "5"])
+    scored = []
+
+    def screen_fn(posting):
+        scored.append(posting["external_id"])
+        return {"disqualified": False}
+
+    def fit_fn(postings):
+        return [{"score": 90, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, limit=2)
+    assert len(scored) == 2
+    assert len(db.get_by_status(conn, "new")) == 3
+    assert len(db.get_by_status(conn, "scored")) == 2
+
+
+def test_run_score_thin_jd_skips_paid_fit(db_path):
+    # A screen-surviving JD shorter than the low-context threshold must NOT reach the
+    # paid fit scorer — it's marked scored + insufficient_context directly, since the
+    # UI/notify gate would hold it back anyway. Saves a Codex message per thin JD.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("thin", description="Too short.")], now=NOW)
+
+    def screen_fn(posting):
+        return {"disqualified": False, "screen": {}}
+
+    def fit_fn(postings):
+        raise AssertionError("thin JD must not reach the paid fit scorer")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+    row = db.get_by_status(conn, "scored")[0]
+    assert row["external_id"] == "thin"
+    assert _json.loads(row["score_detail"])["insufficient_context"] is True
+    # and it is held back from notify (below the low-context length bar)
+    assert db.get_notifiable(conn) == []
+
+
+def test_run_score_substantial_jd_reaches_fit(db_path):
+    # The complement: a JD at/over the threshold DOES go to the fit scorer.
+    conn = db.connect(db_path)
+    long_desc = "x" * db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH
+    db.upsert_postings(conn, [_posting("full", description=long_desc)], now=NOW)
+    calls = []
+
+    def screen_fn(posting):
+        return {"disqualified": False, "screen": {}}
+
+    def fit_fn(postings):
+        calls.append(len(postings))
+        return [{"score": 80, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+    assert calls == [1]  # the substantial JD reached the paid scorer
+    assert db.get_by_status(conn, "scored")[0]["external_id"] == "full"
 
 
 def test_run_score_skips_non_new(db_path):

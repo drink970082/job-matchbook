@@ -7,6 +7,72 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
+  (non-empty id + title + description) ran on the feed's detail path only; the watchlist
+  board path upserted whatever an adapter returned, and `run_score` never checked the
+  description. Because `upsert_postings` is `ON CONFLICT DO NOTHING`, a title-only row
+  was **permanent**: a later cycle that *could* read the JD would not back-fill it, and
+  the row was fit-scored blind on the paid backend meanwhile. `run_fetch` now applies the
+  same guard, logging `dropped N posting(s) with no description` per board, so a board
+  whose list endpoint carries no JD yields nothing that cycle instead of poisoning the
+  DB. Stub-gated `discarded` rows are exempt — they are deliberately un-hydrated and
+  never reach the scorer. This is the mechanism behind the two Citadel `browser` rows
+  (0/10 descriptions) and behind the nine boards held off the watchlist for empty JDs;
+  both are now non-destructive by construction. Each dropped row is recorded in
+  `feed_unresolved` (`feed="watchlist"`, `reason="empty_description"`) so a
+  silently-broken scraper surfaces on the Unresolved board instead of only in a log
+  line — the same visibility the feed path already gives detail-fetch failures.
+
+- **Thin JDs (< 200 chars) no longer spend a paid fit-score call.** The low-context
+  hold-back (`LENGTH(TRIM(description)) < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) was applied
+  only at *display/notify* time, so a short JD was still fit-scored on the paid Codex
+  backend and *then* filtered into the Low-context bucket where its verdict is distrusted
+  — paying to score something already pre-judged unscoreable. `run_score` now applies the
+  threshold **before** the fit call: a screen survivor under the length bar is persisted
+  `scored` + `insufficient_context` directly (score 0, screen verdicts kept), skipping the
+  scorer. It lands in the same Low-context bucket a human can eyeball, minus the wasted
+  message. The `200` threshold is now a single worker constant
+  (`db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, still hand-synced with web `constants.ts`)
+  shared by the pre-fit gate and `get_notifiable`.
+
+### Added
+
+- **`--fetch-only`, `--score-only`, and `--score-limit` operator flags
+  (`ats_worker.run`).** `--fetch-only` runs fetch/feed/expire/retry then stops before any
+  screen or scorer call — a quota-free board refresh (and a real log). `--score-only` is
+  the inverse: it skips the network ingest and scores the existing `new` backlog without
+  a full re-fetch. `--score-limit N` caps how many `new` rows `run_score` touches in one
+  pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
+  remainder stays `new` for the next pass.
+
+### Changed
+
+- **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
+  `workday` shares `phenom`'s N+1 shape — a cheap paged list, then one detail GET per
+  posting for the description — but was deliberately left ungated by the 2026-07-21
+  stub-gate design, whose §Scope reasoned that its three boards held five postings
+  total and so the id-reconciliation work wasn't worth it. A profile-driven watchlist
+  expansion invalidated that premise: 28 workday boards, 14,902 postings, every one
+  paying a detail GET *before* `title_filter` ever ran.
+
+  The exclusion's underlying risk is narrower than the exclusion was. A workday list
+  stub carries no GUID (`parse_job` reads `external_id` from the **detail** payload),
+  so a *stored* stub keys on `jobReqId` and a later hydration inserts a second row
+  under the GUID. That risk belongs entirely to the `discard` verdict, which stores an
+  un-hydrated row. `drop` stores nothing at all, so it has no id to reconcile. The
+  gate therefore honours **only** `drop`; `discard` and every unrecognised verdict
+  fall through and hydrate exactly as before (also the fail-open path — a broken
+  predicate can cost requests, never postings).
+
+  New `workday.parse_stub` builds the title/location shape the gate reads and
+  deliberately omits `external_id`, so it is unstorable by construction. Measured
+  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**.
+  `max_age_days` cannot contribute — the stub's only date is prose ("Posted 30+ Days
+  Ago") — so `parse_stub` sets `posted_at: None`, which the age filter treats as keep;
+  tracked in PROGRESS as an enhancement.
+
 ### Documentation
 
 - **Docs audit — drift corrected and duplication collapsed.** Fixed every claim that
@@ -354,7 +420,7 @@ with zero failures, matches delivered to Telegram.
   each row of a frozen hand-labeled golden set K=3× and judges the **majority
   keep/near/skip band** — not the noisy exact score — against the label in code. PASS =
   0 hard-invariant violations + ≥85% band agreement + <20% flip-rate over the gate rows;
-  `marked` rows route to a ⚑ watch list, excluded from the gate. Uses `max_tokens=8192` +
+  `marked` rows route to a flagged watch list, excluded from the gate. Uses `max_tokens=8192` +
   a per-draw retry so a truncated response (adaptive thinking overruns the prod 4096 cap
   and is *not* an SDK-retried transient) can't abort a paid run. Replaces the retired
   ad-hoc "edit prompt → paid re-score → eyeball 20 rows" loop; the golden labels
@@ -1225,8 +1291,8 @@ with zero failures, matches delivered to Telegram.
   summary (no "feature-complete and stable"), and surfaces the shipped notify
   data-loss defect as a graded defect rather than one bullet among nice-to-haves.
 - Added a user-facing **Feature status** matrix to the README with an honest
-  *Tested* axis (✅ / ⚠ / —) that distinguishes shipped from verified — fixing the
-  old all-`✅` over-claim. Building it surfaced an untested gap: the chart-data
+  *Tested* axis (yes / partial / —) that distinguishes shipped from verified — fixing the
+  old all-`yes` over-claim. Building it surfaced an untested gap: the chart-data
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
 - **README/CLAUDE.md/SPEC.md realigned with the shipped adapter set and

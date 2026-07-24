@@ -23,7 +23,7 @@ DNA). Do this before touching anything; the rest of the rail assumes it.
 |------|------------|------|
 | **Design-shaped** | Changes behavior or a SPEC §9 invariant, adds a dependency, touches `schema.prisma`, or has *any* open fork — and no approved spec exists yet | Full rail: 3 → 4 → 5 → 6 |
 | **Execution-shaped** | An approved spec (and plan, if multi-step) already exists under `docs/superpowers/` | Skip 3: execute the plan as written; a deviation discovered mid-flight goes back through 3 |
-| **Maintenance** | Restores already-specified behavior without changing any invariant (clear-repro bug, doc drift, dependency bump) — or **adds tests/verification for already-specified behavior** (close the matching ⚠ row in SPEC §9's traceability table) | Skip 3; 5–6 still apply in full |
+| **Maintenance** | Restores already-specified behavior without changing any invariant (clear-repro bug, doc drift, dependency bump) — or **adds tests/verification for already-specified behavior** (close the matching **(no test)** row in SPEC §9's traceability table) | Skip 3; 5–6 still apply in full |
 
 **Unsure → design-shaped.** A maintenance fix that starts wanting to change an
 invariant or add behavior is reclassified on the spot.
@@ -84,7 +84,7 @@ Run everything the change touches:
 ## 6. Docs + finish
 
 - **Same commit as the code:** update `SPEC.md` (behavior → a §4/§9 contract clause
-  + test; structure → the §5–§8/§12 snapshot sections), `PROGRESS.md` (open a 🚧 line
+  + test; structure → the §5–§8/§12 snapshot sections), `PROGRESS.md` (open an in-flight line
   when starting; the line *leaves* when the work lands), and `CHANGELOG.md`
   (Unreleased section).
 - **Close the spec you built from.** If the work came from a `docs/superpowers/`

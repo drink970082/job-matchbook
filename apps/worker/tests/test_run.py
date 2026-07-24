@@ -107,6 +107,56 @@ def test_run_once_calls_five_stages_in_order(monkeypatch):
     assert order == ["fetch", "expire", "retry", "score", "notify"]
 
 
+def test_run_once_fetch_only_stops_before_score(monkeypatch):
+    # --fetch-only must run through retry then return BEFORE any screen/scorer call
+    # (a quota-free board refresh) — so score/notify never run.
+    order = []
+    for stage, ret in (("run_fetch", 0), ("run_expire", 0), ("run_retry", 0),
+                       ("run_score", None), ("run_notify", None)):
+        monkeypatch.setattr(run.pipeline, stage,
+                            lambda *a, _s=stage, **k: order.append(_s))
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+    monkeypatch.setattr(run.db, "get_by_status", lambda conn, status: [])
+
+    from ats_worker import config as cfgmod
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
+                 fetch_only=True)
+    assert order == ["run_fetch", "run_expire", "run_retry"]  # no score, no notify
+
+
+def test_run_once_score_only_skips_ingest(monkeypatch):
+    # --score-only must skip the network ingest (fetch/feed/expire) and go straight
+    # to retry -> score -> notify over the existing backlog.
+    order = []
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage,
+                            lambda *a, _s=stage, **k: order.append(_s) or 0)
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+
+    from ats_worker import config as cfgmod
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
+                 score_only=True)
+    assert order == ["run_retry", "run_score", "run_notify"]  # no fetch/expire
+
+
 # --- watchlist bootstrap + feed wiring ------------------------------------
 
 _ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
