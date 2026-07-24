@@ -28,10 +28,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
   New `workday.parse_stub` builds the title/location shape the gate reads and
   deliberately omits `external_id`, so it is unstorable by construction. Measured
-  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**.
-  `max_age_days` cannot contribute — the stub's only date is prose ("Posted 30+ Days
-  Ago") — so `parse_stub` sets `posted_at: None`, which the age filter treats as keep;
-  tracked in PROGRESS as an enhancement.
+  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**
+  from `title_filter`/`title_exclude` alone.
+
+- **`workday` age-gating: the stub's relative prose date now feeds `max_age_days`.**
+  A workday list stub's only date is prose (`"Posted 30+ Days Ago"`), so the gate
+  above could not drop by age. `parse_stub` now dates that prose against the injected
+  `now` — `posted_at = now - age` — so a stale stub is dropped before its detail GET
+  too. Only the confident English `"N[+] Days Ago"` form is parsed, and the number is
+  treated as a **lower bound** on age (`"30+"` → at least 30); `"Today"`/`"Yesterday"`
+  and any other locale or wording leave `posted_at` None, which the age filter keeps —
+  so a mis-parse can never silently drop a good posting. `now` reaches the adapter
+  through the same `keep`-gate call path (`run_fetch` → `fetch` → `parse_stub`); no
+  other stub-gate adapter takes it. The reduction beyond the -55% is unmeasured and
+  depends on `max_age_days` config (PROGRESS).
+
+### Added
+
+- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
+  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
+  recipes could only read a `url` off the card via a CSS selector, so a board whose
+  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
+  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
+  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
+  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
+  resolved against the listing `base_url`. Any other `url` spec stays a CSS selector as
+  before. Unblocks Balyasny / Jacobs Levy-shape boards without touching an adapter.
 
 ### Documentation
 
