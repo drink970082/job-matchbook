@@ -62,10 +62,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `scorer_version` in `score_detail`), `--rescreen-discarded`, the **dead-screen-provider
   circuit breaker** (the SCREEN defect found and fixed 2026-07-24), and `--no-notify`.
   Suites green (worker 643, web 136), coverage 93.66%; the flags driven against a
-  throwaway DB. **Queues behind #7.** It is also the branch the long-run day must run
-  from — see the runbook below. **Not yet on it:** `main`'s PR #8 (`make eval-score`) and
-  PR #9 (workday prose-date age-gating, which would speed up the run's fetch phase);
-  merging `origin/main` in first is optional and costs one squash-divergence resolution.
+  throwaway DB. **Pushed to `origin` 2026-07-24; no PR yet, so CI has never run on it** —
+  everything green is from the operator's machine. **Queues behind #7.** It is also the
+  branch the long-run day must run from — see the runbook below. **Not yet on it:**
+  `main`'s PR #8 (`make eval-score`) and PR #9 (workday prose-date age-gating, which
+  would speed up the run's fetch phase). **Merge `origin/main` in AFTER the run, not
+  before:** the gain is wall-clock on a phase nobody is awake for, the cost is a
+  squash-divergence resolution on the branch about to run unattended, and the
+  `eval-score` fix is already routed around by the runbook's explicit `python3` commands.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has

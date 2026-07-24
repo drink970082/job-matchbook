@@ -37,10 +37,15 @@ for exactly this batch.
 
 Missing from that branch: the workday stub gate's prose-date age-gating and the
 `browser` `{field}` url templates, which landed on `main` 2026-07-24 as `8c683a0`
-(PR #9). The age-gating cuts detail calls on stale boards and would make phase 1
-meaningfully faster. Merging `origin/main` into the run branch first is optional and
-the run works either way - but expect the same squash-divergence conflicts PR #5 and
-PR #9 both hit (content-identical, resolvable; take the newer side per hunk).
+(PR #9), plus the `make eval-score` fix (`76e7fda`, PR #8).
+
+**Merge `origin/main` in AFTER the run, not before** (decided 2026-07-24). The gain
+would be a faster phase 1 - the age-gating cuts detail calls on stale boards - but it
+costs a squash-divergence resolution on the exact branch about to run unattended,
+hours before it runs. That trades a wall-clock saving on a phase nobody is awake for
+against changing the code under test at the worst possible moment. The `eval-score`
+fix is already routed around: every command here calls `python3` explicitly. Merge it
+when a mistake is cheap.
 
 **Known trap, now fixed on `main` but NOT on this branch:** `make eval-score` used to
 run `apps/worker/.venv/bin/python`, and that venv lacks `bs4`, so `from ats_worker
@@ -62,7 +67,11 @@ under `apps/worker/eval/` (also gitignored).
 
 - [ ] **Back up the database.** `cp db/applications.db db/applications.db.bak-<stamp>`
       (~76 MB). There is no migration history; this run mutates thousands of rows.
-- [ ] `make doctor` - status line per prerequisite.
+- [ ] `make doctor` - status line per prerequisite. **Was fully green 2026-07-24**
+      (deps, DB, ollama, codex CLI, claude CLI, anthropic key, node, docker, telegram;
+      the only `[no]` was the OpenAI key, needed solely for `SCREEN_BACKEND=openai-api`,
+      which this run does not use). So any failure here is *new* - fix it before
+      starting rather than working around it.
 - [ ] **Confirm `codex login` is live.** Auth is fragile and a logged-out host fails
       the whole pass loudly. A dead login discovered at hour six wastes the day.
 - [ ] **Read remaining quota** from `db/codex_usage.json` (the same snapshot the web
@@ -92,8 +101,24 @@ ingest.
 
 ## Phase 2 - bounded scoring (paid - the whole constraint, ~4 h)
 
-- [ ] Repeat until the chunk count from phase 0 is exhausted, or the reserve floor
-      is hit:
+- [ ] **First chunk is 25, not 250.** `--score-limit 25`, then verify below before
+      scaling. Four things on this branch have never touched real data or a live
+      backend - provenance stamping, the screen breaker, `--rescreen-discarded` and
+      `--no-notify` - and 25 rows costs ~20 messages (~1% of headroom) to find that
+      out. Cheap answer, cheap failure.
+- [ ] **Verify the first chunk before continuing:**
+
+      ```sql
+      SELECT json_extract(score_detail,'$.backend'),
+             json_extract(score_detail,'$.model'), COUNT(*)
+      FROM job_postings WHERE pipeline_status='scored' GROUP BY 1,2;
+      ```
+
+      Rows scored in this chunk must come back `codex | gpt-5.6-sol`; NULLs are the
+      pre-2026-07-24 backlog and are expected. **If new rows are unstamped, STOP** -
+      provenance is the run's main data-quality goal and there is no retro-fill.
+- [ ] Then repeat at `--score-limit 250` until the chunk count from phase 0 is
+      exhausted, or the reserve floor is hit:
       `cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once --score-only --score-limit 250 --no-notify`
 
 Chunks, not one large call: a crash loses at most one chunk, and quota is readable
