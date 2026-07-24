@@ -386,6 +386,22 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   with no PR of its own, and one PR closes the gap. The new
   `feat/score-provenance-and-rescreen` branch is recorded as queuing behind #7.
 
+- **A branch/PR/merge protocol for sessions working as a team.** Sessions are the
+  workers on this repo and share no memory — only the repo — but nothing wrote down how
+  they should hand work between each other, and 2026-07-24 spent four merges paying for
+  that. `DEVELOPMENT.md` gained **§7**: work is *claimed* by its `PROGRESS.md` In-flight
+  entry rather than by the branch existing; each branch rule cites the incident that
+  bought it (a PR that silently targeted another feature branch instead of `main`; a
+  merge onto a local branch that was stale because `git fetch` updates remote-tracking
+  refs, not local ones; the squash-divergence conflict every stacked PR hit, whose
+  mechanical resolution would have re-opened an item that same branch shipped); and an
+  **authority table** splits what a session decides alone (branch, commit, push, open a
+  PR, record a defect) from what needs the operator (**merging to `main`**, force-pushes,
+  releases, reverting another session's work, anything spending money or quota) — with
+  the note that "just merge" authorizes *that* merge, not a standing one. `CLAUDE.md`
+  carries the short form. **Deliberately rejected: GitHub issues as the queue** —
+  `PROGRESS.md` already is one, in-repo and greppable, and a second list would drift.
+
 - **Agent protocol retuned for Claude Opus 5, now the repo's dev model.** The rail was
   written against older models and carried two assumptions that no longer hold. First,
   DEVELOPMENT.md's closing hint routed design work to "the strongest model available"

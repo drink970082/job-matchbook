@@ -95,23 +95,82 @@ self-review pass, no subagent sent to double-check work you just did:
   session about what is and isn't already live.
 - Commit style: short imperative subject, `type(scope):` prefix. Keep each commit
   green.
-- **Branch discipline:** `main` is the only long-lived branch and is always
-  releasable. Substantive work goes on a short-lived `feat/` · `fix/` · `docs/` ·
-  `chore/` branch cut from `main`, lands via a squash-merged PR once CI is green,
-  and the branch is deleted. Small doc fixes may go straight to `main`. Never
-  force-push `main`. Releasing is an explicit, separate act — see
-  [`CONTRIBUTING.md`](../CONTRIBUTING.md) "Branching and releases".
+- **Branch discipline:** see [§7](#7-working-as-a-team-of-sessions) — `main` is the
+  only long-lived branch, substantive work goes on a short-lived branch cut from
+  `main`, and it lands as a squash-merged PR once CI is green.
 - Never commit: `apps/worker/resume/`, `.env`, `config.yaml`, `db/`
   (PRINCIPLES #12).
 
 ---
 
-## Cross-session handoff
+## 7. Working as a team of sessions
+
+Sessions are the workers here, and they don't share memory — only the repo. Treat
+every other session as a teammate you cannot talk to: everything they need must be
+committed, and everything they left must be read before you touch it.
 
 **The repo is the handoff medium.** Specs, plans, and progress notes are committed
 before a session ends; a decision that lives only in the conversation is lost. Long
 work lands as reviewable, green increments — never as an uncommitted pile a future
 session must reconstruct.
+
+### Claiming work
+
+One branch per unit of work, named `feat/` · `fix/` · `docs/` · `chore/` + topic.
+**You claim it by writing the In-flight entry in `PROGRESS.md`** naming the branch
+and its state — that entry, not the branch's existence, is the claim. Before starting,
+read In flight: a branch another entry describes as *landed, unmerged* is someone
+else's finished work awaiting a gate, so add to it only if your change belongs to the
+same unit. When your work lands, the entry leaves.
+
+### Branch and PR rules
+
+`main` is the only long-lived branch and is always releasable. Small doc fixes may go
+straight to `main`; everything substantive goes through a PR. Never force-push `main`.
+Releasing is an explicit, separate act — [`CONTRIBUTING.md`](../CONTRIBUTING.md)
+"Branching and releases".
+
+Each rule below was paid for by an incident on 2026-07-24:
+
+- **Cut from `main`, and pass `--base main` explicitly.** `gh pr create` infers a base
+  from the current upstream and will happily target another feature branch. Check
+  `gh pr view <n> --json baseRefName` before merging — a PR that merged into the wrong
+  base looks exactly like a successful merge, except `main` never got the work.
+- **Fetch, then verify the local branch is not stale.** `git fetch` updates
+  remote-tracking refs, *not* your local branches. Before merging into a branch, confirm
+  `git rev-list --left-right --count <branch>...origin/<branch>` is `0 0`. Merging onto
+  a stale local branch silently drops whatever landed on the remote.
+- **Don't stack PRs.** A stacked branch carries the commits of the PR below it; once
+  that one squash-merges, `main` holds a *different* commit with the same content and
+  every later PR conflicts. If stacking is unavoidable, merge bottom-up and expect it.
+- **Resolving a squash-divergence conflict:** the content is usually identical, so
+  resolve per hunk taking the newer side — never a blanket `--ours`/`--theirs`, which
+  discards the auto-merged parts of the file. Then check two things a mechanical
+  resolution gets wrong: a hunk where **both** sides are wanted, and a **closed** item
+  being reintroduced (a stale branch's PROGRESS can re-open work that same branch
+  shipped).
+- **Never switch branches while a long run is in flight.** The worker imports from the
+  working tree, so a switch silently changes the code under the next chunk.
+
+### Authority — what a session decides alone
+
+| Do it | Ask first |
+|---|---|
+| Create a branch, commit, push it, open a PR | **Merging to `main`** |
+| Resolve conflicts; keep SPEC/PROGRESS/CHANGELOG in sync | Force-push anything; deleting unmerged work |
+| Open/close a PR of your own work | Tags and releases |
+| Record a defect you found instead of fixing it | Reverting another session's commit |
+| Anything free and reversible | Anything that **spends money or quota** |
+
+The split is a normal team's: a dev opens PRs freely, trunk is reviewed. An operator
+who says "just merge" has authorized *that* merge, not a standing one.
+
+### Issues: deliberately not used as the queue
+
+`PROGRESS.md` is the queue — in-repo, versioned, greppable, and it arrives in context
+with the code. GitHub issues would duplicate it and drift, and a session would have to
+fetch them to know what is open. Use issues only for externally-reported bugs that
+arrive that way; the moment one is picked up, it becomes a PROGRESS entry.
 
 ## Session kickoff template
 

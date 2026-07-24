@@ -45,6 +45,12 @@ Claude Opus 5 is the dev model for this repo; effort levels are in
   and paste the output — that *is* the check. Don't stack a self-review pass on top.
 - **Lead with the outcome.** Brief updates while working; the final report opens with
   what happened, detail after.
+- **Sessions are teammates you can't talk to.** One branch per unit of work, claimed by
+  its `PROGRESS.md` In-flight entry; read that section before touching anything.
+  Branch/PR/merge rules and the authority split — what a session decides alone vs. what
+  needs the operator — are [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7. The short
+  version: open PRs freely, **never merge to `main` unasked**, and "just merge"
+  authorizes that merge, not a standing one.
 
 ## What this is
 
