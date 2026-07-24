@@ -56,7 +56,8 @@ early as context insurance produces exactly such drafts).
 
 ## 5. Verify gate — evidence, not assertion
 
-Run everything the change touches:
+Run everything the change touches. This table **is** the verification step — no extra
+self-review pass, no subagent sent to double-check work you just did:
 
 | Change touches | Must run | Pass bar |
 |---|---|---|
@@ -86,7 +87,8 @@ Run everything the change touches:
 - **Same commit as the code:** update `SPEC.md` (behavior → a §4/§9 contract clause
   + test; structure → the §5–§8/§12 snapshot sections), `PROGRESS.md` (open an in-flight line
   when starting; the line *leaves* when the work lands), and `CHANGELOG.md`
-  (Unreleased section).
+  (Unreleased section). Write the clause the change needs and stop — these three
+  files are reloaded every session, so padding costs the next one's context.
 - **Close the spec you built from.** If the work came from a `docs/superpowers/`
   spec, move its `**Status:**` header to `shipped <date>` in the same commit. §2
   treats that line as the license to build, so a stale one misleads the next
@@ -126,6 +128,8 @@ DEVELOPMENT.md §2; if unsure, treat as design-shaped.
 Non-negotiables:
 - Design forks come to me with researched trade-offs and your recommendation
   before you finalize anything (PRINCIPLES.md, Decision procedure).
+- Scope is the ask: raise a concern in a sentence and keep going; don't widen,
+  narrow, or transform the task on your own.
 - Definition of done = the §5 evidence table for everything you touched, plus
   same-commit doc updates per §6.
 - Branch off main for anything substantive; land it as a squash-merged PR with
@@ -133,5 +137,8 @@ Non-negotiables:
 - Your final report must state what you did NOT verify.
 ```
 
-*Model hint:* design-gate work benefits from the strongest model available;
-execution-shaped and maintenance sessions run fine on smaller ones.
+*Effort, not model:* Claude Opus 5 runs every task type here — the dial is **effort**,
+not model size. `xhigh` for design-gate work and multi-file implementation; `low`/
+`medium` for maintenance, doc edits, and review passes, where quality holds at a
+fraction of the tokens. Sweep effort on a real task before trusting a default carried
+over from an older model.

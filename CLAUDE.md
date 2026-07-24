@@ -25,6 +25,27 @@ matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the 
 or add an in-flight entry), and [`CHANGELOG.md`](./CHANGELOG.md) (history) as
 applicable. Conventions in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
+## Agent conduct
+
+Claude Opus 5 is the dev model for this repo; effort levels are in
+[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
+
+- **Scope is the ask.** Build what was requested, at the size requested. Routine
+  judgment calls are yours; a fork that changes the work goes to the user
+  (PRINCIPLES, Decision procedure). Disagree in a sentence, then build the thing
+  asked for — never quietly widen, narrow, or transform it.
+- **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
+  already large and every session reloads them. Write the clause the change needs —
+  no padded sections, restated summaries, or boilerplate. Same for specs and plans
+  under `docs/superpowers/`.
+- **Delegate rarely.** Subagents are for large, genuinely independent tracks (a wide
+  multi-file sweep). Never to verify or re-read your own work; never for something
+  finishable in a handful of tool calls. One agent beats several.
+- **The verify gate is the verification.** DEVELOPMENT.md §5 means run the commands
+  and paste the output — that *is* the check. Don't stack a self-review pass on top.
+- **Lead with the outcome.** Brief updates while working; the final report opens with
+  what happened, detail after.
+
 ## What this is
 
 A self-hosted, semi-automated job-application system — **two services, one shared
