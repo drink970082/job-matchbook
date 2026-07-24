@@ -146,6 +146,36 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Every fit-scored row now records which scorer produced it.** `score_detail`
+  persisted the verdict but nothing about its author, so a row scored on
+  `codex`/`gpt-5.6-sol` was indistinguishable from one scored on
+  `claude`/`claude-sonnet-5`, or from one scored before a `score.txt` edit — a
+  `--score-backend` A/B could not be read back off the data, and any rubric change made
+  re-scoring all-or-nothing over the whole table. `run.py` (the only layer that knows
+  the scorer's identity) now hands `run_score` a three-field `scorer_meta` —
+  `backend`, `model`, `scorer_version` — which `_score_detail` merges into the existing
+  JSON, so **no schema migration**. Stamped only where a fit call actually ran (both
+  `_persist_scored` outcomes, including the fallback-disqualified `discarded` that
+  already paid for its call), never on a screen-discarded or low-context row that would
+  otherwise claim a backend it never reached. `model` branches on `backend` beside
+  `make_scorer` so the stamp can't name a model the scorer wasn't built with, and
+  `scorer_version` is a hand-bumped date string in `prompts.py`. The eight-field hash
+  provenance with automatic re-score triggering stays rejected — a cache-invalidation
+  system for inputs that change a handful of times a year.
+
+- **`--rescreen-discarded`: the one way back from a terminal discard.** `run_retry`
+  requeues only `failed`, so `discarded` was permanent — editing a candidate hard
+  requirement (`locations`, `highest_degree`, `work_authorization`,
+  `exclude_internships`), or fixing the screen itself, left every prior discard frozen
+  under the old rule and made a **false** discard unrecoverable. The flag runs one bulk
+  `db.requeue_discarded` UPDATE immediately before `run_retry`, returning every discard
+  to `new` so the same pass re-screens it. Unbudgeted and unfiltered by design (a
+  discard spends no `attempts`, so there is no counter to guard). It is **one-shot** —
+  `main` rejects it without `--once`, because on the interval schedule it would
+  resurrect the same discards every pass and re-charge the paid fit scorer for each
+  survivor indefinitely. Screening is free on the default ollama backend; pair with
+  `--score-limit` to bound the fit calls that follow.
+
 - **`browser` recipes can build `job_url` from a `{field}` template.** `custom` recipes
   already interpolate `{dotted.field}` into their `url`; `browser` recipes could not, so
   a board whose cards carry no `href` — the id sits in a `data-*` attribute and routing
@@ -298,6 +328,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   tracked in PROGRESS as an enhancement.
 
 ### Documentation
+
+- **Agent protocol retuned for Claude Opus 5, now the repo's dev model.** The rail was
+  written against older models and carried two assumptions that no longer hold. First,
+  DEVELOPMENT.md's closing hint routed design work to "the strongest model available"
+  and maintenance to "smaller ones" — on Opus 5 the dial is **effort**, not model size
+  (`xhigh` for design and multi-file work, `low`/`medium` for maintenance, docs, and
+  review). Second, nothing capped the behaviors this model does on its own: it
+  self-verifies, delegates, and writes long. So §5 now states that the evidence table
+  *is* the verification step (no self-review pass, no subagent to double-check own
+  work), §6 and a new `CLAUDE.md` "Agent conduct" block calibrate doc length against
+  the three files every session reloads, and the same block caps delegation and pins
+  scope to the ask. The kickoff template gained the matching scope line.
 
 - **PRINCIPLES gained "the four kinds of uncertainty" — "err toward keep" is one row,
   not the whole rule.** The bias was stated everywhere as a single rule, but the code

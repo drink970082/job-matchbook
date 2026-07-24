@@ -312,6 +312,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   a quota-free board refresh), `--score-only` (skip the network ingest and score the
   existing `new` backlog — the inverse of `--fetch-only`), `--score-limit N` (cap `new`
   rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
+  `--rescreen-discarded` (return every `discarded` row to `new` before this pass so it
+  is re-screened under the current candidate hard requirements — **requires `--once`**,
+  see §9),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `ollama` / `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
@@ -853,6 +856,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_score` so a requeued row is rescored in the same pass. The retry semantics —
   the separate score/notify budgets, the 3-failure ceiling each, `discarded`-on-retry
   being legitimate — are contract; see §9 "Failure handling and recovery limits".
+  `db.requeue_discarded(conn, now)` is the operator-only counterpart for the other
+  terminal state: `--rescreen-discarded` returns **every** `discarded` row to `new`
+  immediately before `run_retry`, so a candidate hard-requirement edit doesn't leave
+  postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`) and
+  unfiltered by design; `main` rejects it without `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -988,7 +996,7 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100 fit score (codex default / claude alternate)
-  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
+  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume, scorer provenance backend/model/scorer_version on fit-scored rows (pre-S2.1 rows: matched/missing keywords + reasoning)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
   pipeline_error  String?       // last stage/send error; cleared on successful notify
   attempts        Int           @default(0)     // SCORE-stage failures (requeued until 3, then parks failed)
@@ -1129,6 +1137,22 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   consumes the futures **in the same order they were submitted** — never
   `as_completed` — so a slow call finishing late still lands its result on the
   correct row, and every `db.*` write stays on the calling thread throughout.
+- **Every fit-scored row records who scored it — and only those rows.** `run.py`
+  (the sole wiring layer, which alone knows the scorer's identity) hands `run_score`
+  a `scorer_meta` of three fields — `backend`, `model`, `scorer_version` — and
+  `_score_detail` merges them into the persisted `score_detail` JSON, so there is no
+  schema change. They are stamped **only where a fit call actually ran**: both
+  `_persist_scored` outcomes (`scored`, and the fallback-disqualified `discarded`
+  that already paid for its call), never a screen-discarded or low-context row, which
+  would otherwise claim a backend it never reached. `model` branches on `backend`
+  alongside `make_scorer` (`run._scorer_meta`) so the stamp cannot name a model the
+  scorer wasn't built with, and `scorer_version` (`prompts.SCORER_VERSION`) is a
+  hand-bumped date string — bumped when `score.txt` or the profile/résumé inputs
+  change in a way that should invalidate existing scores. This makes a
+  `--score-backend` A/B readable off the data afterwards and lets a re-score select
+  the rows predating a rubric change instead of re-buying the whole table.
+  Deliberately **not** content hashes with automatic re-score triggering: that is a
+  cache-invalidation system for inputs the operator changes a handful of times a year.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -1306,6 +1330,21 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `run_retry` no longer requeues it and it stays parked for good; from there,
   recovery is still the human act (`reopenJobPosting`/`bulkReopen` write `scored`,
   resetting neither counter).
+- **`discarded` is terminal, with one operator-only way back.** Nothing automatic
+  re-screens a discard: the state exists precisely so a posting ruled out by a
+  candidate hard requirement stops costing calls. But the rule itself is editable
+  (`candidate.locations`, `highest_degree`, `work_authorization`,
+  `exclude_internships`), so without an escape hatch an edit — or a fix to the screen
+  itself — would leave every prior discard frozen under the old rule, and a **false**
+  discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
+  run immediately before `run_retry`) returns them all to `new` for this pass.
+  Unbudgeted and unfiltered: a discard spends no `attempts`, so there is no counter to
+  guard the way `run_retry` guards two, and the flag means all of them. It is
+  **one-shot** — `main` rejects it without `--once`, because on the interval schedule
+  it would resurrect the same discards every pass and re-charge the paid fit scorer
+  for each survivor indefinitely. Screening is free on the default ollama backend; the
+  fit calls that follow are bounded only by `--score-limit`, so pair the two on a
+  large backlog.
 - **A dead fit *backend* circuit-breaks the score pass — it does not convict every
   posting.** `run_score` isolates a bad posting (per-item `mark_failed`), but a
   *systemic* fit-backend outage (e.g. `codex exec` not logged in) would otherwise
@@ -1379,6 +1418,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
+| Scorer provenance (`backend`/`model`/`scorer_version`) stamped into `score_detail` on fit-scored rows only — never screen-discarded or low-context; `model` tracks the backend `make_scorer` picks | `test_pipeline.py` (`test_run_score_stamps_provenance_only_on_fit_scored_rows`, `test_run_score_stamps_provenance_on_fallback_disqualified_rows`, `test_run_score_omits_provenance_when_no_scorer_meta`), `test_run.py` (`test_run_once_stamps_the_active_fit_backend_and_model`, `test_scorer_meta_model_tracks_the_backend_make_scorer_picks`) |
+| `discarded` is terminal except via `--rescreen-discarded` (`db.requeue_discarded`): all discards → `new`, no other status touched, one-shot (rejected without `--once`) | `test_pipeline.py` (`test_requeue_discarded_returns_rows_to_new_for_a_later_screen`, `test_requeue_discarded_leaves_every_other_status_alone`), `test_run.py` (`test_run_once_rescreen_discarded_requeues_before_scoring`, `test_rescreen_discarded_requires_once`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
 | Per-posting notify send error → stays `scored` + `notify_attempts+1` (its own budget, not score `attempts`) + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
 | A **systemic** send fault (bad token `_systemic_send_error`, or `_BREAKER_LIMIT` consecutive failures, zero deliveries) circuit-breaks the notify pass: rows left `scored`, **no `notify_attempts` spent** | `test_pipeline.py` (`test_run_notify_auth_error_circuit_breaks_without_charging`, `test_run_notify_circuit_breaks_after_consecutive_failures`) |

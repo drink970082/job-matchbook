@@ -338,3 +338,22 @@ def requeue_failed(conn, now: str, max_attempts: int, max_notify_attempts: int) 
     )
     conn.commit()
     return cur.rowcount
+
+
+def requeue_discarded(conn, now: str) -> int:
+    """Return every 'discarded' row to 'new' so a later pass re-screens it. Operator-
+    driven only (run.py's --rescreen-discarded), never automatic: 'discarded' is
+    otherwise terminal, so editing a candidate hard requirement — locations,
+    highest_degree, work_authorization, exclude_internships — would leave every
+    posting frozen under the old rule, and a false discard permanent.
+
+    Unbudgeted and unfiltered by design: a discard spends no `attempts` (nothing
+    failed), so there is no counter to guard the way requeue_failed guards two, and
+    the operator asked for all of them. Returns the number of rows requeued."""
+    cur = conn.execute(
+        "UPDATE job_postings SET pipeline_status='new', updated_at=? "
+        "WHERE pipeline_status='discarded'",
+        (now,),
+    )
+    conn.commit()
+    return cur.rowcount

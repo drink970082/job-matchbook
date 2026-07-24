@@ -136,8 +136,8 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects**; the eval gap blocks most of the rest |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects**; the eval gap blocks most of the rest |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
@@ -504,21 +504,11 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
-- **A score records no provenance — nothing says which backend or model produced it**
-  — `[SCORE · S]`. `_score_detail` (`pipeline.py:355`) persists `assessment`, `screen`,
-  `recommended_resume` and `insufficient_context`, and nothing else. A row scored on
-  `codex`/`gpt-5.6-sol` is indistinguishable from one scored on `claude`/
-  `claude-sonnet-5`, or from one scored before a `score.txt` edit. Two consequences:
-  a `--score-backend` A/B cannot be read back off the data afterwards, and after any
-  prompt/profile/résumé change there is no way to select the rows that predate it, so
-  a re-score is all-or-nothing. **Wanted: three fields** — `backend`, `model`,
-  `scorer_version` (a hand-bumped string, not a hash) — inside the existing
-  `score_detail` JSON, so no schema migration. **Explicitly not wanted:** the
-  eight-field hash provenance proposed alongside it (`prompt_hash`, `profile_hash`,
-  per-résumé hashes, `job_content_hash`) plus automatic re-score triggering — that is
-  a cache-invalidation system, and the same YAGNI note applies as to the screen
-  version (see `--rescreen-discarded` below): the operator changes these a handful of
-  times a year and a flag covers it.
+- **A score records no provenance — SHIPPED 2026-07-24.** `_score_detail` now merges
+  `backend`/`model`/`scorer_version` into the persisted JSON on fit-scored rows only
+  (SPEC §9, CHANGELOG). The eight-field hash provenance stays rejected. **Note for the
+  first big scoring batch:** rows scored *before* this landed carry no stamp, so
+  "unstamped" is the selector for the pre-2026-07-24 backlog.
 - **The codex usage bar is backend-locked — make it backend-aware** — `[WEB · M ·
   now that the fit backend is a user choice]`. `CodexUsageBar` shows a weekly-budget
   *percentage*, which exists only because codex (ChatGPT-Plus) publishes `rate_limits`
@@ -551,18 +541,13 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   stating a master's is *required*, so a faithful extractor returns null and the check
   passes. **Do not start before the screen eval exists**: this rewrites two of the
   three prompt clauses, and there is currently nothing that would catch a regression.
-- **A `discarded` row can never be re-screened after a config change** — `[SCREEN · XS]`.
-  `run_retry` requeues only `failed`; `discarded` is terminal. So editing
-  `candidate.locations`, `highest_degree`, `work_authorization` or
-  `exclude_internships` — or fixing any of the three defects above — leaves every
-  previously-discarded posting frozen under the old rule, and a false discard is
-  permanent. **Wanted:** a `--rescreen-discarded` operator flag, one UPDATE flipping
-  `discarded` -> `new` (screening is free on the default ollama backend; the fit call
-  is what costs, and `--score-limit` already bounds it). **Explicitly not wanted yet:**
-  the `screen_version` / `candidate_hard_requirements_hash` / `job_content_hash`
-  provenance columns that were proposed for automatic invalidation — seven columns and
-  a re-screen trigger to save the operator from typing one flag, on a config that
-  changes a handful of times a year.
+- **A `discarded` row can never be re-screened after a config change — SHIPPED
+  2026-07-24.** `--rescreen-discarded` (`db.requeue_discarded`) returns every discard
+  to `new` for one pass; one-shot, rejected without `--once` so the interval schedule
+  can't re-charge the paid scorer every pass (SPEC §9, CHANGELOG). The
+  `screen_version` / hash-invalidation columns stay rejected. Pair it with
+  `--score-limit` on a large backlog — screening is free, the fit calls that follow
+  are not.
 - **Discovered Jobs README screenshot** — `[DOCS · XS]`. The prose is now expanded to Track
   parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
   actions). Still missing: an inline screenshot of the tab to match the "Track"

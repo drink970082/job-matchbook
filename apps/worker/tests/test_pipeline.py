@@ -1200,3 +1200,110 @@ def test_run_retry_sets_updated_at_to_passed_now(db_path):
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "new"
     assert row["updated_at"] == LATER
+
+
+# --- scorer provenance ------------------------------------------------------
+
+_META = {"backend": "codex", "model": "gpt-5.6-sol", "scorer_version": "2026-07-24"}
+
+
+def test_run_score_stamps_provenance_only_on_fit_scored_rows(db_path):
+    # Row '1' is screen-disqualified and row '2' is too thin to fit-score: NEITHER
+    # spends a fit call, so stamping them with a backend/model would claim a scorer
+    # produced a verdict it never saw. Only row '3' — the one the fit backend
+    # actually scored — carries provenance.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "3"])
+    _seed_new(conn, ["2"], description="too thin to score")
+
+    def screen_fn(posting):
+        if posting["external_id"] == "1":
+            return {"disqualified": True, "disqualification_reason": "requires a PhD"}
+        return {"disqualified": False}
+
+    def fit_fn(postings):
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn,
+                       scorer_meta=_META)
+    detail = {r["external_id"]: _json.loads(r["score_detail"])
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert detail["3"]["backend"] == "codex"
+    assert detail["3"]["model"] == "gpt-5.6-sol"
+    assert detail["3"]["scorer_version"] == "2026-07-24"
+    assert "backend" not in detail["1"]      # screen-discarded, no fit call
+    assert "backend" not in detail["2"]      # low-context, fit call skipped
+
+
+def test_run_score_omits_provenance_when_no_scorer_meta(db_path):
+    # scorer_meta is optional (the pipeline stays pure + injected): with none passed,
+    # score_detail keeps its pre-provenance shape byte for byte.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    detail = _json.loads(conn.execute("SELECT * FROM job_postings").fetchone()["score_detail"])
+    assert set(detail) == {"assessment"}
+
+
+def test_run_score_stamps_provenance_on_fallback_disqualified_rows(db_path):
+    # The fit scorer's fallback extraction can disqualify a row AFTER the fit call
+    # ran (merge_fallback_screen). That call was paid for, so the row is provenance-
+    # stamped like any other fit-scored row — it is exactly the kind of verdict an
+    # operator re-selects after a score.txt edit.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    card = _card(screen={"clearance": {"requires_clearance": True}})
+
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {}, "disqualified": False,
+                             "disqualification_reason": ""},
+        fit_fn=lambda ps: [card for _ in ps],
+        candidate={"security_clearance": "none"}, scorer_meta=_META)
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "discarded"
+    assert _json.loads(row["score_detail"])["backend"] == "codex"
+
+
+# --- rescreen discarded -----------------------------------------------------
+
+def test_requeue_discarded_returns_rows_to_new_for_a_later_screen(db_path):
+    # A 'discarded' row is terminal — run_retry only requeues 'failed' — so a
+    # candidate-config fix (locations, degree, work_authorization) would otherwise
+    # leave every posting frozen under the old rule, false discards included.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    strict = lambda p: {"disqualified": True, "disqualification_reason": "requires a PhD"}
+    pipeline.run_score(conn, now=NOW, screen_fn=strict,
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
+
+    assert db.requeue_discarded(conn, LATER) == 1
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "new"
+    assert row["updated_at"] == LATER
+    assert row["attempts"] == 0          # a discard burned no score budget
+
+    pipeline.run_score(conn, now=LATER, screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "scored"
+
+
+def test_requeue_discarded_leaves_every_other_status_alone(db_path):
+    # Only 'discarded' comes back. A 'scored'/'notified' row must never be re-screened
+    # (it would re-notify), and 'failed' has its own budgeted path via run_retry.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["new"])
+    _seed_scored(conn, {"scored": 80})
+    _seed_new(conn, ["failed"])
+    pid = conn.execute(
+        "SELECT id FROM job_postings WHERE external_id='failed'").fetchone()[0]
+    db.mark_failed(conn, pid, error="boom", now=NOW)
+
+    assert db.requeue_discarded(conn, LATER) == 0
+    status = {r["external_id"]: r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert status == {"new": "new", "scored": "scored", "failed": "failed"}

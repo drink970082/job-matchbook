@@ -5,6 +5,7 @@ import pytest
 
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
+from ats_worker import prompts
 from ats_worker import run
 from tests._helpers import bootstrap_db, make_posting
 
@@ -404,6 +405,75 @@ def test_make_scorer_picks_the_backend(monkeypatch):
         "codex", run.DEFAULT_CODEX_SCORE_MODEL, "p")
     assert run.make_scorer("claude", env={"ANTHROPIC_API_KEY": "k"}) == (
         "claude", "k", run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+
+
+def _run_once_capturing_run_score(monkeypatch, **kw):
+    """Run one pass with every stage stubbed, returning run_score's kwargs."""
+    seen: dict = {}
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_score",
+                        lambda conn, **k: seen.update(k))
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV, **kw)
+    return seen
+
+
+def test_run_once_stamps_the_active_fit_backend_and_model(monkeypatch):
+    # The scorer's identity is known only at the wiring layer (run.py), so run_once
+    # hands it to run_score for persistence — a row scored on codex/gpt-5.6-sol must
+    # be distinguishable afterwards from one scored on claude/claude-sonnet-5.
+    codex = _run_once_capturing_run_score(monkeypatch)["scorer_meta"]
+    assert codex == {"backend": "codex", "model": run.DEFAULT_CODEX_SCORE_MODEL,
+                     "scorer_version": prompts.SCORER_VERSION}
+
+    claude = _run_once_capturing_run_score(
+        monkeypatch, score_backend="claude",
+        anthropic_score_model="claude-sonnet-5")["scorer_meta"]
+    assert claude["backend"] == "claude"
+    assert claude["model"] == "claude-sonnet-5"
+
+
+def test_scorer_meta_model_tracks_the_backend_make_scorer_picks():
+    # The two must not drift: whatever model make_scorer hands the backend is the
+    # model the provenance stamp claims.
+    assert run._scorer_meta("codex", codex_score_model="m")["model"] == "m"
+    assert run._scorer_meta("claude", anthropic_score_model="m")["model"] == "m"
+
+
+def test_run_once_rescreen_discarded_requeues_before_scoring(monkeypatch):
+    # The flag is the only way back from 'discarded' (terminal). Off by default:
+    # a normal pass must never resurrect discards behind the operator's back.
+    calls: list = []
+    monkeypatch.setattr(run.db, "requeue_discarded",
+                        lambda conn, now: calls.append(now) or 3)
+
+    _run_once_capturing_run_score(monkeypatch)
+    assert calls == []
+
+    _run_once_capturing_run_score(monkeypatch, rescreen_discarded=True)
+    assert len(calls) == 1
+
+
+def test_rescreen_discarded_requires_once(monkeypatch, tmp_path, capsys):
+    # In daemon mode the flag would fire EVERY pass — resurrecting the same discards
+    # every 6h and re-charging the paid fit scorer for each survivor, forever. It is
+    # a one-shot operator action, so refuse the combination instead of leaking money.
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    with pytest.raises(SystemExit):
+        run.main(["--rescreen-discarded", "--config", str(cfg),
+                  "--env", str(tmp_path / "none.env")])
+    assert "--once" in capsys.readouterr().err
 
 
 def test_make_scorer_rejects_an_unknown_backend():

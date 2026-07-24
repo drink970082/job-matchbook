@@ -355,7 +355,8 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
 
 # --- score ----------------------------------------------------------------
 
-def _score_detail(result: dict, *, disqualified: bool) -> dict:
+def _score_detail(result: dict, *, disqualified: bool,
+                  scorer_meta: dict | None = None) -> dict:
     """Assemble the persisted score_detail JSON from a screen+fit result.
 
     Shared by the disqualified-discard path (screen alone) and the scored path
@@ -382,6 +383,16 @@ def _score_detail(result: dict, *, disqualified: bool) -> dict:
     if disqualified:
         detail["disqualified"] = True
         detail["disqualification_reason"] = result.get("disqualification_reason", "")
+    # Which scorer produced this verdict (backend / model / scorer_version) —
+    # stamped ONLY where a fit call actually ran, so a screen-discarded or
+    # low-context row never claims a backend it never reached. Rides the existing
+    # JSON, so no schema migration; enough to read a --score-backend A/B back off
+    # the data and to select the rows predating a score.txt / profile / resume
+    # edit for a bounded re-score. Deliberately NOT content hashes with automatic
+    # re-score triggering — that is a cache-invalidation system for a config the
+    # operator changes a handful of times a year (docs/PROGRESS.md).
+    if scorer_meta:
+        detail.update(scorer_meta)
     return detail
 
 
@@ -392,7 +403,7 @@ def _chunks(seq: list, n: int):
 
 
 def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
-                    now, candidate=None) -> None:
+                    now, candidate=None, scorer_meta=None) -> None:
     """Normalize one raw fit scorecard, apply the scorer's fallback hard-requirement
     extraction (fills gaps ONLY where the screen produced no verdict for a check —
     see score.merge_fallback_screen), merge the (possibly-updated) screen verdict on
@@ -411,7 +422,8 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
     if screen.get("disqualified"):
         db.save_score(
             conn, row["id"], score=0,
-            score_detail=_score_detail(screen, disqualified=True),
+            score_detail=_score_detail(screen, disqualified=True,
+                                       scorer_meta=scorer_meta),
             now=now, status="discarded",
         )
         return
@@ -421,7 +433,7 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
         db.mark_failed(conn, row["id"], error=str(exc), now=now)
         return
     disqualified = bool(result.get("disqualified"))
-    detail = _score_detail(result, disqualified=disqualified)
+    detail = _score_detail(result, disqualified=disqualified, scorer_meta=scorer_meta)
     db.save_score(
         conn, row["id"], score=int(result["score"]),
         score_detail=detail, now=now,
@@ -478,7 +490,7 @@ class _BackendBreaker:
 
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, screen_workers: int = 1, score_workers: int = 4,
-              candidate=None) -> None:
+              candidate=None, scorer_meta=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -602,7 +614,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                             breaker.record_failure()
                         else:
                             _persist_scored(conn, row, screen, card, posting,
-                                            now=now, candidate=candidate)
+                                            now=now, candidate=candidate,
+                                            scorer_meta=scorer_meta)
                             breaker.record_success()
                 elif cards is None:
                     # batch_size 1: the chunk IS one posting, so re-issuing fit_fn([posting])
@@ -616,7 +629,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                 else:
                     for (row, posting, screen), card in zip(chunk, cards):
                         _persist_scored(conn, row, screen, card, posting,
-                                        now=now, candidate=candidate)
+                                        now=now, candidate=candidate,
+                                        scorer_meta=scorer_meta)
                         breaker.record_success()
                 if breaker.tripped:
                     # Dead backend, not a bad row: stop, leave the untouched remainder

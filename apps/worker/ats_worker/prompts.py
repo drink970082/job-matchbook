@@ -32,6 +32,14 @@ def _sections(filename: str) -> dict[str, str]:
 _score = _sections("score.txt")
 _screen = _sections("screen.txt")
 
+# Stamped into every fit-scored row's score_detail (pipeline._score_detail) so the
+# operator can select the rows that predate a rubric change and re-score just those.
+# HAND-BUMP THIS when editing score.txt or the profile/résumé inputs in a way that
+# should invalidate existing scores. Deliberately a date string a human sets, not a
+# content hash with automatic invalidation — the inputs change a handful of times a
+# year, and a flag plus a WHERE clause covers it (docs/PROGRESS.md).
+SCORER_VERSION: str = "2026-07-24"
+
 # TWO calls, two backends, two files. SCORE_HEADER (score.txt) drives the fit-score
 # call (rubric + résumé + job), sent to Claude. SCREEN_HEADER + the checklist
 # (screen.txt) drive the hard-requirements call (job + requirements, NO résumé),
