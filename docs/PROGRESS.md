@@ -133,7 +133,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 8 — **3 defects**, and the eval gap blocking most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 7 — **2 defects**, and the eval gap blocking most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect**, plus the merge-blocking gate re-run |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 1 — **1 defect**, and it is the data-loss one |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 4 — **2 defects** |
@@ -147,7 +147,7 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Where the seven defects sit:** none are in FETCH. Six of the seven are one policy
+**Where the six defects sit:** none are in FETCH. Five of the six are one policy
 error repeated — a systemic or absent-data condition handled as if it were a
 per-item verdict — which is why the err-toward-keep policy table (ORCH, under
 Enhancements) is filed as documentation that closes a defect class rather than as
@@ -190,10 +190,10 @@ unblock; neither has run.
    plan Stage 4's `score.txt` block (`66dfb65`). Two consecutive PASS or
    `git revert 66dfb65`; until then `feat/universality-and-onboarding` does not merge.
    Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
-   set's documented Java blind spot in the same pass. **Also fix the inert-fallback
-   defect first** ([Defects](#defects--shipped-behavior-that-is-wrong-should-fix)):
-   Stage 4 currently only reaches a whole-backend absence, so gating it as-is measures
-   a path almost nothing takes.
+   set's documented Java blind spot in the same pass. The inert-fallback defect that
+   used to block this is **fixed 2026-07-23** (CHANGELOG) — Stage 4 now reaches a
+   per-check gap, not only a whole-backend absence, so the gate measures a path
+   postings actually take.
 3. **Sponsorship precision/recall labeled set** — `[M · MERGE BLOCKER · free on the
    default ollama backend]`. Run `tools/sponsor_diff.py` over the already-scored
    rows, hand-label the disagreements, record the numbers. The rework is shipped and
@@ -223,9 +223,9 @@ invariant in place before an agent breaks it. See
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-Seven found 2026-07-23 by probing `pipeline.run_score` / `run_notify`,
+Seven found 2026-07-23 (one fixed same day) by probing `pipeline.run_score` / `run_notify`,
 `score/screen.py` and `score/location.py` directly; each line below is an executed
-repro, not a reading. **None are in FETCH** — they cluster in SCREEN (3), ORCH (2),
+repro, not a reading. **None are in FETCH** — the six open ones cluster in SCREEN (2), ORCH (2),
 SCORE (1) and NOTIFY (1). The two circuit-breaker entries are preconditions for
 raising the schedule cadence — see [In flight](#in-flight). (The sponsorship-gate defect that
 used to sit here shipped its fix 2026-07-23; what remains is measuring it, tracked
@@ -374,34 +374,6 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   costs only misses (`Hyderabad, TS` would keep) — which is the trade SPEC already
   makes explicit for `run_expire`: a wrongly-dropped live match costs a job, a miss
   costs one fit call.
-- **`merge_fallback_screen` is inert for a PARTIAL extraction — Stage 4 is narrower
-  than its docstring** — `[SCREEN · XS · do this BEFORE the fit-score gate re-run]`. Executed
-  repro: candidate configures all three checks, the model returns only
-  `screen.authorization`, the fit scorer's card carries
-  `degree.required_degree='phd'`:
-
-  ```
-  screen  -> degree{pass:True} authorization{pass:True} clearance{pass:True}
-  card    -> degree{required_degree:'phd'}
-  merged  -> degree{pass:True} ...                       (unchanged — gap never seen)
-  ```
-
-  `_screen_verdict`'s `gate()` writes `clean[key]` whenever the check is *configured*,
-  regardless of whether the model returned anything for it, and each `_check_*` errs
-  toward pass on absent data. So a ran-but-had-no-data check is byte-identical to a
-  genuinely-passed one, and `merge_fallback_screen`'s `gaps = {k not in already}` can
-  never see it. Stage 4 (`66dfb65`) therefore fires **only** on whole-backend absence
-  — `SCREEN_BACKEND=none`, or a screen call that raised and was swallowed by
-  err-toward-keep. Both are what the docstring names, so the code is not lying; the
-  *reach* is just far smaller than "insurance for whatever check the screen produced
-  no verdict for" reads.
-  **Fix:** don't materialize the key when the extraction entry was empty — for
-  `degree` and `clearance` only. **`authorization` must keep writing its key**: it has
-  an independent signal (`NO_SPONSOR_PHRASES` over the description) and produces a
-  real verdict even when the model returns nothing. ~4 lines, no schema change, no
-  migration. **Sequencing:** the gate re-run in P1 item 2 is what decides whether
-  Stage 4 ships at all — running it against the current inert version validates
-  nothing about the behavior the entry claims to gate.
 - **`work_authorization` silently disables the whole authorization check on any
   off-vocabulary string** — `[SCREEN · XS · mitigated on the guided path only]`.
   `_needs_sponsorship` substring-matches `"sponsor"` in the candidate's free-text
@@ -487,8 +459,10 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   records which check fired. One read-only query over the ~600 already-scored rows
   gives the degree/clearance-only share of all discards. A couple of percent → just
   route them; fifteen → build the eval first. Do that query before designing anything.
-  Related: the `pass`-vs-`unknown` defect above must be fixed either way, since a
-  `needs_confirmation` state is precisely the tri-state it is missing.
+  Related: the `pass`-vs-`unknown` conflation is **fixed 2026-07-23** (CHANGELOG) —
+  `degree`/`clearance` now record no key at all where the model returned nothing, so
+  "blind" is already distinguishable from "passed" and only the third state
+  (`needs_confirmation`) would be new.
 - **`screen.txt` has no eval gate — screen prompt edits are unguarded** — `[SCREEN · M ·
   blocks the quote-grounding work below]`. `score.txt` cannot change without two
   consecutive `tools/score_eval.py` PASS against a 23-row golden set (§13, and a
@@ -705,11 +679,11 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   | systemic configuration (logged out, invalid token) | CIRCUIT BREAK |
   | delivery (timeout, 429, 5xx) | RETRY |
 
-  This is worth writing down beyond tidiness: **every one of the seven defects above is
-  one cell being treated as another** — a systemic configuration failure handled as a
-  per-item one (the fit-backend and Telegram-token breakers), an unresolved-data case
-  treated as a discard (`London, ON`), an absent extraction treated as a pass
-  (`merge_fallback_screen`). Belongs in [`PRINCIPLES.md`](./PRINCIPLES.md), which is
+  This is worth writing down beyond tidiness: **every one of the seven defects found
+  2026-07-23 is one cell being treated as another** — a systemic configuration failure
+  handled as a per-item one (the fit-backend and Telegram-token breakers), an
+  unresolved-data case treated as a discard (`London, ON`), an absent extraction
+  treated as a pass (`merge_fallback_screen`, fixed same day). Belongs in [`PRINCIPLES.md`](./PRINCIPLES.md), which is
   already the decision-DNA file, with a pointer from `CLAUDE.md`.
 - **A score records no provenance — nothing says which backend or model produced it**
   — `[SCORE · S]`. `_score_detail` (`pipeline.py:355`) persists `assessment`, `screen`,
@@ -991,7 +965,8 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   and the actual bug is the silent off-vocabulary fallthrough, filed above as a
   validation fix.
   **Accepted from the same review and filed above:** evidence-grounding for degree and
-  clearance, `pass`-vs-`unknown` separation, re-screening after a config change, and
+  clearance, `pass`-vs-`unknown` separation (**done 2026-07-23**), re-screening after a
+  config change, and
   recording the matched sentence when `NO_SPONSOR_PHRASES` fires (that last one is
   small enough to ride along with the quote work rather than carry its own entry).
 - **Cross-service drift — partially guarded** — `[ORCH · M]`. `test_source_enums_sync.py`

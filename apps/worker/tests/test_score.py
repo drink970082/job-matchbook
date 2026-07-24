@@ -1178,6 +1178,33 @@ def test_fallback_screen_returns_untouched_when_screen_already_disqualified():
     assert out["disqualified"] is True
 
 
+def test_fallback_screen_fills_a_check_the_screen_returned_no_data_for():
+    # The screen RAN but the model returned nothing for `degree`. gate() used to
+    # materialize degree{pass:True} anyway (each _check_* errs toward pass on absent
+    # data), making a ran-but-blind check byte-identical to a genuinely-passed one --
+    # so merge_fallback_screen's `k not in already` gap test could never see it, and
+    # the fallback only ever reached a whole-backend absence.
+    candidate = {"highest_degree": "Bachelor's", "work_authorization": "citizen",
+                 "security_clearance": "none"}
+    screen = score.screen_posting(POSTING, candidate=candidate,
+                                  extract=lambda p, s: {"screen": {"authorization": {}}})
+    card = {"screen": {"degree": {"required_degree": "phd"}}}
+    out = score.merge_fallback_screen(screen, card, POSTING, candidate)
+    assert out["disqualified"] is True
+    assert out["screen"]["degree"]["pass"] is False
+
+
+def test_authorization_still_ruled_when_the_model_returns_no_entry():
+    # The carve-out: unlike degree/clearance, authorization has an independent signal
+    # (NO_SPONSOR_PHRASES over the JD), so it produces a real verdict with no model
+    # data and must keep writing its key.
+    posting = dict(POSTING, description="We do not sponsor work visas.")
+    out = score.screen_posting(posting, extract=lambda p, s: {"screen": {}},
+                               candidate={"work_authorization": "needs visa sponsorship"})
+    assert out["screen"]["authorization"]["pass"] is False
+    assert out["disqualified"] is True
+
+
 def test_fallback_screen_preserves_already_ruled_nongap_check():
     # clearance is already ruled (a distinctive note the recompute would not produce);
     # degree is the only genuine gap. The ruled clearance entry must survive verbatim

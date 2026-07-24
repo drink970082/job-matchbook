@@ -9,6 +9,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A screen check the model returned no data for is no longer recorded as a pass.**
+  `_screen_verdict`'s `gate()` wrote `screen[key]` whenever the candidate had
+  *configured* a check, and each `_check_*` errs toward pass on absent data — so a
+  `degree`/`clearance` check that ran but got nothing back was byte-identical to one
+  the model genuinely cleared. `degree` and `clearance` now materialize their key only
+  when the extraction actually carried an entry; `authorization` still writes its key
+  unconditionally, because `NO_SPONSOR_PHRASES` over the JD gives it a real verdict
+  with no model data at all. Two effects: the persisted `screen` block (and the web
+  detail modal's chips) stops claiming verdicts nothing produced, and the fit scorer's
+  fallback extraction can now see a per-check gap instead of only a whole-backend
+  absence. No schema change; sparse `screen` dicts were already the shape for
+  unconfigured checks.
+
 - **Telegram is now optional — a bot token is no longer required to run the worker.**
   `run_once` read `env["TELEGRAM_BOT_TOKEN"]` / `env["TELEGRAM_CHAT_ID"]` as bare dict
   access, so a user without a bot hit a hard `KeyError` at the notify stage after a full

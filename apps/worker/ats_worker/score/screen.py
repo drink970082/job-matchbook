@@ -281,12 +281,21 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     entry = lambda k: screen.get(k) if isinstance(screen.get(k), dict) else {}
 
-    gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
+    # degree/clearance are gated on the model ACTUALLY returning an entry, not just on
+    # the candidate configuring the check. Both err toward pass on absent data, so
+    # materializing the key anyway makes a ran-but-blind check byte-identical to a
+    # genuinely-passed one — and `merge_fallback_screen` can then never see the gap.
+    # `authorization` deliberately still writes its key on an empty entry: it has an
+    # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
+    # with no model data at all.
+    gate("degree", bool(str(candidate.get("highest_degree") or "").strip())
+         and bool(entry("degree")),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
          *_check_authorization(candidate.get("work_authorization"), description,
                                entry("authorization")))
-    gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
+    gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
+         and bool(entry("clearance")),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
     return {
