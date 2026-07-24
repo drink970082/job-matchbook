@@ -337,7 +337,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   contains any listed keyword, the complement of `title_filter`), `max_age_days`
   (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
   `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
-  `is_empty()`), `feeds`, `schedule_hours`. Bad
+  `is_empty()`), `feeds`, `schedule_hours` (daemon pass interval in hours; must be
+  `>= 1` — a `0`/negative value would make APScheduler's interval trigger hot-loop the
+  watchlist at a 1-second period, so `config.py` raises `ConfigError`). Bad
   source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);

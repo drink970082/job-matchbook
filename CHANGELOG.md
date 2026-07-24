@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`schedule_hours: 0` (or negative) is now a startup error instead of a hot loop.**
+  `config.py` coerced `schedule_hours` with no lower bound and `run.main` fed it
+  straight to APScheduler's `interval` trigger, whose `IntervalTrigger` falls back to a
+  **1-second** period when every component is zero — so a `0`/negative typo silently
+  meant a daemon hammering the whole watchlist once a second. `load_config` now raises
+  `ConfigError` for anything `< 1`. (Config validation — fail loud.)
 - **A wrong Telegram token no longer permanently destroys every matched posting.**
   `run_notify` treated a send failure as a per-posting fault, so a bad-token `401`
   drove all five matched rows to `attempts+1` each pass and parked them `failed` on

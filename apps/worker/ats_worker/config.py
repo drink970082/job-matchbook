@@ -168,6 +168,16 @@ def load_config(source) -> Config:
     candidate = _parse_candidate(data.get("candidate") or {})
     feeds = _parse_feeds(data.get("feeds"))
 
+    schedule_hours = _int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS)
+    if schedule_hours < 1:
+        # run.main feeds this straight to APScheduler's interval trigger, whose
+        # IntervalTrigger falls back to a 1-second period when every component is
+        # zero -> a hot loop over the whole watchlist. No lower bound is a footgun.
+        raise ConfigError(
+            f"schedule_hours must be >= 1 (got {schedule_hours}); a 0 or negative "
+            "interval hot-loops the whole watchlist."
+        )
+
     return Config(
         companies=companies,
         title_filter=title_filter,
@@ -175,7 +185,7 @@ def load_config(source) -> Config:
         max_age_days=_int_field(data, "max_age_days", 0),
         candidate=candidate,
         feeds=feeds,
-        schedule_hours=_int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS),
+        schedule_hours=schedule_hours,
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),
     )
 

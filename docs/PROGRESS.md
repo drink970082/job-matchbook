@@ -68,12 +68,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   alignment needs a **cron** trigger (`add_job(once, "cron", hour="0,6,12,18")`), which
   is a handful of lines but a config-shape question (an `hours:` list vs an interval
   int). Also note the eager `once()` means every restart costs an immediate full pass.
-  **Cheap guard while here:** `schedule_hours` is coerced by `_int_field` with **no
-  lower bound**, and APScheduler's `IntervalTrigger` falls back to *1 second* when every
-  interval component is zero — so `schedule_hours: 0` plausibly means a hot loop over
-  172 boards. (Unverified here: `apscheduler` is deliberately absent from the test env,
-  so this is from the library's documented behavior, not an execution.) One
-  `if schedule_hours < 1: raise ConfigError` closes it.
+  **Cheap guard — SHIPPED 2026-07-24.** `schedule_hours` was coerced by `_int_field`
+  with no lower bound, and APScheduler's `IntervalTrigger` falls back to *1 second* when
+  every interval component is zero — so `schedule_hours: 0` meant a hot loop over 172
+  boards. `load_config` now raises `ConfigError` for anything `< 1` (SPEC config section,
+  CHANGELOG; `test_rejects_non_positive_schedule_hours`). The wall-clock-vs-interval and
+  eager-`once()` points above are unaffected and still open.
   **What does NOT get more expensive:** the paid scorer. `upsert_postings` is
   `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so a second pass
   over an unchanged board inserts nothing and scores nothing — quota is a function of
@@ -140,7 +140,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
-| `WEB` | `apps/web` — Prisma schema, server actions, UI | 1 |
+| `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
 | `DOCS` | `docs/`, README, `.claude/skills/`, evals | 4 |
 
@@ -519,6 +519,24 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   a cache-invalidation system, and the same YAGNI note applies as to the screen
   version (see `--rescreen-discarded` below): the operator changes these a handful of
   times a year and a flag covers it.
+- **The codex usage bar is backend-locked — make it backend-aware** — `[WEB · M ·
+  now that the fit backend is a user choice]`. `CodexUsageBar` shows a weekly-budget
+  *percentage*, which exists only because codex (ChatGPT-Plus) publishes `rate_limits`
+  in its session rollout. The alternate fit backend is metered pay-per-token Anthropic
+  API (`backends_claude.py` — "metered API billing"): no fixed budget, no percentage,
+  no rollout, so there is nothing to fill a Claude meter and a per-backend *bar* is the
+  wrong shape. The real defect is cosmetic — on `SCORE_BACKEND=claude` the bar shows
+  "No codex usage recorded yet" forever, reading as "codex is broken" when codex is
+  simply unused — and the web (a separate container) can't tell which backend the
+  native worker is on (`SCORE_BACKEND` is worker-side). **Fix is relabel, not rebuild:**
+  the worker stamps the active fit backend into the shared `db/` snapshot dir (fold into
+  `codex_usage.json` or a sibling marker), the route already reads that file, and the
+  component shows the codex meter on codex and a single "Scoring on {backend} — metered
+  API, no quota meter" line otherwise. No schema change. Shares its data with the SCORE
+  provenance entry above (which wants `backend`/`model`/`scorer_version` in
+  `score_detail`) — one worker-written backend name serves both. **Not "do nothing":**
+  leaving it is correct only if codex is the sole path, but backend choice is now a
+  user-facing decision, so the meter must stop implying codex is the only backend.
 - **Degree and clearance disqualify on an unverifiable model claim** — `[SCREEN · S · blocked
   on the screen eval above]`. Of the three LLM-derived checks, only **authorization**
   is evidence-grounded: the model returns `no_sponsorship_quote` and `_quote_in`
@@ -711,12 +729,16 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `Fit: {summary}` line in the alert (the routing turns on the verdicts, so the
   one-line scorecard summary is the part with decision value) — it must read the
   already-persisted, already-sanitised summary; `notify.py` must never call a model.
-  **And cheapest of all:** one integration test that scores a row through the real path
-  and asserts `get_notifiable` returns it. The gate reads `score_detail` via
-  `json_extract` string paths, so renaming a field in `_normalize_assessment`'s output
-  silently yields zero notifications instead of an error; that test turns a silent
-  outage into a red build, without the schema migration that promoting the routing
-  fields to real columns would need.
+  **And cheapest of all — already covered, verified 2026-07-24.** The concern was that
+  the gate reads `score_detail` via `json_extract` string paths, so renaming a field in
+  `_normalize_assessment`'s output would silently yield zero notifications instead of an
+  error. The integration `test_full_status_machine` already closes this: it drives a
+  match/match posting through the *real* `run_score` -> `_score_detail` ->
+  `run_notify` -> `get_notifiable` and asserts it is notified. `_normalize_assessment`
+  (`screen.py:217`) reconstructs the inner `seniority`/`domain`/`verdict` shape and
+  `_score_detail:369` owns the `assessment` wrapper, so every key `get_notifiable` reads
+  is produced by code that test exercises. Proven by mutation: renaming the `seniority`
+  output key flips `hi` from `notified` to `scored` and reds the test. No new test needed.
 - **Score shape changes — evaluated 2026-07-23 · four already shipped, two rejected ·
   do not re-derive.** A review proposed nine reshapes of the fit scorer. The genuinely
   open ones are filed above (provenance, domain/seniority structuring behind the screen
