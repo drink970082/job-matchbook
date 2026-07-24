@@ -120,6 +120,7 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     description = str(posting.get("description") or "")
     checklist = _candidate_block(candidate)
     screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    provider_error = False
     if checklist and extract is not None:
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
@@ -127,10 +128,21 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
         except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
             print(f"[screen] provider error, keeping posting unscreened: {exc}")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+            provider_error = True
 
     # Deterministic CODE gates (intern title + location string), hoisted into a
     # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.
-    return deterministic_screen(screen, posting, candidate)
+    # They cost nothing and ran fine even on a provider failure, so their verdict
+    # stands either way — a location-disqualified row stays disqualified.
+    out = deterministic_screen(screen, posting, candidate)
+    # Record that this posting was never actually screened. Keeping it is still the
+    # right per-item call (one flaky provider must not discard the queue), but the
+    # CALLER needs to tell "screened and clean" from "never screened" — paying the fit
+    # backend for the latter is not keeping it, it is buying an unscreened verdict.
+    # run_score reads this both to skip the paid call and to detect a dead provider.
+    if provider_error:
+        out["provider_error"] = True
+    return out
 
 
 def make_ollama_extract(*, http, ollama_host: str, model: str | None = None,

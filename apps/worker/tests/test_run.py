@@ -450,6 +450,31 @@ def test_scorer_meta_model_tracks_the_backend_make_scorer_picks():
     assert run._scorer_meta("claude", anthropic_score_model="m")["model"] == "m"
 
 
+def test_run_once_no_notify_scores_without_alerting(monkeypatch, capsys):
+    # An unattended bulk-scoring pass would otherwise fire a Telegram alert per match.
+    # --no-notify scores silently; the matches still surface in the web Discovered tab,
+    # and the rows stay 'scored' so a later pass CAN notify them (nothing is consumed).
+    order = []
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage,
+                            lambda *a, _s=stage, **k: order.append(_s) or 0)
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
+                 no_notify=True)
+    assert "run_score" in order and "run_notify" not in order
+    assert "notify" in capsys.readouterr().out.lower()   # says so, never silently
+
+
 def test_run_once_rescreen_discarded_requeues_before_scoring(monkeypatch):
     # The flag is the only way back from 'discarded' (terminal). Off by default:
     # a normal pass must never resurrect discards behind the operator's back.

@@ -151,7 +151,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 defect** (dead provider is silent, found 2026-07-24); the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -165,12 +165,12 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: one — SCREEN, the fifth instance of the same policy error.** The four
-that sat here — ORCH (2), SCORE (1), NOTIFY (1) — shipped their fixes 2026-07-24; the
-rule that names them lives in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of
-uncertainty", shipped 2026-07-23) and the code now obeys it in those three blocks
-(SPEC §9 + traceability rows). **The screen stage was never swept**, and it carries the
-same error in its most literal form — see the defects bucket below.
+**Open defects: none.** Five instances of one policy error — a *systemic* condition
+handled as a per-item verdict — have now shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
+on 2026-07-24, and **SCREEN (1)** the same day, found while auditing the long-run
+runbook and the last block the sweep had never reached. The rule that names them lives
+in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
+2026-07-23); every pipeline stage now obeys it (SPEC §9 + traceability rows).
 
 ### Do next — the pick order
 
@@ -253,8 +253,14 @@ exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
+**None open.** The one found here 2026-07-24 shipped its fix the same day:
+
 - **A dead SCREEN provider is silent, and every unscreened row goes to the PAID scorer**
-  — `[SCREEN · S · found 2026-07-24 while auditing the long-run runbook]`.
+  — **FIXED 2026-07-24** (SPEC §9 + traceability, CHANGELOG). The verdict now carries
+  `provider_error`; `run_score` leaves such a row `new` instead of fit-scoring it
+  unscreened (a deterministic disqualification still stands), and a second
+  `_BackendBreaker` over the screen phase aborts on the outage signature. Original
+  report — `[SCREEN · S · found 2026-07-24 while auditing the long-run runbook]`:
   `screen_posting` catches **any** provider exception and errs toward KEEP
   (`score/screen.py`), printing one `[screen] provider error, keeping posting
   unscreened` line per posting. That is the correct policy for *opportunity*

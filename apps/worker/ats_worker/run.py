@@ -214,7 +214,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
              score_limit: int = 0, screen_workers: int = 0,
-             score_workers: int = 4, rescreen_discarded: bool = False) -> None:
+             score_workers: int = 4, rescreen_discarded: bool = False,
+             no_notify: bool = False) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -363,7 +364,13 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.
         token, chat_id = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_CHAT_ID")
-        if token and chat_id:
+        if no_notify:
+            # Bulk/unattended scoring: alerting per match would be a burst nobody is
+            # there to read. Nothing is consumed — the rows stay 'scored', so a later
+            # pass notifies them normally, and they are in the web Discovered tab now.
+            print("--no-notify: skipping notify (matched rows are 'scored' and will "
+                  "alert on the next pass without it)")
+        elif token and chat_id:
             pipeline.run_notify(conn, now=now, notify_fn=notify_posting,
                                 token=token, chat_id=chat_id)
         else:
@@ -448,6 +455,9 @@ def main(argv=None) -> None:
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
+    parser.add_argument("--no-notify", action="store_true",
+                        help="score but send no Telegram alerts — for bulk/unattended "
+                             "passes; rows stay 'scored' and alert on a later pass")
     parser.add_argument("--rescreen-discarded", action="store_true",
                         help="return every 'discarded' row to 'new' first, so this "
                              "pass re-screens them under the current candidate "
@@ -541,7 +551,8 @@ def main(argv=None) -> None:
                  score_limit=args.score_limit,
                  screen_workers=args.screen_workers,
                  score_workers=args.score_workers,
-                 rescreen_discarded=args.rescreen_discarded)
+                 rescreen_discarded=args.rescreen_discarded,
+                 no_notify=args.no_notify)
 
     if args.once:
         once()

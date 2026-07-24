@@ -315,6 +315,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--rescreen-discarded` (return every `discarded` row to `new` before this pass so it
   is re-screened under the current candidate hard requirements — **requires `--once`**,
   see §9),
+  `--no-notify` (score but send no Telegram alerts — for a bulk/unattended pass;
+  nothing is consumed, rows stay `scored` and alert on a later pass without the flag),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `ollama` / `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
@@ -617,9 +619,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   hard-requirements checklist, shared by every backend). Separately, when
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
-  call — runs even when no other screen clause is configured). A SCREEN parse failure
-  errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
-  screen did not disqualify** (a discarded posting records `score` 0 and never pays
+  call — runs even when no other screen clause is configured). A SCREEN **provider**
+  failure errs toward keep (not disqualified) and stamps `provider_error` on the
+  verdict; `run_score` then leaves that row `new` rather than fit-scoring it unscreened,
+  and a run of them circuit-breaks the screen phase (§9). (2) The fit **SCORE** —
+  reached **only when the screen did not disqualify** (a discarded posting records `score` 0 and never pays
   for a fit call) — comes from an injected **`score_fit(postings, resumes) -> list[dict]`**
   callable: **batch-first, list in / list out**, one scorecard per input posting in the
   same order. `run_score` itself calls it directly with each chunk's full batch of
@@ -1345,6 +1349,21 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   for each survivor indefinitely. Screening is free on the default ollama backend; the
   fit calls that follow are bounded only by `--score-limit`, so pair the two on a
   large backlog.
+- **A dead screen *provider* circuit-breaks the screen phase — and no unscreened row
+  is ever fit-scored.** `screen_posting` errs toward KEEP on any provider failure,
+  which is right for one flaky call and wrong for an outage: it raises no exception and
+  marks nothing `failed`, so before this the whole backlog was silently handed to the
+  **paid** fit scorer unscreened — the ~18% normally discarded for free became paid
+  calls, and the hard-requirement gate stopped filtering. The verdict now carries
+  `provider_error`, and `run_score` (a) leaves such a row `new` — untouched, no
+  `attempts` spent, screened properly next pass — unless a **deterministic** gate
+  (location/intern, which cost nothing and ran fine) disqualified it, in which case that
+  verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with the
+  same signature as the fit one (`_BREAKER_LIMIT` provider errors, zero successes),
+  aborting it and cancelling the queued remainder. One success disarms it. `extract=None`
+  (`SCREEN_BACKEND=none`) is **not** a provider error — there is no provider, the
+  deterministic gates run alone, and those rows score normally as documented.
+  (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
 - **A dead fit *backend* circuit-breaks the score pass — it does not convict every
   posting.** `run_score` isolates a bad posting (per-item `mark_failed`), but a
   *systemic* fit-backend outage (e.g. `codex exec` not logged in) would otherwise
@@ -1418,6 +1437,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
+| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
+| `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
 | Scorer provenance (`backend`/`model`/`scorer_version`) stamped into `score_detail` on fit-scored rows only — never screen-discarded or low-context; `model` tracks the backend `make_scorer` picks | `test_pipeline.py` (`test_run_score_stamps_provenance_only_on_fit_scored_rows`, `test_run_score_stamps_provenance_on_fallback_disqualified_rows`, `test_run_score_omits_provenance_when_no_scorer_meta`), `test_run.py` (`test_run_once_stamps_the_active_fit_backend_and_model`, `test_scorer_meta_model_tracks_the_backend_make_scorer_picks`) |
 | `discarded` is terminal except via `--rescreen-discarded` (`db.requeue_discarded`): all discards → `new`, no other status touched, one-shot (rejected without `--once`) | `test_pipeline.py` (`test_requeue_discarded_returns_rows_to_new_for_a_later_screen`, `test_requeue_discarded_leaves_every_other_status_alone`), `test_run.py` (`test_run_once_rescreen_discarded_requeues_before_scoring`, `test_rescreen_discarded_requires_once`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |

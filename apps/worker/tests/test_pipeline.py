@@ -1202,6 +1202,101 @@ def test_run_retry_sets_updated_at_to_passed_now(db_path):
     assert row["updated_at"] == LATER
 
 
+# --- dead screen provider ---------------------------------------------------
+
+def test_run_score_never_pays_to_fit_score_an_unscreened_row(db_path):
+    # The screen erring toward KEEP is right for one flaky call, but paying the fit
+    # backend for a row that was never actually screened is not "keeping" it — the
+    # hard-requirement gate simply didn't run. The row stays 'new' (recoverable, free)
+    # and the next pass screens it properly.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+    fit_calls = []
+
+    def screen_fn(posting):
+        if posting["external_id"] == "1":
+            return {"screen": {}, "disqualified": False, "provider_error": True}
+        return {"screen": {}, "disqualified": False}
+
+    def fit_fn(postings):
+        fit_calls.extend(p["external_id"] for p in postings)
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+    status = {r["external_id"]: r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert status["1"] == "new"        # untouched, costs nothing, retried next pass
+    assert status["2"] == "scored"
+    assert fit_calls == ["2"]          # the unscreened row never reached the scorer
+    assert conn.execute(
+        "SELECT attempts FROM job_postings WHERE external_id='1'").fetchone()[0] == 0
+
+
+def test_run_score_provider_error_still_discards_on_a_deterministic_gate(db_path):
+    # The CODE gates ran fine even though the LLM screen didn't. A row they
+    # disqualified is still terminal — it must not be resurrected as 'new'.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {"location": {"pass": False}},
+                             "disqualified": True,
+                             "disqualification_reason": "location: Shanghai",
+                             "provider_error": True},
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    assert conn.execute(
+        "SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
+
+
+def test_run_score_circuit_breaks_a_dead_screen_provider(db_path):
+    # A dead screen provider is SYSTEMIC, not per-item: without a breaker the whole
+    # backlog is silently left unscreened. Trip after _BREAKER_LIMIT consecutive
+    # provider errors with zero successes and leave the remainder 'new'.
+    conn = db.connect(db_path)
+    ids = [str(i) for i in range(pipeline._BREAKER_LIMIT + 5)]
+    _seed_new(conn, ids)
+    screened = []
+
+    def screen_fn(posting):
+        screened.append(posting["external_id"])
+        return {"screen": {}, "disqualified": False, "provider_error": True}
+
+    pipeline.run_score(
+        conn, now=NOW, screen_fn=screen_fn,
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("fit must not run")),
+        screen_workers=1,
+    )
+    # NOT asserted: how many screen calls were made. The pool is filled up front (so
+    # consumption stays in submission order), so already-queued calls can race ahead of
+    # the trip with instant fakes; the breaker cancels the rest, which on a real
+    # provider — seconds per call — stops most of the backlog. What IS guaranteed is
+    # below: nothing was persisted, nothing was spent, everything is recoverable.
+    rows = conn.execute("SELECT pipeline_status, attempts FROM job_postings").fetchall()
+    assert {r["pipeline_status"] for r in rows} == {"new"}   # all recoverable
+    assert {r["attempts"] for r in rows} == {0}              # no budget burned
+
+
+def test_run_score_one_screen_success_disarms_the_breaker(db_path):
+    # A flaky-but-alive provider must never trip it: one success this pass is proof
+    # the backend is up, so the remaining errors ride the per-item keep policy.
+    conn = db.connect(db_path)
+    ids = [str(i) for i in range(pipeline._BREAKER_LIMIT + 3)]
+    _seed_new(conn, ids)
+
+    def screen_fn(posting):
+        if posting["external_id"] == "0":
+            return {"screen": {}, "disqualified": False}      # one good call
+        return {"screen": {}, "disqualified": False, "provider_error": True}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [_card() for _ in ps], screen_workers=1)
+    status = [r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()]
+    assert status.count("scored") == 1        # only the genuinely screened row
+    assert status.count("new") == len(ids) - 1
+
+
 # --- scorer provenance ------------------------------------------------------
 
 _META = {"backend": "codex", "model": "gpt-5.6-sol", "scorer_version": "2026-07-24"}

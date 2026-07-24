@@ -210,6 +210,47 @@ def test_extract_failure_errs_toward_keep():
     assert out["screen"] == {}
 
 
+def test_extract_failure_is_flagged_provider_error():
+    # Keeping the posting is right for ONE flaky call; it is wrong to then pay to
+    # fit-score it as though it had been screened. The verdict carries the fact, so
+    # the caller can tell "screened and clean" from "never actually screened".
+    def extract(prompt, schema):
+        raise score.ScoreError("provider down")
+
+    out = score.screen_posting(POSTING, extract=extract,
+                               candidate={"highest_degree": "Master's"})
+    assert out["provider_error"] is True
+
+
+def test_working_extract_sets_no_provider_error():
+    out = score.screen_posting(POSTING, extract=lambda p, s: {"screen": {}},
+                               candidate={"highest_degree": "Master's"})
+    assert "provider_error" not in out
+
+
+def test_screen_backend_none_is_not_a_provider_error():
+    # SCREEN_BACKEND=none has no provider to fail: the deterministic gates run alone
+    # and the row is legitimately scored, exactly as documented. It must not be
+    # mistaken for an outage.
+    out = score.screen_posting(POSTING, extract=None,
+                               candidate={"highest_degree": "Master's"})
+    assert "provider_error" not in out
+
+
+def test_provider_error_still_honours_the_deterministic_gates():
+    # The location/intern gates are CODE, cost nothing, and ran fine. A provider
+    # outage must not resurrect a posting they correctly disqualified.
+    def extract(prompt, schema):
+        raise score.ScoreError("provider down")
+
+    out = score.screen_posting({**POSTING, "location": "Shanghai, China"},
+                               extract=extract,
+                               candidate={"highest_degree": "Master's",
+                                          "locations": ["remote", "USA"]})
+    assert out["provider_error"] is True
+    assert out["disqualified"] is True          # deterministic gate still wins
+
+
 # --- determinism / Ollama options ----------------------------------------
 
 def test_screen_request_sends_deterministic_options():

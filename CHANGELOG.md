@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A dead screen provider no longer hands the whole backlog to the paid scorer.**
+  `screen_posting` catches any provider exception and errs toward KEEP — correct for one
+  flaky call, wrong for an outage. When Ollama was simply down (a WSL2 suspend does it)
+  nothing raised and nothing was marked `failed`, so no failure count moved: every
+  remaining row silently skipped screening and was fit-scored **blind on the paid
+  backend**, turning the ~18% normally discarded for free into paid calls and switching
+  the hard-requirement gate off entirely. This was the **fifth** instance of the policy
+  error PRINCIPLES' four-way table names — a systemic condition handled as a per-item
+  verdict — and the one pipeline block the 2026-07-23/24 sweep never reached. The verdict
+  now carries `provider_error`, and `run_score` (a) leaves such a row **`new`** — no
+  paid call, no `attempts` spent, screened properly next pass — unless a *deterministic*
+  gate (location/intern, which cost nothing and ran fine) disqualified it, in which case
+  that verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with
+  the same signature as the fit one, aborting it and cancelling the queued remainder. One
+  success disarms it, so a flaky-but-alive provider never trips. `SCREEN_BACKEND=none` is
+  **not** a provider error — no provider, deterministic gates alone, scored as documented.
+  Found while auditing the unattended long-run runbook, which had no signal that would
+  have caught it.
+
 - **`schedule_hours: 0` (or negative) is now a startup error instead of a hot loop.**
   `config.py` coerced `schedule_hours` with no lower bound and `run.main` fed it
   straight to APScheduler's `interval` trigger, whose `IntervalTrigger` falls back to a
@@ -145,6 +164,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   shared by the pre-fit gate and `get_notifiable`.
 
 ### Added
+
+- **`--no-notify`: score without alerting.** A bulk or unattended pass scores hundreds
+  of rows and, until now, fired a Telegram alert per match — a burst nobody is there to
+  read. The flag skips the notify stage and says so; nothing is consumed, because matched
+  rows stay `scored` and a later pass without the flag alerts them normally (and they are
+  in the web Discovered tab the whole time).
 
 - **Every fit-scored row now records which scorer produced it.** `score_detail`
   persisted the verdict but nothing about its author, so a row scored on

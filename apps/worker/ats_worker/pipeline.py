@@ -536,14 +536,39 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # the same read-serial / network-parallel / write-serial shape run_feed uses,
     # because SQLite connections are not safe across threads. Consuming futures in
     # submission order keeps writes deterministic and correctly row-associated.
+    # A dead screen PROVIDER is systemic, not per-item: screen_posting errs toward keep
+    # on any provider failure, so an outage produces no exception and no 'failed' row —
+    # it silently hands the whole backlog to the PAID fit scorer unscreened. This breaker
+    # watches the same signature the fit phase does (>= limit provider errors, zero
+    # successes) and aborts the screen phase, leaving the remainder 'new' and free. One
+    # success disarms it, so a flaky-but-alive provider never trips it.
+    # (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
+    screen_breaker = _BackendBreaker()
     with ThreadPoolExecutor(max_workers=max(1, screen_workers)) as ex:
         futures = [ex.submit(screen_fn, posting) for posting in postings]
         for row, posting, future in zip(rows, postings, futures):
+            if screen_breaker.tripped:
+                # Rest stay 'new': recoverable, and nothing was spent. Cancel what is
+                # still QUEUED (in-flight calls can't be unspawned — the pool is filled
+                # up front so consumption stays in submission order); on a real provider
+                # each call takes long enough that this stops most of the backlog.
+                for pending in futures:
+                    pending.cancel()
+                break
             try:
                 screen = future.result()
             except Exception as exc:  # noqa: BLE001 — one bad screen never aborts the pass
                 db.mark_failed(conn, row["id"], error=str(exc), now=now)
                 continue
+            if screen.get("provider_error"):
+                screen_breaker.record_failure()
+                # The CODE gates still ran and cost nothing, so a deterministic
+                # disqualification is honoured below. Otherwise the row is left 'new':
+                # unscreened is not scoreable, and the next pass screens it properly.
+                if not screen.get("disqualified"):
+                    continue
+            else:
+                screen_breaker.record_success()
             if screen.get("disqualified"):
                 db.save_score(
                     conn, row["id"], score=0,
