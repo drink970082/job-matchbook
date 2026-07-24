@@ -9,6 +9,50 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`resolve_location` no longer false-discards a city/region pair whose region
+  abbreviation doesn't resolve.** With `locations: ["Canada", "USA", "remote"]`,
+  `'London, ON'` returned `(False, 'on-site in United Kingdom')`: `_token_country`
+  resolves each token independently, `'ON'` resolves to nothing (only **US**
+  subdivisions are in the gazetteer — no other country's are), and `'London'` alone
+  decided the country as GB by highest-population namesake. A genuinely Canadian
+  posting was dropped *and* the recorded reason named the wrong country, so it could
+  not even be spotted in the Discarded bucket. Discard now requires a **corroborated**
+  foreign reading — every token resolved, or at least two did; a lone resolved token
+  beside an unresolved one keeps. `'Tokyo, Japan'` and `'London, England, United
+  Kingdom'` still discard. The cost is misses only (`'Hyderabad, TS'` now keeps = one
+  wasted fit call), which is the trade SPEC already makes explicit for `run_expire`.
+  Note the fix originally recorded for this defect — "require **all** tokens to
+  resolve" — was implemented, measured, and **rejected**: it broke four shipped
+  assertions, because `England`, `North Holland` and `Montréal` (accented in the
+  gazetteer) don't resolve either, so it disabled the gate for `City, Region, Country`,
+  the most common foreign board format.
+
+- **A throttled board is no longer lost whole — bounded 429 retry in the phenom
+  paginator.** The 2026-07-22 full pass lost exactly one board this way:
+  `phenom/careers.qualcomm.com` rate-limited at deep pagination (`start=930`), and the
+  exception unwound the page loop, discarding every posting already collected. A 429 on
+  the search GET now retries the same offset up to 3 times (2s -> 4s -> 8s, honoring a
+  delta-seconds `Retry-After` clamped to 30s). Still throttled at `start > 0` returns an
+  empty page, which the paginator reads as the end of the board — **the pages already
+  walked are kept**, no change to `_paged.py`. At `start == 0` it still raises, because
+  a silent `[]` would report a throttled board as an empty one. A non-429 status never
+  spends the retry budget. Detail calls are untouched (already isolated per posting).
+  Deliberately not built: a per-source rate-limit policy across all 13 sources — 12 of
+  them have never rate-limited.
+
+- **An off-vocabulary `work_authorization` no longer silently disables the whole
+  authorization screen check.** `_needs_sponsorship` substring-matches `"sponsor"` and
+  reads its absence as "does not need sponsorship" — so `F-1 OPT`, `STEM OPT` and
+  `H-1B`, the most natural things a user writes, each turned the check off with no
+  error and no warning. `config.py` now validates the value against the four documented
+  values (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
+  sponsorship`, case-insensitive) and raises `ConfigError` otherwise, matching the
+  module's existing fail-loud-at-startup contract (`VALID_SOURCES`, `VALID_FEEDS`).
+  Blank stays legal — it means "don't screen on this". The guided `onboard-me` path was
+  already safe; this covers hand-edited `config.yaml`, which is a documented path.
+  Deliberately not built: the 6-field structured `authorization:` block proposed
+  alongside it — the only distinction that changes an outcome is one boolean.
+
 - **A screen check the model returned no data for is no longer recorded as a pass.**
   `_screen_verdict`'s `gate()` wrote `screen[key]` whenever the candidate had
   *configured* a check, and each `_check_*` errs toward pass on absent data — so a
@@ -60,6 +104,33 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   shared by the pre-fit gate and `get_notifiable`.
 
 ### Added
+
+- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` recipes
+  already interpolate `{dotted.field}` into their `url`; `browser` recipes could not, so
+  a board whose cards carry no `href` — the id sits in a `data-*` attribute and routing
+  is JS-side — could only produce a broken or empty `job_url`. A `url` spec containing
+  `{` is now interpolated over the recipe's *own* other `fields`, reusing the existing
+  `interpolate`/`_PLACEHOLDER` machinery rather than a second interpolator. Detection
+  matches the `custom` path's rule, and CSS selectors never contain braces, so no
+  shipped recipe changes meaning. Fields the canonical posting dict ignores are
+  extracted too, so a recipe can carry a url-only helper field. The interpolated URL
+  enters the pipeline at the same point as a scraped `href` and passes the same
+  `is_safe_public_url` guard in `browser.fetch` — no new fetch path (regression-tested
+  with a template resolving to a link-local address). Unblocks two watchlist candidates
+  that were blocked on this primitive alone; no adapter changed.
+
+- **`test_no_source_specific_logic` — an architecture guard welding the fetch layer's
+  main invariant in place.** Which adapter runs is decided by data (the watchlist row's
+  `source`, looked up in `fetch.ADAPTERS`), never by the orchestration layer naming a
+  board — so `pipeline.py` and `db.py` carry no board names, and adding a 12th adapter
+  must not require editing either. The test derives its source list from `ADAPTERS`
+  itself (so a new adapter is covered with no edit here), strips comments and docstrings
+  before scanning (prose naming a board while explaining why the generic path exists is
+  not coupling), and fails on any board name appearing in executable code. `db.py` is
+  entirely clean; `pipeline.py`'s one occurrence — `"embedded_greenhouse"`, a
+  `classify_reason` fail-bucket label, not adapter dispatch — is an explicit allowlist
+  entry with its reasoning inline, plus a note to rename rather than allowlist a second
+  one. A stale-allowlist assertion keeps the exceptions honest.
 
 - **`SCREEN_BACKEND` — five more ways to run the hard-requirements screen, so a user
   with no local GPU (or no Ollama at all) can still run the pipeline.** The screen was
@@ -186,6 +257,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   tracked in PROGRESS as an enhancement.
 
 ### Documentation
+
+- **PRINCIPLES gained "the four kinds of uncertainty" — "err toward keep" is one row,
+  not the whole rule.** The bias was stated everywhere as a single rule, but the code
+  deliberately does not apply it uniformly: `_normalize_score` raises on a missing score
+  (buried as 0 it would silently drop the posting out of notification),
+  `_normalize_assessment` raises on an out-of-enum verdict (they drive the seniority
+  floor and the ranking), and the codex fit backend raises the **whole batch** on a
+  missing, duplicate or unknown `job_ref`. Each carried a local comment; nothing stated
+  the general rule behind them, so an agent reading only "err toward keep" had a live
+  licence to soften them into defaults. Now a table — candidate opportunity **KEEP** ·
+  data integrity **FAIL LOUD** · systemic configuration **CIRCUIT BREAK** · delivery
+  **RETRY** — with principle 3 itself scoped to opportunity uncertainty, and a pointer
+  from `CLAUDE.md`. It earns its place because **every one of the seven defects found
+  probing this pipeline on 2026-07-23 is one cell treated as another.**
 
 - **README reordered for a first-time reader instead of a reviewer.** The landing
   page led with the tech stack and a 14-line bullet that carried the entire pipeline,

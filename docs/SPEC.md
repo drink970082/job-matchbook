@@ -395,6 +395,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
+  `phenom` is also the one adapter with **429 handling** — it is the only board that has
+  ever rate-limited (`careers.qualcomm.com` at `start=930`, 2026-07-22). Its search GET
+  retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
+  `Retry-After` clamped to 30s); still throttled at `start > 0` it returns an empty page,
+  which the paginator reads as the end of the board, so **the pages already walked are
+  kept** instead of the whole board being lost. At `start == 0` it raises, because a
+  silent empty result would report a throttled board as an empty one. The other
+  paginating adapters are deliberately bare (see PROGRESS).
   `phenom` also accepts an optional `keep` stub-gate from `run_fetch`: the search
   stub carries the title and location — everything the deterministic gates read — so
   a posting rejected on either skips its per-position detail GET (measured
@@ -422,7 +430,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   `browser` recipe, never a hand-written adapter.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
-  rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich). A
+  rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).
+  As on the `custom` path, a `fields.url` spec containing `{` is a **template** rather than a
+  selector, interpolated over the recipe's own other `fields` (which may include url-only helper
+  fields) — this is how a board whose cards carry no `href` (id in a `data-*` attribute, routing
+  JS-side) still yields a real `job_url`; an undefined name substitutes empty, and the result
+  passes the same `is_safe_public_url` guard as a scraped href. A
   realistic UA + viewport + `--disable-blink-features=AutomationControlled` and *waiting for the
   `item` selector* (not a fixed sleep) clears a Cloudflare "Just a moment" interstitial for the
   listing — the default headless-shell fingerprint otherwise gets stuck (0 cards). Cloudflare still
@@ -566,15 +579,31 @@ worker modules are pure and dependency-injected; real services are wired only in
   against the old phrase list over already-scored rows so only the disagreements need
   hand-labeling against a three-class truth (*no-sponsorship / offers / silent*) — that
   labeled-set run has not happened yet, so no recall/precision number is claimed here
-  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)). `disqualified` is
-  derived from those per-requirement verdicts. **Location is a deterministic code gate**
+  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)).
+  `candidate.work_authorization` is a **closed vocabulary** validated at config load
+  (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
+  sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
+  because `_needs_sponsorship` reads the value by substring — an off-vocabulary string
+  like `F-1 OPT` would read as "needs no sponsorship" and silently disable the whole
+  authorization check, so `config.py` raises `ConfigError` instead.
+  `disqualified` is derived from those per-requirement verdicts, and a check the model
+  returned **no data** for records no verdict at all rather than a pass — `degree` and
+  `clearance` only materialize their key when the extraction carried an entry, so a
+  ran-but-blind check stays distinguishable from a genuinely cleared one.
+  (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
+  with no model data.) **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
   name via `pycountry`, else a city via **geonamescache** (highest-population match,
   so a tiny US namesake like Paris TX can't mask Paris FR) — and errs toward keep:
-  keep if any token is US or an allowed country, discard only when ≥1 token resolves
-  and none are allowed (naming the first foreign country), keep if nothing resolves
-  (**D2**). US-state and remote strings keep, so a
+  keep if any token is US or an allowed country, discard only when the foreign reading
+  is **corroborated** — every token resolved, or at least two did — and none are
+  allowed (naming the first foreign country), keep if nothing resolves (**D2**). The
+  corroboration requirement exists because only **US** subdivisions are in the
+  gazetteer: without it, `London, ON` dropped its unresolved `ON` and was judged by
+  `London` alone as United Kingdom, discarding a Canadian posting under a reason that
+  named the wrong country. It costs misses only (`Hyderabad, TS` keeps = one fit call),
+  never a live match. US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN

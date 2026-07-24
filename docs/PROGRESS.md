@@ -131,7 +131,34 @@ severity-first while a single `grep '\[FETCH' docs/PROGRESS.md` gives that block
 whole queue. Eight blocks, matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
-wwwwwww
+|---|---|---|
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects**; the eval gap blocks most of the rest |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect**, plus the merge-blocking gate re-run |
+| `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 1 — **1 defect**, and it is the data-loss one |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 3 — **2 defects** |
+| `WEB` | `apps/web` — Prisma schema, server actions, UI | 1 |
+| `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
+| `DOCS` | `docs/`, README, `.claude/skills/`, evals | 4 |
+
+The five *evaluated-and-rejected* records under
+[Architecture / maintainability](#architecture--maintainability) are named by block
+rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `Score shape
+changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
+your block before proposing a redesign of it.
+
+**Where the four remaining defects sit:** none in FETCH, none in SCREEN — ORCH (2),
+SCORE (1), NOTIFY (1). All four are the same policy error: a *systemic* condition
+handled as if it were a per-item verdict. The rule that names it now lives in
+[`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
+2026-07-23); what is left is making the code obey it. The two circuit-breaker defects
+are the whole of that work.
+
+### Do next — the pick order
+
+The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
+take first and why. Each numbered item is independently pickable.
+
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
 yields nothing instead of poisoning the DB with permanent title-only rows.
@@ -189,18 +216,22 @@ detail calls) → bulk watchlist skill (`[M]`).
 migration path, deployment/monitoring, dead-link sweep, more adapters, README
 screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
-**Off-queue, pickable any time:** `test_no_source_specific_logic` — `[XS]`, passes on
-the day it is written (measured 2026-07-23: zero hard-coded source names in
-`pipeline.py`/`db.py`), so it costs one file and welds the fetch architecture's main
-invariant in place before an agent breaks it. See
-[Architecture / maintainability](#architecture--maintainability).
+**Off-queue, shipped 2026-07-23:** `test_no_source_specific_logic` (CHANGELOG). It found
+one occurrence the earlier measurement missed — `"embedded_greenhouse"` in `pipeline.py`,
+a `classify_reason` fail-bucket label rather than adapter dispatch — now an explicit
+allowlist entry. If that reason vocabulary ever grows a second board-named member,
+**rename it source-free** (e.g. `slug_in_page_html`) rather than adding a second
+exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-Seven found 2026-07-23 (one fixed same day) by probing `pipeline.run_score` / `run_notify`,
-`score/screen.py` and `score/location.py` directly; each line below is an executed
-repro, not a reading. **None are in FETCH** — the six open ones cluster in SCREEN (2), ORCH (2),
-SCORE (1) and NOTIFY (1). The two circuit-breaker entries are preconditions for
+Seven found 2026-07-23 by probing `pipeline.run_score` / `run_notify`, `score/screen.py`
+and `score/location.py` directly; each line below is an executed repro, not a reading.
+**Three shipped fixes the same day** (blind-screen-check-as-pass, `London, ON`,
+`work_authorization` — all in CHANGELOG), leaving **four**: ORCH (2), SCORE (1),
+NOTIFY (1). Every remaining one is a systemic failure handled per-item, so all four are
+now covered by a written rule — see PRINCIPLES, "the four kinds of uncertainty". The two
+circuit-breaker entries are preconditions for
 raising the schedule cadence — see [In flight](#in-flight). (The sponsorship-gate defect that
 used to sit here shipped its fix 2026-07-23; what remains is measuring it, tracked
 under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).)
@@ -323,50 +354,6 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   arguments to the phase-2 call that just failed. It cannot succeed where the first
   did not; it only spends a second call. It earns its keep only at `batch_size>1`,
   which is parked (§13). **Fix:** guard it with `if len(chunk) > 1`.
-- **`resolve_location` FALSE-DISCARDS a city/region pair whose region abbreviation
-  doesn't resolve** — `[SCREEN · XS · the one failure mode the gate exists to prevent]`. With
-  `locations: ["Canada", "USA", "remote"]`:
-
-  ```
-  'London, ON'      -> (False, 'on-site in United Kingdom')   <- wrong, and the note lies
-  'Toronto, ON'     -> (True,  '')
-  'London, Ontario' -> (True,  '')
-  ```
-
-  `_token_country` resolves each token independently: `'ON'` -> `None` (only **US**
-  subdivisions are in `_US_STATE_CODES`; no other country's are), `'London'` -> `GB`
-  (the city index picks the highest-population namesake). So the unresolved region
-  token drops out and the city token decides the country alone. Clause (E) then
-  discards because "≥1 token resolved and none are allowed". A genuinely Canadian
-  posting is dropped, **and the recorded reason names the wrong country**, so the
-  operator can't even spot it in the Discarded bucket. (`'Ontario'` -> `US` — Ontario,
-  California outweighs the province in the city index — which is the only reason the
-  spelled-out form survives.)
-  **Fix, one line, no gazetteer:** tighten (E) from "≥1 token resolved and none
-  allowed" to "**all** tokens resolved and none allowed". `Tokyo, Japan` still
-  discards (both resolve); `London, ON` keeps. Strictly more conservative, and it
-  costs only misses (`Hyderabad, TS` would keep) — which is the trade SPEC already
-  makes explicit for `run_expire`: a wrongly-dropped live match costs a job, a miss
-  costs one fit call.
-- **`work_authorization` silently disables the whole authorization check on any
-  off-vocabulary string** — `[SCREEN · XS · mitigated on the guided path only]`.
-  `_needs_sponsorship` substring-matches `"sponsor"` in the candidate's free-text
-  value and returns `False` when absent — i.e. "does not need sponsorship", so the
-  gate never fires and nothing is logged:
-
-  ```
-  'F-1 OPT'  -> False      'STEM OPT' -> False      'H-1B' -> False
-  'needs visa sponsorship' -> True
-  ```
-
-  "I'm on F-1 OPT" is the most natural thing a user writes. `onboard-me` hands over a
-  fixed four-value vocabulary (and its eval asserts the exact string), so the guided
-  path is safe — but `config.yaml` hand-editing is a documented path and this fails
-  **silently**, with no error and no warning. **Fix:** validate the value against the
-  four documented values in `config.py` (`ConfigError`, or at minimum a warning line).
-  Resist the 6-field structured `authorization:` block that was proposed alongside
-  this: the only distinction that changes an outcome is *currently authorized but
-  needs future sponsorship*, which is one boolean.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
@@ -595,16 +582,14 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   that string would drop much of the remaining 6,703 on stale boards. Deferred because
   the wording is locale- and tenant-dependent and a mis-parse silently drops good
   postings — the failure mode the null-keeps-it default exists to avoid.
-- **No adapter survives a 429 — one board is already lost to it** — `[FETCH · XS]`. The
-  2026-07-22 full pass lost exactly one board this way: `phenom/careers.qualcomm.com`
-  rate-limited at deep pagination (`start=930`). The per-company try/except isolated
-  it correctly, but the board yields **nothing** rather than less, and it will do so
-  again every pass. `run_fetch` iterates companies **serially** — the thread pools are
-  in `run_feed` and `run_score`, not here — so this is a *within-adapter pagination*
-  problem, not a global-concurrency one, and the fix is a bounded retry-after-backoff
-  on 429 in the paginating adapters (phenom first). Resist the general version: a
-  per-source `requests_per_second` / `max_concurrency` policy on all 13 sources buys
-  nothing measured, since 12 of them have never rate-limited.
+- **429 backoff exists only in `phenom`** — `[FETCH · XS · the one board that actually
+  rate-limited is covered]`. Shipped 2026-07-23 (CHANGELOG): bounded retry + salvage of
+  the pages already walked, in the adapter that lost `careers.qualcomm.com` on the
+  2026-07-22 pass. The other paginating adapters are still bare. Deliberately so —
+  12 of the 13 sources have never rate-limited, and a per-source
+  `requests_per_second` / `max_concurrency` policy across all of them buys nothing
+  measured. Port the same ~15 lines to a second adapter **when a second board 429s**,
+  not before.
 - **Recipe validation happens a full pass late** — `[FETCH · S]`. `config.py` checks only
   that a `custom`/`browser` row *carries* a recipe mapping, and `get_watchlist` skips
   one whose JSON is malformed. Everything else — a bad `mode`, an `item_path` that
@@ -616,13 +601,12 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   the web's watchlist-add action moves that to write time, and belongs in the same
   boundary as the existing SSRF check on recipe-fetched URLs. Skip a `version` field
   until a second recipe shape actually exists.
-- **`browser` recipes have no `{field}` URL template** — `[FETCH · S]`. `custom` recipes
-  interpolate `{dotted.field}` into `url`; `browser` recipes cannot, so a board whose
-  cards carry no `href` (the id is in a `data-*` attribute and routing is JS-side) can
-  only produce a broken or empty `job_url`. This is the *sole* blocker for Balyasny
-  (`data-id="…_REQ8036"` → `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles,
-  one static page, apply-by-email). Closing it in `_recipe.apply_css_fields` unblocks
-  both without touching an adapter.
+- **Balyasny + Jacobs Levy — primitive shipped, boards not yet added** — `[FETCH · XS ·
+  operator step]`. The `{field}` URL template landed 2026-07-23 (CHANGELOG), which was
+  the *sole* blocker for both: Balyasny (`data-id="…_REQ8036"` →
+  `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles, one static page,
+  apply-by-email). Writing the two watchlist rows is a separate operator step — use the
+  `onboard-board` skill, which now has the template available to it.
 - **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,
   Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
   forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
@@ -636,29 +620,6 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
-- **"Err toward keep" is a slogan where it needs to be a four-way policy** — `[ORCH · XS ·
-  pure documentation · explains all seven defects at once]`. The bias is stated
-  everywhere as one rule, but the code does *not* apply it uniformly, and correctly so:
-  `_normalize_score` raises on a missing score (burying it as 0 would silently exclude
-  the posting), `_normalize_assessment` raises on an out-of-enum verdict, and the codex
-  scorer raises the whole batch on a `job_ref` mismatch. Those are deliberate
-  fail-louds, and each carries its own local comment explaining why — but nothing
-  states the *general* rule they follow, so an agent reading only "err toward keep"
-  has a live licence to soften them into defaults. Write it once, as a table:
-
-  | Kind of uncertainty | Policy |
-  |---|---|
-  | candidate opportunity (date, location, eligibility, is-it-still-open) | KEEP |
-  | data integrity (`job_ref`, schema, posting identity) | FAIL LOUD |
-  | systemic configuration (logged out, invalid token) | CIRCUIT BREAK |
-  | delivery (timeout, 429, 5xx) | RETRY |
-
-  This is worth writing down beyond tidiness: **every one of the seven defects found
-  2026-07-23 is one cell being treated as another** — a systemic configuration failure
-  handled as a per-item one (the fit-backend and Telegram-token breakers), an
-  unresolved-data case treated as a discard (`London, ON`), an absent extraction
-  treated as a pass (`merge_fallback_screen`, fixed same day). Belongs in [`PRINCIPLES.md`](./PRINCIPLES.md), which is
-  already the decision-DNA file, with a pointer from `CLAUDE.md`.
 - **A score records no provenance — nothing says which backend or model produced it**
   — `[SCORE · S]`. `_score_detail` (`pipeline.py:355`) persists `assessment`, `screen`,
   `recommended_resume` and `insufficient_context`, and nothing else. A row scored on
@@ -748,11 +709,10 @@ under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-no
   `onboard-board` skill (platform → `custom` recipe → `browser` recipe, "never a new
   adapter file"), SPEC §7.1, and PRINCIPLES — but nothing *fails* when an agent
   ignores them, and a doc an agent read is not a doc an agent obeyed. Current state,
-  measured 2026-07-23: `pipeline.py` and `db.py` contain **zero** hard-coded source
-  names, `run.py` contains **two** (both the `browser` opt-in gate). So
-  `test_no_source_specific_logic` is a **free ratchet** — write it and it passes on
-  the spot, welding the property in place before the first company-name branch lands.
-  Worth adding alongside it: `test_watchlist_sources_can_list` (every
+  `test_no_source_specific_logic` **shipped 2026-07-23** (CHANGELOG) and now guards
+  `pipeline.py` + `db.py`. `run.py` is deliberately *not* guarded: it is the real-service
+  wiring layer and is allowed to know board names (it contains two, both the `browser`
+  opt-in gate). Still worth adding: `test_watchlist_sources_can_list` (every
   `VALID_SOURCES` member exposes `fetch`) and a check that SPEC's hand-maintained
   source-coverage matrix still matches `ADAPTERS` (the same shape
   `test_source_enums_sync.py` already uses against `constants.ts`). A root
