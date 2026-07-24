@@ -66,7 +66,13 @@ under `apps/worker/eval/` (also gitignored).
 - [ ] **Confirm `codex login` is live.** Auth is fragile and a logged-out host fails
       the whole pass loudly. A dead login discovered at hour six wastes the day.
 - [ ] **Read remaining quota** from `db/codex_usage.json` (the same snapshot the web
-      bar reads). Everything below is sized off this number.
+      bar reads). Everything below is sized off this number. **Measured 2026-07-24:
+      4.0% used, weekly window resets 2026-07-29 15:08** - so it does NOT roll over
+      during the run day, and headroom is ~1,920 messages. Re-read it anyway; that
+      figure is stale by the time it matters.
+- [ ] **Confirm Ollama answers** (`curl -s localhost:11434/api/tags`). A dead screen
+      backend does not fail loudly - see the trap under [Monitoring](#monitoring).
+- [ ] `mkdir -p db/runs/<UTC-stamp>` for this run's logs.
 - [ ] **Run the free hermetic self-test:**
       `cd apps/worker && PYTHONPATH=. python3 tools/score_eval.py --selftest`.
       Catches a broken harness now, at zero cost.
@@ -92,6 +98,13 @@ ingest.
 
 Chunks, not one large call: a crash loses at most one chunk, and quota is readable
 between them. Re-read `db/codex_usage.json` after each chunk and log the delta.
+
+**This phase also NOTIFIES.** `--score-only` skips the ingest but still runs
+`run_score` then `run_notify`, so every match/match posting fires a Telegram alert
+while the operator is away. That is the product working, not a fault - but expect a
+burst, and note that a systemic channel fault (bad token, or `_BREAKER_LIMIT`
+consecutive failures with zero deliveries) circuit-breaks the notify pass and spends
+no `notify_attempts`, leaving those rows `scored` and recoverable.
 
 Two things close themselves here if the chunks reach past the oldest ids: the
 recipe-sourced scored path (no `custom`/`browser` row has ever been screened or
@@ -161,12 +174,27 @@ Each phase runs backgrounded with `tee`, so nothing depends on one session
 surviving. Poll every **20-30 minutes** - the signals move on that scale, and
 tighter polling buys nothing.
 
+**The trap: a dead screen backend is SILENT.** `screen_posting` catches *any* provider
+exception and errs toward KEEP (`score/screen.py`), printing
+`[screen] provider error, keeping posting unscreened`. So if Ollama drops - a WSL2
+suspend is enough - nothing is marked failed and no failure ratio moves. Every
+remaining row skips screening and goes straight to the **paid** scorer: the ~18% that
+would have been discarded for free become paid calls, and the hard-requirement gate
+stops filtering. Watching failure counts will never catch this; **grep the log for that
+string.** Partial insurance exists on the run branch - Stage 4's
+`merge_fallback_screen` fills checks the screen produced no verdict for - but it is
+insurance, not a substitute. **Response:** finish the current chunk, restart Ollama,
+resume. If it will not come back, STOP scoring; an unscreened slice is both more
+expensive and worse data than no slice.
+
 Watch for:
 
-- `_BackendBreaker` trip lines - a dead backend, not a bad row
+- `[screen] provider error, keeping posting unscreened` - the silent failure above
+- `_BackendBreaker` trip lines - a dead fit backend or notify channel, not a bad row
 - non-zero exits, and stalls (log mtime not advancing for ~15+ min)
-- quota consumed per chunk, against the reserve floor
-- screen/fit failure ratios drifting upward
+- quota consumed per chunk, against the reserve floor - a jump above ~0.82
+  messages/row is the screen dying, not the scorer misbehaving
+- fit failure ratios drifting upward
 
 Environment faults worth recognizing: Ollama runs on the host GPU and a WSL2
 suspend kills it; a stale WSL2 bind mount shows up as `ats-web` SQLITE_CANTOPEN
@@ -183,6 +211,8 @@ unaffected by that one.
 | Quota reaches the reserve floor | Stop scoring immediately, protect the gate budget, proceed to phase 3. |
 | One board or Ollama dies | Log, continue, report. A fetch failure is NEVER read as "that board's jobs closed". |
 | Phase 1 ingests nothing | Stop. No paid calls on a broken ingest. |
+| `[screen] provider error` appears | Finish the chunk, restart Ollama, resume. If it stays down, STOP scoring - unscreened rows cost more and are worth less. |
+| Anyone asks to switch git branches | Don't. The worker imports from the working tree, so a mid-run switch silently changes the code under the next chunk. |
 
 **Stop and leave for the operator, with evidence - do NOT do these unattended:**
 

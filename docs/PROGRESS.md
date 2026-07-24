@@ -151,7 +151,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects**; the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 defect** (dead provider is silent, found 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -165,11 +165,12 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: none.** The four that sat here — ORCH (2), SCORE (1), NOTIFY (1), all the
-same policy error (a *systemic* condition handled as a per-item verdict) — shipped their
-fixes 2026-07-24. The rule that names them lives in
-[`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped 2026-07-23)
-and the code now obeys it (SPEC §9 + traceability rows). See CHANGELOG for the four.
+**Open defects: one — SCREEN, the fifth instance of the same policy error.** The four
+that sat here — ORCH (2), SCORE (1), NOTIFY (1) — shipped their fixes 2026-07-24; the
+rule that names them lives in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of
+uncertainty", shipped 2026-07-23) and the code now obeys it in those three blocks
+(SPEC §9 + traceability rows). **The screen stage was never swept**, and it carries the
+same error in its most literal form — see the defects bucket below.
 
 ### Do next — the pick order
 
@@ -252,7 +253,32 @@ exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-**None open.** The seven found 2026-07-23 (probing `pipeline.run_score` / `run_notify`,
+- **A dead SCREEN provider is silent, and every unscreened row goes to the PAID scorer**
+  — `[SCREEN · S · found 2026-07-24 while auditing the long-run runbook]`.
+  `screen_posting` catches **any** provider exception and errs toward KEEP
+  (`score/screen.py`), printing one `[screen] provider error, keeping posting
+  unscreened` line per posting. That is the correct policy for *opportunity*
+  uncertainty — one flaky call must not discard a good posting. It is the **wrong**
+  policy for a *systemic* one: when Ollama is simply down (a WSL2 suspend does it), the
+  entire remaining backlog skips screening and is fit-scored blind, so the ~18% that
+  would have been discarded **for free** become **paid** calls and the hard-requirement
+  gate (sponsorship / degree / clearance / location) stops filtering at all. This is the
+  **fifth instance** of the policy error that PRINCIPLES' four-way table exists to name —
+  systemic configuration should **circuit break** — and the one block the 2026-07-23/24
+  sweep never reached: `run_score` builds a `_BackendBreaker` for the fit phase and
+  `run_notify` has one, but the screen loop above it has none.
+  **Not caught by any existing signal:** nothing is marked `failed`, so no failure ratio
+  moves; the only observable is that log line, or a quota burn above ~0.82 messages/row.
+  **Wanted:** the same `_BackendBreaker` shape already used twice — N consecutive
+  provider errors with zero successes aborts the screen phase and leaves the remainder
+  `new` (recoverable), rather than converting an outage into paid calls. Partial
+  insurance already exists on the unmerged branch (Stage 4's `merge_fallback_screen`
+  fills checks the screen produced no verdict for), but insurance is not a breaker.
+  **Blocks nothing, but it is live during the unattended long-run day** — the runbook
+  names the log string as a watch signal with a stop rule, which is a monitoring
+  workaround, not the fix.
+
+**Previously closed here.** The seven found 2026-07-23 (probing `pipeline.run_score` / `run_notify`,
 `score/screen.py`, `score/location.py`) all shipped their fixes — three on 2026-07-23
 (blind-screen-check-as-pass, `London, ON`, `work_authorization`) and the final **four on
 2026-07-24**: the dead-fit-backend circuit breaker + singles-fallback guard (SCORE), the
