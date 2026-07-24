@@ -45,12 +45,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   first made #5 conflict — `main`'s squash of #4 diverged from #5's copy of those
   commits — resolved in `CHANGELOG.md` only (main's side of the hunk was empty; both
   section sets kept), re-verified green, CI green on the rerun.
-- **PR #6 landed on the wrong base — `main` still lacks it.** `feat/recipe-field-workday-dates`
+- **PR #6 landed on the wrong base — since reconciled.** `feat/recipe-field-workday-dates`
   (browser `{field}` url templates + workday prose-date age-gating) was based on
-  `feat/workday-stub-gate`, not `main`, so merging it 2026-07-24 landed there.
-  `feat/workday-stub-gate` now sits **8 commits ahead of `main` with no PR of its own** —
-  one PR closes the gap. Nothing was lost. Its 7 base commits are also inside PR #7, so
-  landing it shrinks #7's diff.
+  `feat/workday-stub-gate`, not `main`, so merging it 2026-07-24 landed there rather than
+  on `main`. Closed by PR #9 (`8c683a0`), which carried both that work and the stub gate
+  onto `main`. Nothing was lost. Also on `main`: PR #8 (`76e7fda`) — `make eval-score`
+  reached into the stale `apps/worker/.venv` (no `bs4`) and could not run at all.
+  **Merge-hygiene note for the remaining branches:** every PR after the first hit the same
+  squash-divergence conflict — `main`'s squash of an earlier PR does not match the copy of
+  those commits still on a later branch. Content is identical; resolve per hunk, taking the
+  newer side, and check for a *closed* item being reintroduced (PR #9's merge would have
+  re-opened "workday stub gate needs a prose-date parser", which the same PR shipped).
 - **Branch `feat/score-provenance-and-rescreen` — landed, unmerged (2026-07-24).** Cut
   from `feat/universality-and-onboarding` so it doesn't inflate the blocked PR #7; carries
   #7's 41 commits plus scorer provenance (`backend`/`model`/`scorer_version` in

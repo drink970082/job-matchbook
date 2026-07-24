@@ -35,16 +35,19 @@ with no `backend`/`model`/`scorer_version`, permanently - there is no retro-fill
 selecting them later for a re-score becomes impossible. The provenance work exists
 for exactly this batch.
 
-Missing from that branch: PR #6's work, which merged to `feat/workday-stub-gate`
-(8 commits ahead of `main`, no PR of its own). Its workday prose-date age-gating
-cuts detail calls on stale boards and would make phase 1 meaningfully faster.
-Merging `feat/workday-stub-gate` into the run branch first is optional; the run
-works either way.
+Missing from that branch: the workday stub gate's prose-date age-gating and the
+`browser` `{field}` url templates, which landed on `main` 2026-07-24 as `8c683a0`
+(PR #9). The age-gating cuts detail calls on stale boards and would make phase 1
+meaningfully faster. Merging `origin/main` into the run branch first is optional and
+the run works either way - but expect the same squash-divergence conflicts PR #5 and
+PR #9 both hit (content-identical, resolvable; take the newer side per hunk).
 
-**Known trap:** `make eval-score` runs `apps/worker/.venv/bin/python`, and that venv
-lacks `bs4`, so `from ats_worker import run` raises `ModuleNotFoundError` before the
-eval starts (verified 2026-07-24). Every command below uses system `python3`
-instead. Do not "fix" this mid-run.
+**Known trap, now fixed on `main` but NOT on this branch:** `make eval-score` used to
+run `apps/worker/.venv/bin/python`, and that venv lacks `bs4`, so `from ats_worker
+import run` raised `ModuleNotFoundError` before the eval started. Fixed 2026-07-24 on
+`main` (`76e7fda`, PR #8) to use the host `$(PY)` like every sibling target. The run
+branch does not carry that fix unless `main` is merged in, so **every command below
+calls `python3` explicitly** and works on either branch. Do not "fix" this mid-run.
 
 ## Artifacts
 
