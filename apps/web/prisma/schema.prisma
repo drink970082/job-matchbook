@@ -42,7 +42,8 @@ model job_postings {
   score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired ('expired' = the board 404/410'd the listing; terminal, drops out of the live buckets like 'removed')
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
-  attempts        Int           @default(0) // cumulative failure count shared across score+notify stages; failed rows requeue to 'new' (run_retry) while attempts < 3, else parked terminal
+  attempts        Int           @default(0) // SCORE-stage failure count; failed rows requeue to 'new' (run_retry) while attempts < 3, else parked terminal
+  notify_attempts Int           @default(0) // NOTIFY-stage send-failure count, kept separate so score hiccups can't pre-spend the delivery budget; a notify-exhausted row (>= 3) never requeues
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String

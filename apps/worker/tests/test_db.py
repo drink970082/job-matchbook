@@ -115,12 +115,13 @@ def test_record_notify_failure_keeps_scored_until_exhausted(db_path):
     row = _one(conn)
     assert row["pipeline_status"] == "scored"   # still retryable next pass
     assert row["pipeline_error"] == "telegram 429"
-    assert row["attempts"] == 1
+    assert row["notify_attempts"] == 1          # delivery's own budget, not score attempts
+    assert row["attempts"] == 0
     db.record_notify_failure(conn, pid, error="telegram 500", now=LATER, exhausted=True)
     row = _one(conn)
     assert row["pipeline_status"] == "failed"   # retry budget spent -> parked
     assert row["pipeline_error"] == "telegram 500"
-    assert row["attempts"] == 2
+    assert row["notify_attempts"] == 2
 
 
 def test_mark_notified_clears_pipeline_error(db_path):

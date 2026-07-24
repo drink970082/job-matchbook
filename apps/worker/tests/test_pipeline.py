@@ -435,11 +435,92 @@ def test_run_notify_failure_isolated(db_path):
     pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     # A send error is transient: the row stays 'scored' for a next-pass retry,
-    # with the failure recorded on it; the sibling is unaffected.
+    # with the failure recorded on it; the sibling is unaffected. The charge lands
+    # on notify_attempts (delivery's own budget), NOT the shared score `attempts`.
     assert rows["1"]["pipeline_status"] == "scored"
-    assert rows["1"]["attempts"] == 1
+    assert rows["1"]["notify_attempts"] == 1
+    assert rows["1"]["attempts"] == 0
     assert "telegram" in rows["1"]["pipeline_error"]
     assert rows["2"]["pipeline_status"] == "notified"
+
+
+def test_notify_budget_survives_prior_score_hiccups(db_path):
+    # ORCH defect: `attempts` used to be shared, so score hiccups pre-spent the
+    # notify retry budget. A row that already burned 2 SCORE attempts (recovered
+    # via run_retry) must still get its full NOTIFY_MAX_ATTEMPTS notify tries — the
+    # two budgets are unrelated failure domains.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
+    pid = conn.execute("SELECT id FROM job_postings").fetchone()["id"]
+    # Simulate two prior score failures that scoring already recovered from.
+    conn.execute("UPDATE job_postings SET attempts=2 WHERE id=?", (pid,))
+    conn.commit()
+
+    sends = {"n": 0}
+
+    def failing_notify(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise RuntimeError("telegram timeout")   # transient, not systemic auth
+
+    # It is entitled to 3 notify tries; the first notify failure must NOT park it.
+    pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert sends["n"] == 1
+    assert row["pipeline_status"] == "scored"     # still retryable, not parked failed
+    assert row["notify_attempts"] == 1
+    assert row["attempts"] == 2                    # scoring's counter left as-is
+
+
+def test_run_notify_auth_error_circuit_breaks_without_charging(db_path):
+    # NOTIFY data-loss defect: a wrong/expired bot token (401) is a SYSTEMIC channel
+    # fault, not a per-posting one. It must circuit-break the whole pass — every
+    # matched row left 'scored', ZERO notify_attempts spent — instead of convicting
+    # each posting and, after NOTIFY_MAX_ATTEMPTS passes, destroying finished matches.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"1": 90, "2": 95, "3": 80}, detail=_MATCH_MATCH)
+
+    class _Resp:
+        status_code = 401
+
+    class _AuthError(RuntimeError):
+        response = _Resp()
+
+    sends = {"n": 0}
+
+    def notify_fn(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise _AuthError("401 Unauthorized: bot token is invalid")
+
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="tok", chat_id="c")
+    rows = list(conn.execute("SELECT * FROM job_postings").fetchall())
+    assert sends["n"] == 1                                  # stopped after the first send
+    assert all(r["pipeline_status"] == "scored" for r in rows)   # nothing parked
+    assert all(r["notify_attempts"] == 0 for r in rows)          # no budget spent
+    assert all(r["attempts"] == 0 for r in rows)
+
+
+def test_run_notify_circuit_breaks_after_consecutive_failures(db_path):
+    # Backstop for a systemic failure that does NOT announce itself as auth (e.g. the
+    # Telegram host is unreachable, every send times out): after the shared breaker's
+    # limit of consecutive failures with ZERO deliveries, stop the pass so the bleed
+    # is bounded rather than charging every remaining matched row.
+    conn = db.connect(db_path)
+    ids = {str(i): 50 for i in range(1, 9)}       # 8 matched rows
+    _seed_scored(conn, ids, detail=_MATCH_MATCH)
+
+    sends = {"n": 0}
+
+    def failing_notify(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise RuntimeError("connection timed out")   # not auth -> classifier passes it
+
+    pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
+    # Tripped at the breaker limit — not all 8 rows were attempted.
+    assert sends["n"] == pipeline._BREAKER_LIMIT
+    charged = conn.execute(
+        "SELECT COUNT(*) FROM job_postings WHERE notify_attempts > 0"
+    ).fetchone()[0]
+    assert charged == pipeline._BREAKER_LIMIT     # the remainder left untouched
 
 
 def test_run_score_disqualified_is_discarded_with_reason(db_path):
@@ -678,6 +759,94 @@ def test_run_score_fallback_single_failure_is_isolated(db_path):
     assert statuses["2"] == "scored"
 
 
+def test_run_score_singles_fallback_not_reissued_at_batch_size_one(db_path):
+    # SCORE defect (2): at batch_size=1 a chunk IS one posting, so the singles
+    # fallback would re-issue fit_fn([posting]) with byte-identical args to the
+    # batch call that just failed — a guaranteed-to-fail second call that only
+    # doubles the cost. The len(chunk) > 1 guard skips it: exactly ONE call.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    calls = {"n": 0}
+
+    def fit_fn(postings):
+        calls["n"] += 1
+        raise score.ScoreError("codex exec failed (exit 1): not logged in")
+
+    pipeline.run_score(conn, now=NOW, batch_size=1,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+    assert calls["n"] == 1                       # NOT re-issued as a single
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "failed"
+    assert "not logged in" in row["pipeline_error"]
+
+
+def test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new(db_path):
+    # SCORE defect (1): a dead fit backend (every call fails, zero successes) must
+    # NOT convict the whole queue. After _BREAKER_LIMIT failures the pass aborts,
+    # leaving the untouched remainder 'new' (recoverable) instead of marking 3,985
+    # rows 'failed' and burning their retry budget on an outage. score_workers=1
+    # makes consumption order deterministic.
+    import time
+    conn = db.connect(db_path)
+    rows = [str(i) for i in range(1, 21)]        # 20 new rows
+    _seed_new(conn, rows)
+    calls = {"n": 0}
+
+    def fit_fn(postings):
+        calls["n"] += 1
+        time.sleep(0.01)                          # realistic: a dead backend fails slowly,
+        raise score.ScoreError("codex exec failed (exit 1): not logged in")
+
+    pipeline.run_score(conn, now=NOW, batch_size=1, score_workers=1,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+
+    # Tripped at the limit: exactly that many rows charged (the trip is checked after
+    # each consumed chunk), the untouched remainder left 'new' — recoverable, not a
+    # terminally-dead queue. Pending calls are cancelled, so spend is bounded too.
+    assert len(db.get_by_status(conn, "failed")) == pipeline._BREAKER_LIMIT
+    assert len(db.get_by_status(conn, "new")) == 20 - pipeline._BREAKER_LIMIT
+    assert calls["n"] < 20                        # not every row's fit call was spent
+
+
+def test_run_score_keyboard_interrupt_cancels_pending_keeps_done(db_path):
+    # ORCH defect (1): Ctrl-C during the paid fit phase must (a) stop launching new
+    # fit calls — the pending chunks are cancelled, not drained — and (b) keep the
+    # work already finished, persisted on the calling thread as it completed. Old
+    # ThreadPoolExecutor.__exit__ drained the whole queue (uninterruptible) and lost
+    # finished-but-unwritten results. score_workers=1 makes ordering deterministic.
+    import time
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4"])
+    called = []
+
+    def fit_fn(postings):
+        ext = postings[0]["external_id"]
+        if ext == "1":
+            return [{"score": 90, "assessment": _assessment()}]
+        if ext == "2":
+            time.sleep(0.05)             # let row "1" persist first, keep the worker busy
+            raise KeyboardInterrupt
+        called.append(ext)
+        time.sleep(0.05)                 # "3" may be the in-flight call at abort time;
+        return [{"score": 90, "assessment": _assessment()}]   # "4" is queued behind it
+
+    with pytest.raises(KeyboardInterrupt):
+        pipeline.run_score(conn, now=NOW, batch_size=1, score_workers=1,
+                           screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+
+    statuses = {
+        r["external_id"]: r["pipeline_status"]
+        for r in conn.execute("SELECT * FROM job_postings").fetchall()
+    }
+    assert statuses["1"] == "scored"     # finished work kept, not discarded on abort
+    assert statuses["2"] == "new"        # the interrupted chunk never persisted
+    assert statuses["3"] == "new"        # in-flight at abort: not consumed, not persisted
+    # The queued backlog past the in-flight call is CANCELLED, not drained: its fit
+    # call is never spent (old code shutdown(wait=True) would have run all of them).
+    assert statuses["4"] == "new"
+    assert "4" not in called
+
+
 # --- run_score concurrency -------------------------------------------------
 
 def test_run_score_screens_concurrently(tmp_path):
@@ -752,7 +921,7 @@ def test_run_notify_send_error_retries_then_parks_failed(db_path):
     for expected_attempts, expected_status in ((1, "scored"), (2, "scored"), (3, "failed")):
         pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
         row = conn.execute("SELECT * FROM job_postings").fetchone()
-        assert row["attempts"] == expected_attempts
+        assert row["notify_attempts"] == expected_attempts
         assert row["pipeline_status"] == expected_status
         assert "telegram" in row["pipeline_error"]
     assert calls == ["a", "a", "a"]
@@ -776,7 +945,7 @@ def test_run_notify_retry_then_success_clears_error(db_path):
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None   # cleared on the successful send
-    assert row["attempts"] == 1            # the earlier failure stays counted
+    assert row["notify_attempts"] == 1     # the earlier send failure stays counted
 
 
 def test_run_notify_scrubs_token_from_recorded_and_printed_error(db_path, capsys):
@@ -963,18 +1132,20 @@ def test_run_retry_requeues_then_caps_at_retry_max_attempts(db_path):
 
 def test_run_retry_does_not_requeue_notify_exhausted_rows(db_path):
     # A row parked 'failed' via the NOTIFY_MAX_ATTEMPTS-th notify send failure has
-    # attempts == 3 == RETRY_MAX_ATTEMPTS — the SAME shared counter — so it must
-    # never requeue. No other code path writes pipeline_status='failed'.
+    # notify_attempts == 3 — its OWN budget, separate from score `attempts` — so it
+    # must still never requeue: run_retry guards on both counters. No other code
+    # path writes pipeline_status='failed' from the notify side.
     conn = db.connect(db_path)
     _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
 
     def failing_notify(posting, *, token, chat_id):
-        raise RuntimeError("telegram 429")
+        raise RuntimeError("telegram 429")   # transient/per-row, not systemic auth
 
     for _ in range(3):
         pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
-    assert row["attempts"] == 3
+    assert row["notify_attempts"] == 3
+    assert row["attempts"] == 0          # scoring's budget is untouched by notify
     assert row["pipeline_status"] == "failed"
 
     requeued = pipeline.run_retry(conn, now=LATER)

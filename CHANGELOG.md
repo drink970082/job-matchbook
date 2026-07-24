@@ -9,6 +9,41 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A wrong Telegram token no longer permanently destroys every matched posting.**
+  `run_notify` treated a send failure as a per-posting fault, so a bad-token `401`
+  drove all five matched rows to `attempts+1` each pass and parked them `failed` on
+  the third — gone from both the alert channel and the web Matched tab, unrecoverable
+  short of hand-editing the DB. A **systemic** send fault is now classified
+  (`_systemic_send_error`: `401`/`403` or an invalid-token body) and **circuit-breaks
+  the pass**: every matched row is left `scored`, **zero** notify budget spent, one
+  operator line printed. A `_BackendBreaker` (5 consecutive failures, zero deliveries)
+  backstops the unclassified-systemic case (e.g. the host unreachable). Only a
+  genuinely per-posting fault still spends the retry budget. (PRINCIPLES "the four
+  kinds of uncertainty" — circuit break.)
+- **A dead fit backend no longer fails the entire score queue.** `run_score` isolated
+  a bad *posting* but had no notion of a bad *backend*: one outage (e.g. `codex exec`
+  not logged in) marked the whole `new` backlog `failed` at `attempts+1`, three passes
+  from a terminally-dead queue. The same `_BackendBreaker` aborts scoring after 5
+  failures with zero successes, leaving the untouched remainder `new` (recoverable),
+  with one operator line; one success disarms it. The `batch_size==1` singles fallback
+  is now guarded (`len(chunk) > 1`) so it no longer re-issues the byte-identical call
+  that just failed, doubling the cost of every failure.
+- **A score run is now interruptible and keeps finished work when killed.** The fit
+  phase drained its whole queue on `ThreadPoolExecutor` exit (`shutdown(wait=True)`),
+  so Ctrl-C waited out ~thousands of uninterruptible paid `codex exec` calls, and
+  results finished-but-unwritten behind a straggler were discarded on abort. It now
+  consumes via `as_completed` and persists each result on the calling thread as it
+  completes (row-associated by a `future → chunk` map), and on `KeyboardInterrupt`
+  tears the pool down with `cancel_futures=True` — queued calls are cancelled, not
+  drained.
+- **Score hiccups no longer silently eat the notify retry budget.** `attempts` was one
+  counter shared across both stages, so a row that burned 2 transient score failures
+  (already recovered) got only 1 of its 3 notify tries before parking `failed`. Notify
+  failures now land on a separate `notify_attempts` column; `run_retry` guards both
+  budgets (`attempts < 3 AND notify_attempts < 3`), keeping a notify-exhausted row
+  terminal while giving delivery its own full budget. Additive schema column
+  (`schema.prisma` + fixture); existing rows backfill to 0.
+
 - **`resolve_location` no longer false-discards a city/region pair whose region
   abbreviation doesn't resolve.** With `locations: ["Canada", "USA", "remote"]`,
   `'London, ON'` returned `(False, 'on-site in United Kingdom')`: `_token_country`

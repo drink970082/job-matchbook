@@ -312,27 +312,29 @@ def record_notify_failure(conn, posting_id: int, *, error: str, now: str,
                           exhausted: bool) -> None:
     """Record a failed notify send. Unlike mark_failed (terminal), the row keeps
     its 'scored' status — so the next pass retries the send — until the caller
-    declares the retry budget exhausted, which parks it 'failed'. Either way the
-    error and the attempts counter land on the row, so a retrying failure is
-    visible, not swallowed."""
+    declares the retry budget exhausted, which parks it 'failed'. The charge lands
+    on notify_attempts (delivery's OWN budget, separate from score `attempts`), so
+    a retrying failure is visible, not swallowed, and score hiccups can't pre-spend
+    the notify budget."""
     conn.execute(
         "UPDATE job_postings SET pipeline_status=?, pipeline_error=?, "
-        "attempts=attempts+1, updated_at=? WHERE id=?",
+        "notify_attempts=notify_attempts+1, updated_at=? WHERE id=?",
         ("failed" if exhausted else "scored", error, now, posting_id),
     )
     conn.commit()
 
 
-def requeue_failed(conn, now: str, max_attempts: int) -> int:
-    """Requeue every 'failed' row that hasn't burned its cumulative attempts
-    budget (attempts < max_attempts) back to 'new'. The cap is passed in by the
-    caller (pipeline.RETRY_MAX_ATTEMPTS) rather than hard-coded here — this
-    module stays policy-free, same as every other mutator. Returns the number
-    of rows requeued."""
+def requeue_failed(conn, now: str, max_attempts: int, max_notify_attempts: int) -> int:
+    """Requeue every 'failed' row that has burned NEITHER budget — score attempts
+    < max_attempts AND notify_attempts < max_notify_attempts — back to 'new'. Both
+    caps are passed in by the caller (pipeline.RETRY_MAX_ATTEMPTS / NOTIFY_MAX_ATTEMPTS)
+    rather than hard-coded here — this module stays policy-free, same as every other
+    mutator. Guarding both keeps a notify-exhausted row terminal even though its
+    score `attempts` may be 0. Returns the number of rows requeued."""
     cur = conn.execute(
         "UPDATE job_postings SET pipeline_status='new', updated_at=? "
-        "WHERE pipeline_status='failed' AND attempts < ?",
-        (now, max_attempts),
+        "WHERE pipeline_status='failed' AND attempts < ? AND notify_attempts < ?",
+        (now, max_attempts, max_notify_attempts),
     )
     conn.commit()
     return cur.rowcount

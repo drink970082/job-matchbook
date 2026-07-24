@@ -142,7 +142,7 @@ def test_notify_failure_isolated_across_postings(monkeypatch, tmp_path):
     assert notified == ["ok"]
     conn = dbmod.connect(dbfile)
     bad = conn.execute("SELECT * FROM job_postings WHERE external_id='bad'").fetchone()
-    assert bad["attempts"] == 1 and "telegram" in bad["pipeline_error"]
+    assert bad["notify_attempts"] == 1 and "telegram" in bad["pipeline_error"]
 
 
 def test_notify_retry_exhausts_to_failed_without_double_alert(monkeypatch, tmp_path):
@@ -160,4 +160,4 @@ def test_notify_retry_exhausts_to_failed_without_double_alert(monkeypatch, tmp_p
     assert notified == ["ok"]                 # alerted exactly once across all passes
     conn = dbmod.connect(dbfile)
     bad = conn.execute("SELECT * FROM job_postings WHERE external_id='bad'").fetchone()
-    assert bad["attempts"] == 3
+    assert bad["notify_attempts"] == 3
