@@ -155,14 +155,22 @@ def apply_css_fields(node, fields: dict, company_name: str, source: str,
     """Build one canonical posting dict from a rendered DOM node + a CSS field spec.
     Relative `url` values are resolved against `base_url`."""
     fields = fields or {}
-    raw_url = _css_one(node, fields.get("url")) or ""
-    return {
+    out = {
         "source": source,
         "external_id": _s(_css_one(node, fields.get("external_id"))),
         "company_name": company_name,
         "job_title": _s(_css_one(node, fields.get("title"))).strip(),
         "location": (_css_one(node, fields.get("location")) or None),
-        "job_url": urljoin(base_url, raw_url) if raw_url else "",
         "description": _css_description(node, fields.get("description")),
         "posted_at": normalize_date(_css_one(node, fields.get("posted_at"))),
     }
+    # A `url` that is a "{field}" template interpolates from the fields already
+    # extracted above (e.g. `/s/details?jobReq={external_id}`) — for boards whose
+    # cards carry no href. Any other `url` spec is a CSS selector as before.
+    url_spec = fields.get("url")
+    if isinstance(url_spec, str) and "{" in url_spec:
+        raw_url = interpolate(url_spec, out)
+    else:
+        raw_url = _css_one(node, url_spec) or ""
+    out["job_url"] = urljoin(base_url, raw_url) if raw_url else ""
+    return out

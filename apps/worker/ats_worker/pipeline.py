@@ -80,6 +80,10 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
             if c["source"] in STUB_GATE_SOURCES:
                 kw["keep"] = _keep
+                if c["source"] == "workday":
+                    # workday's stub date is relative prose; parse_stub needs `now`
+                    # to date it. Other stub-gate adapters' fetch takes no `now`.
+                    kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             kept = prefilter_postings(
                 postings, title_filter=title_filter, title_exclude=title_exclude,
