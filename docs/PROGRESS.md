@@ -40,13 +40,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   labeled-set run and the `score_eval` re-run — are in
   [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
   Nothing else on the branch depends on Stage 4.
-- **Branch `fix/bodyless-guard-and-quota-flags` — landed, unmerged (2026-07-22).**
-  Worker code + docs on a local branch, full suite green, not yet PR'd to `main`.
-  **Shipped:** body-required guard on the board path (bodyless rows dropped + recorded
-  in `feed_unresolved`); thin-JD (< 200 char) rows skip the paid fit call; operator
-  flags `--fetch-only` / `--score-only` / `--score-limit N` (SPEC §7.1, CHANGELOG).
-  Exercised live over the full watchlist — see the run entry (P0 item 1) for the
-  intake and what it left open, then PR to `main`.
+- **Branch `fix/bodyless-guard-and-quota-flags` — MERGED to `main` 2026-07-24** (PR #5,
+  squashed as `48901a3`), together with `docs/sync-audit` (PR #4, `d4e521f`). Merging #4
+  first made #5 conflict — `main`'s squash of #4 diverged from #5's copy of those
+  commits — resolved in `CHANGELOG.md` only (main's side of the hunk was empty; both
+  section sets kept), re-verified green, CI green on the rerun.
+- **PR #6 landed on the wrong base — `main` still lacks it.** `feat/recipe-field-workday-dates`
+  (browser `{field}` url templates + workday prose-date age-gating) was based on
+  `feat/workday-stub-gate`, not `main`, so merging it 2026-07-24 landed there.
+  `feat/workday-stub-gate` now sits **8 commits ahead of `main` with no PR of its own** —
+  one PR closes the gap. Nothing was lost. Its 7 base commits are also inside PR #7, so
+  landing it shrinks #7's diff.
+- **Branch `feat/score-provenance-and-rescreen` — landed, unmerged (2026-07-24).** Cut
+  from `feat/universality-and-onboarding` so it doesn't inflate the blocked PR #7; carries
+  #7's 41 commits plus scorer provenance (`backend`/`model`/`scorer_version` in
+  `score_detail`) and `--rescreen-discarded`. Suites green (worker 634, web 136),
+  coverage 93.60%, both flags driven against a throwaway DB. **Queues behind #7.** It is
+  also the branch the long-run day must run from — see the runbook below.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
@@ -161,6 +171,14 @@ and the code now obeys it (SPEC §9 + traceability rows). See CHANGELOG for the 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
+> **NEXT STEP (authorized 2026-07-24, not yet run):** the unattended long-run day —
+> [`superpowers/plans/2026-07-24-long-run-day-runbook.md`](./superpowers/plans/2026-07-24-long-run-day-runbook.md).
+> One unattended day that executes items 1, 2 and 3 below in order: bounded fetch +
+> scoring, then **both** merge blockers. A session picking this repo up should read that
+> runbook first — it carries the branch to run from, the quota math, the monitoring
+> cadence, and the authority boundary for what may and may not be decided while the
+> operator is away. Its phase checkboxes are the run's live state.
+
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
 yields nothing instead of poisoning the DB with permanent title-only rows.
@@ -186,7 +204,9 @@ yields nothing instead of poisoning the DB with permanent title-only rows.
    tightening question rather than a fetch bug.
 
 **P1 — unblock the branch merge.** Both gates below are cheap relative to what they
-unblock; neither has run.
+unblock; neither has run. Both are phases 3 and 4 of the
+[long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) — run
+them from there, not ad hoc, so the quota reserve and the authority boundary hold.
 
 2. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
    BLOCKER]`. One re-run gates **two** changes: the 2026-07-22 profile edit *and*
@@ -284,8 +304,18 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   recipe-sourced row has ever been screened, fit-scored or notified. Closing it needs a
   score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
   source-filtered slice.
-- **Should a strong-model screen be allowed to OVERTURN a local discard?** — `[SCREEN · M ·
-  decision pending · one free SQL query unblocks it]`. The second-screen architecture
+- **Should a strong-model screen be allowed to OVERTURN a local discard?** — `[SCREEN · S ·
+  MEASURED 2026-07-24 — the query says "just route them"]`. The unblocking query below has
+  now run over the live DB: of **3,262** discarded rows, `location` accounts for 3,066
+  (94.0%), `authorization` 156 (4.8%), `internship` 92 (2.8%), `degree` 34 (1.0%) and
+  `clearance` 8 (0.2%); **degree/clearance-*only* discards are 30 rows, 0.9%.** This entry's
+  own decision rule was "a couple of percent → just route them; fifteen → build the eval
+  first", so it resolves to **route**: ~30 paid fit calls against a ~2,000-message weekly
+  budget, no eval prerequisite, no `M`-sized design. Caveat on the number: most of those
+  3,262 are fetch-time *location*-gate kills, so degree/clearance is a larger share of
+  *screen-stage* discards than 0.9% — but the absolute count is 30, and that is what the
+  cost argument turns on. What remains is the small build: a `needs_confirmation` state
+  routed to SCORE instead of terminal `discarded`. The second-screen architecture
   is already shipped: the fit scorer's optional `screen` block + `merge_fallback_screen`
   is exactly "strong model supplies extraction, CODE arbitrates on verifiable JD
   evidence, not a second vote" — including `_quote_in` enforcing *validated evidence
@@ -297,13 +327,13 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   each one a paid fit call. Measured base rate from the 2026-07-22 bounded batch: 50
   rows → 9 screen-discarded (18%); the degree/clearance-only share of that is what
   would move, against a weekly message budget, over ~4,000 rows.
-  **The benefit is unmeasured:** the 4B's false-discard rate on degree and clearance
-  is unknown, because there is no screen eval (entry below). Deciding now trades a
-  known cost for an unknown gain.
-  **Free unblocking step, no code and no quota:** `disqualification_reason` already
-  records which check fired. One read-only query over the ~600 already-scored rows
-  gives the degree/clearance-only share of all discards. A couple of percent → just
-  route them; fifteen → build the eval first. Do that query before designing anything.
+  **The benefit is still unmeasured** — the 4B's false-discard *rate* on degree and
+  clearance is unknown, because there is no screen eval (entry below); the query above
+  measured the *volume* at risk, not the error rate within it. That no longer blocks the
+  decision: at 30 rows the cost of routing is small enough that being wrong about the
+  rate is cheap either way, which is exactly what made this an `S` instead of an `M`.
+  The unblocking query itself is **done** (2026-07-24, no code, no quota) — it is
+  reproducible from `disqualification_reason`, which already records which check fired.
   Related: the `pass`-vs-`unknown` conflation is **fixed 2026-07-23** (CHANGELOG) —
   `degree`/`clearance` now record no key at all where the model returned nothing, so
   "blind" is already distinguishable from "passed" and only the third state
@@ -321,6 +351,12 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   with hand-labeled degree/clearance/sponsorship truth, asserting no false
   disqualification. Note the golden set for it does not exist yet either; the
   sponsorship labeled-set run (P1 item 3) would produce the first third of it.
+  **Deflated by the 2026-07-24 measurement above:** the clauses this gate protects
+  (`degree`, `clearance`) decide ~1.2% of discards, so the case for building the
+  harness *before* the quote-grounding rewrite is weaker than when this was written.
+  **Sequencing:** run the sponsorship labeled set first regardless — its three-class
+  hand-labels are per-requirement JD facts, the same shape this fixture needs, so
+  labeling once feeds both and starting here means labeling twice.
 - **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
   2026-07-23 · decision pending]`. `run_fetch` runs `prefilter_postings` (title
   keep-list, `title_exclude`, `max_age_days`) over everything it fetches;

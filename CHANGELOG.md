@@ -329,6 +329,38 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Documentation
 
+- **Unattended long-run day captured as a committed runbook.** The next operational
+  step — one unattended day that clears both of PR #7's merge blockers and puts a
+  bounded, provenance-stamped slice of the ~3,985 unscored postings through the
+  pipeline — lived only in a conversation, which is exactly the decision shape the
+  cross-session handoff rule exists to prevent. Now
+  `docs/superpowers/plans/2026-07-24-long-run-day-runbook.md`, with the five phases and
+  their concrete commands, the message-bound quota math (including the ~150-message
+  reserve that keeps a good scoring run from eating the gate budget), the branch it
+  must run from (`feat/score-provenance-and-rescreen` — score anywhere else and ~1,500
+  rows persist unstamped, permanently), the monitoring cadence, and an explicit
+  **authority boundary** splitting what an agent may decide alone from what waits for
+  the operator (the Stage 4 revert, any merge, editing the golden set, any code
+  change). PROGRESS's "Do next" now points at it as the queue head, and its phase
+  checkboxes are the run's live state for a session that picks it up mid-flight.
+
+- **The strong-model-overturn decision resolved by measurement, not design.** That
+  entry had said one free read-only query would unblock it; the query ran 2026-07-24.
+  Of 3,262 discarded rows, `location` accounts for 94.0% and degree/clearance-*only*
+  discards for 30 rows (0.9%) — under the entry's own "a couple of percent → just route
+  them" threshold, so it drops from `M` (build a screen eval first) to `S` (route ~30
+  rows to the paid scorer). The same number deflates the `screen.txt` eval-gate entry,
+  whose clauses turn out to decide ~1.2% of discards. PROGRESS records both, plus the
+  caveat that most of those 3,262 are fetch-time location kills, so degree/clearance is
+  a larger share of *screen-stage* discards than 0.9%.
+
+- **PROGRESS "In flight" reconciled with what actually merged.** PRs #4 and #5 are on
+  `main` (#5 needed a CHANGELOG conflict resolution — `main`'s squash of #4 diverged
+  from #5's copy of those commits). **PR #6 was based on `feat/workday-stub-gate`, not
+  `main`**, so merging it landed there; that branch now sits 8 commits ahead of `main`
+  with no PR of its own, and one PR closes the gap. The new
+  `feat/score-provenance-and-rescreen` branch is recorded as queuing behind #7.
+
 - **Agent protocol retuned for Claude Opus 5, now the repo's dev model.** The rail was
   written against older models and carried two assumptions that no longer hold. First,
   DEVELOPMENT.md's closing hint routed design work to "the strongest model available"
