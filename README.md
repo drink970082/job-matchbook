@@ -9,43 +9,51 @@
 requirements, and scores fit against your résumé.
 *book* — every match you act on is tracked: status history, KPIs, charts.
 
-A self-hosted, semi-automated job-application system built with **Next.js 14**,
-**Prisma/SQLite**, and a **Python** pipeline. Keep every application, status
-transition, and interview round in one place — then look at it visually instead of
-scrolling a spreadsheet.
+> **Watch company boards → screen out hard mismatches → score résumé fit →
+> alert you → track the application.**
+
+You review and apply by hand. No auto-apply, no résumé farming — a human is always
+in the loop.
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Full dashboard view" width="900">
 </p>
 
-This repo is **one project made of two cooperating services that share a single
-SQLite database**:
+## Who it's for
 
-- [`apps/web`](./apps/web) — the Next.js tracker + dashboards you interact with.
-- [`apps/worker`](./apps/worker) — a Python pipeline that *feeds* the tracker: it
-  scans company ATS boards — Greenhouse, Lever, Ashby, Workday, Pinpoint, and 6 more
-  platform adapters, plus generic custom/browser recipe executors (11 of these are
-  watchlist-capable; Oracle and Jobvite resolve discovery-feed listings only) —
-  screens out hard-constraint mismatches with a local LLM, scores each
-  posting's fit against your resume — by default via the **Codex CLI** (your ChatGPT
-  subscription, flat-rate), with **Claude** as a metered alternate — and pings you on
-  Telegram for the best matches. You review and apply by hand, then one-click **Mark
-  Applied** turns a posting into a tracked application. A human is always in the loop —
-  no auto-apply.
+Job seekers watching more companies than they can check by hand, with hard
+constraints a keyword alert can't express — sponsorship, location, degree,
+clearance, seniority band. It's self-hosted: your résumé and application history
+live in a SQLite file you own. (Fit scoring does send each JD plus your résumé to
+whichever backend you configure — Codex CLI or Claude.)
 
-> **Full documentation:** [`docs/SPEC.md`](./docs/SPEC.md) is the authoritative
-> system spec (architecture, data model, behaviors, setup, testing) and the current
-> capability map. [`docs/PROGRESS.md`](./docs/PROGRESS.md) tracks only open work
-> (in-flight + known gaps).
+It is **not** an employer-side ATS, it does not apply on your behalf, and it never
+logs in to a job board or works around a CAPTCHA — it reads public listings.
 
 ---
 
 ## Features
 
-**Track:** header KPIs, a searchable/paginated table with inline status editing and
-per-application history, CSV import/export, and four dashboards — a GitHub-style
-activity heatmap, a category donut, a status funnel, and a status-flow Sankey
-reconstructed from history.
+**Discover** — the worker scans watched company boards and external feeds; the
+**Discovered Jobs** tab triages everything into five buckets: **Matched** (cleared
+the seniority + domain gate the worker notifies on), **Below bar**, **Discarded**
+(failed hard-requirement screening), **Failed** (pipeline error), and **Low-context**
+(JD too thin to score fairly). Sort by best match or newest, filter by score and
+disqualification cause.
+
+**Screen** — a local LLM drops postings that violate your hard requirements before
+anything expensive runs.
+
+**Score** — surviving postings are scored against your résumé, reason first. Every
+row carries a "why" subline (verdict pills plus the top missing must-have, or the
+disqualification reason) and a recommended-résumé label; open one for the full JD,
+must-haves met vs. missing, and a one-line summary. Telegram pings you on the best
+matches.
+
+**Track** — **Mark Applied** promotes a posting into a tracked application. Header
+KPIs, a searchable table with inline status editing and per-application history, CSV
+import/export, and four dashboards: an activity heatmap, a category donut, a status
+funnel, and a status-flow Sankey reconstructed from history.
 
 <p align="center">
   <img src="docs/images/kpi-and-table.png" alt="KPI strip and applications table" width="900"><br>
@@ -53,59 +61,49 @@ reconstructed from history.
   <img src="docs/images/sankey.png" alt="Status flow Sankey diagram" width="900">
 </p>
 
-**Discover:** a **Discovered Jobs** tab triages everything the worker surfaced into
-five buckets — **Matched** (cleared the seniority + domain verdict gate, the same
-predicate the worker notifies on), **Below bar** (scored but non-matching),
-**Discarded** (failed hard-requirement screening), **Failed** (pipeline error), and
-**Low-context** (JD too thin to score fairly) — sortable by best match / newest and
-filterable by score and disqualification cause. Every row carries a bucket-aware
-"why" subline — seniority/domain verdict pills plus the top missing must-have, or the
-disqualification reason, thin-JD size, or pipeline error — and a recommended-resume
-label. Open a row for the full JD and a fit assessment: seniority/domain verdicts,
-must-haves met vs. missing, and a one-line summary. Triage in bulk (Remove / Reopen /
-Remove-all-in-view), or **Mark Applied** — with a category picker — to promote a
-posting into a tracked application that flows into every chart above.
-
-The pipeline: **fetch** (11 platform adapters plus generic custom/browser recipe
-executors) → **screen** (local Ollama, GPU, hard requirements) + **score** fit
-(Codex CLI default / Claude alternate, reason-first) → **notify** (Telegram) for
-every high scorer.
-
 ---
 
 ## Quick start
 
-**Local dev (web app):**
+**Tracker only (~5 min)** — the web app on its own. You add applications by hand;
+the Discovered Jobs queue stays empty until you set up the worker.
 
 ```bash
-cd apps/web
-npm install
-npx prisma generate
-npx prisma db push    # if db/applications.db doesn't exist yet
-npm run dev           # http://localhost:3000
+make install && make db-push && make dev     # → http://localhost:3000
 ```
 
-Or from the repo root: `make install && make db-push && make dev`.
-
-**Docker (full stack):**
+**Full pipeline** — adds discovery, screening, scoring and alerts. You'll need
+Python 3.11, a screening backend (local Ollama by default, or a hosted one), and a
+fit-score backend (Codex CLI + a ChatGPT subscription by default, or Claude with an
+API key). Telegram is optional.
 
 ```bash
-# web app only:
-UID=$(id -u) GID=$(id -g) docker compose up web --build -d
-# web + autoheal (or: make up) — the worker is NOT containerized, it runs
-# natively on the host (see the spec) after creating its config + secrets:
-UID=$(id -u) GID=$(id -g) docker compose up --build -d
-cd apps/worker && python -m ats_worker.run   # scheduler; --once for a single pass
+make setup     # web + worker deps, DB, config templates (never clobbers yours)
+               # then fill in apps/worker/{config.yaml,.env} + resume/resume.txt
+make doctor    # preflight: what's present, what's missing
+make up        # web app, in Docker
+cd apps/worker && python -m ats_worker.run --once   # the worker runs natively
 ```
 
-The database is bind-mounted as a **directory** (`db/` → `/data`) so SQLite's WAL
-sidecars are shared between containers, and `UID`/`GID` build args let the container
-user own the bind-mounted files. Full setup (Ollama, Telegram, worker config) is in
-[`docs/SPEC.md` §12](./docs/SPEC.md#12-setup-and-deployment).
+The worker is deliberately *not* containerized — it needs host-side Ollama and your
+`codex login`. [**`docs/SETUP.md`**](./docs/SETUP.md) has the full prerequisite
+table, the three things that surprise everyone, and where each setting lives.
 
 ---
 
-## Stack
+## Supported sources
+
+11 platform adapters — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable,
+Pinpoint, iCIMS, Phenom, Oracle, Jobvite — plus generic custom-HTTP and browser
+recipe executors for boards without a usable API. 11 of those 13 can be watched
+per-company; Oracle and Jobvite only resolve listings that arrive via a discovery
+feed.
+
+## How it works
+
+One project, two cooperating services sharing a single SQLite database:
+[`apps/web`](./apps/web) is the Next.js tracker and dashboards you interact with;
+[`apps/worker`](./apps/worker) is the Python pipeline that feeds it.
 
 Next.js 14 (App Router, Server Actions) · TypeScript · Prisma 6 + SQLite ·
 React 18 · Tailwind CSS 4 · Radix UI · Recharts + hand-rolled SVG charts ·
@@ -119,9 +117,9 @@ Jest + Playwright + pytest · Docker Compose. Details in
 
 | Doc | What |
 |-----|------|
+| [`docs/SETUP.md`](./docs/SETUP.md) | Setup front door — prerequisites, gotchas, tracker-only vs. full-pipeline paths, and where each setting lives |
 | [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec + capability map** — architecture, components, data model, behaviors, setup, testing |
 | [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — what's in flight and open (capabilities → SPEC, history → CHANGELOG) |
-| [`docs/SETUP.md`](./docs/SETUP.md) | Setup front door — prerequisites, gotchas, tracker-only vs. full-pipeline paths, and where each setting lives (→ spec §12 for authoritative commands) |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release history |
 | [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) | Community expectations (Contributor Covenant) |

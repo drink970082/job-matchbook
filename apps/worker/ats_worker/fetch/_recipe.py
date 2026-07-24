@@ -153,16 +153,29 @@ def _css_description(node, spec) -> str:
 def apply_css_fields(node, fields: dict, company_name: str, source: str,
                      base_url: str = "") -> dict:
     """Build one canonical posting dict from a rendered DOM node + a CSS field spec.
-    Relative `url` values are resolved against `base_url`."""
+    Relative `url` values are resolved against `base_url`.
+
+    Like the `custom` path, `url` may instead be a "template with {placeholders}"
+    (any spec string containing `{`); here the names are OTHER entries of this
+    recipe's own `fields` map, extracted first and fed to the same `interpolate`.
+    That covers a board whose cards carry no href (the id sits in a `data-*`
+    attribute, routing is JS-side); a name the recipe doesn't define substitutes
+    empty, same as a dotted path that misses. Fields the canonical dict ignores
+    are extracted too, so a recipe can carry a url-only helper field."""
     fields = fields or {}
-    raw_url = _css_one(node, fields.get("url")) or ""
+    url_spec = fields.get("url")
+    values = {k: _css_one(node, spec) for k, spec in fields.items() if k != "url"}
+    if isinstance(url_spec, str) and "{" in url_spec:
+        raw_url = interpolate(url_spec, values)
+    else:
+        raw_url = _css_one(node, url_spec) or ""
     return {
         "source": source,
-        "external_id": _s(_css_one(node, fields.get("external_id"))),
+        "external_id": _s(values.get("external_id")),
         "company_name": company_name,
-        "job_title": _s(_css_one(node, fields.get("title"))).strip(),
-        "location": (_css_one(node, fields.get("location")) or None),
+        "job_title": _s(values.get("title")).strip(),
+        "location": (values.get("location") or None),
         "job_url": urljoin(base_url, raw_url) if raw_url else "",
         "description": _css_description(node, fields.get("description")),
-        "posted_at": normalize_date(_css_one(node, fields.get("posted_at"))),
+        "posted_at": normalize_date(values.get("posted_at")),
     }

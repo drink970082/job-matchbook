@@ -684,6 +684,14 @@ def test_truncate_boundary_and_disabled():
     ("Hanoi OR Ho Chi Minh City", ["remote", "USA"], False, "on-site in Viet Nam"),  # id=1071: 'OR' split + both VN
     ("London, Montreal, Singapore", ["remote", "USA"], False, "on-site in United Kingdom"),  # id=885: all foreign
     ("San Jose", ["remote", "USA"], True, ""),               # ambiguous name, US the largest match -> keep
+    # --- D8 repros: an UNRESOLVED region token must not let a city token decide alone.
+    # 'ON' is in no gazetteer (only US subdivisions are), so 'London, ON' used to be
+    # judged by 'London'->GB — a false discard whose reason named the wrong country.
+    ("London, ON", ["Canada", "USA", "remote"], True, ""),    # id=D8: Canadian London kept
+    ("Tokyo, Japan", ["Canada", "USA", "remote"], False, "on-site in Japan"),  # both resolve -> still discard
+    ("Toronto, ON", ["Canada", "USA", "remote"], True, ""),   # unchanged: Toronto->CA, allowed
+    ("London, Ontario", ["Canada", "USA", "remote"], True, ""),  # unchanged: Ontario reads US, kept
+    ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""), # accepted miss: lone city, region unresolved
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
     passed, note = score.resolve_location(location, allowed)

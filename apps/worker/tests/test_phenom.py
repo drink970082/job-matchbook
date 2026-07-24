@@ -17,13 +17,20 @@ SLUG = "apply.careers.microsoft.com/microsoft.com"
 
 
 class _Resp:
-    def __init__(self, data, *, raise_exc=None):
+    """Mimics requests' contract: raise_for_status() raises for a >=400 status_code
+    (with the response attached), and headers are readable off the response."""
+
+    def __init__(self, data, *, raise_exc=None, status_code=None, headers=None):
         self._data = data
         self._raise_exc = raise_exc
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self._raise_exc is not None:
             raise self._raise_exc
+        if self.status_code is not None and self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
 
     def json(self):
         return self._data
@@ -238,6 +245,133 @@ def test_fetch_keeps_an_already_absolute_public_url_unchanged():
 # --- stub-gate against the REAL captured fixture (19-digit ids, positionUrl- -----
 # --- only, standardizedLocations, workLocationOption) — not the hand-written --
 # --- synthetic _GATE_SEARCH payload above. -------------------------------------
+
+# --- HTTP 429 mid-pagination: retry, then salvage the pages already collected ---
+# The 2026-07-22 watchlist pass lost careers.qualcomm.com entirely to a 429 at
+# start=930: the search raised, the exception unwound the whole page loop, and the
+# board yielded NOTHING instead of the ~93 pages it had already walked.
+
+_PAGE1 = {"status": 200, "data": {"count": SEARCH["data"]["count"], "positions": [
+    {"id": 4242, "name": "Second Page Role", "locations": ["United States, Remote"],
+     "postedTs": 1784386514, "positionUrl": "/careers/job/4242"},
+]}}
+
+
+class _ThrottledSearchSession:
+    """Search: start=0 serves the fixture page (2 positions); the NEXT page answers
+    429 `throttles` times before serving _PAGE1 and then an empty page. Details
+    always succeed. Records every search `start` asked for, in order."""
+
+    def __init__(self, *, throttles, retry_after=None, throttle_first_page=False):
+        self._throttles = throttles
+        self._retry_after = retry_after
+        self._throttle_first = throttle_first_page
+        self.rate_limited = 0        # 429s served
+        self.starts: list[int] = []  # every search start requested, in order
+
+    def _throttle(self):
+        self.rate_limited += 1
+        headers = {} if self._retry_after is None else {"Retry-After": self._retry_after}
+        return _Resp(None, status_code=429, headers=headers)
+
+    def get(self, url, params=None, timeout=None):
+        params = params or {}
+        if not url.endswith("/search"):
+            return _Resp(DETAIL)
+        start = params.get("start", 0)
+        self.starts.append(start)
+        if self.rate_limited < self._throttles and (start > 0 or self._throttle_first):
+            return self._throttle()
+        if start == 0:
+            return _Resp(SEARCH)
+        if start == 2:
+            return _Resp(_PAGE1)
+        return _Resp({"status": 200, "data": {"count": SEARCH["data"]["count"], "positions": []}})
+
+
+def test_search_429_is_retried_and_pagination_resumes():
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=1)
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert len(out) == 3                      # 2 from page 0 + 1 from the retried page
+    assert sess.starts == [0, 2, 2, 3]        # the 429'd page is re-requested, not skipped
+    assert waits == [phenom.RETRY_BASE_WAIT]  # backed off exactly once
+
+
+def test_persistent_429_mid_pagination_keeps_the_pages_already_collected():
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=99)
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert len(out) == 2                                    # page 0 survives; board not lost
+    assert all(o["description"] for o in out)               # and is fully hydrated
+    assert sess.rate_limited == phenom.RETRY_ATTEMPTS + 1   # bounded: one try + N retries
+    assert len(waits) == phenom.RETRY_ATTEMPTS              # then it gives up, no hang
+    assert all(w <= phenom.RETRY_MAX_WAIT for w in waits)
+
+
+def test_retry_after_header_is_honored_over_the_default_backoff():
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=1, retry_after="7")
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert waits == [7.0]
+    assert len(out) == 3
+
+
+@pytest.mark.parametrize("header", ["3600", "Fri, 24 Jul 2026 00:00:00 GMT", "", "-5"])
+def test_unusable_or_absurd_retry_after_falls_back_to_the_capped_backoff(header):
+    # A board must not be able to stall the SERIAL fetch loop with a huge or
+    # unparseable Retry-After: honor it only as a sane delta-seconds value.
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=1, retry_after=header)
+    phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert len(waits) == 1
+    assert 0 < waits[0] <= phenom.RETRY_MAX_WAIT
+
+
+def test_persistent_429_on_the_very_first_page_raises_and_terminates():
+    # Nothing collected yet, so there is nothing to salvage: fail loudly (the
+    # pipeline's per-company try/except isolates it) rather than report an empty
+    # board. Still bounded - it must not retry forever.
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=99, throttle_first_page=True)
+    with pytest.raises(requests.HTTPError):
+        phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert sess.rate_limited == phenom.RETRY_ATTEMPTS + 1
+    assert len(waits) == phenom.RETRY_ATTEMPTS
+
+
+def test_non_429_search_error_is_not_retried():
+    class _ServerErrorSession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None, timeout=None):
+            self.calls += 1
+            return _Resp(None, status_code=500)
+
+    waits: list[float] = []
+    sess = _ServerErrorSession()
+    with pytest.raises(requests.HTTPError):
+        phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+    assert sess.calls == 1                     # no backoff budget spent on a 500
+    assert waits == []
+
+
+def test_backoff_sleeps_with_time_sleep_by_default(monkeypatch):
+    # The wait mechanism is injected like the http session (default = the real one),
+    # so run.py needs no wiring and the suite never sleeps for real.
+    calls: list[float] = []
+    monkeypatch.setattr(phenom.time, "sleep", calls.append)
+    out = phenom.fetch(SLUG, "Microsoft", session=_ThrottledSearchSession(throttles=1))
+
+    assert calls == [phenom.RETRY_BASE_WAIT]
+    assert len(out) == 3
+
 
 def _keep_india(stub):
     if "India" in (stub["location"] or ""):

@@ -124,9 +124,17 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
       (E) foreign: resolve EVERY token to a country (city->country via geonamescache,
           highest-population match), not just the last. Keep if any token is US (the
           operator is US-based; this also keeps the IL/CA/GA postal codes, read as US
-          states, not Israel/Canada/Gabon) or an allowed country; discard only when
-          >=1 token resolves and none are allowed, naming the first foreign country.
-      (F) nothing resolved -> keep (err toward keep, as today).
+          states, not Israel/Canada/Gabon) or an allowed country; discard only when the
+          foreign reading is CORROBORATED and none are allowed, naming the first
+          foreign country.
+      (F) nothing resolved -> keep (err toward keep, as today). A LONE resolved token
+          sitting beside an unresolved one is uncorroborated and also keeps: no
+          country's subdivisions but the US's are in the gazetteer, so 'London, ON'
+          used to drop its unresolved 'ON' and be judged by 'London'->GB — discarding
+          a Canadian posting under a reason that named the wrong country. Requiring a
+          second agreeing token ('London, England, United Kingdom' still discards on
+          London+United Kingdom) costs only misses: 'Hyderabad, TS' now keeps, which
+          is one wasted fit call versus losing a live match.
     """
     if not location_str or not str(location_str).strip():
         return True, ""                                                      # (A)
@@ -151,10 +159,10 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
     if "usa" in allowed_norm and any(_is_us_state(t) for t in tokens):       # (D)
         return True, ""
     # (E) resolve EVERY token, not just the last. Keep if any is US or an allowed
-    # country; discard only when >=1 resolves and none are allowed.
+    # country; discard only when the foreign reading is corroborated (see (F)).
     resolved = [(t, _token_country(t)) for t in tokens]
     codes = [c for _, c in resolved if c]
-    if not codes:
+    if not codes or (len(codes) == 1 and len(codes) < len(resolved)):
         return True, ""                                                      # (F)
     keep_codes = allowed_codes | {"US"}  # ponytail: US always keep-worthy (US-based operator + postal guard)
     if any(c in keep_codes for c in codes):

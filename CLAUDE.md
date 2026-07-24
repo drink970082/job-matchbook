@@ -15,7 +15,8 @@ protocol:
   and open** (defects, unverified properties, enhancements). Completed capabilities
   live in `SPEC.md`; release history in `CHANGELOG.md`.
 - **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA: consult at every
-  design fork; forks go to the user, who decides.
+  design fork; forks go to the user, who decides. Includes the four-way uncertainty
+  policy (keep · fail loud · circuit break · retry) — "err toward keep" is only one row.
 - **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
   classification, verify-gate evidence table, definition of done.
 

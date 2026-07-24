@@ -37,6 +37,14 @@ DEFAULT_SCHEDULE_HOURS = 24
 VALID_FEEDS = ("simplify",)
 DEFAULT_FEED_CATEGORIES = ("Software", "AI/ML/Data", "Quant")
 
+# The documented `candidate.work_authorization` vocabulary (config.yaml.example and
+# the onboard-me skill hand over exactly these). It is a CLOSED set because the
+# screen reads the value by substring ("sponsor"): an off-vocabulary string like
+# "F-1 OPT" reads as "does not need sponsorship" and silently disables the whole
+# authorization check. Blank stays legal — that means "don't screen on this".
+VALID_WORK_AUTHORIZATION = ("citizen", "permanent resident",
+                            "authorized-no-sponsorship", "needs visa sponsorship")
+
 
 class ConfigError(ValueError):
     """Raised when the config is structurally invalid (bad source, missing field)."""
@@ -269,9 +277,17 @@ def _parse_candidate(raw) -> Candidate:
         raise ConfigError("`candidate` must be a mapping")
     _reject_unknown_keys(raw, Candidate, "candidate")
     locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
+    work_authorization = str(raw.get("work_authorization") or "").strip()
+    if work_authorization and work_authorization.lower() not in VALID_WORK_AUTHORIZATION:
+        raise ConfigError(
+            f"candidate.work_authorization {work_authorization!r} is not one of "
+            f"{VALID_WORK_AUTHORIZATION}. The screen reads this value by substring, so "
+            "anything else (e.g. 'F-1 OPT') silently disables the authorization check. "
+            "Leave it blank to skip that check. See config.yaml.example."
+        )
     return Candidate(
         highest_degree=str(raw.get("highest_degree") or "").strip(),
-        work_authorization=str(raw.get("work_authorization") or "").strip(),
+        work_authorization=work_authorization,
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
         exclude_internships=bool(raw.get("exclude_internships")),

@@ -131,33 +131,7 @@ severity-first while a single `grep '\[FETCH' docs/PROGRESS.md` gives that block
 whole queue. Eight blocks, matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
-|---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 7 — **2 defects**, and the eval gap blocking most of the rest |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect**, plus the merge-blocking gate re-run |
-| `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 1 — **1 defect**, and it is the data-loss one |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 4 — **2 defects** |
-| `WEB` | `apps/web` — Prisma schema, server actions, UI | 1 |
-| `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
-| `DOCS` | `docs/`, README, `.claude/skills/`, evals | 4 |
-
-The five *evaluated-and-rejected* records under
-[Architecture / maintainability](#architecture--maintainability) are named by block
-rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `Score shape
-changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
-your block before proposing a redesign of it.
-
-**Where the six defects sit:** none are in FETCH. Five of the six are one policy
-error repeated — a systemic or absent-data condition handled as if it were a
-per-item verdict — which is why the err-toward-keep policy table (ORCH, under
-Enhancements) is filed as documentation that closes a defect class rather than as
-tidying.
-
-### Do next — the pick order
-
-The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
-take first and why. Each numbered item is independently pickable.
-
+wwwwwww
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
 yields nothing instead of poisoning the DB with permanent title-only rows.

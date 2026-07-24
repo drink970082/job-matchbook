@@ -47,8 +47,8 @@ queue stays empty until you set up the worker.
 make install && make db-push && make dev     # → http://localhost:3000
 ```
 
-(Equivalently the `cd apps/web && npm install …` steps in the
-[root README](../README.md#quick-start).)
+(Same commands as the [root README](../README.md#quick-start); the longhand is
+`cd apps/web && npm install && npx prisma generate && npx prisma db push && npm run dev`.)
 
 ## Path B — full pipeline
 

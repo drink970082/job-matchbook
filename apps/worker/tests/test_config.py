@@ -152,7 +152,7 @@ def test_is_empty_false_when_any_single_field_set():
     # so ANY one configured hard requirement must flip it to False (screening on).
     cases = (
         "candidate:\n  highest_degree: \"Bachelor's\"\n",
-        "candidate:\n  work_authorization: 'US citizen'\n",
+        "candidate:\n  work_authorization: 'citizen'\n",
         "candidate:\n  security_clearance: 'Secret'\n",
         "candidate:\n  locations: ['remote']\n",
         "candidate:\n  exclude_internships: true\n",
@@ -173,6 +173,46 @@ def test_is_empty_true_for_blank_and_whitespace_only_fields():
         "  locations: []\n"
     )
     assert cfg.candidate.is_empty() is True
+
+
+@pytest.mark.parametrize("value", [
+    "citizen", "permanent resident", "authorized-no-sponsorship",
+    "needs visa sponsorship",
+])
+def test_accepts_documented_work_authorization_values(value):
+    # The four values documented in config.yaml.example and the onboard-me skill.
+    cfg = config.load_config(
+        "companies: []\ncandidate:\n  work_authorization: '%s'\n" % value
+    )
+    assert cfg.candidate.work_authorization == value
+
+
+def test_work_authorization_vocabulary_is_case_insensitive():
+    cfg = config.load_config("companies: []\ncandidate:\n  work_authorization: 'Citizen'\n")
+    assert cfg.candidate.work_authorization == "Citizen"
+
+
+@pytest.mark.parametrize("value", ["F-1 OPT", "STEM OPT", "H-1B", "US citizen"])
+def test_rejects_off_vocabulary_work_authorization(value):
+    # screen._needs_sponsorship substring-matches "sponsor", so an off-vocabulary
+    # value reads as "does not need sponsorship" and silently disables the WHOLE
+    # authorization screen — no error, no log line. Fail loud at startup instead.
+    with pytest.raises(config.ConfigError, match="work_authorization"):
+        config.load_config(
+            "companies: []\ncandidate:\n  work_authorization: '%s'\n" % value
+        )
+
+
+@pytest.mark.parametrize("body", [
+    "candidate: {}\n",
+    "candidate:\n  work_authorization: ''\n",
+    "candidate:\n  work_authorization: '   '\n",
+])
+def test_blank_work_authorization_stays_legal(body):
+    # Empty means "check not configured" — `_screen_verdict` gates on a non-empty
+    # value, so blank must never raise.
+    cfg = config.load_config("companies: []\n" + body)
+    assert cfg.candidate.work_authorization == ""
 
 
 @pytest.mark.parametrize("key", ["schedule_hours"])

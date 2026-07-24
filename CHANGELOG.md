@@ -187,6 +187,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Documentation
 
+- **README reordered for a first-time reader instead of a reviewer.** The landing
+  page led with the tech stack and a 14-line bullet that carried the entire pipeline,
+  Codex-vs-Claude billing, Telegram, and the no-auto-apply promise in one breath, then
+  pointed at the authoritative spec above the fold. It now opens with the five-step
+  flow, states who it's for and what it deliberately doesn't do (no auto-apply, no
+  employer-side ATS, no login/CAPTCHA circumvention), splits Features into
+  Discover/Screen/Score/Track, and offers the tracker-only and full-pipeline paths
+  separately with their prerequisites named — deferring to `SETUP.md` rather than
+  dropping the reader into SPEC §12. Adapter counts are now an explicit source list
+  instead of "and 6 more", so the 11/13/watchlist-capable split reads without
+  arithmetic. No behavior change.
+
 - **Docs audit — drift corrected and duplication collapsed.** Fixed every claim that
   had fallen out of step with the code: the adapter count (11 platform adapters +
   custom/browser recipe executors, of which 11 are watchlist-capable — the old "9 / 11
