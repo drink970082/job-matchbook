@@ -7,7 +7,8 @@
 > gates below use; CI runs the same gates, so local green ≈ CI green.
 
 The rail has six steps. Steps 1, 5, and 6 apply to **every** change; 2–4 scale with
-the task.
+the task. [§7](#7-working-as-a-team-of-sessions) is not a step — it is how sessions
+share the repo (claiming work, branches, PRs, and what a session may merge alone).
 
 ---
 
