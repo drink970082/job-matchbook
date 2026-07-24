@@ -7,6 +7,68 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`make eval-score` could not run at all.** It was the one worker target that reached
+  into `apps/worker/.venv/bin/python` instead of the host `$(PY)` every other worker
+  target uses (`test-worker`, `test-integration`, `doctor`). That venv lacks `bs4`, so
+  `score_eval.py`'s `from ats_worker import run` pulled in the fetch chain and died on
+  `ModuleNotFoundError: No module named 'bs4'` before the eval began — meaning the
+  documented command for the repo's only scorer-prompt gate, the gate currently blocking
+  a merge, failed on the operator's own machine. Now `cd $(WORKER) && $(PY)
+  tools/score_eval.py`, consistent with every sibling target; the script already inserts
+  `apps/worker` on `sys.path` itself, so nothing else was needed. Verified with the free
+  hermetic `--selftest`.
+
+- **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
+  (non-empty id + title + description) ran on the feed's detail path only; the watchlist
+  board path upserted whatever an adapter returned, and `run_score` never checked the
+  description. Because `upsert_postings` is `ON CONFLICT DO NOTHING`, a title-only row
+  was **permanent**: a later cycle that *could* read the JD would not back-fill it, and
+  the row was fit-scored blind on the paid backend meanwhile. `run_fetch` now applies the
+  same guard, logging `dropped N posting(s) with no description` per board, so a board
+  whose list endpoint carries no JD yields nothing that cycle instead of poisoning the
+  DB. Stub-gated `discarded` rows are exempt — they are deliberately un-hydrated and
+  never reach the scorer. This is the mechanism behind the two Citadel `browser` rows
+  (0/10 descriptions) and behind the nine boards held off the watchlist for empty JDs;
+  both are now non-destructive by construction. Each dropped row is recorded in
+  `feed_unresolved` (`feed="watchlist"`, `reason="empty_description"`) so a
+  silently-broken scraper surfaces on the Unresolved board instead of only in a log
+  line — the same visibility the feed path already gives detail-fetch failures.
+
+- **Thin JDs (< 200 chars) no longer spend a paid fit-score call.** The low-context
+  hold-back (`LENGTH(TRIM(description)) < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) was applied
+  only at *display/notify* time, so a short JD was still fit-scored on the paid Codex
+  backend and *then* filtered into the Low-context bucket where its verdict is distrusted
+  — paying to score something already pre-judged unscoreable. `run_score` now applies the
+  threshold **before** the fit call: a screen survivor under the length bar is persisted
+  `scored` + `insufficient_context` directly (score 0, screen verdicts kept), skipping the
+  scorer. It lands in the same Low-context bucket a human can eyeball, minus the wasted
+  message. The `200` threshold is now a single worker constant
+  (`db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, still hand-synced with web `constants.ts`)
+  shared by the pre-fit gate and `get_notifiable`.
+
+### Added
+
+- **`--fetch-only`, `--score-only`, and `--score-limit` operator flags
+  (`ats_worker.run`).** `--fetch-only` runs fetch/feed/expire/retry then stops before any
+  screen or scorer call — a quota-free board refresh (and a real log). `--score-only` is
+  the inverse: it skips the network ingest and scores the existing `new` backlog without
+  a full re-fetch. `--score-limit N` caps how many `new` rows `run_score` touches in one
+  pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
+  remainder stays `new` for the next pass.
+
+
+- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
+  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
+  recipes could only read a `url` off the card via a CSS selector, so a board whose
+  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
+  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
+  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
+  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
+  resolved against the listing `base_url`. Any other `url` spec stays a CSS selector as
+  before. Unblocks Balyasny / Jacobs Levy-shape boards without touching an adapter.
+
 ### Changed
 
 - **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
@@ -42,18 +104,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   through the same `keep`-gate call path (`run_fetch` → `fetch` → `parse_stub`); no
   other stub-gate adapter takes it. The reduction beyond the -55% is unmeasured and
   depends on `max_age_days` config (PROGRESS).
-
-### Added
-
-- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
-  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
-  recipes could only read a `url` off the card via a CSS selector, so a board whose
-  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
-  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
-  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
-  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
-  resolved against the listing `base_url`. Any other `url` spec stays a CSS selector as
-  before. Unblocks Balyasny / Jacobs Levy-shape boards without touching an adapter.
 
 ### Documentation
 
@@ -402,7 +452,7 @@ with zero failures, matches delivered to Telegram.
   each row of a frozen hand-labeled golden set K=3× and judges the **majority
   keep/near/skip band** — not the noisy exact score — against the label in code. PASS =
   0 hard-invariant violations + ≥85% band agreement + <20% flip-rate over the gate rows;
-  `marked` rows route to a ⚑ watch list, excluded from the gate. Uses `max_tokens=8192` +
+  `marked` rows route to a flagged watch list, excluded from the gate. Uses `max_tokens=8192` +
   a per-draw retry so a truncated response (adaptive thinking overruns the prod 4096 cap
   and is *not* an SDK-retried transient) can't abort a paid run. Replaces the retired
   ad-hoc "edit prompt → paid re-score → eyeball 20 rows" loop; the golden labels
@@ -1273,8 +1323,8 @@ with zero failures, matches delivered to Telegram.
   summary (no "feature-complete and stable"), and surfaces the shipped notify
   data-loss defect as a graded defect rather than one bullet among nice-to-haves.
 - Added a user-facing **Feature status** matrix to the README with an honest
-  *Tested* axis (✅ / ⚠ / —) that distinguishes shipped from verified — fixing the
-  old all-`✅` over-claim. Building it surfaced an untested gap: the chart-data
+  *Tested* axis (yes / partial / —) that distinguishes shipped from verified — fixing the
+  old all-`yes` over-claim. Building it surfaced an untested gap: the chart-data
   actions (`getStatusFlow`/`getTimelineData`/`getCategoryData`) have no test
   coverage (now tracked in SPEC §9 and PROGRESS).
 - **README/CLAUDE.md/SPEC.md realigned with the shipped adapter set and

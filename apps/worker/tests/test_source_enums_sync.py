@@ -43,7 +43,8 @@ def test_valid_sources_are_real_adapters():
 
 
 def test_low_context_threshold_matches_web():
-    src = Path(db.__file__).read_text()
-    m = re.search(r"LENGTH\(TRIM\(description\)\)\s*>=\s*(\d+)", src)
-    assert m, "low-context length clause not found in db.get_notifiable"
-    assert int(m.group(1)) == _ts_int("LOW_CONTEXT_MAX_DESCRIPTION_LENGTH")
+    # The worker now names the threshold once (db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH,
+    # used by both get_notifiable's SQL and pipeline.run_score's pre-fit gate); assert
+    # that single constant equals the web's, rather than regexing the SQL literal.
+    assert db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH == _ts_int(
+        "LOW_CONTEXT_MAX_DESCRIPTION_LENGTH")

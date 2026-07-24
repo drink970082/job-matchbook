@@ -97,6 +97,33 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                     if verdict.get("disqualified"):
                         p["pipeline_status"] = "discarded"
                         p["score_detail"] = _score_detail(verdict, disqualified=True)
+            # A bodyless row is permanent (upsert is ON CONFLICT DO NOTHING) and would
+            # be fit-scored blind on the PAID backend. Drop it instead: a board whose
+            # list endpoint carries no JD simply yields nothing this cycle. Dropping
+            # (not storing as 'discarded') keeps the id re-fetchable, so the board
+            # self-heals if a later cycle returns the body. Each drop is recorded in
+            # feed_unresolved (feed='watchlist', reason='empty_description') so a
+            # silently-broken scraper surfaces on the Unresolved board instead of
+            # vanishing into a log line — the same visibility the feed path already
+            # gives detail-fetch failures. 'discarded' rows are exempt: the stub gate
+            # returns them deliberately un-hydrated and they never reach the scorer.
+            bodyless = [p for p in kept
+                        if p.get("pipeline_status") != "discarded" and not _valid_posting(p)]
+            if bodyless:
+                print(f"[fetch] {c['source']}/{c['slug']}: dropped {len(bodyless)} "
+                      f"posting(s) with no description")
+                for p in bodyless:
+                    url = p.get("job_url") or ""
+                    if not url:
+                        continue  # no url = nothing to key feed_unresolved on
+                    db.record_unresolved(
+                        conn, feed="watchlist", url=url,
+                        company_name=p.get("company_name") or "",
+                        job_title=p.get("job_title") or "",
+                        host=(urlparse(url).hostname or ""),
+                        reason="empty_description", now=now)
+                drop_ids = {id(p) for p in bodyless}
+                kept = [p for p in kept if id(p) not in drop_ids]
             inserted += db.upsert_postings(conn, kept, now=now)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
@@ -108,8 +135,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
 
 # A scraped posting is only usable if it carries an id, a title, AND a body. An
 # empty description means the scrape silently lost the JD (a moved selector) —
-# the #1 way a detail/scraping adapter breaks without raising. ponytail: detail
-# sources only; the stable list path keeps inserting postings with empty JDs.
+# the #1 way a detail/scraping adapter breaks without raising. Applied on BOTH
+# insert paths: the feed's detail fetch (records the id as failed) and run_fetch's
+# board path (logs and drops).
 _REQUIRED_FIELDS = ("external_id", "job_title", "description")
 
 
@@ -384,16 +412,43 @@ def _persist_scored(conn, row, screen: dict, card: dict, *, now) -> None:
     )
 
 
-def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
+def _persist_low_context(conn, row, screen: dict, *, now) -> None:
+    """Persist a screen-surviving posting whose JD is too short to spend a PAID fit
+    call on: mark it 'scored' with insufficient_context (score 0, screen verdicts
+    kept), skipping the fit scorer entirely. The UI's low-context bucket and the
+    notify gate already hold back any scored row under
+    db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH, so scoring it would only buy a distrusted
+    verdict we then hide — this reaches the identical end state minus the wasted
+    message. The row still shows under Low-context for a human to eyeball the JD."""
+    result = {"insufficient_context": True, "score": 0, **screen}
+    db.save_score(
+        conn, row["id"], score=0,
+        score_detail=_score_detail(result, disqualified=False),
+        now=now, status="scored",
+    )
+
+
+def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
+              limit: int = 0) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
+
+    `limit` > 0 caps how many 'new' rows this pass touches (operator quota control):
+    only the paid fit scorer costs quota, so a bounded first pass over a huge fresh
+    intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
+    'new' for the next pass.
 
     Three phases:
       1. SCREEN every 'new' row (cheap, local Ollama, per-item — one bad screen
          call marks only that row 'failed' and never blocks the rest). A
          disqualified posting is persisted 'discarded' right here and NEVER
-         reaches the fit scorer — that's the whole point of screening first.
+         reaches the fit scorer — that's the whole point of screening first. A
+         screen survivor whose JD is shorter than
+         db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH is persisted 'scored' + low-context
+         here too, ALSO skipping the fit scorer: the UI/notify gate hold back any
+         scored row that thin, so paying to fit-score it would only buy a verdict
+         we then hide.
       2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call —
          the codex quota win (message-bound, not token-bound).
       3. FALLBACK: a chunk that raises ScoreError (e.g. a batch alignment/parse
@@ -402,7 +457,10 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
          STILL fails marks only that row 'failed'.
     """
     survivors: list[tuple] = []  # (row, posting, screen)
-    for row in db.get_by_status(conn, "new"):
+    rows = db.get_by_status(conn, "new")
+    if limit > 0:
+        rows = rows[:limit]
+    for row in rows:
         posting = dict(row)
         try:
             screen = screen_fn(posting)
@@ -415,6 +473,12 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10) -> None:
                 score_detail=_score_detail(screen, disqualified=True),
                 now=now, status="discarded",
             )
+        elif len((posting.get("description") or "").strip()) < \
+                db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
+            # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
+            # paid fit call (the UI/notify gate would hold it back anyway). Screen was
+            # free (Ollama), so hard-disqualifications on thin JDs are still caught above.
+            _persist_low_context(conn, row, screen, now=now)
         else:
             survivors.append((row, posting, screen))
 
