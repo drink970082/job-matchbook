@@ -9,6 +9,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`make eval-score` could not run at all.** It was the one worker target that reached
+  into `apps/worker/.venv/bin/python` instead of the host `$(PY)` every other worker
+  target uses (`test-worker`, `test-integration`, `doctor`). That venv lacks `bs4`, so
+  `score_eval.py`'s `from ats_worker import run` pulled in the fetch chain and died on
+  `ModuleNotFoundError: No module named 'bs4'` before the eval began — meaning the
+  documented command for the repo's only scorer-prompt gate, the gate currently blocking
+  a merge, failed on the operator's own machine. Now `cd $(WORKER) && $(PY)
+  tools/score_eval.py`, consistent with every sibling target; the script already inserts
+  `apps/worker` on `sys.path` itself, so nothing else was needed. Verified with the free
+  hermetic `--selftest`.
+
 - **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
   (non-empty id + title + description) ran on the feed's detail path only; the watchlist
   board path upserted whatever an adapter returned, and `run_score` never checked the
