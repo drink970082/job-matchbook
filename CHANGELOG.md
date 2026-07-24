@@ -7,7 +7,44 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
-*Nothing yet.*
+### Documentation
+
+- **Docs audit — drift corrected and duplication collapsed.** Fixed every claim that
+  had fallen out of step with the code: the adapter count (11 platform adapters +
+  custom/browser recipe executors, of which 11 are watchlist-capable — the old "9 / 11
+  total" silently dropped the feed-only oracle/jobvite), `SECURITY.md`'s supported
+  branch (`main`, not the deleted `master`/`dev`) and spec pointer (§6/§11, not §3/§4),
+  `CONTRIBUTING.md`'s CI trigger (PRs + pushes to `main` + nightly — *not* every push)
+  and the tracked-resume-template list, `CLAUDE.md`'s repo map (`feed/`,
+  `check_privacy.mjs`, `SETUP.md` is no longer a stub) and command list (adds
+  `test-integration` / `check-privacy`; `make up` is the web stack, not the worker),
+  and the `docker compose up` goal in SPEC §4, which claimed a one-command stack the
+  native worker never belonged to. Renamed the leftover "ATS" titles in SPEC, PROGRESS,
+  and the Makefile to Job Matchbook. `PRINCIPLES.md` #4 now names the hosted scorer
+  generically (Codex is the default, not Claude) and #7 records Playwright as shipped
+  rather than planned.
+- **One home per fact.** `SECURITY.md`'s accepted-risk list and `README.md`'s 25-row
+  feature-status table were second copies of `SPEC.md` §11 and §9; both now point at
+  the spec, and the `next@14` advisory writeup moved into §11 so nothing was lost.
+  Deleted `docs/pipeline-design.md` (a pointer stub — the original is in git history)
+  and trimmed `docs/SETUP.md`'s Path B, which restated SPEC §12's numbered steps.
+- **`apps/worker/quant_job_boards.txt` untracked.** The file's own legend defines
+  `[x]` as "added to `apps/worker/config.yaml` AND verified live", and 43 lines carry
+  it — so the tracked copy disclosed which companies the operator is personally
+  tracking (65 of the 73 names/slugs in the gitignored `config.yaml`). Now gitignored,
+  with a matching deny rule + self-test case in `tools/check_privacy.mjs` so it cannot
+  return via `git add -f`. Also deleted `docs/images/status-funnel.png`, orphaned when
+  `charts-row.png` replaced it. A credential sweep (Telegram/Anthropic/OpenAI/GitHub/AWS
+  /private-key patterns) and an 8-word-shingle comparison of the real résumé and
+  `personal_profile.txt` against every tracked file both came back clean.
+- **Project-level Claude Code config.** `.claude/settings.json` (read-only permission
+  allowlist) plus `.claude/hooks/guard-privacy.mjs`, a `PreToolUse` hook that blocks
+  `git commit` whenever `tools/check_privacy.mjs` reports a tracked private file —
+  CI only catches such a leak after it is already pushed.
+- **Design-spec statuses are current again.** Twelve specs under
+  `docs/superpowers/specs/` still read "ready to implement" / "not yet built" for work
+  that shipped; each now carries its ship date. `DEVELOPMENT.md` §6 adds closing the
+  spec to the same-commit doc rule, since §2 treats that header as the license to build.
 
 ## [1.0.0] — 2026-07-22
 

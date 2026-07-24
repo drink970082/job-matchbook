@@ -1,6 +1,9 @@
 # Enum-verdict routing + batched fit scoring — design
 
-**Status:** proposed · **Date:** 2026-07-16 · **Backend context:** the codex
+**Status:** shipped 2026-07-16 (v1.0.0) — Part A (verdict routing +
+`insufficient_context`) only; the batched-scoring half failed its acceptance guard
+and is parked at `batch_size=1` (SPEC §13). · **Date:** 2026-07-16 ·
+**Backend context:** the codex
 (ChatGPT-subscription) fit scorer shipped 2026-07-15/16 (see CHANGELOG). This spec
 addresses the two problems that surfaced when it met the golden set.
 

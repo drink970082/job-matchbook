@@ -1,7 +1,7 @@
 # Design: Claude-scored fit, local crisp-fact screening
 
 **Date:** 2026-07-05
-**Status:** Approved (design) — pending implementation plan
+**Status:** shipped 2026-07-05 (v1.0.0)
 **Scope:** `apps/worker` scoring path only. Tailoring removal is a **separate** spec (see §8).
 
 ## Problem

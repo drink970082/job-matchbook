@@ -1,6 +1,7 @@
 # Discovered Jobs — posting-date sort, bulk actions, audit reframe
 
 Date: 2026-06-21
+**Status:** shipped 2026-06-21 (v1.0.0)
 Status: design approved, ready for implementation plan
 
 ## Problem

@@ -1,4 +1,4 @@
-# ATS — System Specification
+# Job Matchbook — System Specification
 
 > **Authoritative source of truth for this repository.** This document describes
 > the system *as it actually exists* and is written to be verified against the
@@ -60,8 +60,8 @@ are explanatory. Each section is tagged with its class under its heading.
 
 ## 1. Overview
 
-ATS is **one project made of two cooperating services that share a single SQLite
-database**:
+Job Matchbook is **one project made of two cooperating services that share a single
+SQLite database**:
 
 - **`apps/web`** — a Next.js 14 tracker + dashboards. You browse a queue of
   discovered jobs, triage them, and track every application through its status
@@ -125,7 +125,8 @@ Two pains, addressed by the two services:
 - Discover and pre-qualify jobs from company ATS boards on a schedule.
 - Alert the human on Telegram for every high-scoring role, for manual application.
 - Keep the two services safely co-writing one SQLite database.
-- Stay runnable on a single host with one `docker compose up`.
+- Stay runnable on a single host: `docker compose up` brings up the whole web
+  stack, and the worker is one native command alongside it (§12).
 
 **Non-goals**
 
@@ -152,7 +153,7 @@ The two-phase workflow:
 
 ```
 Phase 1 — Discovery & scoring (apps/worker, scheduled)
-  watchlist (DB) ─► fetch (9 platform adapters + custom/browser recipe executors) ─────┐
+  watchlist (DB) ─► fetch (9 watchlist platform adapters + custom/browser recipes) ────┐
   feed (Simplify) ─► prefilter ─► resolve URL→board ─► fetch/fetch_one (reuse) ────────┤
                     (per-listing detail sources: Oracle/Jobvite)                       │
                     (unresolvable URL → feed_unresolved backlog)                       │
@@ -196,7 +197,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
 
 ```
             ATS boards          Ollama (host GPU)  Codex CLI/Claude   Telegram
-       9 platforms + custom/          │                 │              ▲
+      11 platforms + custom/          │                 │              ▲
         browser recipes               │                 │              │
                   │                    ▼                 ▼              │
    ┌──────────────┴────────────────────────────────────────────────────┐
@@ -1310,7 +1311,7 @@ automated coverage — those rely on code review or the human in the loop, not a
   wiring lives only in `run.py`.
 - **UID/GID passthrough.** Containers run as the host user so bind-mount writes work
   without `chmod 777`.
-- **Company-owned boards only.** The nine platform adapters use official public
+- **Company-owned boards only.** The eleven platform adapters use official public
   endpoints (iCIMS via its server-rendered HTML); `custom`/`browser` rows are
   operator-curated recipes against a company's own careers site. LinkedIn/Indeed
   scraping is deliberately avoided. Adapters are isolated so one broken source only
@@ -1375,7 +1376,21 @@ automated coverage — those rely on code review or the human in the loop, not a
   `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead
   of being fetched.
 - **Accepted security residuals** (deliberate, documented — single-user,
-  loopback-bound, curated-input deployment; also see `SECURITY.md`):
+  loopback-bound, curated-input deployment; `SECURITY.md` points here):
+  - **`next@14.2.35` dependency advisories.** `npm audit --omit=dev` reports the
+    `next` package as high severity — three GHSA advisories roll up into it: DoS via
+    the Image Optimizer's `remotePatterns`
+    ([GHSA-9g9p-9gw9-jx7f](https://github.com/advisories/GHSA-9g9p-9gw9-jx7f)), HTTP
+    request deserialization DoS with insecure React Server Components
+    ([GHSA-h25m-26qc-wcjf](https://github.com/advisories/GHSA-h25m-26qc-wcjf)), and
+    HTTP request smuggling in rewrites
+    ([GHSA-ggv3-7p47-pfv8](https://github.com/advisories/GHSA-ggv3-7p47-pfv8)) — plus
+    a moderate finding for `postcss@8.4.31`, the copy Next.js 14 bundles internally
+    (distinct from, and older than, the project's own top-level `postcss`, which is
+    patched). All four need the `next@16` major to clear. Accepted because they are
+    server-side web-request attack surfaces that presume a reachable, adversarial
+    network client — not a concern for a server that only accepts connections from
+    `127.0.0.1`. Revisit at the next Next.js major upgrade.
   - **`autoheal` holds the Docker socket** — `docker-compose.yml` mounts
     `/var/run/docker.sock` (root-equivalent host control) into
     `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the
@@ -1402,8 +1417,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 *Class: **Snapshot** — current build; if code disagrees, update this spec.*
 
-Full prerequisites and step-by-step (Telegram bot, Ollama, troubleshooting) were
-historically in `docs/SETUP.md`; this section is now authoritative.
+This section is the authoritative command list.
+[`SETUP.md`](./SETUP.md) is the friendlier front door — prerequisites in table
+form, the tracker-only vs. full-pipeline decision, and which settings live in
+`config.yaml` vs. the DB — and links back here for the commands themselves.
 
 **Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 20+ and Python
 3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
@@ -1500,46 +1517,23 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.
-- **Batched==single drift guard (`tools/score_eval.py --batched`, no `make` target —
-  invoked directly, e.g. `apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
-  --batched`):** a **separate, LIVE, quota-spending** check from the K=3 gate above —
-  never run from CI/selftest. Scores the golden set once **single**
-  (`fit([posting], resumes)`) and once **batched** (`fit(chunk, resumes)` at
-  `BATCH_SIZE=10`), one draw per row per pass, and asserts the per-row `(seniority,
-  domain)` verdicts are **identical** — PASS = 0 drift. This is the check that proves
-  (or disproves) that batching N JDs into one `codex exec` call doesn't corrupt a JD's
-  score via context bleed from its batch-mates, and it is the **acceptance gate** for
-  trusting `batch_size>1` on a real re-score of the queue. **Run 2026-07-16
-  (`gpt-5.6-sol`, `batch_size=10`, 23 golden rows) — FAILED, 19/23 agree** (see
-  `CHANGELOG.md`): all 4 drift rows are on the `domain` verdict, two of
-  them (`adjacent`→`match`) appearing to cross the notify predicate. Per the design's
-  rollout rule, batching **does not ship** — the shipped default is `batch_size=1`
-  (§7.1, §9, §11), and the batching machinery + this guard stay in place for a future
-  fix. The Part A verdict-routing change (§9) stands regardless. **Its verdict is
-  confirmed but its reasoning was partly wrong — see the drift probe below;** the guard
-  counts `marked` rows (fixed 2026-07-17: they still ride in their real batches, since
-  their bleed can corrupt a gate-eligible batch-mate, but they no longer decide PASS),
-  and one draw per row per pass cannot separate bleed from draw noise.
-- **Drift probe (`tools/score_eval.py --drift-probe`, `CODEX_BATCH_SIZE` selects the
-  setting):** a one-shot **experiment**, not a gate — it has no PASS/FAIL, it *measures*.
-  Re-draws the 4 known drift rows **K=3×** at one batch size per run (`1` = single, probe
-  rows only; `>1` = batched over the **whole** golden set, so probe rows keep their real
-  batch-mates) and reports whether each verdict held. It exists because `--batched` draws
-  each row once per pass and so cannot attribute drift to context **bleed** vs a JD whose
-  verdict is a **coin-flip on any re-draw**. **Run 2026-07-17 (`gpt-5.6-sol`, K=3, b=1/5/10,
-  36 calls) — bleed CONFIRMED, and it scales with batch size:** rows holding one verdict went
-  **3/4 → 2/4 → 1/4** at b=1 → b=5 → b=10. Decisive rows: **id 111** stable-correct
-  (`match/adjacent` ×3) alone but **stably *wrong*** (`match/match` ×3) at b=5; **id 184**
-  stable in *both* modes at *different* values (`match/match` at b=1/b=5 vs `match/adjacent`
-  at b=10) — which noise cannot explain; **id 132** seniority stable `too_junior` ×3 alone but
-  bleeding to `match` at b=5/b=10, so **bleed is not confined to `domain`** as the guard
-  concluded. **`batch_size=5` is not a safe middle ground** — it converts a correct stable
-  verdict into a confident wrong one (worse than a flip, which at least announces itself).
-  Batching stays parked at `batch_size=1` at **every** size >1; the quota problem needs a
-  different lever (§11). Corrects two of the guard's claims: id 132 and 184 are `marked`
-  watch-list rows (132's golden note already documents a 50/50 split), and **id 125 is not a
-  batching victim** — it reads `match/match` on 3/3 *single* draws, so unbatched scoring
-  notifies it too; it is a stable calibration disagreement with its `adjacent` label.
+- **Batching acceptance gate — FAILED; `batch_size` is parked at 1.** Two **live,
+  quota-spending** checks in `tools/score_eval.py` (no `make` target, never run from
+  CI) tested whether batching N JDs into one `codex exec` call corrupts a JD's verdict
+  via context bleed from its batch-mates: `--batched` (the pass/fail gate — same rows
+  scored single vs. batched, PASS = identical `(seniority, domain)` verdicts) and
+  `--drift-probe` (a measurement, no PASS/FAIL — re-draws known drift rows K× at one
+  batch size per run, to separate bleed from ordinary draw noise). **Verdict: bleed is
+  real and scales with batch size**, and it is not confined to the `domain` verdict.
+  `batch_size=5` is not a safe middle ground — it can turn a correct stable verdict
+  into a confidently wrong one, which is worse than a flip because it never announces
+  itself. So batching does not ship at **any** size >1; the shipped default is
+  `batch_size=1` (§7.1, §9, §11) and the machinery stays only so a future fix has
+  something to test. The quota problem needs pacing, not a bigger batch (§11).
+  Run-by-run numbers, the per-row forensics, and the corrections the probe made to the
+  guard's original reasoning are in [`../CHANGELOG.md`](../CHANGELOG.md) (see the
+  batched-scoring and drift-probe entries); the design rationale is in
+  [`superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`](./superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md).
 
 ---
 
@@ -1550,8 +1544,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 - **Contributor conventions:** [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Design principles (decision DNA):** [`PRINCIPLES.md`](./PRINCIPLES.md)
 - **Session protocol & definition of done:** [`DEVELOPMENT.md`](./DEVELOPMENT.md)
+- **Setup front door:** [`SETUP.md`](./SETUP.md)
 - **Service READMEs:** [`../apps/web`](../apps/web), [`../apps/worker/README.md`](../apps/worker/README.md)
-- **Historical design note (superseded by this spec):** [`pipeline-design.md`](./pipeline-design.md)
 - **Code anchors:** schema `apps/web/prisma/schema.prisma` · enums
   `apps/web/src/lib/constants.ts` · server actions `apps/web/src/lib/actions.ts` ·
   pipeline `apps/worker/ats_worker/pipeline.py` · wiring `apps/worker/ats_worker/run.py`

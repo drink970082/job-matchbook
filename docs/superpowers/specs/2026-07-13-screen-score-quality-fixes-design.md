@@ -1,6 +1,6 @@
 # Design: Screen + score quality fixes — six defects from the first live audit
 
-**Status:** approved (user fork decisions, 2026-07-13 session), ready to plan.
+**Status:** shipped (v1.0.0).
 **Date:** 2026-07-13.
 
 ## Problem / motivation

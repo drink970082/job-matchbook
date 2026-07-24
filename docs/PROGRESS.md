@@ -1,4 +1,4 @@
-# ATS — Progress Tracker
+# Job Matchbook — Progress Tracker
 
 > Living status of the project. Pairs with [`SPEC.md`](./SPEC.md) (what the system
 > *is* — the authoritative capability map) and [`../CHANGELOG.md`](../CHANGELOG.md)

@@ -1,7 +1,7 @@
 # Codex quota usage bar — design
 
 **Date:** 2026-07-17
-**Status:** approved (design), pending implementation plan
+**Status:** shipped 2026-07-17 (v1.0.0)
 **Supersedes:** the "Codex message-quota usage tracker" item in
 [`docs/PROGRESS.md`](../../PROGRESS.md) — see [What this replaces](#what-this-replaces).
 

@@ -66,7 +66,7 @@ jobs:
   e2e:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
-    # Heavy (browser install + web build): only on master, nightly, or PRs labeled 'e2e'.
+    # Heavy (browser install + web build): only on main, nightly, or PRs labeled 'e2e'.
     if: >
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||

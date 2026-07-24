@@ -1,6 +1,6 @@
 # Fit-score prompt: band-regression eval harness
 
-**Date:** 2026-07-15 · **Status:** approved design, not yet implemented
+**Date:** 2026-07-15 · **Status:** shipped 2026-07-15 (v1.0.0) — `tools/score_eval.py`, `make eval-score`
 **Supersedes the ad-hoc loop** described in PROGRESS.md "Scorer-prompt refinement
 round 2" (the paid full re-score + human eyeball pass).
 

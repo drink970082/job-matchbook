@@ -31,20 +31,20 @@ SQLite database**:
 
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
-- **`apps/worker`** — Python 3.11 pipeline: fetch (9 platform adapters plus
-  generic custom/browser recipe executors — 11 watchlist-capable sources total)
-  → screen (Ollama) + score fit (Codex CLI default / Claude alternate)
-  → notify (Telegram). Human applies by hand.
+- **`apps/worker`** — Python 3.11 pipeline: fetch (11 platform adapters plus
+  generic custom/browser recipe executors; 11 of those are watchlist-capable —
+  oracle/jobvite are feed-only) → screen (Ollama) + score fit (Codex CLI default /
+  Claude alternate) → notify (Telegram). Human applies by hand.
 
 ## Repo map
 
 ```
 apps/web/      Next.js app   (schema, server actions, components, e2e)
-apps/worker/   Python worker (ats_worker/: fetch/ score notify pipeline run)
+apps/worker/   Python worker (ats_worker/: fetch/ feed/ score notify pipeline run)
 db/            shared SQLite  (gitignored)
 docs/          SPEC.md · PROGRESS.md · PRINCIPLES.md · DEVELOPMENT.md ·
-               superpowers/ (specs·plans) · SETUP.md (stub) · pipeline-design.md (historical)
-tools/         check_schema_drift.mjs
+               SETUP.md · superpowers/ (specs·plans)
+tools/         check_schema_drift.mjs · check_privacy.mjs
 ```
 
 ## Run / test / build (from repo root)
@@ -53,10 +53,13 @@ tools/         check_schema_drift.mjs
 make dev            # Next.js dev server → http://localhost:3000
 make test           # both suites (Jest + pytest)
 make test-web       # Jest only       make test-worker   # pytest only
+make test-integration  # worker run_once + web real-Prisma tiers
 make test-coverage  # both, gated      make test-e2e      # Playwright (seeds throwaway DB)
 make check-schema   # fail if worker SQL fixture drifts from schema.prisma
+make check-privacy  # fail if git tracks .env / resume / db / config.yaml
 make db-push        # sync Prisma schema into SQLite
-make up / make down # full Docker Compose stack (UID/GID passthrough)
+make up / make down # web stack only (web + autoheal, UID/GID passthrough);
+                    # the worker is native — run it yourself, see Gotchas
 ```
 
 ## Conventions
@@ -70,6 +73,9 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
   `make lint` before pushing. **Worker:** Python, 4-space indent.
 - **Commits:** short imperative subject, optional `type(scope):` prefix
   (`feat(worker): …`, `docs: …`). Keep each commit green.
+- **Branches:** `main` is the only long-lived branch and is always releasable.
+  Substantive work goes on a short-lived `feat/`·`fix/`·`docs/`·`chore/` branch and
+  lands as a squash-merged PR once CI is green. Never force-push `main`.
 - **Privacy:** never commit secrets (`apps/worker/.env`), the real resume
   (`apps/worker/resume/`), `config.yaml`, or `db/` — all gitignored;
   the repo ships only `*.example` templates.
@@ -80,8 +86,8 @@ make up / make down # full Docker Compose stack (UID/GID passthrough)
 - **Ollama runs on the host** (GPU); the worker is native and reaches it via
   `localhost:11434` — see `docs/SPEC.md` §6.
 - **SQLite is mounted as a directory** (`./db` → `/data`), not a single file, so
-  WAL `-wal`/`-shm` sidecars are shared across both containers. A single-file mount
-  silently breaks cross-container WAL.
+  WAL `-wal`/`-shm` sidecars are shared between the web container and the native
+  worker. A single-file mount silently breaks WAL across the two processes.
 - **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web
   gated via `jest.all.config.ts`. CI also runs the schema-drift guard.
 - Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on

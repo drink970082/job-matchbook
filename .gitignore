@@ -32,3 +32,7 @@ apps/worker/eval/
 # Untracked local scratch/debris — never commit (2026-07-18 audit).
 .playwright-mcp/
 scrape_board.txt
+
+# Board research keyed to the operator's own watchlist ([x] = in my config.yaml),
+# so it discloses which companies are being tracked. Local-only.
+apps/worker/quant_job_boards.txt

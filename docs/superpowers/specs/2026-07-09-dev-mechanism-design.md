@@ -1,7 +1,7 @@
 # Design: Development mechanism for future AI sessions (PRINCIPLES + DEVELOPMENT)
 
-**Status:** approved (brainstorming), ready to write the files directly (docs-only
-change — no separate implementation plan; see Sequencing).
+**Status:** shipped 2026-07-09 (v1.0.0) — docs-only change; the files it specifies
+(`PRINCIPLES.md`, `DEVELOPMENT.md`) are live.
 **Date:** 2026-07-09.
 
 ## Problem / motivation

@@ -1,6 +1,6 @@
 # Design: Stub-gating the phenom N+1 fetch (fetch-time filtering, Phase 2)
 
-**Status:** designed, approved, not yet built.
+**Status:** shipped 2026-07-21 (v1.0.0).
 **Date:** 2026-07-21.
 **Supersedes:** the Phase 2 sketched in
 [`2026-07-20-fetch-time-filtering-design.md`](./2026-07-20-fetch-time-filtering-design.md)
