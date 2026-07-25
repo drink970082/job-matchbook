@@ -368,10 +368,13 @@ worker modules are pure and dependency-injected; real services are wired only in
     null/unparseable `posted_at` both keep the posting — err toward keep).
 
   **Source coverage matrix** (the at-a-glance support map — keep it current when a
-  source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps
-  the host; *watchlist* = enumerable per-board source (in `VALID_SOURCES`). These
-  capabilities come apart — e.g. Pinpoint has an adapter + watchlist but no feed
-  router:
+  source is added; `test_spec_matrix_matches_adapters` fails if you don't). *Adapter*
+  = can fetch a JD; *feed router* = `resolve_url` maps the host; *watchlist* =
+  enumerable per-board source (in `VALID_SOURCES`). These capabilities come apart —
+  e.g. Pinpoint has an adapter + watchlist but no feed router. The test reads the
+  **Platform** column's first word as the source name and skips a row whose *Adapter*
+  cell begins `via ` (routed through another module); the *Feed router* column is
+  hand-maintained (`resolve_url` is a URL-pattern parser, not a registry) and unguarded:
 
   | Platform | Host(s) | Adapter | Feed router | Watchlist |
   |---|---|---|---|---|
@@ -1486,7 +1489,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block) | `test_config.py` |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
-| Cross-service sync guard (source enums + low-context threshold) | `test_source_enums_sync.py` |
+| Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | `/api/health` 200/503 probe; `/api/codex-usage` snapshot route; usage-bar rendering | `web/src/__tests__/health.test.ts`, `codex-usage.test.ts`, `web/src/components/__tests__/CodexUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |

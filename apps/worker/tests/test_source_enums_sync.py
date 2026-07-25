@@ -1,11 +1,12 @@
 """Guard: board-source allowlists and the low-context threshold must not drift
-across the worker (config.py / fetch) and the web UI (constants.ts).
-Mirrors test_schema_sync.py: text-parse the .ts, import the Python modules.
+across the worker (config.py / fetch), the web UI (constants.ts), and SPEC's
+hand-maintained source-coverage matrix.
+Mirrors test_schema_sync.py: text-parse the .ts/.md, import the Python modules.
 
-Scoped to the three genuinely-duplicated + cheaply-comparable items (Ponytail):
-VALID_SOURCES, RECIPE_SOURCES, and the low-context length threshold. The scattered
-pipeline_status vocabulary and the full notify/matched verdict-predicate SQL are
-NOT guarded here — see docs/PROGRESS.md.
+Scoped to the genuinely-duplicated + cheaply-comparable items (Ponytail):
+VALID_SOURCES, RECIPE_SOURCES, the low-context length threshold, and the SPEC
+matrix. The scattered pipeline_status vocabulary and the full notify/matched
+verdict-predicate SQL are NOT guarded here — see docs/PROGRESS.md.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from pathlib import Path
 from ats_worker import config, fetch, db
 
 CONSTANTS_TS = Path(__file__).parents[3] / "apps" / "web" / "src" / "lib" / "constants.ts"
+SPEC_MD = Path(__file__).parents[3] / "docs" / "SPEC.md"
 
 
 def _ts_array(name: str) -> list[str]:
@@ -40,6 +42,41 @@ def test_recipe_sources_match_web_and_fetch():
 
 def test_valid_sources_are_real_adapters():
     assert set(config.VALID_SOURCES) <= set(fetch.ADAPTERS)
+
+
+def test_watchlist_sources_can_list():
+    # A watchlist source is enumerated per BOARD, so its adapter must expose `fetch`;
+    # a feed-only source (oracle/jobvite) has only `fetch_one` and must stay out.
+    missing = [s for s in config.VALID_SOURCES
+               if not callable(getattr(fetch.ADAPTERS[s], "fetch", None))]
+    assert not missing, f"watchlist sources with no adapter.fetch: {missing}"
+
+
+def _spec_matrix() -> list[tuple[str, str, str]]:
+    """(source, adapter cell, watchlist cell) per row of SPEC's source-coverage matrix.
+    ponytail: the source name is the platform label's first word, lowercased and
+    stripped to alnum ('Oracle Cloud HCM' -> oracle, 'Custom (recipe)' -> custom) —
+    a convention, not a second mapping table. Rows routed through another module's
+    adapter ('via greenhouse') own no source name and are skipped."""
+    text = SPEC_MD.read_text()
+    start = text.index("| Platform | Host(s) | Adapter | Feed router | Watchlist |")
+    rows = []
+    for line in text[start:].splitlines()[2:]:
+        if not line.strip().startswith("|"):
+            break
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells[2].startswith("via "):
+            continue
+        rows.append((re.sub(r"[^a-z0-9]", "", cells[0].split()[0].lower()),
+                     cells[2], cells[4]))
+    return rows
+
+
+def test_spec_matrix_matches_adapters():
+    rows = _spec_matrix()
+    assert len(rows) > 5, "SPEC source-coverage matrix failed to parse"
+    assert {r[0] for r in rows} == set(fetch.ADAPTERS)
+    assert {r[0] for r in rows if r[2].startswith("yes")} == set(config.VALID_SOURCES)
 
 
 def test_low_context_threshold_matches_web():
