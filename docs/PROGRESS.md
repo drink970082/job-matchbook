@@ -70,6 +70,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   before:** the gain is wall-clock on a phase nobody is awake for, the cost is a
   squash-divergence resolution on the branch about to run unattended, and the
   `eval-score` fix is already routed around by the runbook's explicit `python3` commands.
+  **Also on it — `7e2e93f` (2026-07-25, docs only):** the agent-context audit. `CLAUDE.md`
+  7,064 → 4,587 chars, the "read all four docs before any substantive work" mandate
+  (~57k tokens per session) replaced by the `session-boot` skill with only `PROGRESS.md`
+  "In flight" left unconditional, and the self-merge review contradiction between
+  `CLAUDE.md` §Agent conduct and `DEVELOPMENT.md` §5/§7 scoped rather than dropped
+  (CHANGELOG). No code touched, so the branch's green suites still stand.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
@@ -134,8 +140,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   documented in SPEC §7.1/§9/§11 + CHANGELOG.
   **Still open — track 4, agent portability** — `[S · independent, pick any time]`.
   `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
-  `.claude/skills/`, Codex reads `.agents/skills/`, so both skills are invisible to
-  every agent but Claude Code. Move to `.agents/skills/`, symlink `.claude/skills`,
+  `.claude/skills/`, Codex reads `.agents/skills/`, so all three skills (`onboard-me`,
+  `onboard-board`, `session-boot`) are invisible to every agent but Claude Code. Move to `.agents/skills/`, symlink `.claude/skills`,
   add a root `AGENTS.md` (a Linux Foundation standard read by 30+ agents; the repo
   has none). **Settle first:** whether Claude Code discovers skills *through* a
   symlinked `.claude/skills` is unverified — if it doesn't, the symlink half of the
@@ -335,13 +341,22 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `chmod` is not a valid proxy, and any failure mode that spares open fds would slip
   past the probe; the observed real symptom is `SQLITE_CANTOPEN` (an *open* failure),
   which would trip it. Needs a real suspend/resume event to confirm. (SPEC §6.)
-- **`onboard-me` Step 0 — shipped, but its eval was never executed** — `[DOCS · S]`. The
-  skill now opens with `make setup` + `make doctor` and reads doctor's status lines to
-  pick the provider path. Its *factual* claims were verified against shipped code (all
-  9 doctor row labels match live output), but the new eval scenario
-  (`fresh-checkout-no-telegram-remote-ollama`, evals.json id 4) is **written and never
-  run** — the harness is subagent-driven. So the *behavioral* assertion, that an agent
-  actually leads with Step 0, is unproven.
+- **`onboard-me` evals are owed a run — two scenarios, two different reasons** —
+  `[DOCS · S]`. The harness is subagent-driven and has not run since either change landed.
+  **id 4 `fresh-checkout-no-telegram-remote-ollama` — written, never run.** Step 0's
+  *factual* claims were verified against shipped code (all 9 doctor row labels match live
+  output), but the *behavioral* assertion — that an agent leads with `make setup` +
+  `make doctor` and reads the status lines instead of treating every row as mandatory —
+  is unproven.
+  **id 2 `profile-and-docx-resume-design` — passed before, now at risk.** `7e2e93f` moved
+  the profile-authoring rules out of `SKILL.md` into `references/profile.md` behind a
+  read-this-first pointer. The structural assertions are safe — the six section headers
+  and the `<w:t>` extraction rule stayed in the body (grep-verified) — but
+  `profile_targets_correct` (ANTI-TARGETS scoped to the disliked day-to-day, not a bare
+  title that overlaps a target) now depends on the agent actually opening the reference.
+  That is the one assertion progressive disclosure could regress here, and only a run
+  shows it. If it fails, pull the ANTI-TARGETS rule back inline rather than reverting
+  the split.
 - **The recipe-sourced `custom`/`browser` SCORED path is still unexercised** — `[SCORE · S]`.
   The 2026-07-22 full fetch proved both executors work through `run_fetch` (custom
   1,411 `new`, browser 662 — CHANGELOG). But the one bounded `--score-only` batch hit
