@@ -62,8 +62,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `scorer_version` in `score_detail`), `--rescreen-discarded`, the **dead-screen-provider
   circuit breaker** (the SCREEN defect found and fixed 2026-07-24), and `--no-notify`.
   Suites green (worker 643, web 136), coverage 93.66%; the flags driven against a
-  throwaway DB. **Pushed to `origin` 2026-07-24; no PR yet, so CI has never run on it** —
-  everything green is from the operator's machine. **Queues behind #7.** It is also the
+  throwaway DB. **PR #10 opened 2026-07-25, based on `feat/universality-and-onboarding`
+  (not `main`)** so its diff is the 12-commit delta over #7 rather than #7's own 38;
+  GitHub retargets the base to `main` when #7 merges. Until then CI had never run on this
+  branch — everything green was from the operator's machine. **Queues behind #7.** It is also the
   branch the long-run day must run from — see the runbook below. **Not yet on it:**
   `main`'s PR #8 (`make eval-score`) and PR #9 (workday prose-date age-gating, which
   would speed up the run's fetch phase). **Merge `origin/main` in AFTER the run, not
@@ -84,8 +86,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `VALID_SOURCES` member's adapter exposes `fetch`) and `test_spec_matrix_matches_adapters`
   (SPEC's hand-maintained source-coverage matrix vs `ADAPTERS` + `VALID_SOURCES`). Worker
   645 passed, coverage 93.66%; both new asserts mutation-checked (a dropped matrix row and
-  a flipped watchlist cell each red the right line). **Queues behind
-  `feat/score-provenance-and-rescreen`, which queues behind #7.**
+  a flipped watchlist cell each red the right line). **PR #11**, based on
+  `feat/score-provenance-and-rescreen` — so it **queues behind #10, which queues behind
+  #7.** Also on it (`2026-07-25`, no code): the branch tidy-up — the
+  `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
+  `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
+  removed after verifying each adds nothing to `main` outside stale doc copies.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
