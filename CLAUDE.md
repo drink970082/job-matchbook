@@ -1,24 +1,23 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and humans) working in this repo. This file is loaded
-automatically every session — keep it lean.
+Guidance for Claude Code (and humans) working in this repo.
 
-## Read first
+## The docs
 
-Before any substantive work, read these — the source of truth and the working
-protocol:
+**Before you touch code, read `PROGRESS.md`'s "In flight" section** — it is the claim
+registry, and skipping it is how two sessions collide on one branch. That one is
+unconditional; the rest you pull in as the task needs them (the `session-boot` skill
+walks the order):
 
-- **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is*, including the current
-  capability map (architecture, components, data model, behaviors & invariants,
-  setup, testing).
-- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — only the *delta*: what's **in flight
-  and open** (defects, unverified properties, enhancements). Completed capabilities
-  live in `SPEC.md`; release history in `CHANGELOG.md`.
-- **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA: consult at every
-  design fork; forks go to the user, who decides. Includes the four-way uncertainty
-  policy (keep · fail loud · circuit break · retry) — "err toward keep" is only one row.
+- **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is*: the capability map,
+  data model, behaviors & invariants. Source of truth.
+- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — the *delta* only: in flight and open.
+  Completed work lives in `SPEC.md`, history in `CHANGELOG.md`.
+- **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA, for design forks.
+  Includes the four-way uncertainty policy (keep · fail loud · circuit break · retry)
+  — "err toward keep" is only one row.
 - **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
-  classification, verify-gate evidence table, definition of done.
+  classification, verify-gate evidence table, definition of done, team protocol.
 
 Keep them current: when you change behavior, in the **same commit** update the
 matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the gap
@@ -27,31 +26,23 @@ applicable. Conventions in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Agent conduct
 
-Claude Opus 5 is the dev model for this repo; effort levels are in
-[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
+Effort levels are in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
 
-- **Scope is the ask.** Build what was requested, at the size requested. Routine
-  judgment calls are yours; a fork that changes the work goes to the user
-  (PRINCIPLES, Decision procedure). Disagree in a sentence, then build the thing
-  asked for — never quietly widen, narrow, or transform it.
 - **Doc length matches substance.** `SPEC.md`/`PROGRESS.md`/`CHANGELOG.md` are
   already large and every session reloads them. Write the clause the change needs —
   no padded sections, restated summaries, or boilerplate. Same for specs and plans
   under `docs/superpowers/`.
 - **Delegate rarely.** Subagents are for large, genuinely independent tracks (a wide
-  multi-file sweep). Never to verify or re-read your own work; never for something
-  finishable in a handful of tool calls. One agent beats several.
+  multi-file sweep) and for the §7 pre-merge review — never as a substitute for the
+  verify gate, never for something finishable in a handful of tool calls. A skill
+  invoking another skill is not delegation. One agent beats several.
 - **The verify gate is the verification.** DEVELOPMENT.md §5 means run the commands
-  and paste the output — that *is* the check. Don't stack a self-review pass on top.
-- **Lead with the outcome.** Brief updates while working; the final report opens with
-  what happened, detail after.
+  and paste the output — that *is* the check. Don't stack a self-review on top; §7's
+  pre-merge review is a separate gate on *merging*, not a second verification.
 - **Sessions are teammates you can't talk to.** One branch per unit of work, claimed by
-  its `PROGRESS.md` In-flight entry; read that section before touching anything.
-  Branch/PR/merge rules and the authority split — what a session decides alone vs. what
-  needs the operator — are [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7. The short
-  version: open PRs freely; you may merge **your own** PR once CI is green **and a fresh
-  subagent has reviewed it** — never review your own diff, and never merge another
-  session's work. "Just merge" authorizes that merge, not a standing one.
+  its `PROGRESS.md` In-flight entry. Never merge another session's work. The rest —
+  branch/PR rules and the authority split — is
+  [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7.
 
 ## What this is
 
@@ -60,38 +51,13 @@ SQLite database**:
 
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
-- **`apps/worker`** — Python 3.11 pipeline: fetch (11 platform adapters plus
-  generic custom/browser recipe executors; 11 of those are watchlist-capable —
-  oracle/jobvite are feed-only) → screen (Ollama) + score fit (Codex CLI default /
+- **`apps/worker`** — Python 3.11 pipeline: fetch (board adapters + generic
+  custom/browser recipe executors) → screen (Ollama) + score fit (Codex CLI default /
   Claude alternate) → notify (Telegram). Human applies by hand.
 
-## Repo map
+## Run / test / build
 
-```
-apps/web/      Next.js app   (schema, server actions, components, e2e)
-apps/worker/   Python worker (ats_worker/: fetch/ feed/ score notify pipeline run)
-db/            shared SQLite  (gitignored)
-docs/          SPEC.md · PROGRESS.md · PRINCIPLES.md · DEVELOPMENT.md ·
-               SETUP.md · superpowers/ (specs·plans)
-tools/         check_schema_drift.mjs · check_privacy.mjs
-```
-
-## Run / test / build (from repo root)
-
-```bash
-make setup          # one-command bootstrap: web+worker deps, DB, non-clobbering template copies
-make doctor         # preflight: status line per prerequisite (core-hard exit, provider rows soft)
-make dev            # Next.js dev server → http://localhost:3000
-make test           # both suites (Jest + pytest)
-make test-web       # Jest only       make test-worker   # pytest only
-make test-integration  # worker run_once + web real-Prisma tiers
-make test-coverage  # both, gated      make test-e2e      # Playwright (seeds throwaway DB)
-make check-schema   # fail if worker SQL fixture drifts from schema.prisma
-make check-privacy  # fail if git tracks .env / resume / db / config.yaml
-make db-push        # sync Prisma schema into SQLite
-make up / make down # web stack only (web + autoheal, UID/GID passthrough);
-                    # the worker is native — run it yourself, see Gotchas
-```
+Run `make help` from the repo root — every target is self-documenting.
 
 ## Conventions
 
@@ -100,17 +66,11 @@ make up / make down # web stack only (web + autoheal, UID/GID passthrough);
   Status/category enums live in `apps/web/src/lib/constants.ts`.
 - **Worker modules are pure + dependency-injected.** Real services are wired only
   in `ats_worker/run.py`; tests mock everything (no network/keys). Keep it that way.
-- **Web:** TS, 2-space indent, mutations via Server Actions (`lib/actions.ts`); run
-  `make lint` before pushing. **Worker:** Python, 4-space indent.
-- **Commits:** short imperative subject, optional `type(scope):` prefix
-  (`feat(worker): …`, `docs: …`). Keep each commit green.
-- **Branches:** `main` is the only long-lived branch and is always releasable.
-  Substantive work goes on a short-lived `feat/`·`fix/`·`docs/`·`chore/` branch and
-  lands as a squash-merged PR once CI is green. Never force-push `main`.
-- **Privacy:** never commit secrets (`apps/worker/.env`), the real resume
-  (`apps/worker/resume/`), `config.yaml`, or `db/` — all gitignored;
-  the repo ships only `*.example` templates.
-- **Git identity:** commit as `drink970082 <howdywu@gmail.com>`.
+- **Web:** mutations go through Server Actions (`lib/actions.ts`); run `make lint`
+  before pushing.
+- **Branches:** never force-push `main`.
+- **Privacy:** never commit `.env`, `resume/`, `config.yaml`, or `db/` — enforced by
+  `.gitignore`, `make check-privacy` in CI, and a PreToolUse hook.
 
 ## Gotchas
 
@@ -124,4 +84,3 @@ make up / make down # web stack only (web + autoheal, UID/GID passthrough);
 - Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on
   the Codex CLI by default (`gpt-5.6-sol`), or Claude `claude-sonnet-5` when
   `SCORE_BACKEND=claude` (override via env / CLI — see SPEC §7.1).
-```

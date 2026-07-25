@@ -354,6 +354,38 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Documentation
 
+- **Agent context slimmed, and the self-merge review contradiction resolved.** An audit
+  against Anthropic's 2026-07-24 context-engineering guidance found `CLAUDE.md` paying
+  for content a session can derive itself and, worse, carrying a rule that contradicted
+  the one `c641849` had just added. `CLAUDE.md` §Agent conduct said subagents were
+  "never to verify or re-read your own work" and that the verify gate takes "no
+  self-review pass on top", while §Sessions and `DEVELOPMENT.md` §7 required a **fresh
+  subagent review** before a session may merge its own PR; `DEVELOPMENT.md` §5 carried
+  the same contradiction against §7 *within one file*. Both now scope the older rule
+  rather than drop it: the §7 pre-merge review is a gate on **merging**, explicitly not
+  a second verification of the change, and a skill invoking another skill is not
+  delegation (which is what had forbidden `onboard-me` from handing each company to
+  `onboard-board`). Cut alongside it: the repo map and `make` target list (derivable
+  from `ls` and `make help`), indent rules (`.editorconfig` owns them), commit and
+  branch conventions (`CONTRIBUTING.md` and branch protection own them), the git
+  identity (`git config` owns it), a scope rule duplicating the harness system prompt,
+  and an unpaired code fence that had been in the file since it was written.
+  `CLAUDE.md` drops from 7,064 to 4,587 chars.
+
+- **Doc reading is now progressive instead of mandatory.** `CLAUDE.md` opened by
+  requiring every session to read `SPEC.md`, `PROGRESS.md`, `PRINCIPLES.md`, and
+  `DEVELOPMENT.md` "before any substantive work" — about 57k tokens, charged equally to
+  a typo fix and a scorer rewrite, while the same file elsewhere warned that those docs
+  are "already large and every session reloads them". The only genuinely unconditional
+  read is `PROGRESS.md`'s **"In flight"** section (~2.4k tokens), because skipping it is
+  how two sessions collide on one branch; that stays a hard rule in `CLAUDE.md`. The
+  rest became a `session-boot` skill holding the read order — claim, classify, then only
+  the `SPEC` sections the change touches, `PRINCIPLES` on a fork, §5/§6 at the end.
+  `onboard-me`'s SKILL.md split the same way: the profile-authoring rules, the
+  `candidate:` field reference, and the résumé fallbacks moved to `references/`, leaving
+  the structural contract (the six profile section headers, the `<w:t>` extraction rule)
+  in the body where the evals depend on it.
+
 - **Unattended long-run day captured as a committed runbook.** The next operational
   step — one unattended day that clears both of PR #7's merge blockers and puts a
   bounded, provenance-stamped slice of the ~3,985 unscored postings through the

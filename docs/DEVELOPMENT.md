@@ -58,7 +58,8 @@ early as context insurance produces exactly such drafts).
 ## 5. Verify gate — evidence, not assertion
 
 Run everything the change touches. This table **is** the verification step — no extra
-self-review pass, no subagent sent to double-check work you just did:
+self-review pass, no subagent sent to double-check work you just did. (§7's pre-merge
+review is a separate gate on *merging*, not a second verification of the change.)
 
 | Change touches | Must run | Pass bar |
 |---|---|---|
@@ -183,8 +184,8 @@ would have:
 - **not** the working session's reasoning, its justifications, or its summary of what
   the change does. Those are the very claims under review.
 
-Ask it to find defects, not to confirm the work. Treat what it returns as
-[`receiving-code-review`](../CLAUDE.md) does — verify the technical claims rather than
+Ask it to find defects, not to confirm the work. Treat what it returns the way the
+`superpowers:receiving-code-review` skill does — verify the technical claims rather than
 implementing or dismissing them on sight; a reviewer with no context also has no
 context, and some findings will be wrong. **Any finding that survives verification
 blocks the merge** until it is fixed or the operator waives it.

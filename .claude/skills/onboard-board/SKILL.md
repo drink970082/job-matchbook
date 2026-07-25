@@ -30,7 +30,8 @@ always prefer the earliest rung that actually works.
 
 1. **Platform** — the board runs on a known ATS. Onboarding is just `{source, slug}`,
    no recipe. Supported: `greenhouse, lever, ashby, workday, pinpoint, smartrecruiters,
-   workable, icims, phenom`.
+   workable, icims, phenom` — authoritative list is `ADAPTERS` in
+   `apps/worker/ats_worker/fetch/__init__.py` (minus the recipe and feed-only sources).
 2. **Plain-HTTP `custom` recipe** — plain `requests` can reach a JSON endpoint, a
    `__NEXT_DATA__` blob, or json-ld on the page. Write a `custom` recipe.
 3. **Browser `browser` recipe** — plain HTTP is blocked (Cloudflare/bot wall) or the

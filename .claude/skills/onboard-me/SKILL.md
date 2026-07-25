@@ -121,45 +121,21 @@ blank section beats a made-up one.
 
 This is the biggest lever. `personal_profile.txt` is short about-you context the fit
 scorer reads on **every** call; its **domain verdict** (does this role *suit* this
-person?) is judged against the TARGET / ANTI-TARGET tiers you write here. Get this
-right and the whole pipeline points the right way. (The tiers must be *résumé-backed*,
-so read their résumé first if you haven't already — you'll ingest it properly in
-Step 5, but you need its content now to place the targets honestly.)
+person?) is judged against the TARGET / ANTI-TARGET tiers you write here.
 
-Read the template so you match its structure exactly — the scorer relies on these
-section headers:
+Write `apps/worker/resume/personal_profile.txt` with exactly these six section
+headers, which the scorer keys on: **STAGE**, **TARGET** (priority order),
+**ANTI-TARGETS**, **POSITIONING**, **INTERESTS**, **CAVEATS**. Structure matches
+`apps/worker/resume/personal_profile.txt.example`.
 
-```
-apps/worker/resume/personal_profile.txt.example
-```
+**Read [`references/profile.md`](references/profile.md) before you write it.** Each
+section carries a scoping rule that decides whether the verdict comes out right, and
+the two that bite most — TARGET must be résumé-backed, ANTI-TARGETS must be scoped to
+the disliked day-to-day — are not guessable. The tiers must be résumé-backed, so read
+their résumé first if you haven't; you ingest it properly in Step 5, but you need its
+content now to place the targets honestly.
 
-Write `apps/worker/resume/personal_profile.txt` with these sections, filled from the
-interview (not the example's bracketed placeholders):
-
-- **STAGE** — their career stage in a line.
-- **TARGET, priority order** — numbered; describe the actual day-to-day work, not a
-  title. Priority 1–3 score a full domain `match`, so **only list a role here if the
-  résumé demonstrably backs it.** A field they're merely *interested* in but haven't
-  done goes in INTERESTS (or a clearly-labeled lower "would-stretch-into" tier), never
-  the top 3 — putting it up top inflates the verdict. Lower tiers score `adjacent`.
-- **ANTI-TARGETS** — bulleted; always beat any TARGET a role also matches. **Scope
-  each to the disliked day-to-day, qualified ("pure/only…") — never a bare title that
-  overlaps a target,** or you'll down-score a role they'd take. (Excluding "visual
-  design" would sink a Lead Product Designer whose work includes visual craft;
-  "pure visual/marketing-only design" excludes just the unwanted work.)
-- **POSITIONING** — how they frame themselves / what they optimize for. **Keep hard
-  constraints out** (visa, location, degree, clearance) — those live in `config.yaml`
-  (Step 4); here they only pollute the fit signal.
-- **INTERESTS** — genuine interests that raise fit (the honest upward lever). A domain
-  they like but haven't done lives here, not in TARGET.
-- **CAVEATS** — honest downward notes, or leave blank. **Ground them in what the user
-  said or an evident résumé gap tied to a stated target — don't invent weakness
-  categories from résumé absence.**
-
-Keep it concise and honest. It is **not** a résumé — it never claims a skill the
-résumé can't show (a recruiter sees the résumé, not this). A real skill gap is
-fix-the-résumé signal, not something to paper over here. Show the user the draft and
-adjust — this file is worth a second pass.
+Show the user the draft and adjust — this file is worth a second pass.
 
 ## Step 3 — set their categories
 
@@ -189,46 +165,26 @@ the dealbreakers you gathered:
 cp apps/worker/config.yaml.example apps/worker/config.yaml   # only if Step 0 didn't
 ```
 
-Edit these fields (leave any one **blank** to *not* screen on it; blank everything to
-disable disqualification):
-
-- `highest_degree` — none | High School | Associate | Bachelor's | Master's | PhD
-- `work_authorization` — citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
-- `security_clearance` — none | confidential | secret | top secret
-- `locations` — where they can actually work (e.g. `["remote"]`, `["USA"]`); on-site
-  roles elsewhere are discarded. The LLM judges by meaning ("USA" covers "New York").
-- `exclude_internships` — `true`/`false` (deterministic, by title).
-
-Optionally set `title_filter` — a coarse, **title-only** substring keep-list applied
-before the scorer. Leave it empty unless a high-volume company floods them with
-off-target titles; the scorer does the real relevance work. **`title_filter` is a
-top-level key (a sibling of `candidate:`, at column 0), NOT a `candidate:` subkey** —
-nesting it under `candidate:` fails loud at startup.
-
-**Edit the file directly — don't script it** (a YAML writer would strip the template's
-comments). Two rules that bite: **unknown / mistyped keys fail loud at startup** — both
-at the top level and inside `candidate:` — so use only the documented keys and keep each
-at its right level (the five above under `candidate:`, `title_filter` at the top); and
-set values, don't add sections.
+**Read [`references/config.md`](references/config.md) for the field list and the two
+failure modes** — the allowed values per field, plus the key-placement and typo rules
+that make the worker fail loud at startup. Edit the file by hand, not with a script:
+a YAML writer strips the template's comments.
 
 ## Step 5 — ingest their résumé
 
 The scorer judges fit on résumé *content*, not formatting, so all it needs is clean
-readable text at `apps/worker/resume/resume.txt`.
+readable text at `apps/worker/resume/resume.txt`, in UTF-8 (a non-UTF-8 file aborts
+worker startup).
 
 - **`.txt`** — copy it in.
-- **PDF** — read it directly (your Read tool renders PDFs), then write the text out. If
-  it won't render (a scanned/image-only PDF, or no rasterizer available), ask them to
-  paste the text or export a `.txt` — don't dead-end on it.
+- **PDF** — read it directly (your Read tool renders PDFs), then write the text out.
 - **`.docx`** — unzip and read `word/document.xml`, **extracting the visible text (the
-  `<w:t>` runs), not the raw markup** — or just ask them to export a PDF or paste the
-  text. Don't add a parsing dependency for this.
+  `<w:t>` runs), not the raw markup**. Don't add a parsing dependency for this.
 
-Write the plain text to `apps/worker/resume/resume.txt`. It must be UTF-8 (a
-non-UTF-8 file aborts worker startup). Two gotchas from `resume/README.md`: **every
-`*.txt` in that directory is loaded as a résumé version**, so if they want targeted
-versions name them `resume_<label>.txt` and delete the generic `resume.txt`; and this
-file is gitignored personal data — never commit it.
+[`references/resume.md`](references/resume.md) has the fallbacks for a file that won't
+render and the multi-version naming rule — read it if the résumé isn't a clean single
+`.txt`/PDF, or if they want role-targeted versions. That file is gitignored personal
+data; never commit it.
 
 ## Step 6 — starter watchlist (delegate to `onboard-board`)
 
