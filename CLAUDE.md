@@ -1,6 +1,9 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and humans) working in this repo.
+Guidance for coding agents (and humans) working in this repo. `AGENTS.md` is a symlink
+to this file, and `.agents/skills` a symlink to `.claude/skills`, so an agent reading
+either convention gets the same instructions and the same skills — there is one copy of
+each, not two to drift apart.
 
 ## The docs
 

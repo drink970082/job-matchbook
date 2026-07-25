@@ -165,6 +165,22 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **The repo's skills and agent instructions are readable by agents other than Claude
+  Code.** `SKILL.md` is a cross-agent standard, but the discovery *paths* are not: Claude
+  Code reads `.claude/skills/`, Codex reads `.agents/skills/`, and the repo had no root
+  `AGENTS.md` at all (the Linux Foundation convention that 30+ agents look for). Both are
+  now symlinks — `.agents/skills` -> `.claude/skills` and `AGENTS.md` -> `CLAUDE.md` —
+  stored by git as mode `120000`, so there is one copy of each and nothing to drift.
+  The link direction is deliberately the reverse of what the plan proposed: the plan
+  wanted the skills *moved* to `.agents/skills/` with `.claude/skills` as the link, gated
+  on first verifying that Claude Code discovers skills through a symlink. Inverting it
+  retires that unverified premise instead of testing it, and the risk is asymmetric — a
+  link Claude Code won't follow breaks the consumer that uses these skills every session,
+  while a link Codex won't follow leaves Codex exactly where it already was. It also
+  leaves `test_add_watched.py`'s `.claude/skills/onboard-board/scripts/add_watched.py`
+  path resolution untouched. Completes track 4, the last of the five provider-choice and
+  onboarding tracks.
+
 - **SPEC's source-coverage matrix is now a tested artifact, not a hand-kept table.**
   `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts its
   rows against `fetch.ADAPTERS` and `config.VALID_SOURCES`, so adding a 14th adapter — or

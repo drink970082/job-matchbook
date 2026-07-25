@@ -92,6 +92,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
   `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
   removed after verifying each adds nothing to `main` outside stale doc copies.
+- **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
+  `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
+  `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
@@ -144,7 +147,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is
   why every `score.txt` change is gated behind `score_eval` — including the additive
   Stage 4 block now sitting unmerged (SPEC §7.1).
-- **Provider choice + universal onboarding — 4 of 5 tracks done.** Design:
+- **Provider choice + universal onboarding — all 5 tracks done.** Design:
   [notes](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md) →
   [design](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md) →
   [11-task plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md).
@@ -154,14 +157,21 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   universality fixes (track 2), `onboard-me` Step 0 (track 3) and the sponsorship
   rework (track 5), plus screen/fit concurrency: all on the branch above, all
   documented in SPEC §7.1/§9/§11 + CHANGELOG.
-  **Still open — track 4, agent portability** — `[S · independent, pick any time]`.
-  `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
-  `.claude/skills/`, Codex reads `.agents/skills/`, so all three skills (`onboard-me`,
-  `onboard-board`, `session-boot`) are invisible to every agent but Claude Code. Move to `.agents/skills/`, symlink `.claude/skills`,
-  add a root `AGENTS.md` (a Linux Foundation standard read by 30+ agents; the repo
-  has none). **Settle first:** whether Claude Code discovers skills *through* a
-  symlinked `.claude/skills` is unverified — if it doesn't, the symlink half of the
-  plan is wrong.
+  **Track 4, agent portability — SHIPPED 2026-07-25** (CHANGELOG). `SKILL.md` is a
+  cross-agent standard but the *paths* differ: Claude Code reads `.claude/skills/`,
+  Codex reads `.agents/skills/`, so all three skills were invisible to every agent but
+  Claude Code, and the repo had no root `AGENTS.md` (a Linux Foundation standard read by
+  30+ agents). Both are now symlinks: `.agents/skills` → `.claude/skills`, `AGENTS.md` →
+  `CLAUDE.md`. **The symlink direction is inverted from the plan, deliberately.** The
+  plan said move the skills to `.agents/skills/` and symlink `.claude/skills`, gated on
+  first settling whether Claude Code discovers skills *through* a symlink — an unverified
+  premise. Pointing the link the other way makes that question moot at zero cost, because
+  the risk is asymmetric: Claude Code is the consumer using these skills every session, so
+  a symlink it doesn't follow is a real regression, while Codex support is currently zero,
+  so a symlink *it* doesn't follow leaves it exactly where it already is. Keeping
+  `.claude/skills` a real directory also leaves `test_add_watched.py`'s path resolution
+  untouched. Git stores both as mode `120000`, so neither is a content copy that can
+  drift.
 
 ---
 
@@ -259,11 +269,8 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    its hallucination-safety holds by construction; what is unmeasured is precision —
    specifically the misclassification residual.
 
-**P2 — the last provider-choice track.**
-
-4. **Track 4, agent portability** — `[S · independent]`. Move the skills to
-   `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` — settle the
-   symlink-discovery question first (see [In flight](#in-flight)).
+**P2 — the last provider-choice track: DONE 2026-07-25** (track 4, agent portability —
+see [In flight](#in-flight)). All five tracks have shipped.
 
 **P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
 (`[S]`, unblocks 2 boards) → `custom` HTML mode (`[M]`, drops 6 boards off Chromium and
