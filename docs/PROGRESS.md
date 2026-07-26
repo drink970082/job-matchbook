@@ -764,8 +764,8 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   until a second recipe shape actually exists.
 - **Balyasny + Jacobs Levy — primitive shipped, boards not yet added** — `[FETCH · XS ·
   operator step]`. The `{field}` URL template landed 2026-07-23 (CHANGELOG), which was
-  the *sole* blocker for both: Balyasny (`data-id="…_REQ8036"` →
-  `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles, one static page,
+  the *sole* blocker for both: Balyasny (`external_id: {attr: "data-id"}` →
+  `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
 - **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,
