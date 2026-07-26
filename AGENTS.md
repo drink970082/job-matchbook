@@ -33,9 +33,10 @@ When you change behavior, update the matching section of `SPEC.md`, `PROGRESS.md
 
 Reusable procedures live in `.claude/skills/` as `SKILL.md` files — the cross-agent
 format. `.agents/skills` is a symlink to that directory for agents that look there.
-**Unverified:** whether any non-Claude agent actually discovers skills *through* a
-symlinked directory is untested — most directory walkers do not follow symlinks by
-default. If yours does not, read `.claude/skills/` directly.
+**Verified on `codex-cli` 0.144.5 (2026-07-26):** Codex discovers all three skills
+*through* the symlink, and finds **none** of them without it — it does not read
+`.claude/skills/` on its own, so the link is load-bearing rather than decorative.
+Other agents are untested; if yours does not follow it, read `.claude/skills/` directly.
 
 Current skills: `session-boot` (load repo state before substantive work), `onboard-me`
 (configure the tool for a user's job hunt), `onboard-board` (add a company to the fetch

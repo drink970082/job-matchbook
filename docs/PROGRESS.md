@@ -202,7 +202,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is
   why every `score.txt` change is gated behind `score_eval` — including the additive
   Stage 4 block now sitting unmerged (SPEC §7.1).
-- **Provider choice + universal onboarding — 4.5 of 5 tracks done.** Design:
+- **Provider choice + universal onboarding — all 5 tracks done** (track 4 closed
+  2026-07-26). Design:
   [notes](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md) →
   [design](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md) →
   [11-task plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md).
@@ -212,7 +213,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   universality fixes (track 2), `onboard-me` Step 0 (track 3) and the sponsorship
   rework (track 5), plus screen/fit concurrency: all on the branch above, all
   documented in SPEC §7.1/§9/§11 + CHANGELOG.
-  **Track 4, agent portability — PARTLY LANDED 2026-07-25, one half still unverified.**
+  **Track 4, agent portability — CLOSED 2026-07-26; the symlink half verified.**
   `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
   `.claude/skills/`, Codex reads `.agents/skills/`, and the repo had no root `AGENTS.md`
   (a Linux Foundation standard read by 30+ agents).
@@ -226,18 +227,27 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `AGENTS.md`. The cost is hand-syncing two files; the review's judgment stands over the
   original design note's, which had also said "a thin root `AGENTS.md` **pointing at**
   `CLAUDE.md`".
-  **NOT verified — `.agents/skills` → `.claude/skills`.** The symlink is in place and the
-  link direction is inverted from the plan (which wanted the skills moved and
-  `.claude/skills` symlinked): keeping `.claude/skills` real protects the consumer that
-  uses these skills every session and leaves `test_add_watched.py`'s path resolution
-  untouched. **But inverting it did not settle the question, it swapped it** — "does
-  Claude Code follow a symlinked `.claude/skills`?" became "does Codex follow a symlinked
-  `.agents/skills`?", which is now the whole deliverable and is untested. Most directory
-  walkers do not follow symlinks by default (Rust `walkdir`/`ignore`, Python `glob('**')`,
-  Node `readdir({recursive:true})`), so the likely answer is no. **To close this: run a
-  non-Claude agent against a checkout and see whether it lists the three skills.** Until
-  someone does, the track is not shipped and `AGENTS.md` says so in its own Skills
-  section.
+  **VERIFIED 2026-07-26 — `.agents/skills` → `.claude/skills` works, and is
+  load-bearing.** The link direction is inverted from the plan (which wanted the skills
+  moved and `.claude/skills` symlinked): keeping `.claude/skills` real protects the
+  consumer that uses these skills every session and leaves `test_add_watched.py`'s path
+  resolution untouched. That inversion swapped the open question rather than settling it
+  — "does Codex follow a symlinked `.agents/skills`?" — and the guess recorded here was
+  **no** (most directory walkers don't follow symlinks: Rust `walkdir`/`ignore`, Python
+  `glob('**')`, Node `readdir({recursive:true})`). The guess was wrong.
+  **Method — three `git archive HEAD` checkouts, `codex exec --sandbox read-only` in
+  each, differing only in which directory exists:** with the symlink, all three skills
+  load (resolved to their real `.claude/skills/...` paths); with `.agents/` removed but
+  `.claude/skills/` intact, **none** load; with neither, none. So Codex follows the
+  symlink *and* never reads `.claude/skills` on its own — remove the link and a Codex
+  session silently loses every repo skill. `codex-cli 0.144.5`; other agents still
+  untested, and `AGENTS.md` says so.
+  **Do not ask the agent — read the rollout.** Asking Codex to list its skills gave
+  three mutually inconsistent answers across runs, and in the *neither* checkout it
+  confidently named all three: `AGENTS.md`'s own "Current skills:" line is in its
+  context, so the model recites it whether or not a skill loaded. The evidence is the
+  session rollout under `~/.codex/sessions/`, whose skills-registry block lists each
+  loaded skill as `- name: description (file: <abs path>)`.
 
 ---
 
@@ -263,7 +273,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
-| `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 5 |
+| `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 — the `.agents/skills` link is verified (2026-07-26) |
 
 The five *evaluated-and-rejected* records under
 [Architecture / maintainability](#architecture--maintainability) are named by block
@@ -373,11 +383,12 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    sentence; deferred because the invitation shape needs a prose pattern that can itself
    misfire, and 90.9% already beats the gate it replaced.
 
-**P2 — the last provider-choice track: track 4, agent portability — HALF DONE.**
-`AGENTS.md` landed 2026-07-25; the `.agents/skills` symlink is in place but **nobody has
-run a non-Claude agent against a checkout to confirm it discovers the skills**, and the
-default behavior of most directory walkers says it probably does not. `[XS]` to close:
-run one and record what it listed. See [In flight](#in-flight).
+**P2 — the last provider-choice track: track 4, agent portability — DONE 2026-07-26.**
+Codex was run against three `git archive` checkouts differing only in which skills
+directory exists: it discovers all three skills **through** the `.agents/skills`
+symlink and finds none of them without it. The link is load-bearing, not decorative.
+See [In flight](#in-flight) for the method and for why the agent's own answer is not
+the evidence.
 
 **P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
@@ -753,8 +764,8 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   until a second recipe shape actually exists.
 - **Balyasny + Jacobs Levy — primitive shipped, boards not yet added** — `[FETCH · XS ·
   operator step]`. The `{field}` URL template landed 2026-07-23 (CHANGELOG), which was
-  the *sole* blocker for both: Balyasny (`data-id="…_REQ8036"` →
-  `/s/details?jobReq={data-id}`) and Jacobs Levy (5 roles, one static page,
+  the *sole* blocker for both: Balyasny (`external_id: {attr: "data-id"}` →
+  `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
 - **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,

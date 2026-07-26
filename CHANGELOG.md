@@ -511,6 +511,22 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Documentation
 
+- **The `.agents/skills` symlink is verified, and it turns out to be load-bearing.** It
+  shipped 2026-07-25 marked unverified, with the recorded guess that Codex would *not*
+  follow a symlinked skills directory — most directory walkers don't (Rust
+  `walkdir`/`ignore`, Python `glob('**')`, Node `readdir({recursive:true})`). Three
+  `git archive HEAD` checkouts, `codex exec --sandbox read-only` in each, differing only
+  in which directory exists: with the symlink all three repo skills load (resolved to
+  their real `.claude/skills/...` paths); with `.agents/` removed and `.claude/skills/`
+  intact **none** load; with neither, none. So Codex follows the link *and* never reads
+  `.claude/skills` on its own — deleting the link silently costs a Codex session every
+  repo skill. `codex-cli 0.144.5`; other agents remain untested and `AGENTS.md` says so.
+  **Asking the agent is not the test:** Codex gave three inconsistent answers across
+  runs and, in the checkout with no skills at all, confidently named all three — it was
+  reciting `AGENTS.md`'s own "Current skills:" line out of its context. The evidence is
+  the session rollout's skills-registry block under `~/.codex/sessions/`. Closes track 4
+  of provider-choice-and-onboarding, the last of its five.
+
 - **Agent context slimmed, and the self-merge review contradiction resolved.** An audit
   against Anthropic's 2026-07-24 context-engineering guidance found `CLAUDE.md` paying
   for content a session can derive itself and, worse, carrying a rule that contradicted
