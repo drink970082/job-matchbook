@@ -93,6 +93,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
   `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
   removed after verifying each adds nothing to `main` outside stale doc copies.
+- **The six-PR stack (#7 → #10 → #11 → #12 → #13 → #14) — reviewed twice, merging
+  2026-07-26.** Every branch passed CI and two rounds of the §7 fresh-subagent review.
+  Round 1 found real defects on all five authored PRs; round 2 found defects **in the
+  fixes**, including one where the same emptiness-check bug was reintroduced a third time
+  through a new empty value. Both rounds' findings are closed. The lasting outputs are two
+  contracts that make the fragile parts fail loudly: `tests/fixtures/sponsorship_quotes.json`
+  (the sponsorship gate's corpus) and the rule that a strict-mode schema violation must red
+  the suite rather than 400 in production. **Deferred by decision, not oversight:** the
+  `_quote_on_topic` inversion (see Unverified / deferred).
 - **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
   `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
   `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
@@ -203,7 +212,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -380,6 +389,40 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 (see [In flight](#in-flight)); that precondition is now **met**.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
+
+- **Rebuild `_quote_on_topic` as positive-evidence, and scope the phrase floor** —
+  `[SCREEN · S · design decided 2026-07-26 by the operator · do not re-derive the fork]`.
+  **The design call, so the next session does not relitigate it:** on this path a wrong
+  discard and a wrong keep are not comparable. A kept row reaches the human, who reads the
+  JD and catches it; a discarded row is reviewed by nobody. So a MISS is self-correcting
+  and costs one paid fit call, while a FALSE POSITIVE silently deletes a real opportunity.
+  Optimize for keeping.
+  **What to build.** Today the gate fires whenever an authorization word appears and vetoes
+  the exceptions (off-topic / wrong-polarity / soft-preference). That is "discard by
+  default, and the author must anticipate every innocent sentence in English" — three
+  review rounds each found a category that had not been anticipated, and one shipped
+  version disqualified *"We offer generous personal time off"*. **Invert it:** fire only on
+  positive evidence of an employer refusal or a hard bar (`we do not/cannot/will not
+  sponsor`, `sponsorship is not available/offered`, `must be a citizen`, `must have
+  unrestricted authorization`, `must hold permanent residency`); anything unmatched keeps.
+  An incomplete list then produces a miss instead of a wrong discard. All three vetoes
+  become unnecessary rather than needing to be correct — an EEO line, "Visa sponsorship is
+  available", and "prioritizing applicants" each carry no refusal marker.
+  **Second half:** `NO_SPONSOR_PHRASES` is ungated and scans the WHOLE description, which
+  is where both remaining false positives come from (IMC 465/490 — *"or are eligible to
+  work without sponsorship, we encourage you to apply"* is an invitation). Scope it to fire
+  only when the model produced no quote at all.
+  **Expected:** precision near 100%, recall meaningfully below it. That is the intended
+  trade, not a regression — say so in SPEC when the numbers move.
+  **Known and NOT the fix:** the fit scorer's Stage 4 re-check does not cover
+  authorization. `_screen_verdict` always writes the `authorization` key (the phrase floor
+  gives it a verdict with no model data), so `merge_fallback_screen`'s `key not in already`
+  gap test never sees it; verified 2026-07-26. Do not "fix" that to get a second opinion —
+  a second model vote on a disqualification doubles the false-positive surface, which is
+  why that function is a fallback and not a vote (its own docstring). The second checker
+  is the human.
+  **Contract to keep:** `tests/fixtures/sponsorship_quotes.json`. Must-keep should go clean;
+  list the must-flag misses rather than papering over them.
 
 - **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
   `[FETCH · decided 2026-07-22 · do not re-derive]`. `browser/citadel.com` and
