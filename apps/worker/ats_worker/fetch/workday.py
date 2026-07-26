@@ -11,6 +11,9 @@ e.g. "arrowstreetcapital/wd5/Campus_Careers".
 """
 from __future__ import annotations
 
+import re
+from datetime import date, timedelta
+
 import requests
 
 from ats_worker.fetch._paged import paged_details
@@ -20,6 +23,18 @@ SOURCE = "workday"
 _CXS = "https://{tenant}.{dc}.myworkdayjobs.com/wday/cxs/{tenant}/{site}"
 _JSON = {"Content-Type": "application/json"}
 PAGE = 20  # Workday hard-caps the list page size at 20
+
+# The list stub's only date is prose: "Posted 30+ Days Ago" / "Posted 5 Days Ago".
+# Match just that English "N[+] Day(s) Ago" form; the number is a LOWER bound on age
+# ("30+" means at least 30). Anything else (Today/Yesterday, other locales/wording)
+# yields no age, so posted_at stays None and the max-age gate keeps the posting —
+# a mis-parse can never silently drop a good one.
+_AGE_DAYS = re.compile(r"(\d+)\s*\+?\s*days?\s+ago", re.I)
+
+
+def _stub_age_days(prose) -> int | None:
+    m = _AGE_DAYS.search(prose or "")
+    return int(m.group(1)) if m else None
 
 
 def _parts(slug: str):
@@ -39,18 +54,25 @@ def parse_listing(payload: dict) -> list[dict]:
     return payload.get("jobPostings", []) if isinstance(payload, dict) else []
 
 
-def parse_stub(stub: dict, company_name: str) -> dict:
+def parse_stub(stub: dict, company_name: str, now=None) -> dict:
     """A PARTIAL posting from a list stub — only what the deterministic fetch-cost
-    gate reads (title + location). Deliberately carries no `external_id`: the GUID
-    lives in the detail payload, so this shape must never be stored as a row.
-    `postedOn` is prose ("Posted 30+ Days Ago"), so posted_at is None — which the
-    age filter treats as keep, erring toward the detail call."""
+    gate reads (title + location + date). Deliberately carries no `external_id`: the
+    GUID lives in the detail payload, so this shape must never be stored as a row.
+
+    `postedOn` is relative prose ("Posted 30+ Days Ago"). Given `now` (the injected
+    clock), a parseable age becomes an ISO date `now - age` so the max-age gate can
+    drop a stale stub before its detail call. Unparseable prose (or no `now`) leaves
+    posted_at None, which the gate keeps — so a mis-parse never drops a good posting."""
+    age = _stub_age_days(stub.get("postedOn"))
+    posted_at = None
+    if now is not None and age is not None:
+        posted_at = (date.fromisoformat(str(now)[:10]) - timedelta(days=age)).isoformat()
     return {
         "source": SOURCE,
         "company_name": company_name,
         "job_title": (stub.get("title") or "").strip(),
         "location": stub.get("locationsText") or None,
-        "posted_at": None,
+        "posted_at": posted_at,
     }
 
 
@@ -90,7 +112,7 @@ def fetch_one(slug: str, external_id: str, company_name: str,
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20, keep=None) -> list[dict]:
+          timeout: int = 20, keep=None, now=None) -> list[dict]:
     """List a workday board. `keep(stub) -> 'drop' | ...` is an OPTIONAL fetch-cost
     gate: the list stub already carries the title, so a title/age-rejected posting
     can skip its detail GET (the dominant cost — one per posting on boards that run
@@ -118,7 +140,7 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     def _row(http, stub):
         # m1: skip one bad posting, don't abort the company. (m3: an empty
         # external_id — no id, no jobReqId — is skipped by paged_details.)
-        if keep is not None and keep(parse_stub(stub, company_name)) == "drop":
+        if keep is not None and keep(parse_stub(stub, company_name, now)) == "drop":
             return None       # never stored, no detail call, no id to reconcile
         try:
             detail = http.get(cxs + stub["externalPath"], headers=_JSON, timeout=timeout)
