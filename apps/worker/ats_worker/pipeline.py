@@ -556,8 +556,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                 # abort that printed nothing would look exactly like a pass with no work
                 # to do — the same silence this breaker exists to end.
                 print("[screen] screen backend appears down "
-                      f"({_BREAKER_LIMIT} provider errors, no successes) — aborting the "
-                      "screen phase; remaining rows stay 'new'")
+                      f"({screen_breaker.failures} consecutive failures, no successes) "
+                      "— aborting the screen phase; rows after this point stay 'new'")
                 for pending in futures:
                     pending.cancel()
                 break
