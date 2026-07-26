@@ -282,11 +282,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `interpolate`/`_PLACEHOLDER` machinery rather than a second interpolator. Detection
   matches the `custom` path's rule, and CSS selectors never contain braces, so no
   shipped recipe changes meaning. Fields the canonical posting dict ignores are
-  extracted too, so a recipe can carry a url-only helper field. The interpolated URL
+  extracted too, so a recipe can carry a url-only helper field — e.g.
+  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, resolved
+  against the listing `base_url`. The interpolated URL
   enters the pipeline at the same point as a scraped `href` and passes the same
   `is_safe_public_url` guard in `browser.fetch` — no new fetch path (regression-tested
-  with a template resolving to a link-local address). Unblocks two watchlist candidates
-  that were blocked on this primitive alone; no adapter changed.
+  with a template resolving to a link-local address). Unblocks the Balyasny / Jacobs
+  Levy-shape boards that were blocked on this primitive alone; no adapter changed.
 
 - **`test_no_source_specific_logic` — an architecture guard welding the fetch layer's
   main invariant in place.** Which adapter runs is decided by data (the watchlist row's
@@ -365,18 +367,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   a full re-fetch. `--score-limit N` caps how many `new` rows `run_score` touches in one
   pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
   remainder stays `new` for the next pass.
-
-- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
-  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
-  recipes could only read a `url` off the card via a CSS selector, so a board whose
-  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
-  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
-  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
-  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
-  resolved against the listing `base_url`. The interpolation namespace is the recipe's
-  **own `fields` map**, so a helper field the canonical posting ignores (`req`, say) can
-  still feed the template. Any other `url` spec stays a CSS selector as before. Unblocks
-  Balyasny / Jacobs Levy-shape boards without touching an adapter.
 
 ### Changed
 

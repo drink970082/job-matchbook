@@ -332,8 +332,10 @@ run one and record what it listed. See [In flight](#in-flight).
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
 two `[S]` items that led this queue both shipped on `main` and closed in the
 integration: `browser` `{field}` templates (which unblock Balyasny / Jacobs Levy — the
-boards themselves are still an operator step) and the workday prose-date parser (which
-age-gates the remaining 6,703 detail calls).
+boards themselves are still an operator step) and the workday prose-date parser. The
+parser's *reduction* is not banked — it age-gates the remaining 6,703 detail calls only
+as far as `max_age_days` and board staleness allow, and how far that is has never been
+measured (see Unverified / deferred).
 
 **P4 — everything else below.** SSRF residuals, the `@@unique` migration, schema
 migration path, deployment/monitoring, dead-link sweep, more adapters, README
@@ -393,6 +395,16 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
+  needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
+  prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
+  call (CHANGELOG, SPEC §7.1). Only the confident English `"N[+] Days Ago"` form is
+  parsed — a lower bound on age — so "Today"/"Yesterday" and any other locale/wording
+  leave `posted_at` None and are kept; a mis-parse can never drop a good posting.
+  Unmeasured: how much of the ~6,703 remaining detail calls this actually cuts (depends
+  on `max_age_days` config and how stale each board is) — the projected drop awaits a
+  live run. Carried over from `main`; the 2026-07-26 integration dropped it once and the
+  §7 review caught it.
 - **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
   `[FETCH · decided 2026-07-22 · do not re-derive]`. `browser/citadel.com` and
   `browser/citadelsecurities.com` scrape their listing pages fine (10 postings each,
