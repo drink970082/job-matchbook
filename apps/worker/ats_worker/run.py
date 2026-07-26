@@ -117,10 +117,20 @@ def _scorer_meta(backend: str, *,
                  anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> dict:
     """Who scored it: the three provenance fields persisted into every fit-scored
     row's score_detail. Branches on `backend` alongside make_scorer above so the
-    stamp can't claim a model the scorer wasn't built with."""
+    stamp can't claim a model the scorer wasn't built with.
+
+    Raises on an unknown backend exactly as make_scorer does, rather than falling
+    through to the Anthropic model. Failing open here writes a provenance stamp that is
+    silently WRONG — worse than no stamp, because the whole point of the field is to
+    tell you later which model produced a verdict. `--score-backend` has `choices=`, but
+    argparse does not validate an env-supplied `default`, so SCORE_BACKEND=openai in a
+    .env reaches this function unchecked."""
+    models = {"codex": codex_score_model, "claude": anthropic_score_model}
+    if backend not in models:
+        raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
     return {
         "backend": backend,
-        "model": codex_score_model if backend == "codex" else anthropic_score_model,
+        "model": models[backend],
         "scorer_version": prompts_mod.SCORER_VERSION,
     }
 
