@@ -3,8 +3,8 @@
 **Date:** 2026-07-23 · **Status:** design agreed, not yet implemented
 **Supersedes the relevant parts of:**
 [`2026-07-22-provider-choice-and-onboarding-notes.md`](./2026-07-22-provider-choice-and-onboarding-notes.md)
-(tracks 1 and 5; tracks 2 and 3 shipped 2026-07-23; track 4 half-shipped 2026-07-25 --
-AGENTS.md landed, the skills-symlink half is unverified, see PROGRESS "In flight").
+(tracks 1 and 5; tracks 2 and 3 shipped 2026-07-23; track 4 closed 2026-07-26 --
+AGENTS.md landed, and the `.agents/skills` symlink is verified load-bearing for Codex).
 
 Covers P1 items 3 (screen backends + sponsorship gate) and the concurrency work that
 rides with them.
