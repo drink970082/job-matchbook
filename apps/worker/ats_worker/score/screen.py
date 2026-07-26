@@ -293,21 +293,25 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     entry = lambda k: screen.get(k) if isinstance(screen.get(k), dict) else {}
 
-    # degree/clearance are gated on the model ACTUALLY returning an entry, not just on
+    # degree/clearance are gated on the model ACTUALLY returning a VALUE, not just on
     # the candidate configuring the check. Both err toward pass on absent data, so
     # materializing the key anyway makes a ran-but-blind check byte-identical to a
     # genuinely-passed one — and `merge_fallback_screen` can then never see the gap.
+    # The test is the value, not the entry dict: under a strict schema the model must
+    # emit every key, so `{"required_degree": null}` is a non-empty dict that says
+    # NOTHING. Reading the dict's truthiness here would silently retire the Stage 4
+    # fallback the moment the schema became strict.
     # `authorization` deliberately still writes its key on an empty entry: it has an
     # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
     # with no model data at all.
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip())
-         and bool(entry("degree")),
+         and entry("degree").get("required_degree") is not None,
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
          *_check_authorization(candidate.get("work_authorization"), description,
                                entry("authorization")))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
-         and bool(entry("clearance")),
+         and entry("clearance").get("requires_clearance") is not None,
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
     return {

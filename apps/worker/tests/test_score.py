@@ -821,11 +821,58 @@ def test_score_schema_multi_resume_adds_enum_field():
     assert "recommended_resume" not in score._SCORE_SCHEMA["required"]
 
 
+def _strict_mode_violations(node, path="$"):
+    """Every object in a schema sent to OpenAI structured output must list EVERY key of
+    `properties` in `required`, or the API rejects the whole request with a 400
+    (invalid_json_schema) before the model runs. Yields the offenders."""
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            yield from _strict_mode_violations(item, f"{path}[{i}]")
+        return
+    if not isinstance(node, dict):
+        return
+    props = node.get("properties")
+    if isinstance(props, dict):
+        missing = set(props) - set(node.get("required") or [])
+        if missing:
+            yield f"{path}: properties {sorted(missing)} not in required"
+    for key, value in node.items():
+        yield from _strict_mode_violations(value, f"{path}.{key}")
+
+
+def test_schema_is_strict_mode_valid():
+    # The defect this pins cost a whole eval run: 66dfb65's `screen` block had
+    # `properties` and no `required`, so EVERY codex fit call 400'd -- the scorer was
+    # not degraded, it was dead, and only the ollama path (non-strict) still worked.
+    # SCREEN_SCHEMA carried the same defect on its own code path.
+    from ats_worker.score.prompts import SCREEN_SCHEMA
+    for name, schema in (("_score_schema", score._score_schema(["resume"])),
+                         ("SCREEN_SCHEMA", SCREEN_SCHEMA)):
+        bad = list(_strict_mode_violations(schema, name))
+        assert not bad, "strict-mode violations:\n" + "\n".join(bad)
+
+
+def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
+    # Under the strict schema the model MUST emit every key, so a blind check arrives
+    # as {"required_degree": None} -- a non-empty dict that says nothing. Gating on the
+    # dict's truthiness would mark it "passed" and silently retire the Stage 4 fallback.
+    data = {"screen": {"degree": {"required_degree": None},
+                       "clearance": {"requires_clearance": None}}}
+    out = score.screen._screen_verdict(
+        data, {"highest_degree": "bachelors", "security_clearance": "none"}, "JD text")
+    assert "degree" not in out["screen"], "blind degree extraction must not materialize"
+    assert "clearance" not in out["screen"]
+    assert out["disqualified"] is False
+
+
 def test_score_schema_carries_enum_constrained_assessment():
     # S2.1: the scorecard replaces the flat reasoning/keyword fields; verdicts are
     # enum-constrained so structured outputs enforce them.
     schema = score._score_schema(["resume"])
-    assert schema["required"] == ["assessment", "score", "insufficient_context"]
+    # `screen` is in `required` because strict structured output has no optional keys —
+    # see test_schema_is_strict_mode_valid. Its VALUE is nullable, which is what keeps
+    # "a scorer with nothing to say must not fail the card" true.
+    assert schema["required"] == ["assessment", "score", "insufficient_context", "screen"]
     assert schema["properties"]["insufficient_context"] == {"type": "boolean"}
     for gone in ("reasoning", "matched_keywords", "missing_keywords"):
         assert gone not in schema["properties"]

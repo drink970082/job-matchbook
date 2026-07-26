@@ -76,31 +76,40 @@ _SCORE_SCHEMA = {
         # row to the low-context bucket regardless of the (still-required) score.
         "insufficient_context": {"type": "boolean"},
         # Fallback hard-requirement extraction, consumed ONLY where the screen produced
-        # nothing (SCREEN_BACKEND=none, or a swallowed screen failure). Not required:
-        # a scorer that omits it must not fail the whole card.
+        # nothing (SCREEN_BACKEND=none, or a swallowed screen failure).
+        # STRICT-MODE SHAPE, and it is not optional to get right: OpenAI structured
+        # output rejects the whole request (HTTP 400 invalid_json_schema) unless EVERY
+        # object lists EVERY one of its properties in `required`. There is no such thing
+        # as an optional key. "Omitted" is therefore expressed as an explicit null —
+        # `screen` is object-or-null, and each leaf value is nullable — which is what
+        # keeps "a scorer that has nothing to say must not fail the card" true.
         "screen": {
-            "type": "object",
+            "type": ["object", "null"],
             "properties": {
                 "degree": {
                     "type": "object",
                     "properties": {"required_degree": {"type": ["string", "null"]}},
+                    "required": ["required_degree"],
                     "additionalProperties": False,
                 },
                 "authorization": {
                     "type": "object",
                     "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
+                    "required": ["no_sponsorship_quote"],
                     "additionalProperties": False,
                 },
                 "clearance": {
                     "type": "object",
-                    "properties": {"requires_clearance": {"type": "boolean"}},
+                    "properties": {"requires_clearance": {"type": ["boolean", "null"]}},
+                    "required": ["requires_clearance"],
                     "additionalProperties": False,
                 },
             },
+            "required": ["degree", "authorization", "clearance"],
             "additionalProperties": False,
         },
     },
-    "required": ["assessment", "score", "insufficient_context"],
+    "required": ["assessment", "score", "insufficient_context", "screen"],
     "additionalProperties": False,
 }
 
@@ -209,19 +218,23 @@ SCREEN_SCHEMA = {
                 "degree": {
                     "type": "object",
                     "properties": {"required_degree": {"type": ["string", "null"]}},
+                    "required": ["required_degree"],
                     "additionalProperties": False,
                 },
                 "authorization": {
                     "type": "object",
                     "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
+                    "required": ["no_sponsorship_quote"],
                     "additionalProperties": False,
                 },
                 "clearance": {
                     "type": "object",
-                    "properties": {"requires_clearance": {"type": "boolean"}},
+                    "properties": {"requires_clearance": {"type": ["boolean", "null"]}},
+                    "required": ["requires_clearance"],
                     "additionalProperties": False,
                 },
             },
+            "required": ["degree", "authorization", "clearance"],
             "additionalProperties": False,
         },
     },
