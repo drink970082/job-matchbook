@@ -110,6 +110,25 @@ def test_run_fetch_requires_injected_fetch_fn():
     assert inspect.signature(pipeline.run_fetch).parameters["fetch_fn"].default is None
 
 
+def test_run_fetch_passes_now_to_the_workday_stub_gate(db_path):
+    # workday's list stub dates are relative prose, so parse_stub needs `now` to make
+    # them comparable. It reaches workday.fetch via kw; phenom.fetch takes no `now`.
+    conn = db.connect(db_path)
+    seen = {}
+
+    def fetch_fn(source, slug, name, **kw):
+        seen[source] = kw
+        return []
+
+    companies = [{"source": "workday", "slug": "t/wd5/s", "name": "W"},
+                 {"source": "phenom", "slug": "x", "name": "P"}]
+    pipeline.run_fetch(conn, companies, None, now=NOW, fetch_fn=fetch_fn, max_age_days=30)
+    assert seen["workday"].get("now") == NOW      # threaded for workday
+    assert "keep" in seen["workday"]
+    assert "now" not in seen["phenom"]            # not for phenom (its fetch rejects it)
+    assert "keep" in seen["phenom"]
+
+
 def test_run_fetch_raises_when_fetch_fn_missing(db_path):
     # Omitting fetch_fn must fail loud (a wiring mistake), not degrade into a
     # per-company swallowed TypeError that silently fetches nothing.

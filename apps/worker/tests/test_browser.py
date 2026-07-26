@@ -367,6 +367,36 @@ def test_parse_jobs_no_matches_returns_empty():
     assert browser.parse_jobs([CITADEL_LIST], recipe, "X") == []
 
 
+# A Balyasny-shape board: the id lives in a data-* attr, routing is JS-side, so the
+# card carries no href — job_url can only be built by templating an extracted field.
+_TEMPLATE_URL_LIST = """
+<html><body>
+  <div class="job" data-id="Quant_REQ8036">
+    <span class="t">Quantitative Researcher</span>
+    <span class="loc">New York</span>
+  </div>
+</body></html>
+"""
+
+_TEMPLATE_URL_RECIPE = {
+    "url": "https://careers.bamfunds.com/careers",
+    "item": "div.job",
+    "fields": {
+        "title": ".t",
+        "location": ".loc",
+        "external_id": {"attr": "data-id"},
+        "url": "/s/details?jobReq={external_id}",
+    },
+}
+
+
+def test_parse_jobs_url_template_interpolates_an_extracted_field():
+    [job] = browser.parse_jobs([_TEMPLATE_URL_LIST], _TEMPLATE_URL_RECIPE, "Balyasny")
+    assert job["external_id"] == "Quant_REQ8036"
+    # `{external_id}` filled from the extracted field, then resolved against base_url.
+    assert job["job_url"] == "https://careers.bamfunds.com/s/details?jobReq=Quant_REQ8036"
+
+
 def test_apply_detail_merges_description():
     [job] = browser.parse_jobs([CITADEL_LIST], CITADEL_RECIPE, "Citadel Securities")[:1]
     assert job["description"] == ""

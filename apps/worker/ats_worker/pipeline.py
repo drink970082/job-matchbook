@@ -35,7 +35,8 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from . import db, score
-from .fetch import DETAIL_SOURCES, STUB_GATE_SOURCES, prefilter_postings
+from .fetch import (DETAIL_SOURCES, STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES,
+                    prefilter_postings)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
 
@@ -80,6 +81,12 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             kw = {"recipe": c["recipe"]} if c.get("recipe") is not None else {}
             if c["source"] in STUB_GATE_SOURCES:
                 kw["keep"] = _keep
+                if c["source"] in STUB_GATE_NOW_SOURCES:
+                    # Relative-prose stub dates need the injected clock to become a
+                    # date the age gate can read; the other stub-gate adapters'
+                    # fetch takes no `now`. Which sources those are is the fetch
+                    # layer's to know, not ours.
+                    kw["now"] = now
             postings = fetch_fn(c["source"], c["slug"], c["name"], **kw)
             kept = prefilter_postings(
                 postings, title_filter=title_filter, title_exclude=title_exclude,
