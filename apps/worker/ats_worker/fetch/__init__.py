@@ -38,6 +38,14 @@ RECIPE_SOURCES = frozenset({"custom", "browser"})
 # stored, so it has no id to reconcile (see the 2026-07-21 stub-gate design).
 STUB_GATE_SOURCES = frozenset({"phenom", "workday"})
 
+# Of those, the ones whose fetch also accepts `now`: workday's list stub dates
+# itself in relative prose ("Posted 30+ Days Ago"), so parse_stub needs the
+# injected clock to turn it into a date the max-age gate can read. Every other
+# stub-gate adapter's fetch would reject the kwarg. Declared here, next to the
+# dispatch table, so the orchestration layer selects by membership instead of
+# naming a board (test_no_source_specific_logic).
+STUB_GATE_NOW_SOURCES = frozenset({"workday"})
+
 # Sources fetched ONE job at a time (no public board-list endpoint), via
 # adapter.fetch_one. The feed's detail-fetch path routes these.
 DETAIL_SOURCES = frozenset(s for s, m in ADAPTERS.items() if hasattr(m, "fetch_one"))
@@ -125,7 +133,8 @@ def fetch_one_company(source: str, slug: str, external_id: str,
 
 
 __all__ = [
-    "ADAPTERS", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "filter_postings", "prefilter_postings",
+    "ADAPTERS", "DETAIL_SOURCES", "STUB_GATE_SOURCES", "STUB_GATE_NOW_SOURCES",
+    "filter_postings", "prefilter_postings",
     "fetch_company", "fetch_one_company",
     "ashby", "greenhouse", "lever", "workday", "pinpoint", "smartrecruiters",
     "workable", "icims", "phenom", "custom", "browser", "oracle", "jobvite",
