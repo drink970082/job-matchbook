@@ -1415,7 +1415,7 @@ def test_requeue_discarded_returns_rows_to_new_for_a_later_screen(db_path):
                        fit_fn=lambda ps: [_card() for _ in ps])
     assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
 
-    assert db.requeue_discarded(conn, LATER) == 1
+    assert db.requeue_discarded(conn, LATER)[0] == 1
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "new"
     assert row["updated_at"] == LATER
@@ -1440,7 +1440,7 @@ def test_requeue_discarded_leaves_un_hydrated_stub_discards_alone(db_path):
         (NOW, NOW))
     conn.commit()
 
-    assert db.requeue_discarded(conn, LATER) == 0
+    assert db.requeue_discarded(conn, LATER)[0] == 0
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "discarded", "un-hydrated stub was requeued"
 
@@ -1448,7 +1448,7 @@ def test_requeue_discarded_leaves_un_hydrated_stub_discards_alone(db_path):
     # not a blanket refusal.
     conn.execute("UPDATE job_postings SET description='A real job description.'")
     conn.commit()
-    assert db.requeue_discarded(conn, LATER) == 1
+    assert db.requeue_discarded(conn, LATER)[0] == 1
 
 
 def test_requeue_discarded_leaves_every_other_status_alone(db_path):
@@ -1462,7 +1462,7 @@ def test_requeue_discarded_leaves_every_other_status_alone(db_path):
         "SELECT id FROM job_postings WHERE external_id='failed'").fetchone()[0]
     db.mark_failed(conn, pid, error="boom", now=NOW)
 
-    assert db.requeue_discarded(conn, LATER) == 0
+    assert db.requeue_discarded(conn, LATER)[0] == 0
     status = {r["external_id"]: r["pipeline_status"]
               for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert status == {"new": "new", "scored": "scored", "failed": "failed"}

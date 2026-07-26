@@ -24,10 +24,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   twin — and since aborted rows keep `attempts=0` and never reach the Failed tab, a
   misconfigured provider produced a pass that did nothing and said nothing, the same
   silence the breaker was built to end. It also called `record_failure()` only on the
-  `provider_error` verdict, not on the `except` path, so a backend whose failure mode
-  *raises* marched every row to `failed` uncounted — three passes (18 hours at
-  `schedule_hours: 6`) would park the backlog terminal, the outcome the breaker exists to
-  prevent. Both fixed, and both now covered by tests that fail when the breaker is stubbed
+  `provider_error` verdict, not on the `except` path, so a screen failure that *raises*
+  was invisible to the breaker while still marking rows `failed`. Scope that honestly:
+  `screen_posting` wraps the backend call in its own `except`, so today's wiring cannot
+  propagate a provider raise — this half is defensive symmetry with the fit phase (which
+  pairs `record_failure()` with every `mark_failed`), not a live outage path. Both fixed,
+  and both now covered by tests that fail when the breaker is stubbed
   out — the two pre-existing tests do not, since a `provider_error` row is skipped with or
   without a breaker.
 
