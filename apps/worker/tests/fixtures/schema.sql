@@ -30,6 +30,7 @@ CREATE TABLE "job_postings" (
     "pipeline_status" TEXT NOT NULL DEFAULT 'new',
     "pipeline_error" TEXT,
     "attempts" INTEGER NOT NULL DEFAULT 0,
+    "notify_attempts" INTEGER NOT NULL DEFAULT 0,
     "application_id" INTEGER,
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,

@@ -224,6 +224,21 @@ def test_non_numeric_numeric_fields_raise_config_error(key):
         config.load_config(bad)
 
 
+@pytest.mark.parametrize("value", [0, -1, -24])
+def test_rejects_non_positive_schedule_hours(value):
+    # run.main feeds schedule_hours straight into APScheduler's interval trigger,
+    # whose IntervalTrigger falls back to a 1-SECOND period when every component is
+    # zero -> a hot loop over the whole watchlist. A 0/negative interval is always a
+    # config typo; fail loud at startup, not with a runaway daemon.
+    with pytest.raises(config.ConfigError, match="schedule_hours"):
+        config.load_config(f"companies: []\nschedule_hours: {value}\n")
+
+
+def test_allows_minimum_schedule_hours():
+    cfg = config.load_config("companies: []\nschedule_hours: 1\n")
+    assert cfg.schedule_hours == 1
+
+
 def test_root_not_a_mapping_raises():
     with pytest.raises(config.ConfigError, match="mapping"):
         config.load_config("- a\n- b\n")

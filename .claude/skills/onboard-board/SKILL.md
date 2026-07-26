@@ -30,7 +30,8 @@ always prefer the earliest rung that actually works.
 
 1. **Platform** — the board runs on a known ATS. Onboarding is just `{source, slug}`,
    no recipe. Supported: `greenhouse, lever, ashby, workday, pinpoint, smartrecruiters,
-   workable, icims, phenom`.
+   workable, icims, phenom` — authoritative list is `ADAPTERS` in
+   `apps/worker/ats_worker/fetch/__init__.py` (minus the recipe and feed-only sources).
 2. **Plain-HTTP `custom` recipe** — plain `requests` can reach a JSON endpoint, a
    `__NEXT_DATA__` blob, or json-ld on the page. Write a `custom` recipe.
 3. **Browser `browser` recipe** — plain HTTP is blocked (Cloudflare/bot wall) or the
@@ -122,6 +123,13 @@ read the card structure, and write CSS selectors:
       location: ".careers-listing-card__location"
       url: { attr: href }            # no selector = the item node itself
       external_id: { attr: href, extract: "details/([^/]+)/" }  # regex group 1
+      # url may INSTEAD be a "{field}" template over this recipe's own other fields —
+      # for cards with no href (id in a data-* attr, routing JS-side). Any string
+      # containing { is treated as a template, e.g.
+      #   external_id: { attr: data-id, extract: "_(REQ\\d+)$" }
+      #   url: "/s/details?jobReq={external_id}"
+      # A name the recipe doesn't define substitutes empty. Relative results are
+      # resolved against the recipe url, and the SSRF guard applies as normal.
     detail: { url_field: job_url, fields: { description: ".single-job-post-description" } }
 ```
 

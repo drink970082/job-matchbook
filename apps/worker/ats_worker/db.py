@@ -312,27 +312,77 @@ def record_notify_failure(conn, posting_id: int, *, error: str, now: str,
                           exhausted: bool) -> None:
     """Record a failed notify send. Unlike mark_failed (terminal), the row keeps
     its 'scored' status — so the next pass retries the send — until the caller
-    declares the retry budget exhausted, which parks it 'failed'. Either way the
-    error and the attempts counter land on the row, so a retrying failure is
-    visible, not swallowed."""
+    declares the retry budget exhausted, which parks it 'failed'. The charge lands
+    on notify_attempts (delivery's OWN budget, separate from score `attempts`), so
+    a retrying failure is visible, not swallowed, and score hiccups can't pre-spend
+    the notify budget."""
     conn.execute(
         "UPDATE job_postings SET pipeline_status=?, pipeline_error=?, "
-        "attempts=attempts+1, updated_at=? WHERE id=?",
+        "notify_attempts=notify_attempts+1, updated_at=? WHERE id=?",
         ("failed" if exhausted else "scored", error, now, posting_id),
     )
     conn.commit()
 
 
-def requeue_failed(conn, now: str, max_attempts: int) -> int:
-    """Requeue every 'failed' row that hasn't burned its cumulative attempts
-    budget (attempts < max_attempts) back to 'new'. The cap is passed in by the
-    caller (pipeline.RETRY_MAX_ATTEMPTS) rather than hard-coded here — this
-    module stays policy-free, same as every other mutator. Returns the number
-    of rows requeued."""
+def requeue_failed(conn, now: str, max_attempts: int, max_notify_attempts: int) -> int:
+    """Requeue every 'failed' row that has burned NEITHER budget — score attempts
+    < max_attempts AND notify_attempts < max_notify_attempts — back to 'new'. Both
+    caps are passed in by the caller (pipeline.RETRY_MAX_ATTEMPTS / NOTIFY_MAX_ATTEMPTS)
+    rather than hard-coded here — this module stays policy-free, same as every other
+    mutator. Guarding both keeps a notify-exhausted row terminal even though its
+    score `attempts` may be 0. Returns the number of rows requeued."""
     cur = conn.execute(
         "UPDATE job_postings SET pipeline_status='new', updated_at=? "
-        "WHERE pipeline_status='failed' AND attempts < ?",
-        (now, max_attempts),
+        "WHERE pipeline_status='failed' AND attempts < ? AND notify_attempts < ?",
+        (now, max_attempts, max_notify_attempts),
     )
     conn.commit()
     return cur.rowcount
+
+
+def requeue_discarded(conn, now: str) -> tuple[int, int]:
+    """Return every 'discarded' row to 'new' so a later pass re-screens it. Operator-
+    driven only (run.py's --rescreen-discarded), never automatic: 'discarded' is
+    otherwise terminal, so editing a candidate hard requirement — locations,
+    highest_degree, work_authorization, exclude_internships — would leave every
+    posting frozen under the old rule, and a false discard permanent.
+
+    Unbudgeted by design: a discard spends no `attempts` (nothing failed), so there is
+    no counter to guard the way requeue_failed guards two, and the operator asked for
+    all of them.
+
+    FILTERED on one thing only — the row must have a description. A stub-gate discard
+    is stored deliberately UN-HYDRATED (`description=''`; see run_fetch's exemption from
+    the bodyless drop) because it never reaches the scorer. Requeueing one is
+    irreversible data loss: it becomes `new`, the thin-JD gate parks it `scored` with
+    score 0, and `upsert_postings` is ON CONFLICT DO NOTHING, so no later pass ever
+    back-fills the JD.
+
+    Be precise about what the filter buys, because an earlier draft of this docstring
+    overclaimed: the skipped row is NOT made recoverable. Nothing re-hydrates an existing
+    un-hydrated stub — the stub gate only decides whether to hydrate BEFORE insert, the
+    row already exists, and every later cycle dies at the same ON CONFLICT. Both outcomes
+    are terminal. What the filter preserves is honesty of state: the row stays
+    `discarded` under its real reason with a live `job_url`, rather than being relabelled
+    `scored`/0 as though it had been evaluated. Making these genuinely recoverable needs
+    a different mechanism — drop the row so its id is re-fetchable, the way `run_fetch`
+    handles bodyless board rows — and is tracked in PROGRESS.
+
+    Returns `(requeued, skipped)` — both, because the caller has to be able to SAY how
+    many rows it deliberately left behind. A bare requeued count reads as "that was all
+    of them"."""
+    cur = conn.execute(
+        "UPDATE job_postings SET pipeline_status='new', updated_at=? "
+        "WHERE pipeline_status='discarded' "
+        # TRIM() defaults to stripping U+0020 only; every other emptiness rule in the
+        # system uses Python .strip(), which also takes \t \n \r. Spell them out so a
+        # description of "\n" is not "hydrated" here and empty everywhere else.
+        "AND LENGTH(TRIM(COALESCE(description,''), ' ' || char(9) || char(10) "
+        "|| char(13))) > 0",
+        (now,),
+    )
+    conn.commit()
+    skipped = conn.execute(
+        "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='discarded'"
+    ).fetchone()[0]
+    return cur.rowcount, skipped

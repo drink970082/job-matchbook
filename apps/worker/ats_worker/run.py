@@ -21,6 +21,7 @@ import requests
 
 from . import config as config_mod
 from . import db, pipeline
+from . import prompts as prompts_mod
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
@@ -109,6 +110,29 @@ def make_scorer(backend: str, *, env, profile="",
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
     raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+
+
+def _scorer_meta(backend: str, *,
+                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
+                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> dict:
+    """Who scored it: the three provenance fields persisted into every fit-scored
+    row's score_detail. Branches on `backend` alongside make_scorer above so the
+    stamp can't claim a model the scorer wasn't built with.
+
+    Raises on an unknown backend exactly as make_scorer does, rather than falling
+    through to the Anthropic model. Failing open here writes a provenance stamp that is
+    silently WRONG — worse than no stamp, because the whole point of the field is to
+    tell you later which model produced a verdict. `--score-backend` has `choices=`, but
+    argparse does not validate an env-supplied `default`, so SCORE_BACKEND=openai in a
+    .env reaches this function unchecked."""
+    models = {"codex": codex_score_model, "claude": anthropic_score_model}
+    if backend not in models:
+        raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+    return {
+        "backend": backend,
+        "model": models[backend],
+        "scorer_version": prompts_mod.SCORER_VERSION,
+    }
 
 # The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
 # A PAID BACKEND — spending money is explicit opt-in via SCREEN_BACKEND. `make doctor`
@@ -200,7 +224,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
              score_limit: int = 0, screen_workers: int = 0,
-             score_workers: int = 4) -> None:
+             score_workers: int = 4, rescreen_discarded: bool = False,
+             no_notify: bool = False) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -277,6 +302,23 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             if gone:
                 print(f"expired {gone} dead posting(s)")
 
+        # Operator-only escape hatch from the terminal 'discarded' state: after a
+        # candidate hard-requirement edit, bring every discard back to 'new' so this
+        # same pass re-screens it under the new rules. Screening is free on the
+        # default ollama backend; the PAID fit call that follows for each survivor is
+        # bounded by --score-limit, so pair the two on a large backlog.
+        if rescreen_discarded:
+            # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
+            # discards. Requeueing one destroys it, but skipping it is not a rescue
+            # either (nothing re-hydrates an existing row), so the operator is told
+            # rather than left to infer it from a count that looks short.
+            requeued, skipped = db.requeue_discarded(conn, now)
+            print(f"rescreen: requeued {requeued} discarded row(s) to 'new'")
+            if skipped:
+                print(f"rescreen: left {skipped} un-hydrated stub discard(s) alone — "
+                      "requeueing one parks it 'scored'/0 permanently (no JD to score, "
+                      "and upsert is ON CONFLICT DO NOTHING); they stay 'discarded'")
+
         # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
         pipeline.run_retry(conn, now=now)
@@ -331,12 +373,22 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
                            batch_size=batch_size, limit=score_limit,
                            screen_workers=workers, score_workers=score_workers,
-                           candidate=candidate)
+                           candidate=candidate,
+                           scorer_meta=_scorer_meta(
+                               score_backend,
+                               codex_score_model=codex_score_model,
+                               anthropic_score_model=anthropic_score_model))
 
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.
         token, chat_id = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_CHAT_ID")
-        if token and chat_id:
+        if no_notify:
+            # Bulk/unattended scoring: alerting per match would be a burst nobody is
+            # there to read. Nothing is consumed — the rows stay 'scored', so a later
+            # pass notifies them normally, and they are in the web Discovered tab now.
+            print("--no-notify: skipping notify (matched rows are 'scored' and will "
+                  "alert on the next pass without it)")
+        elif token and chat_id:
             pipeline.run_notify(conn, now=now, notify_fn=notify_posting,
                                 token=token, chat_id=chat_id)
         else:
@@ -421,6 +473,13 @@ def main(argv=None) -> None:
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
+    parser.add_argument("--no-notify", action="store_true",
+                        help="score but send no Telegram alerts — for bulk/unattended "
+                             "passes; rows stay 'scored' and alert on a later pass")
+    parser.add_argument("--rescreen-discarded", action="store_true",
+                        help="return every 'discarded' row to 'new' first, so this "
+                             "pass re-screens them under the current candidate "
+                             "hard requirements (pair with --score-limit)")
     parser.add_argument("--import-companies", action="store_true",
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -475,6 +534,20 @@ def main(argv=None) -> None:
                              "calls spend the same messages, only less wall-clock")
     args = parser.parse_args(argv)
 
+    # argparse enforces `choices` on a value it PARSES, never on an env-supplied
+    # `default` — so SCORE_BACKEND=openai in a .env reaches the pipeline unchecked and
+    # dies deep inside the pass, after the fetch, after the one-shot --rescreen-discarded
+    # has already been consumed. Fail here, before anything irreversible runs.
+    if args.score_backend not in ("codex", "claude"):
+        parser.error(f"unknown score backend {args.score_backend!r} (want 'codex' or "
+                     "'claude') — check SCORE_BACKEND in your .env")
+
+    # One-shot only: on the interval schedule this would resurrect the same discards
+    # every pass and re-charge the paid fit scorer for each survivor, indefinitely.
+    if args.rescreen_discarded and not args.once:
+        parser.error("--rescreen-discarded is a one-shot operator action: "
+                     "pass --once (then start the daemon normally)")
+
     cfg = config_mod.load_config(args.config)
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
@@ -503,7 +576,9 @@ def main(argv=None) -> None:
                  fetch_only=args.fetch_only, score_only=args.score_only,
                  score_limit=args.score_limit,
                  screen_workers=args.screen_workers,
-                 score_workers=args.score_workers)
+                 score_workers=args.score_workers,
+                 rescreen_discarded=args.rescreen_discarded,
+                 no_notify=args.no_notify)
 
     if args.once:
         once()

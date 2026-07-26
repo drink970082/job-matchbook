@@ -10,12 +10,13 @@ deterministic and testable without network.
 
 Stage gating:
   run_fetch  -> inserts brand-new postings ('new')
-  run_retry  -> processes ONLY 'failed' rows whose cumulative attempts are
-                still under RETRY_MAX_ATTEMPTS, requeuing them to 'new' so
-                they're rescored THIS SAME pass (runs before run_score).
-                attempts is a single shared budget across score AND notify
-                failures, so a row parked by run_notify's exhausted retries
-                (attempts >= NOTIFY_MAX_ATTEMPTS, the same cap) never
+  run_retry  -> processes ONLY 'failed' rows that have burned NEITHER budget
+                (attempts < RETRY_MAX_ATTEMPTS AND notify_attempts <
+                NOTIFY_MAX_ATTEMPTS), requeuing them to 'new' so they're
+                rescored THIS SAME pass (runs before run_score). score and
+                notify keep SEPARATE counters, so score hiccups can't pre-spend
+                the delivery budget; but a row parked by run_notify's exhausted
+                retries (notify_attempts >= NOTIFY_MAX_ATTEMPTS) still never
                 qualifies — 'failed' stays terminal for it.
   run_expire -> re-checks a capped batch of live (scored|notified) rows from
                 per-listing sources and marks the 404/410 ones 'expired'
@@ -26,12 +27,14 @@ Stage gating:
                 sends a message-only alert and advances to 'notified'. The
                 verdict predicate is the notification gate. A send error
                 is transient until proven persistent: the row STAYS 'scored'
-                (attempts+1, error recorded) so the next pass retries it, and
-                parks 'failed' on the NOTIFY_MAX_ATTEMPTS-th cumulative failure.
+                (notify_attempts+1, error recorded) so the next pass retries it,
+                and parks 'failed' on the NOTIFY_MAX_ATTEMPTS-th send failure. A
+                SYSTEMIC send fault (bad token) circuit-breaks the pass instead —
+                see run_notify.
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 from . import db, score
@@ -359,7 +362,8 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
 
 # --- score ----------------------------------------------------------------
 
-def _score_detail(result: dict, *, disqualified: bool) -> dict:
+def _score_detail(result: dict, *, disqualified: bool,
+                  scorer_meta: dict | None = None) -> dict:
     """Assemble the persisted score_detail JSON from a screen+fit result.
 
     Shared by the disqualified-discard path (screen alone) and the scored path
@@ -386,6 +390,16 @@ def _score_detail(result: dict, *, disqualified: bool) -> dict:
     if disqualified:
         detail["disqualified"] = True
         detail["disqualification_reason"] = result.get("disqualification_reason", "")
+    # Which scorer produced this verdict (backend / model / scorer_version) —
+    # stamped ONLY where a fit call actually ran, so a screen-discarded or
+    # low-context row never claims a backend it never reached. Rides the existing
+    # JSON, so no schema migration; enough to read a --score-backend A/B back off
+    # the data and to select the rows predating a score.txt / profile / resume
+    # edit for a bounded re-score. Deliberately NOT content hashes with automatic
+    # re-score triggering — that is a cache-invalidation system for a config the
+    # operator changes a handful of times a year (docs/PROGRESS.md).
+    if scorer_meta:
+        detail.update(scorer_meta)
     return detail
 
 
@@ -396,7 +410,7 @@ def _chunks(seq: list, n: int):
 
 
 def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
-                    now, candidate=None) -> None:
+                    now, candidate=None, scorer_meta=None) -> None:
     """Normalize one raw fit scorecard, apply the scorer's fallback hard-requirement
     extraction (fills gaps ONLY where the screen produced no verdict for a check —
     see score.merge_fallback_screen), merge the (possibly-updated) screen verdict on
@@ -415,7 +429,8 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
     if screen.get("disqualified"):
         db.save_score(
             conn, row["id"], score=0,
-            score_detail=_score_detail(screen, disqualified=True),
+            score_detail=_score_detail(screen, disqualified=True,
+                                       scorer_meta=scorer_meta),
             now=now, status="discarded",
         )
         return
@@ -425,7 +440,7 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
         db.mark_failed(conn, row["id"], error=str(exc), now=now)
         return
     disqualified = bool(result.get("disqualified"))
-    detail = _score_detail(result, disqualified=disqualified)
+    detail = _score_detail(result, disqualified=disqualified, scorer_meta=scorer_meta)
     db.save_score(
         conn, row["id"], score=int(result["score"]),
         score_detail=detail, now=now,
@@ -449,9 +464,40 @@ def _persist_low_context(conn, row, screen: dict, *, now) -> None:
     )
 
 
+# A systemic backend/channel outage looks like a run of failures with zero
+# successes — distinct from one bad posting, which fails alone among successes.
+# Both run_score (dead fit backend) and run_notify (dead send channel) watch for
+# it with this ONE breaker and each decides what to do with the untouched
+# remainder (score leaves rows 'new'; notify leaves them 'scored'). N chosen so a
+# genuinely flaky-but-alive backend that lands even one success this pass never
+# trips. See docs/PRINCIPLES.md "the four kinds of uncertainty" (circuit break).
+_BREAKER_LIMIT = 5
+
+
+class _BackendBreaker:
+    """Trips once a stage has produced >= limit failures and ZERO successes this
+    pass — the signature of a dead backend, not a bad item. One success disarms it
+    for the pass. Per-pass (constructed fresh each run_score / run_notify call)."""
+
+    def __init__(self, limit: int = _BREAKER_LIMIT) -> None:
+        self.limit = limit
+        self.successes = 0
+        self.failures = 0
+
+    def record_success(self) -> None:
+        self.successes += 1
+
+    def record_failure(self) -> None:
+        self.failures += 1
+
+    @property
+    def tripped(self) -> bool:
+        return self.successes == 0 and self.failures >= self.limit
+
+
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, screen_workers: int = 1, score_workers: int = 4,
-              candidate=None) -> None:
+              candidate=None, scorer_meta=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -497,14 +543,51 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # the same read-serial / network-parallel / write-serial shape run_feed uses,
     # because SQLite connections are not safe across threads. Consuming futures in
     # submission order keeps writes deterministic and correctly row-associated.
+    # A dead screen PROVIDER is systemic, not per-item: screen_posting errs toward keep
+    # on any provider failure, so an outage produces no exception and no 'failed' row —
+    # it silently hands the whole backlog to the PAID fit scorer unscreened. This breaker
+    # watches the same signature the fit phase does (>= limit provider errors, zero
+    # successes) and aborts the screen phase, leaving the remainder 'new' and free. One
+    # success disarms it, so a flaky-but-alive provider never trips it.
+    # (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
+    screen_breaker = _BackendBreaker()
     with ThreadPoolExecutor(max_workers=max(1, screen_workers)) as ex:
         futures = [ex.submit(screen_fn, posting) for posting in postings]
         for row, posting, future in zip(rows, postings, futures):
+            if screen_breaker.tripped:
+                # Rest stay 'new': recoverable, and nothing was spent. Cancel what is
+                # still QUEUED (in-flight calls can't be unspawned — the pool is filled
+                # up front so consumption stays in submission order); on a real provider
+                # each call takes long enough that this stops most of the backlog.
+                # SAY SO: the rows keep attempts=0 and never reach the Failed tab, so an
+                # abort that printed nothing would look exactly like a pass with no work
+                # to do — the same silence this breaker exists to end.
+                print("[screen] screen backend appears down "
+                      f"({screen_breaker.failures} consecutive failures, no successes) "
+                      "— aborting the screen phase; rows after this point stay 'new'")
+                for pending in futures:
+                    pending.cancel()
+                break
             try:
                 screen = future.result()
             except Exception as exc:  # noqa: BLE001 — one bad screen never aborts the pass
+                # Counts toward the breaker exactly like a provider_error verdict: a
+                # backend whose failure mode RAISES is just as systemic as one that
+                # returns the flag, and leaving it uncounted would let an outage march
+                # the whole backlog to terminal `failed` (the fit phase pairs the two
+                # the same way).
+                screen_breaker.record_failure()
                 db.mark_failed(conn, row["id"], error=str(exc), now=now)
                 continue
+            if screen.get("provider_error"):
+                screen_breaker.record_failure()
+                # The CODE gates still ran and cost nothing, so a deterministic
+                # disqualification is honoured below. Otherwise the row is left 'new':
+                # unscreened is not scoreable, and the next pass screens it properly.
+                if not screen.get("disqualified"):
+                    continue
+            else:
+                screen_breaker.record_success()
             if screen.get("disqualified"):
                 db.save_score(
                     conn, row["id"], score=0,
@@ -526,82 +609,142 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # rolling 5-hour message window; that was corrected to WEEKLY two days later, and
     # pacing is served by --score-limit. See CHANGELOG and SPEC §11.)
     chunks = list(_chunks(survivors, batch_size))
+    # Watch for a DEAD fit backend (every call failing, zero successes) — an outage,
+    # not a bad posting. Convicting each row individually would burn the whole
+    # backlog's retry budget on it (§ Defects). Persistence stays on THIS thread,
+    # and results are consumed via as_completed and associated back to their row by
+    # the future->chunk map — so a straggler never holds finished, already-paid-for
+    # scores unwritten (which a crash/abort would then discard and re-purchase).
+    breaker = _BackendBreaker()
     with ThreadPoolExecutor(max_workers=max(1, score_workers)) as ex:
-        futures = [ex.submit(fit_fn, [p for (_row, p, _screen) in chunk])
-                   for chunk in chunks]
-        for chunk, future in zip(chunks, futures):
-            postings = [p for (_row, p, _screen) in chunk]
-            try:
-                cards = future.result()
-            except Exception:  # noqa: BLE001 — see below
-                # ANY batch failure falls back to singles, not just ScoreError: the
-                # codex backend wraps every failure as ScoreError, but make_claude_scorer
-                # lets a transient anthropic.RateLimitError/APIConnectionError from
-                # client.messages.create() propagate. A narrow `except ScoreError` would
-                # let that escape run_score entirely — aborting every remaining chunk AND
-                # skipping run_notify this pass, violating the cardinal "one bad posting
-                # never aborts the batch" invariant. Falling back to singles here means a
-                # transient API hiccup fails only the row(s) it actually hits (via the
-                # singles-level mark_failed), matching the old broad per-row catch.
-                cards = None
-            if cards is not None and len(cards) != len(postings):
-                # A backend returning fewer/more cards than postings without raising
-                # would misalign the zip below and silently orphan the tail (stuck
-                # 'new', re-scored every pass). codex raises on a missing job_ref and
-                # claude loops one-per-posting, so this is latent today — but treat a
-                # count mismatch as a batch failure so every posting is scored 1:1.
-                cards = None
-            if cards is None:
-                # Fallback: retry this chunk's postings one fit_fn call each, so one
-                # bad JD in the batch doesn't sink its batch-mates.
-                for row, posting, screen in chunk:
-                    try:
-                        card = fit_fn([posting])[0]
-                    except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
-                        db.mark_failed(conn, row["id"], error=str(exc), now=now)
-                        continue
-                    _persist_scored(conn, row, screen, card, posting,
-                                    now=now, candidate=candidate)
-            else:
-                for (row, posting, screen), card in zip(chunk, cards):
-                    _persist_scored(conn, row, screen, card, posting,
-                                    now=now, candidate=candidate)
+        future_to_chunk = {ex.submit(fit_fn, [p for (_row, p, _screen) in chunk]): chunk
+                           for chunk in chunks}
+        try:
+            for future in as_completed(future_to_chunk):
+                chunk = future_to_chunk[future]
+                postings = [p for (_row, p, _screen) in chunk]
+                batch_error = None
+                try:
+                    cards = future.result()
+                except Exception as exc:  # noqa: BLE001 — see below
+                    # ANY batch failure falls back to singles, not just ScoreError: the
+                    # codex backend wraps every failure as ScoreError, but make_claude_scorer
+                    # lets a transient anthropic.RateLimitError/APIConnectionError from
+                    # client.messages.create() propagate. A narrow `except ScoreError` would
+                    # let that escape run_score entirely — aborting every remaining chunk AND
+                    # skipping run_notify this pass, violating the cardinal "one bad posting
+                    # never aborts the batch" invariant. Falling back to singles here means a
+                    # transient API hiccup fails only the row(s) it actually hits (via the
+                    # singles-level mark_failed), matching the old broad per-row catch.
+                    # (KeyboardInterrupt is a BaseException, so it is NOT caught here — it
+                    # propagates to the abort handler below.)
+                    batch_error = exc
+                    cards = None
+                if cards is not None and len(cards) != len(postings):
+                    # A backend returning fewer/more cards than postings without raising
+                    # would misalign the zip below and silently orphan the tail (stuck
+                    # 'new', re-scored every pass). codex raises on a missing job_ref and
+                    # claude loops one-per-posting, so this is latent today — but treat a
+                    # count mismatch as a batch failure so every posting is scored 1:1.
+                    cards = None
+                if cards is None and len(chunk) > 1:
+                    # Fallback: retry this chunk's postings one fit_fn call each, so one
+                    # bad JD in the batch doesn't sink its batch-mates.
+                    for row, posting, screen in chunk:
+                        try:
+                            card = fit_fn([posting])[0]
+                        except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
+                            db.mark_failed(conn, row["id"], error=str(exc), now=now)
+                            breaker.record_failure()
+                        else:
+                            _persist_scored(conn, row, screen, card, posting,
+                                            now=now, candidate=candidate,
+                                            scorer_meta=scorer_meta)
+                            breaker.record_success()
+                elif cards is None:
+                    # batch_size 1: the chunk IS one posting, so re-issuing fit_fn([posting])
+                    # would repeat the identical call that just failed — no chance of a
+                    # different result, only a second spend. Mark it failed directly.
+                    row, posting, screen = chunk[0]
+                    err = (str(batch_error) if batch_error is not None
+                           else "fit returned a mismatched card count")
+                    db.mark_failed(conn, row["id"], error=err, now=now)
+                    breaker.record_failure()
+                else:
+                    for (row, posting, screen), card in zip(chunk, cards):
+                        _persist_scored(conn, row, screen, card, posting,
+                                        now=now, candidate=candidate,
+                                        scorer_meta=scorer_meta)
+                        breaker.record_success()
+                if breaker.tripped:
+                    # Dead backend, not a bad row: stop, leave the untouched remainder
+                    # 'new' (recoverable next pass) and don't spend more failing calls
+                    # on the outage. Cancel the queued chunks (in-flight ones can't be
+                    # unspawned, but the backlog is not queued through).
+                    print(f"[score] fit backend appears down ({breaker.failures} "
+                          "consecutive failures, 0 scored) — aborting this pass; "
+                          "unprocessed rows left 'new'")
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    break
+        except KeyboardInterrupt:
+            # Operator abort: stop LAUNCHING queued fit calls rather than draining the
+            # whole backlog (the old ThreadPoolExecutor.__exit__ did shutdown(wait=True),
+            # so Ctrl-C waited out ~3,985 uninterruptible codex execs). Scores already
+            # persisted above are kept; rows never started stay 'new'.
+            ex.shutdown(wait=False, cancel_futures=True)
+            raise
 
 
 # --- retry ------------------------------------------------------------------
 
-# Requeue budget for a parked 'failed' row. attempts is ONE cumulative counter
-# shared across score AND notify failures (mark_failed and record_notify_failure
-# both increment the SAME column) — a row that already burned 2 score failures
-# has only 1 notify try left before it hits this same cap. So RETRY_MAX_ATTEMPTS
-# reads the identical ceiling NOTIFY_MAX_ATTEMPTS (below) writes: a row parked by
-# an exhausted notify retry already has attempts >= 3 and can never requeue.
-# Persistent failures increment attempts each requeued pass until the 3rd trip
-# parks it 'failed' for good — a hard ceiling of 3 total failures per row.
+# Requeue budget for the SCORE stage. `attempts` counts score-stage failures only
+# (mark_failed); notify failures land on the separate `notify_attempts` column, so
+# score hiccups no longer pre-spend the delivery budget. Persistent score failures
+# increment attempts each requeued pass until the 3rd trip parks it 'failed' for
+# good — a hard ceiling of 3 score failures per row. run_retry guards BOTH budgets
+# so a notify-exhausted row (notify_attempts >= 3) stays terminal regardless.
 RETRY_MAX_ATTEMPTS = 3
 
 
 def run_retry(conn, *, now) -> int:
-    """Requeue every 'failed' row whose cumulative attempts are still under
-    RETRY_MAX_ATTEMPTS back to 'new', so it's rescored THIS SAME pass (called
-    before run_score in run.run_once). A requeued row re-runs the full
-    screen+score — flipping to 'discarded' on retry is a legitimate outcome,
-    not a bug. Rows a prior notify-retry exhausted (attempts >= 3, the same
-    counter) never qualify, so 'failed' stays terminal for those. Returns the
-    number of rows requeued.
+    """Requeue every 'failed' row that has burned neither budget — attempts <
+    RETRY_MAX_ATTEMPTS AND notify_attempts < NOTIFY_MAX_ATTEMPTS — back to 'new',
+    so it's rescored THIS SAME pass (called before run_score in run.run_once). A
+    requeued row re-runs the full screen+score — flipping to 'discarded' on retry
+    is a legitimate outcome, not a bug. A row a prior notify-retry exhausted
+    (notify_attempts >= 3) never qualifies, so 'failed' stays terminal for those.
+    Returns the number of rows requeued.
     """
-    return db.requeue_failed(conn, now, RETRY_MAX_ATTEMPTS)
+    return db.requeue_failed(conn, now, RETRY_MAX_ATTEMPTS, NOTIFY_MAX_ATTEMPTS)
 
 
 # --- notify ---------------------------------------------------------------
 
-# Retry budget for the Telegram send. A send error is transient until proven
-# persistent: the row stays 'scored' so the next scheduled pass retries it, and
-# the NOTIFY_MAX_ATTEMPTS-th cumulative failure parks it 'failed' (terminal,
-# the web app's Failed tab) so a broken channel surfaces instead of retrying
-# silently forever. ponytail: pass-cadence retry only — no in-pass backoff; the
-# scheduler is the timer (~3 days at the default 24h schedule).
+# Retry budget for the Telegram send, counted on `notify_attempts` (its OWN column,
+# separate from score `attempts`). A per-posting send error is transient until
+# proven persistent: the row stays 'scored' so the next scheduled pass retries it,
+# and the NOTIFY_MAX_ATTEMPTS-th failure parks it 'failed' (terminal, the web app's
+# Failed tab) so a broken channel surfaces instead of retrying silently forever.
+# This budget only applies to genuinely per-posting faults — a SYSTEMIC channel
+# fault (bad token) circuit-breaks the pass and spends none of it (run_notify).
+# ponytail: pass-cadence retry only — no in-pass backoff; the scheduler is the
+# timer (~3 days at the default 24h schedule).
 NOTIFY_MAX_ATTEMPTS = 3
+
+
+def _systemic_send_error(exc) -> bool:
+    """True for a send failure that condemns the whole Telegram CHANNEL, not one
+    message — a wrong/expired bot token (401/403, or an 'unauthorized'/'invalid
+    token' body). Such a failure must circuit-break the notify pass: convicting
+    each matched posting individually would burn its retry budget and, on the
+    NOTIFY_MAX_ATTEMPTS-th pass, PERMANENTLY destroy a finished match. Duck-typed
+    off the exception's response, like `_gone`, so this module stays import-pure
+    (no requests import). A rate-limit (429) / timeout / 5xx is NOT systemic here —
+    those are transient and correctly ride the per-row retry budget."""
+    if getattr(getattr(exc, "response", None), "status_code", None) in (401, 403):
+        return True
+    text = str(exc).lower()
+    return "unauthorized" in text or ("invalid" in text and "token" in text)
 
 
 def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
@@ -610,27 +753,49 @@ def run_notify(conn, *, now, notify_fn, token, chat_id) -> None:
     error). Non-matching rows stay 'scored', untouched. The verdict predicate
     is the gate now — the old score>=threshold gate is gone (the score
     quantized to the rubric band edge and flipped run-to-run; the verdicts
-    are stable). One message-only alert per posting. A send error keeps the
-    row 'scored' (attempts+1, pipeline_error recorded) for a next-pass retry
-    until NOTIFY_MAX_ATTEMPTS cumulative failures park it 'failed'. Delivery
-    is at-least-once: a timeout after Telegram delivered re-sends next pass
-    (one duplicate ping) rather than risking a lost alert.
+    are stable). One message-only alert per posting. Delivery is at-least-once:
+    a timeout after Telegram delivered re-sends next pass (one duplicate ping)
+    rather than risking a lost alert.
+
+    Failure handling distinguishes SYSTEMIC from per-posting (PRINCIPLES, "the
+    four kinds of uncertainty"):
+      - A systemic channel fault (`_systemic_send_error` — a bad token), or
+        `_BREAKER_LIMIT` consecutive send failures with zero deliveries, CIRCUIT-
+        BREAKS the pass: every remaining row stays 'scored', NO notify_attempts
+        spent, one operator line printed. A broken channel must never convict the
+        postings riding on it.
+      - A genuinely per-posting send error keeps that row 'scored'
+        (notify_attempts+1, error recorded) for a next-pass retry until
+        NOTIFY_MAX_ATTEMPTS charges park it 'failed'. notify_attempts is delivery's
+        OWN budget — score hiccups never pre-spend it.
     """
+    breaker = _BackendBreaker()
     for row in db.get_notifiable(conn):
         posting = dict(row)
         try:
             notify_fn(posting, token=token, chat_id=chat_id)
-            db.mark_notified(conn, row["id"], now=now)
         except Exception as exc:  # noqa: BLE001
-            attempt = row["attempts"] + 1
-            exhausted = attempt >= NOTIFY_MAX_ATTEMPTS
             # The bot token rides in the Telegram URL, which requests embeds in the
             # exception text; scrub it before it lands in pipeline_error (rendered by
             # the web Failed bucket) or on stdout. (Guard the empty-token case: an
             # empty replace() would splice "***" between every character.)
             error = str(exc).replace(token, "***") if token else str(exc)
+            if _systemic_send_error(exc):
+                print(f"[notify] send channel rejected auth ({error}) — circuit-breaking "
+                      "this pass: all matched rows left 'scored', no attempts spent")
+                return
+            attempt = row["notify_attempts"] + 1
+            exhausted = attempt >= NOTIFY_MAX_ATTEMPTS
             db.record_notify_failure(conn, row["id"], error=error, now=now,
                                      exhausted=exhausted)
             print(f"[notify] send failed (attempt {attempt}/{NOTIFY_MAX_ATTEMPTS}) "
                   f"for posting id={row['id']}: {error}"
                   + (" — parked as failed" if exhausted else "; will retry next pass"))
+            breaker.record_failure()
+            if breaker.tripped:
+                print(f"[notify] {breaker.failures} consecutive send failures, 0 delivered "
+                      "— circuit-breaking this pass; remaining matched rows left 'scored'")
+                return
+        else:
+            db.mark_notified(conn, row["id"], now=now)
+            breaker.record_success()

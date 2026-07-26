@@ -78,6 +78,10 @@ gh pr create --fill                       # CI runs; squash-merge when green
 - **`main` is protected**: CI (`Web` + `Worker`) must pass, force-pushes and branch
   deletion are blocked, and history stays linear. Long-lived `dev`/`release/*`
   branches are deliberately not used.
+- **Agent sessions** follow the same rules plus a few extra guards (claiming work
+  through `PROGRESS.md`, verifying a PR's base, the squash-divergence conflict recipe,
+  and what a session may merge on its own): [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)
+  §7.
 - **Releases** are [SemVer](https://semver.org/) tags on `main`. To cut one: move
   `CHANGELOG.md`'s `[Unreleased]` entries into a new dated version section, bump the
   version in `apps/web/package.json` and `apps/worker/pyproject.toml`, tag, then

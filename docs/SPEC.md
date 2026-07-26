@@ -312,6 +312,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   a quota-free board refresh), `--score-only` (skip the network ingest and score the
   existing `new` backlog — the inverse of `--fetch-only`), `--score-limit N` (cap `new`
   rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
+  `--rescreen-discarded` (return every `discarded` row to `new` before this pass so it
+  is re-screened under the current candidate hard requirements — **requires `--once`**,
+  see §9),
+  `--no-notify` (score but send no Telegram alerts — for a bulk/unattended pass;
+  nothing is consumed, rows stay `scored` and alert on a later pass without the flag),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
   screen `ollama` / `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
@@ -337,7 +342,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   contains any listed keyword, the complement of `title_filter`), `max_age_days`
   (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
   `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
-  `is_empty()`), `feeds`, `schedule_hours`. Bad
+  `is_empty()`), `feeds`, `schedule_hours` (daemon pass interval in hours; must be
+  `>= 1` — a `0`/negative value would make APScheduler's interval trigger hot-loop the
+  watchlist at a 1-second period, so `config.py` raises `ConfigError`). Bad
   source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
@@ -395,6 +402,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
+  `phenom` is also the one adapter with **429 handling** — it is the only board that has
+  ever rate-limited (`careers.qualcomm.com` at `start=930`, 2026-07-22). Its search GET
+  retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
+  `Retry-After` clamped to 30s); still throttled at `start > 0` it returns an empty page,
+  which the paginator reads as the end of the board, so **the pages already walked are
+  kept** instead of the whole board being lost. At `start == 0` it raises, because a
+  silent empty result would report a throttled board as an empty one. The other
+  paginating adapters are deliberately bare (see PROGRESS).
   `phenom` also accepts an optional `keep` stub-gate from `run_fetch`: the search
   stub carries the title and location — everything the deterministic gates read — so
   a posting rejected on either skips its per-position detail GET (measured
@@ -426,10 +441,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   `browser` recipe, never a hand-written adapter.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
-  rendered DOM (`item` + `fields`; a per-job `url` field may be a CSS selector *or* a
-  `{field}` template interpolated from the row's own extracted fields, e.g.
-  `url: "/s/details?jobReq={external_id}"`, for cards that carry no href; `url`-template
-  pagination; optional per-role `detail` enrich). A
+  rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).
+  As on the `custom` path, a `fields.url` spec containing `{` is a **template** rather than a
+  selector, interpolated over the recipe's own other `fields` (which may include url-only helper
+  fields) — this is how a board whose cards carry no `href` (id in a `data-*` attribute, routing
+  JS-side) still yields a real `job_url`; an undefined name substitutes empty, and the result
+  passes the same `is_safe_public_url` guard as a scraped href. A
   realistic UA + viewport + `--disable-blink-features=AutomationControlled` and *waiting for the
   `item` selector* (not a fixed sleep) clears a Cloudflare "Just a moment" interstitial for the
   listing — the default headless-shell fingerprint otherwise gets stuck (0 cards). Cloudflare still
@@ -495,11 +512,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   error), `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal —
   aside from `requeue_failed`, below), `record_notify_failure` (retry-aware:
   keeps the row `scored` until the caller declares the budget exhausted, then
-  parks it `failed`), `requeue_failed(conn, now, max_attempts)` (bulk
-  `UPDATE ... SET pipeline_status='new' WHERE pipeline_status='failed' AND
-  attempts < max_attempts`, returns rows requeued — the cap is passed in by the
-  caller, `pipeline.RETRY_MAX_ATTEMPTS`, so this module stays policy-free like
-  every other mutator here). Watchlist + feed
+  parks it `failed`), `requeue_failed(conn, now, max_attempts,
+  max_notify_attempts)` (bulk `UPDATE ... SET pipeline_status='new' WHERE
+  pipeline_status='failed' AND attempts < max_attempts AND notify_attempts <
+  max_notify_attempts`, returns rows requeued — both caps passed in by the caller
+  (`pipeline.RETRY_MAX_ATTEMPTS` / `NOTIFY_MAX_ATTEMPTS`), so this module stays
+  policy-free like every other mutator here; guarding both keeps a notify-exhausted
+  row terminal even though its score `attempts` may be 0). Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
@@ -573,24 +592,42 @@ worker modules are pure and dependency-injected; real services are wired only in
   against the old phrase list over already-scored rows so only the disagreements need
   hand-labeling against a three-class truth (*no-sponsorship / offers / silent*) — that
   labeled-set run has not happened yet, so no recall/precision number is claimed here
-  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)). `disqualified` is
-  derived from those per-requirement verdicts. **Location is a deterministic code gate**
+  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)).
+  `candidate.work_authorization` is a **closed vocabulary** validated at config load
+  (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
+  sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
+  because `_needs_sponsorship` reads the value by substring — an off-vocabulary string
+  like `F-1 OPT` would read as "needs no sponsorship" and silently disable the whole
+  authorization check, so `config.py` raises `ConfigError` instead.
+  `disqualified` is derived from those per-requirement verdicts, and a check the model
+  returned **no data** for records no verdict at all rather than a pass — `degree` and
+  `clearance` only materialize their key when the extraction carried an entry, so a
+  ran-but-blind check stays distinguishable from a genuinely cleared one.
+  (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
+  with no model data.) **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
   name via `pycountry`, else a city via **geonamescache** (highest-population match,
   so a tiny US namesake like Paris TX can't mask Paris FR) — and errs toward keep:
-  keep if any token is US or an allowed country, discard only when ≥1 token resolves
-  and none are allowed (naming the first foreign country), keep if nothing resolves
-  (**D2**). US-state and remote strings keep, so a
+  keep if any token is US or an allowed country, discard only when the foreign reading
+  is **corroborated** — every token resolved, or at least two did — and none are
+  allowed (naming the first foreign country), keep if nothing resolves (**D2**). The
+  corroboration requirement exists because only **US** subdivisions are in the
+  gazetteer: without it, `London, ON` dropped its unresolved `ON` and was judged by
+  `London` alone as United Kingdom, discarding a Canadian posting under a reason that
+  named the wrong country. It costs misses only (`Hyderabad, TS` keeps = one fit call),
+  never a live match. US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN
   hard-requirements checklist, shared by every backend). Separately, when
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
-  call — runs even when no other screen clause is configured). A SCREEN parse failure
-  errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
-  screen did not disqualify** (a discarded posting records `score` 0 and never pays
+  call — runs even when no other screen clause is configured). A SCREEN **provider**
+  failure errs toward keep (not disqualified) and stamps `provider_error` on the
+  verdict; `run_score` then leaves that row `new` rather than fit-scoring it unscreened,
+  and a run of them circuit-breaks the screen phase (§9). (2) The fit **SCORE** —
+  reached **only when the screen did not disqualify** (a discarded posting records `score` 0 and never pays
   for a fit call) — comes from an injected **`score_fit(postings, resumes) -> list[dict]`**
   callable: **batch-first, list in / list out**, one scorecard per input posting in the
   same order. `run_score` itself calls it directly with each chunk's full batch of
@@ -822,11 +859,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   `updated_at`, which rotates the row to the back of the queue — that's the whole
   scheduling mechanism, no extra column.
   `run_retry` requeues every `failed` row with `attempts < RETRY_MAX_ATTEMPTS` (3)
-  back to `new` — one bulk `db.requeue_failed` UPDATE, run **after** the fetch/feed
-  ingest and **before** `run_score` so a requeued row is rescored in the same pass.
-  The retry semantics — the `attempts` budget shared with notify, the 3-failure
-  ceiling, `discarded`-on-retry being legitimate — are contract; see §9 "Failure
-  handling and recovery limits".
+  **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3) back to `new` — one bulk
+  `db.requeue_failed` UPDATE, run **after** the fetch/feed ingest and **before**
+  `run_score` so a requeued row is rescored in the same pass. The retry semantics —
+  the separate score/notify budgets, the 3-failure ceiling each, `discarded`-on-retry
+  being legitimate — are contract; see §9 "Failure handling and recovery limits".
+  `db.requeue_discarded(conn, now)` is the operator-only counterpart for the other
+  terminal state: `--rescreen-discarded` returns every **hydrated** `discarded` row to
+  `new` immediately before `run_retry`, so a candidate hard-requirement edit doesn't
+  leave postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`);
+  filtered on one thing only — a row with an empty `description` is a stub-gate discard
+  and is left alone, because requeueing it destroys it irreversibly (§9). Skipping it is
+  **not** a rescue either: nothing re-hydrates an existing row, so both outcomes are
+  terminal. The filter buys honest state, not recovery. `main` rejects the flag without
+  `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -962,10 +1008,11 @@ model job_postings {
   job_url         String
   description     String        // full JD text (fed to the LLM)
   score           Int?          // 0-100 fit score (codex default / claude alternate)
-  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume (pre-S2.1 rows: matched/missing keywords + reasoning)
+  score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume, scorer provenance backend/model/scorer_version on fit-scored rows (pre-S2.1 rows: matched/missing keywords + reasoning)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
   pipeline_error  String?       // last stage/send error; cleared on successful notify
-  attempts        Int           @default(0)     // cumulative failures (notify retries until 3, then parks failed)
+  attempts        Int           @default(0)     // SCORE-stage failures (requeued until 3, then parks failed)
+  notify_attempts Int           @default(0)     // NOTIFY-stage send failures, separate budget (parks failed at 3)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   created_at      String
@@ -1102,6 +1149,22 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   consumes the futures **in the same order they were submitted** — never
   `as_completed` — so a slow call finishing late still lands its result on the
   correct row, and every `db.*` write stays on the calling thread throughout.
+- **Every fit-scored row records who scored it — and only those rows.** `run.py`
+  (the sole wiring layer, which alone knows the scorer's identity) hands `run_score`
+  a `scorer_meta` of three fields — `backend`, `model`, `scorer_version` — and
+  `_score_detail` merges them into the persisted `score_detail` JSON, so there is no
+  schema change. They are stamped **only where a fit call actually ran**: both
+  `_persist_scored` outcomes (`scored`, and the fallback-disqualified `discarded`
+  that already paid for its call), never a screen-discarded or low-context row, which
+  would otherwise claim a backend it never reached. `model` branches on `backend`
+  alongside `make_scorer` (`run._scorer_meta`) so the stamp cannot name a model the
+  scorer wasn't built with, and `scorer_version` (`prompts.SCORER_VERSION`) is a
+  hand-bumped date string — bumped when `score.txt` or the profile/résumé inputs
+  change in a way that should invalidate existing scores. This makes a
+  `--score-backend` A/B readable off the data afterwards and lets a re-score select
+  the rows predating a rubric change instead of re-buying the whole table.
+  Deliberately **not** content hashes with automatic re-score triggering: that is a
+  cache-invalidation system for inputs the operator changes a handful of times a year.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -1265,31 +1328,96 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `pipeline_error` set). `run_retry` requeues it back to `new` on the **next** pass
   as long as `attempts < RETRY_MAX_ATTEMPTS` (3) — a bulk, non-per-item UPDATE
   (`db.requeue_failed`), run before `run_score` so the requeued row is rescored
-  the same pass. `attempts` is **one counter shared across score and notify
-  failures** (`mark_failed` and `record_notify_failure` both increment the same
-  column) — a row that already burned 2 score failures has only 1 notify try
-  left before hitting the same cap. A row parked by `run_notify`'s exhausted
-  retries (`attempts >= NOTIFY_MAX_ATTEMPTS`, the identical value) therefore
-  already reads `attempts >= RETRY_MAX_ATTEMPTS` and never requeues — no other
-  code path writes `pipeline_status='failed'`. A requeued row re-runs the full
-  screen+fit; flipping to `discarded` on a retry is a legitimate outcome, not a
-  bug. Persistent failures requeue, fail, and repark each pass until the 3rd
-  cumulative failure — a hard ceiling of **3 total failures per row** — at
-  which point `run_retry` no longer requeues it and it stays parked for good;
-  from there, recovery is still the human act (`reopenJobPosting`/`bulkReopen`
-  write `scored`, resetting nothing about `attempts`).
-- **Notify send errors are retried, bounded.** `run_notify` treats a Telegram send
-  error as transient: the row **stays `scored`** (`attempts+1`, `pipeline_error`
+  the same pass. Score and notify keep **separate counters**: `attempts` counts
+  score-stage failures (`mark_failed`), `notify_attempts` counts send failures
+  (`record_notify_failure`), so score hiccups can no longer pre-spend the delivery
+  budget. `run_retry` guards **both** (`attempts < RETRY_MAX_ATTEMPTS AND
+  notify_attempts < NOTIFY_MAX_ATTEMPTS`), so a row parked by `run_notify`'s
+  exhausted retries (`notify_attempts >= NOTIFY_MAX_ATTEMPTS`) never requeues even
+  though its `attempts` may be 0 — no other code path writes
+  `pipeline_status='failed'`. A requeued row re-runs the full screen+fit; flipping
+  to `discarded` on a retry is a legitimate outcome, not a bug. Persistent failures
+  requeue, fail, and repark each pass until the 3rd failure on either counter — a
+  hard ceiling of **3 score + 3 notify failures per row** — at which point
+  `run_retry` no longer requeues it and it stays parked for good; from there,
+  recovery is still the human act (`reopenJobPosting`/`bulkReopen` write `scored`,
+  resetting neither counter).
+- **`discarded` is terminal, with one operator-only way back.** Nothing automatic
+  re-screens a discard: the state exists precisely so a posting ruled out by a
+  candidate hard requirement stops costing calls. But the rule itself is editable
+  (`candidate.locations`, `highest_degree`, `work_authorization`,
+  `exclude_internships`), so without an escape hatch an edit — or a fix to the screen
+  itself — would leave every prior discard frozen under the old rule, and a **false**
+  discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
+  run immediately before `run_retry`) returns them to `new` for this pass.
+  Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
+  `run_retry` guards two. **Filtered on exactly one condition — the row must have a
+  non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
+  (`run_fetch` exempts `discarded` rows from the bodyless drop) because it never reaches
+  the scorer; requeueing one is *irreversible loss*, since it becomes `new`, the thin-JD
+  gate parks it `scored` at score 0, and `upsert_postings` is `ON CONFLICT DO NOTHING`
+  so no later pass back-fills the JD. **Skipping it is not a rescue either** — nothing
+  re-hydrates an existing un-hydrated row (the stub gate only decides whether to hydrate
+  *before* insert, and the row already exists), so both outcomes are terminal. What the
+  filter buys is honest state: the row keeps its real `discarded` reason and a live
+  `job_url` instead of being relabelled `scored`/0 as though it had been evaluated.
+  `run_once` prints the skipped count so the operator is told, not left to infer it.
+  Everything else comes back. It is
+  **one-shot** — `main` rejects it without `--once`, because on the interval schedule
+  it would resurrect the same discards every pass and re-charge the paid fit scorer
+  for each survivor indefinitely. Screening is free on the default ollama backend; the
+  fit calls that follow are bounded only by `--score-limit`, so pair the two on a
+  large backlog.
+- **A dead screen *provider* circuit-breaks the screen phase — and no unscreened row
+  is ever fit-scored.** `screen_posting` errs toward KEEP on any provider failure,
+  which is right for one flaky call and wrong for an outage: it raises no exception and
+  marks nothing `failed`, so before this the whole backlog was silently handed to the
+  **paid** fit scorer unscreened — the ~18% normally discarded for free became paid
+  calls, and the hard-requirement gate stopped filtering. The verdict now carries
+  `provider_error`, and `run_score` (a) leaves such a row `new` — untouched, no
+  `attempts` spent, screened properly next pass — unless a **deterministic** gate
+  (location/intern, which cost nothing and ran fine) disqualified it, in which case that
+  verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with the
+  same signature as the fit one (`_BREAKER_LIMIT` provider errors, zero successes),
+  aborting it and cancelling the queued remainder. One success disarms it. `extract=None`
+  (`SCREEN_BACKEND=none`) is **not** a provider error — there is no provider, the
+  deterministic gates run alone, and those rows score normally as documented.
+  (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
+- **A dead fit *backend* circuit-breaks the score pass — it does not convict every
+  posting.** `run_score` isolates a bad posting (per-item `mark_failed`), but a
+  *systemic* fit-backend outage (e.g. `codex exec` not logged in) would otherwise
+  mark the whole `new` backlog `failed`, burning its retry budget on the outage. A
+  shared `_BackendBreaker` watches for the outage signature — `_BREAKER_LIMIT` (5)
+  failures with **zero** successes this pass — and aborts scoring, leaving the
+  untouched remainder `new` (recoverable), with one operator-level line. One success
+  disarms it, so a flaky-but-alive backend never trips. The `batch_size==1` singles
+  fallback is guarded (`len(chunk) > 1`) so it no longer re-issues the identical
+  failed call. (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
+- **A score run is interruptible and does not abandon finished work.** The fit phase
+  consumes futures via `as_completed` and persists each result on the calling thread
+  as it completes (associated to its row by a `future -> chunk` map), so a straggler
+  never holds finished, already-paid-for scores unwritten. On `KeyboardInterrupt` the
+  pool is torn down with `cancel_futures=True` — queued fit calls are **cancelled, not
+  drained** — so Ctrl-C stops launching new paid calls instead of waiting out the
+  whole backlog (the old `shutdown(wait=True)` made abort uninterruptible).
+- **Notify send errors are retried, bounded — but a systemic channel fault breaks the
+  pass instead.** `run_notify` treats a genuinely *per-posting* Telegram send error as
+  transient: the row **stays `scored`** (`notify_attempts+1`, `pipeline_error`
   recorded) so the next scheduled pass retries the send — the match never leaves the
-  default Discovered-Jobs view while retrying. The `NOTIFY_MAX_ATTEMPTS`-th (3)
-  cumulative failure parks it `failed` (terminal *for the notify stage* — see the
-  shared-budget retry bullet above), so a *persistent*
-  channel failure (revoked token, wrong chat id) surfaces in a visible queue instead
-  of retrying silently forever. A successful send clears `pipeline_error`. Delivery
-  is **at-least-once**: the send is a single atomic `sendMessage`, so a timeout after
-  delivery can only duplicate the alert, never half-send it — a duplicate ping beats
-  a lost match. `attempts` counts failures cumulatively, so a row manually reopened
-  from `failed` gets one fresh notify attempt per reopen. Design:
+  default Discovered-Jobs view while retrying. The `NOTIFY_MAX_ATTEMPTS`-th (3) send
+  failure parks it `failed` (terminal *for the notify stage*), so a *persistent* per-row
+  fault (a malformed message) surfaces in a visible queue instead of retrying silently
+  forever. A **systemic** fault, though, must never convict the postings riding on it:
+  a bad-token error (`_systemic_send_error` — 401/403 or an invalid-token body), or
+  `_BREAKER_LIMIT` consecutive failures with zero deliveries, **circuit-breaks the
+  pass** — every remaining matched row left `scored`, **no `notify_attempts` spent**,
+  one operator line. This closes the data-loss hole where a wrong token drove every
+  matched row to `failed` over three passes, unrecoverably. A successful send clears
+  `pipeline_error`. Delivery is **at-least-once**: the send is a single atomic
+  `sendMessage`, so a timeout after delivery can only duplicate the alert, never
+  half-send it — a duplicate ping beats a lost match. `notify_attempts` counts send
+  failures cumulatively, so a row manually reopened from `failed` gets one fresh notify
+  attempt per reopen. Design:
   [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
 
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
@@ -1328,9 +1456,19 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
+| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
+| The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
+| `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
+| `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
+| Scorer provenance (`backend`/`model`/`scorer_version`) stamped into `score_detail` on fit-scored rows only — never screen-discarded or low-context; `model` tracks the backend `make_scorer` picks | `test_pipeline.py` (`test_run_score_stamps_provenance_only_on_fit_scored_rows`, `test_run_score_stamps_provenance_on_fallback_disqualified_rows`, `test_run_score_omits_provenance_when_no_scorer_meta`), `test_run.py` (`test_run_once_stamps_the_active_fit_backend_and_model`, `test_scorer_meta_model_tracks_the_backend_make_scorer_picks`) |
+| `discarded` is terminal except via `--rescreen-discarded` (`db.requeue_discarded`): all discards → `new`, no other status touched, one-shot (rejected without `--once`) | `test_pipeline.py` (`test_requeue_discarded_returns_rows_to_new_for_a_later_screen`, `test_requeue_discarded_leaves_every_other_status_alone`), `test_run.py` (`test_run_once_rescreen_discarded_requeues_before_scoring`, `test_rescreen_discarded_requires_once`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
-| Notify send error → stays `scored` + `attempts+1` + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
-| `run_retry` requeues `failed`→`new` while `attempts < RETRY_MAX_ATTEMPTS` (3, shared with `NOTIFY_MAX_ATTEMPTS`), caps at the 3rd cumulative failure, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_four_stages_in_order` — the feeds-off path; with a feed enabled the pipeline is five stages) |
+| Per-posting notify send error → stays `scored` + `notify_attempts+1` (its own budget, not score `attempts`) + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
+| A **systemic** send fault (bad token `_systemic_send_error`, or `_BREAKER_LIMIT` consecutive failures, zero deliveries) circuit-breaks the notify pass: rows left `scored`, **no `notify_attempts` spent** | `test_pipeline.py` (`test_run_notify_auth_error_circuit_breaks_without_charging`, `test_run_notify_circuit_breaks_after_consecutive_failures`) |
+| Score `attempts` and notify `notify_attempts` are independent — score hiccups never pre-spend the notify budget | `test_pipeline.py` (`test_notify_budget_survives_prior_score_hiccups`) |
+| A **dead fit backend** (`_BREAKER_LIMIT` failures, zero successes) circuit-breaks the score pass, leaving the untouched remainder `new`; the `batch_size==1` singles fallback is not re-issued | `test_pipeline.py` (`test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new`, `test_run_score_singles_fallback_not_reissued_at_batch_size_one`) |
+| A score run is interruptible (`KeyboardInterrupt` → `cancel_futures`, queued fit calls not drained) and persists finished work as it completes (`as_completed` + `future→chunk` map) | `test_pipeline.py` (`test_run_score_keyboard_interrupt_cancels_pending_keeps_done`) |
+| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_four_stages_in_order` — the feeds-off path; with a feed enabled the pipeline is five stages) |
 | A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
 | Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
@@ -1450,9 +1588,11 @@ automated coverage — those rely on code review or the human in the loop, not a
   (see CHANGELOG).
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
   batch — the failure is recorded on the row and processing continues; failed rows
-  auto-retry under a shared 3-failure budget before parking for good, and recovery
-  from there is a manual reopen (contract in §9, "Failure handling and recovery
-  limits").
+  auto-retry under separate 3-failure budgets for the score (`attempts`) and notify
+  (`notify_attempts`) stages before parking for good, and recovery from there is a
+  manual reopen. A *systemic* fit-backend or notify-channel outage circuit-breaks its
+  stage (spending no budget, leaving rows recoverable) rather than convicting every
+  posting (contract in §9, "Failure handling and recovery limits").
 - **Concurrency safety:** WAL + `busy_timeout=5000` ms + the directory mount, as
   §6/§10 describe — safe under low write-contention, not a guarantee under sustained
   dual-write load.

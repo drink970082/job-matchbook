@@ -454,11 +454,92 @@ def test_run_notify_failure_isolated(db_path):
     pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     # A send error is transient: the row stays 'scored' for a next-pass retry,
-    # with the failure recorded on it; the sibling is unaffected.
+    # with the failure recorded on it; the sibling is unaffected. The charge lands
+    # on notify_attempts (delivery's own budget), NOT the shared score `attempts`.
     assert rows["1"]["pipeline_status"] == "scored"
-    assert rows["1"]["attempts"] == 1
+    assert rows["1"]["notify_attempts"] == 1
+    assert rows["1"]["attempts"] == 0
     assert "telegram" in rows["1"]["pipeline_error"]
     assert rows["2"]["pipeline_status"] == "notified"
+
+
+def test_notify_budget_survives_prior_score_hiccups(db_path):
+    # ORCH defect: `attempts` used to be shared, so score hiccups pre-spent the
+    # notify retry budget. A row that already burned 2 SCORE attempts (recovered
+    # via run_retry) must still get its full NOTIFY_MAX_ATTEMPTS notify tries — the
+    # two budgets are unrelated failure domains.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
+    pid = conn.execute("SELECT id FROM job_postings").fetchone()["id"]
+    # Simulate two prior score failures that scoring already recovered from.
+    conn.execute("UPDATE job_postings SET attempts=2 WHERE id=?", (pid,))
+    conn.commit()
+
+    sends = {"n": 0}
+
+    def failing_notify(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise RuntimeError("telegram timeout")   # transient, not systemic auth
+
+    # It is entitled to 3 notify tries; the first notify failure must NOT park it.
+    pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert sends["n"] == 1
+    assert row["pipeline_status"] == "scored"     # still retryable, not parked failed
+    assert row["notify_attempts"] == 1
+    assert row["attempts"] == 2                    # scoring's counter left as-is
+
+
+def test_run_notify_auth_error_circuit_breaks_without_charging(db_path):
+    # NOTIFY data-loss defect: a wrong/expired bot token (401) is a SYSTEMIC channel
+    # fault, not a per-posting one. It must circuit-break the whole pass — every
+    # matched row left 'scored', ZERO notify_attempts spent — instead of convicting
+    # each posting and, after NOTIFY_MAX_ATTEMPTS passes, destroying finished matches.
+    conn = db.connect(db_path)
+    _seed_scored(conn, {"1": 90, "2": 95, "3": 80}, detail=_MATCH_MATCH)
+
+    class _Resp:
+        status_code = 401
+
+    class _AuthError(RuntimeError):
+        response = _Resp()
+
+    sends = {"n": 0}
+
+    def notify_fn(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise _AuthError("401 Unauthorized: bot token is invalid")
+
+    pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="tok", chat_id="c")
+    rows = list(conn.execute("SELECT * FROM job_postings").fetchall())
+    assert sends["n"] == 1                                  # stopped after the first send
+    assert all(r["pipeline_status"] == "scored" for r in rows)   # nothing parked
+    assert all(r["notify_attempts"] == 0 for r in rows)          # no budget spent
+    assert all(r["attempts"] == 0 for r in rows)
+
+
+def test_run_notify_circuit_breaks_after_consecutive_failures(db_path):
+    # Backstop for a systemic failure that does NOT announce itself as auth (e.g. the
+    # Telegram host is unreachable, every send times out): after the shared breaker's
+    # limit of consecutive failures with ZERO deliveries, stop the pass so the bleed
+    # is bounded rather than charging every remaining matched row.
+    conn = db.connect(db_path)
+    ids = {str(i): 50 for i in range(1, 9)}       # 8 matched rows
+    _seed_scored(conn, ids, detail=_MATCH_MATCH)
+
+    sends = {"n": 0}
+
+    def failing_notify(posting, *, token, chat_id):
+        sends["n"] += 1
+        raise RuntimeError("connection timed out")   # not auth -> classifier passes it
+
+    pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
+    # Tripped at the breaker limit — not all 8 rows were attempted.
+    assert sends["n"] == pipeline._BREAKER_LIMIT
+    charged = conn.execute(
+        "SELECT COUNT(*) FROM job_postings WHERE notify_attempts > 0"
+    ).fetchone()[0]
+    assert charged == pipeline._BREAKER_LIMIT     # the remainder left untouched
 
 
 def test_run_score_disqualified_is_discarded_with_reason(db_path):
@@ -697,6 +778,94 @@ def test_run_score_fallback_single_failure_is_isolated(db_path):
     assert statuses["2"] == "scored"
 
 
+def test_run_score_singles_fallback_not_reissued_at_batch_size_one(db_path):
+    # SCORE defect (2): at batch_size=1 a chunk IS one posting, so the singles
+    # fallback would re-issue fit_fn([posting]) with byte-identical args to the
+    # batch call that just failed — a guaranteed-to-fail second call that only
+    # doubles the cost. The len(chunk) > 1 guard skips it: exactly ONE call.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    calls = {"n": 0}
+
+    def fit_fn(postings):
+        calls["n"] += 1
+        raise score.ScoreError("codex exec failed (exit 1): not logged in")
+
+    pipeline.run_score(conn, now=NOW, batch_size=1,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+    assert calls["n"] == 1                       # NOT re-issued as a single
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "failed"
+    assert "not logged in" in row["pipeline_error"]
+
+
+def test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new(db_path):
+    # SCORE defect (1): a dead fit backend (every call fails, zero successes) must
+    # NOT convict the whole queue. After _BREAKER_LIMIT failures the pass aborts,
+    # leaving the untouched remainder 'new' (recoverable) instead of marking 3,985
+    # rows 'failed' and burning their retry budget on an outage. score_workers=1
+    # makes consumption order deterministic.
+    import time
+    conn = db.connect(db_path)
+    rows = [str(i) for i in range(1, 21)]        # 20 new rows
+    _seed_new(conn, rows)
+    calls = {"n": 0}
+
+    def fit_fn(postings):
+        calls["n"] += 1
+        time.sleep(0.01)                          # realistic: a dead backend fails slowly,
+        raise score.ScoreError("codex exec failed (exit 1): not logged in")
+
+    pipeline.run_score(conn, now=NOW, batch_size=1, score_workers=1,
+                       screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+
+    # Tripped at the limit: exactly that many rows charged (the trip is checked after
+    # each consumed chunk), the untouched remainder left 'new' — recoverable, not a
+    # terminally-dead queue. Pending calls are cancelled, so spend is bounded too.
+    assert len(db.get_by_status(conn, "failed")) == pipeline._BREAKER_LIMIT
+    assert len(db.get_by_status(conn, "new")) == 20 - pipeline._BREAKER_LIMIT
+    assert calls["n"] < 20                        # not every row's fit call was spent
+
+
+def test_run_score_keyboard_interrupt_cancels_pending_keeps_done(db_path):
+    # ORCH defect (1): Ctrl-C during the paid fit phase must (a) stop launching new
+    # fit calls — the pending chunks are cancelled, not drained — and (b) keep the
+    # work already finished, persisted on the calling thread as it completed. Old
+    # ThreadPoolExecutor.__exit__ drained the whole queue (uninterruptible) and lost
+    # finished-but-unwritten results. score_workers=1 makes ordering deterministic.
+    import time
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4"])
+    called = []
+
+    def fit_fn(postings):
+        ext = postings[0]["external_id"]
+        if ext == "1":
+            return [{"score": 90, "assessment": _assessment()}]
+        if ext == "2":
+            time.sleep(0.05)             # let row "1" persist first, keep the worker busy
+            raise KeyboardInterrupt
+        called.append(ext)
+        time.sleep(0.05)                 # "3" may be the in-flight call at abort time;
+        return [{"score": 90, "assessment": _assessment()}]   # "4" is queued behind it
+
+    with pytest.raises(KeyboardInterrupt):
+        pipeline.run_score(conn, now=NOW, batch_size=1, score_workers=1,
+                           screen_fn=lambda p: {"disqualified": False}, fit_fn=fit_fn)
+
+    statuses = {
+        r["external_id"]: r["pipeline_status"]
+        for r in conn.execute("SELECT * FROM job_postings").fetchall()
+    }
+    assert statuses["1"] == "scored"     # finished work kept, not discarded on abort
+    assert statuses["2"] == "new"        # the interrupted chunk never persisted
+    assert statuses["3"] == "new"        # in-flight at abort: not consumed, not persisted
+    # The queued backlog past the in-flight call is CANCELLED, not drained: its fit
+    # call is never spent (old code shutdown(wait=True) would have run all of them).
+    assert statuses["4"] == "new"
+    assert "4" not in called
+
+
 # --- run_score concurrency -------------------------------------------------
 
 def test_run_score_screens_concurrently(tmp_path):
@@ -771,7 +940,7 @@ def test_run_notify_send_error_retries_then_parks_failed(db_path):
     for expected_attempts, expected_status in ((1, "scored"), (2, "scored"), (3, "failed")):
         pipeline.run_notify(conn, now=NOW, notify_fn=notify_fn, token="test_token", chat_id="c")
         row = conn.execute("SELECT * FROM job_postings").fetchone()
-        assert row["attempts"] == expected_attempts
+        assert row["notify_attempts"] == expected_attempts
         assert row["pipeline_status"] == expected_status
         assert "telegram" in row["pipeline_error"]
     assert calls == ["a", "a", "a"]
@@ -795,7 +964,7 @@ def test_run_notify_retry_then_success_clears_error(db_path):
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "notified"
     assert row["pipeline_error"] is None   # cleared on the successful send
-    assert row["attempts"] == 1            # the earlier failure stays counted
+    assert row["notify_attempts"] == 1     # the earlier send failure stays counted
 
 
 def test_run_notify_scrubs_token_from_recorded_and_printed_error(db_path, capsys):
@@ -982,18 +1151,20 @@ def test_run_retry_requeues_then_caps_at_retry_max_attempts(db_path):
 
 def test_run_retry_does_not_requeue_notify_exhausted_rows(db_path):
     # A row parked 'failed' via the NOTIFY_MAX_ATTEMPTS-th notify send failure has
-    # attempts == 3 == RETRY_MAX_ATTEMPTS — the SAME shared counter — so it must
-    # never requeue. No other code path writes pipeline_status='failed'.
+    # notify_attempts == 3 — its OWN budget, separate from score `attempts` — so it
+    # must still never requeue: run_retry guards on both counters. No other code
+    # path writes pipeline_status='failed' from the notify side.
     conn = db.connect(db_path)
     _seed_scored(conn, {"a": 90}, detail=_MATCH_MATCH)
 
     def failing_notify(posting, *, token, chat_id):
-        raise RuntimeError("telegram 429")
+        raise RuntimeError("telegram 429")   # transient/per-row, not systemic auth
 
     for _ in range(3):
         pipeline.run_notify(conn, now=NOW, notify_fn=failing_notify, token="t", chat_id="c")
     row = conn.execute("SELECT * FROM job_postings").fetchone()
-    assert row["attempts"] == 3
+    assert row["notify_attempts"] == 3
+    assert row["attempts"] == 0          # scoring's budget is untouched by notify
     assert row["pipeline_status"] == "failed"
 
     requeued = pipeline.run_retry(conn, now=LATER)
@@ -1048,3 +1219,269 @@ def test_run_retry_sets_updated_at_to_passed_now(db_path):
     row = conn.execute("SELECT * FROM job_postings").fetchone()
     assert row["pipeline_status"] == "new"
     assert row["updated_at"] == LATER
+
+
+# --- dead screen provider ---------------------------------------------------
+
+def test_run_score_never_pays_to_fit_score_an_unscreened_row(db_path):
+    # The screen erring toward KEEP is right for one flaky call, but paying the fit
+    # backend for a row that was never actually screened is not "keeping" it — the
+    # hard-requirement gate simply didn't run. The row stays 'new' (recoverable, free)
+    # and the next pass screens it properly.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+    fit_calls = []
+
+    def screen_fn(posting):
+        if posting["external_id"] == "1":
+            return {"screen": {}, "disqualified": False, "provider_error": True}
+        return {"screen": {}, "disqualified": False}
+
+    def fit_fn(postings):
+        fit_calls.extend(p["external_id"] for p in postings)
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+    status = {r["external_id"]: r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert status["1"] == "new"        # untouched, costs nothing, retried next pass
+    assert status["2"] == "scored"
+    assert fit_calls == ["2"]          # the unscreened row never reached the scorer
+    assert conn.execute(
+        "SELECT attempts FROM job_postings WHERE external_id='1'").fetchone()[0] == 0
+
+
+def test_run_score_provider_error_still_discards_on_a_deterministic_gate(db_path):
+    # The CODE gates ran fine even though the LLM screen didn't. A row they
+    # disqualified is still terminal — it must not be resurrected as 'new'.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {"location": {"pass": False}},
+                             "disqualified": True,
+                             "disqualification_reason": "location: Shanghai",
+                             "provider_error": True},
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+    assert conn.execute(
+        "SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
+
+
+def test_run_score_screen_breaker_aborts_and_says_so(db_path, capsys):
+    # The assertion that actually pins the breaker. The sibling test below checks only
+    # that rows stay 'new'/attempts=0 -- which is ALSO true with no breaker at all, since
+    # every provider_error row hits `continue` regardless (verified: stubbing the trip
+    # check out leaves the whole suite green). The abort announcement is the one
+    # observable the breaker uniquely produces, and an unannounced abort is itself the
+    # defect -- rows keep attempts=0 and never reach the Failed tab, so a silent abort
+    # looks exactly like a pass with nothing to do.
+    conn = db.connect(db_path)
+    _seed_new(conn, [str(i) for i in range(pipeline._BREAKER_LIMIT + 5)])
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {}, "disqualified": False, "provider_error": True},
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("fit must not run")),
+        screen_workers=1,
+    )
+    assert "screen backend appears down" in capsys.readouterr().out
+
+
+def test_screen_breaker_counts_raised_failures_too(db_path):
+    # A backend whose failure mode RAISES is as systemic as one returning the flag.
+    # Uncounted, an outage marks every row `failed` (attempts+1) and three passes park
+    # the backlog terminal -- the "a morning out and the queue is gone" outcome the
+    # breaker exists to prevent. Rows past the limit must stay untouched at attempts=0.
+    conn = db.connect(db_path)
+    n = pipeline._BREAKER_LIMIT + 5
+    _seed_new(conn, [str(i) for i in range(n)])
+
+    def screen_fn(posting):
+        raise RuntimeError("connection refused")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("no fit")),
+                       screen_workers=1)
+    rows = conn.execute("SELECT pipeline_status, attempts FROM job_postings").fetchall()
+    untouched = [r for r in rows if r["pipeline_status"] == "new" and r["attempts"] == 0]
+    assert untouched, "breaker never aborted; every row was marked failed"
+
+
+def test_run_score_circuit_breaks_a_dead_screen_provider(db_path):
+    # A dead screen provider is SYSTEMIC, not per-item: without a breaker the whole
+    # backlog is silently left unscreened. Trip after _BREAKER_LIMIT consecutive
+    # provider errors with zero successes and leave the remainder 'new'.
+    conn = db.connect(db_path)
+    ids = [str(i) for i in range(pipeline._BREAKER_LIMIT + 5)]
+    _seed_new(conn, ids)
+    screened = []
+
+    def screen_fn(posting):
+        screened.append(posting["external_id"])
+        return {"screen": {}, "disqualified": False, "provider_error": True}
+
+    pipeline.run_score(
+        conn, now=NOW, screen_fn=screen_fn,
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("fit must not run")),
+        screen_workers=1,
+    )
+    # NOT asserted: how many screen calls were made. The pool is filled up front (so
+    # consumption stays in submission order), so already-queued calls can race ahead of
+    # the trip with instant fakes; the breaker cancels the rest, which on a real
+    # provider — seconds per call — stops most of the backlog. What IS guaranteed is
+    # below: nothing was persisted, nothing was spent, everything is recoverable.
+    rows = conn.execute("SELECT pipeline_status, attempts FROM job_postings").fetchall()
+    assert {r["pipeline_status"] for r in rows} == {"new"}   # all recoverable
+    assert {r["attempts"] for r in rows} == {0}              # no budget burned
+
+
+def test_run_score_one_screen_success_disarms_the_breaker(db_path):
+    # A flaky-but-alive provider must never trip it: one success this pass is proof
+    # the backend is up, so the remaining errors ride the per-item keep policy.
+    conn = db.connect(db_path)
+    ids = [str(i) for i in range(pipeline._BREAKER_LIMIT + 3)]
+    _seed_new(conn, ids)
+
+    def screen_fn(posting):
+        if posting["external_id"] == "0":
+            return {"screen": {}, "disqualified": False}      # one good call
+        return {"screen": {}, "disqualified": False, "provider_error": True}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [_card() for _ in ps], screen_workers=1)
+    status = [r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()]
+    assert status.count("scored") == 1        # only the genuinely screened row
+    assert status.count("new") == len(ids) - 1
+
+
+# --- scorer provenance ------------------------------------------------------
+
+_META = {"backend": "codex", "model": "gpt-5.6-sol", "scorer_version": "2026-07-24"}
+
+
+def test_run_score_stamps_provenance_only_on_fit_scored_rows(db_path):
+    # Row '1' is screen-disqualified and row '2' is too thin to fit-score: NEITHER
+    # spends a fit call, so stamping them with a backend/model would claim a scorer
+    # produced a verdict it never saw. Only row '3' — the one the fit backend
+    # actually scored — carries provenance.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "3"])
+    _seed_new(conn, ["2"], description="too thin to score")
+
+    def screen_fn(posting):
+        if posting["external_id"] == "1":
+            return {"disqualified": True, "disqualification_reason": "requires a PhD"}
+        return {"disqualified": False}
+
+    def fit_fn(postings):
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn,
+                       scorer_meta=_META)
+    detail = {r["external_id"]: _json.loads(r["score_detail"])
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert detail["3"]["backend"] == "codex"
+    assert detail["3"]["model"] == "gpt-5.6-sol"
+    assert detail["3"]["scorer_version"] == "2026-07-24"
+    assert "backend" not in detail["1"]      # screen-discarded, no fit call
+    assert "backend" not in detail["2"]      # low-context, fit call skipped
+
+
+def test_run_score_omits_provenance_when_no_scorer_meta(db_path):
+    # scorer_meta is optional (the pipeline stays pure + injected): with none passed,
+    # score_detail keeps its pre-provenance shape byte for byte.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    detail = _json.loads(conn.execute("SELECT * FROM job_postings").fetchone()["score_detail"])
+    assert set(detail) == {"assessment"}
+
+
+def test_run_score_stamps_provenance_on_fallback_disqualified_rows(db_path):
+    # The fit scorer's fallback extraction can disqualify a row AFTER the fit call
+    # ran (merge_fallback_screen). That call was paid for, so the row is provenance-
+    # stamped like any other fit-scored row — it is exactly the kind of verdict an
+    # operator re-selects after a score.txt edit.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    card = _card(screen={"clearance": {"requires_clearance": True}})
+
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {}, "disqualified": False,
+                             "disqualification_reason": ""},
+        fit_fn=lambda ps: [card for _ in ps],
+        candidate={"security_clearance": "none"}, scorer_meta=_META)
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "discarded"
+    assert _json.loads(row["score_detail"])["backend"] == "codex"
+
+
+# --- rescreen discarded -----------------------------------------------------
+
+def test_requeue_discarded_returns_rows_to_new_for_a_later_screen(db_path):
+    # A 'discarded' row is terminal — run_retry only requeues 'failed' — so a
+    # candidate-config fix (locations, degree, work_authorization) would otherwise
+    # leave every posting frozen under the old rule, false discards included.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+
+    strict = lambda p: {"disqualified": True, "disqualification_reason": "requires a PhD"}
+    pipeline.run_score(conn, now=NOW, screen_fn=strict,
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
+
+    assert db.requeue_discarded(conn, LATER)[0] == 1
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "new"
+    assert row["updated_at"] == LATER
+    assert row["attempts"] == 0          # a discard burned no score budget
+
+    pipeline.run_score(conn, now=LATER, screen_fn=lambda p: {"disqualified": False},
+                       fit_fn=lambda ps: [_card() for _ in ps])
+    assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "scored"
+
+
+def test_requeue_discarded_leaves_un_hydrated_stub_discards_alone(db_path):
+    # Stub-gate discards are stored with description='' on purpose (run_fetch exempts
+    # them from the bodyless drop) because they never reach the scorer. Requeueing one
+    # DESTROYS it: it becomes 'new', the thin-JD gate parks it 'scored' at score 0, and
+    # upsert_postings is ON CONFLICT DO NOTHING so no later pass ever back-fills the JD.
+    # The rows the flag exists to rescue are exactly the ones it must not touch.
+    conn = db.connect(db_path)
+    conn.execute(
+        "INSERT INTO job_postings (source, external_id, job_title, company_name, "
+        "job_url, description, pipeline_status, attempts, created_at, updated_at) "
+        "VALUES ('phenom','stub','Engineer','Acme','https://x/1','','discarded',0,?,?)",
+        (NOW, NOW))
+    conn.commit()
+
+    assert db.requeue_discarded(conn, LATER)[0] == 0
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "discarded", "un-hydrated stub was requeued"
+
+    # A hydrated discard on the same table still comes back, so the guard is a filter,
+    # not a blanket refusal.
+    conn.execute("UPDATE job_postings SET description='A real job description.'")
+    conn.commit()
+    assert db.requeue_discarded(conn, LATER)[0] == 1
+
+
+def test_requeue_discarded_leaves_every_other_status_alone(db_path):
+    # Only 'discarded' comes back. A 'scored'/'notified' row must never be re-screened
+    # (it would re-notify), and 'failed' has its own budgeted path via run_retry.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["new"])
+    _seed_scored(conn, {"scored": 80})
+    _seed_new(conn, ["failed"])
+    pid = conn.execute(
+        "SELECT id FROM job_postings WHERE external_id='failed'").fetchone()[0]
+    db.mark_failed(conn, pid, error="boom", now=NOW)
+
+    assert db.requeue_discarded(conn, LATER)[0] == 0
+    status = {r["external_id"]: r["pipeline_status"]
+              for r in conn.execute("SELECT * FROM job_postings").fetchall()}
+    assert status == {"new": "new", "scored": "scored", "failed": "failed"}

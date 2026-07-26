@@ -9,6 +9,140 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`--rescreen-discarded` could destroy the rows it exists to rescue.** Stub-gate
+  discards are stored deliberately un-hydrated (`description=''`) because they never
+  reach the scorer — `run_fetch` exempts them from the bodyless drop for exactly that
+  reason. `requeue_discarded` was unfiltered, so it flipped them to `new`; the thin-JD
+  gate then parked them `scored` at score 0, and because `upsert_postings` is
+  `ON CONFLICT DO NOTHING` no later pass could ever back-fill the JD. The row ended up
+  neither scored nor recoverable, on a high-volume source (phenom). It now requeues only
+  rows with a non-empty description; an un-hydrated stub stays `discarded`, where the
+  stub gate can still revisit it.
+
+- **The screen circuit breaker aborted silently and ignored raised failures.** Two gaps
+  in the breaker shipped 2026-07-24. It printed nothing on trip, unlike its fit-phase
+  twin — and since aborted rows keep `attempts=0` and never reach the Failed tab, a
+  misconfigured provider produced a pass that did nothing and said nothing, the same
+  silence the breaker was built to end. It also called `record_failure()` only on the
+  `provider_error` verdict, not on the `except` path, so a screen failure that *raises*
+  was invisible to the breaker while still marking rows `failed`. Scope that honestly:
+  `screen_posting` wraps the backend call in its own `except`, so today's wiring cannot
+  propagate a provider raise — this half is defensive symmetry with the fit phase (which
+  pairs `record_failure()` with every `mark_failed`), not a live outage path. Both fixed,
+  and both now covered by tests that fail when the breaker is stubbed
+  out — the two pre-existing tests do not, since a `provider_error` row is skipped with or
+  without a breaker.
+
+- **`_scorer_meta` stamped the Anthropic model onto any unrecognized backend.**
+  `make_scorer` raises on an unknown backend; its provenance twin fell through to
+  `anthropic_score_model`, so a stray `SCORE_BACKEND=openai` in a `.env` (argparse does
+  not validate an env-supplied `default` against `choices`) wrote a stamp naming a model
+  that never ran. A silently wrong provenance field is worse than none. It now raises.
+
+- **A dead screen provider no longer hands the whole backlog to the paid scorer.**
+  `screen_posting` catches any provider exception and errs toward KEEP — correct for one
+  flaky call, wrong for an outage. When Ollama was simply down (a WSL2 suspend does it)
+  nothing raised and nothing was marked `failed`, so no failure count moved: every
+  remaining row silently skipped screening and was fit-scored **blind on the paid
+  backend**, turning the ~18% normally discarded for free into paid calls and switching
+  the hard-requirement gate off entirely. This was the **fifth** instance of the policy
+  error PRINCIPLES' four-way table names — a systemic condition handled as a per-item
+  verdict — and the one pipeline block the 2026-07-23/24 sweep never reached. The verdict
+  now carries `provider_error`, and `run_score` (a) leaves such a row **`new`** — no
+  paid call, no `attempts` spent, screened properly next pass — unless a *deterministic*
+  gate (location/intern, which cost nothing and ran fine) disqualified it, in which case
+  that verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with
+  the same signature as the fit one, aborting it and cancelling the queued remainder. One
+  success disarms it, so a flaky-but-alive provider never trips. `SCREEN_BACKEND=none` is
+  **not** a provider error — no provider, deterministic gates alone, scored as documented.
+  Found while auditing the unattended long-run runbook, which had no signal that would
+  have caught it.
+
+- **`schedule_hours: 0` (or negative) is now a startup error instead of a hot loop.**
+  `config.py` coerced `schedule_hours` with no lower bound and `run.main` fed it
+  straight to APScheduler's `interval` trigger, whose `IntervalTrigger` falls back to a
+  **1-second** period when every component is zero — so a `0`/negative typo silently
+  meant a daemon hammering the whole watchlist once a second. `load_config` now raises
+  `ConfigError` for anything `< 1`. (Config validation — fail loud.)
+- **A wrong Telegram token no longer permanently destroys every matched posting.**
+  `run_notify` treated a send failure as a per-posting fault, so a bad-token `401`
+  drove all five matched rows to `attempts+1` each pass and parked them `failed` on
+  the third — gone from both the alert channel and the web Matched tab, unrecoverable
+  short of hand-editing the DB. A **systemic** send fault is now classified
+  (`_systemic_send_error`: `401`/`403` or an invalid-token body) and **circuit-breaks
+  the pass**: every matched row is left `scored`, **zero** notify budget spent, one
+  operator line printed. A `_BackendBreaker` (5 consecutive failures, zero deliveries)
+  backstops the unclassified-systemic case (e.g. the host unreachable). Only a
+  genuinely per-posting fault still spends the retry budget. (PRINCIPLES "the four
+  kinds of uncertainty" — circuit break.)
+- **A dead fit backend no longer fails the entire score queue.** `run_score` isolated
+  a bad *posting* but had no notion of a bad *backend*: one outage (e.g. `codex exec`
+  not logged in) marked the whole `new` backlog `failed` at `attempts+1`, three passes
+  from a terminally-dead queue. The same `_BackendBreaker` aborts scoring after 5
+  failures with zero successes, leaving the untouched remainder `new` (recoverable),
+  with one operator line; one success disarms it. The `batch_size==1` singles fallback
+  is now guarded (`len(chunk) > 1`) so it no longer re-issues the byte-identical call
+  that just failed, doubling the cost of every failure.
+- **A score run is now interruptible and keeps finished work when killed.** The fit
+  phase drained its whole queue on `ThreadPoolExecutor` exit (`shutdown(wait=True)`),
+  so Ctrl-C waited out ~thousands of uninterruptible paid `codex exec` calls, and
+  results finished-but-unwritten behind a straggler were discarded on abort. It now
+  consumes via `as_completed` and persists each result on the calling thread as it
+  completes (row-associated by a `future → chunk` map), and on `KeyboardInterrupt`
+  tears the pool down with `cancel_futures=True` — queued calls are cancelled, not
+  drained.
+- **Score hiccups no longer silently eat the notify retry budget.** `attempts` was one
+  counter shared across both stages, so a row that burned 2 transient score failures
+  (already recovered) got only 1 of its 3 notify tries before parking `failed`. Notify
+  failures now land on a separate `notify_attempts` column; `run_retry` guards both
+  budgets (`attempts < 3 AND notify_attempts < 3`), keeping a notify-exhausted row
+  terminal while giving delivery its own full budget. Additive schema column
+  (`schema.prisma` + fixture); existing rows backfill to 0.
+
+- **`resolve_location` no longer false-discards a city/region pair whose region
+  abbreviation doesn't resolve.** With `locations: ["Canada", "USA", "remote"]`,
+  `'London, ON'` returned `(False, 'on-site in United Kingdom')`: `_token_country`
+  resolves each token independently, `'ON'` resolves to nothing (only **US**
+  subdivisions are in the gazetteer — no other country's are), and `'London'` alone
+  decided the country as GB by highest-population namesake. A genuinely Canadian
+  posting was dropped *and* the recorded reason named the wrong country, so it could
+  not even be spotted in the Discarded bucket. Discard now requires a **corroborated**
+  foreign reading — every token resolved, or at least two did; a lone resolved token
+  beside an unresolved one keeps. `'Tokyo, Japan'` and `'London, England, United
+  Kingdom'` still discard. The cost is misses only (`'Hyderabad, TS'` now keeps = one
+  wasted fit call), which is the trade SPEC already makes explicit for `run_expire`.
+  Note the fix originally recorded for this defect — "require **all** tokens to
+  resolve" — was implemented, measured, and **rejected**: it broke four shipped
+  assertions, because `England`, `North Holland` and `Montréal` (accented in the
+  gazetteer) don't resolve either, so it disabled the gate for `City, Region, Country`,
+  the most common foreign board format.
+
+- **A throttled board is no longer lost whole — bounded 429 retry in the phenom
+  paginator.** The 2026-07-22 full pass lost exactly one board this way:
+  `phenom/careers.qualcomm.com` rate-limited at deep pagination (`start=930`), and the
+  exception unwound the page loop, discarding every posting already collected. A 429 on
+  the search GET now retries the same offset up to 3 times (2s -> 4s -> 8s, honoring a
+  delta-seconds `Retry-After` clamped to 30s). Still throttled at `start > 0` returns an
+  empty page, which the paginator reads as the end of the board — **the pages already
+  walked are kept**, no change to `_paged.py`. At `start == 0` it still raises, because
+  a silent `[]` would report a throttled board as an empty one. A non-429 status never
+  spends the retry budget. Detail calls are untouched (already isolated per posting).
+  Deliberately not built: a per-source rate-limit policy across all 13 sources — 12 of
+  them have never rate-limited.
+
+- **An off-vocabulary `work_authorization` no longer silently disables the whole
+  authorization screen check.** `_needs_sponsorship` substring-matches `"sponsor"` and
+  reads its absence as "does not need sponsorship" — so `F-1 OPT`, `STEM OPT` and
+  `H-1B`, the most natural things a user writes, each turned the check off with no
+  error and no warning. `config.py` now validates the value against the four documented
+  values (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
+  sponsorship`, case-insensitive) and raises `ConfigError` otherwise, matching the
+  module's existing fail-loud-at-startup contract (`VALID_SOURCES`, `VALID_FEEDS`).
+  Blank stays legal — it means "don't screen on this". The guided `onboard-me` path was
+  already safe; this covers hand-edited `config.yaml`, which is a documented path.
+  Deliberately not built: the 6-field structured `authorization:` block proposed
+  alongside it — the only distinction that changes an outcome is one boolean.
+
 - **A screen check the model returned no data for is no longer recorded as a pass.**
   `_screen_verdict`'s `gate()` wrote `screen[key]` whenever the candidate had
   *configured* a check, and each `_check_*` errs toward pass on absent data — so a
@@ -70,6 +204,71 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   shared by the pre-fit gate and `get_notifiable`.
 
 ### Added
+
+- **`--no-notify`: score without alerting.** A bulk or unattended pass scores hundreds
+  of rows and, until now, fired a Telegram alert per match — a burst nobody is there to
+  read. The flag skips the notify stage and says so; nothing is consumed, because matched
+  rows stay `scored` and a later pass without the flag alerts them normally (and they are
+  in the web Discovered tab the whole time).
+
+- **Every fit-scored row now records which scorer produced it.** `score_detail`
+  persisted the verdict but nothing about its author, so a row scored on
+  `codex`/`gpt-5.6-sol` was indistinguishable from one scored on
+  `claude`/`claude-sonnet-5`, or from one scored before a `score.txt` edit — a
+  `--score-backend` A/B could not be read back off the data, and any rubric change made
+  re-scoring all-or-nothing over the whole table. `run.py` (the only layer that knows
+  the scorer's identity) now hands `run_score` a three-field `scorer_meta` —
+  `backend`, `model`, `scorer_version` — which `_score_detail` merges into the existing
+  JSON, so **no schema migration**. Stamped only where a fit call actually ran (both
+  `_persist_scored` outcomes, including the fallback-disqualified `discarded` that
+  already paid for its call), never on a screen-discarded or low-context row that would
+  otherwise claim a backend it never reached. `model` branches on `backend` beside
+  `make_scorer` so the stamp can't name a model the scorer wasn't built with, and
+  `scorer_version` is a hand-bumped date string in `prompts.py`. The eight-field hash
+  provenance with automatic re-score triggering stays rejected — a cache-invalidation
+  system for inputs that change a handful of times a year.
+
+- **`--rescreen-discarded`: the one way back from a terminal discard.** `run_retry`
+  requeues only `failed`, so `discarded` was permanent — editing a candidate hard
+  requirement (`locations`, `highest_degree`, `work_authorization`,
+  `exclude_internships`), or fixing the screen itself, left every prior discard frozen
+  under the old rule and made a **false** discard unrecoverable. The flag runs one bulk
+  `db.requeue_discarded` UPDATE immediately before `run_retry`, returning every discard
+  to `new` so the same pass re-screens it. Unbudgeted and unfiltered by design (a
+  discard spends no `attempts`, so there is no counter to guard). It is **one-shot** —
+  `main` rejects it without `--once`, because on the interval schedule it would
+  resurrect the same discards every pass and re-charge the paid fit scorer for each
+  survivor indefinitely. Screening is free on the default ollama backend; pair with
+  `--score-limit` to bound the fit calls that follow.
+
+- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` recipes
+  already interpolate `{dotted.field}` into their `url`; `browser` recipes could not, so
+  a board whose cards carry no `href` — the id sits in a `data-*` attribute and routing
+  is JS-side — could only produce a broken or empty `job_url`. A `url` spec containing
+  `{` is now interpolated over the recipe's *own* other `fields`, reusing the existing
+  `interpolate`/`_PLACEHOLDER` machinery rather than a second interpolator. Detection
+  matches the `custom` path's rule, and CSS selectors never contain braces, so no
+  shipped recipe changes meaning. Fields the canonical posting dict ignores are
+  extracted too, so a recipe can carry a url-only helper field — e.g.
+  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, resolved
+  against the listing `base_url`. The interpolated URL
+  enters the pipeline at the same point as a scraped `href` and passes the same
+  `is_safe_public_url` guard in `browser.fetch` — no new fetch path (regression-tested
+  with a template resolving to a link-local address). Unblocks the Balyasny / Jacobs
+  Levy-shape boards that were blocked on this primitive alone; no adapter changed.
+
+- **`test_no_source_specific_logic` — an architecture guard welding the fetch layer's
+  main invariant in place.** Which adapter runs is decided by data (the watchlist row's
+  `source`, looked up in `fetch.ADAPTERS`), never by the orchestration layer naming a
+  board — so `pipeline.py` and `db.py` carry no board names, and adding a 12th adapter
+  must not require editing either. The test derives its source list from `ADAPTERS`
+  itself (so a new adapter is covered with no edit here), strips comments and docstrings
+  before scanning (prose naming a board while explaining why the generic path exists is
+  not coupling), and fails on any board name appearing in executable code. `db.py` is
+  entirely clean; `pipeline.py`'s one occurrence — `"embedded_greenhouse"`, a
+  `classify_reason` fail-bucket label, not adapter dispatch — is an explicit allowlist
+  entry with its reasoning inline, plus a note to rename rather than allowlist a second
+  one. A stale-allowlist assertion keeps the exceptions honest.
 
 - **`SCREEN_BACKEND` — five more ways to run the hard-requirements screen, so a user
   with no local GPU (or no Ollama at all) can still run the pipeline.** The screen was
@@ -135,18 +334,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   a full re-fetch. `--score-limit N` caps how many `new` rows `run_score` touches in one
   pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
   remainder stays `new` for the next pass.
-
-- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
-  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
-  recipes could only read a `url` off the card via a CSS selector, so a board whose
-  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
-  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
-  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
-  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
-  resolved against the listing `base_url`. The interpolation namespace is the recipe's
-  **own `fields` map**, so a helper field the canonical posting ignores (`req`, say) can
-  still feed the template. Any other `url` spec stays a CSS selector as before. Unblocks
-  Balyasny / Jacobs Levy-shape boards without touching an adapter.
 
 ### Changed
 
@@ -219,6 +406,117 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   beyond the -55% is unmeasured and depends on `max_age_days` config (PROGRESS).
 
 ### Documentation
+
+- **Agent context slimmed, and the self-merge review contradiction resolved.** An audit
+  against Anthropic's 2026-07-24 context-engineering guidance found `CLAUDE.md` paying
+  for content a session can derive itself and, worse, carrying a rule that contradicted
+  the one `c641849` had just added. `CLAUDE.md` §Agent conduct said subagents were
+  "never to verify or re-read your own work" and that the verify gate takes "no
+  self-review pass on top", while §Sessions and `DEVELOPMENT.md` §7 required a **fresh
+  subagent review** before a session may merge its own PR; `DEVELOPMENT.md` §5 carried
+  the same contradiction against §7 *within one file*. Both now scope the older rule
+  rather than drop it: the §7 pre-merge review is a gate on **merging**, explicitly not
+  a second verification of the change, and a skill invoking another skill is not
+  delegation (which is what had forbidden `onboard-me` from handing each company to
+  `onboard-board`). Cut alongside it: the repo map and `make` target list (derivable
+  from `ls` and `make help`), indent rules (`.editorconfig` owns them), commit and
+  branch conventions (`CONTRIBUTING.md` and branch protection own them), the git
+  identity (`git config` owns it), a scope rule duplicating the harness system prompt,
+  and an unpaired code fence that had been in the file since it was written.
+  `CLAUDE.md` drops from 7,064 to 4,587 chars.
+
+- **Doc reading is now progressive instead of mandatory.** `CLAUDE.md` opened by
+  requiring every session to read `SPEC.md`, `PROGRESS.md`, `PRINCIPLES.md`, and
+  `DEVELOPMENT.md` "before any substantive work" — about 57k tokens, charged equally to
+  a typo fix and a scorer rewrite, while the same file elsewhere warned that those docs
+  are "already large and every session reloads them". The only genuinely unconditional
+  read is `PROGRESS.md`'s **"In flight"** section (~2.4k tokens), because skipping it is
+  how two sessions collide on one branch; that stays a hard rule in `CLAUDE.md`. The
+  rest became a `session-boot` skill holding the read order — claim, classify, then only
+  the `SPEC` sections the change touches, `PRINCIPLES` on a fork, §5/§6 at the end.
+  `onboard-me`'s SKILL.md split the same way: the profile-authoring rules, the
+  `candidate:` field reference, and the résumé fallbacks moved to `references/`, leaving
+  the structural contract (the six profile section headers, the `<w:t>` extraction rule)
+  in the body where the evals depend on it.
+
+- **Unattended long-run day captured as a committed runbook.** The next operational
+  step — one unattended day that clears both of PR #7's merge blockers and puts a
+  bounded, provenance-stamped slice of the ~3,985 unscored postings through the
+  pipeline — lived only in a conversation, which is exactly the decision shape the
+  cross-session handoff rule exists to prevent. Now
+  `docs/superpowers/plans/2026-07-24-long-run-day-runbook.md`, with the five phases and
+  their concrete commands, the message-bound quota math (including the ~150-message
+  reserve that keeps a good scoring run from eating the gate budget), the branch it
+  must run from (`feat/score-provenance-and-rescreen` — score anywhere else and ~1,500
+  rows persist unstamped, permanently), the monitoring cadence, and an explicit
+  **authority boundary** splitting what an agent may decide alone from what waits for
+  the operator (the Stage 4 revert, any merge, editing the golden set, any code
+  change). PROGRESS's "Do next" now points at it as the queue head, and its phase
+  checkboxes are the run's live state for a session that picks it up mid-flight.
+
+- **The strong-model-overturn decision resolved by measurement, not design.** That
+  entry had said one free read-only query would unblock it; the query ran 2026-07-24.
+  Of 3,262 discarded rows, `location` accounts for 94.0% and degree/clearance-*only*
+  discards for 30 rows (0.9%) — under the entry's own "a couple of percent → just route
+  them" threshold, so it drops from `M` (build a screen eval first) to `S` (route ~30
+  rows to the paid scorer). The same number deflates the `screen.txt` eval-gate entry,
+  whose clauses turn out to decide ~1.2% of discards. PROGRESS records both, plus the
+  caveat that most of those 3,262 are fetch-time location kills, so degree/clearance is
+  a larger share of *screen-stage* discards than 0.9%.
+
+- **PROGRESS "In flight" reconciled with what actually merged.** PRs #4 and #5 are on
+  `main` (#5 needed a CHANGELOG conflict resolution — `main`'s squash of #4 diverged
+  from #5's copy of those commits). **PR #6 was based on `feat/workday-stub-gate`, not
+  `main`**, so merging it landed there; that branch now sits 8 commits ahead of `main`
+  with no PR of its own, and one PR closes the gap. The new
+  `feat/score-provenance-and-rescreen` branch is recorded as queuing behind #7.
+
+- **A branch/PR/merge protocol for sessions working as a team.** Sessions are the
+  workers on this repo and share no memory — only the repo — but nothing wrote down how
+  they should hand work between each other, and 2026-07-24 spent four merges paying for
+  that. `DEVELOPMENT.md` gained **§7**: work is *claimed* by its `PROGRESS.md` In-flight
+  entry rather than by the branch existing; each branch rule cites the incident that
+  bought it (a PR that silently targeted another feature branch instead of `main`; a
+  merge onto a local branch that was stale because `git fetch` updates remote-tracking
+  refs, not local ones; the squash-divergence conflict every stacked PR hit, whose
+  mechanical resolution would have re-opened an item that same branch shipped); and an
+  **authority table** splits what a session decides alone (branch, commit, push, open a
+  PR, record a defect) from what needs the operator (**merging to `main`**, force-pushes,
+  releases, reverting another session's work, anything spending money or quota) — with
+  the note that "just merge" authorizes *that* merge, not a standing one. A session may
+  merge **its own** green PR, but only behind a **fresh-subagent review**: an author
+  cannot review its own diff (it re-reads its intent and checks the code against the
+  plan, rather than checking the plan), so the reviewer gets the diff and the spec and
+  explicitly *not* the working session's reasoning, and any finding that survives
+  verification blocks the merge. CI green is not a review. `CLAUDE.md`
+  carries the short form. **Deliberately rejected: GitHub issues as the queue** —
+  `PROGRESS.md` already is one, in-repo and greppable, and a second list would drift.
+
+- **Agent protocol retuned for Claude Opus 5, now the repo's dev model.** The rail was
+  written against older models and carried two assumptions that no longer hold. First,
+  DEVELOPMENT.md's closing hint routed design work to "the strongest model available"
+  and maintenance to "smaller ones" — on Opus 5 the dial is **effort**, not model size
+  (`xhigh` for design and multi-file work, `low`/`medium` for maintenance, docs, and
+  review). Second, nothing capped the behaviors this model does on its own: it
+  self-verifies, delegates, and writes long. So §5 now states that the evidence table
+  *is* the verification step (no self-review pass, no subagent to double-check own
+  work), §6 and a new `CLAUDE.md` "Agent conduct" block calibrate doc length against
+  the three files every session reloads, and the same block caps delegation and pins
+  scope to the ask. The kickoff template gained the matching scope line.
+
+- **PRINCIPLES gained "the four kinds of uncertainty" — "err toward keep" is one row,
+  not the whole rule.** The bias was stated everywhere as a single rule, but the code
+  deliberately does not apply it uniformly: `_normalize_score` raises on a missing score
+  (buried as 0 it would silently drop the posting out of notification),
+  `_normalize_assessment` raises on an out-of-enum verdict (they drive the seniority
+  floor and the ranking), and the codex fit backend raises the **whole batch** on a
+  missing, duplicate or unknown `job_ref`. Each carried a local comment; nothing stated
+  the general rule behind them, so an agent reading only "err toward keep" had a live
+  licence to soften them into defaults. Now a table — candidate opportunity **KEEP** ·
+  data integrity **FAIL LOUD** · systemic configuration **CIRCUIT BREAK** · delivery
+  **RETRY** — with principle 3 itself scoped to opportunity uncertainty, and a pointer
+  from `CLAUDE.md`. It earns its place because **every one of the seven defects found
+  probing this pipeline on 2026-07-23 is one cell treated as another.**
 
 - **README reordered for a first-time reader instead of a reviewer.** The landing
   page led with the tech stack and a 14-line bullet that carried the entire pipeline,
