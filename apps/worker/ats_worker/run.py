@@ -308,8 +308,16 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # default ollama backend; the PAID fit call that follows for each survivor is
         # bounded by --score-limit, so pair the two on a large backlog.
         if rescreen_discarded:
-            requeued = db.requeue_discarded(conn, now)
+            # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
+            # discards. Requeueing one destroys it, but skipping it is not a rescue
+            # either (nothing re-hydrates an existing row), so the operator is told
+            # rather than left to infer it from a count that looks short.
+            requeued, skipped = db.requeue_discarded(conn, now)
             print(f"rescreen: requeued {requeued} discarded row(s) to 'new'")
+            if skipped:
+                print(f"rescreen: left {skipped} un-hydrated stub discard(s) alone — "
+                      "requeueing one parks it 'scored'/0 permanently (no JD to score, "
+                      "and upsert is ON CONFLICT DO NOTHING); they stay 'discarded'")
 
         # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
         # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
@@ -525,6 +533,14 @@ def main(argv=None) -> None:
                         help="concurrent fit-scorer calls. Quota-neutral: parallel "
                              "calls spend the same messages, only less wall-clock")
     args = parser.parse_args(argv)
+
+    # argparse enforces `choices` on a value it PARSES, never on an env-supplied
+    # `default` — so SCORE_BACKEND=openai in a .env reaches the pipeline unchecked and
+    # dies deep inside the pass, after the fetch, after the one-shot --rescreen-discarded
+    # has already been consumed. Fail here, before anything irreversible runs.
+    if args.score_backend not in ("codex", "claude"):
+        parser.error(f"unknown score backend {args.score_backend!r} (want 'codex' or "
+                     "'claude') — check SCORE_BACKEND in your .env")
 
     # One-shot only: on the interval schedule this would resurrect the same discards
     # every pass and re-charge the paid fit scorer for each survivor, indefinitely.

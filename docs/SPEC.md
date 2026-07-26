@@ -865,8 +865,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   `new` immediately before `run_retry`, so a candidate hard-requirement edit doesn't
   leave postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`);
   filtered on one thing only — a row with an empty `description` is a stub-gate discard
-  and is left alone, because requeueing it destroys it irreversibly (§9). `main` rejects
-  the flag without `--once` (§9).
+  and is left alone, because requeueing it destroys it irreversibly (§9). Skipping it is
+  **not** a rescue either: nothing re-hydrates an existing row, so both outcomes are
+  terminal. The filter buys honest state, not recovery. `main` rejects the flag without
+  `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -1350,8 +1352,13 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   (`run_fetch` exempts `discarded` rows from the bodyless drop) because it never reaches
   the scorer; requeueing one is *irreversible loss*, since it becomes `new`, the thin-JD
   gate parks it `scored` at score 0, and `upsert_postings` is `ON CONFLICT DO NOTHING`
-  so no later pass back-fills the JD. Left `discarded`, the stub gate can still revisit
-  it. Everything else comes back. It is
+  so no later pass back-fills the JD. **Skipping it is not a rescue either** — nothing
+  re-hydrates an existing un-hydrated row (the stub gate only decides whether to hydrate
+  *before* insert, and the row already exists), so both outcomes are terminal. What the
+  filter buys is honest state: the row keeps its real `discarded` reason and a live
+  `job_url` instead of being relabelled `scored`/0 as though it had been evaluated.
+  `run_once` prints the skipped count so the operator is told, not left to infer it.
+  Everything else comes back. It is
   **one-shot** — `main` rejects it without `--once`, because on the interval schedule
   it would resurrect the same discards every pass and re-charge the paid fit scorer
   for each survivor indefinitely. Screening is free on the default ollama backend; the

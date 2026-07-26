@@ -638,12 +638,23 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   passes. **Do not start before the screen eval exists**: this rewrites two of the
   three prompt clauses, and there is currently nothing that would catch a regression.
 - **A `discarded` row can never be re-screened after a config change — SHIPPED
-  2026-07-24.** `--rescreen-discarded` (`db.requeue_discarded`) returns every discard
-  to `new` for one pass; one-shot, rejected without `--once` so the interval schedule
-  can't re-charge the paid scorer every pass (SPEC §9, CHANGELOG). The
+  2026-07-24.** `--rescreen-discarded` (`db.requeue_discarded`) returns every **hydrated**
+  discard to `new` for one pass; one-shot, rejected without `--once` so the interval
+  schedule can't re-charge the paid scorer every pass (SPEC §9, CHANGELOG). The
   `screen_version` / hash-invalidation columns stay rejected. Pair it with
   `--score-limit` on a large backlog — screening is free, the fit calls that follow
   are not.
+  **Still open — un-hydrated stub discards have no way back** `[ORCH · S]`. A stub-gate
+  discard is stored with `description=''` on purpose, and `--rescreen-discarded` skips it
+  (requeueing one parks it `scored`/0 permanently). Skipping is not a rescue: nothing
+  re-hydrates an existing row, because `upsert_postings` is `ON CONFLICT DO NOTHING` and
+  the stub gate only decides whether to hydrate *before* insert. Both states are terminal,
+  and on a phenom-heavy watchlist that is a large share of the discard table — exactly the
+  rows a `candidate.locations` edit is meant to reclaim. **The fix has a precedent in this
+  repo:** `run_fetch` DROPS bodyless board rows rather than storing them, precisely so the
+  id stays re-fetchable. Doing the same for stub-gate discards (or storing them with a
+  re-fetch marker) would make them genuinely recoverable. `run_once` now prints the
+  skipped count so the gap is visible rather than silent.
 - **Discovered Jobs README screenshot** — `[DOCS · XS]`. The prose is now expanded to Track
   parity (bucket triage, the per-row "why" subline, the fit-assessment modal, bulk
   actions). Still missing: an inline screenshot of the tab to match the "Track"

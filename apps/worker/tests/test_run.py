@@ -479,14 +479,28 @@ def test_run_once_rescreen_discarded_requeues_before_scoring(monkeypatch):
     # The flag is the only way back from 'discarded' (terminal). Off by default:
     # a normal pass must never resurrect discards behind the operator's back.
     calls: list = []
+    # (requeued, skipped) -- skipped names the un-hydrated stub discards left behind
     monkeypatch.setattr(run.db, "requeue_discarded",
-                        lambda conn, now: calls.append(now) or 3)
+                        lambda conn, now: (calls.append(now), (3, 2))[1])
 
     _run_once_capturing_run_score(monkeypatch)
     assert calls == []
 
     _run_once_capturing_run_score(monkeypatch, rescreen_discarded=True)
     assert len(calls) == 1
+
+
+def test_unknown_score_backend_fails_before_any_work(monkeypatch, capsys):
+    # argparse enforces `choices` on a parsed value, never on an env-supplied default,
+    # so SCORE_BACKEND=openai in a .env used to reach _scorer_meta deep inside the pass
+    # -- AFTER the fetch and AFTER --rescreen-discarded had spent its one shot. main()
+    # must reject it at parse time, before anything irreversible.
+    # Via the ENV default specifically -- argparse's `choices` already rejects the
+    # flag, which is exactly why the env path was the one that slipped through.
+    monkeypatch.setenv("SCORE_BACKEND", "openai")
+    with pytest.raises(SystemExit):
+        run.main(["--once"])
+    assert "unknown score backend" in capsys.readouterr().err
 
 
 def test_rescreen_discarded_requires_once(monkeypatch, tmp_path, capsys):
