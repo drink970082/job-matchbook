@@ -93,15 +93,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
   `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
   removed after verifying each adds nothing to `main` outside stale doc copies.
-- **The six-PR stack (#7 → #10 → #11 → #12 → #13 → #14) — reviewed twice, merging
-  2026-07-26.** Every branch passed CI and two rounds of the §7 fresh-subagent review.
+- **The six-PR stack (#7 → #10 → #11 → #12 → #13 → #14) — reviewed twice, NOT merged;
+  blocked on the `main` integration (see the NEXT STEP callout).** Every branch passed CI and two rounds of the §7 fresh-subagent review.
   Round 1 found real defects on all five authored PRs; round 2 found defects **in the
   fixes**, including one where the same emptiness-check bug was reintroduced a third time
   through a new empty value. Both rounds' findings are closed. The lasting outputs are two
   contracts that make the fragile parts fail loudly: `tests/fixtures/sponsorship_quotes.json`
   (the sponsorship gate's corpus) and the rule that a strict-mode schema violation must red
   the suite rather than 400 in production. **Deferred by decision, not oversight:** the
-  `_quote_on_topic` inversion (see Unverified / deferred).
+  `_quote_on_topic` inversion (see Unverified / deferred). **The merge was attempted
+  2026-07-26 and aborted** — `feat/universality-and-onboarding` needs a real integration
+  with `main`, not a squash-divergence resolution; the tree was left clean and nothing was
+  pushed to `main`.
 - **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
   `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
   `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
@@ -238,11 +241,37 @@ in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: merge the stack.** Both merge blockers cleared 2026-07-25, so PR #7 and
-> the five PRs stacked on it are mergeable — that decision is the operator's, per
-> DEVELOPMENT §7. Order is bottom-up: #7 → #10 → #11 → #12 → #13 → #14, each retargeting
-> to `main` as the one below lands, and expect the squash-divergence conflict on every PR
-> after the first (see the merge-hygiene note above).
+> **NEXT STEP: integrate `feat/universality-and-onboarding` with `main`, THEN merge the
+> stack.** `[M · attempted and aborted 2026-07-26 — read this before retrying]` Both merge
+> blockers cleared and both §7 review rounds are closed, so the six PRs (#7 → #10 → #11 →
+> #12 → #13 → #14) are ready on `origin` with CI green. **But #7 does not merge cleanly and
+> it is not squash-divergence.** It branched before PRs #5, #8 and #9 landed; the two sides
+> are 38 commits vs 4 and both edited the same functions. `git merge origin/main` yields
+> **32 conflict hunks across 9 files**, 4 of them Python.
+>
+> **Two are semantic and cannot be resolved by "take the newer side":**
+> - **`pipeline.run_score`** — this branch replaced the serial scoring loop with a
+>   concurrent one; `main` added the thin-JD gate (`_persist_low_context` under
+>   `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) *inside* that serial loop. Both are wanted, so
+>   the gate has to be re-implemented inside the concurrent loop. This is the paid-scoring
+>   path — get it wrong and thin JDs start costing fit calls, or survivors stop being
+>   scored.
+> - **`fetch/_recipe.py`** — both sides independently refactored the same extraction
+>   function and both carry the `{field}` interpolation, structured differently.
+>
+> `run.py` (3 hunks) is HEAD-superset and mechanical. The rest are docs.
+>
+> **A closed item was silently reintroduced by the auto-merge** and nothing flagged it:
+> PROGRESS's "Workday stub gate cannot use `max_age_days`", which PR #9 shipped. It merges
+> without a conflict because only this branch's side has the paragraph. **Re-check the
+> whole of PROGRESS and the P3 queue line against `main` after resolving** — that is the
+> §7 merge-hygiene hazard, and it fires here for real.
+>
+> **Do it as its own unit of work**, not as the tail of something else: resolve, run worker
+> + web + e2e, and put the *merge resolution itself* through a fresh-subagent review before
+> pushing. A green suite is not evidence here — the reintroduced item above was green.
+> Resolve once on `feat/universality-and-onboarding` and let it propagate down the stack
+> through the existing merges, rather than resolving six times.
 >
 > The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
 > phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
