@@ -104,8 +104,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `scorer_version` in `score_detail`), `--rescreen-discarded`, the **dead-screen-provider
   circuit breaker** (the SCREEN defect found and fixed 2026-07-24), and `--no-notify`.
   Suites green (worker 643, web 136), coverage 93.66%; the flags driven against a
-  throwaway DB. **Pushed to `origin` 2026-07-24; no PR yet, so CI has never run on it** —
-  everything green is from the operator's machine. **Queues behind #7.** It is also the
+  throwaway DB. **PR #10 opened 2026-07-25, based on `feat/universality-and-onboarding`
+  (not `main`)** so its diff is the 12-commit delta over #7 rather than #7's own 38;
+  GitHub retargets the base to `main` when #7 merges. Until then CI had never run on this
+  branch — everything green was from the operator's machine. **Queues behind #7.** It is also the
   branch the long-run day must run from — see the runbook below. **Not yet on it:**
   `main`'s PR #8 (`make eval-score`) and PR #9 (workday prose-date age-gating, which
   would speed up the run's fetch phase). **Merge `origin/main` in AFTER the run, not
@@ -118,6 +120,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   "In flight" left unconditional, and the self-merge review contradiction between
   `CLAUDE.md` §Agent conduct and `DEVELOPMENT.md` §5/§7 scoped rather than dropped
   (CHANGELOG). No code touched, so the branch's green suites still stand.
+- **Branch `test/spec-matrix-and-list-guards` — landed, unmerged (2026-07-25).** Cut from
+  `feat/score-provenance-and-rescreen` (not `main`) because the item it closes — "the
+  fetch extension rules are documented but not enforced" — exists only in *that* branch's
+  `PROGRESS.md`; basing it on `main` would have let the merge reintroduce a closed item.
+  Two guards in `test_source_enums_sync.py`: `test_watchlist_sources_can_list` (every
+  `VALID_SOURCES` member's adapter exposes `fetch`) and `test_spec_matrix_matches_adapters`
+  (SPEC's hand-maintained source-coverage matrix vs `ADAPTERS` + `VALID_SOURCES`). Worker
+  645 passed, coverage 93.66%; both new asserts mutation-checked (a dropped matrix row and
+  a flipped watchlist cell each red the right line). **PR #11**, based on
+  `feat/score-provenance-and-rescreen` — so it **queues behind #10, which queues behind
+  #7.** Also on it (`2026-07-25`, no code): the branch tidy-up — the
+  `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
+  `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
+  removed after verifying each adds nothing to `main` outside stale doc copies.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
@@ -206,7 +222,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 14 — the long tail lives here; no defects |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
@@ -746,20 +762,6 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 #### Architecture / maintainability
 
-- **The fetch extension rules are documented but not enforced** — `[FETCH · XS · the first
-  test is green today]`. The extension cascade already exists in three places — the
-  `onboard-board` skill (platform → `custom` recipe → `browser` recipe, "never a new
-  adapter file"), SPEC §7.1, and PRINCIPLES — but nothing *fails* when an agent
-  ignores them, and a doc an agent read is not a doc an agent obeyed. Current state,
-  `test_no_source_specific_logic` **shipped 2026-07-23** (CHANGELOG) and now guards
-  `pipeline.py` + `db.py`. `run.py` is deliberately *not* guarded: it is the real-service
-  wiring layer and is allowed to know board names (it contains two, both the `browser`
-  opt-in gate). Still worth adding: `test_watchlist_sources_can_list` (every
-  `VALID_SOURCES` member exposes `fetch`) and a check that SPEC's hand-maintained
-  source-coverage matrix still matches `ADAPTERS` (the same shape
-  `test_source_enums_sync.py` already uses against `constants.ts`). A root
-  `AGENTS.md` — so non-Claude agents see any of this at all — is already tracked as
-  P2 item 4.
 - **Fetch capability registry (`AdapterSpec`) — evaluated and rejected 2026-07-23 ·
   do not re-derive.** The proposal was to replace the four collections in
   `fetch/__init__.py` (`ADAPTERS` · `RECIPE_SOURCES` · `STUB_GATE_SOURCES` ·
