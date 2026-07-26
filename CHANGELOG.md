@@ -193,14 +193,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
-- **SPEC's source-coverage matrix is now a tested artifact, not a hand-kept table.**
-  `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts its
-  rows against `fetch.ADAPTERS` and `config.VALID_SOURCES`, so adding a 14th adapter — or
-  promoting a feed-only source to the watchlist — reds the suite until the doc says so.
-  The source name is the Platform column's first word (`Oracle Cloud HCM` -> `oracle`) and
-  a row whose Adapter cell begins `via ` is skipped as routed through another module; the
-  Feed router column stays unguarded on purpose, since `resolve_url` is a URL-pattern
-  parser rather than a registry (the same reason the `AdapterSpec` proposal was rejected).
+- **Two of SPEC's source-coverage matrix columns are now tested, not hand-kept.**
+  `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts the
+  **Platform** column's source names against `fetch.ADAPTERS` and the **Watchlist**
+  column against `config.VALID_SOURCES`, so adding a 14th adapter — or promoting a
+  feed-only source to the watchlist — reds the suite until the doc says so. Adapter,
+  Host(s) and Feed router are deliberately **not** guarded and SPEC now says so:
+  `resolve_url` is a URL-pattern parser rather than a registry (the same reason the
+  `AdapterSpec` proposal was rejected), and the adapter cell's prose has nothing to
+  compare against. The source name is the Platform column's first word
+  (`Oracle Cloud HCM` -> `oracle`); a row whose Adapter cell begins `via ` is skipped as
+  routed through another module. Cell text is normalized for `code`, **bold** and
+  `[label](url)` first, and rows are split on unescaped pipes only — a guard that reds CI
+  because someone bolded a word is worse than no guard, and a naive split would have read
+  the Watchlist value out of the Feed router column, silently wrong rather than loud.
   Alongside it, `test_watchlist_sources_can_list` asserts every `VALID_SOURCES` member's
   adapter actually exposes `fetch` — the existing guard only checked the name was in
   `ADAPTERS`, which a feed-only `fetch_one`-only module would have passed.

@@ -368,13 +368,17 @@ worker modules are pure and dependency-injected; real services are wired only in
     null/unparseable `posted_at` both keep the posting — err toward keep).
 
   **Source coverage matrix** (the at-a-glance support map — keep it current when a
-  source is added; `test_spec_matrix_matches_adapters` fails if you don't). *Adapter*
-  = can fetch a JD; *feed router* = `resolve_url` maps the host; *watchlist* =
-  enumerable per-board source (in `VALID_SOURCES`). These capabilities come apart —
-  e.g. Pinpoint has an adapter + watchlist but no feed router. The test reads the
-  **Platform** column's first word as the source name and skips a row whose *Adapter*
-  cell begins `via ` (routed through another module); the *Feed router* column is
-  hand-maintained (`resolve_url` is a URL-pattern parser, not a registry) and unguarded:
+  source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps the
+  host; *watchlist* = enumerable per-board source (in `VALID_SOURCES`). These
+  capabilities come apart — e.g. Pinpoint has an adapter + watchlist but no feed router.
+  **Only two of the five columns are tested.** `test_spec_matrix_matches_adapters` reads
+  the **Platform** column's first word as the source name and checks the set against
+  `ADAPTERS`, and checks **Watchlist** `yes` against `VALID_SOURCES`; it skips a row
+  whose *Adapter* cell begins `via ` (routed through another module). *Adapter*,
+  *Host(s)* and *Feed router* are **hand-maintained and unguarded** — `resolve_url` is a
+  URL-pattern parser rather than a registry, and the adapter cell's prose has no single
+  source of truth to compare against, so a wrong value in those three columns will not
+  fail CI:
 
   | Platform | Host(s) | Adapter | Feed router | Watchlist |
   |---|---|---|---|---|
