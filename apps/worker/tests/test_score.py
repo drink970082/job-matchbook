@@ -610,6 +610,29 @@ def test_verified_quote_disqualifies():
     assert "sponsorship" in out["disqualification_reason"]
 
 
+def test_real_but_off_topic_quote_keeps_the_posting():
+    # The misclassification residual quote-verification alone cannot close, measured on
+    # the 2026-07-25 labeled set: this exact Optiver sentence is REAL (so _quote_in
+    # passes) but is about recruitment agencies, not visas. It disqualified 5 postings.
+    jd = ("Join our trading floor. Please note: We do not require any assistance from "
+          "third-parties including agencies in the recruitment of this role. Apply now.")
+    out = _screen_with("We do not require any assistance from third-parties including "
+                       "agencies in the recruitment of this role", jd)
+    assert out["disqualified"] is False
+
+
+def test_on_topic_quotes_still_disqualify():
+    # Every true-positive shape in that labeled set must survive the relevance guard,
+    # including the ones that never say "sponsor": a citizenship bar and a British
+    # "authorisation" spelling.
+    for quote in ("We will not sponsor individuals for employment authorization.",
+                  "We cannot accept visa holders at this time.",
+                  "This position requires that the candidate selected be an EU Citizen.",
+                  "Must have unrestricted authorisation to work in the UK."):
+        jd = f"About the role. {quote} Apply now."
+        assert _screen_with(quote, jd)["disqualified"] is True, quote
+
+
 def test_hallucinated_quote_keeps_the_posting():
     # THE security property of this design: a quote that is not in the JD fails
     # verification, so hallucination cannot disqualify anything BY CONSTRUCTION.

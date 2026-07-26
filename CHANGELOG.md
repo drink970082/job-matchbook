@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A real-but-irrelevant quote can no longer disqualify a posting for sponsorship.**
+  `_check_authorization` verified that the model's `no_sponsorship_quote` actually
+  appears in the JD, which makes hallucination unable to disqualify anything — but
+  presence proves a sentence is *real*, not that it is *about* sponsorship. The
+  2026-07-25 labeled-set run (3,553 already-scored rows, 21 disagreements hand-labeled)
+  measured that residual: **8 of 28 fires were wrong**, and wrong in the expensive
+  direction — a false positive here silently discards a good posting, the error "err
+  toward keep" exists to prevent. Five of the eight were a single Optiver boilerplate
+  line, *"We do not require any assistance from third-parties including agencies in the
+  recruitment of this role"* — about recruiters, not visas. A verified quote must now
+  also be on topic (`_quote_on_topic`: sponsor · visa · immigration · authoriz/authoris
+  · citizen · right to work · work permit · green card). The gate removes exactly those
+  5 false positives and **zero** true positives, taking precision **71.4% -> 87.0%**
+  with recall unchanged at 100%; the retired `NO_SPONSOR_PHRASES` gate alone measured
+  81.8% / 45.0%, so the rework now beats it on both axes. `tools/sponsor_diff.py` applies
+  the same gate, so future runs measure shipped behavior. The 3 remaining false positives
+  are one soft phrasing ("prioritizing applicants who ... do not require sponsorship of a
+  visa") that is genuinely on topic and no quote-side gate reaches — accepted, not open.
+
 - **A dead screen provider no longer hands the whole backlog to the paid scorer.**
   `screen_posting` catches any provider exception and errs toward KEEP — correct for one
   flaky call, wrong for an outage. When Ollama was simply down (a WSL2 suspend does it)

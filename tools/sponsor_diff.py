@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "apps", "worker
 import requests  # noqa: E402
 
 from ats_worker import db, run  # noqa: E402
-from ats_worker.score.screen import NO_SPONSOR_PHRASES, _quote_in  # noqa: E402
+from ats_worker.score.screen import (NO_SPONSOR_PHRASES, _quote_in,  # noqa: E402
+                                     _quote_on_topic)
 
 
 def _phrase_hit(description: str) -> bool:
@@ -70,7 +71,7 @@ def main() -> int:
             continue
         quote = ((data.get("screen") or {}).get("authorization") or {}).get(
             "no_sponsorship_quote")
-        llm = _quote_in(quote, desc)
+        llm = _quote_in(quote, desc) and _quote_on_topic(quote)
         phrase = _phrase_hit(desc)
         if llm == phrase:
             agree += 1

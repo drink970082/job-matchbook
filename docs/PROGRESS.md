@@ -36,9 +36,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   gated `score.txt` (an appended block only; rubric and verdict definitions
   untouched), so it **does not ship until the fit-score gate passes, and is reverted
   — not shipped anyway — on a FAIL**. It was deliberately ordered last so it stays
-  cleanly revertible. **Both blocking gates** — the sponsorship precision/recall
-  labeled-set run and the `score_eval` re-run — are in
-  [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
+  cleanly revertible. **One blocking gate left: the `score_eval` re-run.** The
+  sponsorship precision/recall labeled set **passed 2026-07-25** (see the pick order
+  below) — it found and closed a real precision defect on the way.
   Nothing else on the branch depends on Stage 4.
 - **Branch `fix/bodyless-guard-and-quota-flags` — MERGED to `main` 2026-07-24** (PR #5,
   squashed as `48901a3`), together with `docs/sync-audit` (PR #4, `d4e521f`). Merging #4
@@ -249,8 +249,8 @@ yields nothing instead of poisoning the DB with permanent title-only rows.
    unexercised (entry below); and `custom` is ~a third of the intake, a `title_filter`
    tightening question rather than a fetch bug.
 
-**P1 — unblock the branch merge.** Both gates below are cheap relative to what they
-unblock; neither has run. Both are phases 3 and 4 of the
+**P1 — unblock the branch merge.** Gate 3 below **passed 2026-07-25**; only the
+`score_eval` re-run (item 2) is left. Both are phases 3 and 4 of the
 [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) — run
 them from there, not ad hoc, so the quota reserve and the authority boundary hold.
 
@@ -263,11 +263,18 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    used to block this is **fixed 2026-07-23** (CHANGELOG) — Stage 4 now reaches a
    per-check gap, not only a whole-backend absence, so the gate measures a path
    postings actually take.
-3. **Sponsorship precision/recall labeled set** — `[M · MERGE BLOCKER · free on the
-   default ollama backend]`. Run `tools/sponsor_diff.py` over the already-scored
-   rows, hand-label the disagreements, record the numbers. The rework is shipped and
-   its hallucination-safety holds by construction; what is unmeasured is precision —
-   specifically the misclassification residual.
+3. **Sponsorship precision/recall labeled set — DONE 2026-07-25, and it found a real
+   defect** (SPEC §7.1 table, CHANGELOG; worksheet + report in the gitignored
+   `db/runs/20260725-sponsor/`). 3,553 rows, 3,532 agree, 21 disagree, all 21
+   operator-labeled. The unmeasured misclassification residual turned out to be
+   **8 of 28 fires wrong** — and wrong in the expensive direction, silently discarding
+   good postings. 5 of the 8 were one agency-boilerplate sentence at one employer; a
+   `_quote_on_topic` relevance gate removes exactly those 5 and zero true positives,
+   taking precision **71.4% → 87.0%** at recall 100%. The remaining 3 are a soft
+   "prioritizing applicants who ... do not require sponsorship" phrasing that is
+   genuinely on topic, so no quote-side gate reaches it — accepted, not open. The old
+   `NO_SPONSOR_PHRASES` gate alone measured 81.8% / 45.0%, so the rework is a
+   55-point recall gain that now also beats it on precision.
 
 **P2 — the last provider-choice track: DONE 2026-07-25** (track 4, agent portability —
 see [In flight](#in-flight)). All five tracks have shipped.

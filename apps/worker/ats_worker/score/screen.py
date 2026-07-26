@@ -328,6 +328,29 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
+# Vocabulary the quote must touch to count as being ABOUT work authorization.
+# Quote verification proves a sentence is IN the JD; it cannot prove the sentence is
+# on topic, and the 2026-07-25 labeled set (3,553 rows) measured that residual as real:
+# 5 of 28 fires quoted an agency-boilerplate line -- "we do not require any assistance
+# from third-parties including agencies in the recruitment of this role" -- which is
+# about recruiters, not visas, and wrongly DISQUALIFIED the posting. Every true
+# positive in that set touches one of these terms (British "authorisation" included).
+# ponytail: a substring vocabulary, not a classifier. Widen it when a labeled false
+# negative shows up, not speculatively.
+AUTHORIZATION_TERMS = (
+    "sponsor", "visa", "immigration", "authoriz", "authoris",
+    "citizen", "right to work", "work permit", "green card",
+)
+
+
+def _quote_on_topic(quote) -> bool:
+    """Does `quote` actually talk about work authorization? Guards the direction that
+    costs the most: a false positive here DISQUALIFIES a good posting silently, which is
+    the error 'err toward keep' exists to avoid (PRINCIPLES)."""
+    text = " ".join(str(quote or "").lower().split())
+    return any(term in text for term in AUTHORIZATION_TERMS)
+
+
 def _quote_in(quote, description: str) -> bool:
     """Is `quote` actually present in the JD? Whitespace-collapsed and case-insensitive,
     matching the normalization the phrase floor already uses — that tolerates the ways a
@@ -349,13 +372,17 @@ def _check_authorization(cand_auth, description: str = "",
     KEPT — hallucination cannot disqualify anything by construction, not by trust.
     This holds on qwen3.5:4b too, so D1 needs no re-litigating.
 
+    Second gate: the quote must also be ON TOPIC (`_quote_on_topic`). Presence proves
+    the sentence is real, not that it is about sponsorship — the 2026-07-25 labeled set
+    caught the model quoting real-but-irrelevant agency boilerplate on 5 of 28 fires.
+
     Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
     vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
     """
     if not _needs_sponsorship(cand_auth):
         return True, ""
     quote = (entry or {}).get("no_sponsorship_quote")
-    if _quote_in(quote, description):
+    if _quote_in(quote, description) and _quote_on_topic(quote):
         return False, "no visa sponsorship offered"
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
