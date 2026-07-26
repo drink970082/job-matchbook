@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -621,52 +622,27 @@ def test_real_but_off_topic_quote_keeps_the_posting():
     assert out["disqualified"] is False
 
 
-def test_quote_that_offers_sponsorship_never_disqualifies():
-    # Polarity, not topic. Quote-grounding fixed invented TEXT; D1 existed because the
-    # model invents "no" from silence, and an offer sentence is on topic by every word
-    # test. Discarding on the single most valuable line in the JD is the worst outcome
-    # this gate can produce, and the emitted reason would be identical either way -- so
-    # it would be unauditable from the DB.
-    for quote in ("Visa sponsorship is available for this position.",
-                  "We are open to sponsoring exceptional candidates.",
-                  "Sponsorship available for the right candidate."):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is False, quote
+def test_sponsorship_quote_corpus_keeps_every_must_keep():
+    # The corpus, not hand-picked examples. Each MUST_KEEP sentence came from a real
+    # posting, a labeled row, or a review that produced it as a counter-example -- and a
+    # wrong answer here SILENTLY DISCARDS A REAL JOB, so this is the direction that
+    # matters. A previous version of this gate passed four bespoke tests while
+    # disqualifying "We offer generous personal time off".
+    corpus = json.loads((Path(__file__).parent / "fixtures" /
+                         "sponsorship_quotes.json").read_text())
+    leaked = [q for q in corpus["must_keep"]
+              if _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
+    assert not leaked, "gate wrongly disqualified:\n" + "\n".join(leaked)
 
 
-def test_authorization_words_in_unrelated_sentences_never_disqualify():
-    # Every one of these is a recorded false positive, not a hypothetical. The first two
-    # are the D1 pair (Tower id=986, WorldQuant id=1071); the EEO wording sits in
-    # essentially every US posting, which makes it the highest-frequency way to wrongly
-    # discard a job. All contain an AUTHORIZATION_TERMS substring.
-    for quote in (
-        "We field company-sponsored sports teams and a great engineering culture.",
-        "EEO: we do not discriminate on citizenship, national origin, disability, or age.",
-        "You will design and own our authorization and access-control services.",
-        "You will build integrations with Visa and Mastercard payment rails.",
-        "We believe everyone has the right to work in an environment free from harassment.",
-        "You will report to the executive sponsor of the platform program.",
-    ):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is False, quote
-
-
-def test_soft_preference_is_not_a_bar():
-    # The 3 residual false positives in the 2026-07-25 labeled set are all this shape.
-    # "Prioritizing" leaves the candidate able to apply, so discarding is a lost
-    # opportunity -- PRINCIPLES' candidate-opportunity row says KEEP.
-    quote = ("We will be prioritizing applicants who have a current right to work in "
-             "Singapore, and do not require sponsorship of a visa.")
-    assert _screen_with(quote, f"About the role. {quote} Apply now.")["disqualified"] is False
-
-
-def test_visa_category_acronyms_still_disqualify():
-    # Real refusals that name no generic term -- these were misses before the review.
-    for quote in ("We are not able to support H-1B or OPT candidates for this position.",
-                  "You must have full working rights in Australia.",
-                  "Applicants must hold U.S. Permanent Residency."):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is True, quote
+def test_sponsorship_quote_corpus_flags_every_must_flag():
+    # The cheap direction: a miss costs one paid fit call. Still pinned, so a veto added
+    # to fix a MUST_KEEP case cannot quietly gut recall.
+    corpus = json.loads((Path(__file__).parent / "fixtures" /
+                         "sponsorship_quotes.json").read_text())
+    missed = [q for q in corpus["must_flag"]
+              if not _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
+    assert not missed, "gate failed to disqualify:\n" + "\n".join(missed)
 
 
 def test_on_topic_quotes_still_disqualify():

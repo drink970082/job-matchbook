@@ -626,6 +626,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   ("prioritizing applicants who…"), which is not a bar because the candidate can still
   apply.
 
+  **The vocabulary is measured, not guessed, and that is a standing rule** — a round of
+  speculative terms added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`) each
+  collided with common boilerplate ("generous personal time off", "we adopt", "opt out",
+  "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a real
+  job. Both directions are pinned by a corpus, `tests/fixtures/sponsorship_quotes.json`
+  (32 must-keep / 13 must-flag, every sentence from a real posting, a labeled row, or a
+  review counter-example). **Add a term only with a must-flag sentence that needs it and
+  must-keep still green.** The percentages above are measured on the 2026-07-25 set;
+  sentences added to the corpus since are pinned by the corpus, not re-scored against it.
+
   **The 2 residual false positives are the ungated floor**, not the gate: IMC ids 465/490,
   where `without sponsorship` appears inside an *invitation* ("or are eligible to work
   without sponsorship, we encourage you to apply"). Open, not accepted — the floor matches

@@ -84,9 +84,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   invented *text* but not inverted *meaning* and *"Visa sponsorship is available for this
   position."* is the most valuable line in a JD for a candidate who needs it; and a soft
   **preference** (*"prioritizing applicants who…"*), which is not a bar because the
-  candidate can still apply. The vocabulary then also covers visa-category acronyms
-  (*"we cannot support H-1B or OPT candidates"*) and AU/NZ word order (*"full working
-  rights"*), both of which state a refusal using none of the generic terms.
+  candidate can still apply.
+
+  **The vocabulary stayed the measured one.** A round of speculative additions for misses
+  nobody had observed — `opt `, `cpt `, `e-3`, `us person` — was reverted after review:
+  each collided with text that appears in a large share of postings (*"We offer generous
+  personal time off"*, *"we adopt a test-driven approach"*, *"you can opt out of on-call"*,
+  *"CPT and ICD-10 coding"*), and on a disqualification path a collision costs a real job
+  rather than an API call. Both directions are now pinned by a corpus,
+  `tests/fixtures/sponsorship_quotes.json` — 32 must-keep and 13 must-flag sentences,
+  every one from a real posting, a labeled row, or a review counter-example, none invented
+  to fit the implementation. A new term needs a must-flag sentence that requires it and
+  must-keep still passing.
 
   Measured on the labeled set, **for the whole function rather than one branch of it** —
   `_check_authorization` is `(grounded AND on topic) OR NO_SPONSOR_PHRASES`, and the
