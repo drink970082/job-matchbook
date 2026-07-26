@@ -347,12 +347,21 @@ def requeue_discarded(conn, now: str) -> int:
     highest_degree, work_authorization, exclude_internships — would leave every
     posting frozen under the old rule, and a false discard permanent.
 
-    Unbudgeted and unfiltered by design: a discard spends no `attempts` (nothing
-    failed), so there is no counter to guard the way requeue_failed guards two, and
-    the operator asked for all of them. Returns the number of rows requeued."""
+    Unbudgeted by design: a discard spends no `attempts` (nothing failed), so there is
+    no counter to guard the way requeue_failed guards two, and the operator asked for
+    all of them.
+
+    FILTERED on one thing only — the row must have a description. A stub-gate discard
+    is stored deliberately UN-HYDRATED (`description=''`; see run_fetch's exemption from
+    the bodyless drop) because it never reaches the scorer. Requeueing one is
+    irreversible data loss: it becomes `new`, the thin-JD gate parks it `scored` with
+    score 0, and `upsert_postings` is ON CONFLICT DO NOTHING, so no later pass ever
+    back-fills the JD — the row is neither scored nor recoverable. Left `discarded`, it
+    stays exactly where the stub gate can revisit it. Returns the number requeued."""
     cur = conn.execute(
         "UPDATE job_postings SET pipeline_status='new', updated_at=? "
-        "WHERE pipeline_status='discarded'",
+        "WHERE pipeline_status='discarded' "
+        "AND LENGTH(TRIM(COALESCE(description,''))) > 0",
         (now,),
     )
     conn.commit()

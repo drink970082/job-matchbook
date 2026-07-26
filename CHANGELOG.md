@@ -9,6 +9,34 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`--rescreen-discarded` could destroy the rows it exists to rescue.** Stub-gate
+  discards are stored deliberately un-hydrated (`description=''`) because they never
+  reach the scorer — `run_fetch` exempts them from the bodyless drop for exactly that
+  reason. `requeue_discarded` was unfiltered, so it flipped them to `new`; the thin-JD
+  gate then parked them `scored` at score 0, and because `upsert_postings` is
+  `ON CONFLICT DO NOTHING` no later pass could ever back-fill the JD. The row ended up
+  neither scored nor recoverable, on a high-volume source (phenom). It now requeues only
+  rows with a non-empty description; an un-hydrated stub stays `discarded`, where the
+  stub gate can still revisit it.
+
+- **The screen circuit breaker aborted silently and ignored raised failures.** Two gaps
+  in the breaker shipped 2026-07-24. It printed nothing on trip, unlike its fit-phase
+  twin — and since aborted rows keep `attempts=0` and never reach the Failed tab, a
+  misconfigured provider produced a pass that did nothing and said nothing, the same
+  silence the breaker was built to end. It also called `record_failure()` only on the
+  `provider_error` verdict, not on the `except` path, so a backend whose failure mode
+  *raises* marched every row to `failed` uncounted — three passes (18 hours at
+  `schedule_hours: 6`) would park the backlog terminal, the outcome the breaker exists to
+  prevent. Both fixed, and both now covered by tests that fail when the breaker is stubbed
+  out — the two pre-existing tests do not, since a `provider_error` row is skipped with or
+  without a breaker.
+
+- **`_scorer_meta` stamped the Anthropic model onto any unrecognized backend.**
+  `make_scorer` raises on an unknown backend; its provenance twin fell through to
+  `anthropic_score_model`, so a stray `SCORE_BACKEND=openai` in a `.env` (argparse does
+  not validate an env-supplied `default` against `choices`) wrote a stamp naming a model
+  that never ran. A silently wrong provenance field is worse than none. It now raises.
+
 - **A dead screen provider no longer hands the whole backlog to the paid scorer.**
   `screen_posting` catches any provider exception and errs toward KEEP — correct for one
   flaky call, wrong for an outage. When Ollama was simply down (a WSL2 suspend does it)
