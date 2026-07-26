@@ -14,6 +14,7 @@ multi-part slug so no schema change is needed.
 """
 from __future__ import annotations
 
+import time
 from urllib.parse import urljoin
 
 import requests
@@ -22,6 +23,33 @@ from ats_worker.fetch._paged import paged_details
 from ats_worker.util import html_to_text, is_safe_public_url, to_iso_date
 
 SOURCE = "phenom"
+
+# HTTP 429 handling for the SEARCH pagination. A real pass (2026-07-22) lost a
+# whole phenom board to a 429 at deep pagination (start=930): the raise unwound the
+# page loop, so the board yielded nothing instead of the pages it had already
+# walked. run_fetch iterates companies serially, so the budget below is what one
+# throttled page may add to the pass: 3 retries backing off 2s -> 4s -> 8s (14s),
+# or up to 3 x 30s if the board asks for more via Retry-After. Bounded on purpose -
+# a board that keeps throttling must terminate, not stall the serial loop.
+RATE_LIMIT_STATUS = 429
+RETRY_ATTEMPTS = 3
+RETRY_BASE_WAIT = 2.0
+RETRY_MAX_WAIT = 30.0
+
+
+def _retry_wait(resp, fallback: float) -> float:
+    """Seconds to wait before retrying a 429: the `Retry-After` header when it is a
+    usable delta-seconds value, else `fallback`. An HTTP-date, a missing/garbage
+    value or a non-positive one falls back; everything is capped at RETRY_MAX_WAIT
+    so no board can stall the serial fetch loop with 'Retry-After: 3600'."""
+    headers = getattr(resp, "headers", None) or {}
+    try:
+        wait = float(str(headers.get("Retry-After", "")).strip())
+    except (TypeError, ValueError):
+        wait = fallback
+    if wait <= 0:
+        wait = fallback
+    return min(wait, RETRY_MAX_WAIT)
 
 
 def _parts(slug: str):
@@ -74,7 +102,7 @@ def parse_position(pos: dict, company_name: str, description: str = "",
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20, keep=None) -> list[dict]:
+          timeout: int = 20, keep=None, sleep=None) -> list[dict]:
     """List a phenom board. `keep(stub) -> 'drop' | 'discard' | 'hydrate'` is an
     OPTIONAL fetch-cost optimization: the search stub already carries the title and
     location, which is everything the deterministic gates read, so a rejected
@@ -82,14 +110,44 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     omits the posting entirely, 'discard' returns it un-hydrated (empty
     description) so the caller can still record it, 'hydrate' is the normal path.
     Any other value hydrates: a broken predicate must cost requests, never
-    postings. keep=None disables the gate entirely."""
+    postings. keep=None disables the gate entirely.
+
+    `sleep(seconds)` is the wait mechanism for the 429 backoff, injected like
+    `session` so tests drive it without wall-clock delay; None means real sleeping."""
     host, domain = _parts(slug)
     search_url = f"https://{host}/api/pcsx/search"
     detail_url = f"https://{host}/api/pcsx/position_details"
     base_url = f"https://{host}"
+    wait_fn = sleep or time.sleep
+
+    def _search(http, start):
+        """One search page, retrying a 429 up to RETRY_ATTEMPTS times. Returns the
+        LAST response either way - still a 429 once the retries are spent, which
+        the caller decides what to do with. Any other status is returned untouched
+        on the first try (a 500 is not a throttle; it must not spend the budget)."""
+        wait = RETRY_BASE_WAIT
+        resp = None
+        for attempt in range(RETRY_ATTEMPTS + 1):
+            resp = http.get(search_url, params={"domain": domain, "start": start},
+                            timeout=timeout)
+            if getattr(resp, "status_code", None) != RATE_LIMIT_STATUS:
+                return resp
+            if attempt == RETRY_ATTEMPTS:
+                break
+            wait_fn(_retry_wait(resp, wait))
+            wait = min(wait * 2, RETRY_MAX_WAIT)
+        return resp
 
     def _page(http, start):
-        resp = http.get(search_url, params={"domain": domain, "start": start}, timeout=timeout)
+        resp = _search(http, start)
+        if getattr(resp, "status_code", None) == RATE_LIMIT_STATUS and start > 0:
+            # Still throttled after the bounded retries, but earlier pages are
+            # already collected: report an empty page so paged_details ends the
+            # board with what it has, instead of raising and losing all of it.
+            return [], None
+        # start == 0 falls through: nothing to salvage, so fail loudly (the
+        # pipeline's per-company try/except isolates it) rather than report a
+        # rate-limited board as an empty one.
         resp.raise_for_status()
         data = _require_ok(resp.json())
         return data.get("positions") or [], data.get("count")

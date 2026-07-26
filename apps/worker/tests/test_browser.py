@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.fetch import browser
+from ats_worker.fetch import _recipe, browser
 from ats_worker.util import POSTING_FIELDS
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -443,3 +443,142 @@ def test_apply_detail_rentec():
     [job] = browser.parse_jobs([RENTEC_LIST], RENTEC_RECIPE, "Renaissance Technologies")[:1]
     browser.apply_detail(job, RENTEC_DETAIL, RENTEC_RECIPE)
     assert "responsib" in job["description"].lower()
+
+
+# --- `url` as a template over other extracted CSS fields -------------------
+#
+# Some boards route client-side: the card carries NO href, the id lives in a
+# `data-*` attribute, and the real posting URL is a fixed shape around that id.
+# `custom` recipes already express this (`url` may be a "template with
+# {dotted.field}" placeholders, see test_interpolate_url_template in
+# test_custom.py); these pin the same capability for `browser` recipes, where
+# the placeholders name OTHER FIELDS of the same recipe's `fields` map.
+
+TEMPLATE_LIST = """
+<div class="results">
+  <div class="job-card" data-id="a1b2c3_REQ8036">
+    <h3>Quantitative Researcher</h3><span class="loc">New York</span>
+  </div>
+  <div class="job-card" data-id="d4e5f6_REQ9042">
+    <h3>Data Engineer</h3><span class="loc">London</span>
+  </div>
+</div>
+"""
+
+TEMPLATE_RECIPE = {
+    "url": "https://boards.example.com/careers/open-roles",
+    "mode": "html-css",
+    "item": "div.job-card",
+    "page": {"type": "none"},
+    "fields": {
+        "title": "h3",
+        "location": ".loc",
+        "external_id": {"attr": "data-id"},
+        "url": "/s/details?jobReq={external_id}",   # template, not a selector
+    },
+}
+
+
+def test_parse_jobs_url_template_from_data_attribute():
+    """A card with no href at all: `url` is a template interpolated from the
+    id extracted out of `data-id`, resolved against the recipe's base url."""
+    jobs = browser.parse_jobs([TEMPLATE_LIST], TEMPLATE_RECIPE, "Acme")
+    assert len(jobs) == 2
+    j = jobs[0]
+    assert set(j) == set(POSTING_FIELDS)
+    assert j["external_id"] == "a1b2c3_REQ8036"
+    assert j["job_title"] == "Quantitative Researcher"
+    assert j["location"] == "New York"
+    assert j["job_url"] == "https://boards.example.com/s/details?jobReq=a1b2c3_REQ8036"
+    assert jobs[1]["job_url"] == "https://boards.example.com/s/details?jobReq=d4e5f6_REQ9042"
+
+
+def test_parse_jobs_url_template_can_name_a_non_posting_field():
+    """Placeholders name entries of the recipe's own `fields` map, so an
+    operator can carry a helper field (here `req`) that is not one of the
+    canonical posting fields purely to build the url."""
+    recipe = {
+        **TEMPLATE_RECIPE,
+        "fields": {
+            **TEMPLATE_RECIPE["fields"],
+            "req": {"attr": "data-id", "extract": r"_(REQ\d+)$"},
+            "url": "/s/details?jobReq={req}",
+        },
+    }
+    [j, _] = browser.parse_jobs([TEMPLATE_LIST], recipe, "Acme")
+    assert j["job_url"] == "https://boards.example.com/s/details?jobReq=REQ8036"
+    assert j["external_id"] == "a1b2c3_REQ8036"   # helper field is url-only
+
+
+def test_parse_jobs_url_template_absolute_is_left_alone():
+    recipe = {**TEMPLATE_RECIPE,
+              "fields": {**TEMPLATE_RECIPE["fields"],
+                         "url": "https://apply.example.org/j/{external_id}"}}
+    [j, _] = browser.parse_jobs([TEMPLATE_LIST], recipe, "Acme")
+    assert j["job_url"] == "https://apply.example.org/j/a1b2c3_REQ8036"
+
+
+def test_parse_jobs_url_template_missing_field_interpolates_empty():
+    """A placeholder naming a field the recipe does not define substitutes the
+    empty string — exactly what the `custom` path does (no raise), so a broken
+    template degrades the same way on both executors."""
+    recipe = {**TEMPLATE_RECIPE,
+              "fields": {**TEMPLATE_RECIPE["fields"], "url": "/s/details?jobReq={nope}"}}
+    [j, _] = browser.parse_jobs([TEMPLATE_LIST], recipe, "Acme")
+    assert j["job_url"] == "https://boards.example.com/s/details?jobReq="
+    # same shape as the plain-HTTP executor's miss (dotted_get -> None -> "")
+    custom_posting = _recipe.apply_fields(
+        {"id": "x"}, {"url": "https://boards.example.com/s/details?jobReq={nope}"},
+        "Acme", "custom")
+    assert custom_posting["job_url"] == "https://boards.example.com/s/details?jobReq="
+
+
+def test_parse_jobs_url_selector_still_wins_when_not_a_template():
+    """No braces = the old behavior (CSS selector / {attr,extract} dict)."""
+    jobs = browser.parse_jobs([CITADEL_LIST], CITADEL_RECIPE, "Citadel Securities")
+    assert jobs[0]["job_url"].endswith("/careers/details/systematic-options-trader/")
+
+
+def test_browser_fetch_renders_detail_of_a_templated_url(monkeypatch):
+    """End to end through `fetch`: a templated job_url is what the detail
+    enrich loop navigates to, so the capability really reaches the browser."""
+    listing = '<div><div class="job-card" data-id="REQ1"><h3>One</h3></div></div>'
+    page = _FakePage({
+        "https://boards.example.com/careers/open-roles": listing,
+        "https://boards.example.com/s/details?jobReq=REQ1": "<div class='jd'>Real description</div>",
+    })
+    _install_fake_playwright(monkeypatch, page)
+
+    recipe = {
+        **TEMPLATE_RECIPE,
+        "detail": {"url_field": "job_url", "fields": {"description": ".jd"}},
+    }
+    [posting] = browser.fetch("slug", "Acme", recipe)
+    assert page.goto_calls == ["https://boards.example.com/careers/open-roles",
+                               "https://boards.example.com/s/details?jobReq=REQ1"]
+    assert posting["job_url"] == "https://boards.example.com/s/details?jobReq=REQ1"
+    assert "Real description" in posting["description"]
+
+
+def test_browser_fetch_skips_templated_url_that_resolves_internal(monkeypatch):
+    """The interpolated url lands on the SAME side of the SSRF boundary as a
+    scraped href: `fetch`'s per-detail `is_safe_public_url` check still runs on
+    it, so a template (or a card whose data-* smuggles an internal host into
+    one) can never open a new unchecked fetch path."""
+    listing = ('<div><div class="job-card" data-id="169.254.169.254">'
+               '<h3>One</h3></div></div>')
+    page = _FakePage({
+        "https://boards.example.com/careers/open-roles": listing,
+        "http://169.254.169.254/secret": "<div class='jd'>SECRET METADATA</div>",
+    })
+    _install_fake_playwright(monkeypatch, page)
+
+    recipe = {
+        **TEMPLATE_RECIPE,
+        "fields": {**TEMPLATE_RECIPE["fields"], "url": "http://{external_id}/secret"},
+        "detail": {"url_field": "job_url", "fields": {"description": ".jd"}},
+    }
+    [posting] = browser.fetch("slug", "Acme", recipe)
+    assert posting["job_url"] == "http://169.254.169.254/secret"
+    assert page.goto_calls == ["https://boards.example.com/careers/open-roles"]
+    assert posting["description"] == ""

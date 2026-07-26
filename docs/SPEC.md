@@ -299,8 +299,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   scheduler (immediate pass, then every `schedule_hours`). Flags: `--config`,
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--resume-dir` (directory of resume versions, default `resume/`),
-  `--model` (`OLLAMA_MODEL`, local hard-requirements screen only),
+  `--model` (`OLLAMA_MODEL`, the Ollama model tag — only consulted when
+  `--screen-backend ollama`),
   `--score-backend` (`SCORE_BACKEND`, `codex`|`claude`),
+  `--screen-backend` (`SCREEN_BACKEND`, one of six values — documented under
+  `score/` below), `--screen-model` (`SCREEN_MODEL`, overrides the chosen screen
+  backend's default model; unset lets each backend fall back to its own default,
+  and on `claude-code` that default is the CLI's own, not a value hard-coded here),
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--fetch-only` (run fetch/feed/expire/retry then stop before any screen/scorer call —
@@ -308,7 +313,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   existing `new` backlog — the inverse of `--fetch-only`), `--score-limit N` (cap `new`
   rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
   `--import-companies` (seed the DB watchlist from config and exit). Defaults:
-  screen `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
+  screen `ollama` / `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
   **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
   reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
   `run_feed` for each enabled feed. The only module that knows about
@@ -501,26 +506,74 @@ worker modules are pure and dependency-injected; real services are wired only in
   `delete_unresolved` (clears a row once its posting is re-ingested),
   `existing_external_ids`. Issues no DDL.
 - **`score/` — screening + fit scoring.** A package — `screen.py`, `location.py`,
-  `prompts.py`, `usage.py`, `backends_codex.py`/`backends_claude.py` — re-exported
+  `prompts.py`, `usage.py`, `backends_screen.py` (SCREEN backends),
+  `backends_codex.py`/`backends_claude.py` (fit-SCORE backends) — re-exported
   through `score/__init__.py`, so `score.screen_posting` / `score._normalize_score`
-  still resolve. Up to two calls, two backends,
-  **SCREEN-gated**: the cheap local screen runs FIRST and gates the paid fit score. (1) The
-  hard-requirements **SCREEN** runs on host Ollama (`think: false`, `num_ctx` from
-  `OLLAMA_NUM_CTX`, default 8192), only when a non-empty `candidate` is supplied,
-  and — with **no résumé in the prompt** — extracts each requirement (degree, work
-  authorization, clearance) as a JOB fact *semantically*.
-  CODE then decides pass/fail: for degree/clearance by applying the
-  candidate's configured constraint to the extracted fact (a 4B model is unreliable at
-  the pass/fail judgment itself); for **work authorization by a deterministic JD-text
-  phrase gate** (`_check_authorization` / `NO_SPONSOR_PHRASES`) — disqualified only when
-  the candidate needs sponsorship *and* the description literally contains an explicit
-  no-sponsorship phrase — the **D1** fix (the model's `offers_sponsorship` guess had
-  invented "no" from silence and is no longer consulted). **Known cost:**
-  `NO_SPONSOR_PHRASES` is a closed set, so the gate trades recall for precision — 9 of
-  11 realistic phrasings pass through un-disqualified ("US Citizenship is required",
-  "US Person status as defined by ITAR", "unable to offer immigration support",
-  "Visa sponsorship is not available for this position"). Tracked as a defect in
-  [`PROGRESS.md`](./PROGRESS.md). `disqualified` is
+  still resolve. Up to two calls, **SCREEN-gated**: the cheap hard-requirements
+  screen runs FIRST and gates the paid fit score.
+
+  (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
+  schema) -> dict` (`screen_posting`'s `extract` kwarg) — so swapping backends is a
+  new callable, never a new branch inside `screen_posting`. `run.make_screener(backend,
+  *, env, http=None, model=None, screen_model=None, num_ctx=8192)` builds that
+  callable from **`SCREEN_BACKEND`/`--screen-backend`**, one of **six** values in
+  **three** adapter shapes (`score/backends_screen.py`):
+  - **HTTP + JSON schema** — `ollama` (**default**; free, local,
+    `score.screen.make_ollama_extract`, `think: false`, `num_ctx` from
+    `OLLAMA_NUM_CTX`/`--model`, default model `qwen3.5:4b`), `claude-api` (metered,
+    the Anthropic SDK's structured outputs, default `claude-haiku-4-5`, needs
+    `ANTHROPIC_API_KEY`), `openai-api` (metered, plain `requests` against
+    `chat/completions` with `response_format: json_schema`, default `gpt-5.6-luna`,
+    needs `OPENAI_API_KEY`).
+  - **CLI subprocess + schema** — `codex` (the operator's ChatGPT-subscription CLI,
+    default `gpt-5.6-sol`; runs **tool-less** — `--disable shell_tool`,
+    `web_search="disabled"` — the same security posture as the fit backend below,
+    since a JD is untrusted scraped text; the schema goes in as a **file**,
+    `--output-schema`), `claude-code` (the operator's Claude Code CLI subscription;
+    **no** hard-coded default model, so an unset `--screen-model` takes whatever the
+    CLI itself defaults to; the schema goes in **inline** as JSON text —
+    `--json-schema <json>`, **not** a file path, despite the flag name — verified
+    behaviorally against the CLI 2026-07-23, so it is **not** symmetric with codex's
+    `--output-schema`).
+  - **Deterministic-only** — `none`: no LLM call at all, `make_screener` returns
+    `None` and `screen_posting` runs only the code-side location + intern gates.
+    **LOW RECALL on sponsorship** — with no per-JD extraction to ground it, the
+    work-authorization check falls all the way back to the closed
+    `NO_SPONSOR_PHRASES` substring list (~2/11 recall — see below).
+
+  `--screen-model`/`SCREEN_MODEL` overrides whichever backend's default model.
+  **Auto-detection never selects a paid backend** — the default is always `ollama`
+  and `make_screener` never guesses from what happens to be installed; spending
+  money is explicit opt-in via `SCREEN_BACKEND` (`make doctor` reports what is
+  actually available, and the operator — or `onboard-me` Step 0 — chooses from
+  that). `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the in-process `env`
+  dict only, same as the fit backend, never promoted to an argparse default (§12).
+
+  Whichever backend is picked, the call only fires when a non-empty `candidate` is
+  supplied, and — with **no résumé in the prompt** — extracts each requirement
+  (degree, work authorization, clearance) as a JOB fact *semantically*.
+  CODE then decides pass/fail — on every backend, not just the free 4B `ollama`
+  default that motivated it (a small local model is unreliable at the pass/fail
+  judgment itself, and keeping it code-side means the check behaves the same
+  regardless of which backend did the extracting): for degree/clearance by applying
+  the candidate's configured constraint to the extracted fact; for **work
+  authorization by a quote-grounded LLM check** (`_check_authorization` / `_quote_in`)
+  — the model returns `no_sponsorship_quote`, the verbatim JD sentence it claims
+  states sponsorship is unavailable, and CODE verifies that sentence is actually
+  present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
+  *before* disqualifying — a hallucinated quote fails verification and the posting is
+  *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
+  This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
+  "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
+  verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
+  demoted to a **floor** underneath the quote check: it still runs and can only *add*
+  a disqualification, never veto a model pass, so it still catches blunt closed-list
+  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall on
+  the quote-grounded check is pending measurement:** `tools/sponsor_diff.py` diffs it
+  against the old phrase list over already-scored rows so only the disagreements need
+  hand-labeling against a three-class truth (*no-sponsorship / offers / silent*) — that
+  labeled-set run has not happened yet, so no recall/precision number is claimed here
+  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)). `disqualified` is
   derived from those per-requirement verdicts. **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
@@ -529,10 +582,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   keep if any token is US or an allowed country, discard only when ≥1 token resolves
   and none are allowed (naming the first foreign country), keep if nothing resolves
   (**D2**). US-state and remote strings keep, so a
-  `locations`-only candidate makes no Ollama call. The screen prompt carries no
-  location clause. The scoring prompts live in **two** files —
-  `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (Ollama
-  hard-requirements checklist). Separately, when `candidate.exclude_internships` is set,
+  `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
+  carries no location clause. The scoring prompts live in **two** files —
+  `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN
+  hard-requirements checklist, shared by every backend). Separately, when
+  `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured). A SCREEN parse failure
   errs toward keep (not disqualified). (2) The fit **SCORE** — reached **only when the
@@ -670,7 +724,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
   score / JD link, plus an optional `Resume: <label>` line when `score_detail`
   carries `recommended_resume`) — a single atomic message per match; the human
-  applies by hand.
+  applies by hand. **Telegram is optional:** if `TELEGRAM_BOT_TOKEN` /
+  `TELEGRAM_CHAT_ID` are absent from `.env`, `run_once` skips `run_notify` and matched
+  rows stay `scored` — still visible in the web Discovered Jobs Matched bucket
+  (`pipeline_status IN ('scored','notified')`), just with no push alert.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
   `run_fetch` → (`run_feed`) → `run_expire` → `run_retry` → `run_score` →
@@ -740,7 +797,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`.
+  large fresh intake; the remainder stays `new`. Both the screen phase and the
+  per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
+  write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
+  `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),
+  while every DB read/write stays on the calling thread, and futures are consumed in
+  **submission order** so a screen verdict or fit card is never mis-associated with
+  the wrong posting and writes stay deterministic. `--screen-workers`/
+  `--score-workers` (`SCREEN_WORKERS`/`SCORE_WORKERS`) bound each pool; the screen
+  pool defaults **per backend** (`run.DEFAULT_SCREEN_WORKERS`) — **1** for
+  `ollama`/`none` (a single GPU serializes the compute, so parallel requests
+  interleave rather than speed up the underlying inference), **4** for the
+  subprocess/hosted backends, which are latency- not compute-bound. The singles
+  fallback in (3) stays serial. Fit concurrency is quota-neutral (§11).
   `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
   (`scored`/`notified`) postings from **detail sources only** — the ones with a real
   per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
@@ -1028,6 +1097,11 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   catches that (or any other exception the batch call raises) and retries the batch's
   postings **singly** — one malformed batch costs latency, not correctness or
   misattribution, and only a single that still fails marks just that one row `failed`.
+- **Concurrent screen/fit calls never reorder or mis-associate a write.** `run_score`
+  (§7.1) submits every `screen_fn`/`fit_fn` call to a thread pool up front, then
+  consumes the futures **in the same order they were submitted** — never
+  `as_completed` — so a slow call finishing late still lands its result on the
+  correct row, and every `db.*` write stays on the calling thread throughout.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -1222,9 +1296,11 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening**: work authorization is the deterministic phrase gate
-  (**D1**, §7.1) and errs toward keep when a JD declines to sponsor in wording
-  outside the phrase set; **clearance** remains an LLM *semantic* extraction with a
+- **Hard-constraint screening**: work authorization is the quote-grounded LLM check
+  (**D1**, §7.1) — the model's extracted quote is verified against the JD text before
+  it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
+  and its precision/recall have not yet been measured against a labeled set (open
+  item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
   code check — a misjudgment sends a spurious alert or discards an applicable role.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
 - **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual
@@ -1397,7 +1473,12 @@ automated coverage — those rely on code review or the human in the loop, not a
   acceptance guard and is parked at every size >1 (post-mortem + numbers in §13) —
   and a fix would need *stronger per-JD prompt isolation*, which is exactly what
   one-JD-per-call already buys, so the win and the fix are in tension; the quota
-  problem needs pacing, not a bigger batch. At the cap Codex hard-blocks (no
+  problem needs pacing, not a bigger batch. **Concurrency (`--score-workers`, §7.1) is
+  a different lever from batching and does not change the message count**: N parallel
+  `codex exec` calls still spend N messages, exactly like N serial ones — only
+  wall-clock shrinks. So the weekly-window bound argues for **pacing** the fit loop
+  (`--score-limit`, run across multiple passes) against remaining headroom, not
+  against running those N calls concurrently. At the cap Codex hard-blocks (no
   degraded fallback) and `codex exec` exits **1 with no distinct rate-limit code**,
   so pacing logic must match the stderr text, not the exit status. Each call also
   pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
@@ -1468,10 +1549,20 @@ form, the tracker-only vs. full-pipeline decision, and which settings live in
 
 **Prerequisites:** Docker + Compose (≥ 24) for the web app; Node 20+ and Python
 3.11+ for local non-Docker dev/tests **and to run the worker**, which is native,
-not containerized (§6); Ollama + an NVIDIA GPU on the **host** for the
-hard-requirements screen; the Codex CLI on the operator's ChatGPT subscription
-for fit scoring by default (`codex login`), or an Anthropic API key for the
-metered `claude` alternate; a Telegram bot for alerts.
+not containerized (§6); for the hard-requirements screen, Ollama reachable — a
+local GPU, or a remote/cloud instance via `OLLAMA_HOST` — **or** one of five other
+`SCREEN_BACKEND` values (`codex`, `claude-code`, `claude-api`, `openai-api`,
+`none`; §7.1) if there is no GPU and no Ollama at all; the Codex CLI on the
+operator's ChatGPT subscription for fit scoring by default (`codex login`), or an
+Anthropic API key for the metered `claude` alternate; and **optionally** a
+Telegram bot for push alerts — without it, matches still surface in the web
+Discovered Jobs tab (§7), just with no push.
+
+`make setup` bootstraps a checkout in one command (web + worker deps, `db-push`,
+and non-clobbering `*.example` template copies); `make doctor` is the preflight —
+one status line per prerequisite, exiting non-zero only when a *universal* one
+(worker deps + a set-up DB) is missing, while provider rows (ollama/codex/claude/
+telegram/…) report `ok`/`no` without failing the exit code.
 
 **Web app only (no pipeline):**
 
@@ -1483,7 +1574,10 @@ npx prisma db push          # if db/applications.db doesn't exist yet
 UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 ```
 
-**Full pipeline:**
+**Full pipeline:** `make setup` does deps, `db-push`, and steps 1 and 3's **config**
+copies (only when the target is absent); then fill in the copied files. It does *not*
+do step 2 — a placeholder `resume.txt` would be loaded as a real résumé version, so an
+absent file (which fails loudly) is safer. Longhand:
 
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ the eleven watchlist-capable boards {greenhouse, lever, ashby,
@@ -1496,15 +1590,19 @@ UID=$(id -u) GID=$(id -g) docker compose up web --build -d
    `resume_<label>.txt` versions plus an optional `personal_profile.txt` for
    about-the-candidate context (`apps/worker/resume/README.md`).
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `TELEGRAM_BOT_TOKEN`,
-   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://localhost:11434`), plus `ANTHROPIC_API_KEY`
-   **only** for `--score-backend claude`. Optional
-   overrides: `OLLAMA_MODEL`, `SCORE_BACKEND`, `CODEX_SCORE_MODEL`,
+   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://localhost:11434`), plus
+   `ANTHROPIC_API_KEY` for `--score-backend claude` and/or
+   `--screen-backend claude-api`, or `OPENAI_API_KEY` for
+   `--screen-backend openai-api`. Optional overrides: `OLLAMA_MODEL`,
+   `SCORE_BACKEND`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `CODEX_SCORE_MODEL`,
    `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`, `CODEX_BATCH_SIZE`.
 4. The default `codex` fit backend authenticates from the operator's `codex login`
    state (`auth_mode=chatgpt`), not from `.env` — run `codex login` once on the
    worker host and confirm with `codex doctor` (auth ok). A logged-out host fails
    every fit call loudly; it never scores 0.
-5. On the host: `ollama pull qwen3.5:4b && ollama serve`.
+5. On the host: `ollama pull qwen3.5:4b && ollama serve` — only needed for the
+   default `SCREEN_BACKEND=ollama`; skip it entirely on one of the five other
+   screen backends (§7.1).
 6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
    (or `make up`) starts the **web app + autoheal only** — the worker is **not**
    containerized (§6, removed 2026-07-16). Run it natively on the same host:

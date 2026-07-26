@@ -22,12 +22,15 @@ UP TO TWO calls per posting, from two different backends, SCREEN-gated:
 The screen call has no résumé so it can't anchor on where the candidate lives, and
 its output is small (no truncation).
 
-`http` is injected (defaults to `None`; the real `requests` module is bound only
-in run.py) so tests exercise the SCREEN call's parsing with a fake transport and
-zero network. Ollama wraps output in
-{"response": "<json string>"} under format=json; we parse that inner string
-defensively and raise ScoreError on anything unusable so the pipeline can mark one
-posting failed, not abort the batch.
+The SCREEN call is injected as `extract(prompt, schema) -> dict` (see
+`screen_posting`'s docstring) — the ENTIRE backend contract, so a non-Ollama
+backend is a new callable, not a new branch here. `make_ollama_extract` builds the
+default one; `http` is injected into IT (defaults to `None`; the real `requests`
+module is bound only in run.py) so tests exercise the SCREEN call's parsing with a
+fake transport and zero network. Ollama wraps output in
+{"response": "<json string>"} under format=json; `_post` parses that inner string
+defensively and raises ScoreError on anything unusable, which `screen_posting`
+catches (errs toward keep) rather than letting it abort the batch.
 """
 from __future__ import annotations
 
@@ -38,7 +41,7 @@ from ats_worker.prompts import SCREEN_HEADER
 
 from .errors import ScoreError
 from .location import resolve_location
-from .prompts import _candidate_block, _job_block
+from .prompts import SCREEN_SCHEMA, _candidate_block, _job_block
 
 # How each configured hard requirement is screened. For the structured fields the
 # LLM only EXTRACTS a fact about the JOB and CODE applies the candidate's
@@ -48,12 +51,11 @@ from .prompts import _candidate_block, _job_block
 DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
-# Authorization is gated deterministically off the JD text, NOT the 4B model's
-# offers_sponsorship guess (D1): it invents "no" from silence, and the old loose
-# substring guard fired on unrelated boilerplate — "sponsor" in "company-sponsored
-# sports teams" (id=986), "citizen" in an EEO "citizenship" line (id=1071). Disqualify
-# ONLY when the JD literally contains one of these explicit no-sponsorship phrases,
-# substring-matched over the lowercased, whitespace-collapsed description.
+# The FLOOR for the sponsorship gate, not the gate itself. The primary check is the
+# quote-grounded LLM extraction in _check_authorization; this closed list runs after it
+# and can only ADD a disqualification, never veto a model pass. Measured recall on its
+# own is ~2/11 realistic phrasings, which is why it was demoted. Kept because it costs
+# nothing and catches the blunt wordings even on SCREEN_BACKEND=none.
 NO_SPONSOR_PHRASES = (
     "will not sponsor", "does not sponsor", "do not sponsor", "cannot sponsor",
     "unable to sponsor", "not able to sponsor", "no visa sponsorship", "no sponsorship",
@@ -93,35 +95,54 @@ def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) ->
     return screen
 
 
-def screen_posting(
-    posting: dict,
-    *,
-    http=None,
-    ollama_host: str,
-    model: str | None = None,
-    candidate: dict | None = None,
-    temperature: float = 0.0,
-    seed: int = 0,
-    num_ctx: int = 8192,
-    timeout: int = 180,
-) -> dict:
-    """Screen `posting` against the candidate's hard requirements — the CHEAP, local
-    half of scoring (Ollama, no résumé, no paid fit call). Combines three signals
-    into one verdict:
+def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None,
+                   num_ctx: int = 8192) -> dict:
+    """Screen `posting` against the candidate's hard requirements — the CHEAP half of
+    scoring (no résumé, no paid fit call). Combines three signals into one verdict:
 
-      1. The Ollama SCREEN call (`http`/`ollama_host`/`model`) extracts structured
-         JOB facts (required degree, sponsorship, clearance) for whatever the
-         candidate configured; CODE (`_screen_verdict`) applies the candidate's
-         constraint. Skipped entirely when no candidate constraints are configured.
-         A parse failure errs toward KEEP (not disqualified), never toward discard.
+      1. The LLM extraction call (`extract`) reports structured JOB facts (required
+         degree, sponsorship, clearance) for whatever the candidate configured; CODE
+         (`_screen_verdict`) applies the candidate's constraint. Skipped entirely when
+         no candidate constraints are configured OR when `extract` is None
+         (SCREEN_BACKEND=none). A failure errs toward KEEP, never toward discard.
       2. A deterministic intern/co-op title check, gated by `exclude_internships`.
       3. A deterministic pycountry LOCATION gate (`resolve_location`), gated by
          `candidate["locations"]`, matched against the board's location string.
 
-    Returns `{"screen": {...per-requirement verdicts...}, "disqualified": bool,
-    "disqualification_reason": str}`. Takes no fit-scorer callable — it structurally
-    cannot call the (paid) fit scorer; `pipeline.run_score` composes this and decides
-    whether `disqualified` gates out the fit call.
+    `extract(prompt, schema) -> dict` is the ENTIRE backend contract — the one step
+    that differs between ollama / codex / claude / openai / none. Build it with
+    `make_ollama_extract` or `score.backends_screen.make_extract`; run.py wires it.
+
+    Returns `{"screen": {...}, "disqualified": bool, "disqualification_reason": str}`.
+    Takes no fit-scorer callable — it structurally cannot pay for the fit call.
+    """
+    job = _job_block(posting, num_ctx * 2)
+    description = str(posting.get("description") or "")
+    checklist = _candidate_block(candidate)
+    screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    if checklist and extract is not None:
+        try:
+            data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
+            screen = _screen_verdict(data, candidate or {}, description)
+        except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
+            print(f"[screen] provider error, keeping posting unscreened: {exc}")
+            screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+
+    # Deterministic CODE gates (intern title + location string), hoisted into a
+    # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.
+    return deterministic_screen(screen, posting, candidate)
+
+
+def make_ollama_extract(*, http, ollama_host: str, model: str | None = None,
+                        temperature: float = 0.0, seed: int = 0,
+                        num_ctx: int = 8192, timeout: int = 180):
+    """Build the `extract(prompt, schema) -> dict` callable for the local Ollama
+    screen — the default backend, and the only free one.
+
+    `schema` is accepted and ignored: this call uses Ollama's `format="json"` mode,
+    which constrains output to *some* JSON object rather than to a schema. Keeping
+    the parameter means every backend has one signature; the schema-enforcing
+    backends use it. Behavior is byte-identical to the pre-seam call.
     """
     options = {
         "temperature": temperature,
@@ -132,29 +153,10 @@ def screen_posting(
         "num_predict": 512,
     }
 
-    # SCREEN — hard requirements only (job + checklist, NO résumé), the CHEAP
-    # local call. Skipped when nothing is configured. A parse failure must NOT
-    # discard the posting (or fail the row) — the design errs toward keep — so it
-    # falls back to not-screened / not-disqualified.
-    job = _job_block(posting, num_ctx * 2)
-    description = str(posting.get("description") or "")
-    checklist = _candidate_block(candidate)
-    if checklist:
-        try:
-            screen_data = _post(http, ollama_host, model, SCREEN_HEADER + checklist + "\n" + job,
-                                options=options, timeout=timeout)
-            screen = _screen_verdict(screen_data, candidate or {}, description)
-        except ScoreError:
-            screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    else:
-        screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    def extract(prompt: str, schema: dict) -> dict:
+        return _post(http, ollama_host, model, prompt, options=options, timeout=timeout)
 
-    # Deterministic CODE gates (intern title + location string), hoisted into a
-    # shared helper so the fetch-time pre-filter can apply the SAME verdict before
-    # the Ollama call. No LLM. Merged on top of the LLM screen verdict above.
-    screen = deterministic_screen(screen, posting, candidate)
-
-    return screen
+    return extract
 
 
 def _post(http, ollama_host: str, model: str, prompt: str, *, options: dict, timeout: int) -> dict:
@@ -279,11 +281,21 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
 
     entry = lambda k: screen.get(k) if isinstance(screen.get(k), dict) else {}
 
-    gate("degree", bool(str(candidate.get("highest_degree") or "").strip()),
+    # degree/clearance are gated on the model ACTUALLY returning an entry, not just on
+    # the candidate configuring the check. Both err toward pass on absent data, so
+    # materializing the key anyway makes a ran-but-blind check byte-identical to a
+    # genuinely-passed one — and `merge_fallback_screen` can then never see the gap.
+    # `authorization` deliberately still writes its key on an empty entry: it has an
+    # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
+    # with no model data at all.
+    gate("degree", bool(str(candidate.get("highest_degree") or "").strip())
+         and bool(entry("degree")),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
-         *_check_authorization(candidate.get("work_authorization"), description))
-    gate("clearance", bool(str(candidate.get("security_clearance") or "").strip()),
+         *_check_authorization(candidate.get("work_authorization"), description,
+                               entry("authorization")))
+    gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
+         and bool(entry("clearance")),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
     return {
@@ -304,14 +316,35 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
-def _check_authorization(cand_auth, description: str = "") -> tuple[bool, str]:
-    """Fail only when the candidate needs sponsorship AND the JD literally states it
-    won't sponsor. The 4B model's offers_sponsorship guess is NOT consulted — it
-    invents "no" from silence, and 'unknown' (the JD is silent) passes. We trust only
-    an explicit no-sponsorship PHRASE in the JD text (D1); the whitespace-collapse
-    keeps a phrase matching across line wraps."""
+def _quote_in(quote, description: str) -> bool:
+    """Is `quote` actually present in the JD? Whitespace-collapsed and case-insensitive,
+    matching the normalization the phrase floor already uses — that tolerates the ways a
+    FAITHFUL quote legitimately differs (line wraps, casing) without tolerating invented
+    text. This is what makes hallucination unable to disqualify."""
+    needle = " ".join(str(quote or "").lower().split())
+    if not needle:
+        return False
+    return needle in " ".join((description or "").lower().split())
+
+
+def _check_authorization(cand_auth, description: str = "",
+                         entry: dict | None = None) -> tuple[bool, str]:
+    """Fail only when the candidate needs sponsorship AND the JD says it isn't offered.
+
+    Primary check: the model returns `no_sponsorship_quote`, the verbatim JD sentence
+    saying so, and CODE verifies that sentence actually appears in the description
+    before acting on it. A hallucinated quote fails verification and the posting is
+    KEPT — hallucination cannot disqualify anything by construction, not by trust.
+    This holds on qwen3.5:4b too, so D1 needs no re-litigating.
+
+    Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
+    vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
+    """
     if not _needs_sponsorship(cand_auth):
         return True, ""
+    quote = (entry or {}).get("no_sponsorship_quote")
+    if _quote_in(quote, description):
+        return False, "no visa sponsorship offered"
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
         return False, "no visa sponsorship offered"
@@ -378,6 +411,48 @@ def _flag(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "yes", "1", "required"}
     return False
+
+
+def merge_fallback_screen(screen: dict, card: dict, posting: dict,
+                          candidate: dict | None) -> dict:
+    """Consume the fit scorer's secondary hard-requirement extraction — but ONLY for
+    checks the screen produced no verdict for.
+
+    Why fallback and not a second vote: on a working screen backend a second independent
+    checker doubles the false-positive surface, and a spurious "requires PhD" would
+    SILENTLY DISCARD a good posting — the exact failure the err-toward-keep design
+    exists to avoid. This is insurance for the gap (SCREEN_BACKEND=none, or a screen
+    failure that err-toward-keep already swallowed), not redundancy.
+
+    Sponsorship keeps the same quote verification as the screen, so a hallucinated
+    quote cannot disqualify here either.
+
+    A screen that already disqualified has nothing left to gap-fill, so it is
+    returned untouched.
+    """
+    if not candidate or not isinstance(card, dict):
+        return screen
+    if screen.get("disqualified"):
+        return screen
+    extracted = card.get("screen")
+    if not isinstance(extracted, dict):
+        return screen
+    already = screen.get("screen") or {}
+    gaps = {k: v for k, v in extracted.items() if k not in already}
+    if not gaps:
+        return screen
+    verdict = _screen_verdict({"screen": gaps}, candidate,
+                              str(posting.get("description") or ""))
+    merged = dict(already)
+    merged.update({k: v for k, v in (verdict.get("screen") or {}).items() if k in gaps})
+    prior = screen.get("disqualification_reason") or ""
+    extra = verdict.get("disqualification_reason") or ""
+    reason = "; ".join(r for r in (prior, extra) if r)
+    return {
+        "screen": merged,
+        "disqualified": bool(screen.get("disqualified")) or bool(verdict.get("disqualified")),
+        "disqualification_reason": reason,
+    }
 
 
 def _as_str_list(value) -> list[str]:

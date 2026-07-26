@@ -24,7 +24,15 @@ from . import db, pipeline
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import make_claude_scorer, make_codex_scorer, screen_posting
+from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
+                    screen_posting)
+from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
+                                    DEFAULT_CODEX_SCREEN_MODEL,
+                                    DEFAULT_OPENAI_SCREEN_MODEL,
+                                    make_claude_api_extract,
+                                    make_claude_code_extract,
+                                    make_codex_extract,
+                                    make_openai_api_extract)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -63,15 +71,25 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 
-# The ONLY six .env keys argparse defaults read from os.environ (grepped across
+# Per-backend screen concurrency. Ollama defaults to 1: a single GPU SERIALIZES the
+# compute, so parallel requests interleave rather than speed up (weights load once and
+# are not duplicated per slot — only KV cache is, so RAM is the secondary constraint,
+# not the binding one). The subprocess and HTTP backends are latency-bound and benefit.
+# Configurable so a multi-GPU or remote-Ollama user can raise it.
+DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
+                          "claude-api": 4, "openai-api": 4}
+
+# The ONLY ten .env keys argparse defaults read from os.environ (grepped across
 # the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
-# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY) are deliberately excluded: every consumer
-# reads them from the in-process `env` dict (run_once(..., env=env) / make_scorer),
-# never os.environ, so promoting them would only leak them to subprocesses that
-# inherit the full environment (the codex CLI — see score/backends_codex.py).
+# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every
+# consumer reads them from the in-process `env` dict (run_once(..., env=env) /
+# make_scorer / make_screener), never os.environ, so promoting them would only leak
+# them to subprocesses that inherit the full environment (the codex CLI — see
+# score/backends_codex.py).
 _ENV_ARGPARSE_KEYS = frozenset({
-    "DB_PATH", "OLLAMA_MODEL", "SCORE_BACKEND", "CODEX_SCORE_MODEL",
-    "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
+    "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
+    "SCREEN_WORKERS", "SCORE_WORKERS",
 })
 
 
@@ -91,6 +109,47 @@ def make_scorer(backend: str, *, env, profile="",
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
     raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+
+# The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
+# A PAID BACKEND — spending money is explicit opt-in via SCREEN_BACKEND. `make doctor`
+# reports which providers are actually installed; the operator (or onboard-me Step 0)
+# chooses from that, and this function never guesses.
+DEFAULT_SCREEN_BACKEND = "ollama"
+SCREEN_BACKENDS = ("ollama", "codex", "claude-code", "claude-api", "openai-api", "none")
+
+
+def make_screener(backend: str, *, env, http=None, model=None, screen_model=None,
+                  num_ctx: int = 8192):
+    """Pick the screen backend, returning the `extract(prompt, schema) -> dict`
+    callable `screen_posting` consumes — or None for `none`, which runs the
+    deterministic gates only (documented as LOW RECALL on sponsorship: it falls back
+    to the closed NO_SPONSOR_PHRASES list, ~2/11 recall).
+
+    `model` is the Ollama model tag (--model); `screen_model` is the hosted-backend
+    model override (--screen-model, added in Task 6) — kept separate so a `--model`
+    aimed at Ollama never leaks into a claude-api/openai-api call and vice versa.
+    """
+    if backend == "none":
+        return None
+    if backend == "ollama":
+        return make_ollama_extract(
+            http=http, model=model or DEFAULT_OLLAMA_MODEL,
+            ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
+            num_ctx=num_ctx,
+        )
+    if backend == "codex":
+        return make_codex_extract(screen_model or DEFAULT_CODEX_SCREEN_MODEL)
+    if backend == "claude-code":
+        return make_claude_code_extract(screen_model)
+    if backend == "claude-api":
+        return make_claude_api_extract(env["ANTHROPIC_API_KEY"],
+                                       screen_model or DEFAULT_CLAUDE_SCREEN_MODEL)
+    if backend == "openai-api":
+        return make_openai_api_extract(env["OPENAI_API_KEY"],
+                                       screen_model or DEFAULT_OPENAI_SCREEN_MODEL,
+                                       http=http)
+    raise ValueError(
+        f"unknown screen backend: {backend!r} (want one of {', '.join(SCREEN_BACKENDS)})")
 
 # The feed fetches concurrently (pipeline.run_feed uses a thread pool). requests'
 # Session isn't safe to share across threads, so hand each worker thread its own
@@ -133,12 +192,15 @@ def _now() -> str:
 
 def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
+             screen_backend=DEFAULT_SCREEN_BACKEND,
+             screen_model=None,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
-             score_limit: int = 0) -> None:
+             score_limit: int = 0, screen_workers: int = 0,
+             score_workers: int = 4) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -231,20 +293,19 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
 
+        screen_extract = make_screener(screen_backend, env=env, http=requests,
+                                       model=ollama_model, screen_model=screen_model,
+                                       num_ctx=num_ctx)
+
         def screen_fn(posting):
-            return screen_posting(
-                posting,
-                http=requests,
-                model=ollama_model,
-                ollama_host=env.get("OLLAMA_HOST", "http://localhost:11434"),
-                candidate=candidate,
-                num_ctx=num_ctx,
-            )
+            return screen_posting(posting, extract=screen_extract,
+                                  candidate=candidate, num_ctx=num_ctx)
 
         # Build the fit scorer lazily on first use (both twins are import-safe: the
         # anthropic SDK import / the codex subprocess are deferred to the first call,
         # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
+        _scorer_lock = threading.Lock()
         # Land the codex quota snapshot next to the REAL db file (resolve the
         # prisma/applications.db symlink) so it sits in the shared db/ mount the
         # web reads as /data/codex_usage.json. See docs/SPEC.md §7.1.
@@ -253,24 +314,34 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
         def fit_fn(postings):
             if not _scorer_cell:
-                _scorer_cell.append(
-                    make_scorer(score_backend, env=env, profile=profile,
-                                codex_score_model=codex_score_model,
-                                anthropic_score_model=anthropic_score_model,
-                                usage_path=usage_path)
-                )
+                # Double-checked lock: score_workers>1 means multiple threads can
+                # race here on the first call. Without the lock each would see the
+                # cell empty and construct + append its own scorer concurrently.
+                with _scorer_lock:
+                    if not _scorer_cell:
+                        _scorer_cell.append(
+                            make_scorer(score_backend, env=env, profile=profile,
+                                        codex_score_model=codex_score_model,
+                                        anthropic_score_model=anthropic_score_model,
+                                        usage_path=usage_path)
+                        )
             return _scorer_cell[0](postings, resumes)
 
+        workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
-                           batch_size=batch_size, limit=score_limit)
+                           batch_size=batch_size, limit=score_limit,
+                           screen_workers=workers, score_workers=score_workers,
+                           candidate=candidate)
 
-        pipeline.run_notify(
-            conn,
-            now=now,
-            notify_fn=notify_posting,
-            token=env["TELEGRAM_BOT_TOKEN"],
-            chat_id=env["TELEGRAM_CHAT_ID"],
-        )
+        # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
+        # rows show there at 'scored', not just 'notified') can run with no bot creds.
+        token, chat_id = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_CHAT_ID")
+        if token and chat_id:
+            pipeline.run_notify(conn, now=now, notify_fn=notify_posting,
+                                token=token, chat_id=chat_id)
+        else:
+            print("no TELEGRAM_BOT_TOKEN/CHAT_ID: skipping notify "
+                  "(matched rows are in the web Discovered Jobs tab)")
     finally:
         conn.close()
 
@@ -368,6 +439,17 @@ def main(argv=None) -> None:
                         default=os.environ.get("SCORE_BACKEND", DEFAULT_SCORE_BACKEND),
                         help="fit-score backend: codex (ChatGPT subscription, flat-rate) "
                              "or claude (metered API)")
+    parser.add_argument("--screen-backend", choices=SCREEN_BACKENDS,
+                        default=os.environ.get("SCREEN_BACKEND",
+                                               DEFAULT_SCREEN_BACKEND),
+                        help="hard-requirements screen backend. Default 'ollama' "
+                             "(free, local). 'none' runs the deterministic gates "
+                             "only and is LOW RECALL on sponsorship")
+    parser.add_argument("--screen-model",
+                        default=os.environ.get("SCREEN_MODEL"),
+                        help="model for the screen backend (default: per-backend — "
+                             "qwen3.5:4b / claude-haiku-4-5 / gpt-5.6-luna / "
+                             "gpt-5.6-sol)")
     parser.add_argument("--codex-score-model",
                         default=os.environ.get("CODEX_SCORE_MODEL",
                                                DEFAULT_CODEX_SCORE_MODEL),
@@ -383,6 +465,14 @@ def main(argv=None) -> None:
                              "(batching PARKED — failed the batched==single guard; "
                              "see DEFAULT_BATCH_SIZE); raise once the domain-verdict "
                              "drift is fixed. No-op on the claude backend (loops).")
+    parser.add_argument("--screen-workers", type=int,
+                        default=int(os.environ.get("SCREEN_WORKERS", "0")),
+                        help="concurrent screen calls (0 = per-backend default: 1 for "
+                             "ollama, 4 for the hosted backends)")
+    parser.add_argument("--score-workers", type=int,
+                        default=int(os.environ.get("SCORE_WORKERS", "4")),
+                        help="concurrent fit-scorer calls. Quota-neutral: parallel "
+                             "calls spend the same messages, only less wall-clock")
     args = parser.parse_args(argv)
 
     cfg = config_mod.load_config(args.config)
@@ -404,12 +494,16 @@ def main(argv=None) -> None:
     def once():
         run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                  env=env, ollama_model=args.model,
+                 screen_backend=args.screen_backend,
+                 screen_model=args.screen_model,
                  score_backend=args.score_backend,
                  codex_score_model=args.codex_score_model,
                  anthropic_score_model=args.anthropic_score_model,
                  batch_size=args.batch_size,
                  fetch_only=args.fetch_only, score_only=args.score_only,
-                 score_limit=args.score_limit)
+                 score_limit=args.score_limit,
+                 screen_workers=args.screen_workers,
+                 score_workers=args.score_workers)
 
     if args.once:
         once()

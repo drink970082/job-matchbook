@@ -34,7 +34,8 @@ extract facts, code decides.
   exist; moving a working code gate "into the prompt" for flexibility.
 
 **3. Err toward keep.** Every filter fails open: ambiguous or unparseable input is
-kept, not dropped.
+kept, not dropped. Scope: *opportunity* uncertainty only — see
+[the four kinds of uncertainty](#the-four-kinds-of-uncertainty).
 - *Why:* a lost job is unrecoverable and invisible; a spurious alert costs one click
   (discard/reopen exist for exactly this).
 - *In this repo:* screen parse failure → keep; a location string that resolves to no
@@ -160,6 +161,37 @@ graded honestly.
 - *Smell:* a feature quietly scoped out with no PROGRESS line; "we'll do it later"
   with no recorded blocker; re-attempting a deferred item without addressing its
   recorded reason.
+
+---
+
+## The four kinds of uncertainty
+
+Principle 3 governs *one* kind of uncertainty, not all four. What is uncertain decides
+the policy:
+
+| Kind of uncertainty | Policy |
+|---|---|
+| candidate opportunity (date, location, eligibility, is-it-still-open) | **KEEP** |
+| data integrity (`job_ref`, schema, posting identity) | **FAIL LOUD** |
+| systemic configuration (logged out, invalid token) | **CIRCUIT BREAK** |
+| delivery (timeout, 429, 5xx) | **RETRY** |
+
+- *In this repo:* KEEP is principle 3. FAIL LOUD is `_normalize_score` raising on a
+  missing `score` (buried as 0 it would silently drop the posting out of notification),
+  `_normalize_assessment` raising on an out-of-enum seniority/domain verdict (they drive
+  the seniority floor and the ranking), and the codex fit backend raising the *whole
+  batch* on a missing/duplicate/unknown `job_ref` (a score attached to the wrong job is
+  worse than no score). Each carries its own local comment; this table is the general
+  rule behind them.
+- *Why it earns a section:* every one of the seven defects found probing the pipeline on
+  2026-07-23 is one cell treated as another — systemic configuration handled per-item (a
+  dead fit backend fails the queue row by row; a bad Telegram token permanently destroys
+  every matched posting), unresolved data treated as a discard (`London, ON` was dropping
+  its unresolved `ON` and discarding as United Kingdom), an absent extraction treated as a
+  pass (a screen check the model returned no data for, recorded as genuine — fixed
+  2026-07-23).
+- *Smell:* softening a `raise` into a default because "we err toward keep"; charging a
+  per-item retry budget for a failure every item shares.
 
 ---
 

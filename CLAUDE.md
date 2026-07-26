@@ -15,7 +15,8 @@ protocol:
   and open** (defects, unverified properties, enhancements). Completed capabilities
   live in `SPEC.md`; release history in `CHANGELOG.md`.
 - **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA: consult at every
-  design fork; forks go to the user, who decides.
+  design fork; forks go to the user, who decides. Includes the four-way uncertainty
+  policy (keep · fail loud · circuit break · retry) — "err toward keep" is only one row.
 - **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
   classification, verify-gate evidence table, definition of done.
 
@@ -50,6 +51,8 @@ tools/         check_schema_drift.mjs · check_privacy.mjs
 ## Run / test / build (from repo root)
 
 ```bash
+make setup          # one-command bootstrap: web+worker deps, DB, non-clobbering template copies
+make doctor         # preflight: status line per prerequisite (core-hard exit, provider rows soft)
 make dev            # Next.js dev server → http://localhost:3000
 make test           # both suites (Jest + pytest)
 make test-web       # Jest only       make test-worker   # pytest only

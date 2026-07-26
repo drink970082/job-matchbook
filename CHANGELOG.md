@@ -9,6 +9,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A screen check the model returned no data for is no longer recorded as a pass.**
+  `_screen_verdict`'s `gate()` wrote `screen[key]` whenever the candidate had
+  *configured* a check, and each `_check_*` errs toward pass on absent data — so a
+  `degree`/`clearance` check that ran but got nothing back was byte-identical to one
+  the model genuinely cleared. `degree` and `clearance` now materialize their key only
+  when the extraction actually carried an entry; `authorization` still writes its key
+  unconditionally, because `NO_SPONSOR_PHRASES` over the JD gives it a real verdict
+  with no model data at all. Two effects: the persisted `screen` block (and the web
+  detail modal's chips) stops claiming verdicts nothing produced, and the fit scorer's
+  fallback extraction can now see a per-check gap instead of only a whole-backend
+  absence. No schema change; sparse `screen` dicts were already the shape for
+  unconfigured checks.
+
+- **Telegram is now optional — a bot token is no longer required to run the worker.**
+  `run_once` read `env["TELEGRAM_BOT_TOKEN"]` / `env["TELEGRAM_CHAT_ID"]` as bare dict
+  access, so a user without a bot hit a hard `KeyError` at the notify stage after a full
+  fetch/score — locking out anyone happy to review matches in the web **Discovered Jobs**
+  tab (whose Matched bucket already surfaces `scored` rows, not just `notified`). When
+  either credential is absent the worker now skips `run_notify` with a one-line notice and
+  leaves matched rows `scored`; supply both to re-enable push alerts. (SETUP.md,
+  SPEC §7.)
 - **`make eval-score` could not run at all.** It was the one worker target that reached
   into `apps/worker/.venv/bin/python` instead of the host `$(PY)` every other worker
   target uses (`test-worker`, `test-integration`, `doctor`). That venv lacks `bs4`, so
@@ -50,6 +71,63 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **`SCREEN_BACKEND` — five more ways to run the hard-requirements screen, so a user
+  with no local GPU (or no Ollama at all) can still run the pipeline.** The screen was
+  hard-wired to one Ollama HTTP call; it is now injected as a single seam,
+  `extract(prompt, schema) -> dict`, and `run.make_screener(backend, ...)` builds that
+  callable from `SCREEN_BACKEND`/`--screen-backend` across **six** values in **three**
+  adapter shapes: HTTP + JSON schema (`ollama` — **default**, free, local; `claude-api`
+  — metered, Anthropic SDK structured outputs, default `claude-haiku-4-5`; `openai-api`
+  — metered, plain `requests` against `chat/completions`, default `gpt-5.6-luna`), CLI
+  subprocess + schema (`codex` — the operator's ChatGPT-subscription CLI, default
+  `gpt-5.6-sol`, runs tool-less as a security boundary, passes the schema as a **file**
+  via `--output-schema`; `claude-code` — the operator's Claude Code CLI subscription,
+  passes the schema **inline** via `--json-schema <json>`, **not** a file path despite
+  the flag name — verified behaviorally against the CLI, so the two subprocess backends
+  are **not** symmetric), and deterministic-only (`none` — no LLM call at all, runs only
+  the location + intern gates, and is **low recall on sponsorship**: the
+  work-authorization check falls back to the closed ~2/11-recall `NO_SPONSOR_PHRASES`
+  list). **Auto-detection never selects a paid backend** — the default stays `ollama`
+  and `make_screener` never guesses from what's installed; spending money is explicit
+  opt-in via `SCREEN_BACKEND`. New `--screen-model`/`SCREEN_MODEL` overrides whichever
+  backend's default model. `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the
+  in-process `env` dict only — never promoted to an argparse default, never leaked to a
+  subprocess's inherited environment — the same secret-scoping discipline the fit
+  scorer already follows. Screen batching is **not** part of this change; concurrent
+  execution shipped separately later in this branch (see Changed, below).
+  (SPEC §7.1.)
+
+- **`onboard-me` skill gained a Step 0 and stopped carrying its own prereq prose.** The
+  skill began at "write the profile", assuming a checkout that already worked, and
+  hand-asserted prerequisites that had since gone stale (Telegram "required for the
+  pipeline"; the screen running on a "host GPU … no cloud fallback"; ad-hoc `curl` /
+  `codex doctor` probes). It now opens with **Step 0 — `make setup` then `make doctor`**,
+  and reads doctor's status lines to pick the user's provider path instead of describing
+  prerequisites from memory, with a row-by-row table of what a `[no]` means for each
+  check. Step 7 shrank to just the values only a user can supply. Because doctor's
+  provider rows are informational, the skill is explicitly told they are "a status line,
+  not a verdict" — Telegram absent is a fine outcome, and a remote `OLLAMA_HOST` replaces
+  the local-GPU requirement. Also makes the skill agent-agnostic: it reads a command's
+  output rather than embedding harness-specific prereq prose. New eval scenario
+  (`fresh-checkout-no-telegram-remote-ollama`) covers the behavior.
+
+- **`make setup` and `make doctor` — one-command bootstrap and a preflight.** A fresh
+  checkout had no path to a runnable worker: nothing installed deps, created the DB, or
+  reported what was missing. `make setup` now installs web + worker deps, runs `db-push`,
+  and copies the two **config** templates (`config.yaml`, `.env`) to their targets **only
+  when the target is absent** (never clobbering a filled-in file). It deliberately does
+  *not* create `resume.txt`/`personal_profile.txt`: every `resume/*.txt` is loaded as a
+  résumé version, so a forgotten placeholder would silently be scored as the user's real
+  résumé, whereas an absent file fails loudly and points at `resume/README.md`.
+  `make doctor`
+  (`python -m ats_worker.doctor`) prints one ASCII status line per prerequisite
+  (worker deps · database · ollama · codex · claude · anthropic key · node · docker ·
+  telegram) and exits non-zero **only** when a *universal* prerequisite is missing
+  (worker deps + a set-up DB); provider rows report `ok`/`no` but never fail the exit
+  code, since which provider is required depends on the path the user picks — the data
+  `onboard-me` Step 0 will read to pick it. Doctor imports only the standard library, so
+  it runs even on a checkout whose deps are missing — the state it exists to diagnose.
+
 - **`--fetch-only`, `--score-only`, and `--score-limit` operator flags
   (`ats_worker.run`).** `--fetch-only` runs fetch/feed/expire/retry then stops before any
   screen or scorer call — a quota-free board refresh (and a real log). `--score-only` is
@@ -58,7 +136,6 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
   remainder stays `new` for the next pass.
 
-
 - **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
   recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
   recipes could only read a `url` off the card via a CSS selector, so a board whose
@@ -66,10 +143,45 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `job_url`. A `url` spec that is a string containing `{` is now interpolated in
   `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
   `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
-  resolved against the listing `base_url`. Any other `url` spec stays a CSS selector as
-  before. Unblocks Balyasny / Jacobs Levy-shape boards without touching an adapter.
+  resolved against the listing `base_url`. The interpolation namespace is the recipe's
+  **own `fields` map**, so a helper field the canonical posting ignores (`req`, say) can
+  still feed the template. Any other `url` spec stays a CSS selector as before. Unblocks
+  Balyasny / Jacobs Levy-shape boards without touching an adapter.
 
 ### Changed
+
+- **`run_score` now screens and fit-scores concurrently, instead of one posting at a
+  time.** Both loops were serial; they now use the same read-serial /
+  network-parallel / write-serial shape `run_feed` already proved (§7.1): every
+  `db.*` call stays on the calling thread (SQLite connections aren't safe across
+  threads), only the screen (`screen_fn`) and fit (`fit_fn`) I/O calls run in a
+  `ThreadPoolExecutor`, and futures are consumed in **submission order** so writes
+  stay deterministic and correctly row-associated. A failing screen or fit call
+  still fails only its own row — the singles-fallback in the fit loop is unchanged.
+  New `--screen-workers`/`--score-workers` (`SCREEN_WORKERS`/`SCORE_WORKERS`) knobs
+  bound each pool; screen defaults to a **per-backend** value
+  (`DEFAULT_SCREEN_WORKERS`) — **1** for `ollama`/`none` (a single GPU serializes
+  the compute, so parallel requests interleave rather than speed up), **4** for the
+  subprocess/hosted backends. Fit concurrency is **quota-neutral**: N parallel
+  `codex exec` calls spend exactly the same number of messages as N serial ones —
+  only wall-clock changes (§11).
+
+- **The sponsorship screen is now a quote-grounded LLM check, not a closed phrase
+  list.** The prior gate (`NO_SPONSOR_PHRASES`, a 12-phrase substring list) missed
+  ~9 of 11 realistic no-sponsorship phrasings because it only matched wording
+  literally on the list. `_check_authorization` (`score/screen.py`) now asks the
+  model for `no_sponsorship_quote` — the exact JD sentence it claims states
+  sponsorship is unavailable — and CODE (`_quote_in`) verifies that sentence is
+  actually present in the description (whitespace-collapsed, case-insensitive)
+  before disqualifying: a hallucinated quote fails verification and the posting is
+  *kept*, so hallucination cannot disqualify anything by construction. This holds
+  on the free `qwen3.5:4b` default too. `NO_SPONSOR_PHRASES` is demoted to a floor
+  underneath the quote check: it still runs and can only *add* a disqualification,
+  never veto a model pass, so `SCREEN_BACKEND=none` (no LLM at all) still gets the
+  closed-list's blunt catch. New `tools/sponsor_diff.py` diffs the quote-grounded
+  screen against the old phrase list over already-scored rows, so only the
+  disagreements need hand-labeling. **Precision/recall on the new check is pending
+  measurement against a hand-labeled set — not yet run** (PROGRESS.md, SPEC §7.1).
 
 - **`workday` boards are now stub-gated (drop-only), cutting detail calls 55%.**
   `workday` shares `phenom`'s N+1 shape — a cheap paged list, then one detail GET per
@@ -101,11 +213,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   treated as a **lower bound** on age (`"30+"` → at least 30); `"Today"`/`"Yesterday"`
   and any other locale or wording leave `posted_at` None, which the age filter keeps —
   so a mis-parse can never silently drop a good posting. `now` reaches the adapter
-  through the same `keep`-gate call path (`run_fetch` → `fetch` → `parse_stub`); no
-  other stub-gate adapter takes it. The reduction beyond the -55% is unmeasured and
-  depends on `max_age_days` config (PROGRESS).
+  through the same `keep`-gate call path (`run_fetch` → `fetch` → `parse_stub`); which
+  sources take it is declared by the fetch layer (`STUB_GATE_NOW_SOURCES`), so the
+  orchestration layer selects by membership rather than naming a board. The reduction
+  beyond the -55% is unmeasured and depends on `max_age_days` config (PROGRESS).
 
 ### Documentation
+
+- **README reordered for a first-time reader instead of a reviewer.** The landing
+  page led with the tech stack and a 14-line bullet that carried the entire pipeline,
+  Codex-vs-Claude billing, Telegram, and the no-auto-apply promise in one breath, then
+  pointed at the authoritative spec above the fold. It now opens with the five-step
+  flow, states who it's for and what it deliberately doesn't do (no auto-apply, no
+  employer-side ATS, no login/CAPTCHA circumvention), splits Features into
+  Discover/Screen/Score/Track, and offers the tracker-only and full-pipeline paths
+  separately with their prerequisites named — deferring to `SETUP.md` rather than
+  dropping the reader into SPEC §12. Adapter counts are now an explicit source list
+  instead of "and 6 more", so the 11/13/watchlist-capable split reads without
+  arithmetic. No behavior change.
 
 - **Docs audit — drift corrected and duplication collapsed.** Fixed every claim that
   had fallen out of step with the code: the adapter count (11 platform adapters +
