@@ -860,6 +860,10 @@ def _strict_mode_violations(node, path="$"):
         missing = set(props) - set(node.get("required") or [])
         if missing:
             yield f"{path}: properties {sorted(missing)} not in required"
+        # The other half of the contract, and it raises the identical 400: strict mode
+        # requires additionalProperties:false on every object, not just `required`.
+        if node.get("additionalProperties") is not False:
+            yield f"{path}: object without additionalProperties: false"
     for key, value in node.items():
         yield from _strict_mode_violations(value, f"{path}.{key}")
 
@@ -869,12 +873,14 @@ def test_schema_is_strict_mode_valid():
     # `properties` and no `required`, so EVERY codex fit call 400'd -- the scorer was
     # not degraded, it was dead, and only the ollama path (non-strict) still worked.
     # SCREEN_SCHEMA carried the same defect on its own code path.
-    from ats_worker.score.backends_codex import _batch_schema
+    # aliased: a module-level test mirror shares this name, and hoisting the
+    # import would silently make the mirror test compare production to itself.
+    from ats_worker.score.backends_codex import _batch_schema as prod_batch_schema
     from ats_worker.score.prompts import SCREEN_SCHEMA
     # _batch_schema is what actually reaches `codex exec --output-schema`; the bare
     # _score_schema never does. Checking only the latter would pass while a violation
     # introduced into the `results` envelope 400s in production.
-    for name, schema in (("_batch_schema", _batch_schema(["resume"])),
+    for name, schema in (("_batch_schema", prod_batch_schema(["resume"])),
                          ("_score_schema", score._score_schema(["resume"])),
                          ("SCREEN_SCHEMA", SCREEN_SCHEMA)):
         bad = list(_strict_mode_violations(schema, name))
@@ -891,7 +897,11 @@ def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
     # treat blank and "unknown" as no-data -- so a gate testing only `is not None` would
     # record them as a genuine PASS and retire the fallback through a different empty
     # value than the one it was written for.
-    for blank in (None, "", "   ", "unknown", "not specified", "N/A"):
+    # The no-data spellings are OPEN-ENDED, which is why the check enumerates the
+    # recognized DEGREE values instead. `_degree_rank` returns 0 for every string below,
+    # so a gate that accepted them as data would materialize a pass from a shrug.
+    for blank in (None, "", "   ", "unknown", "not specified", "N/A", "N.A.",
+                  "not stated", "not mentioned", "unclear", "TBD", "varies", "?"):
         data = {"screen": {"degree": {"required_degree": blank},
                            "clearance": {"requires_clearance": None}}}
         out = score.screen._screen_verdict(data, cand, "JD text")

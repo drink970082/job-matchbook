@@ -651,8 +651,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   authorization check, so `config.py` raises `ConfigError` instead.
   `disqualified` is derived from those per-requirement verdicts, and a check the model
   returned **no data** for records no verdict at all rather than a pass — `degree` and
-  `clearance` only materialize their key when the extraction carried an entry, so a
-  ran-but-blind check stays distinguishable from a genuinely cleared one.
+  `clearance` only materialize their key when the extraction carried a recognized
+  **value**, so a ran-but-blind check stays distinguishable from a genuinely cleared one.
+  The test is the value, never the entry dict: under a strict schema the model must emit
+  every key, so `{"required_degree": null}` is a non-empty dict that says nothing. And it
+  enumerates the **recognized** values (`_degree_stated` mirrors `_degree_rank`'s degree
+  names; clearance must be an actual `bool`) rather than the no-data spellings — that set
+  is open-ended ("unknown", "not stated", "TBD", "unclear", …) and cannot be closed, so
+  listing it would let a shrug through as a pass. `none` counts as data: `screen.txt`
+  says "Use 'none' if no specific degree is required".
   (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
   with no model data.) **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
@@ -1500,6 +1507,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
+| Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
+| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
+| Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |

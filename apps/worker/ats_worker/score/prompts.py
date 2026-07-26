@@ -204,20 +204,22 @@ def _candidate_block(candidate) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Structured-output schema for the SCREEN extraction. Every field is OPTIONAL at the
-# JSON-Schema level: the candidate configures which checks run, so a config with only
-# `highest_degree` set legitimately returns just `degree`.
+# Structured-output schema for the SCREEN extraction. STRICT: every field is `required`,
+# because OpenAI structured output has no optional keys and rejects the whole request
+# otherwise. Absence is spelled as an explicit null. (It was permissive until 2026-07-26;
+# a config with only `highest_degree` set no longer returns just `degree`.)
 #
-# NO LONGER TRUE at the JSON-Schema level, and the safety argument moved with it: strict
-# structured output has no optional keys, so every field below is `required` and a
-# schema-enforcing backend (openai-api / codex / claude-code / claude-api) must answer
+# The safety argument moved with it: a schema-enforcing backend (openai-api / codex / claude-code / claude-api) must answer
 # all three fact groups even when `_candidate_block` asked about one. Absence is now
 # spelled as an explicit null. What actually prevents a wrong disqualification is CODE,
 # not schema permissiveness: `_screen_verdict` gates each check on the candidate having
-# configured it AND on the model having `_said_something`, and `_quote_in` verifies the
+# configured it AND on the model having named a recognized value (`_degree_stated` /
+# an actual bool), and `_quote_in` verifies the
 # sponsorship quote. The default ollama backend ignores the schema entirely (format=json
 # constrains output to *some* object), so on it a blind check still arrives as an omitted
 # key — which is why the value test, not a null test, is the one that holds everywhere.
+# Those value tests enumerate the RECOGNIZED values, never the no-data spellings: the
+# latter set is open-ended ("not stated", "TBD", "unclear", ...) and cannot be closed.
 SCREEN_SCHEMA = {
     "type": "object",
     "properties": {

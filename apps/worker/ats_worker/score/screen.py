@@ -268,26 +268,30 @@ def _coerce_score(raw) -> int:
     return max(0, min(100, value))
 
 
-# Values the model emits when it has NOTHING to say. `screen.txt` tells it to answer
-# "unknown" for an unstated fact, and a strict schema forces a key to be present even
-# when blank — so `None`, `""` and `"unknown"` all mean the same thing and must all
-# leave the check un-materialized. This MUST mirror the emptiness test each checker
-# already applies (`_check_degree` treats blank as pass, `_degree_rank` maps
-# "unknown"/"not specified"/"n/a" to rank 0). If the gate and the checker disagree, a
-# blank extraction is recorded as a genuine PASS and `merge_fallback_screen` never sees
-# the gap — the exact defect the value gate was introduced to close, reached through a
-# different empty value.
-_NO_DATA = {"", "unknown", "not specified", "unspecified", "n/a", "na", "none specified"}
+def _degree_stated(value) -> bool:
+    """Did the model actually name a degree? Enumerates the DATA values, not the
+    no-data ones.
 
+    An earlier version listed the "I don't know" spellings ("unknown", "n/a", ...) and
+    treated everything else as data. That set can never be closed -- `_degree_rank`
+    returns 0 for ANY unrecognized string, so "not stated" / "unclear" / "TBD" / "N.A."
+    were all `said_something=True` AND rank 0, materializing a pass badge from an
+    extraction that said nothing and retiring the Stage 4 fallback exactly as the
+    original defect did. The recognized-degree set IS closed (it is the enum
+    `screen.txt` gives the model), so testing membership in that is the only form of
+    this check that cannot rot.
 
-def _said_something(value) -> bool:
-    """Did the model actually report a fact? False for null, blank and every
-    'I don't know' spelling. A bool is always an answer, including False."""
+    Note `none` counts as DATA: `screen.txt`'s degree clause says "Use 'none' if no
+    specific degree is required", so it is a real answer, not a shrug.
+    """
     if value is None:
+        return False  # `_norm_simple(None)` is the STRING "none" — a real answer here
+    t = _norm_simple(value)
+    if not t:
         return False
-    if isinstance(value, bool):
-        return True
-    return str(value).strip().lower() not in _NO_DATA
+    return (t == "none" or "no degree" in t
+            or any(k in t for k in ("phd", "ph d", "doctora", "master", "bachelor",
+                                    "associate", "high school", "diploma", "ged")))
 
 
 def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
@@ -327,13 +331,13 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
     # with no model data at all.
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip())
-         and _said_something(entry("degree").get("required_degree")),
+         and _degree_stated(entry("degree").get("required_degree")),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
          *_check_authorization(candidate.get("work_authorization"), description,
                                entry("authorization")))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
-         and _said_something(entry("clearance").get("requires_clearance")),
+         and isinstance(entry("clearance").get("requires_clearance"), bool),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
 
     return {
