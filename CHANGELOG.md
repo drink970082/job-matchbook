@@ -235,6 +235,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   either credential is absent the worker now skips `run_notify` with a one-line notice and
   leaves matched rows `scored`; supply both to re-enable push alerts. (SETUP.md,
   SPEC §7.)
+- **`make eval-score` could not run at all.** It was the one worker target that reached
+  into `apps/worker/.venv/bin/python` instead of the host `$(PY)` every other worker
+  target uses (`test-worker`, `test-integration`, `doctor`). That venv lacks `bs4`, so
+  `score_eval.py`'s `from ats_worker import run` pulled in the fetch chain and died on
+  `ModuleNotFoundError: No module named 'bs4'` before the eval began — meaning the
+  documented command for the repo's only scorer-prompt gate, the gate currently blocking
+  a merge, failed on the operator's own machine. Now `cd $(WORKER) && $(PY)
+  tools/score_eval.py`, consistent with every sibling target; the script already inserts
+  `apps/worker` on `sys.path` itself, so nothing else was needed. Verified with the free
+  hermetic `--selftest`.
 
 - **Bodyless postings no longer reach the paid fit scorer — or the DB.** `_valid_posting`
   (non-empty id + title + description) ran on the feed's detail path only; the watchlist
@@ -427,6 +437,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   pass (0 = no cap), bounding the paid fit scorer over a large fresh intake; the
   remainder stays `new` for the next pass.
 
+- **`browser` recipes can build `job_url` from a `{field}` template.** `custom` (JSON)
+  recipes already interpolate `{dotted.field}` into `url`; `browser` (rendered-DOM)
+  recipes could only read a `url` off the card via a CSS selector, so a board whose
+  cards carry no `href` (id in a `data-*` attribute, routing JS-side) produced an empty
+  `job_url`. A `url` spec that is a string containing `{` is now interpolated in
+  `_recipe.apply_css_fields` from the fields already extracted for that posting — e.g.
+  `external_id: {attr: "data-id"}` + `url: "/s/details?jobReq={external_id}"`, then
+  resolved against the listing `base_url`. The interpolation namespace is the recipe's
+  **own `fields` map**, so a helper field the canonical posting ignores (`req`, say) can
+  still feed the template. Any other `url` spec stays a CSS selector as before. Unblocks
+  Balyasny / Jacobs Levy-shape boards without touching an adapter.
+
 ### Changed
 
 - **`run_score` now screens and fit-scores concurrently, instead of one posting at a
@@ -481,10 +503,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
   New `workday.parse_stub` builds the title/location shape the gate reads and
   deliberately omits `external_id`, so it is unstorable by construction. Measured
-  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**.
-  `max_age_days` cannot contribute — the stub's only date is prose ("Posted 30+ Days
-  Ago") — so `parse_stub` sets `posted_at: None`, which the age filter treats as keep;
-  tracked in PROGRESS as an enhancement.
+  across the live 28-board watchlist: **14,902 → 6,703 detail calls per run (-55%)**
+  from `title_filter`/`title_exclude` alone.
+
+- **`workday` age-gating: the stub's relative prose date now feeds `max_age_days`.**
+  A workday list stub's only date is prose (`"Posted 30+ Days Ago"`), so the gate
+  above could not drop by age. `parse_stub` now dates that prose against the injected
+  `now` — `posted_at = now - age` — so a stale stub is dropped before its detail GET
+  too. Only the confident English `"N[+] Days Ago"` form is parsed, and the number is
+  treated as a **lower bound** on age (`"30+"` → at least 30); `"Today"`/`"Yesterday"`
+  and any other locale or wording leave `posted_at` None, which the age filter keeps —
+  so a mis-parse can never silently drop a good posting. `now` reaches the adapter
+  through the same `keep`-gate call path (`run_fetch` → `fetch` → `parse_stub`); which
+  sources take it is declared by the fetch layer (`STUB_GATE_NOW_SOURCES`), so the
+  orchestration layer selects by membership rather than naming a board. The reduction
+  beyond the -55% is unmeasured and depends on `max_age_days` config (PROGRESS).
 
 ### Documentation
 

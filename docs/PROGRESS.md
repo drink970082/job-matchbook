@@ -22,6 +22,48 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`origin/main` is merged INTO `feat/universality-and-onboarding` (2026-07-26).** The
+  branch had diverged 38 commits to main's 4 and both sides had edited the same
+  functions: 36 conflict hunks across 11 files. Resolutions worth knowing:
+  - **`pipeline.run_score` was NOT the semantic conflict it was recorded as.** The note
+    said main's thin-JD gate had to be re-implemented inside this branch's concurrent
+    loop. It was already there — both sides added `_persist_low_context` independently
+    (the merge base has neither), main into the serial loop, this branch into the
+    concurrent one, with byte-identical branch logic. Taking HEAD was correct and the
+    paid-scoring path is unchanged.
+  - **`_recipe.apply_css_fields` was a real both-sides refactor.** Both implement
+    `{field}` url templates; they differ in *namespace*. HEAD interpolates the recipe's
+    own `fields` map (`{title}`, plus helper fields the canonical posting ignores);
+    main interpolated the canonical dict (`{job_title}`, `{company_name}`). HEAD wins on
+    capability (a `{req}` helper field has no expression under main's) and its tests
+    cover strictly more; main's only case, `{external_id}`, resolves identically under
+    both. **Watch for this shape:** git kept main's trailing block as a clean
+    auto-merge, stranding it after HEAD's `return` as dead code referencing an
+    undefined name. Adjacent auto-merged text needs reading, not just the marked hunks.
+  - **A guard fired on main's code, which had never run it.** `test_no_source_specific_logic`
+    exists only on this branch, so main's `if c["source"] == "workday"` in `run_fetch`
+    (PR #9) shipped a violation nothing there could catch. Fixed by data, not an
+    allowlist entry: `fetch.STUB_GATE_NOW_SOURCES` declares which adapters take `now`,
+    matching the existing `STUB_GATE_SOURCES` pattern, so the orchestration layer selects
+    by membership instead of naming a board.
+  - **Two closed items were reintroduced and are now removed** — the documented hazard,
+    and it fired exactly as predicted (only this branch's side carries the paragraph, so
+    it merges without a conflict): "Workday stub gate cannot use `max_age_days`" and
+    "`browser` recipes have no `{field}` URL template", both shipped by PR #9. The P3
+    queue line named both and is rewritten.
+  - **A pre-existing corruption on this branch is repaired.** `a57e074` had replaced 27
+    lines of `PROGRESS.md` with stray keystrokes (`wwwwwww`), losing the block-tag table,
+    the rejected-records paragraph and the "Do next" heading. Every descendant branch
+    already carried `fa79421`'s repair; this branch did not, and would have put a
+    corrupted doc on `main` as the first merge of the stack. Table counts are re-measured
+    from the file's live tags, not copied from the repair commit.
+
+  Gates, all on the merge result: worker **625 passed**, coverage **93.46%**; web **199
+  passed** (25 suites); integration **63 passed**; e2e **4 passed**; lint clean; schema
+  in sync; privacy clean. The web tier needed `prisma generate` first — the local client
+  was built from branch #10's schema, which has a `notify_attempts` column this branch
+  does not. That is environment drift from branch switching, not a merge defect: the
+  merge touches **no** `apps/web` file.
 - **Branch `feat/universality-and-onboarding` — landed, unmerged, BOTH GATES CLEARED
   2026-07-25; PR #7 is mergeable and the merge is the operator's call.** All 11 tasks of the
   [screen-backends plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
@@ -224,7 +266,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
@@ -251,37 +293,18 @@ in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: integrate `feat/universality-and-onboarding` with `main`, THEN merge the
-> stack.** `[M · attempted and aborted 2026-07-26 — read this before retrying]` Both merge
-> blockers cleared and both §7 review rounds are closed, so the six PRs (#7 → #10 → #11 →
-> #12 → #13 → #14) are ready on `origin` with CI green. **But #7 does not merge cleanly and
-> it is not squash-divergence.** It branched before PRs #5, #8 and #9 landed; the two sides
-> are 38 commits vs 4 and both edited the same functions. `git merge origin/main` yields
-> **32 conflict hunks across 9 files**, 4 of them Python.
+> **NEXT STEP: push the stack and merge the six PRs.** `[S]` The `main` integration that
+> blocked this is **DONE 2026-07-26** — `origin/main` is merged into
+> `feat/universality-and-onboarding` and propagated down all six branches by merge (not
+> by resolving six times). Every branch's suite is green on the merge result. What the
+> integration found, and how each conflict was resolved, is in
+> [In flight](#in-flight); the two headline corrections to what this callout used to say:
+> `pipeline.run_score` was **not** a semantic conflict (the thin-JD gate was already
+> inside the concurrent loop — both sides had added it independently), and `_recipe.py`
+> **was** one (resolved on namespace, in favour of the branch's recipe-field naming).
 >
-> **Two are semantic and cannot be resolved by "take the newer side":**
-> - **`pipeline.run_score`** — this branch replaced the serial scoring loop with a
->   concurrent one; `main` added the thin-JD gate (`_persist_low_context` under
->   `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) *inside* that serial loop. Both are wanted, so
->   the gate has to be re-implemented inside the concurrent loop. This is the paid-scoring
->   path — get it wrong and thin JDs start costing fit calls, or survivors stop being
->   scored.
-> - **`fetch/_recipe.py`** — both sides independently refactored the same extraction
->   function and both carry the `{field}` interpolation, structured differently.
->
-> `run.py` (3 hunks) is HEAD-superset and mechanical. The rest are docs.
->
-> **A closed item was silently reintroduced by the auto-merge** and nothing flagged it:
-> PROGRESS's "Workday stub gate cannot use `max_age_days`", which PR #9 shipped. It merges
-> without a conflict because only this branch's side has the paragraph. **Re-check the
-> whole of PROGRESS and the P3 queue line against `main` after resolving** — that is the
-> §7 merge-hygiene hazard, and it fires here for real.
->
-> **Do it as its own unit of work**, not as the tail of something else: resolve, run worker
-> + web + e2e, and put the *merge resolution itself* through a fresh-subagent review before
-> pushing. A green suite is not evidence here — the reintroduced item above was green.
-> Resolve once on `feat/universality-and-onboarding` and let it propagate down the stack
-> through the existing merges, rather than resolving six times.
+> **Still to do:** push all six branches, let GitHub retarget #7's base to `main`, and
+> merge in stack order. The §7 pre-merge review applies to the merge resolution itself.
 >
 > The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
 > phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
@@ -367,10 +390,12 @@ symlink and finds none of them without it. The link is load-bearing, not decorat
 See [In flight](#in-flight) for the method and for why the agent's own answer is not
 the evidence.
 
-**P3 — coverage and cost, in value-per-effort order.** `browser` `{field}` templates
-(`[S]`, unblocks 2 boards) → `custom` HTML mode (`[M]`, drops 6 boards off Chromium and
-unblocks Citi/Barclays) → workday prose-date parser (`[S]`, cuts the remaining 6,703
-detail calls) → bulk watchlist skill (`[M]`).
+**P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
+6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
+two `[S]` items that led this queue both shipped on `main` and closed in the
+integration: `browser` `{field}` templates (which unblock Balyasny / Jacobs Levy — the
+boards themselves are still an operator step) and the workday prose-date parser (which
+age-gates the remaining 6,703 detail calls).
 
 **P4 — everything else below.** SSRF residuals, the `@@unique` migration, schema
 migration path, deployment/monitoring, dead-link sweep, more adapters, README
@@ -706,14 +731,6 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   failure; (c) cost must be estimated *before* insert (a row cheap to add can cost
   3,567 renders to run); (d) the empty-JD check above. `onboard-board` handles one
   board well; nothing handles a hundred.
-- **Workday stub gate cannot use `max_age_days`** — `[FETCH · S · needs a prose-date parser]`.
-  The `drop`-only gate shipped 2026-07-22 cut workday detail calls 14,902 → 6,703
-  (-55%) on the 28-board watchlist, but only via `title_filter`/`title_exclude`. The
-  list stub's sole date is prose (`"Posted 30+ Days Ago"`, `"Posted Today"`), so
-  `parse_stub` sets `posted_at: None` and the age filter errs toward keeping. Parsing
-  that string would drop much of the remaining 6,703 on stale boards. Deferred because
-  the wording is locale- and tenant-dependent and a mis-parse silently drops good
-  postings — the failure mode the null-keeps-it default exists to avoid.
 - **429 backoff exists only in `phenom`** — `[FETCH · XS · the one board that actually
   rate-limited is covered]`. Shipped 2026-07-23 (CHANGELOG): bounded retry + salvage of
   the pages already walked, in the adapter that lost `careers.qualcomm.com` on the

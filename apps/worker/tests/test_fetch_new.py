@@ -450,8 +450,43 @@ def test_workday_parse_stub_carries_no_external_id():
     stub = workday.parse_stub(load("workday_list.json")["jobPostings"][0], "Arrowstreet")
     assert stub["job_title"] == "Quantitative Developer"
     assert stub["location"] == "Boston"
-    assert stub["posted_at"] is None          # list stub has only "Posted 30+ Days Ago"
+    assert stub["posted_at"] is None          # no `now` -> can't date relative prose
     assert "external_id" not in stub
+
+
+def test_workday_parse_stub_dates_relative_prose_when_now_given():
+    # "Posted 30+ Days Ago" is a lower-bound age; with `now` it becomes an ISO date
+    # 30 days back, so the max_age gate can drop it before the detail call.
+    raw = load("workday_list.json")["jobPostings"][0]
+    assert raw["postedOn"] == "Posted 30+ Days Ago"
+    stub = workday.parse_stub(raw, "Arrowstreet", now="2026-02-01")
+    assert stub["posted_at"] == "2026-01-02"          # 2026-02-01 minus 30 days
+
+
+@pytest.mark.parametrize("prose", [
+    "Posted Today", "Posted Yesterday",               # too recent to ever be "too old"
+    "Publie il y a 30+ jours", "Vor 30+ Tagen", "",   # unrecognized wording -> keep
+    None,
+])
+def test_workday_parse_stub_keeps_unrecognized_or_recent_prose(prose):
+    # The safety property: anything not a confidently-parsed "N+ Days Ago" leaves
+    # posted_at None, which the age gate treats as keep. A mis-parse never drops.
+    stub = workday.parse_stub({"title": "X", "postedOn": prose}, "Arrowstreet",
+                              now="2026-02-01")
+    assert stub["posted_at"] is None
+
+
+def test_workday_fetch_threads_now_into_the_stub_gate():
+    # `now` must reach parse_stub inside fetch so a posted_at-reading gate sees a date.
+    sess = _WdGateSession()
+    seen = {}
+
+    def keep(stub):
+        seen[stub["job_title"]] = stub["posted_at"]
+        return "hydrate"
+
+    workday.fetch(SLUG_WD, "Arrowstreet", session=sess, keep=keep, now="2026-02-01")
+    assert seen["Quantitative Developer"] == "2026-01-02"   # dated, not None
 
 
 def test_workday_is_wired_into_the_pipeline_stub_gate():
