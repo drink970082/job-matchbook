@@ -589,17 +589,54 @@ worker modules are pure and dependency-injected; real services are wired only in
   present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
   *before* disqualifying — a hallucinated quote fails verification and the posting is
   *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
+  A verified quote must **also be on topic** (`_quote_on_topic`): it has to touch
+  `AUTHORIZATION_TERMS` (sponsor · visa · immigration · authoriz/authoris · citizen ·
+  right to work · work permit · green card). Presence proves a sentence is real, not
+  that it is *about* sponsorship — the 2026-07-25 labeled set caught the model quoting
+  agency boilerplate ("we do not require any assistance from third-parties including
+  agencies in the recruitment of this role") on 5 of 28 fires, wrongly disqualifying
+  those postings. Both gates guard the same direction: a false positive here discards a
+  good posting silently, the error "err toward keep" exists to prevent.
   This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
   "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
   verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
   demoted to a **floor** underneath the quote check: it still runs and can only *add*
   a disqualification, never veto a model pass, so it still catches blunt closed-list
-  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall on
-  the quote-grounded check is pending measurement:** `tools/sponsor_diff.py` diffs it
-  against the old phrase list over already-scored rows so only the disagreements need
-  hand-labeling against a three-class truth (*no-sponsorship / offers / silent*) — that
-  labeled-set run has not happened yet, so no recall/precision number is claimed here
-  (open item tracked in [`PROGRESS.md`](./PROGRESS.md)).
+  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall —
+  measured 2026-07-25** on 3,553 already-scored rows via `tools/sponsor_diff.py`, which
+  diffs the check against the old phrase list so only the 21 disagreements needed
+  hand-labeling against the three-class truth (*no-sponsorship / offers / silent*);
+  agreements are free labels. Against 20 known true positives (the union of both
+  systems — so recall is relative to that union, **not** to truth):
+
+  **Measure the whole function, not one branch of it.** `_check_authorization`
+  disqualifies on `(quote grounded AND on topic) OR NO_SPONSOR_PHRASES`, so a number
+  quoted for the quote branch alone flatters it — the ungated floor adds fires nobody
+  counted:
+
+  | | fires | correct | precision | recall |
+  |---|---|---|---|---|
+  | `NO_SPONSOR_PHRASES` alone (the retired gate) | 11 | 9 | 81.8% | 45.0% |
+  | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
+  | quote branch **+ `_quote_on_topic`** | 20 | 20 | 100% | 100% |
+  | **shipped `_check_authorization` (gate OR floor)** | 22 | 20 | **90.9%** | **100%** |
+
+  The relevance gate removes 8 false positives — 5 agency boilerplate, 3 soft-preference
+  — and **zero** true positives. `_quote_on_topic` is three vetoes then a vocabulary, all
+  resolving toward keep: an off-topic sentence carrying an authorization word (the D1
+  pair: "company-sponsored sports teams", "we do not discriminate on citizenship"), a
+  sentence of the wrong **polarity** ("Visa sponsorship is available for this position."
+  — quote grounding fixes invented text, never inverted meaning), and a soft preference
+  ("prioritizing applicants who…"), which is not a bar because the candidate can still
+  apply.
+
+  **The 2 residual false positives are the ungated floor**, not the gate: IMC ids 465/490,
+  where `without sponsorship` appears inside an *invitation* ("or are eligible to work
+  without sponsorship, we encourage you to apply"). Open, not accepted — the floor matches
+  a substring anywhere in the description with no sentence and no relevance check, which
+  is the blunt-instrument tradeoff it was demoted for. Unmeasured, deliberately: false
+  negatives among the 3,523 agreed-negative rows, which neither system flagged and nobody
+  read; recall is relative to the 20-row union of the two systems, **not** to truth.
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
   sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
@@ -1457,6 +1494,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
+| Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |

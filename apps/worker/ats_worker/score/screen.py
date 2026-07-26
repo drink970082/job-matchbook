@@ -328,6 +328,82 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
+# Vocabulary the quote must touch to count as being ABOUT work authorization.
+# Quote verification proves a sentence is IN the JD; it cannot prove the sentence is
+# on topic, and the 2026-07-25 labeled set (3,553 rows) measured that residual as real:
+# 5 of 28 fires quoted an agency-boilerplate line -- "we do not require any assistance
+# from third-parties including agencies in the recruitment of this role" -- which is
+# about recruiters, not visas, and wrongly DISQUALIFIED the posting.
+# ponytail: a substring vocabulary, not a classifier. Widen it when a labeled false
+# negative shows up, not speculatively. The visa-category acronyms are here because the
+# review found them as concrete misses, not speculatively: "we cannot support H-1B or
+# OPT candidates" says no-sponsorship without any of the generic words.
+AUTHORIZATION_TERMS = (
+    "sponsor", "visa", "immigration", "authoriz", "authoris",
+    "citizen", "right to work", "working rights", "work permit", "green card",
+    "permanent residen", "h-1b", "h1b", "opt ", "cpt ", "tn visa", "e-3",
+    "u.s. person", "us person", "leave to remain", "settled status",
+)
+
+# Sentences that CONTAIN an authorization word while saying nothing about whether this
+# employer sponsors. Each was a recorded false positive, not a hypothetical: the first
+# two are the D1 pair (Tower id=986, WorldQuant id=1071), and the EEO wording appears in
+# essentially every US posting, which makes it the highest-frequency way to wrongly
+# discard a job. Checked before the vocabulary, so a match here vetoes.
+_OFF_TOPIC_QUOTE = re.compile(
+    r"company-sponsor|sponsored (content|by|post)|sponsor a |event sponsor"
+    r"|executive sponsor|sponsor(ship)?s? (of )?(the )?(conference|team|event)"
+    r"|discriminat\w* .{0,80}citizen|citizenship status is not"
+    r"|authoriz\w* (and|or) (access|authentication)|access[- ]control"
+    r"|right to work in an environment|payment rails|visa (and|or) mastercard",
+    re.IGNORECASE)
+
+# A sentence that OFFERS sponsorship is on topic and must never disqualify. Quote
+# grounding fixed invented *text*; it does nothing about inverted *polarity*, and D1
+# exists because the model invents "no" from silence. "Visa sponsorship is available
+# for this position." is the single most valuable line in a JD for a candidate who
+# needs sponsorship -- discarding on it is the worst outcome this gate can produce.
+# Only counts as an offer when the sentence carries NO negation: every real refusal is
+# built from the same verbs ("do not PROVIDE sponsorship", "is not AVAILABLE", "not able
+# to SUPPORT H-1B"), so matching the verb alone inverts the check.
+_OFFERS_SPONSORSHIP = re.compile(
+    r"\b(is|are|will be|do|does|can|may)\b[^.]{0,40}\b(available|offer\w*|provide\w*|"
+    r"support\w*|consider\w*|sponsor)\b|\bwe sponsor\b|\bsponsorship (is )?available\b"
+    r"|\beligible for sponsorship\b|\bopen to sponsor\w*\b",
+    re.IGNORECASE)
+_NEGATION = re.compile(
+    r"\b(not|no|never|cannot|can't|won't|unable|ineligible|without|"
+    r"except|excluded|require\w* (?:us|u\.s\.|uk) citizen\w*)\b",
+    re.IGNORECASE)
+
+# A soft PREFERENCE is not a bar -- the candidate can still apply, so discarding on it
+# is a lost opportunity. Measured: the 3 residual false positives in the 2026-07-25 set
+# are all this shape ("prioritizing applicants who ... do not require sponsorship").
+_PREFERENCE_ONLY = re.compile(
+    r"\b(prioritiz\w*|prefer\w*|ideally|advantage\w*|plus\b|nice to have)\b",
+    re.IGNORECASE)
+
+
+def _quote_on_topic(quote) -> bool:
+    """Is `quote` a sentence stating THIS employer will not sponsor?
+
+    Guards the direction that costs the most: a false positive here DISQUALIFIES a good
+    posting silently, which is the error 'err toward keep' exists to avoid (PRINCIPLES).
+    A false negative only costs one paid fit call. So all three vetoes below resolve
+    toward keeping the posting, and only the last gate is the vocabulary.
+    """
+    text = " ".join(str(quote or "").lower().split())
+    if not text:
+        return False
+    if _OFF_TOPIC_QUOTE.search(text):      # authorization word, unrelated sentence
+        return False
+    if _OFFERS_SPONSORSHIP.search(text) and not _NEGATION.search(text):
+        return False                       # wrong polarity -- it OFFERS sponsorship
+    if _PREFERENCE_ONLY.search(text):      # a preference, not a bar
+        return False
+    return any(term in text for term in AUTHORIZATION_TERMS)
+
+
 def _quote_in(quote, description: str) -> bool:
     """Is `quote` actually present in the JD? Whitespace-collapsed and case-insensitive,
     matching the normalization the phrase floor already uses — that tolerates the ways a
@@ -349,13 +425,17 @@ def _check_authorization(cand_auth, description: str = "",
     KEPT — hallucination cannot disqualify anything by construction, not by trust.
     This holds on qwen3.5:4b too, so D1 needs no re-litigating.
 
+    Second gate: the quote must also be ON TOPIC (`_quote_on_topic`). Presence proves
+    the sentence is real, not that it is about sponsorship — the 2026-07-25 labeled set
+    caught the model quoting real-but-irrelevant agency boilerplate on 5 of 28 fires.
+
     Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
     vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
     """
     if not _needs_sponsorship(cand_auth):
         return True, ""
     quote = (entry or {}).get("no_sponsorship_quote")
-    if _quote_in(quote, description):
+    if _quote_in(quote, description) and _quote_on_topic(quote):
         return False, "no visa sponsorship offered"
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):

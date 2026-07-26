@@ -610,6 +610,77 @@ def test_verified_quote_disqualifies():
     assert "sponsorship" in out["disqualification_reason"]
 
 
+def test_real_but_off_topic_quote_keeps_the_posting():
+    # The misclassification residual quote-verification alone cannot close, measured on
+    # the 2026-07-25 labeled set: this exact Optiver sentence is REAL (so _quote_in
+    # passes) but is about recruitment agencies, not visas. It disqualified 5 postings.
+    jd = ("Join our trading floor. Please note: We do not require any assistance from "
+          "third-parties including agencies in the recruitment of this role. Apply now.")
+    out = _screen_with("We do not require any assistance from third-parties including "
+                       "agencies in the recruitment of this role", jd)
+    assert out["disqualified"] is False
+
+
+def test_quote_that_offers_sponsorship_never_disqualifies():
+    # Polarity, not topic. Quote-grounding fixed invented TEXT; D1 existed because the
+    # model invents "no" from silence, and an offer sentence is on topic by every word
+    # test. Discarding on the single most valuable line in the JD is the worst outcome
+    # this gate can produce, and the emitted reason would be identical either way -- so
+    # it would be unauditable from the DB.
+    for quote in ("Visa sponsorship is available for this position.",
+                  "We are open to sponsoring exceptional candidates.",
+                  "Sponsorship available for the right candidate."):
+        jd = f"About the role. {quote} Apply now."
+        assert _screen_with(quote, jd)["disqualified"] is False, quote
+
+
+def test_authorization_words_in_unrelated_sentences_never_disqualify():
+    # Every one of these is a recorded false positive, not a hypothetical. The first two
+    # are the D1 pair (Tower id=986, WorldQuant id=1071); the EEO wording sits in
+    # essentially every US posting, which makes it the highest-frequency way to wrongly
+    # discard a job. All contain an AUTHORIZATION_TERMS substring.
+    for quote in (
+        "We field company-sponsored sports teams and a great engineering culture.",
+        "EEO: we do not discriminate on citizenship, national origin, disability, or age.",
+        "You will design and own our authorization and access-control services.",
+        "You will build integrations with Visa and Mastercard payment rails.",
+        "We believe everyone has the right to work in an environment free from harassment.",
+        "You will report to the executive sponsor of the platform program.",
+    ):
+        jd = f"About the role. {quote} Apply now."
+        assert _screen_with(quote, jd)["disqualified"] is False, quote
+
+
+def test_soft_preference_is_not_a_bar():
+    # The 3 residual false positives in the 2026-07-25 labeled set are all this shape.
+    # "Prioritizing" leaves the candidate able to apply, so discarding is a lost
+    # opportunity -- PRINCIPLES' candidate-opportunity row says KEEP.
+    quote = ("We will be prioritizing applicants who have a current right to work in "
+             "Singapore, and do not require sponsorship of a visa.")
+    assert _screen_with(quote, f"About the role. {quote} Apply now.")["disqualified"] is False
+
+
+def test_visa_category_acronyms_still_disqualify():
+    # Real refusals that name no generic term -- these were misses before the review.
+    for quote in ("We are not able to support H-1B or OPT candidates for this position.",
+                  "You must have full working rights in Australia.",
+                  "Applicants must hold U.S. Permanent Residency."):
+        jd = f"About the role. {quote} Apply now."
+        assert _screen_with(quote, jd)["disqualified"] is True, quote
+
+
+def test_on_topic_quotes_still_disqualify():
+    # Every true-positive shape in that labeled set must survive the relevance guard,
+    # including the ones that never say "sponsor": a citizenship bar and a British
+    # "authorisation" spelling.
+    for quote in ("We will not sponsor individuals for employment authorization.",
+                  "We cannot accept visa holders at this time.",
+                  "This position requires that the candidate selected be an EU Citizen.",
+                  "Must have unrestricted authorisation to work in the UK."):
+        jd = f"About the role. {quote} Apply now."
+        assert _screen_with(quote, jd)["disqualified"] is True, quote
+
+
 def test_hallucinated_quote_keeps_the_posting():
     # THE security property of this design: a quote that is not in the JD fails
     # verification, so hallucination cannot disqualify anything BY CONSTRUCTION.

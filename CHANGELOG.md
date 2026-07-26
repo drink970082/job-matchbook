@@ -39,6 +39,40 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   not validate an env-supplied `default` against `choices`) wrote a stamp naming a model
   that never ran. A silently wrong provenance field is worse than none. It now raises.
 
+- **A real-but-irrelevant quote can no longer disqualify a posting for sponsorship.**
+  `_check_authorization` verified that the model's `no_sponsorship_quote` actually
+  appears in the JD, which makes hallucination unable to disqualify anything — but
+  presence proves a sentence is *real*, not that it is *about* sponsorship. The
+  2026-07-25 labeled-set run (3,553 already-scored rows, 21 disagreements hand-labeled)
+  measured that residual: **8 of 28 fires were wrong**, and wrong in the expensive
+  direction — a false positive here silently discards a good posting, the error "err
+  toward keep" exists to prevent. Five of the eight were a single Optiver boilerplate
+  line, *"We do not require any assistance from third-parties including agencies in the
+  recruitment of this role"* — about recruiters, not visas.
+
+  A verified quote must now also pass `_quote_on_topic`: three vetoes, then a vocabulary,
+  every one resolving toward keeping the posting. The vetoes are an **off-topic** sentence
+  that merely carries an authorization word — the recorded D1 pair, *"company-sponsored
+  sports teams"* and *"we do not discriminate on citizenship"*, the latter sitting in
+  essentially every US posting; the wrong **polarity**, since quote grounding fixes
+  invented *text* but not inverted *meaning* and *"Visa sponsorship is available for this
+  position."* is the most valuable line in a JD for a candidate who needs it; and a soft
+  **preference** (*"prioritizing applicants who…"*), which is not a bar because the
+  candidate can still apply. The vocabulary then also covers visa-category acronyms
+  (*"we cannot support H-1B or OPT candidates"*) and AU/NZ word order (*"full working
+  rights"*), both of which state a refusal using none of the generic terms.
+
+  Measured on the labeled set, **for the whole function rather than one branch of it** —
+  `_check_authorization` is `(grounded AND on topic) OR NO_SPONSOR_PHRASES`, and the
+  ungated floor adds fires that a quote-branch-only number silently omits:
+  the retired phrase gate alone was 81.8% precision / 45.0% recall; the shipped function
+  is **90.9% / 100%**. The gate removes 8 false positives and **zero** true positives.
+  The 2 residual false positives come from the floor, not the gate (IMC, where
+  `without sponsorship` appears inside an *invitation* to people who don't need it) and
+  are recorded as **open**. `tools/sponsor_diff.py` applies the same gate and now also
+  writes a `-suppressed.json` of rows the gate rejected — without it the tool counts a
+  suppressed row as agreement and goes blind to the one failure the gate introduces.
+
 - **A dead screen provider no longer hands the whole backlog to the paid scorer.**
   `screen_posting` catches any provider exception and errs toward KEEP — correct for one
   flaky call, wrong for an outage. When Ollama was simply down (a WSL2 suspend does it)

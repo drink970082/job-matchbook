@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "apps", "worker
 import requests  # noqa: E402
 
 from ats_worker import db, run  # noqa: E402
-from ats_worker.score.screen import NO_SPONSOR_PHRASES, _quote_in  # noqa: E402
+from ats_worker.score.screen import (NO_SPONSOR_PHRASES, _quote_in,  # noqa: E402
+                                     _quote_on_topic)
 
 
 def _phrase_hit(description: str) -> bool:
@@ -56,6 +57,7 @@ def main() -> int:
 
     agree = disagree = 0
     out = []
+    suppressed = []
     from ats_worker.score.prompts import SCREEN_SCHEMA, _candidate_block, _job_block
     from ats_worker.prompts import SCREEN_HEADER
     checklist = _candidate_block({"work_authorization": "needs visa sponsorship"})
@@ -70,8 +72,17 @@ def main() -> int:
             continue
         quote = ((data.get("screen") or {}).get("authorization") or {}).get(
             "no_sponsorship_quote")
-        llm = _quote_in(quote, desc)
+        grounded = _quote_in(quote, desc)
+        llm = grounded and _quote_on_topic(quote)
         phrase = _phrase_hit(desc)
+        # A row the RELEVANCE gate suppressed is the new residual, and it agrees with the
+        # phrase list (both False) — so without this it would be counted as a free label
+        # and never written down, leaving the tool blind to the very failure the gate
+        # introduces. Emit it explicitly instead.
+        if grounded and not llm:
+            suppressed.append({"id": row["id"], "company": row["company_name"],
+                               "title": row["job_title"], "quote": quote,
+                               "verdict": "gate_suppressed", "label": None})
         if llm == phrase:
             agree += 1
             continue
@@ -83,7 +94,14 @@ def main() -> int:
 
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=2)
+    if suppressed:
+        with open(args.out.replace(".json", "-suppressed.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(suppressed, fh, indent=2)
     print(f"{len(rows)} rows: {agree} agree (free labels), {disagree} disagree")
+    print(f"{len(suppressed)} row(s) grounded but suppressed by the relevance gate "
+          f"-> {args.out.replace('.json', '-suppressed.json')} (the gate's own residual: "
+          f"a wrong suppression here is a MISSED disqualification)")
     print(f"hand-label the {disagree} rows in {args.out} (label: "
           f"no-sponsorship | offers | silent)")
     return 0
