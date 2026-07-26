@@ -22,24 +22,25 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Branch `feat/universality-and-onboarding` — landed, unmerged, BLOCKED on two
-  operator gates (2026-07-23).** All 11 tasks of the
+- **Branch `feat/universality-and-onboarding` — landed, unmerged, BOTH GATES CLEARED
+  2026-07-25; PR #7 is mergeable and the merge is the operator's call.** All 11 tasks of the
   [screen-backends plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
   are implemented and reviewed; suites green (worker 578, coverage 93.27%; web 136;
   privacy + schema-drift clean) and a whole-branch review found **no correctness
   blockers**. Shipped on it: plan Stages 1-2 (screen backends — track 1), Stage 3
   (quote-grounded sponsorship — track 5), Stage 5 (screen/fit concurrency).
-  **Committed but NOT shippable — plan Stage 4** (Task 9, `66dfb65`): the fit scorer
+  **Plan Stage 4 (Task 9, `66dfb65`) SHIPS — the gate passed, no revert.** The fit scorer
   now also extracts the three hard-requirement facts, consumed as a *fallback* only
   where the screen produced no verdict (`merge_fallback_screen` — a working backend's
   verdict still wins, so the false-positive surface does not double). It edits the
-  gated `score.txt` (an appended block only; rubric and verdict definitions
-  untouched), so it **does not ship until the fit-score gate passes, and is reverted
-  — not shipped anyway — on a FAIL**. It was deliberately ordered last so it stays
-  cleanly revertible. **One blocking gate left: the `score_eval` re-run.** The
-  sponsorship precision/recall labeled set **passed 2026-07-25** (see the pick order
-  below) — it found and closed a real precision defect on the way.
-  Nothing else on the branch depends on Stage 4.
+  gated `score.txt`, so it was ordered last and held until `score_eval` cleared it.
+  **Both gates, both cleared 2026-07-25** (numbers in the pick order below): the
+  sponsorship precision/recall labeled set, which found and closed a real precision
+  defect on the way, and the `score_eval` re-run, two consecutive PASS.
+  **Neither gate was runnable as shipped.** The `score_eval` one turned out to be blocked
+  by two schema defects that made every codex fit call 400 — the default backend was dead,
+  not degraded — fixed on `fix/strict-mode-score-schema` (PR #14). Nothing else on the
+  branch depends on Stage 4.
 - **Branch `fix/bodyless-guard-and-quota-flags` — MERGED to `main` 2026-07-24** (PR #5,
   squashed as `48901a3`), together with `docs/sync-audit` (PR #4, `d4e521f`). Merging #4
   first made #5 conflict — `main`'s squash of #4 diverged from #5's copy of those
@@ -217,13 +218,17 @@ in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP (authorized 2026-07-24, not yet run):** the unattended long-run day —
-> [`superpowers/plans/2026-07-24-long-run-day-runbook.md`](./superpowers/plans/2026-07-24-long-run-day-runbook.md).
-> One unattended day that executes items 1, 2 and 3 below in order: bounded fetch +
-> scoring, then **both** merge blockers. A session picking this repo up should read that
-> runbook first — it carries the branch to run from, the quota math, the monitoring
-> cadence, and the authority boundary for what may and may not be decided while the
-> operator is away. Its phase checkboxes are the run's live state.
+> **NEXT STEP: merge the stack.** Both merge blockers cleared 2026-07-25, so PR #7 and
+> the five PRs stacked on it are mergeable — that decision is the operator's, per
+> DEVELOPMENT §7. Order is bottom-up: #7 → #10 → #11 → #12 → #13 → #14, each retargeting
+> to `main` as the one below lands, and expect the squash-divergence conflict on every PR
+> after the first (see the merge-hygiene note above).
+>
+> The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
+> phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
+> the only thing gated on its quota reserve was the fit-score eval itself. Its phase 1-2
+> (bounded fetch + scoring at scale) remain unrun and are still worth reading before any
+> large paid pass: quota math, monitoring cadence, and the authority boundary.
 
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
@@ -249,20 +254,33 @@ yields nothing instead of poisoning the DB with permanent title-only rows.
    unexercised (entry below); and `custom` is ~a third of the intake, a `title_filter`
    tightening question rather than a fetch bug.
 
-**P1 — unblock the branch merge.** Gate 3 below **passed 2026-07-25**; only the
-`score_eval` re-run (item 2) is left. Both are phases 3 and 4 of the
+**P1 — unblock the branch merge: DONE 2026-07-25, both gates PASSED.** PR #7 is
+mergeable. Both were phases 3 and 4 of the
 [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) — run
 them from there, not ad hoc, so the quota reserve and the authority boundary hold.
 
-2. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
-   BLOCKER]`. One re-run gates **two** changes: the 2026-07-22 profile edit *and*
-   plan Stage 4's `score.txt` block (`66dfb65`). Two consecutive PASS or
-   `git revert 66dfb65`; until then `feat/universality-and-onboarding` does not merge.
-   Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
-   set's documented Java blind spot in the same pass. The inert-fallback defect that
-   used to block this is **fixed 2026-07-23** (CHANGELOG) — Stage 4 now reaches a
-   per-check gap, not only a whole-backend absence, so the gate measures a path
-   postings actually take.
+2. **Fit-score gate re-run — PASSED 2026-07-25, two consecutive runs.** It gated two
+   changes: the 2026-07-22 profile edit *and* plan Stage 4's `score.txt` block
+   (`66dfb65`). **Both now ship; no revert.** Verbatim, `gpt-5.6-sol`, K=3, 21 gate rows:
+
+   | run | agreement | hard | flip-rate | verdict |
+   |---|---|---|---|---|
+   | 1 | 20/21 (95%) | 10/10 | 14% | PASS |
+   | 2 | 20/21 (95%) | 10/10 | 5% | PASS |
+
+   Bar was >=85% agreement, 0 hard-invariant violations, <20% flip. `hard` counts
+   *notify-decision* violations, not verdict agreement — which is why row 186 can read
+   `✗ (hard)` while `hard` stays 10/10: its golden and measured verdicts both resolve
+   to "don't notify".
+   **The one disagreement is stable, not noise, and it points at the label.** Row 186
+   (`Software Engineer, Macro Quant Analytics`) is golden `too_junior/match` and the
+   model said `too_junior/mismatch` in 2 of 3 draws on run 1 and **3 of 3** on run 2. A
+   position that firm across two runs is the golden set being wrong more likely than the
+   model being wrong — the golden set is not frozen truth. Re-label it or leave it, but
+   do not read it as scorer drift.
+   **Before this could run at all, two shipped schema defects had to be fixed** — every
+   codex fit call was returning HTTP 400 (see the strict-mode entry in CHANGELOG). The
+   gate had never been runnable on the default backend.
 3. **Sponsorship precision/recall labeled set — DONE 2026-07-25, and it found a real
    defect** (SPEC §7.1 table, CHANGELOG; worksheet + report in the gitignored
    `db/runs/20260725-sponsor/`). 3,553 rows, 3,532 agree, 21 disagree, all 21
