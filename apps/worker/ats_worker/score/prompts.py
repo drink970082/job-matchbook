@@ -76,31 +76,40 @@ _SCORE_SCHEMA = {
         # row to the low-context bucket regardless of the (still-required) score.
         "insufficient_context": {"type": "boolean"},
         # Fallback hard-requirement extraction, consumed ONLY where the screen produced
-        # nothing (SCREEN_BACKEND=none, or a swallowed screen failure). Not required:
-        # a scorer that omits it must not fail the whole card.
+        # nothing (SCREEN_BACKEND=none, or a swallowed screen failure).
+        # STRICT-MODE SHAPE, and it is not optional to get right: OpenAI structured
+        # output rejects the whole request (HTTP 400 invalid_json_schema) unless EVERY
+        # object lists EVERY one of its properties in `required`. There is no such thing
+        # as an optional key. "Omitted" is therefore expressed as an explicit null —
+        # `screen` is object-or-null, and each leaf value is nullable — which is what
+        # keeps "a scorer that has nothing to say must not fail the card" true.
         "screen": {
-            "type": "object",
+            "type": ["object", "null"],
             "properties": {
                 "degree": {
                     "type": "object",
                     "properties": {"required_degree": {"type": ["string", "null"]}},
+                    "required": ["required_degree"],
                     "additionalProperties": False,
                 },
                 "authorization": {
                     "type": "object",
                     "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
+                    "required": ["no_sponsorship_quote"],
                     "additionalProperties": False,
                 },
                 "clearance": {
                     "type": "object",
-                    "properties": {"requires_clearance": {"type": "boolean"}},
+                    "properties": {"requires_clearance": {"type": ["boolean", "null"]}},
+                    "required": ["requires_clearance"],
                     "additionalProperties": False,
                 },
             },
+            "required": ["degree", "authorization", "clearance"],
             "additionalProperties": False,
         },
     },
-    "required": ["assessment", "score", "insufficient_context"],
+    "required": ["assessment", "score", "insufficient_context", "screen"],
     "additionalProperties": False,
 }
 
@@ -195,11 +204,22 @@ def _candidate_block(candidate) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Structured-output schema for the SCREEN extraction. Every field is OPTIONAL at the
-# JSON-Schema level: the candidate configures which checks run, so a config with only
-# `highest_degree` set legitimately returns just `degree`. Code (`_screen_verdict`)
-# ignores keys the candidate didn't configure and errs toward PASS on absent data, so
-# a permissive schema cannot cause a wrong disqualification.
+# Structured-output schema for the SCREEN extraction. STRICT: every field is `required`,
+# because OpenAI structured output has no optional keys and rejects the whole request
+# otherwise. Absence is spelled as an explicit null. (It was permissive until 2026-07-26;
+# a config with only `highest_degree` set no longer returns just `degree`.)
+#
+# The safety argument moved with it: a schema-enforcing backend (openai-api / codex / claude-code / claude-api) must answer
+# all three fact groups even when `_candidate_block` asked about one. Absence is now
+# spelled as an explicit null. What actually prevents a wrong disqualification is CODE,
+# not schema permissiveness: `_screen_verdict` gates each check on the candidate having
+# configured it AND on the model having named a recognized value (`_degree_stated` /
+# an actual bool), and `_quote_in` verifies the
+# sponsorship quote. The default ollama backend ignores the schema entirely (format=json
+# constrains output to *some* object), so on it a blind check still arrives as an omitted
+# key — which is why the value test, not a null test, is the one that holds everywhere.
+# Those value tests enumerate the RECOGNIZED values, never the no-data spellings: the
+# latter set is open-ended ("not stated", "TBD", "unclear", ...) and cannot be closed.
 SCREEN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -209,19 +229,23 @@ SCREEN_SCHEMA = {
                 "degree": {
                     "type": "object",
                     "properties": {"required_degree": {"type": ["string", "null"]}},
+                    "required": ["required_degree"],
                     "additionalProperties": False,
                 },
                 "authorization": {
                     "type": "object",
                     "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
+                    "required": ["no_sponsorship_quote"],
                     "additionalProperties": False,
                 },
                 "clearance": {
                     "type": "object",
-                    "properties": {"requires_clearance": {"type": "boolean"}},
+                    "properties": {"requires_clearance": {"type": ["boolean", "null"]}},
+                    "required": ["requires_clearance"],
                     "additionalProperties": False,
                 },
             },
+            "required": ["degree", "authorization", "clearance"],
             "additionalProperties": False,
         },
     },

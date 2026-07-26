@@ -64,24 +64,25 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   was built from branch #10's schema, which has a `notify_attempts` column this branch
   does not. That is environment drift from branch switching, not a merge defect: the
   merge touches **no** `apps/web` file.
-- **Branch `feat/universality-and-onboarding` — landed, unmerged, BLOCKED on two
-  operator gates (2026-07-23).** All 11 tasks of the
+- **Branch `feat/universality-and-onboarding` — landed, unmerged, BOTH GATES CLEARED
+  2026-07-25; PR #7 is mergeable and the merge is the operator's call.** All 11 tasks of the
   [screen-backends plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
   are implemented and reviewed; suites green (worker 578, coverage 93.27%; web 136;
   privacy + schema-drift clean) and a whole-branch review found **no correctness
   blockers**. Shipped on it: plan Stages 1-2 (screen backends — track 1), Stage 3
   (quote-grounded sponsorship — track 5), Stage 5 (screen/fit concurrency).
-  **Committed but NOT shippable — plan Stage 4** (Task 9, `66dfb65`): the fit scorer
+  **Plan Stage 4 (Task 9, `66dfb65`) SHIPS — the gate passed, no revert.** The fit scorer
   now also extracts the three hard-requirement facts, consumed as a *fallback* only
   where the screen produced no verdict (`merge_fallback_screen` — a working backend's
   verdict still wins, so the false-positive surface does not double). It edits the
-  gated `score.txt` (an appended block only; rubric and verdict definitions
-  untouched), so it **does not ship until the fit-score gate passes, and is reverted
-  — not shipped anyway — on a FAIL**. It was deliberately ordered last so it stays
-  cleanly revertible. **One blocking gate left: the `score_eval` re-run.** The
-  sponsorship precision/recall labeled set **passed 2026-07-25** (see the pick order
-  below) — it found and closed a real precision defect on the way.
-  Nothing else on the branch depends on Stage 4.
+  gated `score.txt`, so it was ordered last and held until `score_eval` cleared it.
+  **Both gates, both cleared 2026-07-25** (numbers in the pick order below): the
+  sponsorship precision/recall labeled set, which found and closed a real precision
+  defect on the way, and the `score_eval` re-run, two consecutive PASS.
+  **Neither gate was runnable as shipped.** The `score_eval` one turned out to be blocked
+  by two schema defects that made every codex fit call 400 — the default backend was dead,
+  not degraded — fixed on `fix/strict-mode-score-schema` (PR #14). Nothing else on the
+  branch depends on Stage 4.
 - **Branch `fix/bodyless-guard-and-quota-flags` — MERGED to `main` 2026-07-24** (PR #5,
   squashed as `48901a3`), together with `docs/sync-audit` (PR #4, `d4e521f`). Merging #4
   first made #5 conflict — `main`'s squash of #4 diverged from #5's copy of those
@@ -134,6 +135,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
   `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
   removed after verifying each adds nothing to `main` outside stale doc copies.
+- **The six-PR stack (#7 → #10 → #11 → #12 → #13 → #14) — reviewed twice, NOT merged;
+  blocked on the `main` integration (see the NEXT STEP callout).** Every branch passed CI and two rounds of the §7 fresh-subagent review.
+  Round 1 found real defects on all five authored PRs; round 2 found defects **in the
+  fixes**, including one where the same emptiness-check bug was reintroduced a third time
+  through a new empty value. Both rounds' findings are closed. The lasting outputs are two
+  contracts that make the fragile parts fail loudly: `tests/fixtures/sponsorship_quotes.json`
+  (the sponsorship gate's corpus) and the rule that a strict-mode schema violation must red
+  the suite rather than 400 in production. **Deferred by decision, not oversight:** the
+  `_quote_on_topic` inversion (see Unverified / deferred). **The merge was attempted
+  2026-07-26 and aborted** — `feat/universality-and-onboarding` needs a real integration
+  with `main`, not a squash-divergence resolution; the tree was left clean and nothing was
+  pushed to `main`.
 - **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
   `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
   `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
@@ -244,7 +257,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -270,13 +283,24 @@ in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP (authorized 2026-07-24, not yet run):** the unattended long-run day —
-> [`superpowers/plans/2026-07-24-long-run-day-runbook.md`](./superpowers/plans/2026-07-24-long-run-day-runbook.md).
-> One unattended day that executes items 1, 2 and 3 below in order: bounded fetch +
-> scoring, then **both** merge blockers. A session picking this repo up should read that
-> runbook first — it carries the branch to run from, the quota math, the monitoring
-> cadence, and the authority boundary for what may and may not be decided while the
-> operator is away. Its phase checkboxes are the run's live state.
+> **NEXT STEP: push the stack and merge the six PRs.** `[S]` The `main` integration that
+> blocked this is **DONE 2026-07-26** — `origin/main` is merged into
+> `feat/universality-and-onboarding` and propagated down all six branches by merge (not
+> by resolving six times). Every branch's suite is green on the merge result. What the
+> integration found, and how each conflict was resolved, is in
+> [In flight](#in-flight); the two headline corrections to what this callout used to say:
+> `pipeline.run_score` was **not** a semantic conflict (the thin-JD gate was already
+> inside the concurrent loop — both sides had added it independently), and `_recipe.py`
+> **was** one (resolved on namespace, in favour of the branch's recipe-field naming).
+>
+> **Still to do:** push all six branches, let GitHub retarget #7's base to `main`, and
+> merge in stack order. The §7 pre-merge review applies to the merge resolution itself.
+>
+> The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
+> phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
+> the only thing gated on its quota reserve was the fit-score eval itself. Its phase 1-2
+> (bounded fetch + scoring at scale) remain unrun and are still worth reading before any
+> large paid pass: quota math, monitoring cadence, and the authority boundary.
 
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
@@ -302,20 +326,33 @@ yields nothing instead of poisoning the DB with permanent title-only rows.
    unexercised (entry below); and `custom` is ~a third of the intake, a `title_filter`
    tightening question rather than a fetch bug.
 
-**P1 — unblock the branch merge.** Gate 3 below **passed 2026-07-25**; only the
-`score_eval` re-run (item 2) is left. Both are phases 3 and 4 of the
+**P1 — unblock the branch merge: DONE 2026-07-25, both gates PASSED.** PR #7 is
+mergeable. Both were phases 3 and 4 of the
 [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) — run
 them from there, not ad hoc, so the quota reserve and the authority boundary hold.
 
-2. **Fit-score gate re-run** — `[S · ~69 Codex messages per run, two runs · MERGE
-   BLOCKER]`. One re-run gates **two** changes: the 2026-07-22 profile edit *and*
-   plan Stage 4's `score.txt` block (`66dfb65`). Two consecutive PASS or
-   `git revert 66dfb65`; until then `feat/universality-and-onboarding` does not merge.
-   Do it *after* (1) so any newly-ingested Java quant-dev row can close the golden
-   set's documented Java blind spot in the same pass. The inert-fallback defect that
-   used to block this is **fixed 2026-07-23** (CHANGELOG) — Stage 4 now reaches a
-   per-check gap, not only a whole-backend absence, so the gate measures a path
-   postings actually take.
+2. **Fit-score gate re-run — PASSED 2026-07-25, two consecutive runs.** It gated two
+   changes: the 2026-07-22 profile edit *and* plan Stage 4's `score.txt` block
+   (`66dfb65`). **Both now ship; no revert.** Verbatim, `gpt-5.6-sol`, K=3, 21 gate rows:
+
+   | run | agreement | hard | flip-rate | verdict |
+   |---|---|---|---|---|
+   | 1 | 20/21 (95%) | 10/10 | 14% | PASS |
+   | 2 | 20/21 (95%) | 10/10 | 5% | PASS |
+
+   Bar was >=85% agreement, 0 hard-invariant violations, <20% flip. `hard` counts
+   *notify-decision* violations, not verdict agreement — which is why row 186 can read
+   `✗ (hard)` while `hard` stays 10/10: its golden and measured verdicts both resolve
+   to "don't notify".
+   **The one disagreement is stable, not noise, and it points at the label.** Row 186
+   (`Software Engineer, Macro Quant Analytics`) is golden `too_junior/match` and the
+   model said `too_junior/mismatch` in 2 of 3 draws on run 1 and **3 of 3** on run 2. A
+   position that firm across two runs is the golden set being wrong more likely than the
+   model being wrong — the golden set is not frozen truth. Re-label it or leave it, but
+   do not read it as scorer drift.
+   **Before this could run at all, two shipped schema defects had to be fixed** — every
+   codex fit call was returning HTTP 400 (see the strict-mode entry in CHANGELOG). The
+   gate had never been runnable on the default backend.
 3. **Sponsorship precision/recall labeled set — DONE 2026-07-25, and it found a real
    defect** (SPEC §7.1 table, CHANGELOG; worksheet + report in the gitignored
    `db/runs/20260725-sponsor/`). 3,553 rows, 3,532 agree, 21 disagree, all 21
@@ -408,6 +445,40 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 (see [In flight](#in-flight)); that precondition is now **met**.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
+
+- **Rebuild `_quote_on_topic` as positive-evidence, and scope the phrase floor** —
+  `[SCREEN · S · design decided 2026-07-26 by the operator · do not re-derive the fork]`.
+  **The design call, so the next session does not relitigate it:** on this path a wrong
+  discard and a wrong keep are not comparable. A kept row reaches the human, who reads the
+  JD and catches it; a discarded row is reviewed by nobody. So a MISS is self-correcting
+  and costs one paid fit call, while a FALSE POSITIVE silently deletes a real opportunity.
+  Optimize for keeping.
+  **What to build.** Today the gate fires whenever an authorization word appears and vetoes
+  the exceptions (off-topic / wrong-polarity / soft-preference). That is "discard by
+  default, and the author must anticipate every innocent sentence in English" — three
+  review rounds each found a category that had not been anticipated, and one shipped
+  version disqualified *"We offer generous personal time off"*. **Invert it:** fire only on
+  positive evidence of an employer refusal or a hard bar (`we do not/cannot/will not
+  sponsor`, `sponsorship is not available/offered`, `must be a citizen`, `must have
+  unrestricted authorization`, `must hold permanent residency`); anything unmatched keeps.
+  An incomplete list then produces a miss instead of a wrong discard. All three vetoes
+  become unnecessary rather than needing to be correct — an EEO line, "Visa sponsorship is
+  available", and "prioritizing applicants" each carry no refusal marker.
+  **Second half:** `NO_SPONSOR_PHRASES` is ungated and scans the WHOLE description, which
+  is where both remaining false positives come from (IMC 465/490 — *"or are eligible to
+  work without sponsorship, we encourage you to apply"* is an invitation). Scope it to fire
+  only when the model produced no quote at all.
+  **Expected:** precision near 100%, recall meaningfully below it. That is the intended
+  trade, not a regression — say so in SPEC when the numbers move.
+  **Known and NOT the fix:** the fit scorer's Stage 4 re-check does not cover
+  authorization. `_screen_verdict` always writes the `authorization` key (the phrase floor
+  gives it a verdict with no model data), so `merge_fallback_screen`'s `key not in already`
+  gap test never sees it; verified 2026-07-26. Do not "fix" that to get a second opinion —
+  a second model vote on a disqualification doubles the false-positive surface, which is
+  why that function is a fallback and not a vote (its own docstring). The second checker
+  is the human.
+  **Contract to keep:** `tests/fixtures/sponsorship_quotes.json`. Must-keep should go clean;
+  list the must-flag misses rather than papering over them.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`

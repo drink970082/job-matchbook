@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -621,52 +622,27 @@ def test_real_but_off_topic_quote_keeps_the_posting():
     assert out["disqualified"] is False
 
 
-def test_quote_that_offers_sponsorship_never_disqualifies():
-    # Polarity, not topic. Quote-grounding fixed invented TEXT; D1 existed because the
-    # model invents "no" from silence, and an offer sentence is on topic by every word
-    # test. Discarding on the single most valuable line in the JD is the worst outcome
-    # this gate can produce, and the emitted reason would be identical either way -- so
-    # it would be unauditable from the DB.
-    for quote in ("Visa sponsorship is available for this position.",
-                  "We are open to sponsoring exceptional candidates.",
-                  "Sponsorship available for the right candidate."):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is False, quote
+def test_sponsorship_quote_corpus_keeps_every_must_keep():
+    # The corpus, not hand-picked examples. Each MUST_KEEP sentence came from a real
+    # posting, a labeled row, or a review that produced it as a counter-example -- and a
+    # wrong answer here SILENTLY DISCARDS A REAL JOB, so this is the direction that
+    # matters. A previous version of this gate passed four bespoke tests while
+    # disqualifying "We offer generous personal time off".
+    corpus = json.loads((Path(__file__).parent / "fixtures" /
+                         "sponsorship_quotes.json").read_text())
+    leaked = [q for q in corpus["must_keep"]
+              if _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
+    assert not leaked, "gate wrongly disqualified:\n" + "\n".join(leaked)
 
 
-def test_authorization_words_in_unrelated_sentences_never_disqualify():
-    # Every one of these is a recorded false positive, not a hypothetical. The first two
-    # are the D1 pair (Tower id=986, WorldQuant id=1071); the EEO wording sits in
-    # essentially every US posting, which makes it the highest-frequency way to wrongly
-    # discard a job. All contain an AUTHORIZATION_TERMS substring.
-    for quote in (
-        "We field company-sponsored sports teams and a great engineering culture.",
-        "EEO: we do not discriminate on citizenship, national origin, disability, or age.",
-        "You will design and own our authorization and access-control services.",
-        "You will build integrations with Visa and Mastercard payment rails.",
-        "We believe everyone has the right to work in an environment free from harassment.",
-        "You will report to the executive sponsor of the platform program.",
-    ):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is False, quote
-
-
-def test_soft_preference_is_not_a_bar():
-    # The 3 residual false positives in the 2026-07-25 labeled set are all this shape.
-    # "Prioritizing" leaves the candidate able to apply, so discarding is a lost
-    # opportunity -- PRINCIPLES' candidate-opportunity row says KEEP.
-    quote = ("We will be prioritizing applicants who have a current right to work in "
-             "Singapore, and do not require sponsorship of a visa.")
-    assert _screen_with(quote, f"About the role. {quote} Apply now.")["disqualified"] is False
-
-
-def test_visa_category_acronyms_still_disqualify():
-    # Real refusals that name no generic term -- these were misses before the review.
-    for quote in ("We are not able to support H-1B or OPT candidates for this position.",
-                  "You must have full working rights in Australia.",
-                  "Applicants must hold U.S. Permanent Residency."):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is True, quote
+def test_sponsorship_quote_corpus_flags_every_must_flag():
+    # The cheap direction: a miss costs one paid fit call. Still pinned, so a veto added
+    # to fix a MUST_KEEP case cannot quietly gut recall.
+    corpus = json.loads((Path(__file__).parent / "fixtures" /
+                         "sponsorship_quotes.json").read_text())
+    missed = [q for q in corpus["must_flag"]
+              if not _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
+    assert not missed, "gate failed to disqualify:\n" + "\n".join(missed)
 
 
 def test_on_topic_quotes_still_disqualify():
@@ -869,11 +845,87 @@ def test_score_schema_multi_resume_adds_enum_field():
     assert "recommended_resume" not in score._SCORE_SCHEMA["required"]
 
 
+def _strict_mode_violations(node, path="$"):
+    """Every object in a schema sent to OpenAI structured output must list EVERY key of
+    `properties` in `required`, or the API rejects the whole request with a 400
+    (invalid_json_schema) before the model runs. Yields the offenders."""
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            yield from _strict_mode_violations(item, f"{path}[{i}]")
+        return
+    if not isinstance(node, dict):
+        return
+    props = node.get("properties")
+    if isinstance(props, dict):
+        missing = set(props) - set(node.get("required") or [])
+        if missing:
+            yield f"{path}: properties {sorted(missing)} not in required"
+        # The other half of the contract, and it raises the identical 400: strict mode
+        # requires additionalProperties:false on every object, not just `required`.
+        if node.get("additionalProperties") is not False:
+            yield f"{path}: object without additionalProperties: false"
+    for key, value in node.items():
+        yield from _strict_mode_violations(value, f"{path}.{key}")
+
+
+def test_schema_is_strict_mode_valid():
+    # The defect this pins cost a whole eval run: 66dfb65's `screen` block had
+    # `properties` and no `required`, so EVERY codex fit call 400'd -- the scorer was
+    # not degraded, it was dead, and only the ollama path (non-strict) still worked.
+    # SCREEN_SCHEMA carried the same defect on its own code path.
+    # aliased: a module-level test mirror shares this name, and hoisting the
+    # import would silently make the mirror test compare production to itself.
+    from ats_worker.score.backends_codex import _batch_schema as prod_batch_schema
+    from ats_worker.score.prompts import SCREEN_SCHEMA
+    # _batch_schema is what actually reaches `codex exec --output-schema`; the bare
+    # _score_schema never does. Checking only the latter would pass while a violation
+    # introduced into the `results` envelope 400s in production.
+    for name, schema in (("_batch_schema", prod_batch_schema(["resume"])),
+                         ("_score_schema", score._score_schema(["resume"])),
+                         ("SCREEN_SCHEMA", SCREEN_SCHEMA)):
+        bad = list(_strict_mode_violations(schema, name))
+        assert not bad, "strict-mode violations:\n" + "\n".join(bad)
+
+
+def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
+    # Under the strict schema the model MUST emit every key, so a blind check arrives
+    # as {"required_degree": None} -- a non-empty dict that says nothing. Gating on the
+    # dict's truthiness would mark it "passed" and silently retire the Stage 4 fallback.
+    cand = {"highest_degree": "bachelors", "security_clearance": "none"}
+    # null, blank AND "unknown" all mean the model said nothing. screen.txt instructs it
+    # to answer "unknown" for an unstated fact, and _check_degree/_degree_rank already
+    # treat blank and "unknown" as no-data -- so a gate testing only `is not None` would
+    # record them as a genuine PASS and retire the fallback through a different empty
+    # value than the one it was written for.
+    # The no-data spellings are OPEN-ENDED, which is why the check enumerates the
+    # recognized DEGREE values instead. `_degree_rank` returns 0 for every string below,
+    # so a gate that accepted them as data would materialize a pass from a shrug.
+    for blank in (None, "", "   ", "unknown", "not specified", "N/A", "N.A.",
+                  "not stated", "not mentioned", "unclear", "TBD", "varies", "?"):
+        data = {"screen": {"degree": {"required_degree": blank},
+                           "clearance": {"requires_clearance": None}}}
+        out = score.screen._screen_verdict(data, cand, "JD text")
+        assert "degree" not in out["screen"], f"blind degree materialized for {blank!r}"
+        assert "clearance" not in out["screen"]
+        assert out["disqualified"] is False
+
+    # A real answer still materializes -- including `False`, which is a fact, not a gap.
+    out = score.screen._screen_verdict(
+        {"screen": {"degree": {"required_degree": "phd"},
+                    "clearance": {"requires_clearance": False}}}, cand, "JD text")
+    assert out["screen"]["clearance"]["pass"] is True
+    assert out["screen"]["degree"]["pass"] is False   # bachelors < phd
+    assert out["disqualified"] is True
+
+
 def test_score_schema_carries_enum_constrained_assessment():
     # S2.1: the scorecard replaces the flat reasoning/keyword fields; verdicts are
     # enum-constrained so structured outputs enforce them.
     schema = score._score_schema(["resume"])
-    assert schema["required"] == ["assessment", "score", "insufficient_context"]
+    # `screen` is in `required` because strict structured output has no optional keys —
+    # see test_schema_is_strict_mode_valid. Its VALUE is nullable, which is what keeps
+    # "a scorer with nothing to say must not fail the card" true.
+    assert schema["required"] == ["assessment", "score", "insufficient_context", "screen"]
     assert schema["properties"]["insufficient_context"] == {"type": "boolean"}
     for gone in ("reasoning", "matched_keywords", "missing_keywords"):
         assert gone not in schema["properties"]

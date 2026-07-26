@@ -99,9 +99,10 @@ def main() -> int:
                   encoding="utf-8") as fh:
             json.dump(suppressed, fh, indent=2)
     print(f"{len(rows)} rows: {agree} agree (free labels), {disagree} disagree")
-    print(f"{len(suppressed)} row(s) grounded but suppressed by the relevance gate "
-          f"-> {args.out.replace('.json', '-suppressed.json')} (the gate's own residual: "
-          f"a wrong suppression here is a MISSED disqualification)")
+    if suppressed:
+        print(f"{len(suppressed)} row(s) grounded but suppressed by the relevance gate "
+              f"-> {args.out.replace('.json', '-suppressed.json')} (the gate's own "
+              f"residual: a wrong suppression here is a MISSED disqualification)")
     print(f"hand-label the {disagree} rows in {args.out} (label: "
           f"no-sponsorship | offers | silent)")
     return 0

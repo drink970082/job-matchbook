@@ -16,6 +16,26 @@ from .usage import _rollout_mtime_ceiling, _capture_usage
 
 # --- real adapter (exercised only in Docker; never imported at module load) ---
 
+def _batch_schema(labels: list) -> dict:
+    """The schema actually handed to `codex exec --output-schema` — the bare
+    _score_schema never is. Module level so the strict-mode guard can check the real
+    payload; it captures nothing from make_codex_scorer.
+
+    Deep-copy _score_schema's output so its module-level cache (_SCORE_SCHEMA) is never
+    mutated, then wrap N per-posting elements in a {"results":[...]} envelope tagged
+    with the job_ref that makes realignment possible.
+    """
+    element = json.loads(json.dumps(_score_schema(labels)))
+    element["properties"]["job_ref"] = {"type": "integer"}
+    element["required"].append("job_ref")
+    return {
+        "type": "object",
+        "properties": {"results": {"type": "array", "items": element}},
+        "required": ["results"],
+        "additionalProperties": False,
+    }
+
+
 def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
                       verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex",
                       usage_path: str | None = None):
@@ -85,20 +105,6 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     the mechanism was never confirmed — but "score 0 on a dead backend" is unacceptable
     regardless of what removed the file.)
     """
-    def _batch_schema(labels: list) -> dict:
-        # Deep-copy _score_schema's output so its module-level cache (_SCORE_SCHEMA)
-        # is never mutated, then wrap N per-posting elements in a {"results":[...]}
-        # envelope tagged with the job_ref that makes realignment possible.
-        element = json.loads(json.dumps(_score_schema(labels)))
-        element["properties"]["job_ref"] = {"type": "integer"}
-        element["required"].append("job_ref")
-        return {
-            "type": "object",
-            "properties": {"results": {"type": "array", "items": element}},
-            "required": ["results"],
-            "additionalProperties": False,
-        }
-
     def fit(postings: list[dict], resumes: dict) -> list[dict]:
         # Same job block as Claude: no truncation, no Location line (D5). Each block
         # is tagged with job_ref=<posting id> so the model's answer can be realigned.
