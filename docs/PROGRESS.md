@@ -134,6 +134,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
   `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
   removed after verifying each adds nothing to `main` outside stale doc copies.
+- **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
+  `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
+  `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
@@ -186,7 +189,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is
   why every `score.txt` change is gated behind `score_eval` — including the additive
   Stage 4 block now sitting unmerged (SPEC §7.1).
-- **Provider choice + universal onboarding — 4 of 5 tracks done.** Design:
+- **Provider choice + universal onboarding — 4.5 of 5 tracks done.** Design:
   [notes](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md) →
   [design](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md) →
   [11-task plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md).
@@ -196,14 +199,32 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   universality fixes (track 2), `onboard-me` Step 0 (track 3) and the sponsorship
   rework (track 5), plus screen/fit concurrency: all on the branch above, all
   documented in SPEC §7.1/§9/§11 + CHANGELOG.
-  **Still open — track 4, agent portability** — `[S · independent, pick any time]`.
+  **Track 4, agent portability — PARTLY LANDED 2026-07-25, one half still unverified.**
   `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
-  `.claude/skills/`, Codex reads `.agents/skills/`, so all three skills (`onboard-me`,
-  `onboard-board`, `session-boot`) are invisible to every agent but Claude Code. Move to `.agents/skills/`, symlink `.claude/skills`,
-  add a root `AGENTS.md` (a Linux Foundation standard read by 30+ agents; the repo
-  has none). **Settle first:** whether Claude Code discovers skills *through* a
-  symlinked `.claude/skills` is unverified — if it doesn't, the symlink half of the
-  plan is wrong.
+  `.claude/skills/`, Codex reads `.agents/skills/`, and the repo had no root `AGENTS.md`
+  (a Linux Foundation standard read by 30+ agents).
+  **Done and verifiable — `AGENTS.md`**, a real file carrying the same guidance as
+  `CLAUDE.md` minus the Claude-Code-specific conduct. It was briefly a symlink to
+  `CLAUDE.md`; the pre-merge review killed that, and correctly. A symlinked `AGENTS.md`
+  is served as its 9-byte target path over `raw.githubusercontent.com` (hitting every
+  platform, on a public repo) and degrades silently into a text file containing
+  `CLAUDE.md` on a Windows checkout without `core.symlinks` — an agent finds a file,
+  reads nine characters, and stops looking. That is strictly worse than shipping no
+  `AGENTS.md`. The cost is hand-syncing two files; the review's judgment stands over the
+  original design note's, which had also said "a thin root `AGENTS.md` **pointing at**
+  `CLAUDE.md`".
+  **NOT verified — `.agents/skills` → `.claude/skills`.** The symlink is in place and the
+  link direction is inverted from the plan (which wanted the skills moved and
+  `.claude/skills` symlinked): keeping `.claude/skills` real protects the consumer that
+  uses these skills every session and leaves `test_add_watched.py`'s path resolution
+  untouched. **But inverting it did not settle the question, it swapped it** — "does
+  Claude Code follow a symlinked `.claude/skills`?" became "does Codex follow a symlinked
+  `.agents/skills`?", which is now the whole deliverable and is untested. Most directory
+  walkers do not follow symlinks by default (Rust `walkdir`/`ignore`, Python `glob('**')`,
+  Node `readdir({recursive:true})`), so the likely answer is no. **To close this: run a
+  non-Claude agent against a checkout and see whether it lists the three skills.** Until
+  someone does, the track is not shipped and `AGENTS.md` says so in its own Skills
+  section.
 
 ---
 
@@ -229,7 +250,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
-| `DOCS` | `docs/`, README, `.claude/skills/`, evals | 4 |
+| `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 5 |
 
 The five *evaluated-and-rejected* records under
 [Architecture / maintainability](#architecture--maintainability) are named by block
@@ -301,11 +322,11 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    its hallucination-safety holds by construction; what is unmeasured is precision —
    specifically the misclassification residual.
 
-**P2 — the last provider-choice track.**
-
-4. **Track 4, agent portability** — `[S · independent]`. Move the skills to
-   `.agents/skills/`, symlink `.claude/skills`, add a root `AGENTS.md` — settle the
-   symlink-discovery question first (see [In flight](#in-flight)).
+**P2 — the last provider-choice track: track 4, agent portability — HALF DONE.**
+`AGENTS.md` landed 2026-07-25; the `.agents/skills` symlink is in place but **nobody has
+run a non-Claude agent against a checkout to confirm it discovers the skills**, and the
+default behavior of most directory walkers says it probably does not. `[XS]` to close:
+run one and record what it listed. See [In flight](#in-flight).
 
 **P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The

@@ -205,6 +205,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A root `AGENTS.md` — the convention agents other than Claude Code look for.** The
+  repo had none, so every non-Claude agent arrived with no project instructions at all.
+  It is a **real file**, not a symlink to `CLAUDE.md`: git stores a symlink as a blob
+  containing the target path, so `raw.githubusercontent.com/.../AGENTS.md` would serve
+  nine bytes reading `CLAUDE.md` to any agent fetching it over HTTP, and a Windows
+  checkout without `core.symlinks=true` materializes it as a plain text file with the
+  same nine bytes — an agent finds a file, reads it, and stops looking, which is worse
+  than finding nothing. It carries the same guidance as `CLAUDE.md` minus the
+  Claude-Code-specific conduct (effort levels, subagent policy) that would mislead a
+  different agent. The two are hand-synced; there is little in either to drift.
+  `.agents/skills` is a symlink to `.claude/skills` so agents that look there find the
+  `SKILL.md` files — **but whether any of them follow a symlinked directory is untested**,
+  and most directory walkers do not by default, so that half is recorded as unverified
+  rather than shipped.
+
 - **Two of SPEC's source-coverage matrix columns are now tested, not hand-kept.**
   `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts the
   **Platform** column's source names against `fetch.ADAPTERS` and the **Watchlist**
