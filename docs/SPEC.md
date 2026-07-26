@@ -423,8 +423,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   row under the GUID. A dropped posting is never stored, so it has no id to reconcile;
   every other verdict falls through and hydrates, which is also the fail-open path.
   Measured 2026-07-22 across 28 watchlist boards: 14,902 -> 6,703 detail calls (-55%).
-  `max_age_days` cannot gate a workday stub — its only date is prose ("Posted 30+ Days
-  Ago"), so `parse_stub` sets `posted_at: None`, which the age filter treats as keep.
+  `max_age_days` also gates a workday stub: `parse_stub` dates the stub's relative prose
+  ("Posted N+ Days Ago") against the injected `now` (`now - age`, treating the number as
+  a lower bound), so a stale stub is dropped before its detail GET. Only the confident
+  English "N[+] Days Ago" form parses — "Today"/"Yesterday" and any other locale or
+  wording leave `posted_at` None (kept), so a mis-parse never drops a good posting. `now`
+  reaches the adapter through the same `keep`-gate call path.
   (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
