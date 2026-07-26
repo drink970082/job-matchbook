@@ -893,8 +893,13 @@ def test_schema_is_strict_mode_valid():
     # `properties` and no `required`, so EVERY codex fit call 400'd -- the scorer was
     # not degraded, it was dead, and only the ollama path (non-strict) still worked.
     # SCREEN_SCHEMA carried the same defect on its own code path.
+    from ats_worker.score.backends_codex import _batch_schema
     from ats_worker.score.prompts import SCREEN_SCHEMA
-    for name, schema in (("_score_schema", score._score_schema(["resume"])),
+    # _batch_schema is what actually reaches `codex exec --output-schema`; the bare
+    # _score_schema never does. Checking only the latter would pass while a violation
+    # introduced into the `results` envelope 400s in production.
+    for name, schema in (("_batch_schema", _batch_schema(["resume"])),
+                         ("_score_schema", score._score_schema(["resume"])),
                          ("SCREEN_SCHEMA", SCREEN_SCHEMA)):
         bad = list(_strict_mode_violations(schema, name))
         assert not bad, "strict-mode violations:\n" + "\n".join(bad)
@@ -904,13 +909,27 @@ def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
     # Under the strict schema the model MUST emit every key, so a blind check arrives
     # as {"required_degree": None} -- a non-empty dict that says nothing. Gating on the
     # dict's truthiness would mark it "passed" and silently retire the Stage 4 fallback.
-    data = {"screen": {"degree": {"required_degree": None},
-                       "clearance": {"requires_clearance": None}}}
+    cand = {"highest_degree": "bachelors", "security_clearance": "none"}
+    # null, blank AND "unknown" all mean the model said nothing. screen.txt instructs it
+    # to answer "unknown" for an unstated fact, and _check_degree/_degree_rank already
+    # treat blank and "unknown" as no-data -- so a gate testing only `is not None` would
+    # record them as a genuine PASS and retire the fallback through a different empty
+    # value than the one it was written for.
+    for blank in (None, "", "   ", "unknown", "not specified", "N/A"):
+        data = {"screen": {"degree": {"required_degree": blank},
+                           "clearance": {"requires_clearance": None}}}
+        out = score.screen._screen_verdict(data, cand, "JD text")
+        assert "degree" not in out["screen"], f"blind degree materialized for {blank!r}"
+        assert "clearance" not in out["screen"]
+        assert out["disqualified"] is False
+
+    # A real answer still materializes -- including `False`, which is a fact, not a gap.
     out = score.screen._screen_verdict(
-        data, {"highest_degree": "bachelors", "security_clearance": "none"}, "JD text")
-    assert "degree" not in out["screen"], "blind degree extraction must not materialize"
-    assert "clearance" not in out["screen"]
-    assert out["disqualified"] is False
+        {"screen": {"degree": {"required_degree": "phd"},
+                    "clearance": {"requires_clearance": False}}}, cand, "JD text")
+    assert out["screen"]["clearance"]["pass"] is True
+    assert out["screen"]["degree"]["pass"] is False   # bachelors < phd
+    assert out["disqualified"] is True
 
 
 def test_score_schema_carries_enum_constrained_assessment():

@@ -206,9 +206,18 @@ def _candidate_block(candidate) -> str:
 
 # Structured-output schema for the SCREEN extraction. Every field is OPTIONAL at the
 # JSON-Schema level: the candidate configures which checks run, so a config with only
-# `highest_degree` set legitimately returns just `degree`. Code (`_screen_verdict`)
-# ignores keys the candidate didn't configure and errs toward PASS on absent data, so
-# a permissive schema cannot cause a wrong disqualification.
+# `highest_degree` set legitimately returns just `degree`.
+#
+# NO LONGER TRUE at the JSON-Schema level, and the safety argument moved with it: strict
+# structured output has no optional keys, so every field below is `required` and a
+# schema-enforcing backend (openai-api / codex / claude-code / claude-api) must answer
+# all three fact groups even when `_candidate_block` asked about one. Absence is now
+# spelled as an explicit null. What actually prevents a wrong disqualification is CODE,
+# not schema permissiveness: `_screen_verdict` gates each check on the candidate having
+# configured it AND on the model having `_said_something`, and `_quote_in` verifies the
+# sponsorship quote. The default ollama backend ignores the schema entirely (format=json
+# constrains output to *some* object), so on it a blind check still arrives as an omitted
+# key — which is why the value test, not a null test, is the one that holds everywhere.
 SCREEN_SCHEMA = {
     "type": "object",
     "properties": {

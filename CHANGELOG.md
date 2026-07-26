@@ -9,6 +9,34 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Every codex fit call was returning HTTP 400: the scoring backend was dead, not
+  degraded.** OpenAI structured output requires every object to list every key of
+  `properties` in `required`; the `screen` block added to `_score_schema` by `66dfb65`
+  and the whole of `SCREEN_SCHEMA` had `properties` and no `required`, so the API
+  rejected the request before the model ran (`invalid_json_schema ... Missing
+  'required_degree'`). `score_eval` — the gate blocking a merge — could not execute a
+  single row. Only ollama was unaffected, because `format="json"` constrains output to
+  *some* object rather than to a schema, which is why nothing caught it. Both schemas are
+  now strict-valid, with "omitted" spelled as an explicit null (`screen` is
+  object-or-null, every leaf nullable) so a scorer with nothing to say still cannot fail
+  the card.
+
+  **The quieter half:** fixing the schema alone would have silently retired the Stage 4
+  fallback. `_screen_verdict` gated the degree and clearance checks on the model
+  returning a non-empty entry *dict*, and under a strict schema the model must emit every
+  key — so a blind check arrives as `{"required_degree": null}`, a non-empty dict saying
+  nothing, and would have been recorded as a genuine pass with `merge_fallback_screen`
+  never seeing the gap. Both gates now test the **value** via `_said_something`, which
+  mirrors the emptiness rule each checker already applies: `null`, `""` and the
+  `"unknown"` family are all "no data", because `screen.txt` instructs the model to
+  answer `"unknown"` for an unstated fact and `_degree_rank` already maps it to rank 0.
+  A `False` boolean is a fact, not a gap.
+
+  `test_schema_is_strict_mode_valid` walks `_batch_schema` (the payload codex actually
+  receives — `_batch_schema` was hoisted to module level so the guard can reach it),
+  `_score_schema` and `SCREEN_SCHEMA`, failing on any object whose properties are not all
+  required.
+
 - **`--rescreen-discarded` could destroy the rows it exists to rescue.** Stub-gate
   discards are stored deliberately un-hydrated (`description=''`) because they never
   reach the scorer — `run_fetch` exempts them from the bodyless drop for exactly that
