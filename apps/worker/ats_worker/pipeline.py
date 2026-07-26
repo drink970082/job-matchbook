@@ -552,12 +552,24 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                 # still QUEUED (in-flight calls can't be unspawned — the pool is filled
                 # up front so consumption stays in submission order); on a real provider
                 # each call takes long enough that this stops most of the backlog.
+                # SAY SO: the rows keep attempts=0 and never reach the Failed tab, so an
+                # abort that printed nothing would look exactly like a pass with no work
+                # to do — the same silence this breaker exists to end.
+                print("[screen] screen backend appears down "
+                      f"({_BREAKER_LIMIT} provider errors, no successes) — aborting the "
+                      "screen phase; remaining rows stay 'new'")
                 for pending in futures:
                     pending.cancel()
                 break
             try:
                 screen = future.result()
             except Exception as exc:  # noqa: BLE001 — one bad screen never aborts the pass
+                # Counts toward the breaker exactly like a provider_error verdict: a
+                # backend whose failure mode RAISES is just as systemic as one that
+                # returns the flag, and leaving it uncounted would let an outage march
+                # the whole backlog to terminal `failed` (the fit phase pairs the two
+                # the same way).
+                screen_breaker.record_failure()
                 db.mark_failed(conn, row["id"], error=str(exc), now=now)
                 continue
             if screen.get("provider_error"):
