@@ -1,6 +1,10 @@
 # Provider choice, screening, and onboarding — session notes
 
-**Date:** 2026-07-22 · **Status:** design agreed, spec not yet written
+**Date:** 2026-07-22 · **Status:** CLOSED 2026-07-25. Tracks 1-3 and 5 shipped via the
+[11-task plan](../plans/2026-07-23-screen-backends-and-sponsorship.md); track 4 shipped
+its `AGENTS.md` half and left the skills-symlink half unverified (see `PROGRESS.md`
+"In flight"). Track 4 shipped the **reverse** link direction from the one proposed
+below, and `AGENTS.md` as a real file — both corrections, both recorded here.
 
 These are the decisions and findings from the design session. They are *notes*,
 not the implementation spec — the spec covers all five tracks below and comes next.
@@ -170,10 +174,15 @@ Keep the screen, repoint it:
    the provider path from what is actually installed, before the interview. The
    skill reads `doctor` output instead of carrying its own prereq prose, which
    makes it shorter *and* agent-agnostic.
-4. **Agent portability** — move skills to `.agents/skills/`, symlink
-   `.claude/skills` → `.agents/skills`, add a thin root `AGENTS.md` pointing at
-   `CLAUDE.md` and the skills. **Verify Claude Code follows a symlinked skills
-   dir** before committing to that direction rather than the reverse.
+4. **Agent portability** — ~~move skills to `.agents/skills/`, symlink
+   `.claude/skills` → `.agents/skills`~~. **Shipped the reverse 2026-07-25:**
+   `.claude/skills` stays real and `.agents/skills` is the link, so the consumer
+   using these skills every session is never at risk and
+   `test_add_watched.py`'s path resolution is untouched. The verification this
+   note demanded was not performed — it was *swapped* for the mirror-image
+   question about Codex, which is still open. `AGENTS.md` shipped as a **real
+   file**, as this note originally said ("a thin root `AGENTS.md` pointing at
+   `CLAUDE.md`"); a symlink was tried and rejected in review.
 5. **Sponsorship screen rework** — quote-grounded LLM primary, phrase list as
    floor, plus the labeled set and gate.
 
@@ -183,5 +192,8 @@ should land together.
 ## Open questions
 
 - OpenAI API model string for the screen — unchosen.
-- Does Claude Code discover skills through a symlinked `.claude/skills`?
+- ~~Does Claude Code discover skills through a symlinked `.claude/skills`?~~ Moot —
+  `.claude/skills` stayed a real directory. **Replaced by:** does Codex (or any
+  non-Claude agent) discover skills through a symlinked `.agents/skills`? Still open,
+  and it is now the only thing standing between track 4 and done.
 - Screen batch size for the codex backend — pick after the batched==single guard.

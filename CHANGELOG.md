@@ -9,6 +9,34 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`--rescreen-discarded` could destroy the rows it exists to rescue.** Stub-gate
+  discards are stored deliberately un-hydrated (`description=''`) because they never
+  reach the scorer — `run_fetch` exempts them from the bodyless drop for exactly that
+  reason. `requeue_discarded` was unfiltered, so it flipped them to `new`; the thin-JD
+  gate then parked them `scored` at score 0, and because `upsert_postings` is
+  `ON CONFLICT DO NOTHING` no later pass could ever back-fill the JD. The row ended up
+  neither scored nor recoverable, on a high-volume source (phenom). It now requeues only
+  rows with a non-empty description; an un-hydrated stub stays `discarded`, where the
+  stub gate can still revisit it.
+
+- **The screen circuit breaker aborted silently and ignored raised failures.** Two gaps
+  in the breaker shipped 2026-07-24. It printed nothing on trip, unlike its fit-phase
+  twin — and since aborted rows keep `attempts=0` and never reach the Failed tab, a
+  misconfigured provider produced a pass that did nothing and said nothing, the same
+  silence the breaker was built to end. It also called `record_failure()` only on the
+  `provider_error` verdict, not on the `except` path, so a backend whose failure mode
+  *raises* marched every row to `failed` uncounted — three passes (18 hours at
+  `schedule_hours: 6`) would park the backlog terminal, the outcome the breaker exists to
+  prevent. Both fixed, and both now covered by tests that fail when the breaker is stubbed
+  out — the two pre-existing tests do not, since a `provider_error` row is skipped with or
+  without a breaker.
+
+- **`_scorer_meta` stamped the Anthropic model onto any unrecognized backend.**
+  `make_scorer` raises on an unknown backend; its provenance twin fell through to
+  `anthropic_score_model`, so a stray `SCORE_BACKEND=openai` in a `.env` (argparse does
+  not validate an env-supplied `default` against `choices`) wrote a stamp naming a model
+  that never ran. A silently wrong provenance field is worse than none. It now raises.
+
 - **A real-but-irrelevant quote can no longer disqualify a posting for sponsorship.**
   `_check_authorization` verified that the model's `no_sponsorship_quote` actually
   appears in the JD, which makes hallucination unable to disqualify anything — but
@@ -18,15 +46,30 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   direction — a false positive here silently discards a good posting, the error "err
   toward keep" exists to prevent. Five of the eight were a single Optiver boilerplate
   line, *"We do not require any assistance from third-parties including agencies in the
-  recruitment of this role"* — about recruiters, not visas. A verified quote must now
-  also be on topic (`_quote_on_topic`: sponsor · visa · immigration · authoriz/authoris
-  · citizen · right to work · work permit · green card). The gate removes exactly those
-  5 false positives and **zero** true positives, taking precision **71.4% -> 87.0%**
-  with recall unchanged at 100%; the retired `NO_SPONSOR_PHRASES` gate alone measured
-  81.8% / 45.0%, so the rework now beats it on both axes. `tools/sponsor_diff.py` applies
-  the same gate, so future runs measure shipped behavior. The 3 remaining false positives
-  are one soft phrasing ("prioritizing applicants who ... do not require sponsorship of a
-  visa") that is genuinely on topic and no quote-side gate reaches — accepted, not open.
+  recruitment of this role"* — about recruiters, not visas.
+
+  A verified quote must now also pass `_quote_on_topic`: three vetoes, then a vocabulary,
+  every one resolving toward keeping the posting. The vetoes are an **off-topic** sentence
+  that merely carries an authorization word — the recorded D1 pair, *"company-sponsored
+  sports teams"* and *"we do not discriminate on citizenship"*, the latter sitting in
+  essentially every US posting; the wrong **polarity**, since quote grounding fixes
+  invented *text* but not inverted *meaning* and *"Visa sponsorship is available for this
+  position."* is the most valuable line in a JD for a candidate who needs it; and a soft
+  **preference** (*"prioritizing applicants who…"*), which is not a bar because the
+  candidate can still apply. The vocabulary then also covers visa-category acronyms
+  (*"we cannot support H-1B or OPT candidates"*) and AU/NZ word order (*"full working
+  rights"*), both of which state a refusal using none of the generic terms.
+
+  Measured on the labeled set, **for the whole function rather than one branch of it** —
+  `_check_authorization` is `(grounded AND on topic) OR NO_SPONSOR_PHRASES`, and the
+  ungated floor adds fires that a quote-branch-only number silently omits:
+  the retired phrase gate alone was 81.8% precision / 45.0% recall; the shipped function
+  is **90.9% / 100%**. The gate removes 8 false positives and **zero** true positives.
+  The 2 residual false positives come from the floor, not the gate (IMC, where
+  `without sponsorship` appears inside an *invitation* to people who don't need it) and
+  are recorded as **open**. `tools/sponsor_diff.py` applies the same gate and now also
+  writes a `-suppressed.json` of rows the gate rejected — without it the tool counts a
+  suppressed row as agreement and goes blind to the one failure the gate introduces.
 
 - **A dead screen provider no longer hands the whole backlog to the paid scorer.**
   `screen_posting` catches any provider exception and errs toward KEEP — correct for one
@@ -184,30 +227,35 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
-- **The repo's skills and agent instructions are readable by agents other than Claude
-  Code.** `SKILL.md` is a cross-agent standard, but the discovery *paths* are not: Claude
-  Code reads `.claude/skills/`, Codex reads `.agents/skills/`, and the repo had no root
-  `AGENTS.md` at all (the Linux Foundation convention that 30+ agents look for). Both are
-  now symlinks — `.agents/skills` -> `.claude/skills` and `AGENTS.md` -> `CLAUDE.md` —
-  stored by git as mode `120000`, so there is one copy of each and nothing to drift.
-  The link direction is deliberately the reverse of what the plan proposed: the plan
-  wanted the skills *moved* to `.agents/skills/` with `.claude/skills` as the link, gated
-  on first verifying that Claude Code discovers skills through a symlink. Inverting it
-  retires that unverified premise instead of testing it, and the risk is asymmetric — a
-  link Claude Code won't follow breaks the consumer that uses these skills every session,
-  while a link Codex won't follow leaves Codex exactly where it already was. It also
-  leaves `test_add_watched.py`'s `.claude/skills/onboard-board/scripts/add_watched.py`
-  path resolution untouched. Completes track 4, the last of the five provider-choice and
-  onboarding tracks.
+- **A root `AGENTS.md` — the convention agents other than Claude Code look for.** The
+  repo had none, so every non-Claude agent arrived with no project instructions at all.
+  It is a **real file**, not a symlink to `CLAUDE.md`: git stores a symlink as a blob
+  containing the target path, so `raw.githubusercontent.com/.../AGENTS.md` would serve
+  nine bytes reading `CLAUDE.md` to any agent fetching it over HTTP, and a Windows
+  checkout without `core.symlinks=true` materializes it as a plain text file with the
+  same nine bytes — an agent finds a file, reads it, and stops looking, which is worse
+  than finding nothing. It carries the same guidance as `CLAUDE.md` minus the
+  Claude-Code-specific conduct (effort levels, subagent policy) that would mislead a
+  different agent. The two are hand-synced; there is little in either to drift.
+  `.agents/skills` is a symlink to `.claude/skills` so agents that look there find the
+  `SKILL.md` files — **but whether any of them follow a symlinked directory is untested**,
+  and most directory walkers do not by default, so that half is recorded as unverified
+  rather than shipped.
 
-- **SPEC's source-coverage matrix is now a tested artifact, not a hand-kept table.**
-  `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts its
-  rows against `fetch.ADAPTERS` and `config.VALID_SOURCES`, so adding a 14th adapter — or
-  promoting a feed-only source to the watchlist — reds the suite until the doc says so.
-  The source name is the Platform column's first word (`Oracle Cloud HCM` -> `oracle`) and
-  a row whose Adapter cell begins `via ` is skipped as routed through another module; the
-  Feed router column stays unguarded on purpose, since `resolve_url` is a URL-pattern
-  parser rather than a registry (the same reason the `AdapterSpec` proposal was rejected).
+- **Two of SPEC's source-coverage matrix columns are now tested, not hand-kept.**
+  `test_spec_matrix_matches_adapters` parses the matrix out of `SPEC.md` and asserts the
+  **Platform** column's source names against `fetch.ADAPTERS` and the **Watchlist**
+  column against `config.VALID_SOURCES`, so adding a 14th adapter — or promoting a
+  feed-only source to the watchlist — reds the suite until the doc says so. Adapter,
+  Host(s) and Feed router are deliberately **not** guarded and SPEC now says so:
+  `resolve_url` is a URL-pattern parser rather than a registry (the same reason the
+  `AdapterSpec` proposal was rejected), and the adapter cell's prose has nothing to
+  compare against. The source name is the Platform column's first word
+  (`Oracle Cloud HCM` -> `oracle`); a row whose Adapter cell begins `via ` is skipped as
+  routed through another module. Cell text is normalized for `code`, **bold** and
+  `[label](url)` first, and rows are split on unescaped pipes only — a guard that reds CI
+  because someone bolded a word is worse than no guard, and a naive split would have read
+  the Watchlist value out of the Feed router column, silently wrong rather than loud.
   Alongside it, `test_watchlist_sources_can_list` asserts every `VALID_SOURCES` member's
   adapter actually exposes `fetch` — the existing guard only checked the name was in
   `ADAPTERS`, which a feed-only `fetch_one`-only module would have passed.
