@@ -1249,6 +1249,45 @@ def test_run_score_provider_error_still_discards_on_a_deterministic_gate(db_path
         "SELECT pipeline_status FROM job_postings").fetchone()[0] == "discarded"
 
 
+def test_run_score_screen_breaker_aborts_and_says_so(db_path, capsys):
+    # The assertion that actually pins the breaker. The sibling test below checks only
+    # that rows stay 'new'/attempts=0 -- which is ALSO true with no breaker at all, since
+    # every provider_error row hits `continue` regardless (verified: stubbing the trip
+    # check out leaves the whole suite green). The abort announcement is the one
+    # observable the breaker uniquely produces, and an unannounced abort is itself the
+    # defect -- rows keep attempts=0 and never reach the Failed tab, so a silent abort
+    # looks exactly like a pass with nothing to do.
+    conn = db.connect(db_path)
+    _seed_new(conn, [str(i) for i in range(pipeline._BREAKER_LIMIT + 5)])
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: {"screen": {}, "disqualified": False, "provider_error": True},
+        fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("fit must not run")),
+        screen_workers=1,
+    )
+    assert "screen backend appears down" in capsys.readouterr().out
+
+
+def test_screen_breaker_counts_raised_failures_too(db_path):
+    # A backend whose failure mode RAISES is as systemic as one returning the flag.
+    # Uncounted, an outage marks every row `failed` (attempts+1) and three passes park
+    # the backlog terminal -- the "a morning out and the queue is gone" outcome the
+    # breaker exists to prevent. Rows past the limit must stay untouched at attempts=0.
+    conn = db.connect(db_path)
+    n = pipeline._BREAKER_LIMIT + 5
+    _seed_new(conn, [str(i) for i in range(n)])
+
+    def screen_fn(posting):
+        raise RuntimeError("connection refused")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: (_ for _ in ()).throw(AssertionError("no fit")),
+                       screen_workers=1)
+    rows = conn.execute("SELECT pipeline_status, attempts FROM job_postings").fetchall()
+    untouched = [r for r in rows if r["pipeline_status"] == "new" and r["attempts"] == 0]
+    assert untouched, "breaker never aborted; every row was marked failed"
+
+
 def test_run_score_circuit_breaks_a_dead_screen_provider(db_path):
     # A dead screen provider is SYSTEMIC, not per-item: without a breaker the whole
     # backlog is silently left unscreened. Trip after _BREAKER_LIMIT consecutive
@@ -1385,6 +1424,31 @@ def test_requeue_discarded_returns_rows_to_new_for_a_later_screen(db_path):
     pipeline.run_score(conn, now=LATER, screen_fn=lambda p: {"disqualified": False},
                        fit_fn=lambda ps: [_card() for _ in ps])
     assert conn.execute("SELECT pipeline_status FROM job_postings").fetchone()[0] == "scored"
+
+
+def test_requeue_discarded_leaves_un_hydrated_stub_discards_alone(db_path):
+    # Stub-gate discards are stored with description='' on purpose (run_fetch exempts
+    # them from the bodyless drop) because they never reach the scorer. Requeueing one
+    # DESTROYS it: it becomes 'new', the thin-JD gate parks it 'scored' at score 0, and
+    # upsert_postings is ON CONFLICT DO NOTHING so no later pass ever back-fills the JD.
+    # The rows the flag exists to rescue are exactly the ones it must not touch.
+    conn = db.connect(db_path)
+    conn.execute(
+        "INSERT INTO job_postings (source, external_id, job_title, company_name, "
+        "job_url, description, pipeline_status, attempts, created_at, updated_at) "
+        "VALUES ('phenom','stub','Engineer','Acme','https://x/1','','discarded',0,?,?)",
+        (NOW, NOW))
+    conn.commit()
+
+    assert db.requeue_discarded(conn, LATER) == 0
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "discarded", "un-hydrated stub was requeued"
+
+    # A hydrated discard on the same table still comes back, so the guard is a filter,
+    # not a blanket refusal.
+    conn.execute("UPDATE job_postings SET description='A real job description.'")
+    conn.commit()
+    assert db.requeue_discarded(conn, LATER) == 1
 
 
 def test_requeue_discarded_leaves_every_other_status_alone(db_path):

@@ -1,9 +1,10 @@
 # CLAUDE.md
 
-Guidance for coding agents (and humans) working in this repo. `AGENTS.md` is a symlink
-to this file, and `.agents/skills` a symlink to `.claude/skills`, so an agent reading
-either convention gets the same instructions and the same skills — there is one copy of
-each, not two to drift apart.
+Guidance for Claude Code (and humans) working in this repo. [`AGENTS.md`](./AGENTS.md)
+is the same guidance for other agents, minus the Claude-Code-specific conduct below —
+a real file, not a symlink (a symlinked `AGENTS.md` serves as its 9-byte target path
+over `raw.githubusercontent.com` and degrades silently on Windows). Keep the two in
+sync by hand.
 
 ## The docs
 

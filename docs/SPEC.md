@@ -368,13 +368,17 @@ worker modules are pure and dependency-injected; real services are wired only in
     null/unparseable `posted_at` both keep the posting — err toward keep).
 
   **Source coverage matrix** (the at-a-glance support map — keep it current when a
-  source is added; `test_spec_matrix_matches_adapters` fails if you don't). *Adapter*
-  = can fetch a JD; *feed router* = `resolve_url` maps the host; *watchlist* =
-  enumerable per-board source (in `VALID_SOURCES`). These capabilities come apart —
-  e.g. Pinpoint has an adapter + watchlist but no feed router. The test reads the
-  **Platform** column's first word as the source name and skips a row whose *Adapter*
-  cell begins `via ` (routed through another module); the *Feed router* column is
-  hand-maintained (`resolve_url` is a URL-pattern parser, not a registry) and unguarded:
+  source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps the
+  host; *watchlist* = enumerable per-board source (in `VALID_SOURCES`). These
+  capabilities come apart — e.g. Pinpoint has an adapter + watchlist but no feed router.
+  **Only two of the five columns are tested.** `test_spec_matrix_matches_adapters` reads
+  the **Platform** column's first word as the source name and checks the set against
+  `ADAPTERS`, and checks **Watchlist** `yes` against `VALID_SOURCES`; it skips a row
+  whose *Adapter* cell begins `via ` (routed through another module). *Adapter*,
+  *Host(s)* and *Feed router* are **hand-maintained and unguarded** — `resolve_url` is a
+  URL-pattern parser rather than a registry, and the adapter cell's prose has no single
+  source of truth to compare against, so a wrong value in those three columns will not
+  fail CI:
 
   | Platform | Host(s) | Adapter | Feed router | Watchlist |
   |---|---|---|---|---|
@@ -864,10 +868,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   the separate score/notify budgets, the 3-failure ceiling each, `discarded`-on-retry
   being legitimate — are contract; see §9 "Failure handling and recovery limits".
   `db.requeue_discarded(conn, now)` is the operator-only counterpart for the other
-  terminal state: `--rescreen-discarded` returns **every** `discarded` row to `new`
-  immediately before `run_retry`, so a candidate hard-requirement edit doesn't leave
-  postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`) and
-  unfiltered by design; `main` rejects it without `--once` (§9).
+  terminal state: `--rescreen-discarded` returns every **hydrated** `discarded` row to
+  `new` immediately before `run_retry`, so a candidate hard-requirement edit doesn't
+  leave postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`);
+  filtered on one thing only — a row with an empty `description` is a stub-gate discard
+  and is left alone, because requeueing it destroys it irreversibly (§9). `main` rejects
+  the flag without `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 ### 7.2 Web (`apps/web/src/`)
@@ -1344,9 +1350,15 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `exclude_internships`), so without an escape hatch an edit — or a fix to the screen
   itself — would leave every prior discard frozen under the old rule, and a **false**
   discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
-  run immediately before `run_retry`) returns them all to `new` for this pass.
-  Unbudgeted and unfiltered: a discard spends no `attempts`, so there is no counter to
-  guard the way `run_retry` guards two, and the flag means all of them. It is
+  run immediately before `run_retry`) returns them to `new` for this pass.
+  Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
+  `run_retry` guards two. **Filtered on exactly one condition — the row must have a
+  non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
+  (`run_fetch` exempts `discarded` rows from the bodyless drop) because it never reaches
+  the scorer; requeueing one is *irreversible loss*, since it becomes `new`, the thin-JD
+  gate parks it `scored` at score 0, and `upsert_postings` is `ON CONFLICT DO NOTHING`
+  so no later pass back-fills the JD. Left `discarded`, the stub gate can still revisit
+  it. Everything else comes back. It is
   **one-shot** — `main` rejects it without `--once`, because on the interval schedule
   it would resurrect the same discards every pass and re-charge the paid fit scorer
   for each survivor indefinitely. Screening is free on the default ollama backend; the
@@ -1440,7 +1452,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
-| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
+| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
+| The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
+| `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
 | `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
 | Scorer provenance (`backend`/`model`/`scorer_version`) stamped into `score_detail` on fit-scored rows only — never screen-discarded or low-context; `model` tracks the backend `make_scorer` picks | `test_pipeline.py` (`test_run_score_stamps_provenance_only_on_fit_scored_rows`, `test_run_score_stamps_provenance_on_fallback_disqualified_rows`, `test_run_score_omits_provenance_when_no_scorer_meta`), `test_run.py` (`test_run_once_stamps_the_active_fit_backend_and_model`, `test_scorer_meta_model_tracks_the_backend_make_scorer_picks`) |
 | `discarded` is terminal except via `--rescreen-discarded` (`db.requeue_discarded`): all discards → `new`, no other status touched, one-shot (rejected without `--once`) | `test_pipeline.py` (`test_requeue_discarded_returns_rows_to_new_for_a_later_screen`, `test_requeue_discarded_leaves_every_other_status_alone`), `test_run.py` (`test_run_once_rescreen_discarded_requeues_before_scoring`, `test_rescreen_discarded_requires_once`) |
