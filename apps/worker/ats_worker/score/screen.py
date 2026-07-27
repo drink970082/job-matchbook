@@ -52,10 +52,13 @@ DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
                4: "master's", 5: "phd"}
 
 # The FLOOR for the sponsorship gate, not the gate itself. The primary check is the
-# quote-grounded LLM extraction in _check_authorization; this closed list runs after it
-# and can only ADD a disqualification, never veto a model pass. Measured recall on its
-# own is ~2/11 realistic phrasings, which is why it was demoted. Kept because it costs
-# nothing and catches the blunt wordings even on SCREEN_BACKEND=none.
+# quote-grounded LLM extraction in _check_authorization; this closed list runs ONLY when
+# the model produced no quote at all, and can only ADD a disqualification. Measured recall
+# on its own is ~2/11 realistic phrasings, which is why it was demoted. Kept because it
+# costs nothing and catches the blunt wordings when there is no model verdict to trust.
+# It matches a substring ANYWHERE in the description with no sentence boundary, which is
+# why it is scoped to the no-quote case: "eligible to work without sponsorship, we
+# encourage you to apply" is an invitation, and it fired on it (IMC ids 465/490).
 NO_SPONSOR_PHRASES = (
     "will not sponsor", "does not sponsor", "do not sponsor", "cannot sponsor",
     "unable to sponsor", "not able to sponsor", "no visa sponsorship", "no sponsorship",
@@ -358,100 +361,71 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     return True, ""
 
 
-# Vocabulary the quote must touch to count as being ABOUT work authorization.
-# MEASURED, not guessed: this list scored 100% precision on the 2026-07-25 labeled set.
-# A round of speculative additions ("opt ", "cpt ", "e-3", "us person") for misses nobody
-# had observed was reverted -- each collided with boilerplate that appears in a large
-# share of postings ("generous personal time off", "we adopt", "opt out", "E-3 on our
-# ladder", "CPT and ICD-10"), and every collision lands on the expensive side. Add a term
-# only together with a MUST_FLAG sentence in tests/fixtures/sponsorship_quotes.py that
-# needs it, and only if MUST_KEEP still passes.
-AUTHORIZATION_TERMS = (
-    "sponsor", "visa", "immigration", "authoriz", "authoris",
-    "citizen", "right to work", "working rights", "work permit", "green card",
-    "permanent residen", "h-1b", "h1b", "leave to remain", "settled status",
-)
-
-# Sentences that CONTAIN an authorization word while saying nothing about whether THIS
-# employer sponsors. Every pattern is here because a real posting produced it.
-_OFF_TOPIC_QUOTE = re.compile(
-    # "sponsor" in its other English senses: events, teams, content, programme owners
-    r"company[- ]sponsor|sponsored (content|by|post)|event sponsor|executive sponsor"
-    r"|we sponsor[^.]{0,40}(conference|event|team|meetup|hackathon|charit)"
-    # EEO boilerplate. No distance limit: the protected-class list between the verb and
-    # "citizenship" runs long, and "without regard to" carries no "discriminat" at all.
-    r"|discriminat\w*[^.]*citizen|without regard to[^.]*citizen"
-    r"|citizenship status is not"
-    # "authorization" as an engineering noun
-    r"|authoriz\w*[^.]{0,30}(access|authentication|server|model|service|stack|oauth)"
-    r"|(authentication|oauth\w*|oidc|rbac)[^.]{0,30}authoriz"
-    r"|access[- ]control"
-    # "Visa" the payment network
-    r"|visa[^.]{0,30}(mastercard|amex|payment|card network|transaction)"
-    r"|(mastercard|amex)[^.]{0,30}visa"
-    # "right to work" as a workplace-dignity phrase
-    r"|right to work in an? (environment|workplace|culture)",
-    re.IGNORECASE)
-
-# A sentence that OFFERS sponsorship must never disqualify: quote grounding fixes
-# invented *text*, never inverted *meaning*, and "Visa sponsorship is available" is the
-# most valuable line in a JD for a candidate who needs it.
+# POSITIVE EVIDENCE of an employer refusal or a hard authorization bar. The gate fires
+# ONLY on a match here; ANY unmatched sentence keeps the posting.
 #
-# These patterns are deliberately TIGHT rather than gated by a sentence-wide negation
-# search. An earlier version asked "does it look like an offer AND contain no negation
-# anywhere?", which fails on the exact shape offers are written in -- "available for
-# candidates who do NOT already have the right to work", "sponsorship; NO relocation".
-# Negation is evidence of a negation, not of a refusal. Instead each pattern requires the
-# affirmative verb to sit directly against the sponsorship word, so "sponsorship is not
-# available" and "we are not able to sponsor" simply do not match.
-_OFFERS_SPONSORSHIP = re.compile(
-    r"sponsor\w*\s+(?:is|are)\s+(?:available|offered|provided|possible)"
-    r"|sponsorship available"
-    r"|\b(?:we|they)\s+(?:can|will|do|are happy to|are willing to|are able to|"
-    r"are pleased to)\s+sponsor"
-    r"|\b(?:offers?|offering|provides?|providing)\s+(?:full\s+|uk\s+|us\s+)?"
-    r"(?:visa\s+|immigration\s+)?sponsorship"
-    r"|open to sponsor|eligible for sponsorship|will consider sponsor|\bwe sponsor\b",
+# Inverted 2026-07-26 from the veto design (fire on any authorization word, then subtract
+# off-topic / wrong-polarity / soft-preference sentences). That direction asked the author
+# to anticipate every innocent English sentence containing "sponsor", "visa", "citizen" or
+# "authoriz": three review rounds each turned up a category nobody had anticipated, and one
+# shipped version disqualified "We offer generous personal time off". Under positive
+# evidence an incomplete list yields a MISS -- one paid fit call, and the human still reads
+# the JD -- instead of a wrong DISCARD, which nobody reviews. PRINCIPLES' four-way table
+# calls this candidate-opportunity uncertainty: keep.
+#
+# Same standing rule as the vocabulary it replaces: add a pattern only together with a
+# must_flag sentence in tests/fixtures/sponsorship_quotes.json that needs it, and only if
+# must_keep still passes.
+_SPONSORSHIP_BAR = re.compile(
+    # 1. the employer refuses to sponsor: a negated auxiliary directly against "sponsor".
+    #    "do not" must sit against the VERB, so "do not require sponsorship of a visa"
+    #    (a TikTok invitation) does not match.
+    r"\b(?:do|does|will|would|can|could|are|is|am)\s+not\s+"
+    r"(?:currently\s+|presently\s+|at (?:this|the) time\s+|able to\s+|be able to\s+|"
+    r"in a position to\s+)?sponsor"
+    r"|\b(?:cannot|can not|can't|won't|unable to|not able to|not in a position to|"
+    r"no longer)\s+(?:currently\s+)?sponsor"
+    # 2. ... or refuses a sponsorship-shaped OBJECT ("we do not provide immigration
+    #    sponsorship", "we cannot accept visa holders"). Short verb list, object within
+    #    30 chars of it.
+    r"|\b(?:(?:do|does|will|would|can|could|are|is)\s+not|cannot|can not|can't|won't|"
+    r"unable to|not able to)\s+(?:currently\s+|be able to\s+|able to\s+)?"
+    r"(?:provide|offer|accept|grant|extend|arrange|assist with)\w*[^.]{0,30}"
+    r"(?:visa|sponsorship|immigration|work permit|h-?1b|employment authoriz\w*)"
+    # 3. sponsorship stated as unavailable, in either word order
+    r"|sponsor\w*\s+(?:is|are)\s+not\s+(?:currently\s+)?"
+    r"(?:available|offered|provided|possible|an option|supported)"
+    r"|\bno\s+(?:visa\s+|immigration\s+|work\s+)?sponsorship\b"
+    # 4. a hard bar on the candidate's side. "must" is required: without it "the right to
+    #    work in the UK" appears in offers just as often as in bars.
+    r"|\bmust\s+(?:be|hold|have|possess|maintain)\b[^.]{0,60}"
+    r"(?:citizen|permanent residen|green card|full working rights|working rights|"
+    r"unrestricted[^.]{0,20}authoriz|unrestricted[^.]{0,20}authoris)"
+    # 5. ... including the two citizenship-bar wordings that never say "must"
+    r"|citizenship\s+(?:is|are|will be)\s+(?:a\s+)?(?:strict\s+)?"
+    r"(?:required|requirement|mandatory)"
+    r"|requir\w*[^.]{0,60}\bbe\s+(?:an?\s+)?(?:[a-z.]+\s+)?citizen",
     re.IGNORECASE)
 
-_NEGATION = re.compile(r"\b(?:not|never|cannot|can't|won't|unable|no)\b|n't", re.IGNORECASE)
 
-# A soft PREFERENCE is not a bar -- the candidate can still apply, so discarding on one
-# is a lost opportunity. Measured: 3 of the 8 false positives in the labeled set are this
-# shape. Scoped to the sponsorship clause, not the whole sentence, so a hard bar that
-# happens to list a "plus" elsewhere still disqualifies.
-_PREFERENCE_ONLY = re.compile(
-    r"(?:prioritiz\w*|prefer\w*|ideally)[^.]{0,80}"
-    r"(?:sponsor|visa|right to work|work authoriz|work authoris)",
-    re.IGNORECASE)
+def _quote_states_refusal(quote) -> bool:
+    """Does `quote` carry POSITIVE evidence that this employer will not sponsor, or bars
+    candidates who need sponsorship? Anything unmatched KEEPS the posting.
 
+    Guards the direction that costs the most: a false positive DISQUALIFIES a good posting
+    silently -- the error 'err toward keep' exists to avoid (PRINCIPLES) -- while a miss
+    costs one paid fit call and still reaches the human, who reads the JD. So the check is
+    a closed list of refusal shapes rather than a broad trigger with exceptions carved out.
 
-def _quote_on_topic(quote) -> bool:
-    """Is `quote` a sentence stating THIS employer will not sponsor?
-
-    Guards the direction that costs the most: a false positive DISQUALIFIES a good
-    posting silently, which is the error 'err toward keep' exists to avoid (PRINCIPLES).
-    A false negative costs one paid fit call. So every veto resolves toward keeping, and
-    the vocabulary is the last gate rather than the only one.
-
-    Pinned by tests/fixtures/sponsorship_quotes.py -- change nothing here without
+    Pinned by tests/fixtures/sponsorship_quotes.json -- change nothing here without
     running that corpus in both directions.
     """
-    text = " ".join(str(quote or "").lower().split())
-    if not text:
-        return False
-    if _OFF_TOPIC_QUOTE.search(text):       # authorization word, unrelated sentence
-        return False
-    offer = _OFFERS_SPONSORSHIP.search(text)
-    # A negation IMMEDIATELY before the offer verb makes it a refusal ("we do not
-    # PROVIDE immigration sponsorship"). Scoped to the 14 chars before the match, not to
-    # the sentence: offers routinely carry a negation elsewhere ("available for
-    # candidates who do not already have the right to work").
-    if offer and not _NEGATION.search(text[max(0, offer.start() - 14):offer.start()]):
-        return False                        # wrong polarity -- it OFFERS sponsorship
-    if _PREFERENCE_ONLY.search(text):       # a preference, not a bar
-        return False
-    return any(term in text for term in AUTHORIZATION_TERMS)
+    # Drop the dots of single-letter abbreviations ("u.s." -> "us"): every pattern below
+    # scopes itself with `[^.]`, which a mid-sentence "U.S." otherwise cuts in half
+    # ("Applicants must hold U.S. Permanent Residency"). Only single-letter tokens lose
+    # their dot, so real sentence ends still bound the patterns.
+    text = re.sub(r"\b([a-z])\.", r"\1", " ".join(str(quote or "").lower().split()))
+    return bool(text) and bool(_SPONSORSHIP_BAR.search(text))
 
 
 def _quote_in(quote, description: str) -> bool:
@@ -475,22 +449,37 @@ def _check_authorization(cand_auth, description: str = "",
     KEPT — hallucination cannot disqualify anything by construction, not by trust.
     This holds on qwen3.5:4b too, so D1 needs no re-litigating.
 
-    Second gate: the quote must also be ON TOPIC (`_quote_on_topic`). Presence proves
-    the sentence is real, not that it is about sponsorship — the 2026-07-25 labeled set
-    caught the model quoting real-but-irrelevant agency boilerplate on 5 of 28 fires.
+    Second gate: the quote must state a REFUSAL (`_quote_states_refusal`). Presence
+    proves the sentence is real, not that it bars this candidate — the 2026-07-25 labeled
+    set caught the model quoting real-but-irrelevant agency boilerplate on 5 of 28 fires.
 
-    Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
-    vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
+    Floor: NO_SPONSOR_PHRASES runs only when the model produced NO quote at all — a
+    substring match with no sentence boundary is not a second opinion on a model that
+    did look and quoted something else, and scanning the whole description is where its
+    own false positives came from. Its note carries the matched sentence, so a floor
+    disqualification is inspectable rather than a bare verdict.
     """
     if not _needs_sponsorship(cand_auth):
         return True, ""
     quote = (entry or {}).get("no_sponsorship_quote")
-    if _quote_in(quote, description) and _quote_on_topic(quote):
+    if _quote_in(quote, description) and _quote_states_refusal(quote):
         return False, "no visa sponsorship offered"
+    if str(quote or "").strip():
+        return True, ""  # the model looked and quoted; an ungrounded quote still keeps
     text = " ".join((description or "").lower().split())
-    if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
-        return False, "no visa sponsorship offered"
+    for phrase in NO_SPONSOR_PHRASES:
+        if phrase in text:
+            return False, f'no visa sponsorship offered: "{_sentence_with(text, phrase)}"'
     return True, ""
+
+
+def _sentence_with(text: str, phrase: str) -> str:
+    """The sentence of `text` (whitespace-collapsed, lowercased) holding `phrase`, capped
+    at 200 chars — what makes a phrase-floor disqualification reviewable by a human."""
+    i = text.find(phrase)
+    start = text.rfind(".", 0, i) + 1
+    end = text.find(".", i + len(phrase))
+    return text[start:len(text) if end == -1 else end + 1].strip()[:200]
 
 
 def _check_clearance(entry: dict, cand_clearance) -> tuple[bool, str]:

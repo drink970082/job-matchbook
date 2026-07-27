@@ -26,7 +26,7 @@ import requests  # noqa: E402
 
 from ats_worker import db, run  # noqa: E402
 from ats_worker.score.screen import (NO_SPONSOR_PHRASES, _quote_in,  # noqa: E402
-                                     _quote_on_topic)
+                                     _quote_states_refusal)
 
 
 def _phrase_hit(description: str) -> bool:
@@ -73,7 +73,7 @@ def main() -> int:
         quote = ((data.get("screen") or {}).get("authorization") or {}).get(
             "no_sponsorship_quote")
         grounded = _quote_in(quote, desc)
-        llm = grounded and _quote_on_topic(quote)
+        llm = grounded and _quote_states_refusal(quote)
         phrase = _phrase_hit(desc)
         # A row the RELEVANCE gate suppressed is the new residual, and it agrees with the
         # phrase list (both False) — so without this it would be counted as a free label
@@ -100,7 +100,7 @@ def main() -> int:
             json.dump(suppressed, fh, indent=2)
     print(f"{len(rows)} rows: {agree} agree (free labels), {disagree} disagree")
     if suppressed:
-        print(f"{len(suppressed)} row(s) grounded but suppressed by the relevance gate "
+        print(f"{len(suppressed)} row(s) grounded but not stating a refusal "
               f"-> {args.out.replace('.json', '-suppressed.json')} (the gate's own "
               f"residual: a wrong suppression here is a MISSED disqualification)")
     print(f"hand-label the {disagree} rows in {args.out} (label: "

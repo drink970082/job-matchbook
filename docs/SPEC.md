@@ -589,64 +589,95 @@ worker modules are pure and dependency-injected; real services are wired only in
   present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
   *before* disqualifying — a hallucinated quote fails verification and the posting is
   *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
-  A verified quote must **also be on topic** (`_quote_on_topic`): it has to touch
-  `AUTHORIZATION_TERMS` (sponsor · visa · immigration · authoriz/authoris · citizen ·
-  right to work · work permit · green card). Presence proves a sentence is real, not
-  that it is *about* sponsorship — the 2026-07-25 labeled set caught the model quoting
-  agency boilerplate ("we do not require any assistance from third-parties including
-  agencies in the recruitment of this role") on 5 of 28 fires, wrongly disqualifying
-  those postings. Both gates guard the same direction: a false positive here discards a
-  good posting silently, the error "err toward keep" exists to prevent.
+  A verified quote must **also state a refusal** (`_quote_states_refusal`, positive
+  evidence since 2026-07-26): it has to match one of the closed refusal shapes — a
+  negated auxiliary against *sponsor* ("we do not / cannot / will not sponsor"), a
+  refusal of a sponsorship-shaped object ("do not provide immigration sponsorship",
+  "cannot accept visa holders"), sponsorship stated as unavailable ("sponsorship is not
+  available/offered", "no visa sponsorship"), or a hard bar on the candidate ("must
+  be/hold/have … citizen · permanent residency · green card · working rights ·
+  unrestricted authorization", "citizenship is required", "requires … be an EU
+  Citizen"). **Anything unmatched keeps the posting.** Presence proves a sentence is
+  real, not that it bars this candidate — the 2026-07-25 labeled set caught the model
+  quoting agency boilerplate ("we do not require any assistance from third-parties
+  including agencies in the recruitment of this role") on 5 of 28 fires, wrongly
+  disqualifying those postings.
+
+  **Why positive evidence and not vetoes.** The gate this replaced fired on any
+  authorization word and then subtracted the exceptions (off-topic · wrong polarity ·
+  soft preference). That asks the author to anticipate every innocent English sentence
+  containing *sponsor · visa · citizen · authoriz*: three review rounds each found a
+  category nobody had anticipated, and one shipped version disqualified "We offer
+  generous personal time off". Inverted, an incomplete list produces a **miss** — one
+  paid fit call, and the human still reads the JD — instead of a wrong **discard**,
+  which nobody reviews. The intended trade is precision near 100% with recall
+  meaningfully below it; that is the design, not a regression. All three vetoes are
+  deleted rather than maintained: an EEO line, "Visa sponsorship is available", and
+  "prioritizing applicants who…" each carry no refusal marker.
   This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
   "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
   verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
-  demoted to a **floor** underneath the quote check: it still runs and can only *add*
-  a disqualification, never veto a model pass, so it still catches blunt closed-list
-  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall —
-  measured 2026-07-25** on 3,553 already-scored rows via `tools/sponsor_diff.py`, which
-  diffs the check against the old phrase list so only the 21 disagreements needed
-  hand-labeling against the three-class truth (*no-sponsorship / offers / silent*);
-  agreements are free labels. Against 20 known true positives (the union of both
-  systems — so recall is relative to that union, **not** to truth):
+  demoted to a **floor** underneath the quote check, and since 2026-07-26 it runs
+  **only when the model produced no quote at all**: a substring match with no sentence
+  boundary is not a second opinion on a model that looked and quoted something else. It
+  still catches blunt closed-list phrasings when there is no model verdict, and its note
+  now carries the matched **sentence** (`no visa sponsorship offered: "<sentence>"`) so
+  a floor disqualification is inspectable.
+
+  **Precision/recall — the 2026-07-25 labeled set, recomputed 2026-07-26** for the new
+  shape from the signed artifact `db/runs/20260725-sponsor/sponsor_diff.json` plus the
+  descriptions of the 11 phrase-list positives; **no new model calls**, so the quotes are
+  the ones the 4B model actually produced on that run. Population: 3,553 already-scored
+  rows diffed by `tools/sponsor_diff.py` against the old phrase list, so only the 21
+  disagreements needed hand-labeling (*no-sponsorship / offers / silent*); agreements are
+  free labels. Recall is relative to the 20-row known-true-positive **union of the two
+  systems, not to truth**.
 
   **Measure the whole function, not one branch of it.** `_check_authorization`
-  disqualifies on `(quote grounded AND on topic) OR NO_SPONSOR_PHRASES`, so a number
-  quoted for the quote branch alone flatters it — the ungated floor adds fires nobody
-  counted:
+  disqualifies on `(quote grounded AND states refusal) OR (no quote AND
+  NO_SPONSOR_PHRASES)`, so a number quoted for the quote branch alone flatters it:
 
   | | fires | correct | precision | recall |
   |---|---|---|---|---|
   | `NO_SPONSOR_PHRASES` alone (the retired gate) | 11 | 9 | 81.8% | 45.0% |
   | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
-  | quote branch **+ `_quote_on_topic`** | 20 | 20 | 100% | 100% |
-  | **shipped `_check_authorization` (gate OR floor)** | 22 | 20 | **90.9%** | **100%** |
+  | quote branch + the retired `_quote_on_topic` vetoes | 20 | 20 | 100% | 100% |
+  | quote branch **+ `_quote_states_refusal`** | 20 | 20 | 100% | 100% |
+  | **shipped `_check_authorization` (gate OR scoped floor)** | 22 | 20 | **90.9%** | **100%** |
 
-  The relevance gate removes 8 false positives — 5 agency boilerplate, 3 soft-preference
-  — and **zero** true positives. `_quote_on_topic` is three vetoes then a vocabulary, all
-  resolving toward keep: an off-topic sentence carrying an authorization word (the D1
-  pair: "company-sponsored sports teams", "we do not discriminate on citizenship"), a
-  sentence of the wrong **polarity** ("Visa sponsorship is available for this position."
-  — quote grounding fixes invented text, never inverted meaning), and a soft preference
-  ("prioritizing applicants who…"), which is not a bar because the candidate can still
-  apply.
+  The whole-function numbers are **unchanged** by the rework, and that is the point: the
+  positive-evidence gate keeps all 8 quote-branch false positives out (5 agency
+  boilerplate, 3 soft-preference) and loses **zero** true positives, exactly as the veto
+  stack did, without needing the vetoes to be correct. Two caveats on that table, both
+  load-bearing: (a) for the 9 rows both systems fired on, the model's quote was never
+  persisted, so they are scored on the JD sentence carrying the blunt phrase — in each of
+  those 9 JDs that sentence ("…is required; we will not sponsor individuals for
+  employment authorization…") is the only refusal sentence present, but had the model
+  quoted the adjacent "Legal authorization to work in the U.S. is required" clause
+  instead, the new gate would keep the row (that clause is not a refusal shape and is
+  deliberately not a pattern); (b) the 2 remaining false positives are **still** IMC ids
+  465/490 — scoping the floor did not remove them, because on that run the model produced
+  **no quote** for those two rows, so the floor is exactly the branch that fires. Its
+  `without sponsorship` substring sits inside an invitation ("or are eligible to work
+  without sponsorship, we encourage you to apply"). Closing it means either dropping that
+  phrase from the list or requiring the floor's matched sentence to pass
+  `_quote_states_refusal` too — an open operator call, not shipped here.
 
-  **The vocabulary is measured, not guessed, and that is a standing rule** — a round of
-  speculative terms added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`) each
-  collided with common boilerplate ("generous personal time off", "we adopt", "opt out",
-  "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a real
-  job. Both directions are pinned by a corpus, `tests/fixtures/sponsorship_quotes.json`
-  (32 must-keep / 13 must-flag, every sentence from a real posting, a labeled row, or a
-  review counter-example). **Add a term only with a must-flag sentence that needs it and
-  must-keep still green.** The percentages above are measured on the 2026-07-25 set;
-  sentences added to the corpus since are pinned by the corpus, not re-scored against it.
-
-  **The 2 residual false positives are the ungated floor**, not the gate: IMC ids 465/490,
-  where `without sponsorship` appears inside an *invitation* ("or are eligible to work
-  without sponsorship, we encourage you to apply"). Open, not accepted — the floor matches
-  a substring anywhere in the description with no sentence and no relevance check, which
-  is the blunt-instrument tradeoff it was demoted for. Unmeasured, deliberately: false
+  **Patterns are measured, not guessed, and that is a standing rule** — a round of
+  speculative vocabulary added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`)
+  each collided with common boilerplate ("generous personal time off", "we adopt", "opt
+  out", "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a
+  real job. Both directions are pinned by a corpus,
+  `tests/fixtures/sponsorship_quotes.json` (34 must-keep / 12 must-flag / 1 known-miss,
+  every sentence from a real posting, a labeled row, or a review counter-example). **Add a
+  pattern only with a must-flag sentence that needs it and must-keep still green.** A
+  refusal no pattern covers is recorded in `known_miss` rather than pattern-tuned away:
+  today that is "We are not able to **support** H-1B or OPT candidates", because adding
+  *support* to the refusal verbs also disqualifies the must-keep sentence "We can sponsor,
+  but cannot support H-1B transfers" — the two differ only in their object, so no pattern
+  separates them, and the miss is the cheap side. Unmeasured, deliberately: false
   negatives among the 3,523 agreed-negative rows, which neither system flagged and nobody
-  read; recall is relative to the 20-row union of the two systems, **not** to truth.
+  read.
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
   sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
@@ -1491,9 +1522,10 @@ guarantee:
 
 - **Hard-constraint screening**: work authorization is the quote-grounded LLM check
   (**D1**, §7.1) — the model's extracted quote is verified against the JD text before
-  it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
-  and its precision/recall have not yet been measured against a labeled set (open
-  item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
+  it can disqualify and must state a refusal, with `NO_SPONSOR_PHRASES` as a
+  closed-list floor underneath it for the no-quote case — measured on the 2026-07-25
+  labeled set (§7.1), but only against the two systems' union of known positives, so
+  true recall stays unmeasured; **clearance** remains an LLM *semantic* extraction with a
   code check — a misjudgment sends a spurious alert or discards an applicable role.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
 - **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual
@@ -1518,7 +1550,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
-| Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
+| Sponsorship disqualifies only on a quote that is both **present** in the JD and **states a refusal** (positive evidence; anything unmatched keeps) — hallucinated and real-but-irrelevant quotes each keep the posting, and known misses are recorded rather than pattern-tuned away | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`, `test_sponsorship_quote_corpus_*`, `test_known_misses_stay_documented`) |
+| The `NO_SPONSOR_PHRASES` floor fires only when the model produced **no quote at all**, and its note names the matched sentence | `test_score.py` (`test_phrase_floor_does_not_second_guess_a_quote`, `test_null_quote_falls_through_to_the_phrase_floor`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |

@@ -636,13 +636,26 @@ def test_sponsorship_quote_corpus_keeps_every_must_keep():
 
 
 def test_sponsorship_quote_corpus_flags_every_must_flag():
-    # The cheap direction: a miss costs one paid fit call. Still pinned, so a veto added
-    # to fix a MUST_KEEP case cannot quietly gut recall.
+    # The cheap direction: a miss costs one paid fit call. Still pinned, so a pattern
+    # narrowed to fix a MUST_KEEP case cannot quietly gut recall.
     corpus = json.loads((Path(__file__).parent / "fixtures" /
                          "sponsorship_quotes.json").read_text())
     missed = [q for q in corpus["must_flag"]
               if not _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
     assert not missed, "gate failed to disqualify:\n" + "\n".join(missed)
+
+
+def test_known_misses_stay_documented():
+    # Positive evidence buys precision with recall: a refusal shape no pattern covers is
+    # a MISS, and the corpus records it instead of the patterns being widened until the
+    # fixture goes green (which is how the must_keep side breaks). Closing one is welcome
+    # -- promote the sentence into must_flag when you do.
+    corpus = json.loads((Path(__file__).parent / "fixtures" /
+                         "sponsorship_quotes.json").read_text())
+    closed = [q for q in corpus["known_miss"]
+              if _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
+    assert not closed, ("recall improved -- move these into must_flag:\n"
+                        + "\n".join(closed))
 
 
 def test_on_topic_quotes_still_disqualify():
@@ -673,10 +686,22 @@ def test_quote_match_tolerates_line_wraps_and_casing():
 
 
 def test_null_quote_falls_through_to_the_phrase_floor():
-    # The list is demoted to a floor that can only ADD a disqualification.
+    # The list is demoted to a floor that runs only when the model produced no quote.
     jd = "This employer does not sponsor applicants for work visas."
     out = _screen_with(None, jd)
     assert out["disqualified"] is True
+    # ...and it names the sentence it matched, so the discard is inspectable.
+    assert jd.lower() in out["screen"]["authorization"]["note"]
+
+
+def test_phrase_floor_does_not_second_guess_a_quote():
+    # IMC ids 465/490: "without sponsorship" sits inside an INVITATION, and the ungated
+    # floor disqualified on the substring alone. When the model did look and quoted
+    # something else, a substring with no sentence boundary is not a second opinion.
+    jd = ("If you have existing work authorisation in the Netherlands or are eligible to "
+          "work without sponsorship, we encourage you to apply. We value curiosity.")
+    out = _screen_with("We value curiosity.", jd)
+    assert out["disqualified"] is False
 
 
 def test_silent_jd_with_null_quote_is_kept():
