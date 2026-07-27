@@ -56,9 +56,11 @@ DEGREE_RANK = {0: "none", 1: "high school", 2: "associate", 3: "bachelor's",
 # the model produced no quote at all, and can only ADD a disqualification. Measured recall
 # on its own is ~2/11 realistic phrasings, which is why it was demoted. Kept because it
 # costs nothing and catches the blunt wordings when there is no model verdict to trust.
-# It matches a substring ANYWHERE in the description with no sentence boundary, which is
-# why it is scoped to the no-quote case: "eligible to work without sponsorship, we
-# encourage you to apply" is an invitation, and it fired on it (IMC ids 465/490).
+# It matches a substring ANYWHERE in the description with no sentence boundary, so it is
+# scoped to the no-quote case AND demoted to a locator: the sentence it finds must clear
+# _quote_states_refusal before it can disqualify. Both guards are load-bearing -- "eligible
+# to work without sponsorship, we encourage you to apply" is an invitation, and the model
+# produced no quote on it, so scoping alone still fired (IMC ids 465/490).
 NO_SPONSOR_PHRASES = (
     "will not sponsor", "does not sponsor", "do not sponsor", "cannot sponsor",
     "unable to sponsor", "not able to sponsor", "no visa sponsorship", "no sponsorship",
@@ -400,7 +402,11 @@ _SPONSORSHIP_BAR = re.compile(
     #    work in the UK" appears in offers just as often as in bars.
     r"|\bmust\s+(?:be|hold|have|possess|maintain)\b[^.]{0,60}"
     r"(?:citizen|permanent residen|green card|full working rights|working rights|"
-    r"unrestricted[^.]{0,20}authoriz|unrestricted[^.]{0,20}authoris)"
+    r"unrestricted[^.]{0,20}authoriz|unrestricted[^.]{0,20}authoris|"
+    # "must be authorized to work without sponsorship" is a bar; "are eligible to work
+    # without sponsorship, we encourage you to apply" is an invitation. Only "must"
+    # separates them, which is why this object lives here and not in its own clause.
+    r"without\s+(?:visa\s+|immigration\s+)?sponsorship)"
     # 5. ... including the two citizenship-bar wordings that never say "must"
     r"|citizenship\s+(?:is|are|will be)\s+(?:a\s+)?(?:strict\s+)?"
     r"(?:required|requirement|mandatory)"
@@ -420,12 +426,23 @@ def _quote_states_refusal(quote) -> bool:
     Pinned by tests/fixtures/sponsorship_quotes.json -- change nothing here without
     running that corpus in both directions.
     """
-    # Drop the dots of single-letter abbreviations ("u.s." -> "us"): every pattern below
-    # scopes itself with `[^.]`, which a mid-sentence "U.S." otherwise cuts in half
-    # ("Applicants must hold U.S. Permanent Residency"). Only single-letter tokens lose
-    # their dot, so real sentence ends still bound the patterns.
-    text = re.sub(r"\b([a-z])\.", r"\1", " ".join(str(quote or "").lower().split()))
+    text = _norm_sentence(quote)
     return bool(text) and bool(_SPONSORSHIP_BAR.search(text))
+
+
+def _norm_sentence(text) -> str:
+    """Lowercase, collapse whitespace, and drop the dots of single-letter abbreviations
+    ("u.s." -> "us").
+
+    Every `_SPONSORSHIP_BAR` pattern scopes itself with `[^.]`, which a mid-sentence
+    "U.S." otherwise cuts in half ("Applicants must hold U.S. Permanent Residency").
+    Only single-letter tokens lose their dot, so real sentence ends still bound the
+    patterns. `_sentence_with` splits on the same dots, so it must normalize identically
+    or the floor hands the bar a fragment: "must be legally authorized to work in the
+    U.S. without sponsorship." truncates to "without sponsorship.", which states no
+    refusal, and 65 real bars across PayPal and eBay would be kept.
+    """
+    return re.sub(r"\b([a-z])\.", r"\1", " ".join(str(text or "").lower().split()))
 
 
 def _quote_in(quote, description: str) -> bool:
@@ -455,9 +472,13 @@ def _check_authorization(cand_auth, description: str = "",
 
     Floor: NO_SPONSOR_PHRASES runs only when the model produced NO quote at all — a
     substring match with no sentence boundary is not a second opinion on a model that
-    did look and quoted something else, and scanning the whole description is where its
-    own false positives came from. Its note carries the matched sentence, so a floor
-    disqualification is inspectable rather than a bare verdict.
+    did look and quoted something else. The phrase is only a cheap way to FIND a
+    candidate sentence; the sentence itself must then clear `_quote_states_refusal`,
+    the same bar the model's own quote clears. That is what stops the floor from
+    disqualifying on an invitation ("or are eligible to work without sponsorship, we
+    encourage you to apply" — IMC ids 465/490, where the model produced no quote, so
+    scoping alone left the floor firing on them). Its note carries the matched
+    sentence, so a floor disqualification is inspectable rather than a bare verdict.
     """
     if not _needs_sponsorship(cand_auth):
         return True, ""
@@ -466,20 +487,37 @@ def _check_authorization(cand_auth, description: str = "",
         return False, "no visa sponsorship offered"
     if str(quote or "").strip():
         return True, ""  # the model looked and quoted; an ungrounded quote still keeps
-    text = " ".join((description or "").lower().split())
+    text = _norm_sentence(description)
     for phrase in NO_SPONSOR_PHRASES:
-        if phrase in text:
-            return False, f'no visa sponsorship offered: "{_sentence_with(text, phrase)}"'
+        if phrase not in text:
+            continue
+        sentence = _sentence_with(text, phrase)
+        if _quote_states_refusal(sentence):
+            return False, f'no visa sponsorship offered: "{sentence}"'
     return True, ""
 
 
-def _sentence_with(text: str, phrase: str) -> str:
-    """The sentence of `text` (whitespace-collapsed, lowercased) holding `phrase`, capped
-    at 200 chars — what makes a phrase-floor disqualification reviewable by a human."""
+def _sentence_with(text: str, phrase: str, cap: int = 200) -> str:
+    """The sentence of `text` (normalized by `_norm_sentence`) holding `phrase`, capped at
+    `cap` chars — what makes a phrase-floor disqualification reviewable by a human, and
+    what the floor hands `_quote_states_refusal`.
+
+    The excerpt WINDOWS around the phrase rather than truncating from the sentence start.
+    JDs arrive with bullet lists flattened and no periods, so the "sentence" holding the
+    phrase is routinely longer than the cap; truncating from the start then drops the very
+    phrase the excerpt was built around, the refusal test runs on text that cannot match,
+    and a real bar is kept. Measured on the live corpus: 4 genuine refusals (Optiver 692
+    "we will not sponsor individuals for employment authorization", Microsoft 1716,
+    eBay 9909, Workday 9936) were kept that way.
+    """
     i = text.find(phrase)
     start = text.rfind(".", 0, i) + 1
     end = text.find(".", i + len(phrase))
-    return text[start:len(text) if end == -1 else end + 1].strip()[:200]
+    sentence = text[start:len(text) if end == -1 else end + 1].strip()
+    if len(sentence) <= cap:
+        return sentence
+    j = max(0, sentence.find(phrase) - cap // 2)
+    return sentence[j:j + cap].strip()
 
 
 def _check_clearance(entry: dict, cand_clearance) -> tuple[bool, str]:

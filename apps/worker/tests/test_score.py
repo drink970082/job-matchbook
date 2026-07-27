@@ -704,6 +704,50 @@ def test_phrase_floor_does_not_second_guess_a_quote():
     assert out["disqualified"] is False
 
 
+def test_the_floor_keeps_an_invitation_even_with_no_quote():
+    # The production shape of IMC ids 465/490: the model produced NO quote on either row
+    # (verified against db/runs/20260725-sponsor/sponsor_diff.json), so scoping the floor
+    # to the no-quote case is the branch that fires on them. The phrase only LOCATES a
+    # sentence; the sentence must then state a refusal, and an invitation does not.
+    jd = ("If you have existing work authorisation in the Netherlands or are eligible to "
+          "work without sponsorship, we encourage you to apply.")
+    out = _screen_with(None, jd)
+    assert out["disqualified"] is False
+
+
+def test_the_floor_still_fires_on_a_must_be_authorized_bar():
+    # The mirror image, one word apart: "must be ... without sponsorship" is a real bar,
+    # and demoting the phrase list to a locator must not cost it.
+    jd = "Applicants must be authorized to work without sponsorship, now and in the future."
+    out = _screen_with(None, jd)
+    assert out["disqualified"] is True
+    assert "without sponsorship" in out["screen"]["authorization"]["note"]
+
+
+def test_the_floor_survives_an_abbreviation_before_the_phrase():
+    # Gating the floor on the refusal test means the EXTRACTED sentence must survive
+    # "U.S.": splitting on that dot leaves the fragment "without sponsorship.", which
+    # states no refusal. 65 real PayPal/eBay bars were kept before _sentence_with
+    # normalized abbreviations the same way _quote_states_refusal does.
+    jd = ("Compensation varies by location. Must be legally authorized to work in the "
+          "U.S. without sponsorship. Subsidiary: PayPal.")
+    out = _screen_with(None, jd)
+    assert out["disqualified"] is True
+
+
+def test_the_floor_survives_a_run_on_sentence():
+    # JDs arrive with bullet lists flattened and no periods, so the "sentence" holding
+    # the phrase routinely exceeds the 200-char excerpt cap. Truncating from the start
+    # dropped the phrase itself, so the refusal test could not match and a real bar was
+    # kept (Optiver 692 on the live corpus). The excerpt windows around the phrase.
+    jd = ("Requirements: " + "excellent written and verbal communication skills in "
+          "english and experience working with exchanges or financial regulators " * 3
+          + "legal authorization to work in the US is required; we will not sponsor "
+            "individuals for employment authorization for this job opening")
+    out = _screen_with(None, jd)
+    assert out["disqualified"] is True
+
+
 def test_silent_jd_with_null_quote_is_kept():
     out = _screen_with(None, "A normal job description with no mention of immigration status.")
     assert out["disqualified"] is False

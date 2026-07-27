@@ -617,12 +617,26 @@ worker modules are pure and dependency-injected; real services are wired only in
   This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
   "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
   verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
-  demoted to a **floor** underneath the quote check, and since 2026-07-26 it runs
-  **only when the model produced no quote at all**: a substring match with no sentence
-  boundary is not a second opinion on a model that looked and quoted something else. It
+  demoted to a **floor** underneath the quote check, and since 2026-07-26 it is
+  constrained twice. It runs **only when the model produced no quote at all** — a
+  substring match with no sentence boundary is not a second opinion on a model that
+  looked and quoted something else — and the phrase is only a **locator**: the sentence
+  it finds must then clear `_quote_states_refusal`, the same bar the model's own quote
+  clears. So one rule decides what counts as a refusal, whatever found the sentence. It
   still catches blunt closed-list phrasings when there is no model verdict, and its note
-  now carries the matched **sentence** (`no visa sponsorship offered: "<sentence>"`) so
-  a floor disqualification is inspectable.
+  carries the matched **sentence** (`no visa sponsorship offered: "<sentence>"`) so a
+  floor disqualification is inspectable.
+
+  **The sentence handed to the bar must be the whole sentence**, which cost two
+  measured defects when it wasn't. `_sentence_with` splits on `.`, so it normalizes
+  single-letter abbreviations exactly as `_quote_states_refusal` does (`_norm_sentence`,
+  shared) — otherwise "must be legally authorized to work in the U.S. without
+  sponsorship" truncates to "without sponsorship", which states no refusal, and 65 real
+  PayPal/eBay bars are kept. And the 200-char excerpt **windows around the phrase**
+  rather than truncating from the sentence start: JDs arrive with bullet lists flattened
+  and no periods, so the sentence holding the phrase routinely exceeds the cap and the
+  phrase itself falls off the end (4 real bars kept — Optiver 692, Microsoft 1716,
+  eBay 9909, Workday 9936). Both are pinned by tests.
 
   **Precision/recall — the 2026-07-25 labeled set, recomputed 2026-07-26** for the new
   shape from the signed artifact `db/runs/20260725-sponsor/sponsor_diff.json` plus the
@@ -643,32 +657,36 @@ worker modules are pure and dependency-injected; real services are wired only in
   | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
   | quote branch + the retired `_quote_on_topic` vetoes | 20 | 20 | 100% | 100% |
   | quote branch **+ `_quote_states_refusal`** | 20 | 20 | 100% | 100% |
-  | **shipped `_check_authorization` (gate OR scoped floor)** | 22 | 20 | **90.9%** | **100%** |
+  | **shipped `_check_authorization` (gate OR gated floor)** | 20 | 20 | **100%** | **100%** |
 
-  The whole-function numbers are **unchanged** by the rework, and that is the point: the
-  positive-evidence gate keeps all 8 quote-branch false positives out (5 agency
+  The positive-evidence gate keeps all 8 quote-branch false positives out (5 agency
   boilerplate, 3 soft-preference) and loses **zero** true positives, exactly as the veto
-  stack did, without needing the vetoes to be correct. Two caveats on that table, both
-  load-bearing: (a) for the 9 rows both systems fired on, the model's quote was never
-  persisted, so they are scored on the JD sentence carrying the blunt phrase — in each of
-  those 9 JDs that sentence ("…is required; we will not sponsor individuals for
-  employment authorization…") is the only refusal sentence present, but had the model
-  quoted the adjacent "Legal authorization to work in the U.S. is required" clause
-  instead, the new gate would keep the row (that clause is not a refusal shape and is
-  deliberately not a pattern); (b) the 2 remaining false positives are **still** IMC ids
-  465/490 — scoping the floor did not remove them, because on that run the model produced
-  **no quote** for those two rows, so the floor is exactly the branch that fires. Its
-  `without sponsorship` substring sits inside an invitation ("or are eligible to work
-  without sponsorship, we encourage you to apply"). Closing it means either dropping that
-  phrase from the list or requiring the floor's matched sentence to pass
-  `_quote_states_refusal` too — an open operator call, not shipped here.
+  stack did, without needing the vetoes to be correct — and gating the floor removes the
+  last 2, which the veto stack never did. One caveat on the table is load-bearing: for
+  the 9 rows both systems fired on, the model's quote was never persisted, so they are
+  scored on the JD sentence carrying the blunt phrase — in each of those 9 JDs that
+  sentence ("…is required; we will not sponsor individuals for employment
+  authorization…") is the only refusal sentence present, but had the model quoted the
+  adjacent "Legal authorization to work in the U.S. is required" clause instead, the new
+  gate would keep the row (that clause is not a refusal shape and is deliberately not a
+  pattern).
+
+  **Floor behavior, measured over the whole live corpus 2026-07-26** (7,560 hydrated
+  descriptions, offline, no model calls): the ungated floor fired on **124** rows, the
+  gated floor on **83**. All **41** newly-kept rows are false positives of the old floor
+  — 39 Cloudflare export-control sentences ("your authorization to receive software or
+  technology controlled under these U.S. export laws without sponsorship for an export
+  license") and the 2 IMC invitations (ids 465/490), which the earlier no-quote scoping
+  alone did **not** close, since the model produced no quote on exactly those rows. Zero
+  real refusals were lost, after the two `_sentence_with` defects above were fixed; both
+  were found by this measurement, not by the fixture.
 
   **Patterns are measured, not guessed, and that is a standing rule** — a round of
   speculative vocabulary added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`)
   each collided with common boilerplate ("generous personal time off", "we adopt", "opt
   out", "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a
   real job. Both directions are pinned by a corpus,
-  `tests/fixtures/sponsorship_quotes.json` (34 must-keep / 12 must-flag / 1 known-miss,
+  `tests/fixtures/sponsorship_quotes.json` (34 must-keep / 13 must-flag / 1 known-miss,
   every sentence from a real posting, a labeled row, or a review counter-example). **Add a
   pattern only with a must-flag sentence that needs it and must-keep still green.** A
   refusal no pattern covers is recorded in `known_miss` rather than pattern-tuned away:
@@ -1552,6 +1570,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | Sponsorship disqualifies only on a quote that is both **present** in the JD and **states a refusal** (positive evidence; anything unmatched keeps) — hallucinated and real-but-irrelevant quotes each keep the posting, and known misses are recorded rather than pattern-tuned away | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`, `test_sponsorship_quote_corpus_*`, `test_known_misses_stay_documented`) |
 | The `NO_SPONSOR_PHRASES` floor fires only when the model produced **no quote at all**, and its note names the matched sentence | `test_score.py` (`test_phrase_floor_does_not_second_guess_a_quote`, `test_null_quote_falls_through_to_the_phrase_floor`) |
+| The floor's phrase only **locates** a sentence — the sentence must clear `_quote_states_refusal` too, so an invitation carrying "without sponsorship" keeps while a "must be … without sponsorship" bar still fires | `test_score.py` (`test_the_floor_keeps_an_invitation_even_with_no_quote`, `test_the_floor_still_fires_on_a_must_be_authorized_bar`) |
+| The sentence handed to the refusal test is intact — single-letter abbreviations do not truncate it, and the 200-char excerpt windows around the phrase instead of dropping it | `test_score.py` (`test_the_floor_survives_an_abbreviation_before_the_phrase`, `test_the_floor_survives_a_run_on_sentence`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
