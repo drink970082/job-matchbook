@@ -262,6 +262,17 @@ any container Docker marks **unhealthy**. Plain Compose does *not* restart on
 unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
 the sidecar is what closes the loop.
 
+The sidecar itself is the single point of failure in that loop, so compose guards its
+one known death: `willfarrell/autoheal`'s entrypoint runs its (inline) restart loop
+only when the Docker socket exists at startup and otherwise `exec`s its argument —
+and no `autoheal` binary exists in the image, so a momentarily absent socket (a Docker
+Desktop restart on this host) kills it with exit 127, which `restart: unless-stopped`
+does not recover from. The `autoheal` service therefore overrides `entrypoint` to poll
+for the socket (up to 30s) before handing off to `/docker-entrypoint`, turning a
+transient gap into a delayed start. Its death is also made visible at deploy time:
+`make up` fails if `ats-autoheal` is not running afterwards. Check by hand with
+`docker ps --filter name=ats-autoheal` — it must read `Up`.
+
 **Response headers.** `next.config.mjs` sets a fixed header set on every response
 (`headers()`, matcher `/:path*`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
 nosniff`, `Referrer-Policy: same-origin`, and a `Content-Security-Policy` that is

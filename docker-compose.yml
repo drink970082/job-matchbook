@@ -64,6 +64,17 @@ services:
       CURL_TIMEOUT: 30
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    # Wait for the socket before handing off to the image's own entrypoint. That
+    # entrypoint only runs the (inline) restart loop when `[ -e $DOCKER_SOCK ]` holds at
+    # startup; otherwise it falls through to `exec "$@"`, and there is NO `autoheal`
+    # binary in the image, so the container dies with exit 127. A Docker Desktop restart
+    # on this WSL2 host makes that window real, and `restart: unless-stopped` is proven
+    # not to recover from it (the sidecar was dead for 3 days, 2026-07). Waiting turns a
+    # transient gap into a delayed start instead of a permanent death. If the socket is
+    # still missing after 30s we hand off anyway — the old 127 exit, which `make up`
+    # now reports. See docs/SPEC.md §6.
+    entrypoint: ["/bin/sh", "-c",
+      "for _ in 1 2 3 4 5 6 7 8 9 10; do [ -S /var/run/docker.sock ] && break; sleep 3; done; exec /docker-entrypoint autoheal"]
     restart: unless-stopped
 
 # NO worker service — the worker runs NATIVELY on the host (see docs/SPEC.md §6).

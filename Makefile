@@ -82,6 +82,8 @@ seed-dev: ## Append realistic sample applications to the local db (vars: DB, COU
 
 up: ## Build + start the web stack (web + autoheal) via Docker Compose — the worker runs natively, see SPEC §6
 	UID=$$(id -u) GID=$$(id -g) docker compose up --build -d
+	@docker ps --filter name=ats-autoheal --filter status=running -q | grep -q . \
+		|| { echo "FAIL: ats-autoheal is not Up — ats-web will not self-heal (docs/SPEC.md §6)"; exit 1; }
 
 down: ## Stop the Docker Compose stack
 	docker compose down
