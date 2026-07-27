@@ -391,7 +391,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | Workable | `apply.workable.com` | list | yes | yes |
   | iCIMS | `{slug}.icims.com` | list (server HTML) | no | yes |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | no | yes |
-  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | no | yes (needs `recipe`) |
+  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`/`html`) | no | yes (needs `recipe`) |
   | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | no | yes (needs `recipe`; opt-in) |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | yes | no (feed-only) |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | yes | no (feed-only) |
@@ -439,13 +439,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
-  `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
+  `mode` (`json`, `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON, or `html`),
   `item_path`/`total_path` (`item_path` optional — omit it when the payload is already the job
   array, i.e. a bare root-level JSON feed like Jane Street), `page` (`offset`/`page`/`none`), and a
   `fields` map (dotted paths, `url` templates, list-concat descriptions) into the canonical dict via
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
   `browser` recipe, never a hand-written adapter.
+  `mode: html` is for a board that server-renders its cards and has no bot wall — the response IS
+  the listing HTML, and an `item` CSS selector + CSS `fields` extract from it. It runs the **same**
+  `_recipe.parse_css_page` the `browser` executor does (item selector, `fields` map, `{field}` url
+  templates over the recipe's own fields, base-url resolution), so the extraction semantics are
+  identical across the two and a recipe author learns one CSS model; the only difference is the
+  transport (`requests` vs Chromium) and the emitted `source`. That keeps a plain-HTTP HTML board on
+  rung 2 of the onboarding cascade instead of paying a headless render per page.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
   rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).
@@ -1570,7 +1577,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The workday gate stub carries no `external_id` (unstorable by construction) | `test_fetch_new.py::test_workday_parse_stub_carries_no_external_id` |
 | The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
-| Custom-recipe executor (`json`/`next-data` modes, paging, fields map) | `test_custom.py` |
+| Custom-recipe executor (`json`/`next-data`/`html` modes, paging, fields map) | `test_custom.py` |
+| `html` mode extracts identically to `browser` (one shared CSS extractor) | `test_custom.py::test_html_mode_matches_browser_extraction` |
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |

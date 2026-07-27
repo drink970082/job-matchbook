@@ -19,6 +19,8 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
+from bs4 import BeautifulSoup
+
 from ats_worker.util import html_to_text
 
 _PLACEHOLDER = re.compile(r"\{([^}]+)\}")
@@ -179,3 +181,18 @@ def apply_css_fields(node, fields: dict, company_name: str, source: str,
         "description": _css_description(node, fields.get("description")),
         "posted_at": normalize_date(values.get("posted_at")),
     }
+
+
+def parse_css_page(html: str, recipe: dict, company_name: str, source: str) -> list[dict]:
+    """One listing page's HTML -> postings, via the recipe's `item` selector.
+
+    The single CSS listing extractor: `browser` runs it over rendered DOM, `custom`'s
+    `html` mode over a plain-`requests` body, so a recipe author learns one model.
+    No de-dup here — each executor's paginator already tracks seen ids."""
+    item_sel = recipe.get("item")
+    if not item_sel:
+        raise ValueError(f"{source} recipe requires an `item` CSS selector")
+    fields = recipe.get("fields") or {}
+    base = recipe.get("url", "")
+    return [apply_css_fields(node, fields, company_name, source, base_url=base)
+            for node in BeautifulSoup(html or "", "html.parser").select(item_sel)]

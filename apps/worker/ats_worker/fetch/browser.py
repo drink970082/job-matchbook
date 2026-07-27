@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ats_worker.fetch._recipe import _css_description, apply_css_fields
+from ats_worker.fetch._recipe import _css_description, parse_css_page
 from ats_worker.util import is_safe_public_url
 
 SOURCE = "browser"
@@ -52,16 +52,10 @@ def _block_unsafe_navigation(route):
 def parse_jobs(pages: list[str], recipe: dict, company_name: str) -> list[dict]:
     """Parse rendered listing-page HTML into postings (pure; no browser).
     De-dups by external_id across pages."""
-    item_sel = recipe.get("item")
-    if not item_sel:
-        raise ValueError("browser recipe requires an `item` CSS selector")
-    fields = recipe.get("fields") or {}
-    base = recipe.get("url", "")
     out: list[dict] = []
     seen: set[str] = set()
     for html in pages:
-        for node in BeautifulSoup(html or "", "html.parser").select(item_sel):
-            posting = apply_css_fields(node, fields, company_name, SOURCE, base_url=base)
+        for posting in parse_css_page(html, recipe, company_name, SOURCE):
             if not posting["external_id"] or posting["external_id"] in seen:
                 continue  # no id can't dedup; a repeated id means we looped
             seen.add(posting["external_id"])

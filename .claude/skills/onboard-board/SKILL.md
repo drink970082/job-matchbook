@@ -33,7 +33,8 @@ always prefer the earliest rung that actually works.
    workable, icims, phenom` — authoritative list is `ADAPTERS` in
    `apps/worker/ats_worker/fetch/__init__.py` (minus the recipe and feed-only sources).
 2. **Plain-HTTP `custom` recipe** — plain `requests` can reach a JSON endpoint, a
-   `__NEXT_DATA__` blob, or json-ld on the page. Write a `custom` recipe.
+   `__NEXT_DATA__` blob, or server-rendered job cards in the returned HTML. Write a
+   `custom` recipe (`mode: json` / `next-data` / `html`).
 3. **Browser `browser` recipe** — plain HTTP is blocked (Cloudflare/bot wall) or the
    jobs render only client-side with no findable JSON. Render in a real browser and
    extract from the DOM with CSS. Last resort.
@@ -104,6 +105,22 @@ pre-processing): `description` accepts a list of paths (concatenated); `url` int
 `location`/`posted_at` becomes `null`. `page.type` is `offset` (advance by rows), `page`
 (page number), or `none` (single request). POST bodies pass the page value via
 `body_param` instead of `param`.
+
+**No JSON, but the cards are in the served HTML?** Use `mode: html` — the response IS the
+listing page, and extraction is the *same CSS model as a browser recipe* (2c): an `item`
+selector for the cards, then CSS `fields` (string selector, or `{selector, attr, extract}`),
+`{field}` url templates included. Only the transport differs, so read 2c's field block for
+the syntax. This is the rung that keeps a plain-HTML board off headless Chromium.
+
+```yaml
+  recipe:
+    url: "https://careers.acme.com/jobs"
+    mode: html
+    item: "li.job-card"
+    page: { type: page, param: page }      # query-param paging; or {type: none}
+    fields: { title: ".job-card__title", external_id: { attr: data-req },
+              url: "/jobs/{external_id}" }
+```
 
 ### 2c. Browser → a `browser` recipe
 

@@ -1,4 +1,4 @@
-"""Generic `custom` recipe executor: json (GET/POST) + next-data modes."""
+"""Generic `custom` recipe executor: json (GET/POST) + next-data + html modes."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from ats_worker import config
-from ats_worker.fetch import _recipe, custom
+from ats_worker.fetch import _recipe, browser, custom
 from ats_worker.util import POSTING_FIELDS
 from tests._helpers import FakeResponse, FakeSession
 
@@ -17,6 +17,7 @@ TIKTOK = json.loads((FIXTURES / "tiktok.json").read_text())
 BYTEDANCE = json.loads((FIXTURES / "bytedance.json").read_text())
 JANESTREET = json.loads((FIXTURES / "janestreet.json").read_text())
 DESHAW_HTML = (FIXTURES / "deshaw.html").read_text(encoding="utf-8")
+LISTING_HTML = (FIXTURES / "custom_html.html").read_text(encoding="utf-8")
 
 AMAZON_RECIPE = {
     "method": "GET",
@@ -77,6 +78,22 @@ BYTEDANCE_RECIPE = {
         "title": "title", "location": "city_info.en_name",
         "url": "https://joinbytedance.com/search/{id}",
         "description": ["description", "requirement"], "external_id": "id",
+    },
+}
+
+# html mode: server-rendered cards over plain HTTP, CSS-extracted. Cards carry no
+# href, so `url` is a {field} template over this recipe's own external_id.
+LISTING_RECIPE = {
+    "url": "https://careers.example.com/jobs",
+    "mode": "html",
+    "item": "li.job-card",
+    "page": {"type": "page", "param": "page"},
+    "fields": {
+        "title": ".job-card__title",
+        "location": ".job-card__location",
+        "posted_at": {"selector": ".job-card__date", "attr": "datetime"},
+        "external_id": {"attr": "data-req"},
+        "url": "/jobs/{external_id}",
     },
 }
 
@@ -344,6 +361,58 @@ def test_fetch_deshaw_next_data():
     assert j["job_url"].endswith("/Administrative-Associate-6-Month-LTA-5874")
     assert j["posted_at"] == "2026-04-15"
     assert "administrative" in j["description"].lower()
+
+
+# --- html mode (CSS over a plain-HTTP listing page) ----------------------
+
+def test_parse_jobs_html_mode_extracts_listing_cards():
+    jobs = custom.parse_jobs(LISTING_HTML, LISTING_RECIPE, "Acme Capital")
+    assert len(jobs) == 3
+    j = jobs[0]
+    assert set(j) == set(POSTING_FIELDS)
+    assert j["source"] == "custom"                    # not "browser"
+    assert j["external_id"] == "REQ-10231"            # data-* attribute
+    assert j["job_title"] == "Quantitative Developer"
+    assert j["location"] == "New York, NY"
+    # {external_id} filled from this recipe's own fields, then resolved against url.
+    assert j["job_url"] == "https://careers.example.com/jobs/REQ-10231"
+    assert j["posted_at"] == "2026-07-14"             # datetime attr, normalized
+    assert [x["external_id"] for x in jobs[1:]] == ["REQ-10244", "REQ-10250"]
+
+
+def test_parse_jobs_html_mode_requires_item_selector():
+    with pytest.raises(ValueError):
+        custom.parse_jobs(LISTING_HTML, {"mode": "html", "fields": {}}, "Acme Capital")
+
+
+def test_html_mode_matches_browser_extraction():
+    """The two executors must extract IDENTICALLY off one recipe — same shared
+    `parse_css_page`, so `source` is the only difference. A second CSS extractor
+    drifting from this one is exactly what this asserts against."""
+    via_custom = custom.parse_jobs(LISTING_HTML, LISTING_RECIPE, "Acme Capital")
+    via_browser = browser.parse_jobs([LISTING_HTML], LISTING_RECIPE, "Acme Capital")
+    assert [{**j, "source": "x"} for j in via_custom] == [
+        {**j, "source": "x"} for j in via_browser]
+
+
+def test_fetch_html_mode_paginates_over_plain_http():
+    class _HtmlPaged:
+        """Page 0 serves the listing fixture; later pages serve an empty results list."""
+
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params=None, headers=None, timeout=None, allow_redirects=None):
+            self.calls.append((url, params))
+            first = (params or {}).get("page") == 0
+            return _Resp(text=LISTING_HTML if first else "<html><body></body></html>")
+
+    sess = _HtmlPaged()
+    out = custom.fetch("acme", "Acme Capital", LISTING_RECIPE, session=sess, timeout=20)
+
+    assert [p["external_id"] for p in out] == ["REQ-10231", "REQ-10244", "REQ-10250"]
+    assert [(p or {}).get("page") for _, p in sess.calls] == [0, 1]  # empty page stops
+    assert all(p["source"] == "custom" for p in out)
 
 
 # --- config validation ---------------------------------------------------

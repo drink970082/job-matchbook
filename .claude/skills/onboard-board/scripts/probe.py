@@ -175,9 +175,10 @@ def main():
     elif r is None or status != 200:
         print("VERDICT: browser -> page not fetchable by plain HTTP; try a `browser` recipe")
     else:
-        print("VERDICT: plain-http? -> page fetched but jobs aren't in the static HTML. Find the "
-              "XHR that returns them (browser DevTools > Network, filter Fetch/XHR) and write a "
-              "`custom` recipe; if there's no JSON endpoint, fall back to a `browser` recipe.")
+        print("VERDICT: plain-http? -> page fetched but no JSON signal. If the job cards ARE in "
+              "this HTML, write a `custom` `mode: html` recipe (item selector + CSS fields). "
+              "Otherwise find the XHR that returns them (browser DevTools > Network, filter "
+              "Fetch/XHR); only if there is no JSON endpoint either, fall back to `browser`.")
 
 
 if __name__ == "__main__":

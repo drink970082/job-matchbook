@@ -1,8 +1,11 @@
 """Generic `custom` executor — runs a declarative recipe over plain HTTP.
 
-One executor, one recipe per board (stored as a data row), no per-site code. Two
-modes: `json` (the response IS JSON) and `next-data` (extract the `__NEXT_DATA__`
-`<script>` JSON out of an HTML response, then behave as `json`). Pagination is
+One executor, one recipe per board (stored as a data row), no per-site code. Three
+modes: `json` (the response IS JSON), `next-data` (extract the `__NEXT_DATA__`
+`<script>` JSON out of an HTML response, then behave as `json`), and `html` (the
+response is server-rendered listing HTML: an `item` CSS selector picks the cards and
+the `fields` map extracts from each, identical semantics to `browser` — same shared
+extractor, so a recipe author learns one CSS model, not two). Pagination is
 `offset` (advance by rows), `page` (advance a page number), or `none`.
 
 Anything a recipe can't express is a `browser` recipe (fetch/browser.py), never a
@@ -15,7 +18,7 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-from ats_worker.fetch._recipe import apply_fields, dotted_get
+from ats_worker.fetch._recipe import apply_fields, dotted_get, parse_css_page
 from ats_worker.util import get_redirect_safe, is_safe_public_url
 
 SOURCE = "custom"
@@ -31,11 +34,15 @@ def _extract_next_data(html: str) -> dict:
 def _payload(resp, mode: str):
     if mode == "next-data":
         return _extract_next_data(resp.text)
+    if mode == "html":
+        return resp.text  # the payload IS the listing HTML; parse_jobs selects on it
     return resp.json()
 
 
 def parse_jobs(payload, recipe: dict, company_name: str) -> list[dict]:
     """Map one page's payload to canonical postings (pure; no I/O)."""
+    if recipe.get("mode") == "html":
+        return parse_css_page(payload, recipe, company_name, SOURCE)
     ip = recipe.get("item_path")
     # No item_path + the payload IS the array -> root-level array board (e.g. a bare
     # JSON feed). Otherwise walk item_path into the payload.
