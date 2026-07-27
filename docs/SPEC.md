@@ -895,7 +895,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`. Both the screen phase and the
+  large fresh intake; the remainder stays `new`. **Every pass ends with one summary
+  line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
+  fit-scored, … failed, … left 'new'` — so a pass that worked is distinguishable from
+  one with nothing to do; `fit-scored` is the quota-spending count and `left 'new'` is
+  whatever a tripped breaker or an abort did not reach. Both the screen phase and the
   per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
   write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
   `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),

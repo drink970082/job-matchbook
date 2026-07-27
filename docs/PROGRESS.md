@@ -63,11 +63,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   stamped, 0 notified, **8 Codex messages spent**. So the per-row cost is ~0.4 paid
   messages (the free screen discards ~60%), and the whole backlog is on the order of
   **~1,600 messages** — most of a weekly budget, which is why it is not run casually.
-  **Two things to fix before a big pass, neither blocking:**
-  - `run_score` **prints nothing on success**, so a working pass looks identical to a
-    no-op. This cost real debugging time on 2026-07-26. One summary line would close it.
-  - Rows are taken oldest-first, so a bounded pass scores **one board at a time** (all 20
-    were Microsoft). Fine for a smoke test, misleading as a sample of the queue.
+  **The silence is FIXED (2026-07-26)** — `run_score` now always ends with
+  `[score] N row(s): … screen-discarded, … thin-JD (no fit call), … fit-scored, …
+  failed, … left 'new'` (CHANGELOG). `left 'new'` is the one to read on a short pass: a
+  breaker abort reports as partial instead of as a smaller pass that went fine.
+  **Still open, not blocking:** rows are taken oldest-first, so a bounded pass scores
+  **one board at a time** (all 20 on 2026-07-26 were Microsoft). Fine for a smoke test,
+  misleading as a sample of the queue.
   Run it with `--score-only --score-limit N` from `apps/worker`
   (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the runbook's phases 1-2 carry
   the quota math and monitoring cadence.

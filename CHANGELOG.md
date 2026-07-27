@@ -9,6 +9,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **A successful scoring pass printed nothing, so it was indistinguishable from a
+  no-op.** `run_score` only ever spoke up on trouble — a fetch drop, a tripped breaker —
+  so a pass that screened, scored and persisted rows exited silently with status 0. On
+  2026-07-26 that cost real debugging time: a working `--score-only --score-limit 10`
+  run against a 3,965-row backlog looked like a failure, and the DB row counts were the
+  only way to tell it had worked. It now always ends with one line:
+  `[score] 20 row(s): 12 screen-discarded, 0 thin-JD (no fit call), 8 fit-scored,
+  0 failed, 0 left 'new'`. **`fit-scored` is the number that spent quota**, and
+  **`left 'new'`** is what a tripped breaker or a `KeyboardInterrupt` never reached — so
+  a partial pass reads as partial rather than as a smaller pass that went fine, which is
+  the same silence the breakers themselves were added to end. Counters are a plain dict
+  incremented at each terminal outcome; two tests cover the counts and the
+  breaker-remainder arithmetic, both mutation-checked.
+
 - **Every codex fit call was returning HTTP 400: the scoring backend was dead, not
   degraded.** OpenAI structured output requires every object to list every key of
   `properties` in `required`; the `screen` block added to `_score_schema` by `66dfb65`
