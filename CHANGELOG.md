@@ -9,6 +9,48 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The sponsorship check fired by default and argued its way back to keeping.** It
+  triggered on any authorization word — *sponsor · visa · citizen · authoriz* — and then
+  subtracted exceptions (off-topic, wrong polarity, soft preference). That asks the author
+  to anticipate every innocent English sentence containing those words: three review
+  rounds each turned up a category nobody had anticipated, and one shipped version
+  disqualified *"We offer generous personal time off"*. On this path the two errors are
+  not comparable — a kept row reaches the human, who reads the JD; a discarded row is
+  reviewed by nobody — so the default was backwards. `_quote_on_topic` and all three
+  vetoes are deleted. `_quote_states_refusal` now fires only on **positive evidence**: a
+  refusal (*we do not / cannot / will not sponsor*, *sponsorship is not available*) or a
+  hard bar (*must be a citizen*, *must hold permanent residency*, *must be authorized to
+  work without sponsorship*). Anything unmatched keeps, so an incomplete pattern list
+  produces a **miss** — one paid fit call — instead of a silent discard.
+
+  **The `NO_SPONSOR_PHRASES` floor is demoted twice.** It runs only when the model
+  produced no quote at all, *and* the phrase is now only a **locator**: the sentence it
+  finds must clear the same refusal bar the model's own quote clears. One rule decides
+  what counts as a refusal, whatever found the sentence. Scoping alone was not enough —
+  the two known false positives (IMC 465/490, *"or are eligible to work without
+  sponsorship, we encourage you to apply"*) are rows where the model produced **no
+  quote**, so the no-quote branch is exactly the one that fired on them.
+
+  **Two defects in how the sentence was cut out, both found by measuring against the live
+  corpus rather than the fixture.** `_sentence_with` split on the `.` of "U.S.", so
+  *"must be legally authorized to work in the U.S. without sponsorship"* arrived at the
+  bar as *"without sponsorship"* — no refusal, 65 real PayPal/eBay bars kept. And the
+  200-char excerpt truncated from the sentence start, so on a JD with bullet lists
+  flattened into one run-on sentence the phrase itself fell off the end (Optiver 692,
+  Microsoft 1716, eBay 9909, Workday 9936). Sentence extraction now shares
+  `_norm_sentence` with the bar and windows the excerpt around the phrase; both are
+  pinned by tests. A fixture of *sentences* structurally cannot catch a bug in how
+  sentences are cut out of a *description*.
+
+  **Measured.** Whole function on the 2026-07-25 labeled set: **90.9% → 100% precision**
+  at 100% recall (recall relative to the two systems' 20-row union, not to truth). Over
+  all 7,560 hydrated descriptions the floor goes from 124 fires to 83, and every one of
+  the 41 newly-kept rows is a false positive of the old floor — 39 Cloudflare
+  export-control lines and the 2 IMC invitations. No real refusal was lost. The corpus
+  `tests/fixtures/sponsorship_quotes.json` is now 34 must-keep / 13 must-flag / 1
+  known-miss, and a refusal no pattern covers is recorded there rather than pattern-tuned
+  away.
+
 - **A successful scoring pass printed nothing, so it was indistinguishable from a
   no-op.** `run_score` only ever spoke up on trouble — a fetch drop, a tripped breaker —
   so a pass that screened, scored and persisted rows exited silently with status 0. On

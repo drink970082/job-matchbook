@@ -190,7 +190,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 3 — **no defects**; sponsorship closed 2026-07-26 (measured + rebuilt), the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -293,18 +293,14 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    **8 of 28 fires wrong** — and wrong in the expensive direction, silently discarding
    good postings. `_quote_on_topic` (three vetoes — off-topic / wrong-polarity /
    soft-preference — then a vocabulary) removes all 8 and zero true positives.
-   **Numbers are for the whole function**, `(grounded AND on topic) OR
+   **Numbers are for the whole function**, `(grounded AND states refusal) OR
    NO_SPONSOR_PHRASES`, not the quote branch alone: retired phrase gate **81.8% / 45.0%**,
-   shipped `_check_authorization` **90.9% / 100%**. Quoting the quote branch on its own
-   (100% / 100%) would flatter it by hiding the ungated floor's fires — an earlier draft
-   of these docs did exactly that and published 87.0% for a function that measured 80.0%.
-   **Still open, small — the 2 residual false positives are the FLOOR, not the gate**
-   (`[SCREEN · XS]`): IMC ids 465/490, where `without sponsorship` appears inside an
-   invitation ("or are eligible to work without sponsorship, we encourage you to apply").
-   `NO_SPONSOR_PHRASES` matches a substring anywhere in the description with no sentence
-   and no relevance check. Closing it means running the gate's vetoes over the matched
-   sentence; deferred because the invitation shape needs a prose pattern that can itself
-   misfire, and 90.9% already beats the gate it replaced.
+   `_check_authorization` at the time **90.9% / 100%**, and **100% / 100%** since the
+   floor was gated (2026-07-26, below). Quoting the quote branch on its own would flatter
+   it by hiding the floor's fires — an earlier draft of these docs did exactly that and
+   published 87.0% for a function that measured 80.0%.
+   **The 2 residual false positives (IMC ids 465/490) are CLOSED 2026-07-26** — they were
+   the FLOOR, not the gate, and the fix is in SPEC §7.1 + CHANGELOG.
 
 **P2 — the last provider-choice track: track 4, agent portability — DONE 2026-07-26.**
 Codex was run against three `git archive` checkouts differing only in which skills
@@ -380,39 +376,35 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Rebuild `_quote_on_topic` as positive-evidence, and scope the phrase floor** —
-  `[SCREEN · S · design decided 2026-07-26 by the operator · do not re-derive the fork]`.
-  **The design call, so the next session does not relitigate it:** on this path a wrong
-  discard and a wrong keep are not comparable. A kept row reaches the human, who reads the
-  JD and catches it; a discarded row is reviewed by nobody. So a MISS is self-correcting
-  and costs one paid fit call, while a FALSE POSITIVE silently deletes a real opportunity.
-  Optimize for keeping.
-  **What to build.** Today the gate fires whenever an authorization word appears and vetoes
-  the exceptions (off-topic / wrong-polarity / soft-preference). That is "discard by
-  default, and the author must anticipate every innocent sentence in English" — three
-  review rounds each found a category that had not been anticipated, and one shipped
-  version disqualified *"We offer generous personal time off"*. **Invert it:** fire only on
-  positive evidence of an employer refusal or a hard bar (`we do not/cannot/will not
-  sponsor`, `sponsorship is not available/offered`, `must be a citizen`, `must have
-  unrestricted authorization`, `must hold permanent residency`); anything unmatched keeps.
-  An incomplete list then produces a miss instead of a wrong discard. All three vetoes
-  become unnecessary rather than needing to be correct — an EEO line, "Visa sponsorship is
-  available", and "prioritizing applicants" each carry no refusal marker.
-  **Second half:** `NO_SPONSOR_PHRASES` is ungated and scans the WHOLE description, which
-  is where both remaining false positives come from (IMC 465/490 — *"or are eligible to
-  work without sponsorship, we encourage you to apply"* is an invitation). Scope it to fire
-  only when the model produced no quote at all.
-  **Expected:** precision near 100%, recall meaningfully below it. That is the intended
-  trade, not a regression — say so in SPEC when the numbers move.
-  **Known and NOT the fix:** the fit scorer's Stage 4 re-check does not cover
-  authorization. `_screen_verdict` always writes the `authorization` key (the phrase floor
-  gives it a verdict with no model data), so `merge_fallback_screen`'s `key not in already`
-  gap test never sees it; verified 2026-07-26. Do not "fix" that to get a second opinion —
-  a second model vote on a disqualification doubles the false-positive surface, which is
-  why that function is a fallback and not a vote (its own docstring). The second checker
-  is the human.
-  **Contract to keep:** `tests/fixtures/sponsorship_quotes.json`. Must-keep should go clean;
-  list the must-flag misses rather than papering over them.
+- **Positive-evidence sponsorship gate — SHIPPED 2026-07-26** (branch
+  `fix/sponsorship-positive-evidence`; behavior + numbers in SPEC §7.1, history in
+  CHANGELOG). `_quote_on_topic` and its three vetoes are gone; `_quote_states_refusal`
+  fires only on an employer refusal or a hard bar, and the `NO_SPONSOR_PHRASES` floor is
+  demoted to a *locator* whose sentence must clear the same bar. Whole-function
+  precision/recall on the 2026-07-25 labeled set went **90.9% / 100% → 100% / 100%**.
+  **Three things the build corrected, worth not re-deriving:**
+  1. **Scoping the floor to the no-quote case does NOT close IMC 465/490** — as this
+     entry's design note assumed it would. On that run the model produced **no quote** for
+     exactly those two rows (verified in `db/runs/20260725-sponsor/sponsor_diff.json`), so
+     the no-quote branch is the one that fires on them. Requiring the located sentence to
+     state a refusal is what closes them.
+  2. **The sentence handed to the bar has to be the whole sentence.** Splitting on the
+     `.` of "U.S." truncated *"must be legally authorized to work in the U.S. without
+     sponsorship"* to *"without sponsorship"* (65 real PayPal/eBay bars kept), and the
+     200-char excerpt truncating from the sentence start dropped the phrase itself out of
+     flattened bullet lists (4 more). Both were found by measuring over the live corpus,
+     **not** by the fixture — a corpus of sentences cannot catch a bug in how sentences
+     are cut out of a description.
+  3. `known_miss` in the fixture is where an uncovered refusal goes. Today's one entry is
+     *"not able to **support** H-1B or OPT candidates"*: adding *support* to the verb list
+     also disqualifies the must-keep *"We can sponsor, but cannot support H-1B
+     transfers"*, and the two differ only in their object.
+  **Standing rule this leaves behind:** the second checker for an authorization
+  disqualification is the **human**, not the fit scorer. `_screen_verdict` always writes
+  the `authorization` key, so `merge_fallback_screen`'s gap test never sees it (verified
+  2026-07-26) — do not "fix" that to buy a second opinion; a second model vote on a
+  disqualification doubles the false-positive surface, which is why that function is a
+  fallback and not a vote.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
@@ -632,22 +624,17 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
-- **Sponsorship gate — shipped 2026-07-23, precision/recall never measured** —
-  `[SCREEN · M · MERGE BLOCKER · needs a labeled set]`. The quote-grounded rework is in the
-  code and described in SPEC §7.1 + CHANGELOG (it replaced a closed 12-phrase
-  substring list that caught only ~2 of 11 realistic phrasings). What is *unproven* is
-  its precision.
-  **Safe by construction, so not at risk here:** hallucination. A quote absent from
-  the JD fails `_quote_in` verification and the posting is kept, so an invented
-  sentence cannot disqualify anything — this holds on `qwen3.5:4b` too, so **D1**
-  needs no re-litigating.
-  **The actual residual:** *misclassification* — the model quoting real-but-irrelevant
-  JD text and reading it as a no-sponsorship statement. Quote-grounding cannot close
-  this, which is exactly what the labeled set is for.
-  **Open operator gate:** run `tools/sponsor_diff.py` over the ~600 already-scored
-  rows — it diffs the new check against the old phrase list so only the
-  *disagreements* need hand-labeling (*no-sponsorship / offers / silent*), not the
-  full set. That run has not happened.
+- **Sponsorship gate precision/recall — MEASURED, and the gate rebuilt on it** —
+  `[SCREEN · closed 2026-07-26]`. The `tools/sponsor_diff.py` run this entry was waiting
+  on happened 2026-07-25 over 3,553 rows (21 disagreements hand-labeled, artifact in the
+  gitignored `db/runs/20260725-sponsor/`), and the residual it exposed — *misclassification*,
+  the model quoting real-but-irrelevant JD text — drove the positive-evidence rebuild
+  above. Numbers live in SPEC §7.1; hallucination was never the exposure (`_quote_in`
+  keeps any quote absent from the JD, on `qwen3.5:4b` too, so **D1** needs no
+  re-litigating).
+  **What is still unmeasured, deliberately:** false negatives among the 3,523
+  agreed-negative rows. Neither system flagged them and nobody read them, so recall is
+  known only relative to the two systems' union, not to truth.
 
 ### Enhancements — not built, optional
 
