@@ -7,6 +7,8 @@ db/
 # — resume, target companies, API keys, chat id — is ever committed/pushed.
 apps/worker/.env
 apps/worker/.venv
+# Compose reads this at `make up`; it carries the operator's bind address (WEB_BIND).
+.env
 apps/worker/config.yaml
 # Ignore the CONTENTS of resume/ (not the dir itself, so the re-includes below
 # work — a dir-level ignore would suppress them).

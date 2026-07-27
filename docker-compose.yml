@@ -11,10 +11,23 @@ services:
     image: ats-web:local
     container_name: ats-web
     ports:
-      # Loopback only — single-user localhost, no auth layer (a non-goal). Publishing
-      # on 0.0.0.0 exposes the 26 unauthenticated server actions to any LAN peer.
-      # See docs/SPEC.md §6 / §11.
-      - "127.0.0.1:3000:3000"
+      # Loopback by DEFAULT — single-user localhost, no auth layer (a non-goal).
+      # Publishing on 0.0.0.0 exposes the 26 unauthenticated server actions to any LAN
+      # peer, so the default never changes on its own. See docs/SPEC.md §6 / §11.
+      #
+      # WEB_BIND overrides the bind ADDRESS only (never the port) for the one case that
+      # needs it: reaching the dashboard from another of your own machines over a
+      # private WireGuard mesh (Tailscale/WireGuard), where the mesh interface is
+      # already authenticated at the network layer. Set it in the gitignored root
+      # `.env` — e.g. WEB_BIND=100.x.y.z — NOT to 0.0.0.0, which would also publish on
+      # the LAN. Every unauthenticated action is reachable by any device on that mesh,
+      # so only point it at a mesh whose nodes are all yours.
+      #
+      # It must be an address on whatever host DOCKER publishes to, which is not always
+      # the shell you type in: under Docker Desktop the CLI runs in WSL but ports are
+      # published on WINDOWS, so the right value is the Windows node's mesh IP, not the
+      # WSL node's. `docker info` naming "Docker Desktop" means you are in that case.
+      - "${WEB_BIND:-127.0.0.1}:3000:3000"
     environment:
       # Absolute path on the DIRECTORY-mounted shared volume. A directory mount
       # (not a single-file mount) is REQUIRED so SQLite's WAL -wal/-shm sidecars
