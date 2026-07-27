@@ -22,134 +22,55 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **`origin/main` is merged INTO `feat/universality-and-onboarding` (2026-07-26).** The
-  branch had diverged 38 commits to main's 4 and both sides had edited the same
-  functions: 36 conflict hunks across 11 files. Resolutions worth knowing:
-  - **`pipeline.run_score` was NOT the semantic conflict it was recorded as.** The note
-    said main's thin-JD gate had to be re-implemented inside this branch's concurrent
-    loop. It was already there — both sides added `_persist_low_context` independently
-    (the merge base has neither), main into the serial loop, this branch into the
-    concurrent one, with byte-identical branch logic. Taking HEAD was correct and the
-    paid-scoring path is unchanged.
-  - **`_recipe.apply_css_fields` was a real both-sides refactor.** Both implement
-    `{field}` url templates; they differ in *namespace*. HEAD interpolates the recipe's
-    own `fields` map (`{title}`, plus helper fields the canonical posting ignores);
-    main interpolated the canonical dict (`{job_title}`, `{company_name}`). HEAD wins on
-    capability (a `{req}` helper field has no expression under main's) and its tests
-    cover strictly more; main's only case, `{external_id}`, resolves identically under
-    both. **Watch for this shape:** git kept main's trailing block as a clean
-    auto-merge, stranding it after HEAD's `return` as dead code referencing an
-    undefined name. Adjacent auto-merged text needs reading, not just the marked hunks.
-  - **A guard fired on main's code, which had never run it.** `test_no_source_specific_logic`
-    exists only on this branch, so main's `if c["source"] == "workday"` in `run_fetch`
-    (PR #9) shipped a violation nothing there could catch. Fixed by data, not an
-    allowlist entry: `fetch.STUB_GATE_NOW_SOURCES` declares which adapters take `now`,
-    matching the existing `STUB_GATE_SOURCES` pattern, so the orchestration layer selects
-    by membership instead of naming a board.
-  - **Two closed items were reintroduced and are now removed** — the documented hazard,
-    and it fired exactly as predicted (only this branch's side carries the paragraph, so
-    it merges without a conflict): "Workday stub gate cannot use `max_age_days`" and
-    "`browser` recipes have no `{field}` URL template", both shipped by PR #9. The P3
-    queue line named both and is rewritten.
-  - **A pre-existing corruption on this branch is repaired.** `a57e074` had replaced 27
-    lines of `PROGRESS.md` with stray keystrokes (`wwwwwww`), losing the block-tag table,
-    the rejected-records paragraph and the "Do next" heading. Every descendant branch
-    already carried `fa79421`'s repair; this branch did not, and would have put a
-    corrupted doc on `main` as the first merge of the stack. Table counts are re-measured
-    from the file's live tags, not copied from the repair commit.
-
-  Gates, all on the merge result: worker **625 passed**, coverage **93.46%**; web **199
-  passed** (25 suites); integration **63 passed**; e2e **4 passed**; lint clean; schema
-  in sync; privacy clean. The web tier needed `prisma generate` first — the local client
-  was built from branch #10's schema, which has a `notify_attempts` column this branch
-  does not. That is environment drift from branch switching, not a merge defect: the
-  merge touches **no** `apps/web` file.
-- **Branch `feat/universality-and-onboarding` — landed, unmerged, BOTH GATES CLEARED
-  2026-07-25; PR #7 is mergeable and the merge is the operator's call.** All 11 tasks of the
-  [screen-backends plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md)
-  are implemented and reviewed; suites green (worker 578, coverage 93.27%; web 136;
-  privacy + schema-drift clean) and a whole-branch review found **no correctness
-  blockers**. Shipped on it: plan Stages 1-2 (screen backends — track 1), Stage 3
-  (quote-grounded sponsorship — track 5), Stage 5 (screen/fit concurrency).
-  **Plan Stage 4 (Task 9, `66dfb65`) SHIPS — the gate passed, no revert.** The fit scorer
-  now also extracts the three hard-requirement facts, consumed as a *fallback* only
-  where the screen produced no verdict (`merge_fallback_screen` — a working backend's
-  verdict still wins, so the false-positive surface does not double). It edits the
-  gated `score.txt`, so it was ordered last and held until `score_eval` cleared it.
-  **Both gates, both cleared 2026-07-25** (numbers in the pick order below): the
-  sponsorship precision/recall labeled set, which found and closed a real precision
-  defect on the way, and the `score_eval` re-run, two consecutive PASS.
-  **Neither gate was runnable as shipped.** The `score_eval` one turned out to be blocked
-  by two schema defects that made every codex fit call 400 — the default backend was dead,
-  not degraded — fixed on `fix/strict-mode-score-schema` (PR #14). Nothing else on the
-  branch depends on Stage 4.
-- **Branch `fix/bodyless-guard-and-quota-flags` — MERGED to `main` 2026-07-24** (PR #5,
-  squashed as `48901a3`), together with `docs/sync-audit` (PR #4, `d4e521f`). Merging #4
-  first made #5 conflict — `main`'s squash of #4 diverged from #5's copy of those
-  commits — resolved in `CHANGELOG.md` only (main's side of the hunk was empty; both
-  section sets kept), re-verified green, CI green on the rerun.
-- **PR #6 landed on the wrong base — since reconciled.** `feat/recipe-field-workday-dates`
-  (browser `{field}` url templates + workday prose-date age-gating) was based on
-  `feat/workday-stub-gate`, not `main`, so merging it 2026-07-24 landed there rather than
-  on `main`. Closed by PR #9 (`8c683a0`), which carried both that work and the stub gate
-  onto `main`. Nothing was lost. Also on `main`: PR #8 (`76e7fda`) — `make eval-score`
-  reached into the stale `apps/worker/.venv` (no `bs4`) and could not run at all.
-  **Merge-hygiene note for the remaining branches:** every PR after the first hit the same
-  squash-divergence conflict — `main`'s squash of an earlier PR does not match the copy of
-  those commits still on a later branch. Content is identical; resolve per hunk, taking the
-  newer side, and check for a *closed* item being reintroduced (PR #9's merge would have
-  re-opened "workday stub gate needs a prose-date parser", which the same PR shipped).
-- **Branch `feat/score-provenance-and-rescreen` — landed, unmerged (2026-07-24).** Cut
-  from `feat/universality-and-onboarding` so it doesn't inflate the blocked PR #7; carries
-  #7's 41 commits plus four changes: scorer provenance (`backend`/`model`/
-  `scorer_version` in `score_detail`), `--rescreen-discarded`, the **dead-screen-provider
-  circuit breaker** (the SCREEN defect found and fixed 2026-07-24), and `--no-notify`.
-  Suites green (worker 643, web 136), coverage 93.66%; the flags driven against a
-  throwaway DB. **PR #10 opened 2026-07-25, based on `feat/universality-and-onboarding`
-  (not `main`)** so its diff is the 12-commit delta over #7 rather than #7's own 38;
-  GitHub retargets the base to `main` when #7 merges. Until then CI had never run on this
-  branch — everything green was from the operator's machine. **Queues behind #7.** It is also the
-  branch the long-run day must run from — see the runbook below. **Not yet on it:**
-  `main`'s PR #8 (`make eval-score`) and PR #9 (workday prose-date age-gating, which
-  would speed up the run's fetch phase). **Merge `origin/main` in AFTER the run, not
-  before:** the gain is wall-clock on a phase nobody is awake for, the cost is a
-  squash-divergence resolution on the branch about to run unattended, and the
-  `eval-score` fix is already routed around by the runbook's explicit `python3` commands.
-  **Also on it — `7e2e93f` (2026-07-25, docs only):** the agent-context audit. `CLAUDE.md`
-  7,064 → 4,587 chars, the "read all four docs before any substantive work" mandate
-  (~57k tokens per session) replaced by the `session-boot` skill with only `PROGRESS.md`
-  "In flight" left unconditional, and the self-merge review contradiction between
-  `CLAUDE.md` §Agent conduct and `DEVELOPMENT.md` §5/§7 scoped rather than dropped
-  (CHANGELOG). No code touched, so the branch's green suites still stand.
-- **Branch `test/spec-matrix-and-list-guards` — landed, unmerged (2026-07-25).** Cut from
-  `feat/score-provenance-and-rescreen` (not `main`) because the item it closes — "the
-  fetch extension rules are documented but not enforced" — exists only in *that* branch's
-  `PROGRESS.md`; basing it on `main` would have let the merge reintroduce a closed item.
-  Two guards in `test_source_enums_sync.py`: `test_watchlist_sources_can_list` (every
-  `VALID_SOURCES` member's adapter exposes `fetch`) and `test_spec_matrix_matches_adapters`
-  (SPEC's hand-maintained source-coverage matrix vs `ADAPTERS` + `VALID_SOURCES`). Worker
-  645 passed, coverage 93.66%; both new asserts mutation-checked (a dropped matrix row and
-  a flipped watchlist cell each red the right line). **PR #11**, based on
-  `feat/score-provenance-and-rescreen` — so it **queues behind #10, which queues behind
-  #7.** Also on it (`2026-07-25`, no code): the branch tidy-up — the
-  `feat+recipe-field-workday-dates` worktree and four dead local branches (`master`,
-  `fix/ci-triggers-on-main`, `fix/e2e-first-run-seed`, `feat/recipe-field-workday-dates`)
-  removed after verifying each adds nothing to `main` outside stale doc copies.
-- **The six-PR stack (#7 → #10 → #11 → #12 → #13 → #14) — reviewed twice, NOT merged;
-  blocked on the `main` integration (see the NEXT STEP callout).** Every branch passed CI and two rounds of the §7 fresh-subagent review.
-  Round 1 found real defects on all five authored PRs; round 2 found defects **in the
-  fixes**, including one where the same emptiness-check bug was reintroduced a third time
-  through a new empty value. Both rounds' findings are closed. The lasting outputs are two
-  contracts that make the fragile parts fail loudly: `tests/fixtures/sponsorship_quotes.json`
-  (the sponsorship gate's corpus) and the rule that a strict-mode schema violation must red
-  the suite rather than 400 in production. **Deferred by decision, not oversight:** the
-  `_quote_on_topic` inversion (see Unverified / deferred). **The merge was attempted
-  2026-07-26 and aborted** — `feat/universality-and-onboarding` needs a real integration
-  with `main`, not a squash-divergence resolution; the tree was left clean and nothing was
-  pushed to `main`.
-- **Branch `chore/agent-portability` — landed, unmerged (2026-07-25).** Cut from
-  `test/spec-matrix-and-list-guards`; closes track 4 (see below). Two symlinks and one
-  `CLAUDE.md` line. **PR #12**, so it queues behind #11 → #10 → #7.
+- **The seven-PR stack is MERGED to `main` — 2026-07-26. Nothing is in flight on it.**
+  `main` integration + #7 → #10 → #11 → #12 → #13 → #14 → #15, squash-merged in order,
+  CI green on `main` and the full gate re-run there (worker 665 / coverage 93.70%; web
+  199; integration 63; e2e 4; schema + privacy clean). Details in CHANGELOG; what the
+  integration *found* is worth carrying forward:
+  - **`pipeline.run_score` was never the semantic conflict it was recorded as** — the
+    thin-JD gate was already inside the concurrent loop, added independently on both
+    sides. The paid-scoring path is unchanged.
+  - **`_recipe.apply_css_fields` was one**, resolved on namespace: `{field}` templates
+    interpolate the recipe's **own `fields` map**, so a url-only helper field works and
+    `{job_title}`/`{company_name}` do **not** exist. SPEC §7 says so.
+  - **A guard fired on main's code that main had never run** — `test_no_source_specific_logic`
+    caught PR #9's `if c["source"] == "workday"`. Fixed by data
+    (`fetch.STUB_GATE_NOW_SOURCES`), not an allowlist entry.
+  - **Squash-merge is the only method this repo allows**, so every PR after the first
+    needed a `git merge origin/main` + take-HEAD resolution. Content was identical each
+    time; the check that matters is grepping for BOTH sides' distinguishing symbols
+    afterward, not a green suite.
+  - **Two defects reached `main`-bound branches and were caught by the §7 review, not by
+    tests:** an open item deleted by taking one side of `PROGRESS.md` wholesale, and a
+    duplicated CHANGELOG entry. Resolving a delta-only doc by "take ours" drops the other
+    side's open items — the mirror of the reintroduction hazard, and it is not tested.
+- **`ats-autoheal` was dead for 3 days (Exited 127) — FIXED 2026-07-26 by recreating the
+  container.** Root cause is worth keeping: `willfarrell/autoheal`'s entrypoint dispatches
+  on `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`. There is **no `autoheal` binary
+  in the image** — the loop is inline in `/docker-entrypoint`. So when
+  `/var/run/docker.sock` is momentarily absent (a Docker Desktop restart), the `else`
+  branch runs `exec "$@"`, which tries to exec a command that does not exist and exits
+  **127** — and `restart: unless-stopped` did not bring it back. **Consequence while it
+  was down: nothing auto-recovered `ats-web` from the WSL2 stale-bind-mount failure**,
+  which is the sidecar's entire job (SPEC §6). **Open, small** (`[INFRA · XS]`): the
+  sidecar fails permanently on a transient socket gap. A `depends_on`/socket-wait, or
+  simply checking it is `Up` as part of any deploy check, would close it. Verify with
+  `docker ps --filter name=ats-autoheal` — it must read `Up`, not `Exited`.
+- **Scoring the `new` backlog at scale — deferred, operator's call** (`[SCORE · S ·
+  quota-bound]`). **3,965 rows still `new`** as of 2026-07-26. A 20-row bounded pass ran
+  that day on merged `main` and confirmed the pipeline works end-to-end: 12
+  screen-disqualified (free, local), 8 fit-scored on `codex/gpt-5.6-sol` with provenance
+  stamped, 0 notified, **8 Codex messages spent**. So the per-row cost is ~0.4 paid
+  messages (the free screen discards ~60%), and the whole backlog is on the order of
+  **~1,600 messages** — most of a weekly budget, which is why it is not run casually.
+  **Two things to fix before a big pass, neither blocking:**
+  - `run_score` **prints nothing on success**, so a working pass looks identical to a
+    no-op. This cost real debugging time on 2026-07-26. One summary line would close it.
+  - Rows are taken oldest-first, so a bounded pass scores **one board at a time** (all 20
+    were Microsoft). Fine for a smoke test, misleading as a sample of the queue.
+  Run it with `--score-only --score-limit N` from `apps/worker`
+  (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the runbook's phases 1-2 carry
+  the quota math and monitoring cadence.
 - **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
   00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
   if intake looks thin). Passes are still run by hand. The blocking precondition has
