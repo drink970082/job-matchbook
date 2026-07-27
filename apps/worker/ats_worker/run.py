@@ -12,6 +12,7 @@ which lacks apscheduler — can still import and exercise this module.
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import os
 import tempfile
@@ -454,8 +455,9 @@ def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
 
 # One pipeline pass at a time per host. NOT in db/ — that directory is bind-mounted
 # into the web container, and the lock is a property of this host's processes, not of
-# the data; the temp dir also clears on reboot. tempfile.gettempdir() honors TMPDIR,
-# which is override enough — this needs no config knob.
+# the data. tempfile.gettempdir() honors TMPDIR, which is override enough — this needs
+# no config knob. Two passes resolving TMPDIR differently do NOT see each other, which
+# is why acquisition prints the path it took.
 _LOCK_PATH = Path(tempfile.gettempdir()) / "ats-worker-pass.lock"
 
 
@@ -480,11 +482,33 @@ def pass_lock(path=None):
     that is no longer the one at this path).
     """
     path = Path(path or _LOCK_PATH)
-    fd = os.open(str(path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
+    try:
+        # O_NOFOLLOW: the temp dir is world-writable and sticky, so refuse to follow a
+        # symlink another user planted at this path rather than truncating its target.
+        fd = os.open(str(path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o644)
+    except OSError as exc:
+        # Opening the lock is NOT contention, and must not be reported as it. A
+        # root-owned leftover (one pass run under sudo), a umask-0600 file, a missing
+        # TMPDIR — each fails here forever, and "never unlinked" means nothing self-heals.
+        # Fail loud and name the path, rather than a traceback or a false "already running".
+        raise RuntimeError(
+            f"cannot open the pass lock at {path}: {exc}. Nothing is wrong with the "
+            f"pipeline — fix the file (check its owner and mode) or point TMPDIR "
+            f"somewhere this user can write."
+        ) from exc
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        except OSError as exc:
+            if exc.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                # flock unsupported or broken on this filesystem (NFS without lockd, some
+                # FUSE mounts). Reporting that as contention would refuse EVERY pass
+                # forever while telling the operator a pass is already running.
+                raise RuntimeError(
+                    f"the pass lock at {path} could not be taken: {exc}. This is not "
+                    f"contention — the filesystem holding it does not support flock. "
+                    f"Point TMPDIR at a local filesystem."
+                ) from exc
             holder = os.pread(fd, 32, 0).decode("utf-8", "replace").strip() or "unknown"
             raise PassInProgress(
                 f"another pipeline pass is already running on this host (pid {holder}, "
@@ -493,6 +517,9 @@ def pass_lock(path=None):
             ) from None
         os.ftruncate(fd, 0)
         os.write(fd, f"{os.getpid()}\n".encode())
+        # Printed because the guard is void between two passes that resolve TMPDIR
+        # differently, and that is otherwise undetectable from the outside.
+        print(f"[pass] holding {path} (pid {os.getpid()})", flush=True)
         yield path
     finally:
         os.close(fd)   # releases the flock

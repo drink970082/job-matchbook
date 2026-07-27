@@ -197,7 +197,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 3 — **no defects** (both shipped 2026-07-24); pass overlap closed 2026-07-26 |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — **no defects** (both shipped 2026-07-24); pass overlap closed 2026-07-26 |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
 | `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 — the `.agents/skills` link is verified (2026-07-26) |

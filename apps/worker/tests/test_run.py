@@ -1,6 +1,7 @@
 """TDD for the entrypoint: --once runs the three stages in order, env plumbing."""
 from __future__ import annotations
 
+import errno
 import os
 
 import pytest
@@ -838,13 +839,79 @@ def test_a_second_pass_is_refused_while_the_first_holds_the_lock(tmp_path):
 
 
 def test_a_stale_lockfile_does_not_wedge_the_pipeline(tmp_path):
-    # Host killed mid-pass: the file survives with a dead (and possibly reused) pid in
-    # it, but the kernel dropped the flock with the process. The next pass must take it
-    # with no operator deleting anything by hand.
+    # Host killed mid-pass: the file survives with a dead pid in it, but the kernel
+    # dropped the flock with the process. The next pass must take it with no operator
+    # deleting anything by hand.
+    #
+    # This has to be a REAL subprocess that is REALLY killed. Writing a dead pid into a
+    # file nobody ever flocked would pass against a plain PID-file implementation too,
+    # and kernel-release-on-death is the entire reason flock was chosen over one.
+    import subprocess
+    import sys
     lock = tmp_path / "pass.lock"
-    lock.write_text("4194303\n")                   # above the default pid_max
-    with run.pass_lock(lock):
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import fcntl,os,sys\n"
+         "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)\n"
+         "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+         "os.ftruncate(fd, 0); os.write(fd, f'{os.getpid()}\\n'.encode())\n"
+         "print('held', flush=True)\n"
+         "sys.stdin.read()\n",
+         str(lock)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(run.PassInProgress):     # genuinely held by another process
+            with run.pass_lock(lock):
+                pytest.fail("took a lock another process holds")
+        holder.kill()                               # SIGKILL: no cleanup can run
+        holder.wait(timeout=10)
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=10)
+
+    assert lock.exists()                            # nothing unlinked it
+    assert lock.read_text().strip() == str(holder.pid)   # ... and it still names the dead pid
+    with run.pass_lock(lock):                       # taken anyway, no manual cleanup
         assert lock.read_text().strip() == str(os.getpid())
+
+
+def test_an_unopenable_lock_is_not_reported_as_contention(tmp_path):
+    # A root-owned leftover from one sudo run, a 0600 file, a missing TMPDIR: each makes
+    # os.open fail forever, and "never unlinked" means nothing self-heals. The one thing
+    # it must NOT do is claim a pass is already running, which would send the operator
+    # hunting a process that does not exist.
+    lock = tmp_path / "missing-dir" / "pass.lock"
+    with pytest.raises(RuntimeError) as exc:
+        with run.pass_lock(lock):
+            pytest.fail("opened a lock under a directory that does not exist")
+    assert not isinstance(exc.value, run.PassInProgress)
+    assert str(lock) in str(exc.value)              # names the path to fix
+    assert "TMPDIR" in str(exc.value)
+
+
+def test_a_filesystem_without_flock_is_not_reported_as_contention(monkeypatch, tmp_path):
+    # NFS without lockd, some FUSE mounts: flock raises ENOLCK/ENOSYS rather than
+    # EWOULDBLOCK. Reporting that as contention refuses EVERY pass forever while telling
+    # the operator one is already running — a permanent silent outage.
+    def no_locks(fd, op):
+        raise OSError(errno.ENOLCK, "No locks available")
+    monkeypatch.setattr(run.fcntl, "flock", no_locks)
+    with pytest.raises(RuntimeError) as exc:
+        with run.pass_lock(tmp_path / "pass.lock"):
+            pytest.fail("took a lock on a filesystem that cannot lock")
+    assert not isinstance(exc.value, run.PassInProgress)
+    assert "not contention" in str(exc.value)
+
+
+def test_the_default_lock_path_is_not_under_the_shared_db_dir():
+    # db/ is bind-mounted into the web container; the lock is a property of this host's
+    # processes, not of the data. The autouse fixture redirects _LOCK_PATH for the rest
+    # of the suite, so without this nothing would notice it moving.
+    from tests.conftest import SHIPPED_LOCK_PATH
+    assert SHIPPED_LOCK_PATH == run.Path(run.tempfile.gettempdir()) / "ats-worker-pass.lock"
+    assert "db" not in SHIPPED_LOCK_PATH.parts
 
 
 def test_the_lock_is_released_when_the_pass_raises(tmp_path):
@@ -882,8 +949,12 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     events: list = []
 
     class FakeScheduler:
-        def add_job(self, fn, *a, **kw): events.append("add_job")
-        def start(self): events.append("start")
+        # start() must actually FIRE the registered job. Discarding the callable would
+        # leave the eager pre-start() pass as the only thing exercised, and this test
+        # claims to cover a *scheduled firing* skipping its slot.
+        def __init__(self): self.job = None
+        def add_job(self, fn, *a, **kw): events.append("add_job"); self.job = fn
+        def start(self): events.append("start"); self.job()
 
     blocking = types.ModuleType("apscheduler.schedulers.blocking")
     blocking.BlockingScheduler = FakeScheduler
