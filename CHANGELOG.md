@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The autoheal sidecar died on a blink of the Docker socket, and stayed dead for three
+  days.** `ats-autoheal` was `Exited (127)` from 2026-07-23 to 2026-07-26, so nothing was
+  watching `ats-web` — the sidecar's entire job (SPEC §6) — through the window in which
+  the WSL2 stale-bind-mount failure is the expected fault. The cause is a branch in
+  `willfarrell/autoheal`'s entrypoint: it dispatches on
+  `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`, and the restart loop is *inline*
+  in `/docker-entrypoint` — there is no `autoheal` binary in the image. So when
+  `/var/run/docker.sock` is momentarily absent (a Docker Desktop restart), the `else`
+  branch runs `exec "$@"` against a command that does not exist and the container exits
+  **127**, which `restart: unless-stopped` does not recover from. Compose now overrides
+  `entrypoint` to poll for the socket for up to 30s before handing off, so a transient
+  gap becomes a delayed start rather than a permanent death; a genuinely absent socket
+  still fails loudly at 30s instead of hanging (the image's healthcheck is
+  `pgrep -f autoheal`, which would match a waiting shell and read `Up (healthy)` forever).
+  `make up` now also fails if `ats-autoheal` is not running afterwards, so the next
+  silent death is caught at deploy time rather than three days later. Verified by
+  reproducing the 127 exit in a throwaway container and showing the fixed entrypoint
+  survive the same gap.
+
 - **A successful scoring pass printed nothing, so it was indistinguishable from a
   no-op.** `run_score` only ever spoke up on trouble — a fetch drop, a tripped breaker —
   so a pass that screened, scored and persisted rows exited silently with status 0. On

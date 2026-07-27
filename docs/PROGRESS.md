@@ -44,18 +44,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
     tests:** an open item deleted by taking one side of `PROGRESS.md` wholesale, and a
     duplicated CHANGELOG entry. Resolving a delta-only doc by "take ours" drops the other
     side's open items — the mirror of the reintroduction hazard, and it is not tested.
-- **`ats-autoheal` was dead for 3 days (Exited 127) — FIXED 2026-07-26 by recreating the
-  container.** Root cause is worth keeping: `willfarrell/autoheal`'s entrypoint dispatches
-  on `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`. There is **no `autoheal` binary
-  in the image** — the loop is inline in `/docker-entrypoint`. So when
-  `/var/run/docker.sock` is momentarily absent (a Docker Desktop restart), the `else`
-  branch runs `exec "$@"`, which tries to exec a command that does not exist and exits
-  **127** — and `restart: unless-stopped` did not bring it back. **Consequence while it
-  was down: nothing auto-recovered `ats-web` from the WSL2 stale-bind-mount failure**,
-  which is the sidecar's entire job (SPEC §6). **Open, small** (`[INFRA · XS]`): the
-  sidecar fails permanently on a transient socket gap. A `depends_on`/socket-wait, or
-  simply checking it is `Up` as part of any deploy check, would close it. Verify with
-  `docker ps --filter name=ats-autoheal` — it must read `Up`, not `Exited`.
+- **`ats-autoheal`'s socket-gap death — CLOSED 2026-07-26** (branch
+  `fix/autoheal-socket-gap`; root cause and fix in CHANGELOG, behavior in SPEC §6). The
+  sidecar no longer dies on a transient `/var/run/docker.sock` gap, and `make up` fails
+  if it is not `Up` afterwards. **Operator step: the fix is inert until the container is
+  recreated** — run `make up` once, then confirm `docker ps --filter name=ats-autoheal`
+  shows a `COMMAND` of `"/bin/sh -c 'for _ i…"` rather than `"/docker-entrypoint …"`.
 - **Scoring the `new` backlog at scale — deferred, operator's call** (`[SCORE · S ·
   quota-bound]`). **3,965 rows still `new`** as of 2026-07-26. A 20-row bounded pass ran
   that day on merged `main` and confirmed the pipeline works end-to-end: 12
