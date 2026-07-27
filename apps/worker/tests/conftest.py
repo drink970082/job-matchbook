@@ -1,6 +1,16 @@
 import pytest
 
+from ats_worker import run
 from tests._helpers import bootstrap_db
+
+
+@pytest.fixture(autouse=True)
+def _isolated_pass_lock(tmp_path, monkeypatch):
+    """Every test that reaches run.main() takes the pass lock for real, so point it
+    at a per-test temp file: the suite must not contend with a live pass on this
+    host (nor leave a lock behind in the shared temp dir). Tests that exercise the
+    lock itself pass their own path explicitly."""
+    monkeypatch.setattr(run, "_LOCK_PATH", tmp_path / "pass.lock")
 
 
 @pytest.fixture

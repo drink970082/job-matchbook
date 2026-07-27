@@ -328,7 +328,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   (the fetch/screen seams never bind a real network callable as a default —
   `notify.py`'s `http=requests` default is the one deliberate exception), and
   `run.py` supplies `fetch_company`, `fetch_one_company`, and the screen's
-  `http=requests` explicitly at each call site.
+  `http=requests` explicitly at each call site. **One pass at a time per host:** every
+  pass (scheduled or `--once`) runs inside `pass_lock` — a non-blocking `fcntl.flock`
+  on `$TMPDIR/ats-worker-pass.lock`, taken per *pass*, not for the process lifetime, and
+  deliberately not under `db/` (bind-mounted into the web container; the lock is a
+  property of this host's processes, not of the data). A pass that cannot take it runs
+  nothing: `--once` exits non-zero naming the holder's pid, a scheduled firing skips
+  that slot and stays scheduled (§9).
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -1485,6 +1491,23 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   attempt per reopen. Design:
   [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
 
+- **Two pipeline passes never overlap on one host.** APScheduler's `max_instances=1`
+  stops the scheduler overlapping *itself* (a long pass makes the next firing skip), but
+  not a hand-run pass landing inside a scheduled one — likelier the higher the cadence.
+  The asymmetry that makes it worth guarding: a duplicated notify costs one extra
+  Telegram message, a duplicated **score costs real paid quota**. `run.pass_lock` wraps
+  the whole pass in a non-blocking exclusive `flock`. It is an `flock`, not a PID file,
+  because that makes **staleness self-solving**: the kernel drops the lock when the
+  holder dies, so a host killed mid-pass leaves a file the next pass takes immediately —
+  no operator deleting anything, no guessing whether a recorded pid was reused. Release
+  therefore covers every exit — normal return, exception, SIGINT (the `finally` runs),
+  SIGTERM/SIGKILL (the kernel). The file is truncated and rewritten with the holder's
+  pid so a refusal can name it, and is **never unlinked** (unlinking races: a second
+  process can end up holding a lock on an inode no longer at that path). A refused pass
+  is non-destructive and total — it neither queues, blocks, nor partially runs: `--once`
+  raises `SystemExit` with the message (non-zero, before any fetch or scorer call), a
+  scheduled firing prints one line and waits for the next slot.
+
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
@@ -1518,6 +1541,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
+| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot and stays scheduled | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
 | Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |

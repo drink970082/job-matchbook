@@ -12,9 +12,12 @@ which lacks apscheduler — can still import and exercise this module.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
+import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import requests
@@ -449,6 +452,52 @@ def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
     return resumes, profile
 
 
+# One pipeline pass at a time per host. NOT in db/ — that directory is bind-mounted
+# into the web container, and the lock is a property of this host's processes, not of
+# the data; the temp dir also clears on reboot. tempfile.gettempdir() honors TMPDIR,
+# which is override enough — this needs no config knob.
+_LOCK_PATH = Path(tempfile.gettempdir()) / "ats-worker-pass.lock"
+
+
+class PassInProgress(RuntimeError):
+    """Another pipeline pass on this host already holds the lock."""
+
+
+@contextmanager
+def pass_lock(path=None):
+    """Hold the host-wide pass lock for the duration of one whole pass.
+
+    `flock` rather than a bare PID file, because staleness then solves itself: the
+    kernel drops the lock when the holder dies, so a host killed mid-pass leaves a
+    file the next pass can take immediately — no manual cleanup, and no guessing
+    whether a recorded pid is the same process or a reused number. Release therefore
+    covers every exit: normal return, exception, SIGINT (the `finally` runs), and
+    SIGTERM/SIGKILL (the kernel releases it with the process).
+
+    Raises `PassInProgress` at once if another pass holds it — never blocks, never
+    queues. The file is only truncated and rewritten with the holder's pid, never
+    unlinked: unlinking races (a second process can end up holding a lock on an inode
+    that is no longer the one at this path).
+    """
+    path = Path(path or _LOCK_PATH)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            holder = os.pread(fd, 32, 0).decode("utf-8", "replace").strip() or "unknown"
+            raise PassInProgress(
+                f"another pipeline pass is already running on this host (pid {holder}, "
+                f"lock {path}) — refusing to start a second one; a duplicate pass would "
+                f"re-spend paid fit-scorer quota"
+            ) from None
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        yield path
+    finally:
+        os.close(fd)   # releases the flock
+
+
 def main(argv=None) -> None:
     # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
     # --score-backend/--codex-score-model/--batch-size read os.environ, so a .env value
@@ -565,20 +614,34 @@ def main(argv=None) -> None:
     resumes, profile = load_resumes(args.resume_dir)
 
     def once():
-        run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
-                 env=env, ollama_model=args.model,
-                 screen_backend=args.screen_backend,
-                 screen_model=args.screen_model,
-                 score_backend=args.score_backend,
-                 codex_score_model=args.codex_score_model,
-                 anthropic_score_model=args.anthropic_score_model,
-                 batch_size=args.batch_size,
-                 fetch_only=args.fetch_only, score_only=args.score_only,
-                 score_limit=args.score_limit,
-                 screen_workers=args.screen_workers,
-                 score_workers=args.score_workers,
-                 rescreen_discarded=args.rescreen_discarded,
-                 no_notify=args.no_notify)
+        # A whole pass runs under the host lock. APScheduler's max_instances=1 stops
+        # the scheduler overlapping ITSELF, but not a hand-run pass landing inside a
+        # scheduled one — likelier the higher the cadence, and a duplicated pass
+        # re-spends paid fit-scorer quota (a duplicated notify only costs one extra
+        # Telegram message).
+        try:
+            with pass_lock():
+                run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
+                         env=env, ollama_model=args.model,
+                         screen_backend=args.screen_backend,
+                         screen_model=args.screen_model,
+                         score_backend=args.score_backend,
+                         codex_score_model=args.codex_score_model,
+                         anthropic_score_model=args.anthropic_score_model,
+                         batch_size=args.batch_size,
+                         fetch_only=args.fetch_only, score_only=args.score_only,
+                         score_limit=args.score_limit,
+                         screen_workers=args.screen_workers,
+                         score_workers=args.score_workers,
+                         rescreen_discarded=args.rescreen_discarded,
+                         no_notify=args.no_notify)
+        except PassInProgress as exc:
+            # A hand run exits non-zero so a wrapper script sees the refusal; a
+            # scheduled firing skips this slot and waits for the next one. Neither
+            # queues, blocks, or runs a partial pass.
+            if args.once:
+                raise SystemExit(str(exc)) from None
+            print(f"skipping this scheduled pass: {exc}")
 
     if args.once:
         once()
