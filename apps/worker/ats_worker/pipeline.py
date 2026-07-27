@@ -538,6 +538,12 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
         rows = rows[:limit]
     postings = [dict(row) for row in rows]
 
+    # ponytail: a plain dict, not a dataclass — it exists only to build the one summary
+    # line below. A pass that did work used to print NOTHING on success, so a working
+    # run and a no-op run were indistinguishable at the terminal (cost real debugging
+    # time 2026-07-26); the breakers below already speak up, so silence read as "fine".
+    tally = {"discarded": 0, "thin": 0, "fit": 0, "failed": 0}
+
     # Screen calls are I/O-bound (an HTTP round trip, or a subprocess spawn on the CLI
     # backends), so they run CONCURRENTLY while every DB call stays on this thread —
     # the same read-serial / network-parallel / write-serial shape run_feed uses,
@@ -578,6 +584,7 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                 # the same way).
                 screen_breaker.record_failure()
                 db.mark_failed(conn, row["id"], error=str(exc), now=now)
+                tally["failed"] += 1
                 continue
             if screen.get("provider_error"):
                 screen_breaker.record_failure()
@@ -594,12 +601,14 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                     score_detail=_score_detail(screen, disqualified=True),
                     now=now, status="discarded",
                 )
+                tally["discarded"] += 1
             elif len((posting.get("description") or "").strip()) < \
                     db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
                 # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
                 # paid fit call (the UI/notify gate would hold it back anyway). Screen was
                 # free (Ollama), so hard-disqualifications on thin JDs are still caught above.
                 _persist_low_context(conn, row, screen, now=now)
+                tally["thin"] += 1
             else:
                 survivors.append((row, posting, screen))
 
@@ -656,11 +665,13 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                         except Exception as exc:  # noqa: BLE001 — a single that still fails is isolated
                             db.mark_failed(conn, row["id"], error=str(exc), now=now)
                             breaker.record_failure()
+                            tally["failed"] += 1
                         else:
                             _persist_scored(conn, row, screen, card, posting,
                                             now=now, candidate=candidate,
                                             scorer_meta=scorer_meta)
                             breaker.record_success()
+                            tally["fit"] += 1
                 elif cards is None:
                     # batch_size 1: the chunk IS one posting, so re-issuing fit_fn([posting])
                     # would repeat the identical call that just failed — no chance of a
@@ -670,12 +681,14 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                            else "fit returned a mismatched card count")
                     db.mark_failed(conn, row["id"], error=err, now=now)
                     breaker.record_failure()
+                    tally["failed"] += 1
                 else:
                     for (row, posting, screen), card in zip(chunk, cards):
                         _persist_scored(conn, row, screen, card, posting,
                                         now=now, candidate=candidate,
                                         scorer_meta=scorer_meta)
                         breaker.record_success()
+                        tally["fit"] += 1
                 if breaker.tripped:
                     # Dead backend, not a bad row: stop, leave the untouched remainder
                     # 'new' (recoverable next pass) and don't spend more failing calls
@@ -693,6 +706,14 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
             # persisted above are kept; rows never started stay 'new'.
             ex.shutdown(wait=False, cancel_futures=True)
             raise
+
+    # One line, always — the pass is otherwise silent on success. `fit` is the number
+    # that spent quota; `left new` is whatever a tripped breaker or an abort did not
+    # reach, so a partial pass reads as partial instead of as a smaller pass.
+    done = tally["discarded"] + tally["thin"] + tally["fit"] + tally["failed"]
+    print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
+          f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
+          f"{tally['failed']} failed, {len(rows) - done} left 'new'")
 
 
 # --- retry ------------------------------------------------------------------

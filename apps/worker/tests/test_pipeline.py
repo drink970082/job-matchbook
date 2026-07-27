@@ -346,6 +346,62 @@ def test_run_score_thin_jd_skips_paid_fit(db_path):
     assert db.get_notifiable(conn) == []
 
 
+def test_run_score_always_prints_a_summary(db_path, capsys):
+    # run_score used to print NOTHING on success, so a pass that did work and a pass
+    # with nothing to do were indistinguishable at the terminal — a working run read as
+    # a failure (2026-07-26). One line, always, with the counts that matter: `fit` is
+    # what spent quota, `left 'new'` is what a breaker or abort did not reach.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("dq", job_title="dq"),                       # screen-disqualified
+        _posting("thin", job_title="thin", description="Too short."),   # no fit call
+        _posting("ok", job_title="ok"),                       # fit-scored
+    ], now=NOW)
+
+    def screen_fn(posting):
+        dq = posting["job_title"] == "dq"
+        return {"disqualified": dq, "screen": {}, "disqualification_reason": ""}
+
+    fit_calls = []
+
+    def fit_fn(postings):
+        fit_calls.append(len(postings))
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
+
+    out = capsys.readouterr().out
+    assert "[score] 3 row(s):" in out
+    assert "1 screen-discarded" in out
+    assert "1 thin-JD (no fit call)" in out
+    assert "1 fit-scored" in out
+    assert "0 failed" in out
+    assert "0 left 'new'" in out
+    assert fit_calls == [1]        # only the substantial JD was paid for
+
+
+def test_run_score_summary_counts_rows_a_breaker_never_reached(tmp_path, capsys):
+    # A tripped fit breaker leaves the untouched remainder 'new'. The summary must say
+    # so rather than under-reporting the pass as if those rows never existed — that is
+    # the difference between "nothing to do" and "the backend is down".
+    conn = _seeded_conn(tmp_path, 6)
+
+    def screen_fn(posting):
+        return {"disqualified": False, "screen": {}}
+
+    def fit_fn(postings):
+        raise score.ScoreError("backend down")
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, batch_size=1)
+
+    out = capsys.readouterr().out
+    assert "[score] 6 row(s):" in out
+    left = int(out.split("failed, ")[1].split(" left")[0])
+    failed = int(out.split("fit-scored, ")[1].split(" failed")[0])
+    assert failed + left == 6      # every row accounted for, none double-counted
+    assert left > 0                # the breaker stopped short of the whole backlog
+
+
 def test_run_score_substantial_jd_reaches_fit(db_path):
     # The complement: a JD at/over the threshold DOES go to the fit scorer.
     conn = db.connect(db_path)
