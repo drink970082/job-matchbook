@@ -7,6 +7,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`custom` recipes can extract from plain HTML, not just JSON.** Bloomberg, Two Sigma,
+  Citi, Barclays, Moody's and Geode are all fetchable with plain `requests` and no bot
+  wall, yet each was forced onto rung 3 (`browser` + headless Chromium) for one reason:
+  `custom` parsed JSON and `__NEXT_DATA__` and nothing else. A `mode: html` now covers
+  them. It is **not a second extractor** — the CSS listing walk moved into
+  `_recipe.parse_css_page`, and `browser` now calls the same function, so the item
+  selector, the `fields` map and `{field}` url templates behave identically on both rungs
+  and a recipe author learns one model. `test_html_mode_matches_browser_extraction`
+  asserts the two executors return the same postings for the same recipe (modulo
+  `source`), which is what stops a divergent copy appearing later. `onboard-board`'s
+  cascade and its probe now offer `custom mode: html` before falling back to `browser`,
+  since the mode is otherwise unauthorable.
+  **Nothing is migrated yet:** the six boards still need their watchlist rows written,
+  and the executor's fixture is synthetic (Bloomberg 403s a plain GET; Two Sigma and
+  Geode serve JS shells), so the Chromium saving is projected rather than banked.
+
 ### Fixed
 
 - **A successful scoring pass printed nothing, so it was indistinguishable from a

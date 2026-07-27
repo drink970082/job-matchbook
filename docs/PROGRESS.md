@@ -313,8 +313,10 @@ symlink and finds none of them without it. The link is load-bearing, not decorat
 See [In flight](#in-flight) for the method and for why the agent's own answer is not
 the evidence.
 
-**P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
-6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
+**P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode shipped its
+*executor* 2026-07-26, so what leads this queue is now **authoring the six board rows**
+(`[S]`, operator step, `onboard-board`) — the Chromium saving is projected until they
+exist → bulk watchlist skill (`[M]`). The
 two `[S]` items that led this queue both shipped on `main` and closed in the
 integration: `browser` `{field}` templates (which unblock Balyasny / Jacobs Levy — the
 boards themselves are still an operator step) and the workday prose-date parser. The
@@ -562,7 +564,8 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   (1,074), Bloomberg (490), Moody's (249) — a `browser` `detail:` block costs one
   Chromium render per posting with no stub gate (`browser.py:159`), all of it before
   screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a
-  chained detail call; Citi/Barclays if `custom` gains an HTML mode (both above).
+  chained detail call. Citi/Barclays are no longer blocked on the executor — `custom`
+  `html` shipped 2026-07-26 — only on someone writing their recipe rows.
 - **Fit-score gate not re-run — now gates TWO changes, and blocks a merge** — `[SCORE · S ·
   ~69 Codex messages per run, two runs · deferred by operator]`. One `score_eval`
   re-run discharges both pending scorer changes:
@@ -691,13 +694,23 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
-- **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,
-  Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
-  forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
-  JSON / `__NEXT_DATA__`. An `html` mode reusing the browser executor's CSS extractor
-  would drop all six to plain HTTP. Related: a `browser` `detail:` block costs **one
-  Chromium render per posting** with no stub gate (`browser.py:159`), which is why
-  Citi (3,567 postings) and Barclays (1,074) are not on the watchlist.
+- **`custom` `html` mode — executor SHIPPED 2026-07-26, no board migrated yet** —
+  `[FETCH · S · operator step]`. `custom` now has an `html` mode sharing one CSS
+  extractor with `browser` (`_recipe.parse_css_page`, pinned by an equivalence test so a
+  second extractor cannot drift in) — SPEC §7.1 + CHANGELOG. That was the *sole*
+  executor blocker for Bloomberg, Two Sigma, Citi, Barclays, Moody's and Geode, all of
+  which are plain-`requests`-fetchable and were on rung 3 (headless Chromium) only
+  because `custom` parsed JSON / `__NEXT_DATA__` and nothing else.
+  **What remains is authoring six watchlist rows** via `onboard-board` (whose cascade and
+  probe now name the mode). None of the six is migrated or verified, and the fixture that
+  proves the executor is synthetic — Bloomberg 403s a plain GET, Two Sigma and Geode
+  serve JS shells — so the per-board CSS is unwritten and the Chromium saving is
+  projected, not banked. Related and still open: a `browser` `detail:` block costs **one
+  Chromium render per posting** with no stub gate (`browser.py:159`), which is the
+  *other* reason Citi (3,567 postings) and Barclays (1,074) are held off the watchlist.
+  Also not carried over: `browser`'s `page: {type: url, template}` pagination has no
+  plain-HTTP equivalent, so a board that paginates only by path template still needs
+  `browser`.
 - **Boards blocked on an executor primitive, not an adapter** — `[FETCH · L]`. Meta needs a
   fetch-page-then-POST handshake (its GraphQL requires a per-session `lsd` CSRF token
   scraped from the HTML) *and* a scroll hook (the rendered DOM holds 11 of 692 cards
