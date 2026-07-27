@@ -109,12 +109,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   multiple). That reprices two open items — the missing 429 backoff (`phenom/qualcomm`
   already 429s at **one** pass/day) and pruning permanently-dead `feed_unresolved` URLs
   now being retried 4x daily.
-  **Overlap:** APScheduler defaults to `max_instances=1`, so a long pass makes the next
-  firing skip rather than run concurrently — the scheduler cannot overlap itself. The
-  real exposure is a hand-run pass landing inside a scheduled one, which gets likelier
-  at 4/day. A PID lockfile (~15 lines) covers it; a notification claim/lease does not
-  earn its cost here (see the rejected shapes under
+  **Overlap — CLOSED 2026-07-26** (branch `feat/pass-lockfile`; SPEC §7.1/§9 + CHANGELOG).
+  APScheduler's `max_instances=1` never let the scheduler overlap itself; the real
+  exposure was a hand-run pass landing inside a scheduled one, and `run.pass_lock` (a
+  non-blocking `flock`, stale-safe by construction) now refuses the second one outright.
+  The claim/lease shapes stay rejected (see
   [Architecture / maintainability](#architecture--maintainability)).
+  **One residual, not blocking** (`[ORCH · XS]`): the lock is one fixed path per host, so
+  two checkouts pointed at two different DBs on the same host would block each other.
+  Correct for the quota argument (one Codex account, one DB) and `TMPDIR` is the escape
+  hatch, but it is an assumption, not a guarantee.
 - **General-purpose pivot — Stage 2 done, Stage 3 deferred.** Broadening the product
   from a quant/SWE niche to any field. Stage 2 shipped: configurable job categories, a
   persona-neutral `personal_profile.txt.example`, and the guided `onboard-me` skill
@@ -193,7 +197,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 3 — **no defects** (both shipped 2026-07-24); pass overlap closed 2026-07-26 |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
 | `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 — the `.agents/skills` link is verified (2026-07-26) |
