@@ -45,9 +45,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   #22 and #23 close unmerged behind it — #23's 2 commits are contained (note
   `docs/record-review-findings` also has 1 unpushed commit, so #23 is incomplete as it
   stands), #22 is superseded by `a8eda24`.
-  **Gate now: 11 → 2 false disqualifications** over 81 gate-eligible rows. The 2 left are
-  one Cubist JD shape counted twice — the documented 4B ceiling under Defects, not an open
-  defect. 696 worker tests, coverage 93.88%, privacy + schema guards clean.
+  **Gate now: 11 → 2-3 false disqualifications** over 81 gate-eligible rows. The stable
+  pair is one Cubist JD shape counted twice (ids 67/68) — the documented 4B ceiling under
+  Defects, not an open defect. 696 worker tests, coverage 93.88%, privacy + schema guards
+  clean.
+  **The residual COUNT is not run-to-run stable, and a re-run showing 3 is not a
+  regression.** Two back-to-back runs on 2026-07-28 gave 3 (67/68 + id 672, *"advanced
+  degree … preferably a Ph.D."*) and then 2 (67/68 alone), same code, same corpus. The
+  screen calls Ollama at `temperature: 0, seed: 0`, so this is GPU/runtime
+  nondeterminism, not sampling — determinism holds *within* a run (`flip: 0` both times,
+  all three draws agreeing on every row) but not across runs. What IS stable across both
+  runs is the part the stack is for: **clearance 0 and sponsorship 0 false
+  disqualifications**. Everything that wobbles is one marginal soft-degree-bar row of the
+  ceiling class, so read the gate's degree residual as "2-3, all soft-bar misreads"
+  rather than as an exact number to diff against.
   **The lesson that generalizes past this stack:** the gate caught a live defect on its
   first run *and* three design errors inside item 3 that every branch's own green suite
   had missed — including one where merging adjacent snippets made an IMC paragraph that
@@ -262,12 +273,15 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **The 4B misreads a soft degree bar as a hard one — 3 rows, and it is a MODEL CEILING,
+- **The 4B misreads a soft degree bar as a hard one — 2-3 rows, and it is a MODEL CEILING,
   not a wording gap** — `[SCREEN · XS · residual of the 2026-07-28 degree fix]`.
   The defect itself is fixed (9 of 38 discards were false; `degree_levels` +
   `degree_required` with CODE taking `min(rank)` — CHANGELOG, SPEC §7.1). What survives:
-  ids 67/68 (*"DESIRABLE CANDIDATES: Ph.D. candidates"* — one JD shape, counted twice) and
-  738 (*"PhD or equivalent industry experience"*) still come back `degree_required: true`.
+  ids 67/68 (*"DESIRABLE CANDIDATES: Ph.D. candidates"* — one JD shape, counted twice)
+  every run, plus in *some* runs a third soft-bar row — 738 (*"PhD or equivalent industry
+  experience"*) or 672 (*"advanced degree … preferably a Ph.D."*) — coming back
+  `degree_required: true`. **Do not diff the count**; it moved 3 → 2 between two
+  back-to-back runs on identical code (SPEC §7.1 has the reason).
   **Do NOT spend a fifth prompt rewrite on it.** Four attempts are on record (two
   rewordings reached 4 then 5 and stopped converging; the shape change plus a sharpened
   clause reached 3 while *raising* recall). Probing the raw output settled why: the same

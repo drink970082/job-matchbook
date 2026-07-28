@@ -698,13 +698,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   number out of the list is arithmetic. **Measured effect: 9 false disqualifications → 3,
   recall 27/37 → 28/37** — the direction that matters improved without paying recall for
   it. Two rounds of pure prompt rewording had reached 4 and 5 and stopped converging.
-  **Residual, and it is a 4B limit rather than a wording gap** (`[SCREEN · XS]`): 3 rows
-  still fire — *"DESIRABLE CANDIDATES: Ph.D. candidates"* (ids 67/68, one JD shape twice)
-  and *"PhD or equivalent industry experience"* (id 738), where `degree_required` still
-  comes back `true`. On genuine sole-PhD roles the same model sometimes *invents* a
-  `master's` level, so it is unreliable in both directions; the honest fix for the
-  remainder is routing a degree fail to the strong model rather than a fifth prompt
-  rewrite (see PROGRESS).
+  **Residual, and it is a 4B limit rather than a wording gap** (`[SCREEN · XS]`): 2-3
+  rows still fire, all of them a soft or preferred degree bar read as hard, where
+  `degree_required` comes back `true`. Ids 67/68 (*"DESIRABLE CANDIDATES: Ph.D.
+  candidates"*, one JD shape twice) fire in every run observed; a third row joins them in
+  some runs and not others — *"PhD or equivalent industry experience"* (id 738) or
+  *"advanced degree … (preferably a Ph.D.)"* (id 672). **The exact count is not
+  reproducible and must not be treated as a diffable number:** two back-to-back runs on
+  2026-07-28 gave 3 then 2 on identical code, and the screen calls Ollama at
+  `temperature: 0, seed: 0`, so the variance is in the runtime rather than in sampling
+  (`flip` is 0 in both — all three draws agree *within* a run). On genuine sole-PhD roles
+  the same model sometimes *invents* a `master's` level, so it is unreliable in both
+  directions; the honest fix for the remainder is routing a degree fail to the strong
+  model rather than a fifth prompt rewrite (see PROGRESS).
   **The fit scorer's Stage 4 block still emits the old single `required_degree`, on
   purpose**, and `_check_degree` reads both shapes: that block runs on a strong model
   where the minimum is a judgment it can make, and changing it would edit `score.txt`,

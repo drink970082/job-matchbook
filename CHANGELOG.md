@@ -29,8 +29,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
   **Result on `make eval-screen`: sponsorship false disqualifications 2 → 0 across all
   21 corpus rows**, including the two IMC residuals (465/490) that had been open since
-  2026-07-25. Whole-corpus false disqualifications are **11 → 2** counting the degree fix
-  above, and the 2 that remain are one JD shape.
+  2026-07-25. Whole-corpus false disqualifications are **11 → 2-3** counting the degree
+  fix above; the stable pair is one JD shape (ids 67/68) and a third soft-degree-bar row
+  joins it in some runs. The count is not reproducible run-to-run even at
+  `temperature: 0, seed: 0` — two back-to-back runs gave 3 then 2 on identical code — so
+  the number to hold this stack to is the part that *is* stable: **clearance 0 and
+  sponsorship 0**, with every remaining failure inside the documented 4B degree ceiling
+  (SPEC §7.1).
 
   **Three things the measurement corrected about the design as recorded.** (1) Adjacent
   snippets must NOT be merged — an early version merged them, and one IMC paragraph that
