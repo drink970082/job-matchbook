@@ -193,11 +193,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   paths (clean pass, refusal, SIGKILLed holder) were run through the real CLI.
   The scheduled skip goes to `logging.WARNING` rather than `print`, because APScheduler
   emits its own misfire and max-instances warnings there and they are the same signal —
-  "a pass did not run" — so one handler can carry both. **No handler is installed yet:**
-  nothing in the package calls `basicConfig`, so the record currently falls to
-  `logging.lastResort` (stderr, untimestamped) and the `[pass] holding ...` line is
-  still a `print` on stdout. This change picks the stream; it does not yet unify the
-  output.
+  "a pass did not run" — so one handler can carry both. The daemon installs that
+  handler (see the wall-clock entry above); a bare import still installs none, and the
+  `[pass] holding ...` line remains a `print` on stdout.
 
 ### Fixed
 

@@ -969,7 +969,7 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     # WARNING on the logging stream, not stdout: "a pass did not run" is the same signal
     # APScheduler emits for a misfire or a max-instances skip, and an operator reading
     # journald needs the two interleaved rather than split across stdout and stderr.
-    assert "skipping this scheduled pass" in caplog.text
+    assert "skipping this pass" in caplog.text
     assert {r.levelname for r in caplog.records} == {"WARNING"}
     assert fired == [24]                                 # ... but the daemon lives on
 
@@ -1019,18 +1019,32 @@ def test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list():
 
 
 def _daemon_harness(monkeypatch, schedule_hours=4):
-    """Wire `main` for a daemon run with no apscheduler and no pipeline."""
+    """Wire `main` for a daemon run with no apscheduler and no pipeline.
+
+    `started` and `passes` append into a shared `order` list as well, so a test can
+    assert SEQUENCE and not just counts — the stub returns instead of blocking, which
+    hides the one thing that matters about `--run-now` (see the ordering test).
+    """
+    order: list = []
     started: list = []
     passes: list = []
-    monkeypatch.setattr(run, "_run_scheduler",
-                        lambda job, hours: started.append(hours))
-    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: passes.append(kw))
+
+    def fake_scheduler(job, hours):
+        started.append(hours)
+        order.append("scheduler")
+
+    def fake_run_once(cfg, **kw):
+        passes.append(kw)
+        order.append("pass")
+
+    monkeypatch.setattr(run, "_run_scheduler", fake_scheduler)
+    monkeypatch.setattr(run, "run_once", fake_run_once)
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config(
                             f"companies: []\nschedule_hours: {schedule_hours}\n"))
     monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
-    return started, passes
+    return started, passes, order
 
 
 def test_starting_the_daemon_runs_no_pass_at_launch(monkeypatch, tmp_path):
@@ -1038,7 +1052,7 @@ def test_starting_the_daemon_runs_no_pass_at_launch(monkeypatch, tmp_path):
     # immediate full pass — at 6 passes/day a daemon bounced three times ran nine — and it
     # was also masking APScheduler's one-second default misfire grace, because a restarted
     # daemon always ran promptly whether or not it had missed a slot.
-    started, passes = _daemon_harness(monkeypatch)
+    started, passes, order = _daemon_harness(monkeypatch)
     run.main(["--env", str(tmp_path / "none.env")])
     assert passes == []            # nothing ran...
     assert started == [4]          # ...and the scheduler is up on the configured cadence
@@ -1049,7 +1063,7 @@ def test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over(monkeypat
     # blocks — a second pass here would double the startup cost of the paid fit scorer,
     # and running it after `_run_scheduler` would never happen at all, since that call
     # blocks for the life of the daemon.
-    started, passes = _daemon_harness(monkeypatch)
+    started, passes, order = _daemon_harness(monkeypatch)
     run.main(["--run-now", "--env", str(tmp_path / "none.env")])
     assert len(passes) == 1
     assert started == [4]
@@ -1075,3 +1089,107 @@ def test_run_now_does_not_open_the_rescreen_discarded_backdoor(monkeypatch, tmp_
         run.main(["--run-now", "--rescreen-discarded",
                   "--env", str(tmp_path / "none.env")])
     assert exc.value.code == 2
+
+
+def test_run_now_runs_its_pass_BEFORE_the_scheduler_starts(monkeypatch, tmp_path):
+    # Sequence, not count — and the count-only assertion above cannot see this. In
+    # production `_run_scheduler` BLOCKS for the daemon's lifetime, so if the two calls
+    # were the other way round `--run-now` would never run a pass at all, and every test
+    # that stubs the scheduler with a returning lambda would still pass.
+    started, passes, order = _daemon_harness(monkeypatch)
+    run.main(["--run-now", "--env", str(tmp_path / "none.env")])
+    assert order == ["pass", "scheduler"]
+
+
+def test_a_contended_run_now_logs_and_still_starts_the_scheduler(monkeypatch, tmp_path,
+                                                                 caplog):
+    # `--run-now` is documented as "run one pass immediately, THEN keep the wall-clock
+    # schedule". A hand pass holding the lock must therefore cost the startup pass, not
+    # the daemon: exiting here would mean a worker that refuses to come up for as long as
+    # an operator's `--once` is running — and wall-clock slots make that collision MORE
+    # likely, since hand runs cluster on the hour. Only a foreground `--once` exits.
+    started, passes, order = _daemon_harness(monkeypatch)
+    with run.pass_lock():
+        run.main(["--run-now", "--env", str(tmp_path / "none.env")])
+    assert passes == []                 # the startup pass was refused...
+    assert started == [4]               # ...and the daemon came up anyway
+    assert "skipping this pass" in caplog.text
+
+
+# --- the scheduler wiring itself -------------------------------------------
+# `_run_scheduler` is `# pragma: no cover` because CI installs requirements-dev.txt only,
+# which excludes apscheduler. That is an install choice, not a hard constraint: apscheduler
+# IS a declared runtime dependency, so where it is importable these run and close the gap
+# that pragma leaves. Without them, replacing the CronTrigger with the old interval trigger
+# — reverting the entire feature — keeps the suite green.
+
+def test_the_daemon_registers_a_cron_trigger_on_the_configured_wall_clock_slots(monkeypatch):
+    # The wiring assertion. `cron_hours` being right proves nothing if nothing calls it,
+    # and an `interval` trigger would still schedule *something* on the right cadence
+    # while silently reintroducing launch-relative drift.
+    pytest.importorskip("apscheduler")
+    captured = {}
+
+    class FakeScheduler:
+        def add_job(self, job, trigger, **kw):
+            captured["trigger"] = trigger
+            captured["kw"] = kw
+
+        def start(self):
+            captured["started"] = True
+
+    import apscheduler.schedulers.blocking as blocking
+    monkeypatch.setattr(blocking, "BlockingScheduler", FakeScheduler)
+
+    run._run_scheduler(lambda: None, 4)
+
+    trigger = captured["trigger"]
+    assert type(trigger).__name__ == "CronTrigger"
+    assert str(trigger) == "cron[hour='0,4,8,12,16,20', minute='0']"
+    assert captured["started"] is True
+
+
+def test_the_daemon_sets_the_misfire_grace_that_apscheduler_defaults_to_one_second(monkeypatch):
+    # The only non-default of the three. APScheduler drops a missed slot after ONE SECOND
+    # otherwise, and the deleted eager pass used to hide that by always running at startup.
+    pytest.importorskip("apscheduler")
+    captured = {}
+
+    class FakeScheduler:
+        def add_job(self, job, trigger, **kw): captured.update(kw)
+        def start(self): pass
+
+    import apscheduler.schedulers.blocking as blocking
+    monkeypatch.setattr(blocking, "BlockingScheduler", FakeScheduler)
+
+    run._run_scheduler(lambda: None, 1)
+    assert captured["misfire_grace_time"] == 1800      # half of a 1h cadence
+    run._run_scheduler(lambda: None, 4)
+    assert captured["misfire_grace_time"] == 3600      # the cap bites from h=2 up
+    run._run_scheduler(lambda: None, 24)
+    assert captured["misfire_grace_time"] == 3600      # not 12 hours
+
+
+def test_the_daemon_installs_a_timestamped_logging_handler(monkeypatch):
+    # Without this the scheduler's misfire warnings and job tracebacks fall to
+    # logging.lastResort: message and level only, no timestamp and no logger name, which
+    # is exactly what makes a journald log unreadable next to the pipeline's own output.
+    pytest.importorskip("apscheduler")
+    import logging as _logging
+
+    class FakeScheduler:
+        def add_job(self, job, trigger, **kw): pass
+        def start(self): pass
+
+    import apscheduler.schedulers.blocking as blocking
+    monkeypatch.setattr(blocking, "BlockingScheduler", FakeScheduler)
+
+    root = _logging.getLogger()
+    saved = root.handlers[:]
+    try:
+        root.handlers = []
+        run._run_scheduler(lambda: None, 4)
+        assert root.handlers, "the daemon installed no handler"
+        assert "%(asctime)s" in root.handlers[0].formatter._fmt
+    finally:
+        root.handlers = saved

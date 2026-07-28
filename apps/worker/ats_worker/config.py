@@ -175,9 +175,10 @@ def load_config(source) -> Config:
 
     schedule_hours = _int_field(data, "schedule_hours", DEFAULT_SCHEDULE_HOURS)
     if schedule_hours < 1:
-        # run.main feeds this straight to APScheduler's interval trigger, whose
-        # IntervalTrigger falls back to a 1-second period when every component is
-        # zero -> a hot loop over the whole watchlist. No lower bound is a footgun.
+        # Kept separate from the divisibility check below so 0 and negatives get their
+        # own message. `range(0, 24, 0)` raises ValueError outright, and a NEGATIVE step
+        # yields an empty slot list -> a daemon that starts clean, prints a schedule, and
+        # never fires. No lower bound is a footgun either way.
         raise ConfigError(
             f"schedule_hours must be >= 1 (got {schedule_hours}); a 0 or negative "
             "interval hot-loops the whole watchlist."

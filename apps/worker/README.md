@@ -65,7 +65,8 @@ Ollama running on the **host** (uses the GPU):
 ollama pull qwen3.5:4b && ollama serve
 pip install -r requirements.txt
 python -m ats_worker.run --once     # single test pass
-python -m ats_worker.run            # scheduler (immediate pass + every N hours)
+python -m ats_worker.run            # daemon: wall-clock slots, NO pass at launch
+python -m ats_worker.run --run-now  # ... plus one pass right now
 ```
 
 `docker compose up` (from the repo root) only starts the **web** stack — the

@@ -185,13 +185,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   acquire and both score the same DB. Keying the lock filename on the resolved `--db`
   path would make the guard match the resource it actually protects — the DB plus the one
   Codex account. Note the queued systemd unit is exactly how (b) gets reached.
-  **Also still true, and this file previously overstated it:** the earlier review's "raw
-  `OSError` from `os.open` kills the daemon" is only half fixed. The message is now a
-  named `RuntimeError` naming the path, but a daemon still *dies* on it — the eager
-  startup pass sits outside any handler — so one accidental `sudo python -m ats_worker.run`
-  leaves a root-owned lock file that is never unlinked and wedges every later start.
-  `flock` needs no write access, so falling back to `O_RDONLY` when `O_RDWR` fails would
-  keep the guard working and lose only the pid diagnostic.
+  **(c) An unopenable lock file wedges the daemon SILENTLY, and dropping the eager pass
+  changed the shape of that rather than fixing it.** `pass_lock` opens `O_RDWR`, so one
+  accidental `sudo python -m ats_worker.run` leaves a root-owned lock file — never
+  unlinked, by design — and every later pass gets `EACCES`. It used to kill the daemon at
+  startup, loudly, via the eager pass. With that pass gone the `RuntimeError` is raised
+  *inside* the APScheduler job, where the executor catches and logs it at ERROR: the
+  daemon stays up, reports a healthy schedule, and simply never completes a pass. That is
+  the worse failure, not the better one. `flock` needs no write access, so falling back to
+  `O_RDONLY` when `O_RDWR` fails would keep the guard working and cost only the pid
+  diagnostic.
 
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
   categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —

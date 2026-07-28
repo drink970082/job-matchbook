@@ -562,27 +562,33 @@ def _run_scheduler(job, schedule_hours: int) -> None:  # pragma: no cover
 
     # basicConfig HERE, in the daemon branch only, so importing this module still
     # installs nothing. Without it APScheduler's misfire warnings, max-instances skips
-    # and job tracebacks all fall to `logging.lastResort`: message only, no timestamp,
-    # on a different stream from the pipeline's `print()`. This is the handler the
-    # scheduled-skip warning above has been waiting for.
+    # and job tracebacks all fall to `logging.lastResort`: message only, level prefix, no
+    # TIMESTAMP and no logger name. This is the handler the pass-skip warning wants.
+    # It does NOT unify the streams: `lastResort` and a default `basicConfig` are both
+    # StreamHandlers on stderr, and the pipeline still `print()`s to stdout. What this
+    # buys is timestamps and provenance, which is what journald needs to interleave them.
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     scheduler = BlockingScheduler()
     scheduler.add_job(
         job, trigger,
-        # A pass must never overlap itself. This is APScheduler's default, restated
-        # because the whole point of the lockfile is that a duplicate pass re-spends
-        # paid quota.
+        # `max_instances` and `coalesce` are BOTH already APScheduler's defaults
+        # (`BaseScheduler._configure`: `max_instances=1`, `coalesce=True`). They are
+        # restated because each carries a cost if it ever silently changed — a second
+        # concurrent pass re-spends paid quota, and un-coalesced catch-up would fire one
+        # queued pass per missed slot after a suspend. Neither line changes behavior today.
         max_instances=1,
-        # Collapse a backlog into ONE run. Without it a 20-hour WSL2 suspend wakes up
-        # and fires five queued passes back to back.
         coalesce=True,
-        # APScheduler's default is ONE SECOND, so any slot the host was busy through is
-        # dropped silently. Half a cadence, capped at an hour: long enough to survive a
-        # slow pass or a brief suspend, short enough that a resumed host does not run a
-        # pass that is nearly due again anyway. The deleted eager `once()` was masking
-        # this — a restarted daemon always ran immediately, so a missed slot never showed.
+        # THIS is the only non-default here. APScheduler's is ONE SECOND, so any slot the
+        # host was busy through is dropped silently; the deleted eager `once()` was masking
+        # that, because a restarted daemon always ran promptly whether or not it had missed
+        # anything. Half a cadence capped at an hour — 30 min at h=1, one hour from h=2 up.
+        # Know what this does NOT buy: coalescing keeps only the LAST missed run time, and
+        # the executor then drops even that one if it is older than the grace window. So a
+        # host resuming more than an hour past a slot runs ZERO catch-up passes, not one —
+        # it simply waits for the next slot. This covers a slow pass or a brief stall, not
+        # a long suspend.
         misfire_grace_time=min(3600, schedule_hours * 1800),
     )
 
@@ -725,12 +731,14 @@ def main(argv=None) -> None:
 
     resumes, profile = load_resumes(args.resume_dir)
 
-    def once(scheduled: bool = True):
-        # `scheduled` is passed EXPLICITLY rather than inferred from `args.once`, because
-        # `--run-now` is neither a hand run nor a scheduled firing: inferring would make a
-        # contended `--run-now` report "skipping this scheduled pass" and stay silent about
-        # having done nothing at startup. A hand run must exit non-zero; a scheduled slot
-        # must be skipped and survived.
+    def once(foreground: bool = False):
+        # The predicate is "does a refused pass kill the caller", and it is passed
+        # EXPLICITLY rather than inferred from `args.once`, because `--run-now` is neither
+        # a hand run nor a scheduled firing and inference gets it wrong in the expensive
+        # direction. Only a FOREGROUND `--once` exits non-zero, so a wrapper script sees
+        # the refusal. Everything in daemon mode — the `--run-now` startup pass and every
+        # scheduled slot — logs and carries on, because a daemon that dies because someone
+        # happened to be running a pass by hand is worse than a daemon that skips one.
         # A whole pass runs under the host lock. APScheduler's max_instances=1 stops
         # the scheduler overlapping ITSELF, but not a hand-run pass landing inside a
         # scheduled one — likelier the higher the cadence, and a duplicated pass
@@ -756,29 +764,24 @@ def main(argv=None) -> None:
             # A hand run exits non-zero so a wrapper script sees the refusal; a
             # scheduled firing skips this slot and waits for the next one. Neither
             # queues, blocks, or runs a partial pass.
-            if not scheduled:
+            if foreground:
                 raise SystemExit(str(exc)) from None
             # `logging`, not `print`: this and APScheduler's own misfire and
             # max-instances warnings are the same signal — "a pass did not run" — and
-            # APScheduler emits its half through `logging`. Putting this one there is
-            # what lets a single handler carry both.
-            # NO handler is installed yet, here or anywhere in the package: importing a
-            # library must configure nothing, and the daemon does not call
-            # `basicConfig` either, so today this falls to `logging.lastResort` —
-            # stderr, level-prefixed, NOT timestamped. Installing that handler in the
-            # daemon branch is queued separately; until it lands, this is the right
-            # stream with the wrong formatting, not a finished job.
-            logging.warning("skipping this scheduled pass: %s", exc)
+            # APScheduler emits its half through `logging`, so one handler carries both.
+            # `_run_scheduler` installs that handler; a bare import still installs none,
+            # so calling this outside the daemon falls to `logging.lastResort`.
+            logging.warning("skipping this pass: %s", exc)
 
     if args.once:
-        once(scheduled=False)
+        once(foreground=True)
         return
 
     # No eager pass. Passes fire on wall-clock slots only, so a restart no longer costs an
     # immediate full pass — which at 6 passes/day made every daemon bounce a 7th. Ask for
     # one with --run-now.
     if args.run_now:
-        once(scheduled=False)
+        once()
     _run_scheduler(once, cfg.schedule_hours)
 
 
