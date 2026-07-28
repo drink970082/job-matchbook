@@ -530,6 +530,78 @@ def pass_lock(path=None):
         os.close(fd)   # releases the flock
 
 
+# The wall-clock slot set, as APScheduler's `hour=` string. Pure arithmetic and no
+# apscheduler import, so the suite can assert the SCHEDULE directly instead of trusting a
+# trigger object it has no dependency for.
+def cron_hours(schedule_hours: int) -> str:
+    """`4` -> `"0,4,8,12,16,20"`; `24` -> `"0"`.
+
+    Only a divisor of 24 is legal (`config.load_config` enforces it), because
+    `range(0, 24, h)` for a non-divisor leaves a `24 % h` gap across midnight that is
+    always TIGHTER than the configured cadence, and any `h > 24` collapses to `"0"`.
+    """
+    return ",".join(str(h) for h in range(0, 24, schedule_hours))
+
+
+def _run_scheduler(job, schedule_hours: int) -> None:  # pragma: no cover
+    """Block on the wall-clock scheduler. Not covered, and deliberately thin.
+
+    `requirements-dev.txt` excludes apscheduler by design and CI installs only the dev
+    requirements, so the suite cannot import this. Everything decidable without
+    apscheduler — the slot arithmetic, the `--run-now` sequencing, the config bound —
+    is tested through `cron_hours` and `main` instead; what is left here is wiring.
+    """
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    # `minute=0` is set EXPLICITLY. CronTrigger's default for a field below the most
+    # significant one supplied happens to be 0, which is what we want — but that is a
+    # field-ordering rule, not something readable at this call site, and the failure if
+    # it ever changed is 60 passes per slot against a PAID fit scorer.
+    trigger = CronTrigger(hour=cron_hours(schedule_hours), minute=0)
+
+    # basicConfig HERE, in the daemon branch only, so importing this module still
+    # installs nothing. Without it APScheduler's misfire warnings, max-instances skips
+    # and job tracebacks all fall to `logging.lastResort`: message only, level prefix, no
+    # TIMESTAMP and no logger name. This is the handler the pass-skip warning wants.
+    # It does NOT unify the streams: `lastResort` and a default `basicConfig` are both
+    # StreamHandlers on stderr, and the pipeline still `print()`s to stdout. What this
+    # buys is timestamps and provenance, which is what journald needs to interleave them.
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    scheduler = BlockingScheduler()
+    scheduler.add_job(
+        job, trigger,
+        # `max_instances` and `coalesce` are BOTH already APScheduler's defaults
+        # (`BaseScheduler._configure`: `max_instances=1`, `coalesce=True`). They are
+        # restated because each carries a cost if it ever silently changed — a second
+        # concurrent pass re-spends paid quota, and un-coalesced catch-up would fire one
+        # queued pass per missed slot after a suspend. Neither line changes behavior today.
+        max_instances=1,
+        coalesce=True,
+        # THIS is the only non-default here. APScheduler's is ONE SECOND, so any slot the
+        # host was busy through is dropped silently; the deleted eager `once()` was masking
+        # that, because a restarted daemon always ran promptly whether or not it had missed
+        # anything. Half a cadence capped at an hour — 30 min at h=1, one hour from h=2 up.
+        # Know what this does NOT buy: coalescing keeps only the LAST missed run time, and
+        # the executor then drops even that one if it is older than the grace window. So a
+        # host resuming more than an hour past a slot runs ZERO catch-up passes, not one —
+        # it simply waits for the next slot. This covers a slow pass or a brief stall, not
+        # a long suspend.
+        misfire_grace_time=min(3600, schedule_hours * 1800),
+    )
+
+    # Say the schedule out loud. With the eager pass gone a freshly started daemon is
+    # otherwise indistinguishable from a hung one for up to `schedule_hours`. The
+    # timezone matters as much as the hours: it comes from `tzlocal`, so a UTC host
+    # would quietly defeat the whole point of wall-clock slots — set `TZ=` to fix it
+    # without touching code.
+    print(f"[schedule] passes at {trigger.fields[trigger.FIELD_NAMES.index('hour')]}"
+          f":00 {trigger.timezone} (every {schedule_hours}h, wall-clock)", flush=True)
+    scheduler.start()
+
+
 def main(argv=None) -> None:
     # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
     # --score-backend/--codex-score-model/--batch-size read os.environ, so a .env value
@@ -545,6 +617,10 @@ def main(argv=None) -> None:
 
     parser = argparse.ArgumentParser(description="Job-hunt pipeline worker")
     parser.add_argument("--once", action="store_true", help="run a single pass and exit")
+    parser.add_argument("--run-now", action="store_true",
+                        help="daemon mode only: run one pass immediately, then keep the "
+                             "wall-clock schedule. Restores the old eager startup pass "
+                             "on demand")
     parser.add_argument("--fetch-only", action="store_true",
                         help="run fetch/feed/expire/retry then stop, before any "
                              "screen or scorer call (quota-free board refresh)")
@@ -623,8 +699,18 @@ def main(argv=None) -> None:
         parser.error(f"unknown score backend {args.score_backend!r} (want 'codex' or "
                      "'claude') — check SCORE_BACKEND in your .env")
 
-    # One-shot only: on the interval schedule this would resurrect the same discards
-    # every pass and re-charge the paid fit scorer for each survivor, indefinitely.
+    # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
+    # for both is asking for two different programs, and the likely intent (just run one
+    # pass) is exactly `--once`. Fail rather than silently picking one.
+    if args.run_now and args.once:
+        parser.error("--run-now is for daemon mode: it runs one pass and then STAYS on "
+                     "the schedule. For a single pass that exits, use --once alone.")
+
+    # One-shot only: on the schedule this would resurrect the same discards every pass and
+    # re-charge the paid fit scorer for each survivor, indefinitely.
+    # `--run-now` is deliberately NOT accepted here even though it also runs one pass
+    # promptly: `once()` closes over `args.rescreen_discarded`, so the flag would still be
+    # set on every LATER scheduled firing — the whole discard pile, resurrected daily.
     if args.rescreen_discarded and not args.once:
         parser.error("--rescreen-discarded is a one-shot operator action: "
                      "pass --once (then start the daemon normally)")
@@ -645,7 +731,14 @@ def main(argv=None) -> None:
 
     resumes, profile = load_resumes(args.resume_dir)
 
-    def once():
+    def once(foreground: bool = False):
+        # The predicate is "does a refused pass kill the caller", and it is passed
+        # EXPLICITLY rather than inferred from `args.once`, because `--run-now` is neither
+        # a hand run nor a scheduled firing and inference gets it wrong in the expensive
+        # direction. Only a FOREGROUND `--once` exits non-zero, so a wrapper script sees
+        # the refusal. Everything in daemon mode — the `--run-now` startup pass and every
+        # scheduled slot — logs and carries on, because a daemon that dies because someone
+        # happened to be running a pass by hand is worse than a daemon that skips one.
         # A whole pass runs under the host lock. APScheduler's max_instances=1 stops
         # the scheduler overlapping ITSELF, but not a hand-run pass landing inside a
         # scheduled one — likelier the higher the cadence, and a duplicated pass
@@ -671,31 +764,25 @@ def main(argv=None) -> None:
             # A hand run exits non-zero so a wrapper script sees the refusal; a
             # scheduled firing skips this slot and waits for the next one. Neither
             # queues, blocks, or runs a partial pass.
-            if args.once:
+            if foreground:
                 raise SystemExit(str(exc)) from None
             # `logging`, not `print`: this and APScheduler's own misfire and
             # max-instances warnings are the same signal — "a pass did not run" — and
-            # APScheduler emits its half through `logging`. Putting this one there is
-            # what lets a single handler carry both.
-            # NO handler is installed yet, here or anywhere in the package: importing a
-            # library must configure nothing, and the daemon does not call
-            # `basicConfig` either, so today this falls to `logging.lastResort` —
-            # stderr, level-prefixed, NOT timestamped. Installing that handler in the
-            # daemon branch is queued separately; until it lands, this is the right
-            # stream with the wrong formatting, not a finished job.
-            logging.warning("skipping this scheduled pass: %s", exc)
+            # APScheduler emits its half through `logging`, so one handler carries both.
+            # `_run_scheduler` installs that handler; a bare import still installs none,
+            # so calling this outside the daemon falls to `logging.lastResort`.
+            logging.warning("skipping this pass: %s", exc)
 
     if args.once:
-        once()
+        once(foreground=True)
         return
 
-    # Cron mode — apscheduler imported lazily so tests never need it.
-    from apscheduler.schedulers.blocking import BlockingScheduler
-
-    scheduler = BlockingScheduler()
-    scheduler.add_job(once, "interval", hours=cfg.schedule_hours)
-    once()  # run immediately, then on the interval
-    scheduler.start()
+    # No eager pass. Passes fire on wall-clock slots only, so a restart no longer costs an
+    # immediate full pass — which at 6 passes/day made every daemon bounce a 7th. Ask for
+    # one with --run-now.
+    if args.run_now:
+        once()
+    _run_scheduler(once, cfg.schedule_hours)
 
 
 if __name__ == "__main__":

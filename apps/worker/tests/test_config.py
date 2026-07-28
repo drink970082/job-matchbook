@@ -226,10 +226,10 @@ def test_non_numeric_numeric_fields_raise_config_error(key):
 
 @pytest.mark.parametrize("value", [0, -1, -24])
 def test_rejects_non_positive_schedule_hours(value):
-    # run.main feeds schedule_hours straight into APScheduler's interval trigger,
-    # whose IntervalTrigger falls back to a 1-SECOND period when every component is
-    # zero -> a hot loop over the whole watchlist. A 0/negative interval is always a
-    # config typo; fail loud at startup, not with a runaway daemon.
+    # Kept separate from the divisibility check below so 0 and negatives get their own
+    # message. `range(0, 24, 0)` raises ValueError and a negative step yields an EMPTY
+    # slot list — a daemon that starts clean, says nothing, and never fires. Either way a
+    # 0/negative cadence is always a config typo; fail loud at startup.
     with pytest.raises(config.ConfigError, match="schedule_hours"):
         config.load_config(f"companies: []\nschedule_hours: {value}\n")
 
@@ -237,6 +237,35 @@ def test_rejects_non_positive_schedule_hours(value):
 def test_allows_minimum_schedule_hours():
     cfg = config.load_config("companies: []\nschedule_hours: 1\n")
     assert cfg.schedule_hours == 1
+
+
+@pytest.mark.parametrize("value", [5, 7, 9, 13, 18])
+def test_rejects_a_schedule_that_does_not_divide_the_day(value):
+    # Passes fire on WALL-CLOCK slots (`range(0, 24, h)`), which only tiles a day when h
+    # divides 24. A non-divisor leaves a `24 % h` gap across midnight that is always
+    # TIGHTER than the cadence the operator asked for — 5 gives 0,5,10,15,20 and then a
+    # 4-hour jump. Silently running MORE often than configured is the direction that costs
+    # paid quota, so it is rejected at load rather than smoothed over.
+    with pytest.raises(config.ConfigError, match="divide 24"):
+        config.load_config(f"companies: []\nschedule_hours: {value}\n")
+
+
+@pytest.mark.parametrize("value", [25, 36, 48, 168])
+def test_rejects_a_schedule_longer_than_a_day_instead_of_collapsing_it_to_daily(value):
+    # The expensive one. `range(0, 24, 48)` is `[0]`, so `schedule_hours: 48` — "every
+    # other day", legal before wall-clock slots landed — would silently become DAILY:
+    # twice the fit-scorer spend, from a config file nobody edited. There is no way to
+    # express a multi-day cadence on a 24-hour cron field, so say so instead of guessing.
+    with pytest.raises(config.ConfigError, match="divide 24"):
+        config.load_config(f"companies: []\nschedule_hours: {value}\n")
+
+
+@pytest.mark.parametrize("value", [1, 2, 3, 4, 6, 8, 12, 24])
+def test_every_divisor_of_24_is_accepted(value):
+    # The other direction of the same bound: the check must not have narrowed the legal
+    # set to whatever the live config happens to use.
+    assert config.load_config(
+        f"companies: []\nschedule_hours: {value}\n").schedule_hours == value
 
 
 def test_root_not_a_mapping_raises():
@@ -265,9 +294,9 @@ def test_slug_and_name_coerced_to_str():
 def test_load_from_plain_string_path(tmp_path):
     # A filename (no newline/colon) must be read from disk, not parsed as YAML.
     p = tmp_path / "cfg.yaml"
-    p.write_text("companies: []\nschedule_hours: 18\n")
+    p.write_text("companies: []\nschedule_hours: 12\n")
     cfg = config.load_config(str(p))
-    assert cfg.schedule_hours == 18
+    assert cfg.schedule_hours == 12
 
 
 def test_config_defaults_new_filters_off():

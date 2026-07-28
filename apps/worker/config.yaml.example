@@ -103,7 +103,12 @@ candidate:
   locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
 
-schedule_hours: 24         # cron interval for the background scheduler
+schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every N).
+                           # Must divide 24: 1, 2, 3, 4, 6, 8, 12, 24. Anything else
+                           # is rejected at startup — a non-divisor would run TIGHTER
+                           # than configured across midnight, and >24 would collapse
+                           # to daily. The daemon runs no pass at launch; --run-now
+                           # asks for one.
 
 # OPTIONAL: enable `browser`-source rows (headless Chromium via the Playwright extra).
 # Off by default so a normal run stays pure `requests` and never imports Playwright.
