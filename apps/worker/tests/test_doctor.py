@@ -104,12 +104,12 @@ def test_the_daemon_row_reports_the_systemd_user_unit_but_never_fails_the_exit_c
     # documented — so the row is informational like the other provider rows. It exists
     # because a daemon that is NOT running looks identical to one merely waiting for its
     # next wall-clock slot: the pipeline prints nothing either way.
-    [row] = [c for c in _run() if c.label == "worker daemon"]
+    [row] = [c for c in _run() if c.label == "worker daemon (systemd unit)"]
     assert row.ok is True and row.core is False
     assert "active" in row.detail
 
     [row] = [c for c in _run(run_cmd=lambda argv: (3, "inactive\n"))
-             if c.label == "worker daemon"]
+             if c.label == "worker daemon (systemd unit)"]
     assert row.ok is False and row.core is False
     assert "inactive" in row.detail
     assert "ats-worker.service.example" in row.detail   # says where to go next
@@ -124,10 +124,40 @@ def test_the_daemon_row_asks_systemd_the_user_scoped_question():
     assert seen == [["systemctl", "--user", "is-active", "ats-worker"]]
 
 
-def test_a_host_without_systemd_reports_the_daemon_row_soft_rather_than_crashing():
+def test_a_host_without_systemd_reports_the_daemon_row_soft_rather_than_crashing(
+        monkeypatch, tmp_path, capsys):
     # doctor's whole job is diagnosing a broken checkout, so it must survive a host where
-    # the command does not exist at all (a container, a non-systemd distro, WSL without
-    # systemd enabled). main() maps that to (1, "unavailable").
-    [row] = [c for c in _run(run_cmd=lambda argv: (1, "unavailable"))
-             if c.label == "worker daemon"]
+    # `systemctl` does not exist at all (a container, a non-systemd distro, WSL without
+    # systemd enabled). This drives the REAL main(), not an injected fake: the mapping
+    # from FileNotFoundError to a soft row lives in main()'s run_cmd closure, so injecting
+    # `(1, "unavailable")` into run_checks would assert nothing about the code that has to
+    # catch it — delete the except clause and an injected test still passes while
+    # `make doctor` dies with a traceback.
+    import subprocess
+    real_run = subprocess.run
+
+    def boom(argv, **kw):
+        if argv and argv[0] == "systemctl":
+            raise FileNotFoundError(2, "No such file or directory", "systemctl")
+        return real_run(argv, **kw)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    monkeypatch.chdir(tmp_path)
+    assert doctor.main([]) == 1          # core DB row fails in an empty dir, not a crash
+    out = capsys.readouterr().out
+    assert "worker daemon (systemd unit)" in out
+    assert "unavailable" in out
+
+
+def test_the_daemon_dep_row_flags_apscheduler_before_the_unit_crash_loops():
+    # apscheduler is deliberately out of _WORKER_DEPS (`--once` never imports it), so a
+    # checkout installed from requirements-dev alone passes every other row and then
+    # crash-loops as a systemd unit ~2.5 min after a clean `enable`. Soft, because a
+    # hand-run workflow genuinely does not need it.
+    [row] = [c for c in _run(find_spec=lambda n: None if n == "apscheduler" else object())
+             if c.label == "daemon dep"]
     assert row.ok is False and row.core is False
+    assert "crash-loop" in row.detail
+
+    [row] = [c for c in _run() if c.label == "daemon dep"]
+    assert row.ok is True

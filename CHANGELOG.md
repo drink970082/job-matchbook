@@ -58,20 +58,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   from a file nobody edited. `config.py` rejects both at load, keeping a separate message
   for `0`/negative.
 
-  **Three scheduler settings that are not defaults, each for a measured reason.**
-  `coalesce=True` collapses a backlog into one run, so a 20-hour WSL2 suspend wakes up and
-  fires *one* pass instead of five. `misfire_grace_time=min(3600, schedule_hours*1800)`
-  replaces APScheduler's default of **one second**, which silently drops any slot the host
-  was busy through — the deleted eager `once()` had been masking that, since a restarted
-  daemon always ran promptly whether or not it had missed anything. `max_instances=1` is
-  the default, restated because a duplicate pass re-spends paid quota.
+  **One scheduler setting is a non-default; the other two are restated defaults.**
+  `misfire_grace_time=min(3600, schedule_hours*1800)` replaces APScheduler's default of
+  **one second**, which silently drops any slot the host was busy through — the deleted
+  eager `once()` had been masking that, since a restarted daemon always ran promptly
+  whether or not it had missed anything. `max_instances=1` and `coalesce=True` are
+  *already* the defaults (`BaseScheduler._configure`); they are written out because each
+  would be expensive if it silently changed, not because they change anything here.
+  **What the grace window does NOT buy, since it is easy to read the opposite:**
+  coalescing keeps only the LAST missed run time, and the executor drops even that one if
+  it is older than the window. A host resuming more than an hour past a slot therefore
+  runs **zero** catch-up passes and simply waits for the next slot — a real behavior
+  change from the old eager pass, which always ran on restart.
 
   **The daemon now installs a logging handler** (`basicConfig`, INFO, timestamped) — in
   the daemon branch only, so importing the module still configures nothing. Without it
   APScheduler's misfire warnings, max-instances skips and job tracebacks fell to
-  `logging.lastResort`: message only, no timestamp, on a different stream from the
-  pipeline's `print()`. This is the handler the scheduled-pass-skip warning was waiting
-  for. Startup also prints the resolved slots and timezone, because with no eager pass a
+  `logging.lastResort`: message and level only, no timestamp and no logger name. This is
+  the handler the pass-skip warning added with the lockfile was waiting for. It does
+  **not** unify the streams — `lastResort` and a default `basicConfig` are both
+  StreamHandlers on stderr, and the pipeline still `print()`s to stdout; what it buys is
+  the timestamp and provenance journald needs to interleave them. Startup also prints the resolved slots and timezone, because with no eager pass a
   fresh daemon is otherwise indistinguishable from a hung one for up to `schedule_hours`:
   `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`. The
   timezone comes from `tzlocal`, so a UTC host would defeat the whole change; `TZ=` is the

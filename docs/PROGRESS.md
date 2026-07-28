@@ -121,6 +121,21 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   started:** `systemctl --user enable --now` plus `sudo loginctl enable-linger` are
   operator steps, documented in SPEC §6 rather than executed here, so the unit is verified
   as *parsing*, never as *running*.
+  **Three things the pre-merge review caught, all fixed on the branch**, and each was the
+  same shape — a config file that verifies clean and still does not work. (1) The unit's
+  own `ExecStart` crash-loops on this host: `apscheduler` is in `requirements.txt` but not
+  `requirements-dev.txt`, so a tests-only checkout runs `--once` fine and then parks in
+  `failed` ~2.5 min after a clean `enable`, with `systemd-analyze verify` silent. `make
+  doctor` now has a `daemon dep` row for exactly that, and it reads `no` on this host
+  today. (2) The documented `sed` substituted `WorkingDirectory` but not the `PATH` line,
+  so the installed unit could not find `codex` and every fit call would fail at exec.
+  (3) `After=network-online.target` orders against nothing in a user manager.
+  **Two residuals recorded rather than fixed:** no SIGTERM handling, so
+  `systemctl --user stop` mid-pass discards an in-flight paid `codex exec` (the unit says
+  so and recommends stopping between slots); and the three apscheduler-gated wiring tests
+  from #25 `importorskip` and therefore **skip in CI**, since CI installs dev requirements
+  only. Adding `apscheduler` to `requirements-dev.txt` would close that, but it is a
+  dependency change and belongs to whoever wants it.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |

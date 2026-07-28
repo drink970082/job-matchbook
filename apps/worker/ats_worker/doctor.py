@@ -87,6 +87,21 @@ def _ollama_row(host: str, http_get) -> Check:
         return Check("ollama", False, f"{host}: {exc}", core=False)
 
 
+def _daemon_dep_row(find_spec) -> Check:
+    """`apscheduler` — needed ONLY by the daemon, which is why it is not in _WORKER_DEPS.
+
+    Reported because the failure is otherwise invisible until it is expensive: `--once`
+    never imports it, so a checkout set up from requirements-dev alone passes every other
+    row, installs cleanly as a systemd unit, and then crash-loops into `failed` a couple
+    of minutes later — after `systemd-analyze verify` has said nothing is wrong.
+    """
+    ok = _has(find_spec, "apscheduler")
+    return Check("daemon dep", ok,
+                 "apscheduler present" if ok
+                 else "apscheduler MISSING — `--once` works, the daemon will crash-loop "
+                      "(pip install -r requirements.txt)", core=False)
+
+
 def _daemon_row(run_cmd) -> Check:
     """Is the worker supervised, i.e. running as the systemd user unit?
 
@@ -97,9 +112,10 @@ def _daemon_row(run_cmd) -> Check:
     """
     code, out = run_cmd(["systemctl", "--user", "is-active", "ats-worker"])
     state = (out or "").strip() or "unknown"
-    return Check("worker daemon", code == 0,
+    return Check("worker daemon (systemd unit)", code == 0,
                  "active (systemd --user)" if code == 0
-                 else f"{state} — optional; see deploy/ats-worker.service.example",
+                 else f"{state} — optional; a hand-run `python -m ats_worker.run` does "
+                      "NOT show here. See deploy/ats-worker.service.example",
                  core=False)
 
 
@@ -127,6 +143,7 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) ->
         Check("telegram", telegram_ok,
               "configured" if telegram_ok
               else "unset (optional — matches show in the Discovered Jobs tab)", core=False),
+        _daemon_dep_row(find_spec),
         _daemon_row(run_cmd),
     ]
 
