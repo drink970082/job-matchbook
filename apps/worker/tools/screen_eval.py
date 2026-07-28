@@ -202,9 +202,19 @@ def run_live() -> int:
               file=sys.stderr)
         return 2
     import requests
-    extract = run.make_screener(backend, env=dict(os.environ), http=requests)
-    model = (os.environ.get("SCREEN_MODEL") or os.environ.get("OLLAMA_MODEL")
-             or run.DEFAULT_OLLAMA_MODEL)
+    # Mirror run.main's model resolution EXACTLY. `make_screener` takes the model as a
+    # KEYWORD, never from `env` (which it reads only for OLLAMA_HOST and the API keys):
+    # --model / OLLAMA_MODEL drives ollama, --screen-model / SCREEN_MODEL drives the
+    # hosted backends, and for ollama `screen_model` is ignored outright. Passing neither
+    # ran every eval on the built-in defaults while the report header printed whatever
+    # the env said — which silently voids this tool's one premise, that eval-model ==
+    # production-model, and mislabels any A/B.
+    ollama_model = os.environ.get("OLLAMA_MODEL") or run.DEFAULT_OLLAMA_MODEL
+    screen_model = os.environ.get("SCREEN_MODEL") or None
+    extract = run.make_screener(backend, env=dict(os.environ), http=requests,
+                                model=ollama_model, screen_model=screen_model)
+    model = ollama_model if backend == "ollama" else (screen_model
+                                                      or f"{backend} default")
 
     rows = load_golden()
     results = []

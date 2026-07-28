@@ -36,7 +36,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `fix/clearance-evidence-floor`, one commit above the clearance fix.
   | branch | what | measured |
   |---|---|---|
-  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title; then `make eval-screen`, 83-row corpus, SPEC §13 | clearance false discards **20/24 → 0**; the gate found the degree defect on run one |
+  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title; then `make eval-screen`, 83-row corpus, SPEC §13 | clearance false discards **20/24 → 0** (but see the eval-reach entry under Unverified: no corpus row can fail this half, so it is the floor measuring itself); the gate found the degree defect on run one |
   | `fix/degree-lower-bound` | `degree_levels` + `degree_required`, CODE takes `min` | degree **9 → 3**, recall 27/37 → **28/37** |
   | `feat/sponsorship-retrieve-classify` | CODE retrieves, MODEL labels, CODE decides | sponsorship **2 → 0** |
   **Merge shape: one PR from the tip, squash-merged** (operator decision 2026-07-28). The
@@ -59,6 +59,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   disqualifications**. Everything that wobbles is one marginal soft-degree-bar row of the
   ceiling class, so read the gate's degree residual as "2-3, all soft-bar misreads"
   rather than as an exact number to diff against.
+  **The §7 pre-merge review found two blockers, both fixed on the branch before merge**
+  (2026-07-28) — and both were paths where a *screen* failure DISCARDED a real job, the
+  direction this whole stack exists to close. (1) On a provider error the new
+  "authorization always records a verdict" block ran the `NO_SPONSOR_PHRASES` floor over
+  the whole description, so an Ollama outage terminally discarded the very IMC shape
+  retrieve-then-classify was built to keep — a regression against `main`, which kept it.
+  (2) `sponsorship_labels: []` is schema-legal and a plausible 4B answer, but `[]` is
+  falsy, so a bad count with an empty array was read as *silence* and fell to the same
+  floor. **The lesson is about the tests, not the code:** the existing case that
+  parametrizes `[]` passed only because its JD carried no floor phrase, so the assertion
+  never reached the branch it was named for. Both fixes are now pinned by tests that were
+  confirmed RED against the unfixed code.
   **The lesson that generalizes past this stack:** the gate caught a live defect on its
   first run *and* three design errors inside item 3 that every branch's own green suite
   had missed — including one where merging adjacent snippets made an IMC paragraph that
@@ -316,6 +328,51 @@ They part company on the remedy — clearance is lexical, so code can floor it o
 degree is semantic, so no floor exists and the answer is routing, not a regex.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
+
+- **`make eval-screen` measures far less than its headline numbers imply — 19 of the
+  "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
+  pre-merge review 2026-07-28, all three arithmetic claims re-verified]`. The gate is
+  real and it caught real defects; what is wrong is reading its per-requirement scores as
+  measurements of the model.
+  1. **The clearance half is a tautology and CANNOT fail, for any model behavior.** Of
+     24 clearance rows, the 20 golden `no bar` rows contain no `CLEARANCE_TOKENS` match
+     in excerpt+title, so `_check_clearance` short-circuits on the evidence floor whatever
+     the model returns; the 4 that do carry a token are all golden `true`, which
+     `judge` excludes from `false_disq` by construction. **Zero rows can produce a
+     clearance false disqualification**, so "20/24 → 0" measures the floor's own regex
+     over the rows it was tuned on — and no future clearance regression is detectable
+     here. Fixing it needs corpus rows that carry a clearance token *and* are golden
+     `no bar` (a JD naming a clearance it does not require).
+  2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
+     non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
+     does can move them.
+  3. **4 corpus rows are labeled on evidence the corpus does not contain.** Ids
+     456/529/534/538 (all IMC, golden `refuses`) have excerpts of exactly 1606 chars —
+     the `_readme` truncation cap — with no `sponsor`/`visa`/`citizen`/`authoriz`/
+     `right to work`/`immigration` token anywhere in them. The cap cut the labeled
+     sentence off and left a lead window. They are guaranteed misses independent of any
+     model or prompt, so every recall figure quoted from this gate is computed partly
+     over rows whose stated premise ("the refusal sentence is inside the text handed to
+     the model") is false. `--selftest`'s corpus invariants do not catch this — they
+     check a label is assertable, never that the excerpt could support it.
+  **Not fixed here** because each one is a corpus rebuild plus a re-run, and #24 was
+  already merging; the numbers on that PR are honest about what was *run*, not about what
+  the corpus can reach.
+
+- **The sponsorship `+/-1 sentence` window degenerates to the whole JD on bullet-list
+  postings** — `[SCREEN · S · found by the PR #24 pre-merge review 2026-07-28, verified]`.
+  `_sentences` collapses whitespace (so newlines and bullets are gone) and splits only on
+  `[.!?]`, so a JD whose bullets carry no terminal punctuation is **one sentence** and the
+  documented "~400 chars" window becomes the entire description. Measured on the eval
+  corpus: median snippet payload 324 chars as designed, but id 4636's *whole* 1606-char
+  excerpt comes back as a single snippet, and 1154/2807/462 are likewise 100%.
+  This dissolves the per-snippet scoping the IMC 465/490 argument rests on — an offer and
+  a scoped refusal inside one period-free block get **one** label — and SPEC §7.1 claims
+  this design avoids exactly that ("'paragraph' is unbounded and degenerates to the whole
+  JD"). Secondary: snippets are spliced into the prompt untruncated while the JD block is
+  capped at `num_ctx*2`, so the snippet payload is uncapped budget. The fix is splitting
+  on line breaks as well as `[.!?]`, which changes what every snippet contains and so
+  needs a gate re-run — hence recorded rather than done.
 
 - **Sponsorship recall is a DELIBERATE, pinned trade** — `[SCREEN · open by design]`.
   Retrieve-then-classify shipped 2026-07-28 (false disqualifications 2 → 0; behavior in

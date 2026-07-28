@@ -37,6 +37,29 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   sponsorship 0**, with every remaining failure inside the documented 4B degree ceiling
   (SPEC §7.1).
 
+  **Two ways the floor stayed reachable, both found by the pre-merge review and fixed
+  before merge.** Both discarded a real job, which is the direction this design exists to
+  close. (1) On a SCREEN **provider error** the "authorization always records a verdict"
+  block ran the closed-list floor over the whole description, so an Ollama outage
+  terminally discarded exactly the *"eligible to work without sponsorship, we encourage
+  you to apply"* shape — a regression against `main`, which kept it. The block is now
+  skipped on `provider_error`, leaving the key absent; `run_score` leaves such a row
+  `new`, so no second model vote can occur and the next pass screens it properly.
+  (2) `sponsorship_labels: []` is schema-legal (`["array", "null"]`) and a plausible 4B
+  answer, but `[]` is falsy, so a **bad count expressed as an empty array** was read as
+  silence and fell to the floor. "The model answered" is now `bool(labels) or
+  isinstance(raw, list)`, with the floor still reached when nothing was retrieved.
+
+  **Also fixed here:** `CLEARANCE_TOKENS` gained the `\b` in `\bts[.\s/-]?sci`. With the
+  separator optional the pattern matched across a word gap — *"supports scientific"*,
+  *"its scientific"*, *"products scientists"* all grounded a clearance claim, the exact
+  `sci` trap the token list's own comment says it avoids. Narrowing only ever turns a
+  discard into a keep. And `tools/screen_eval.py` now passes the resolved model to
+  `make_screener` instead of only printing it: the model is a keyword argument there, not
+  an `env` key, so every run used the built-in default while the report header claimed
+  whatever `OLLAMA_MODEL`/`SCREEN_MODEL` said — which voids the tool's premise that
+  eval-model equals production-model.
+
   **Three things the measurement corrected about the design as recorded.** (1) Adjacent
   snippets must NOT be merged — an early version merged them, and one IMC paragraph that
   refuses sponsorship for three named nationalities *and* offers it to Ukrainian

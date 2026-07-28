@@ -79,8 +79,14 @@ NO_SPONSOR_PHRASES = (
 # bare `sci` (matches "science"/"scientist" -- it is already covered inside `ts/sci`)
 # and NOT bare `poly` (matches "polyglot"/"polynomial"). A clearance bar phrased with
 # none of these words is a MISS, which costs one paid fit call and reaches the human.
+# `\bts` is load-bearing and was missing: with the separator optional, an unanchored
+# `ts[.\s/-]?sci` matches ACROSS a word gap, so "supports scientific", "its scientific"
+# and "products scientists" all ground a clearance claim — the exact `sci` trap the
+# paragraph above says this list avoids. Narrowing is the safe direction: the floor only
+# ever gates whether a model's `requires_clearance: true` is honoured, so a token that
+# stops matching can only turn a discard into a keep.
 CLEARANCE_TOKENS = re.compile(
-    r"clearance|top secret|\bsecret\b|ts[.\s/-]?sci|polygraph", re.IGNORECASE)
+    r"clearance|top secret|\bsecret\b|\bts[.\s/-]?sci|polygraph", re.IGNORECASE)
 
 # Internship/co-op detection is deterministic from the title (gated by the
 # candidate's exclude_internships flag): a 4B model is unreliable on this, but the
@@ -166,7 +172,20 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     # the one check where a false positive silently deletes a real job.
     # With no labels this is the closed-list floor, which is deterministic and cannot
     # invent evidence — the same reason the location gate's verdict stands here too.
+    #
+    # NOT on a provider error, though. The floor is deterministic in the sense that the
+    # same JD gives the same answer, but it is BLUNT: a substring scan of the whole
+    # description that matches `without sponsorship` inside *"or are eligible to work
+    # without sponsorship, we encourage you to apply"* — an invitation. On a working
+    # backend the model's labels overrule it; on a dead one nothing does, so an Ollama
+    # outage would terminally discard exactly the postings this check was rebuilt to
+    # stop discarding. Keeping the key ABSENT here costs nothing: `run_score` leaves a
+    # provider_error row `new` instead of fit-scoring it, so `merge_fallback_screen`
+    # is never reached and no second model vote can occur — the next pass screens it
+    # properly. The docstring's "a failure errs toward KEEP, never toward discard" and
+    # SPEC §7.1 both say this out loud.
     if candidate and str(candidate.get("work_authorization") or "").strip() \
+            and not provider_error \
             and "authorization" not in out.get("screen", {}):
         passed, note = _check_authorization(candidate.get("work_authorization"),
                                             description, None, snippets)
@@ -623,7 +642,15 @@ def _check_authorization(cand_auth, description: str = "",
     if not _needs_sponsorship(cand_auth):
         return True, ""
     snippets = list(snippets or [])
-    labels = [str(v).strip().lower() for v in _as_str_list((entry or {}).get("sponsorship_labels"))]
+    raw = (entry or {}).get("sponsorship_labels")
+    labels = [str(v).strip().lower() for v in _as_str_list(raw)]
+    # "The model answered" is NOT the same as "labels is non-empty". `sponsorship_labels`
+    # is `["array", "null"]` in SCREEN_SCHEMA, so `[]` is a legal answer and a very
+    # plausible 4B one ("none of these are about sponsorship") — and it is a COUNT
+    # MISMATCH whenever a snippet was retrieved, not silence. Reading it as silence sent
+    # it to the floor, which is the one path the whole retrieve-then-classify design
+    # exists to close.
+    answered = bool(labels) or isinstance(raw, list)
     if labels and len(labels) == len(snippets) and all(
             v in _SPONSORSHIP_LABELS for v in labels):
         pairs = list(zip(labels, snippets))
@@ -633,12 +660,16 @@ def _check_authorization(cand_auth, description: str = "",
         if refusals and not all(_not_really_a_refusal(s.lower()) for s in refusals):
             return False, "no visa sponsorship offered"
         return True, ""
-    if labels:
-        # The model DID answer, just not in a usable shape (wrong count, off-vocabulary).
-        # That is not the same as silence, and it must not fall through to the floor:
-        # both long-standing IMC false positives came from exactly this path, where a
-        # miscounted answer let the closed list scan the whole description and match
-        # "without sponsorship" inside an invitation to apply.
+    if answered and snippets:
+        # The model DID answer, just not in a usable shape (wrong count, off-vocabulary,
+        # or an empty array against a non-empty snippet list). That is not the same as
+        # silence, and it must not fall through to the floor: both long-standing IMC
+        # false positives came from exactly this path, where a miscounted answer let the
+        # closed list scan the whole description and match "without sponsorship" inside
+        # an invitation to apply.
+        # `and snippets` is load-bearing: with NOTHING retrieved there is no question to
+        # have answered, so `[]` is the correct empty answer and the floor is the whole
+        # verdict — that is the documented silence path, not a bad count.
         return True, ""
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
