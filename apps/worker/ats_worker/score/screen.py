@@ -137,14 +137,17 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     """
     job = _job_block(posting, num_ctx * 2)
     description = str(posting.get("description") or "")
-    checklist = _candidate_block(candidate)
+    # CODE retrieves the sponsorship evidence before the call and hands it to the model
+    # to LABEL. The model is never asked to find it — see `_check_authorization`.
+    snippets = sponsorship_snippets(description)
+    checklist = _candidate_block(candidate, snippets)
     screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     provider_error = False
     if checklist and extract is not None:
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
             screen = _screen_verdict(data, candidate or {}, description,
-                                     str(posting.get("job_title") or ""))
+                                     str(posting.get("job_title") or ""), snippets)
         except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
             print(f"[screen] provider error, keeping posting unscreened: {exc}")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
@@ -155,6 +158,24 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     # They cost nothing and ran fine even on a provider failure, so their verdict
     # stands either way — a location-disqualified row stays disqualified.
     out = deterministic_screen(screen, posting, candidate)
+    # `authorization` must ALWAYS record a verdict when the candidate configured it —
+    # even when nothing was retrieved, so no clause was asked and no LLM call was made
+    # at all. `merge_fallback_screen` fills only the keys the screen left ABSENT, and a
+    # second model vote on a disqualification is precisely what that function is
+    # documented not to be (SPEC §7.1): it would double the false-positive surface on
+    # the one check where a false positive silently deletes a real job.
+    # With no labels this is the closed-list floor, which is deterministic and cannot
+    # invent evidence — the same reason the location gate's verdict stands here too.
+    if candidate and str(candidate.get("work_authorization") or "").strip() \
+            and "authorization" not in out.get("screen", {}):
+        passed, note = _check_authorization(candidate.get("work_authorization"),
+                                            description, None, snippets)
+        out.setdefault("screen", {})["authorization"] = {"pass": passed, "note": note}
+        if not passed:
+            prior = out.get("disqualification_reason") or ""
+            reason = f"authorization: {note}"
+            out["disqualified"] = True
+            out["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
     # Record that this posting was never actually screened. Keeping it is still the
     # right per-item call (one flaky provider must not discard the queue), but the
     # CALLER needs to tell "screened and clean" from "never screened" — paying the fit
@@ -315,7 +336,7 @@ def _degree_stated(value) -> bool:
 
 
 def _screen_verdict(data: dict, candidate: dict, description: str = "",
-                    title: str = "") -> dict:
+                    title: str = "", snippets: list[str] | None = None) -> dict:
     """Decide disqualification from the SCREEN call's extracted JOB facts.
 
     For each configured structured requirement the LLM only EXTRACTED a fact about
@@ -361,7 +382,7 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "",
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
          *_check_authorization(candidate.get("work_authorization"), description,
-                               entry("authorization")))
+                               entry("authorization"), snippets))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
          and isinstance(entry("clearance").get("requires_clearance"), bool),
          *_check_clearance(entry("clearance"), candidate.get("security_clearance"),
@@ -428,44 +449,79 @@ def _degree_extracted(entry: dict) -> bool:
     return _degree_stated(entry.get("required_degree"))
 
 
-# Vocabulary the quote must touch to count as being ABOUT work authorization.
-# MEASURED, not guessed: this list scored 100% precision on the 2026-07-25 labeled set.
-# A round of speculative additions ("opt ", "cpt ", "e-3", "us person") for misses nobody
-# had observed was reverted -- each collided with boilerplate that appears in a large
-# share of postings ("generous personal time off", "we adopt", "opt out", "E-3 on our
-# ladder", "CPT and ICD-10"), and every collision lands on the expensive side. Add a term
-# only together with a MUST_FLAG sentence in tests/fixtures/sponsorship_quotes.py that
-# needs it, and only if MUST_KEEP still passes.
-AUTHORIZATION_TERMS = (
-    "sponsor", "visa", "immigration", "authoriz", "authoris",
-    "citizen", "right to work", "working rights", "work permit", "green card",
-    "permanent residen", "h-1b", "h1b", "leave to remain", "settled status",
-)
+# --- sponsorship: CODE retrieves, the MODEL classifies, CODE decides ------
+#
+# The inverse of what shipped before 2026-07-28. The model used to do RETRIEVAL (read
+# 16K chars, find the sentence, copy it verbatim) and code did CLASSIFICATION (three
+# regex vetoes deciding whether that sentence was a refusal). Both halves were on the
+# wrong side: retrieval on a keyword is trivially deterministic, and regexes are bad at
+# stance. Three rounds of whack-a-mole, PR #22's five false positives, and the screen
+# eval's 8-of-16 recall (on rows whose refusal sentence was IN the text handed to the
+# model) were all measuring that mismatch.
+#
+# Hallucination is now structurally impossible rather than checked for: the model
+# returns a LABEL over text the code handed it, never text of its own. That is stronger
+# than the `_quote_in` verification it replaces, and free rather than a second step.
 
-# Sentences that CONTAIN an authorization word while saying nothing about whether THIS
-# employer sponsors. Every pattern is here because a real posting produced it.
-_OFF_TOPIC_QUOTE = re.compile(
-    # "sponsor" in its other English senses: events, teams, content, programme owners
-    r"company[- ]sponsor|sponsored (content|by|post)|event sponsor|executive sponsor"
-    r"|we sponsor[^.]{0,40}(conference|event|team|meetup|hackathon|charit)"
-    # EEO boilerplate. No distance limit: the protected-class list between the verb and
-    # "citizenship" runs long, and "without regard to" carries no "discriminat" at all.
-    r"|discriminat\w*[^.]*citizen|without regard to[^.]*citizen"
-    r"|citizenship status is not"
-    # "authorization" as an engineering noun
-    r"|authoriz\w*[^.]{0,30}(access|authentication|server|model|service|stack|oauth)"
-    r"|(authentication|oauth\w*|oidc|rbac)[^.]{0,30}authoriz"
-    r"|access[- ]control"
-    # "Visa" the payment network
-    r"|visa[^.]{0,30}(mastercard|amex|payment|card network|transaction)"
-    r"|(mastercard|amex)[^.]{0,30}visa"
-    # "right to work" as a workplace-dignity phrase
-    r"|right to work in an? (environment|workplace|culture)",
-    re.IGNORECASE)
+# Sentence splitting, with an abbreviation guard. PR #22 sprang this trap already: its
+# `_norm_sentence` stripped the dot from any single-letter token, merging "must be based
+# in the U.S. Citizenship is not required" into a fake citizenship bar.
+#
+# ponytail: a mask-and-split over a ~20-item list, not nltk/spacy. The ceiling is real —
+# an abbreviation not on the list ends a sentence early, and "U.S. Citizenship" stays
+# merged — but under this design the splitter only sets the WINDOW. A bad split yields a
+# slightly wider snippet, never a wrong verdict, because the classifier reads the text
+# either way. Upgrade only if a real posting shows a split changing a LABEL.
+_ABBREVS = ("U.S.A.", "U.S.", "U.K.", "Inc.", "Ltd.", "Corp.", "Co.", "Ph.D.", "e.g.",
+            "i.e.", "etc.", "Mr.", "Mrs.", "Ms.", "Dr.", "Jr.", "Sr.", "vs.", "No.",
+            "St.", "approx.")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
-# A sentence that OFFERS sponsorship must never disqualify: quote grounding fixes
-# invented *text*, never inverted *meaning*, and "Visa sponsorship is available" is the
-# most valuable line in a JD for a candidate who needs it.
+# The retrieval vocabulary is `sponsor` ALONE, and that narrowing is measured rather than
+# assumed. Every false positive ever recorded on this path came from a word that is not
+# "sponsor": `citizen` (EEO boilerplate, "a good citizen in our monorepo", "senior
+# citizens"), `visa` (the payment network), `authoriz` (OAuth/RBAC), `right to work`
+# ("...in an environment where"). The 72-of-156 authorization discards with no `sponsor`
+# token looked like bars this would lose; they are historical damage, all dated before
+# the 2026-07-25 relevance gate, and the genuine non-`sponsor` bars among them are
+# foreign on-site roles `resolve_location` rejects independently.
+_SPONSOR = re.compile(r"sponsor", re.IGNORECASE)
+
+
+def _sentences(text) -> list[str]:
+    """Split `text` into sentences without letting a known abbreviation end one."""
+    t = " ".join(str(text or "").split())
+    for a in _ABBREVS:                    # mask the dots so they can't end a sentence
+        t = t.replace(a, a.replace(".", "\0"))
+    return [s.replace("\0", ".") for s in _SENTENCE_END.split(t) if s.strip()]
+
+
+def sponsorship_snippets(description) -> list[str]:
+    """Every sentence naming `sponsor`, plus one neighbour each side.
+
+    The window is +/-1 sentence, NOT the paragraph and not the whole JD. A bare sentence
+    loses its antecedent ("Sponsorship is not among them.") while "paragraph" is
+    unbounded and degenerates to the whole JD on exactly the postings where scoping would
+    have helped. +/-1 is ~400 chars and gives a pronoun its referent.
+
+    ONE SNIPPET PER `sponsor` SENTENCE, and overlapping windows are allowed to repeat a
+    shared neighbour. An earlier version merged adjacent hits to avoid the repetition,
+    and that was a real defect: the label is about the CENTRE sentence, so merging two
+    hits forces the model to answer for both at once. Live rows 465/490 are the proof —
+    one IMC paragraph refuses sponsorship for three named nationalities *and* offers it
+    to Ukrainian applicants, and merged it could only come back `refuses`, silently
+    deleting a posting the candidate can apply to. Per-sentence labels let "any `offers`
+    keeps" see the offer. Repeating a neighbour costs a few hundred prompt chars.
+    """
+    sents = _sentences(description)
+    return [" ".join(sents[max(0, i - 1):i + 2])
+            for i, s in enumerate(sents) if _SPONSOR.search(s)]
+
+
+# A snippet that OFFERS sponsorship must never disqualify. DEMOTED 2026-07-28 to a
+# keep-direction veto only: it can overturn a model `refuses` label, never produce one.
+# Quote grounding fixed invented *text*, never inverted *meaning*, and "Visa sponsorship
+# is available" is the most valuable line in a JD for a candidate who needs it.
 #
 # These patterns are deliberately TIGHT rather than gated by a sentence-wide negation
 # search. An earlier version asked "does it look like an offer AND contain no negation
@@ -486,77 +542,104 @@ _OFFERS_SPONSORSHIP = re.compile(
 
 _NEGATION = re.compile(r"\b(?:not|never|cannot|can't|won't|unable|no)\b|n't", re.IGNORECASE)
 
-# A soft PREFERENCE is not a bar -- the candidate can still apply, so discarding on one
-# is a lost opportunity. Measured: 3 of the 8 false positives in the labeled set are this
-# shape. Scoped to the sponsorship clause, not the whole sentence, so a hard bar that
-# happens to list a "plus" elsewhere still disqualifies.
+# A soft PREFERENCE is not a bar: the candidate can still apply, so discarding on one is
+# a lost opportunity. RESTORED 2026-07-28 as a keep-direction veto after the inversion
+# measured worse without it — the design note predicted all three regex vetoes would
+# become unnecessary once a classifier read the sentence, and for the off-topic and
+# wrong-polarity shapes that held, but not for this one. `make eval-screen` caught the
+# 4B labelling "Our Company will be prioritizing applicants who have a current right to
+# work in Singapore, and do not require sponsorship of a visa" as `refuses` on 3 live
+# TikTok rows, all three draws. Like `_OFFERS_SPONSORSHIP` it can only overturn a
+# refusal, never produce one. Scoped to the sponsorship clause rather than the whole
+# sentence, so a hard bar that happens to list a "plus" elsewhere still disqualifies.
 _PREFERENCE_ONLY = re.compile(
     r"(?:prioritiz\w*|prefer\w*|ideally)[^.]{0,80}"
     r"(?:sponsor|visa|right to work|work authoriz|work authoris)",
     re.IGNORECASE)
 
+_SPONSORSHIP_LABELS = ("refuses", "offers", "neither")
 
-def _quote_on_topic(quote) -> bool:
-    """Is `quote` a sentence stating THIS employer will not sponsor?
 
-    Guards the direction that costs the most: a false positive DISQUALIFIES a good
-    posting silently, which is the error 'err toward keep' exists to avoid (PRINCIPLES).
-    A false negative costs one paid fit call. So every veto resolves toward keeping, and
-    the vocabulary is the last gate rather than the only one.
+def _not_really_a_refusal(text: str) -> bool:
+    """Keep-direction vetoes over a snippet the model labelled `refuses`.
 
-    Pinned by tests/fixtures/sponsorship_quotes.py -- change nothing here without
-    running that corpus in both directions.
+    Both can only overturn a refusal, never create one, so a wrong veto costs one paid
+    fit call while the error it prevents silently deletes a job.
     """
-    text = " ".join(str(quote or "").lower().split())
-    if not text:
-        return False
-    if _OFF_TOPIC_QUOTE.search(text):       # authorization word, unrelated sentence
-        return False
+    return _offers_sponsorship(text) or bool(_PREFERENCE_ONLY.search(text))
+
+
+def _offers_sponsorship(text: str) -> bool:
+    """Does this snippet affirmatively OFFER sponsorship?
+
+    A negation IMMEDIATELY before the offer verb makes it a refusal ("we do not PROVIDE
+    immigration sponsorship"). Scoped to the 14 chars before the match, not to the
+    sentence: offers routinely carry a negation elsewhere ("available for candidates who
+    do not already have the right to work"). Negation is evidence of a negation, not of
+    a refusal.
+    """
     offer = _OFFERS_SPONSORSHIP.search(text)
-    # A negation IMMEDIATELY before the offer verb makes it a refusal ("we do not
-    # PROVIDE immigration sponsorship"). Scoped to the 14 chars before the match, not to
-    # the sentence: offers routinely carry a negation elsewhere ("available for
-    # candidates who do not already have the right to work").
-    if offer and not _NEGATION.search(text[max(0, offer.start() - 14):offer.start()]):
-        return False                        # wrong polarity -- it OFFERS sponsorship
-    if _PREFERENCE_ONLY.search(text):       # a preference, not a bar
+    if not offer:
         return False
-    return any(term in text for term in AUTHORIZATION_TERMS)
-
-
-def _quote_in(quote, description: str) -> bool:
-    """Is `quote` actually present in the JD? Whitespace-collapsed and case-insensitive,
-    matching the normalization the phrase floor already uses — that tolerates the ways a
-    FAITHFUL quote legitimately differs (line wraps, casing) without tolerating invented
-    text. This is what makes hallucination unable to disqualify."""
-    needle = " ".join(str(quote or "").lower().split())
-    if not needle:
-        return False
-    return needle in " ".join((description or "").lower().split())
+    return not _NEGATION.search(text[max(0, offer.start() - 14):offer.start()])
 
 
 def _check_authorization(cand_auth, description: str = "",
-                         entry: dict | None = None) -> tuple[bool, str]:
-    """Fail only when the candidate needs sponsorship AND the JD says it isn't offered.
+                         entry: dict | None = None,
+                         snippets: list[str] | None = None) -> tuple[bool, str]:
+    """Fail only when the candidate needs sponsorship AND the JD refuses it.
 
-    Primary check: the model returns `no_sponsorship_quote`, the verbatim JD sentence
-    saying so, and CODE verifies that sentence actually appears in the description
-    before acting on it. A hallucinated quote fails verification and the posting is
-    KEPT — hallucination cannot disqualify anything by construction, not by trust.
-    This holds on qwen3.5:4b too, so D1 needs no re-litigating.
+    RETRIEVE-THEN-CLASSIFY (2026-07-28). CODE retrieved the `sponsor` sentences
+    (`sponsorship_snippets`) and put them in the prompt; the model returned one label per
+    snippet; CODE decides here. Any `offers` KEEPS — an offer anywhere outranks a refusal,
+    because the two only co-occur when the posting is describing who it can sponsor.
+    Otherwise any `refuses` discards. Silence keeps.
 
-    Second gate: the quote must also be ON TOPIC (`_quote_on_topic`). Presence proves
-    the sentence is real, not that it is about sponsorship — the 2026-07-25 labeled set
-    caught the model quoting real-but-irrelevant agency boilerplate on 5 of 28 fires.
+    **Hallucination is structurally impossible, not verified against.** The model labels
+    text the code handed it; it never supplies text. That retires `_quote_in` rather than
+    strengthening it, and `_OFF_TOPIC_QUOTE` with it — an EEO line is simply `neither` to
+    a classifier, so no pattern has to anticipate every innocent sentence in English.
 
-    Floor: NO_SPONSOR_PHRASES still runs and can only ADD a disqualification. It never
-    vetoes a model pass, so the closed list's ~2/11 recall is a floor, not a ceiling.
+    Two regex vetoes survive, both DEMOTED to keep-direction only (`_not_really_a_refusal`):
+    a `refuses` label on a snippet that plainly OFFERS, or that is only a PREFERENCE, is
+    overruled. Neither can create a disqualification. The design note expected all three
+    old vetoes to become unnecessary once a classifier read the sentence; `_OFF_TOPIC_QUOTE`
+    did, and these two did not — measured, not assumed.
+
+    Every uncertainty resolves toward KEEP, because a discarded row is reviewed by nobody
+    while a miss costs one paid fit call and reaches the human: a label count that does
+    not match the snippet count means the model answered a different question, so the
+    check is dropped.
+
+    Floor: `NO_SPONSOR_PHRASES` runs only when the model returned NO labels at all —
+    `SCREEN_BACKEND=none`, a provider error, or the fit scorer's Stage 4 shape. Silence
+    and a miscounted answer are deliberately NOT the same thing: a model that returned
+    labels answered the question, and letting a bad *count* fall through to a blunt
+    substring scan of the whole description is where BOTH long-standing IMC false
+    positives came from (`without sponsorship` matching inside *"or are eligible to work
+    without sponsorship, we encourage you to apply"* — an invitation). The floor can only
+    ever ADD a disqualification, never veto a model pass.
     """
     if not _needs_sponsorship(cand_auth):
         return True, ""
-    quote = (entry or {}).get("no_sponsorship_quote")
-    if _quote_in(quote, description) and _quote_on_topic(quote):
-        return False, "no visa sponsorship offered"
+    snippets = list(snippets or [])
+    labels = [str(v).strip().lower() for v in _as_str_list((entry or {}).get("sponsorship_labels"))]
+    if labels and len(labels) == len(snippets) and all(
+            v in _SPONSORSHIP_LABELS for v in labels):
+        pairs = list(zip(labels, snippets))
+        if any(v == "offers" for v, _ in pairs):
+            return True, ""
+        refusals = [s for v, s in pairs if v == "refuses"]
+        if refusals and not all(_not_really_a_refusal(s.lower()) for s in refusals):
+            return False, "no visa sponsorship offered"
+        return True, ""
+    if labels:
+        # The model DID answer, just not in a usable shape (wrong count, off-vocabulary).
+        # That is not the same as silence, and it must not fall through to the floor:
+        # both long-standing IMC false positives came from exactly this path, where a
+        # miscounted answer let the closed list scan the whole description and match
+        # "without sponsorship" inside an invitation to apply.
+        return True, ""
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
         return False, "no visa sponsorship offered"

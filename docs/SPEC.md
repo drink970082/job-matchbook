@@ -585,70 +585,86 @@ worker modules are pure and dependency-injected; real services are wired only in
   of the levels the model listed and comparing that rank (see the degree paragraph
   below); for clearance by applying the candidate's configured constraint to the
   extracted fact; for **work
-  authorization by a quote-grounded LLM check** (`_check_authorization` / `_quote_in`)
-  — the model returns `no_sponsorship_quote`, the verbatim JD sentence it claims
-  states sponsorship is unavailable, and CODE verifies that sentence is actually
-  present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
-  *before* disqualifying — a hallucinated quote fails verification and the posting is
-  *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
-  A verified quote must **also be on topic** (`_quote_on_topic`): it has to touch
-  `AUTHORIZATION_TERMS` (sponsor · visa · immigration · authoriz/authoris · citizen ·
-  right to work · work permit · green card). Presence proves a sentence is real, not
-  that it is *about* sponsorship — the 2026-07-25 labeled set caught the model quoting
-  agency boilerplate ("we do not require any assistance from third-parties including
-  agencies in the recruitment of this role") on 5 of 28 fires, wrongly disqualifying
-  those postings. Both gates guard the same direction: a false positive here discards a
-  good posting silently, the error "err toward keep" exists to prevent.
-  This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
-  "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
-  verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
-  demoted to a **floor** underneath the quote check: it still runs and can only *add*
-  a disqualification, never veto a model pass, so it still catches blunt closed-list
-  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall —
-  measured 2026-07-25** on 3,553 already-scored rows via `tools/sponsor_diff.py`, which
-  diffs the check against the old phrase list so only the 21 disagreements needed
-  hand-labeling against the three-class truth (*no-sponsorship / offers / silent*);
-  agreements are free labels. Against 20 known true positives (the union of both
-  systems — so recall is relative to that union, **not** to truth):
+  authorization by RETRIEVE-THEN-CLASSIFY** (`sponsorship_snippets` /
+  `_check_authorization`) — CODE pulls every sentence naming `sponsor` plus one
+  neighbour each side, the prompt numbers them, the MODEL returns one label per snippet
+  (`refuses` / `offers` / `neither`), and CODE decides: any `offers` keeps, else any
+  `refuses` discards, else keep.
 
-  **Measure the whole function, not one branch of it.** `_check_authorization`
-  disqualifies on `(quote grounded AND on topic) OR NO_SPONSOR_PHRASES`, so a number
-  quoted for the quote branch alone flatters it — the ungated floor adds fires nobody
-  counted:
+  **Hallucination is structurally impossible rather than checked for.** The model
+  labels text the code handed it and never supplies text, so there is no channel for
+  invented evidence to reach the decision. That is strictly stronger than the
+  `_quote_in` verification it replaces (retired 2026-07-28 along with
+  `_quote_on_topic`, `_OFF_TOPIC_QUOTE` and `AUTHORIZATION_TERMS`), and free rather
+  than a second step. It also retires the "anticipate every innocent English sentence"
+  problem: an EEO line is simply `neither` to a classifier.
 
-  | | fires | correct | precision | recall |
-  |---|---|---|---|---|
-  | `NO_SPONSOR_PHRASES` alone (the retired gate) | 11 | 9 | 81.8% | 45.0% |
-  | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
-  | quote branch **+ `_quote_on_topic`** | 20 | 20 | 100% | 100% |
-  | **shipped `_check_authorization` (gate OR floor)** | 22 | 20 | **90.9%** | **100%** |
+  **Why this way round.** The previous design had the halves swapped — the MODEL did
+  retrieval (read 16K chars, find the sentence, copy it verbatim) and CODE did
+  classification (three regex vetoes deciding whether that sentence was a refusal).
+  Retrieval on a keyword is trivially deterministic; regexes are bad at stance. Three
+  rounds of whack-a-mole, PR #22's five false positives, and the screen eval's 8-of-16
+  sponsorship recall — on rows whose refusal sentence was *inside the text handed to the
+  model* — were all measuring that mismatch. **Measured effect (`make eval-screen`,
+  2026-07-28): sponsorship false disqualifications 2 → 0 over all 21 corpus rows**,
+  closing the IMC 465/490 residuals open since 2026-07-25.
 
-  The relevance gate removes 8 false positives — 5 agency boilerplate, 3 soft-preference
-  — and **zero** true positives. `_quote_on_topic` is three vetoes then a vocabulary, all
-  resolving toward keep: an off-topic sentence carrying an authorization word (the D1
-  pair: "company-sponsored sports teams", "we do not discriminate on citizenship"), a
-  sentence of the wrong **polarity** ("Visa sponsorship is available for this position."
-  — quote grounding fixes invented text, never inverted meaning), and a soft preference
-  ("prioritizing applicants who…"), which is not a bar because the candidate can still
-  apply.
+  **Window: one snippet per `sponsor` sentence, +/-1 neighbour, NOT merged.** A bare
+  sentence loses its antecedent ("Sponsorship is not among them."); "paragraph" is
+  unbounded and degenerates to the whole JD on exactly the postings where scoping would
+  help. Adjacent hits are **not** merged and may repeat a shared neighbour: the label is
+  about the CENTRE sentence, and merging forces one answer for two. Live rows 465/490 are
+  the proof — one IMC paragraph refuses sponsorship for three named nationalities *and*
+  offers it to Ukrainian applicants, and merged it could only return `refuses`.
 
-  **The vocabulary is measured, not guessed, and that is a standing rule** — a round of
-  speculative terms added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`) each
-  collided with common boilerplate ("generous personal time off", "we adopt", "opt out",
-  "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a real
-  job. Both directions are pinned by a corpus, `tests/fixtures/sponsorship_quotes.json`
-  (32 must-keep / 13 must-flag, every sentence from a real posting, a labeled row, or a
-  review counter-example). **Add a term only with a must-flag sentence that needs it and
-  must-keep still green.** The percentages above are measured on the 2026-07-25 set;
-  sentences added to the corpus since are pinned by the corpus, not re-scored against it.
+  **Two regex vetoes survive, DEMOTED to keep-direction only** (`_not_really_a_refusal`):
+  a `refuses` label on a snippet that plainly OFFERS (`_OFFERS_SPONSORSHIP`) or that is
+  only a PREFERENCE (`_PREFERENCE_ONLY`) is overruled. Neither can create a
+  disqualification. The design expected a classifier to make all three old vetoes
+  unnecessary; two did, and `_PREFERENCE_ONLY` did not — the 4B labelled *"prioritizing
+  applicants who … do not require sponsorship of a visa"* as `refuses` on 3 live TikTok
+  rows, all three draws. Measured, not assumed.
 
-  **The 2 residual false positives are the ungated floor**, not the gate: IMC ids 465/490,
-  where `without sponsorship` appears inside an *invitation* ("or are eligible to work
-  without sponsorship, we encourage you to apply"). Open, not accepted — the floor matches
-  a substring anywhere in the description with no sentence and no relevance check, which
-  is the blunt-instrument tradeoff it was demoted for. Unmeasured, deliberately: false
-  negatives among the 3,523 agreed-negative rows, which neither system flagged and nobody
-  read; recall is relative to the 20-row union of the two systems, **not** to truth.
+  **Every uncertainty resolves toward KEEP**, because a discarded row is reviewed by
+  nobody while a miss costs one paid fit call and reaches the human. A label count that
+  does not match the snippet count means the model answered a different question, so the
+  check is dropped — and crucially it does **not** fall through to the floor. That path
+  is where both IMC false positives came from: the 4B returned one label for three
+  snippets, and `NO_SPONSOR_PHRASES` then matched `without sponsorship` inside *"or are
+  eligible to work without sponsorship, we encourage you to apply"*. **Silence still
+  reaches the floor; a bad count does not.**
+
+  **The retrieval vocabulary is `sponsor` alone, and the cost is stated rather than
+  hidden.** Every false positive ever recorded on this path came from a word that is not
+  "sponsor" — `citizen` (EEO boilerplate, "a good citizen in our monorepo"), `visa` (the
+  payment network), `authoriz` (OAuth/RBAC), `right to work` ("…in an environment
+  where"). The narrowing gives up the bars that never say "sponsor": 7 of the 13
+  must-flag sentences in `tests/fixtures/sponsorship_quotes.json` are no longer
+  retrieved and become MISSES. `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`
+  pins that count in both directions so the trade cannot drift silently. The 72-of-156
+  authorization discards with no `sponsor` token looked like bars this would lose; they
+  are historical damage predating the 2026-07-25 relevance gate, and the genuine ones
+  among them are foreign on-site roles `resolve_location` rejects independently.
+
+  **`NO_SPONSOR_PHRASES` is the floor for SILENCE only** — `SCREEN_BACKEND=none`, a
+  provider error, or the fit scorer's Stage 4 shape. It can only *add* a
+  disqualification, never veto a model pass. And `authorization` **always records a
+  verdict** when the candidate configured it, even when nothing was retrieved and no
+  clause was asked and no LLM call was made: `merge_fallback_screen` fills only the keys
+  the screen left absent, and a second model vote on a disqualification is exactly what
+  that function is documented not to be.
+
+  **Superseded measurements.** The 2026-07-25 precision/recall table
+  (`NO_SPONSOR_PHRASES` 81.8%/45.0%; shipped `_check_authorization` 90.9%/100% over 20
+  known true positives, via the now-retired `tools/sponsor_diff.py`) described the quote
+  design and no longer describes shipped behavior; it is kept in
+  [`../CHANGELOG.md`](../CHANGELOG.md) as history. The standing rule it established still
+  holds and now applies to the veto patterns: **the vocabulary is measured, not guessed**
+  — a round of speculative terms (`opt `, `cpt `, `e-3`, `us person`) each collided with
+  common boilerplate and was reverted, because on a disqualification path a collision
+  costs a real job. Add a term only with a must-flag sentence that needs it and must-keep
+  still green.
+
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
   sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
@@ -1535,11 +1551,13 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening**: work authorization is the quote-grounded LLM check
-  (**D1**, §7.1) — the model's extracted quote is verified against the JD text before
-  it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
-  and its precision/recall have not yet been measured against a labeled set (open
-  item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
+- **Hard-constraint screening**: work authorization is **retrieve-then-classify**
+  (**D1**, §7.1) — CODE retrieves the `sponsor` sentences, the model only labels them,
+  so it cannot supply text and hallucination cannot disqualify by construction. It is
+  now **gated**: `make eval-screen` measures 0 false disqualifications over 21 labeled
+  live rows (2026-07-28). What stays unenforced is **recall** — the `sponsor`-only
+  vocabulary gives up bars phrased without that word, deliberately, and each is a miss
+  that costs one paid fit call and reaches the human; **clearance** remains an LLM *semantic* extraction with a
   code check, now floored on JD evidence (`CLEARANCE_TOKENS` over description + title,
   §7.1) so an ungrounded `requires_clearance` can no longer discard — the residual is a
   **miss**: a clearance bar phrased in none of those words costs one paid fit call.
@@ -1567,7 +1585,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
-| Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
+| Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
+| Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
+| An unusable label list (wrong count, off-vocabulary) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
+| The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_score.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
 | Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |

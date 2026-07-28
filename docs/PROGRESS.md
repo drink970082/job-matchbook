@@ -49,6 +49,31 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   retrieve-then-classify inversion, measured rather than argued.
   **Stacked on `fix/clearance-evidence-floor`.**
 
+- **`feat/sponsorship-retrieve-classify` — queue item 3 DONE; sponsorship false
+  disqualifications 2 → 0** `[SCREEN · S · claimed 2026-07-28]`. CODE retrieves the
+  `sponsor` sentences (+/-1 window), the MODEL labels each `refuses`/`offers`/`neither`,
+  CODE decides. `_quote_in`, `_quote_on_topic`, `_OFF_TOPIC_QUOTE` and
+  `AUTHORIZATION_TERMS` deleted; `_OFFERS_SPONSORSHIP` + `_PREFERENCE_ONLY` demoted to
+  keep-direction vetoes; `NO_SPONSOR_PHRASES` reduced to the silence floor. SPEC §7.1 +
+  §11 + 4 traceability rows, CHANGELOG. 686 tests, coverage 93.88%.
+  **Whole-corpus gate: 11 → 2 false disqualifications** across the three branches; the 2
+  left are one Cubist JD shape counted twice (the degree ceiling above).
+  **Three corrections the measurement forced on the design as this file recorded it** —
+  all three would have shipped silently without the gate:
+  1. **Adjacent snippets must NOT be merged.** An early version merged them; one IMC
+     paragraph refuses sponsorship for three named nationalities *and* offers it to
+     Ukrainians, and merged it could only return `refuses`. One snippet per `sponsor`
+     sentence, overlapping windows allowed to repeat a neighbour.
+  2. **`_PREFERENCE_ONLY` had to be RESTORED.** This file predicted all three vetoes
+     become unnecessary. Two did. The 4B labelled *"prioritizing applicants who … do not
+     require sponsorship of a visa"* `refuses` on 3 live TikTok rows, all three draws.
+  3. **A miscounted answer must not fall through to the floor.** That is precisely where
+     both IMC false positives came from — the 4B returned 1 label for 3 snippets, the
+     check dropped, and `NO_SPONSOR_PHRASES` matched `without sponsorship` inside an
+     invitation. Silence still reaches the floor; a bad count does not. This, not the
+     classifier, is what closed 465/490.
+  **Stacked on `fix/degree-lower-bound`.**
+
 - **`fix/degree-lower-bound` — the defect the gate found, fixed** `[SCREEN · S · claimed
   2026-07-28]`. `SCREEN_SCHEMA`'s degree block became `degree_levels` + `degree_required`,
   `_check_degree` takes `min(rank)` and reads both shapes, `screen.txt` rewritten, 5 new
@@ -328,10 +353,13 @@ take first and why. Each numbered item is independently pickable.
 >    (see Defects). The gate now stands at **5 false disqualifications: 2 sponsorship + 3
 >    residual degree**, so item 3 has a clean target — closing the 2 is what turns this
 >    gate green apart from a documented 4B ceiling.
-> 3. **Sponsorship: retrieve-then-classify — `[S]`, gated on item 2.** Replaces both the
->    shipped gate and the rejected PR #22 rebuild. CODE retrieves, MODEL classifies, CODE
->    decides — the inverse of today's split. Design recorded in the
->    [PR #22 entry](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
+> 3. ~~**Sponsorship: retrieve-then-classify — `[S]`, gated on item 2.**~~ **DONE
+>    2026-07-28** on `feat/sponsorship-retrieve-classify` — sponsorship false
+>    disqualifications **2 → 0** over all 21 labeled rows, closing the IMC 465/490
+>    residuals. **Close PR #22 unmerged.** Three design details the gate corrected are in
+>    [In flight](#in-flight); the one worth carrying: what actually closed 465/490 was
+>    stopping a *miscounted* model answer from falling through to `NO_SPONSOR_PHRASES`,
+>    not the classifier. This file predicted the classifier alone would do it.
 > 4. **Recover the wrongly-discarded rows — `[XS]`, after 1 and 3 land.** ~80 rows sit in
 >    `discarded` on evidence that is not in their JD: the 20 phantom-clearance rows above,
 >    plus ~60 killed on EEO boilerplate before `_quote_on_topic` shipped. All are hydrated,
@@ -599,9 +627,17 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Sponsorship — SUPERSEDING DESIGN chosen 2026-07-27: retrieve-then-classify. Do not
-  merge PR #22; do not resume regex tuning.** `[SCREEN · S · queue item 3 · gated on the
-  golden set]`.
+- **Sponsorship — retrieve-then-classify SHIPPED 2026-07-28 on
+  `feat/sponsorship-retrieve-classify`. Close PR #22 unmerged.** `[SCREEN · S · queue
+  item 3 · DONE]`. Measured: sponsorship false disqualifications **2 → 0** over the 21
+  labeled rows; details and the three design corrections in [In flight](#in-flight),
+  behavior in SPEC §7.1. **What is still open is RECALL, deliberately:** the `sponsor`-only
+  vocabulary gives up bars phrased without that word — 7 of the 13 corpus must-flag
+  sentences — and each is a miss costing one paid fit call. That is the intended trade,
+  pinned in both directions by
+  `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up` so it cannot drift.
+  Design as recorded before the build, kept because two of its three predictions were
+  wrong and the record of that is worth more than the prediction:
   **The diagnosis both the shipped gate and PR #22 share: the two halves are the wrong way
   round.** Today the MODEL does retrieval (read 16K chars, find the sentence, copy it
   verbatim) and CODE does classification (`_OFF_TOPIC_QUOTE`, `_OFFERS_SPONSORSHIP`,

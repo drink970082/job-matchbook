@@ -7,6 +7,57 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Sponsorship screening inverted: CODE retrieves, the MODEL classifies, CODE decides.**
+  The two halves were on the wrong sides. The model did RETRIEVAL — read 16K chars, find
+  the sentence, copy it verbatim — and code did CLASSIFICATION, three regex vetoes
+  deciding whether that sentence was a refusal. Retrieval on a keyword is trivially
+  deterministic and regexes are bad at stance, which is what three rounds of
+  whack-a-mole, PR #22's five false positives, and the screen eval's 8-of-16 recall (on
+  rows whose refusal sentence was *inside the text handed to the model*) were all
+  measuring.
+
+  Now `sponsorship_snippets` pulls every sentence naming `sponsor` plus one neighbour
+  each side, the prompt numbers them, the model returns one label per snippet
+  (`refuses` / `offers` / `neither`), and code decides: any `offers` keeps, else any
+  `refuses` discards, else keep. **Hallucination became structurally impossible rather
+  than checked for** — the model labels text the code handed it and never supplies text
+  — which retires `_quote_in` instead of strengthening it, and `_OFF_TOPIC_QUOTE` with
+  it: an EEO line is simply `neither` to a classifier, so no pattern has to anticipate
+  every innocent sentence in English.
+
+  **Result on `make eval-screen`: sponsorship false disqualifications 2 → 0 across all
+  21 corpus rows**, including the two IMC residuals (465/490) that had been open since
+  2026-07-25. Whole-corpus false disqualifications are **11 → 2** counting the degree fix
+  above, and the 2 that remain are one JD shape.
+
+  **Three things the measurement corrected about the design as recorded.** (1) Adjacent
+  snippets must NOT be merged — an early version merged them, and one IMC paragraph that
+  refuses sponsorship for three named nationalities *and* offers it to Ukrainian
+  applicants could then only come back `refuses`. One snippet per `sponsor` sentence,
+  overlapping windows allowed to repeat a neighbour. (2) `_PREFERENCE_ONLY` had to be
+  **restored** as a keep-direction veto: the design expected a classifier to make all
+  three regex vetoes unnecessary, and the 4B labelled *"prioritizing applicants who …
+  do not require sponsorship of a visa"* as `refuses` on 3 live TikTok rows, all three
+  draws. (3) A **miscounted** answer must not fall through to the `NO_SPONSOR_PHRASES`
+  floor — that path is exactly where both IMC false positives came from, the 4B returning
+  one label for three snippets and the closed list then matching `without sponsorship`
+  inside *"or are eligible to work without sponsorship, we encourage you to apply"*.
+  Silence still reaches the floor; a bad count does not.
+
+  The floor survives only for silence (`SCREEN_BACKEND=none`, provider error, the fit
+  scorer's Stage 4 shape), and `authorization` still records a verdict even when nothing
+  was retrieved and no clause was asked — `merge_fallback_screen` fills only absent keys,
+  and a second model vote on a disqualification is what SPEC §7.1 forbids.
+
+  **The retrieval vocabulary narrowed to `sponsor` alone**, and the cost is stated rather
+  than hidden: 7 of the 13 corpus must-flag sentences (citizenship and work-authorization
+  bars that never say "sponsor") are no longer retrieved and become misses — one paid fit
+  call each, reaching the human. A test pins that count in both directions so the trade
+  cannot drift silently. Every false positive ever recorded on this path came from a word
+  that is *not* "sponsor".
+
 ### Added
 
 - **`make eval-screen` — the accuracy gate `screen.txt` never had.** `score.txt` cannot

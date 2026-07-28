@@ -29,10 +29,13 @@ from .screen import (  # noqa: F401  (re-export)
     _is_internship,
     _needs_sponsorship,
     _normalize_score,
+    _offers_sponsorship,
+    _sentences,
     deterministic_screen,
     make_ollama_extract,
     merge_fallback_screen,
     screen_posting,
+    sponsorship_snippets,
 )
 from .usage import (  # noqa: F401  (re-export)
     _capture_usage,
