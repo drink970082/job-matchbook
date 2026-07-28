@@ -31,7 +31,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   | [#20](https://github.com/drink970082/job-matchbook/pull/20) | `feat/pass-lockfile` | **mergeable.** Review found 2 real defects (raw `OSError` from `os.open` killed the daemon; `ENOLCK` reported as contention would refuse every pass forever) and 2 tests that did not prove what SPEC cited them for. All fixed on the branch; 676 pass, cov 93.98%. |
   | [#19](https://github.com/drink970082/job-matchbook/pull/19) | `fix/autoheal-socket-gap` | **fix does not work — redo.** See the autoheal entry below. |
   | [#21](https://github.com/drink970082/job-matchbook/pull/21) | `feat/custom-html-mode` | **ships dead as documented.** See the `custom html` entry under Enhancements. |
-  | [#22](https://github.com/drink970082/job-matchbook/pull/22) | `fix/sponsorship-positive-evidence` | **5 confirmed false positives.** See the sponsorship entry under Unverified / deferred. |
+  | [#22](https://github.com/drink970082/job-matchbook/pull/22) | `fix/sponsorship-positive-evidence` | **5 confirmed false positives — now SUPERSEDED, close it unmerged.** A different design (retrieve-then-classify) was chosen 2026-07-27; see the sponsorship entry under Unverified / deferred. |
   **The pattern worth keeping:** all three failures were *premise* failures, not coding
   errors — a fix aimed at the wrong cause, a feature whose value claim was untested, and a
   rewrite that moved a problem rather than removing it. Each branch's own tests passed
@@ -232,7 +232,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 defect** (clearance fires on "security", found 2026-07-27); the eval gap now gates the sponsorship rewrite |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -246,8 +246,14 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: none.** Five instances of one policy error — a *systemic* condition
-handled as a per-item verdict — have now shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
+**Open defects: one — SCREEN, found 2026-07-27** (the clearance check fires on the word
+"security"; 20 of 24 discards false, repro below). It is a *different* class from the five
+closed ones: not a systemic condition mishandled as a per-item verdict, but a per-item
+verdict acted on with **no evidence floor** — the D1 gap, which `authorization` closed and
+`clearance` never did.
+
+The five instances of the earlier policy error — a *systemic* condition handled as a
+per-item verdict — have all shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
 on 2026-07-24, and **SCREEN (1)** the same day, found while auditing the long-run
 runbook and the last block the sweep had never reached. The rule that names them lives
 in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
@@ -258,24 +264,41 @@ in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: push the stack and merge the six PRs.** `[S]` The `main` integration that
-> blocked this is **DONE 2026-07-26** — `origin/main` is merged into
-> `feat/universality-and-onboarding` and propagated down all six branches by merge (not
-> by resolving six times). Every branch's suite is green on the merge result. What the
-> integration found, and how each conflict was resolved, is in
-> [In flight](#in-flight); the two headline corrections to what this callout used to say:
-> `pipeline.run_score` was **not** a semantic conflict (the thin-JD gate was already
-> inside the concurrent loop — both sides had added it independently), and `_recipe.py`
-> **was** one (resolved on namespace, in favour of the branch's recipe-field naming).
+> **NEXT STEP: the screen's evidence problem — clearance guard, then a golden set, then
+> the sponsorship rewrite.** `[SCREEN]` Designed with the operator 2026-07-27; every
+> number below was **executed that day** against the live `db/applications.db` (3,278
+> discarded rows), not read off the code. **Order matters — item 2 gates item 3, by
+> operator decision.**
 >
-> **Still to do:** push all six branches, let GitHub retarget #7's base to `main`, and
-> merge in stack order. The §7 pre-merge review applies to the merge resolution itself.
+> 1. **Clearance guard — `[XS]`, a LIVE defect, and it does NOT wait for the golden set.**
+>    20 of 24 clearance discards are false. Full repro under
+>    [Defects](#defects--shipped-behavior-that-is-wrong-should-fix). The guard is
+>    keep-direction only (it can only turn a discard into a keep), so it cannot introduce
+>    a false disqualification and therefore needs no eval to ship — which is why it is
+>    first and why the "do not start before the screen eval exists" warning on the
+>    degree/clearance quote work does **not** apply to it. That warning is about the full
+>    `SCREEN_SCHEMA` + `screen.txt` rewrite, a different and larger change.
+> 2. **Screen golden set — `[S]`, blocks item 3.** The `screen.txt` eval gap is no longer
+>    a nice-to-have: it is the reason a check could run 83% wrong for four days unnoticed.
+>    Build it from the *live fires* rather than synthesized JDs — see the
+>    [eval-gate entry](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+>    for the corpus, the labeling shape, and the privacy constraint that decides the
+>    fixture format.
+> 3. **Sponsorship: retrieve-then-classify — `[S]`, gated on item 2.** Replaces both the
+>    shipped gate and the rejected PR #22 rebuild. CODE retrieves, MODEL classifies, CODE
+>    decides — the inverse of today's split. Design recorded in the
+>    [PR #22 entry](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending).
+> 4. **Recover the wrongly-discarded rows — `[XS]`, after 1 and 3 land.** ~80 rows sit in
+>    `discarded` on evidence that is not in their JD: the 20 phantom-clearance rows above,
+>    plus ~60 killed on EEO boilerplate before `_quote_on_topic` shipped. All are hydrated,
+>    so `--rescreen-discarded --once` returns them for one pass; screening is free, the fit
+>    calls that follow are not, so pair it with `--score-limit`.
 >
-> The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
-> phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
-> the only thing gated on its quota reserve was the fit-score eval itself. Its phase 1-2
-> (bounded fetch + scoring at scale) remain unrun and are still worth reading before any
-> large paid pass: quota math, monitoring cadence, and the authority boundary.
+> **Not in this queue, still open:** the four landed-unmerged branches (#19/#20/#21/#22)
+> tracked in [In flight](#in-flight) — #20 is mergeable, the other three need work. And the
+> [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
+> (bounded fetch + scoring at scale) remain unrun, still worth reading before any large paid
+> pass: quota math, monitoring cadence, authority boundary. Its phases 3-4 are done.
 
 **P0 — the first run against the 172-board watchlist.** The body-required guard shipped
 2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
@@ -347,6 +370,9 @@ them from there, not ad hoc, so the quota reserve and the authority boundary hol
    and no relevance check. Closing it means running the gate's vetoes over the matched
    sentence; deferred because the invitation shape needs a prose pattern that can itself
    misfire, and 90.9% already beats the gate it replaced.
+   **Subsumed 2026-07-27 — do not build this separately.** Queue item 3 closes it as a side
+   effect: the invitation sentence contains `sponsor`, so it is retrieved and the model
+   classifies it `neither`. That is the shape a prose pattern kept getting wrong.
 
 **P2 — the last provider-choice track: track 4, agent portability — DONE 2026-07-26.**
 Codex was run against three `git archive` checkouts differing only in which skills
@@ -377,7 +403,42 @@ exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-**None open.** The one found here 2026-07-24 shipped its fix the same day:
+- **The clearance check fires on the word "security" — 20 of 24 discards are false, and it
+  is wrong on current code** — `[SCREEN · XS · found 2026-07-27 · queue item 1]`.
+  `_check_clearance` acts on a bare `requires_clearance: true` boolean with **no evidence
+  floor at all** — the failure class D1 exists to kill, left standing here while
+  `authorization` got quote grounding.
+  **Executed repro** (`db/applications.db`, 2026-07-27, read-only; token set
+  `clearance|top secret|\bsecret\b|ts.sci|polygraph` over description **and** title):
+
+  | date screened | grounded | ungrounded |
+  |---|---|---|
+  | 2026-07-23 | 1 | 7 |
+  | 2026-07-26 | 3 | 10 |
+  | 2026-07-27 | 0 | 3 |
+
+  All 24 clearance discards in the DB post-date 2026-07-23, so this is **not** stale
+  damage — today's pass was 3 for 3 wrong.
+  **The cause is unambiguous: all 20 ungrounded descriptions contain "security" and none
+  contain a clearance token.** The 4B conflates the engineering domain ("Senior Security
+  Researcher", "Azure security") with the government credential. The 4 true positives are
+  all Microsoft `CTJ - Poly` roles carrying an explicit *"Other Requirements: Security
+  Clearance Requirements:"* block — the real signal is sharp and trivially detectable.
+  **The fix is one line, and it is keep-direction only:** require a clearance token in the
+  JD before honouring `requires_clearance: true`. On this data it separates the two
+  populations perfectly, because "security" is not in the token set. Watch the `sci`
+  boundary — as a bare substring it matches "science"/"scientist". A clearance bar phrased
+  with none of those words is then a MISS, which costs one paid fit call and reaches the
+  human — the self-correcting direction, per the operator's 2026-07-26 call.
+  **Why it was missed:** clearance is 0.7% of discards, so it read as the least
+  consequential check in the block; nothing marks a row `failed`, and the check has no
+  eval. Volume ranked it last; error rate ranks it first.
+  **`degree` is NOT affected — measured, not assumed.** 38 discards, 36 grounded in the
+  description and the other 2 (Jump Trading *"Campus AI Researcher, PhD/Postdoc"*) grounded
+  in the **title**, so 38 of 38. The same one-line guard is still worth adding for symmetry,
+  but it is closing a hole with no observed instance.
+
+**Previously here, and closed.** The one found 2026-07-24 shipped its fix the same day:
 
 - **A dead SCREEN provider is silent, and every unscreened row goes to the PAID scorer**
   — **FIXED 2026-07-24** (SPEC §9 + traceability, CHANGELOG). The verdict now carries
@@ -422,8 +483,60 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **The positive-evidence rebuild is BUILT and REVIEWED but NOT merged — it moved the
-  problem instead of removing it** — `[SCREEN · S · PR #22 · 2026-07-26]`. Read this
+- **Sponsorship — SUPERSEDING DESIGN chosen 2026-07-27: retrieve-then-classify. Do not
+  merge PR #22; do not resume regex tuning.** `[SCREEN · S · queue item 3 · gated on the
+  golden set]`.
+  **The diagnosis both the shipped gate and PR #22 share: the two halves are the wrong way
+  round.** Today the MODEL does retrieval (read 16K chars, find the sentence, copy it
+  verbatim) and CODE does classification (`_OFF_TOPIC_QUOTE`, `_OFFERS_SPONSORSHIP`,
+  `_PREFERENCE_ONLY` decide whether that sentence is a refusal). Retrieval on a keyword is
+  trivially deterministic and regexes are bad at stance — which is what three rounds of
+  whack-a-mole and PR #22's five false positives were actually measuring.
+  **Invert it.** (1) CODE retrieves every sentence containing `sponsor`, plus one
+  neighbour each side. (2) MODEL classifies each snippet `refuses` / `offers` / `neither`.
+  (3) CODE decides: any `offers` → keep; else any `refuses` → discard.
+  **Hallucination becomes structurally impossible** — the model returns a label over text
+  *the code handed it*, never text of its own. Stronger than `_quote_in`, and free rather
+  than a verification step. `_quote_in`, `_OFF_TOPIC_QUOTE`, `_PREFERENCE_ONLY` all delete;
+  `_OFFERS_SPONSORSHIP` survives demoted to a keep-direction veto only; `NO_SPONSOR_PHRASES`
+  survives only as the `SCREEN_BACKEND=none` floor. **Net deletion.**
+  **Window: ±1 sentence — not the paragraph, not the whole JD.** A bare sentence loses the
+  antecedent (*"Sponsorship is not among them."*); "paragraph" is unbounded and degenerates
+  to the whole JD on exactly the postings where scoping would have helped. ±1 is ~400 chars
+  and gives the pronoun its referent.
+  **The one trap, already sprung once:** sentence splitting. PR #22's `_norm_sentence`
+  stripped the dot from any single-letter token, merging *"must be based in the U.S.
+  Citizenship is not required"* into a fake citizenship bar. Needs an abbreviation guard
+  (U.S., Inc., e.g., i.e., single initials) — a regex and a ~10-item list, **not** nltk or
+  spacy.
+  **Vocabulary narrows to `sponsor` alone, and the measurement that seemed to argue against
+  it does not.** Every false positive ever recorded on this path came from a word that is
+  *not* "sponsor" — `citizen` (EEO boilerplate, "good citizen in our monorepo", "senior
+  citizens"), `visa` (the payment network), `authoriz` (OAuth/RBAC), `right to work`
+  ("...in an environment where"). A first pass found 72 of 156 authorization discards with
+  no `sponsor` token, which looked like real bars the narrowing would lose. **It is not:**
+  all 109 sole-authorization discards carry `updated_at` 2026-07-13, *before*
+  `_quote_on_topic` shipped 2026-07-25, and 60 of them are one WorldQuant EEO line — *"does
+  not discriminate in hiring on the basis of race, ..., citizenship, national origin..."* —
+  which current `_OFF_TOPIC_QUOTE` already vetoes (`discriminat\w*[^.]*citizen`). Post-gate
+  the DB holds **zero** authorization discards. So those 72 are historical damage, not
+  evidence. The genuine non-`sponsor` bars among them (Mako *"full Australian working
+  rights"*, Optiver *"a Chinese citizen or Chinese permanent resident"*) are all foreign
+  on-site roles the location gate rejects independently — verified by executing
+  `resolve_location` against `["remote","USA"]`: `Sydney → on-site in Australia`,
+  `Ho Chi Minh City → on-site in Viet Nam`, `Budapest → Hungary`, `Yerevan → Armenia`,
+  `Mumbai → India`, `Ramat Gan → Israel`; `New York → (True, "")`. They cost nothing to lose.
+  **Config decision, settled 2026-07-27 — sponsorship stays a DISCARD, not a demote.** The
+  operator's `work_authorization` is a need/no-need fact: on *need* a refusal discards, on
+  *no need* the check never fires (already the shipped early-return in
+  `_needs_sponsorship`). A "flag instead of delete" variant was proposed and **rejected**.
+  **Ride-along fix:** `_needs_sponsorship` substring-matches free text, so any value not
+  containing "sponsor" (`"F-1 student"`, `"OPT"`) silently reads as *no need* and the check
+  never runs. Making the field the two-value enum the operator described kills that — it is
+  the "silent off-vocabulary fallthrough" already recorded under rejected shape (4).
+
+- **Why PR #22 is not the path — kept because the diagnosis above is built on it** —
+  `[SCREEN · S · PR #22 · 2026-07-26]`. Read this
   before touching `fix/sponsorship-positive-evidence`.
   **The design premise did not survive.** The pitch below is that inverting to positive
   evidence stops the author having to anticipate every innocent English sentence. It does
@@ -598,8 +711,31 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `degree`/`clearance` now record no key at all where the model returned nothing, so
   "blind" is already distinguishable from "passed" and only the third state
   (`needs_confirmation`) would be new.
-- **`screen.txt` has no eval gate — screen prompt edits are unguarded** — `[SCREEN · M ·
-  blocks the quote-grounding work below]`. `score.txt` cannot change without two
+- **`screen.txt` has no eval gate — BUILD IT BEFORE THE SPONSORSHIP REWRITE** — `[SCREEN ·
+  S · queue item 2 · operator decision 2026-07-27]`. Promoted from `M` and from optional:
+  the 2026-07-27 clearance defect is what an unguarded screen looks like — a check ran 83%
+  wrong across four days and three passes, and nothing surfaced it because no row is marked
+  `failed` and no eval exists. The rewrite in item 3 touches the sponsorship clause; it does
+  not ship on inspection.
+  **Downgraded to `S` because the corpus already exists — build it from LIVE FIRES, not
+  synthesized JDs.** Three sources, all on disk today:
+  - **clearance** — the 24 discards, already partitioned by the repro above into 20
+    known-wrong and 4 known-right (Microsoft `CTJ - Poly`). A ready-made labeled set that
+    cost nothing to produce.
+  - **degree** — the 38 discards, 38/38 grounded; a clean must-keep-passing baseline.
+  - **sponsorship** — the 2026-07-25 worksheet in the gitignored `db/runs/20260725-sponsor/`
+    (3,553 rows, 21 hand-labeled disagreements) plus the existing
+    `tests/fixtures/sponsorship_quotes.json`.
+  **Label per-requirement JD FACTS, not verdicts** — "does this JD require a clearance?",
+  not "is this posting disqualified?" The verdict depends on candidate config, so a
+  verdict-labeled set rots the moment `config.yaml` changes; a fact-labeled one does not.
+  **Gate on the direction that costs:** assert zero false disqualification. Report recall,
+  do not gate on it — a miss costs one paid fit call and reaches the human.
+  **Privacy constraint decides the fixture format, and it is load-bearing.** These are real
+  postings and the repo is public, so the fixture stores **excerpts** (the matched sentence
+  plus a bounded window), never whole JDs. That is not a compromise — it is exactly the
+  input shape item 3 feeds the model, so the fixture and the runtime see the same thing.
+  Original entry, still true: `score.txt` cannot change without two
   consecutive `tools/score_eval.py` PASS against a 23-row golden set (§13, and a
   merge is blocked on exactly that right now). `screen.txt` has **no equivalent**:
   `tools/sponsor_diff.py` is a disagreement differ, not a gate, and it covers only
