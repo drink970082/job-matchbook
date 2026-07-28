@@ -15,11 +15,15 @@ privacy guards). **"Hardened"
 means test/CI hardening, not security hardening** — accepted residuals are documented
 in SPEC §11 + `SECURITY.md`; genuinely open items are below.
 
-**Since then, the work has been accuracy rather than features.** The screen's three
-hard-requirement checks were each acting on a model verdict with no evidence behind it;
-`make eval-screen` now measures that and gates the prompt, and the false-disqualification
-count over 81 labeled live rows went **11 → 2**. Seven branches are landed and unmerged —
-merging them is the top of the queue.
+**Since then the work has been accuracy, then readiness to run unattended.** The screen's
+three hard-requirement checks were each acting on a model verdict with no evidence behind
+it; `make eval-screen` now measures that and gates the prompt, and the
+false-disqualification count over 81 labeled live rows went **11 → 2-3** (the residual is a
+4B ceiling and the count is not run-to-run stable — see Defects). Five PRs landed
+2026-07-28: the screen stack (#24), a per-host pass lock (#20), wall-clock scheduling with
+no eager startup pass (#25), a systemd user unit (#26), and an autoheal healthcheck that
+can actually fail (#27). **`make eval-screen` is RED on `main`** at 2-3 degree
+false-disqualifications; that is the documented ceiling, and queue item 3 is its remedy.
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -28,121 +32,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **The screen-evidence stack — three branches, LANDED and UNMERGED, landing as ONE PR**
-  `[SCREEN · claimed 2026-07-28]`. One unit of work per branch, each stacked on the one
-  above, all on top of `docs/record-review-findings` (unmerged itself), so the tip branch
-  `feat/sponsorship-retrieve-classify` already contains all nine commits linearly on `main`.
-  **There is no `feat/screen-eval-gate` branch** — the eval-gate commit `53498c1` rides on
-  `fix/clearance-evidence-floor`, one commit above the clearance fix.
-  | branch | what | measured |
-  |---|---|---|
-  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title; then `make eval-screen`, 83-row corpus, SPEC §13 | clearance false discards **20/24 → 0** (but see the eval-reach entry under Unverified: no corpus row can fail this half, so it is the floor measuring itself); the gate found the degree defect on run one |
-  | `fix/degree-lower-bound` | `degree_levels` + `degree_required`, CODE takes `min` | degree **9 → 3**, recall 27/37 → **28/37** |
-  | `feat/sponsorship-retrieve-classify` | CODE retrieves, MODEL labels, CODE decides | sponsorship **2 → 0** |
-  **Merge shape: one PR from the tip, squash-merged** (operator decision 2026-07-28). The
-  repo is squash-merge only (`allow_rebase_merge: false`), so four bottom-up PRs would cost
-  three rebases and three force-pushes for content `main` would end up holding anyway.
-  #22 and #23 close unmerged behind it — #23's 2 commits are contained (note
-  `docs/record-review-findings` also has 1 unpushed commit, so #23 is incomplete as it
-  stands), #22 is superseded by `a8eda24`.
-  **Gate now: 11 → 2-3 false disqualifications** over 81 gate-eligible rows. The stable
-  pair is one Cubist JD shape counted twice (ids 67/68) — the documented 4B ceiling under
-  Defects, not an open defect. 696 worker tests, coverage 93.88%, privacy + schema guards
-  clean.
-  **The residual COUNT is not run-to-run stable, and a re-run showing 3 is not a
-  regression.** Two back-to-back runs on 2026-07-28 gave 3 (67/68 + id 672, *"advanced
-  degree … preferably a Ph.D."*) and then 2 (67/68 alone), same code, same corpus. The
-  screen calls Ollama at `temperature: 0, seed: 0`, so this is GPU/runtime
-  nondeterminism, not sampling — determinism holds *within* a run (`flip: 0` both times,
-  all three draws agreeing on every row) but not across runs. What IS stable across both
-  runs is the part the stack is for: **clearance 0 and sponsorship 0 false
-  disqualifications**. Everything that wobbles is one marginal soft-degree-bar row of the
-  ceiling class, so read the gate's degree residual as "2-3, all soft-bar misreads"
-  rather than as an exact number to diff against.
-  **The §7 pre-merge review found two blockers, both fixed on the branch before merge**
-  (2026-07-28) — and both were paths where a *screen* failure DISCARDED a real job, the
-  direction this whole stack exists to close. (1) On a provider error the new
-  "authorization always records a verdict" block ran the `NO_SPONSOR_PHRASES` floor over
-  the whole description, so an Ollama outage terminally discarded the very IMC shape
-  retrieve-then-classify was built to keep — a regression against `main`, which kept it.
-  (2) `sponsorship_labels: []` is schema-legal and a plausible 4B answer, but `[]` is
-  falsy, so a bad count with an empty array was read as *silence* and fell to the same
-  floor. **The lesson is about the tests, not the code:** the existing case that
-  parametrizes `[]` passed only because its JD carried no floor phrase, so the assertion
-  never reached the branch it was named for. Both fixes are now pinned by tests that were
-  confirmed RED against the unfixed code.
-  **The lesson that generalizes past this stack:** the gate caught a live defect on its
-  first run *and* three design errors inside item 3 that every branch's own green suite
-  had missed — including one where merging adjacent snippets made an IMC paragraph that
-  both refuses and offers sponsorship come back `refuses`. Two predictions written in this
-  file before the build were wrong (see the sponsorship entry). A prompt-facing change
-  without a measurement is a guess, however carefully argued.
-
-- **Autoheal redo — `fix/autoheal-redo`, IN FLIGHT** `[INFRA · claimed 2026-07-28]`,
-  replacing PR #19. **The plan for this item asserted three things; the pre-merge review
-  disproved two of them and I reproduced both.** Recorded in full because each was
-  confidently believed and each was wrong.
-  1. **"A bind mount re-resolves at every container START, not at creation" — FALSE on
-     this host.** Docker Desktop/WSL2 pins the source through a create-time hashed path
-     under `/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/`. Measured with a
-     directory bind shaped like `./db`: swap the source dir on the host, `docker restart`
-     -> still the OLD contents; a freshly *created* container on the same path -> the new
-     ones. So restart re-uses the pinned source. (Probably true on native Linux Docker,
-     which mounts at start — which is likely where the belief came from. Do not
-     generalize it.) The earlier `10/10 NOT-A-SOCKET` measurement this was supposed to
-     overturn was, on this platform, right.
-     **Consequence for SPEC §6:** "autoheal's restart of `ats-web` cures the stale mount"
-     is *reasonable but unproven*, not established — a stale VIEW of the same inode is a
-     different failure from a REPLACED inode, and only the second is disproven. SPEC now
-     says so, and points the operator at `--force-recreate`.
-  2. **"A live sidecar whose socket died reads `Up (healthy)` forever" — FALSE.** The
-     image's `/docker-entrypoint` runs under `set -e -o pipefail`, so a failed Docker API
-     call exits the script. Measured against a relay socket killed under a live **stock**
-     sidecar: `Exited (7)`, and `restart: unless-stopped` climbed to 8 restarts unaided.
-     The state the watchdog was designed to fix does not exist.
-  3. **"No compose mechanism acts on `unhealthy`" — TRUE, and it stands.** `restart:`
-     fires on container exit only; `depends_on: service_healthy` is a startup gate that
-     would be actively harmful here. A healthcheck reports; it cannot repair.
-  **THE WATCHDOG WAS BUILT, DRILLED, AND REMOVED.** Its own drill passed — bogus socket
-  path -> exit 1, restarted 7x in 8s; real socket -> running, RestartCount 0, healthy. The
-  drill was simply too narrow: it never asked what happens when the *child* dies. As PID 1
-  the wrapper survives its child, so killing the autoheal loop inside a wrapped container
-  left it `Up (healthy)`, `RestartCount 0`, with no autoheal running — **indefinitely**.
-  That is the exact deception this item exists to remove, reintroduced in a new place, in
-  exchange for fixing a state that does not occur. It also swallowed SIGTERM (a trapless
-  `sh -c` as PID 1 gets no default disposition), turning every `docker stop` into a
-  SIGKILL after the full timeout.
-  **The lesson, and it is the same one the screen stack taught:** a drill that only
-  exercises the failure you designed for is not evidence that the design is safe. Ask what
-  the change makes newly possible, not just whether it does what you meant.
-  **What ships instead — items 1 and 3 only, exactly as the plan's fallback directs.**
-  A socket-ping healthcheck replacing `pgrep -f autoheal` (which cannot fail while the
-  container runs: `Cmd=["autoheal"]` puts that string in its own argv, so the check
-  matches itself — zero signal; measured in one dead-socket container as socket-ping
-  `unhealthy` vs `pgrep` healthy), and `make health` (invoked by `up`) polling both
-  containers, treating `NO-HEALTHCHECK` as failure and waiting out web's 40s
-  `start_period` — a fixed sleep reads `starting`, the same defect PR #19 shipped as
-  `status=running` at t=0.
-  **Known limits of what shipped, all measured:** `/_ping` is answered by dockerd's HTTP
-  router before any containerd work, so a daemon wedged on container *operations* still
-  pings OK and reads healthy. Nothing detects a sidecar whose loop died without exiting —
-  the stock image makes that unlikely (`set -e`) but not impossible. `make health` checks
-  a RestartCount delta, which catches a container flapping *before* it first reads
-  healthy, but one that comes up healthy and only then crash-loops is passed — dwelling
-  long enough to catch it would slow every `make up`. And `restart: unless-stopped` on the
-  sidecar buys visibility, not repair: a restart re-uses the create-time-pinned bind
-  source, so `docker compose up -d --force-recreate autoheal` is the actual cure.
-  **Recorded, unverified, not in scope:** long-syntax `create_host_path: false` on the
-  socket bind — the only compose knob touching bind resolution; it would make a poisoned
-  host path fail the start instead of being mkdir'd. Untested here (legacy `Binds` path).
-- **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
-  | PR | branch | state |
-  |---|---|---|
-  | [#19](https://github.com/drink970082/job-matchbook/pull/19) | `fix/autoheal-socket-gap` | **redo** — see above. |
-  | [#21](https://github.com/drink970082/job-matchbook/pull/21) | `feat/custom-html-mode` | **ships dead as documented** — see the `custom html` entry under Enhancements. |
-  **Do not merge 19/21 on a green suite** — in both cases the suite is green and the
-  change is still wrong. Both were *premise* failures, not coding errors. (#22 and #23
-  were closed unmerged 2026-07-28 when the screen stack landed as #24.)
+- **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
+  reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
+  Enhancements). Do not merge it on a green suite: the suite is green and the change is
+  still wrong — a premise failure, not a coding error. #19 closed unmerged 2026-07-28
+  behind the autoheal redo (#27); #22 and #23 closed the same day behind the screen
+  stack (#24).
 
 - **Scoring the `new` backlog at scale — deferred, operator's call** `[SCORE · S ·
   quota-bound]`. **3,959 rows `new`** as of 2026-07-28. Measured per-row cost is **~0.4
@@ -262,14 +157,13 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: merge the screen-evidence stack, then recover the rows it un-breaks.**
-> The 2026-07-27 queue (clearance guard → golden set → sponsorship rewrite) is **done** —
-> three branches landed 2026-07-28, all unmerged, gate 11 → 2. See [In flight](#in-flight).
+> **NEXT STEP: recover the wrongly-discarded rows, then give `run_feed` the pre-filter.**
+> **Items 1 and 4 are DONE and removed** (2026-07-28): the screen stack merged as #24 and
+> the autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
+> (#25) and the systemd unit (#26). The surviving items keep their original numbers — 2, 3
+> and 5 — because other entries in this file cite them by number. **Item 5 is the one that
+> comes first in real urgency;** it is numbered last only to keep those citations valid.
 >
-> 1. **Merge the stack — `[XS]`, and nothing below is worth doing first.** One PR from the
->    tip branch `feat/sponsorship-retrieve-classify`, squash-merged; it already carries all
->    nine commits linearly. The longer they sit, the more `main` drifts under them. Re-run
->    `make eval-screen` after the merge lands — it is the only check that spans all three.
 > 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
 >    the operator.** The dry run is done and free, so this is now a decision rather than a
 >    discovery. After the stack merges:
@@ -302,17 +196,18 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 4. **Redo the autoheal fix — `[INFRA · S]`, in flight** on `fix/autoheal-redo`; #19
->    closes unmerged behind it. Ships a socket-ping healthcheck and `make health`. The
->    planned entrypoint watchdog was built, drilled and **removed** — see
->    [In flight](#in-flight) for that and for the two planned premises that measured false.
-> 5. **Decide the `run_feed` pre-filter — `[FETCH · S]`, and it comes BEFORE 3 and 4.**
->    Numbered last only to keep items 2/3 addressable by the entries that cite them. The
->    Simplify feed was enabled 2026-07-28 for live testing, and `run_feed` never calls
->    `prefilter_postings` — so `title_filter`, `title_exclude` and `max_age_days: 30` apply
->    to **zero** feed-discovered rows. Pick (a)/(b)/(c) from the entry under
->    [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
->    before the first unattended pass, or the feed ingests unfiltered at 6 passes/day.
+> 5. **Give `run_feed` the fetch-time pre-filter — `[FETCH · S]`, DECIDED (a) 2026-07-28,
+>    not yet built, and it comes BEFORE 2 and 3.** Numbered last only to keep items 2/3
+>    addressable by the entries that cite them. The Simplify feed was enabled 2026-07-28 for
+>    live testing and `run_feed` never calls `prefilter_postings`, so `title_filter`,
+>    `title_exclude` and `max_age_days: 30` apply to **zero** feed-discovered rows.
+>    **Measured against the live feed, not argued:** 17,659 listings → 2,013 survive the
+>    feed's own gate → **59% of those (1,193) are rejected by at least one of the three
+>    operator filters**, leaving 820. The split is 1,049 stale (>30d — the feed carries
+>    `active: true` listings months old) and 302 title rejects. At 6 passes/day each of the
+>    1,193 costs a URL resolve, a board detail fetch and a screen call. Build option (a):
+>    thread `cfg` through and call the same `prefilter_postings` `run_fetch` uses, as one
+>    shared ingest tail so the two paths cannot drift apart again.
 >
 > **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
@@ -483,6 +378,31 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
   principles still needs the measurement.
 
+- **The location gate's corroboration rule keeps 16% of what it used to discard — a
+  DELIBERATE trade, priced for the first time** — `[SCREEN · S · measured 2026-07-28 ·
+  no decision made]`. `resolve_location`'s clause (F) requires **two agreeing resolved
+  tokens** before discarding, so a lone resolved token beside an unresolved one keeps
+  (`location.py:130-137`). That rule is what fixed `London, ON` — `ON` is unresolvable, and
+  `London` alone was discarding Canadian postings under a UK reason — and it should stay.
+  **What was never counted is its price.** Re-running all 3,066 location discards through
+  current code: **493 (16%) would now be KEPT**. Of those, **364 name a country outright** —
+  `Bangalore, India` (x93), `Fab 10N/X, Singapore` (x74), `Jalisco, Mexico`, `Krakow,
+  Poland`, `Caesarea, Israel` — kept only because the sibling token is an old city name, a
+  fab code or a Mexican state. The other 129 are genuinely ambiguous (city or facility code
+  only) and keep correctly.
+  **Why the price changed under it:** the docstring prices this as *"one wasted fit call
+  versus losing a live match"*, written when passes were manual and the feed was off. At
+  `schedule_hours: 4` with Simplify enabled (both 2026-07-28) each one is a paid fit call,
+  six times a day.
+  **The narrow fix, if it is ever wanted:** a literal country name is self-corroborating in
+  a way a city name is not — `London` is ambiguous between GB and Ontario, `India` is not.
+  Requiring corroboration only for *city*-resolved tokens would recover the 364 and leave
+  the `London, ON` case untouched (it carries no country token at all). ~5 lines in clause
+  (E)/(F) plus tests.
+  **Not decided.** Err-toward-keep is the standing policy (PRINCIPLES) and losing a live
+  match is worse than a wasted call; this entry exists so the trade is no longer unpriced,
+  not to argue for reversing it.
+
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
   prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
@@ -566,10 +486,11 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   economic point of screening first. Routing buys each one a paid fit call.
 
 - **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
-  2026-07-23 · LIVE since 2026-07-28 · decision pending]`. **Was dormant, now is not:**
-  the live `config.yaml` carried no `feeds:` key at all until 2026-07-28, so `feeds` parsed
-  empty, `run_feed` never ran, and `feed_unresolved` held **0 rows**. Simplify is enabled as
-  of 2026-07-28 for live testing, so this gap now applies to every pass — see queue item 5.
+  2026-07-23 · LIVE since 2026-07-28 · DECIDED (a) 2026-07-28, not yet built]`. **Was
+  dormant, now is not:** the live `config.yaml` carried no `feeds:` key at all until
+  2026-07-28, so `feeds` parsed empty, `run_feed` never ran, and `feed_unresolved` held
+  **0 rows**. Simplify is enabled as of 2026-07-28 for live testing, so this gap now applies
+  to every pass — see queue item 5.
   `run_fetch` runs `prefilter_postings` (title
   keep-list, `title_exclude`, `max_age_days`) over everything it fetches;
   `run_feed` never calls it — the function isn't in its signature, and resolved
@@ -578,12 +499,29 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   feed-discovered posting**; the feed's own gate covers only `active` / `category` /
   `sponsorship`. The *deterministic candidate* gate being feed-late is deliberate and
   documented (SPEC §7.1 — `screen_posting` re-runs it one stage later); this one is
-  not, and `max_age_days` in particular reads as a global freshness rule. **Decide
-  which:** (a) the feed inherits all three (thread `cfg` through, ~10 lines), (b) it
-  inherits `max_age_days` only, since a new-grad feed's categories already do the
-  title work, or (c) it stays exempt and SPEC §7.1 says so out loud. Cheapest honest
-  fix is to give both paths one shared ingest tail (validate → record-unresolved →
-  stamp slug → upsert) so the question can't be silently answered again.
+  not, and `max_age_days` in particular reads as a global freshness rule.
+  **Decided (a): the feed inherits all three**, as one shared ingest tail (validate →
+  record-unresolved → stamp slug → upsert) so the question can't be silently answered
+  again. (b) `max_age_days`-only and (c) stay-exempt were rejected on a live measurement of
+  the feed, taken 2026-07-28 before any code was written:
+
+  | stage | listings |
+  |---|---|
+  | fetched | 17,659 |
+  | after the feed's own gate (`active` + category + `sponsorship`) | 2,013 |
+  | of those, stale (`date_posted` > `max_age_days: 30`) | 1,049 |
+  | of those, rejected by `title_filter` / `title_exclude` | 302 |
+  | **rejected by at least one of the three** | **1,193 (59%)** |
+  | survive all three | 820 |
+
+  So the majority of what the feed ingests is material the operator's own config already
+  refuses, and each one costs a URL resolve, a board detail fetch and a screen call, six
+  times a day. (b) would capture 1,049 of the 1,193 — most of the win — but leaves the title
+  rules split across two ingest paths, which is the drift this entry exists to prevent.
+  **The stale half is the surprise:** the feed marks listings `active: true` for months
+  (sampled one posted 2025-12-01), so `max_age_days` does more work here than the title
+  rules do. Anyone re-deriving this should re-measure rather than trust the counts — they
+  are one snapshot of a feed that changes daily.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
@@ -784,6 +722,32 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   fetch isn't enough.
 
 #### Architecture / maintainability
+
+- **An autoheal entrypoint watchdog — BUILT, DRILLED, and REJECTED 2026-07-28 · do not
+  re-derive.** The idea (a `sh -c` wrapper that pings the socket in a loop and exits when it
+  dies, so `restart:` fires) was in the approved plan and its own drill **passed**: bogus
+  socket path -> exit 1, restarted 7x in 8s; real socket -> healthy, `RestartCount 0`.
+  Two further measurements killed it anyway.
+  1. **The state it fixes does not occur.** The stock image's `/docker-entrypoint` runs
+     under `set -e -o pipefail`, so a failed Docker API call exits the script. Measured
+     against a relay socket killed under a live **stock** sidecar: `Exited (7)`, and
+     `restart: unless-stopped` climbed to 8 restarts unaided.
+  2. **It reintroduces the deception it was meant to remove.** As PID 1 the wrapper
+     survives its child, so killing the autoheal loop inside a wrapped container left it
+     `Up (healthy)`, `RestartCount 0`, no autoheal running — indefinitely. It also
+     swallowed SIGTERM (a trapless `sh -c` as PID 1 gets no default disposition), turning
+     every `docker stop` into a SIGKILL after the full timeout.
+  **The lesson, and it is the same one the screen stack taught:** a drill that only
+  exercises the failure you designed for is not evidence the design is safe. Ask what the
+  change makes newly possible, not just whether it does what you meant.
+  **What shipped instead** (#27, SPEC §6 + CHANGELOG): the socket-ping healthcheck and
+  `make health`. Its known limits are recorded in SPEC §6 — `/_ping` is answered before any
+  containerd work so a daemon wedged on container *operations* still reads healthy; nothing
+  detects a sidecar whose loop died without exiting; and `make health`'s RestartCount delta
+  catches a container flapping *before* first-healthy but not one that crash-loops after.
+  **Recorded, unverified, not in scope:** long-syntax `create_host_path: false` on the
+  socket bind — the only compose knob touching bind resolution; it would make a poisoned
+  host path fail the start instead of being mkdir'd. Untested here (legacy `Binds` path).
 
 - **Fetch capability registry (`AdapterSpec`) — evaluated and rejected 2026-07-23 ·
   do not re-derive.** The proposal was to replace the four collections in
