@@ -15,6 +15,12 @@ privacy guards). **"Hardened"
 means test/CI hardening, not security hardening** — accepted residuals are documented
 in SPEC §11 + `SECURITY.md`; genuinely open items are below.
 
+**Since then, the work has been accuracy rather than features.** The screen's three
+hard-requirement checks were each acting on a model verdict with no evidence behind it;
+`make eval-screen` now measures that and gates the prompt, and the false-disqualification
+count over 81 labeled live rows went **11 → 2**. Seven branches are landed and unmerged —
+merging them is the top of the queue.
+
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
 
@@ -22,159 +28,163 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **The seven-PR stack is MERGED to `main` — 2026-07-26. Nothing is in flight on it.**
-  `main` integration + #7 → #10 → #11 → #12 → #13 → #14 → #15, squash-merged in order,
-  CI green on `main` and the full gate re-run there (worker 665 / coverage 93.70%; web
-  199; integration 63; e2e 4; schema + privacy clean). Details in CHANGELOG; what the
-  integration *found* is worth carrying forward:
-  - **`pipeline.run_score` was never the semantic conflict it was recorded as** — the
-    thin-JD gate was already inside the concurrent loop, added independently on both
-    sides. The paid-scoring path is unchanged.
-  - **`_recipe.apply_css_fields` was one**, resolved on namespace: `{field}` templates
-    interpolate the recipe's **own `fields` map**, so a url-only helper field works and
-    `{job_title}`/`{company_name}` do **not** exist. SPEC §7 says so.
-  - **A guard fired on main's code that main had never run** — `test_no_source_specific_logic`
-    caught PR #9's `if c["source"] == "workday"`. Fixed by data
-    (`fetch.STUB_GATE_NOW_SOURCES`), not an allowlist entry.
-  - **Squash-merge is the only method this repo allows**, so every PR after the first
-    needed a `git merge origin/main` + take-HEAD resolution. Content was identical each
-    time; the check that matters is grepping for BOTH sides' distinguishing symbols
-    afterward, not a green suite.
-  - **Two defects reached `main`-bound branches and were caught by the §7 review, not by
-    tests:** an open item deleted by taking one side of `PROGRESS.md` wholesale, and a
-    duplicated CHANGELOG entry. Resolving a delta-only doc by "take ours" drops the other
-    side's open items — the mirror of the reintroduction hazard, and it is not tested.
-- **`ats-autoheal` was dead for 3 days (Exited 127) — FIXED 2026-07-26 by recreating the
-  container.** Root cause is worth keeping: `willfarrell/autoheal`'s entrypoint dispatches
-  on `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`. There is **no `autoheal` binary
-  in the image** — the loop is inline in `/docker-entrypoint`. So when
-  `/var/run/docker.sock` is momentarily absent (a Docker Desktop restart), the `else`
-  branch runs `exec "$@"`, which tries to exec a command that does not exist and exits
-  **127** — and `restart: unless-stopped` did not bring it back. **Consequence while it
-  was down: nothing auto-recovered `ats-web` from the WSL2 stale-bind-mount failure**,
-  which is the sidecar's entire job (SPEC §6). **Open, small** (`[INFRA · XS]`): the
-  sidecar fails permanently on a transient socket gap. A `depends_on`/socket-wait, or
-  simply checking it is `Up` as part of any deploy check, would close it. Verify with
-  `docker ps --filter name=ats-autoheal` — it must read `Up`, not `Exited`.
-- **Scoring the `new` backlog at scale — deferred, operator's call** (`[SCORE · S ·
-  quota-bound]`). **3,965 rows still `new`** as of 2026-07-26. A 20-row bounded pass ran
-  that day on merged `main` and confirmed the pipeline works end-to-end: 12
-  screen-disqualified (free, local), 8 fit-scored on `codex/gpt-5.6-sol` with provenance
-  stamped, 0 notified, **8 Codex messages spent**. So the per-row cost is ~0.4 paid
-  messages (the free screen discards ~60%), and the whole backlog is on the order of
+- **The screen-evidence stack — three branches, LANDED and UNMERGED, landing as ONE PR**
+  `[SCREEN · claimed 2026-07-28]`. One unit of work per branch, each stacked on the one
+  above, all on top of `docs/record-review-findings` (unmerged itself), so the tip branch
+  `feat/sponsorship-retrieve-classify` already contains all nine commits linearly on `main`.
+  **There is no `feat/screen-eval-gate` branch** — the eval-gate commit `53498c1` rides on
+  `fix/clearance-evidence-floor`, one commit above the clearance fix.
+  | branch | what | measured |
+  |---|---|---|
+  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title; then `make eval-screen`, 83-row corpus, SPEC §13 | clearance false discards **20/24 → 0** (but see the eval-reach entry under Unverified: no corpus row can fail this half, so it is the floor measuring itself); the gate found the degree defect on run one |
+  | `fix/degree-lower-bound` | `degree_levels` + `degree_required`, CODE takes `min` | degree **9 → 3**, recall 27/37 → **28/37** |
+  | `feat/sponsorship-retrieve-classify` | CODE retrieves, MODEL labels, CODE decides | sponsorship **2 → 0** |
+  **Merge shape: one PR from the tip, squash-merged** (operator decision 2026-07-28). The
+  repo is squash-merge only (`allow_rebase_merge: false`), so four bottom-up PRs would cost
+  three rebases and three force-pushes for content `main` would end up holding anyway.
+  #22 and #23 close unmerged behind it — #23's 2 commits are contained (note
+  `docs/record-review-findings` also has 1 unpushed commit, so #23 is incomplete as it
+  stands), #22 is superseded by `a8eda24`.
+  **Gate now: 11 → 2-3 false disqualifications** over 81 gate-eligible rows. The stable
+  pair is one Cubist JD shape counted twice (ids 67/68) — the documented 4B ceiling under
+  Defects, not an open defect. 696 worker tests, coverage 93.88%, privacy + schema guards
+  clean.
+  **The residual COUNT is not run-to-run stable, and a re-run showing 3 is not a
+  regression.** Two back-to-back runs on 2026-07-28 gave 3 (67/68 + id 672, *"advanced
+  degree … preferably a Ph.D."*) and then 2 (67/68 alone), same code, same corpus. The
+  screen calls Ollama at `temperature: 0, seed: 0`, so this is GPU/runtime
+  nondeterminism, not sampling — determinism holds *within* a run (`flip: 0` both times,
+  all three draws agreeing on every row) but not across runs. What IS stable across both
+  runs is the part the stack is for: **clearance 0 and sponsorship 0 false
+  disqualifications**. Everything that wobbles is one marginal soft-degree-bar row of the
+  ceiling class, so read the gate's degree residual as "2-3, all soft-bar misreads"
+  rather than as an exact number to diff against.
+  **The §7 pre-merge review found two blockers, both fixed on the branch before merge**
+  (2026-07-28) — and both were paths where a *screen* failure DISCARDED a real job, the
+  direction this whole stack exists to close. (1) On a provider error the new
+  "authorization always records a verdict" block ran the `NO_SPONSOR_PHRASES` floor over
+  the whole description, so an Ollama outage terminally discarded the very IMC shape
+  retrieve-then-classify was built to keep — a regression against `main`, which kept it.
+  (2) `sponsorship_labels: []` is schema-legal and a plausible 4B answer, but `[]` is
+  falsy, so a bad count with an empty array was read as *silence* and fell to the same
+  floor. **The lesson is about the tests, not the code:** the existing case that
+  parametrizes `[]` passed only because its JD carried no floor phrase, so the assertion
+  never reached the branch it was named for. Both fixes are now pinned by tests that were
+  confirmed RED against the unfixed code.
+  **The lesson that generalizes past this stack:** the gate caught a live defect on its
+  first run *and* three design errors inside item 3 that every branch's own green suite
+  had missed — including one where merging adjacent snippets made an IMC paragraph that
+  both refuses and offers sponsorship come back `refuses`. Two predictions written in this
+  file before the build were wrong (see the sponsorship entry). A prompt-facing change
+  without a measurement is a guess, however carefully argued.
+
+- **`ats-autoheal`'s socket-gap fix does NOT work — PR #19 needs a redo**
+  `[INFRA · S · reopened 2026-07-26]`. Two claims in the original entry were tested and
+  are false:
+  1. **"`restart: unless-stopped` did not bring it back."** It does —
+     `docker run -d --restart unless-stopped alpine sh -c 'exit 127'` reaches
+     `state=restarting exit=127 restarts=7` within 12s and keeps climbing. Exit 127 is
+     retried unboundedly, so that was never why the container stayed dead.
+  2. **Polling for the socket from inside the container cannot work.** A bind mount is
+     resolved at container *creation*: with a host path that does not exist Docker creates
+     a **directory** there, and creating a real socket at that path later never changes
+     the container's view — measured 10/10 `NOT-A-SOCKET` after the socket appeared. So
+     PR #19's 30s wait delays the identical exit 127 by 30s and changes nothing.
+  **Worse, it hides the failure.** A socket-less sidecar now flaps every 30s and reads
+  `Up (healthy)` for ~80% of each cycle, because the image's healthcheck is
+  `pgrep -f autoheal` and the *waiting shell* has "autoheal" in its argv. The `make up`
+  guard added in the same PR checks `status=running` at t≈0, inside the wait window, so it
+  passes too. The old `Exited (127)` is how the 3-day outage was noticed at all — a net
+  loss of detectability.
+  **The mechanism, still true:** `willfarrell/autoheal`'s entrypoint dispatches on
+  `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]` and there is **no `autoheal` binary
+  in the image** (the loop is inline in `/docker-entrypoint`), so a missing socket takes
+  the `else` branch, `exec`s a command that does not exist, and exits **127**. While it is
+  down nothing auto-recovers `ats-web` from the WSL2 stale-bind-mount failure — the
+  sidecar's entire job (SPEC §6).
+  **Real cause, suspected:** host `/var/run/docker.sock` mtime is 2026-07-23 11:34, the
+  daemon's last restart, matching the death date. The daemon-restart / VM-resume path
+  cannot be addressed from inside the container.
+  **Direction for the redo:** give the sidecar a compose `healthcheck:` that pings the
+  socket (`curl -s --unix-socket "$$DOCKER_SOCK" http://localhost/_ping`) instead of
+  `pgrep`, so a broken sidecar goes *unhealthy* and the restart policy recreates the
+  container — the only action that can re-establish the mount. Make `make up` assert
+  *health* after a settle, not `running` at t=0. Keep the deploy-time check; drop the
+  poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
+  `Exited`.
+
+- **The pass lockfile — `feat/pass-lockfile`, PR #20, IN FLIGHT** `[ORCH · claimed
+  2026-07-28]`. Reviewed mergeable 2026-07-26; the 2 defects that review found (a raw
+  `OSError` from `os.open` killing the daemon, and `ENOLCK` reported as contention, which
+  would refuse every pass forever) are fixed on the branch. `main` is merged in — the
+  screen stack rewrote all three doc files under it — and the scheduled-skip `print` is
+  now a `logging.WARNING`, so it lands on the same timestamped stream as APScheduler's
+  misfire and max-instances warnings.
+
+- **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
+  | PR | branch | state |
+  |---|---|---|
+  | [#19](https://github.com/drink970082/job-matchbook/pull/19) | `fix/autoheal-socket-gap` | **redo** — see above. |
+  | [#21](https://github.com/drink970082/job-matchbook/pull/21) | `feat/custom-html-mode` | **ships dead as documented** — see the `custom html` entry under Enhancements. |
+  **Do not merge 19/21 on a green suite** — in both cases the suite is green and the
+  change is still wrong. Both were *premise* failures, not coding errors. (#22 and #23
+  were closed unmerged 2026-07-28 when the screen stack landed as #24.)
+
+- **Scoring the `new` backlog at scale — deferred, operator's call** `[SCORE · S ·
+  quota-bound]`. **3,959 rows `new`** as of 2026-07-28. Measured per-row cost is **~0.4
+  paid messages** (the free screen discards ~60%), so the whole backlog is on the order of
   **~1,600 messages** — most of a weekly budget, which is why it is not run casually.
-  **The silence is FIXED (2026-07-26)** — `run_score` now always ends with
-  `[score] N row(s): … screen-discarded, … thin-JD (no fit call), … fit-scored, …
-  failed, … left 'new'` (CHANGELOG). `left 'new'` is the one to read on a short pass: a
-  breaker abort reports as partial instead of as a smaller pass that went fine.
-  **Still open, not blocking:** rows are taken oldest-first, so a bounded pass scores
-  **one board at a time** (all 20 on 2026-07-26 were Microsoft). Fine for a smoke test,
-  misleading as a sample of the queue.
   Run it with `--score-only --score-limit N` from `apps/worker`
-  (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the runbook's phases 1-2 carry
-  the quota math and monitoring cadence.
-- **Run the pipeline as a daemon — target cadence chosen 2026-07-23: 4 passes/day at
-  00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`; 6/day at `4` is the fallback
-  if intake looks thin). Passes are still run by hand. The blocking precondition has
-  now landed; one thing about the schedule is still not expressible today.
-  **Precondition MET (2026-07-24) — the two circuit breakers shipped.** The concern was
-  that `RETRY_MAX_ATTEMPTS = 3` counts passes, not time, so raising the cadence shrank
-  the tolerance window by the same factor (3 strikes is 3 days at `schedule_hours: 24`,
-  **18 hours at 6**, 12 at 4) — and a systemic outage (dead fit backend; dead notify
-  channel) would march the matched queue to `attempts >= 3` and lose it unrecoverably
-  within a morning. Both now **circuit-break** instead: an outage aborts its stage
-  spending no budget and leaves the rows recoverable (SPEC §9, CHANGELOG). So the
-  cadence can go up without the "a morning out and the queue is gone" failure mode. The
-  underlying pass-counted (not wall-clock) retry budget is unchanged, but it is no
-  longer the sharp edge — a genuine outage no longer touches it.
-  **Not expressible today — the schedule is an interval, not a clock.** `run.main`
-  does `scheduler.add_job(once, "interval", hours=cfg.schedule_hours)` and calls
-  `once()` before `start()`, so passes fire at *launch time + 6h + 12h…*: start the
-  worker at 09:47 and they land at 09:47/15:47/21:47/03:47, never at midnight. Wall-clock
-  alignment needs a **cron** trigger (`add_job(once, "cron", hour="0,6,12,18")`), which
-  is a handful of lines but a config-shape question (an `hours:` list vs an interval
-  int). Also note the eager `once()` means every restart costs an immediate full pass.
-  **Cheap guard — SHIPPED 2026-07-24.** `schedule_hours` was coerced by `_int_field`
-  with no lower bound, and APScheduler's `IntervalTrigger` falls back to *1 second* when
-  every interval component is zero — so `schedule_hours: 0` meant a hot loop over 172
-  boards. `load_config` now raises `ConfigError` for anything `< 1` (SPEC config section,
-  CHANGELOG; `test_rejects_non_positive_schedule_hours`). The wall-clock-vs-interval and
-  eager-`once()` points above are unaffected and still open.
-  **What does NOT get more expensive:** the paid scorer. `upsert_postings` is
-  `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so a second pass
-  over an unchanged board inserts nothing and scores nothing — quota is a function of
-  *newly discovered postings*, not of pass count. What multiplies is fetch: 4x the
+  (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the
+  [runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2 carry the
+  quota math and monitoring cadence.
+  **Selector for the pre-2026-07-24 backlog:** rows scored before scorer provenance
+  landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
+  out (SPEC §9).
+  **Still open, not blocking:** rows are taken `score DESC, id ASC`, so a bounded pass
+  scores **one board at a time**. Fine for a smoke test, misleading as a sample of the
+  queue.
+
+- **Run the pipeline as a daemon — cadence APPLIED 2026-07-28: 6 passes/day, a 4-hour
+  interval** (`schedule_hours: 4`, live `config.yaml`). Supersedes the 2026-07-23 choice of
+  4/day, which was decided but never written into the config — the file sat at `24` for
+  five days while this entry claimed `6`. Passes are still run by hand; the blocking
+  precondition (two circuit breakers) landed 2026-07-24. One thing is still not
+  expressible.
+  **The schedule is an interval, not a clock.** `run.main` does
+  `scheduler.add_job(once, "interval", hours=cfg.schedule_hours)` and calls `once()`
+  before `start()`, so passes fire at *launch time + 4h + 8h…*: start the worker at 09:47
+  and they land at 09:47/13:47/17:47…, never on the hour. Wall-clock alignment needs
+  a **cron** trigger (`add_job(once, "cron", hour="0,4,8,12,16,20")`) — a handful of lines,
+  but a config-shape question (an `hours:` list vs an interval int). The eager `once()` also
+  means every restart costs an immediate full pass.
+  **What does NOT get more expensive: the paid scorer.** `upsert_postings` is
+  `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
+  of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the
   board HTTP, workday detail calls, Simplify re-reads, `feed_unresolved` re-attempts and
   Chromium renders per day (`run_expire`'s 50/pass becoming 200/day is the one welcome
-  multiple). That reprices two open items — the missing 429 backoff (`phenom/qualcomm`
-  already 429s at **one** pass/day) and pruning permanently-dead `feed_unresolved` URLs
-  now being retried 4x daily.
-  **Overlap — CLOSED 2026-07-26** (branch `feat/pass-lockfile`; SPEC §7.1/§9 + CHANGELOG).
-  APScheduler's `max_instances=1` never let the scheduler overlap itself; the real
-  exposure was a hand-run pass landing inside a scheduled one, and `run.pass_lock` (a
-  non-blocking `flock`, stale-safe by construction) now refuses the second one outright.
-  The claim/lease shapes stay rejected (see
+  multiple). That reprices two open items below — the missing 429 backoff
+  (`phenom/qualcomm` already 429s at **one** pass/day) and pruning permanently-dead
+  `feed_unresolved` URLs now retried 6x daily. Both were dormant while the config sat at
+  24h and the feed was off; both are live as of 2026-07-28.
+  **Overlap — CLOSED 2026-07-28** (branch `feat/pass-lockfile`, PR #20; SPEC §7.1/§9 +
+  CHANGELOG). APScheduler's `max_instances=1` never let the scheduler overlap itself; the
+  real exposure was a hand-run pass landing inside a scheduled one, and `run.pass_lock`
+  (a non-blocking `flock`, stale-safe by construction) now refuses the second one
+  outright. The claim/lease shapes stay rejected (see
   [Architecture / maintainability](#architecture--maintainability)).
   **One residual, not blocking** (`[ORCH · XS]`): the lock is one fixed path per host, so
   two checkouts pointed at two different DBs on the same host would block each other.
   Correct for the quota argument (one Codex account, one DB) and `TMPDIR` is the escape
   hatch, but it is an assumption, not a guarantee.
-- **General-purpose pivot — Stage 2 done, Stage 3 deferred.** Broadening the product
-  from a quant/SWE niche to any field. Stage 2 shipped: configurable job categories, a
-  persona-neutral `personal_profile.txt.example`, and the guided `onboard-me` skill
-  (CHANGELOG). **Stage 3, non-tech discovery feeds — deferred:** the watchlist already
-  covers any company, so decide the need before building (brittle, anti-bot handling,
-  dilutes the moat).
-  **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
-  fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is
-  why every `score.txt` change is gated behind `score_eval` — including the additive
-  Stage 4 block now sitting unmerged (SPEC §7.1).
-- **Provider choice + universal onboarding — all 5 tracks done** (track 4 closed
-  2026-07-26). Design:
-  [notes](./superpowers/specs/2026-07-22-provider-choice-and-onboarding-notes.md) →
-  [design](./superpowers/specs/2026-07-23-screen-backends-and-sponsorship-design.md) →
-  [11-task plan](./superpowers/plans/2026-07-23-screen-backends-and-sponsorship.md).
-  It closed two premises that locked out every user but the author: the screen ran
-  *only* on host Ollama, and nothing installed worker deps, created the DB, or
-  reported what was missing. **Shipped 2026-07-23** — screen backends (track 1),
-  universality fixes (track 2), `onboard-me` Step 0 (track 3) and the sponsorship
-  rework (track 5), plus screen/fit concurrency: all on the branch above, all
-  documented in SPEC §7.1/§9/§11 + CHANGELOG.
-  **Track 4, agent portability — CLOSED 2026-07-26; the symlink half verified.**
-  `SKILL.md` is a cross-agent standard but the *paths* differ: Claude Code reads
-  `.claude/skills/`, Codex reads `.agents/skills/`, and the repo had no root `AGENTS.md`
-  (a Linux Foundation standard read by 30+ agents).
-  **Done and verifiable — `AGENTS.md`**, a real file carrying the same guidance as
-  `CLAUDE.md` minus the Claude-Code-specific conduct. It was briefly a symlink to
-  `CLAUDE.md`; the pre-merge review killed that, and correctly. A symlinked `AGENTS.md`
-  is served as its 9-byte target path over `raw.githubusercontent.com` (hitting every
-  platform, on a public repo) and degrades silently into a text file containing
-  `CLAUDE.md` on a Windows checkout without `core.symlinks` — an agent finds a file,
-  reads nine characters, and stops looking. That is strictly worse than shipping no
-  `AGENTS.md`. The cost is hand-syncing two files; the review's judgment stands over the
-  original design note's, which had also said "a thin root `AGENTS.md` **pointing at**
-  `CLAUDE.md`".
-  **VERIFIED 2026-07-26 — `.agents/skills` → `.claude/skills` works, and is
-  load-bearing.** The link direction is inverted from the plan (which wanted the skills
-  moved and `.claude/skills` symlinked): keeping `.claude/skills` real protects the
-  consumer that uses these skills every session and leaves `test_add_watched.py`'s path
-  resolution untouched. That inversion swapped the open question rather than settling it
-  — "does Codex follow a symlinked `.agents/skills`?" — and the guess recorded here was
-  **no** (most directory walkers don't follow symlinks: Rust `walkdir`/`ignore`, Python
-  `glob('**')`, Node `readdir({recursive:true})`). The guess was wrong.
-  **Method — three `git archive HEAD` checkouts, `codex exec --sandbox read-only` in
-  each, differing only in which directory exists:** with the symlink, all three skills
-  load (resolved to their real `.claude/skills/...` paths); with `.agents/` removed but
-  `.claude/skills/` intact, **none** load; with neither, none. So Codex follows the
-  symlink *and* never reads `.claude/skills` on its own — remove the link and a Codex
-  session silently loses every repo skill. `codex-cli 0.144.5`; other agents still
-  untested, and `AGENTS.md` says so.
-  **Do not ask the agent — read the rollout.** Asking Codex to list its skills gave
-  three mutually inconsistent answers across runs, and in the *neither* checkout it
-  confidently named all three: `AGENTS.md`'s own "Current skills:" line is in its
-  context, so the model recites it whether or not a skill loaded. The evidence is the
-  session rollout under `~/.codex/sessions/`, whose skills-registry block lists each
-  loaded skill as `- name: description (file: <abs path>)`.
+
+- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
+  categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
+  CHANGELOG). **Stage 3, non-tech discovery feeds:** the watchlist already covers any
+  company, so decide the need before building (brittle, anti-bot handling, dilutes the
+  moat).  **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
+  fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is why
+  every `score.txt` change is gated behind `score_eval` (SPEC §7.1).
 
 ---
 
@@ -187,20 +197,19 @@ nice-to-have), and within each bucket items run **easiest → hardest** with an 
 (multi-day / new dependency / architectural). Blocked items name their blocker.
 
 **Third axis — which part of the system.** Every entry's tag opens with a block name
-(`[FETCH · XS]`, `[SCREEN · M · MERGE BLOCKER]`), so the bucket ordering stays
-severity-first while a single `grep '\[FETCH' docs/PROGRESS.md` gives that block's
-whole queue. Eight blocks, matching the pipeline walkthrough:
+(`[FETCH · XS]`, `[SCREEN · S]`), so the bucket ordering stays severity-first while a
+single `grep '\[FETCH' docs/PROGRESS.md` gives that block's whole queue. Eight blocks,
+matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **no defects** (dead-provider breaker shipped 2026-07-24); the eval gap blocks most of the rest |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
-| `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — **no defects** (both shipped 2026-07-24); pass overlap closed 2026-07-26 |
-| `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
-| `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 3 |
-| `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 — the `.agents/skills` link is verified (2026-07-26) |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
+| `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards || `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
+| `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 4 |
+| `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 |
 
 The five *evaluated-and-rejected* records under
 [Architecture / maintainability](#architecture--maintainability) are named by block
@@ -208,215 +217,237 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: none.** Five instances of one policy error — a *systemic* condition
-handled as a per-item verdict — have now shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
-on 2026-07-24, and **SCREEN (1)** the same day, found while auditing the long-run
-runbook and the last block the sweep had never reached. The rule that names them lives
-in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty", shipped
-2026-07-23); every pipeline stage now obeys it (SPEC §9 + traceability rows).
+**Open defects: one, and it is a model ceiling rather than a coding error** — 3 rows where
+the 4B reads a soft degree bar as hard. Everything else found in the 2026-07-23 → 07-28
+sweep has shipped a fix (twelve in total; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
+
+**Fixing a check does not un-discard the rows it already killed.** ~46 rows sit in
+`discarded` on evidence the current code would not act on — that is queue item 2, measured
+and waiting on an operator decision.
 
 ### Do next — the pick order
 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: push the stack and merge the six PRs.** `[S]` The `main` integration that
-> blocked this is **DONE 2026-07-26** — `origin/main` is merged into
-> `feat/universality-and-onboarding` and propagated down all six branches by merge (not
-> by resolving six times). Every branch's suite is green on the merge result. What the
-> integration found, and how each conflict was resolved, is in
-> [In flight](#in-flight); the two headline corrections to what this callout used to say:
-> `pipeline.run_score` was **not** a semantic conflict (the thin-JD gate was already
-> inside the concurrent loop — both sides had added it independently), and `_recipe.py`
-> **was** one (resolved on namespace, in favour of the branch's recipe-field naming).
+> **NEXT STEP: merge the screen-evidence stack, then recover the rows it un-breaks.**
+> The 2026-07-27 queue (clearance guard → golden set → sponsorship rewrite) is **done** —
+> three branches landed 2026-07-28, all unmerged, gate 11 → 2. See [In flight](#in-flight).
 >
-> **Still to do:** push all six branches, let GitHub retarget #7's base to `main`, and
-> merge in stack order. The §7 pre-merge review applies to the merge resolution itself.
+> 1. **Merge the stack — `[XS]`, and nothing below is worth doing first.** One PR from the
+>    tip branch `feat/sponsorship-retrieve-classify`, squash-merged; it already carries all
+>    nine commits linearly. The longer they sit, the more `main` drifts under them. Re-run
+>    `make eval-screen` after the merge lands — it is the only check that spans all three.
+> 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
+>    the operator.** The dry run is done and free, so this is now a decision rather than a
+>    discovery. After the stack merges:
+>    ```
+>    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once \
+>        --rescreen-discarded --score-limit 736
+>    ```
+>    Re-screening the live DB read-only against the three fixes (free, local Ollama, no
+>    writes): of 213 hydrated discards whose reason names degree/clearance/authorization,
+>    **46 now keep** — **~46 Codex messages, ~2.3% of a weekly budget**. 20 Microsoft
+>    phantom-clearance rows, 6 degree, ~20 authorization.
+>    **Two of the authorization recoveries are postings that OFFER sponsorship and were
+>    being deleted** — Optiver 723 *"is supportive of US immigration sponsorship for this
+>    role"* and Bridgewater 34 *"we do provide immigration sponsorship for this position"*;
+>    `_OFFERS_SPONSORSHIP` never matched "do provide". One sampled recovery (IMC 529) is a
+>    genuine recall loss, already a known miss in the eval report.
+>    **`--score-limit 736` is not arbitrary:** under `db.get_by_status`'s
+>    `ORDER BY score DESC, id ASC` that window reaches every one of the 46 targets and
+>    contains **zero** of the 3,959-row pre-existing backlog, so the pass cannot wander
+>    into unrelated paid scoring.
+>    **The side effect to accept first:** `requeue_discarded` is unfiltered — it moves all
+>    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
+>    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code
+>    path that did not change). 186 un-hydrated stub discards are skipped by design.
+> 3. **Route a degree/clearance fail to the strong model — `[S]`, and it is the remedy for
+>    the last 3 gate failures.** Decided **route** on 2026-07-24 at ~30 rows; the entry
+>    under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+>    said the false-discard *rate* was unmeasured and that this made the decision cheap
+>    either way. **It is measured now — 83% for clearance, 24% for degree** — which does
+>    not change the decision, it removes the last reason to defer the build. A
+>    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
+>    residual 4B misreadings from deleted jobs into one paid fit call each.
+> 4. **Redo the autoheal fix — `[INFRA · S]`**, PR #19. Direction is written up in
+>    [In flight](#in-flight); the fix is a compose `healthcheck:` that pings the socket.
+> 5. **Decide the `run_feed` pre-filter — `[FETCH · S]`, and it comes BEFORE 3 and 4.**
+>    Numbered last only to keep items 2/3 addressable by the entries that cite them. The
+>    Simplify feed was enabled 2026-07-28 for live testing, and `run_feed` never calls
+>    `prefilter_postings` — so `title_filter`, `title_exclude` and `max_age_days: 30` apply
+>    to **zero** feed-discovered rows. Pick (a)/(b)/(c) from the entry under
+>    [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+>    before the first unattended pass, or the feed ingests unfiltered at 6 passes/day.
 >
-> The [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md)
-> phases 3 and 4 are **done** — run ad hoc rather than from the runbook, since by then
-> the only thing gated on its quota reserve was the fit-score eval itself. Its phase 1-2
-> (bounded fetch + scoring at scale) remain unrun and are still worth reading before any
-> large paid pass: quota math, monitoring cadence, and the authority boundary.
-
-**P0 — the first run against the 172-board watchlist.** The body-required guard shipped
-2026-07-22 (CHANGELOG), which was the blocker: every empty-list-endpoint board now
-yields nothing instead of poisoning the DB with permanent title-only rows.
-
-1. **Run the pipeline** — `[S · FETCH DONE 2026-07-22 (full, clean); scoring in bounded
-   batches]`. A `--fetch-only` pass (unbuffered log) completed cleanly (exit 0) over the
-   full 172-board watchlist with `enable_browser_sources: true` — the coverage question
-   is answered. Intake: **7,746 postings total, 4,035 `new`** across all **11** sources
-   (custom 1,411 · greenhouse 704 · browser 662 · workday 588 · phenom 238 · ashby 178 ·
-   icims 155 · smartrecruiters 69 · workable 18 · lever 11 · pinpoint 1). Only **one board
-   failed**: `phenom/careers.qualcomm.com` 429-rate-limited at deep pagination
-   (start=930), isolated, rest continued. **Body guard fired live and held:** dropped
-   citadelsecurities 7 · citadel 3 · **MSCI icims 43** (a *new* empty-JD board — see
-   below) — and **0** bodyless rows reached `new`. **Scoring** is now bounded, not blind:
-   `--score-limit N` caps the paid scorer and thin JDs (< 200 chars) skip it entirely
-   (CHANGELOG). First bounded batch (`--score-only --score-limit 50`) ran 2026-07-22:
-   50 rows → 9 screen-discarded, 41 fit-scored (**41 Codex messages, ~2% of the weekly
-   budget**; 0 thin-JD skips — these all had full JDs), **4 match/match → notified**
-   (Akuna x2, DRW, HRT — all on-target; DRW notified at score 58, confirming the
-   verdict, not the number, gates notify). **Left open:** ~3,985 rows still `new` —
-   scoring at scale is an operator call; the recipe-sourced scored path is still
-   unexercised (entry below); and `custom` is ~a third of the intake, a `title_filter`
-   tightening question rather than a fetch bug.
-
-**P1 — unblock the branch merge: DONE 2026-07-25, both gates PASSED.** PR #7 is
-mergeable. Both were phases 3 and 4 of the
-[long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) — run
-them from there, not ad hoc, so the quota reserve and the authority boundary hold.
-
-2. **Fit-score gate re-run — PASSED 2026-07-25, two consecutive runs.** It gated two
-   changes: the 2026-07-22 profile edit *and* plan Stage 4's `score.txt` block
-   (`66dfb65`). **Both now ship; no revert.** Verbatim, `gpt-5.6-sol`, K=3, 21 gate rows:
-
-   | run | agreement | hard | flip-rate | verdict |
-   |---|---|---|---|---|
-   | 1 | 20/21 (95%) | 10/10 | 14% | PASS |
-   | 2 | 20/21 (95%) | 10/10 | 5% | PASS |
-
-   Bar was >=85% agreement, 0 hard-invariant violations, <20% flip. `hard` counts
-   *notify-decision* violations, not verdict agreement — which is why row 186 can read
-   `✗ (hard)` while `hard` stays 10/10: its golden and measured verdicts both resolve
-   to "don't notify".
-   **The one disagreement is stable, not noise, and it points at the label.** Row 186
-   (`Software Engineer, Macro Quant Analytics`) is golden `too_junior/match` and the
-   model said `too_junior/mismatch` in 2 of 3 draws on run 1 and **3 of 3** on run 2. A
-   position that firm across two runs is the golden set being wrong more likely than the
-   model being wrong — the golden set is not frozen truth. Re-label it or leave it, but
-   do not read it as scorer drift.
-   **Before this could run at all, two shipped schema defects had to be fixed** — every
-   codex fit call was returning HTTP 400 (see the strict-mode entry in CHANGELOG). The
-   gate had never been runnable on the default backend.
-3. **Sponsorship precision/recall labeled set — DONE 2026-07-25, and it found a real
-   defect** (SPEC §7.1 table, CHANGELOG; worksheet + report in the gitignored
-   `db/runs/20260725-sponsor/`). 3,553 rows, 3,532 agree, 21 disagree, all 21
-   operator-labeled. The unmeasured misclassification residual turned out to be
-   **8 of 28 fires wrong** — and wrong in the expensive direction, silently discarding
-   good postings. `_quote_on_topic` (three vetoes — off-topic / wrong-polarity /
-   soft-preference — then a vocabulary) removes all 8 and zero true positives.
-   **Numbers are for the whole function**, `(grounded AND on topic) OR
-   NO_SPONSOR_PHRASES`, not the quote branch alone: retired phrase gate **81.8% / 45.0%**,
-   shipped `_check_authorization` **90.9% / 100%**. Quoting the quote branch on its own
-   (100% / 100%) would flatter it by hiding the ungated floor's fires — an earlier draft
-   of these docs did exactly that and published 87.0% for a function that measured 80.0%.
-   **Still open, small — the 2 residual false positives are the FLOOR, not the gate**
-   (`[SCREEN · XS]`): IMC ids 465/490, where `without sponsorship` appears inside an
-   invitation ("or are eligible to work without sponsorship, we encourage you to apply").
-   `NO_SPONSOR_PHRASES` matches a substring anywhere in the description with no sentence
-   and no relevance check. Closing it means running the gate's vetoes over the matched
-   sentence; deferred because the invitation shape needs a prose pattern that can itself
-   misfire, and 90.9% already beats the gate it replaced.
-
-**P2 — the last provider-choice track: track 4, agent portability — DONE 2026-07-26.**
-Codex was run against three `git archive` checkouts differing only in which skills
-directory exists: it discovers all three skills **through** the `.agents/skills`
-symlink and finds none of them without it. The link is load-bearing, not decorative.
-See [In flight](#in-flight) for the method and for why the agent's own answer is not
-the evidence.
+> **Also open, not queued:** #21 ships dead. The
+> [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
+> (bounded fetch + scoring at scale) remain unrun — read them before any large paid pass
+> for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
 
 **P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
-two `[S]` items that led this queue both shipped on `main` and closed in the
-integration: `browser` `{field}` templates (which unblock Balyasny / Jacobs Levy — the
-boards themselves are still an operator step) and the workday prose-date parser. The
-parser's *reduction* is not banked — it age-gates the remaining 6,703 detail calls only
-as far as `max_age_days` and board staleness allow, and how far that is has never been
-measured (see Unverified / deferred).
+workday prose-date parser shipped but its *reduction* is not banked — it age-gates the
+remaining 6,703 detail calls only as far as `max_age_days` and board staleness allow, and
+how far that is has never been measured (see Unverified / deferred).
 
 **P4 — everything else below.** SSRF residuals, the `@@unique` migration, schema
 migration path, deployment/monitoring, dead-link sweep, more adapters, README
 screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
-**Off-queue, shipped 2026-07-23:** `test_no_source_specific_logic` (CHANGELOG). It found
-one occurrence the earlier measurement missed — `"embedded_greenhouse"` in `pipeline.py`,
-a `classify_reason` fail-bucket label rather than adapter dispatch — now an explicit
-allowlist entry. If that reason vocabulary ever grows a second board-named member,
-**rename it source-free** (e.g. `slug_in_page_html`) rather than adding a second
-exception.
-
 ### Defects — shipped behavior that is wrong (should fix)
 
-**None open.** The one found here 2026-07-24 shipped its fix the same day:
+- **The 4B misreads a soft degree bar as a hard one — 2-3 rows, and it is a MODEL CEILING,
+  not a wording gap** — `[SCREEN · XS · residual of the 2026-07-28 degree fix]`.
+  The defect itself is fixed (9 of 38 discards were false; `degree_levels` +
+  `degree_required` with CODE taking `min(rank)` — CHANGELOG, SPEC §7.1). What survives:
+  ids 67/68 (*"DESIRABLE CANDIDATES: Ph.D. candidates"* — one JD shape, counted twice)
+  every run, plus in *some* runs a third soft-bar row — 738 (*"PhD or equivalent industry
+  experience"*) or 672 (*"advanced degree … preferably a Ph.D."*) — coming back
+  `degree_required: true`. **Do not diff the count**; it moved 3 → 2 between two
+  back-to-back runs on identical code (SPEC §7.1 has the reason).
+  **Do NOT spend a fifth prompt rewrite on it.** Four attempts are on record (two
+  rewordings reached 4 then 5 and stopped converging; the shape change plus a sharpened
+  clause reached 3 while *raising* recall). Probing the raw output settled why: the same
+  model **invents** a `master's` level on genuine sole-PhD roles, so it is unreliable in
+  both directions — a ceiling, not mis-instruction.
+  **The remedy is queue item 3**, `needs_confirmation` routing, which turns these from
+  deleted jobs into one paid fit call each.
 
-- **A dead SCREEN provider is silent, and every unscreened row goes to the PAID scorer**
-  — **FIXED 2026-07-24** (SPEC §9 + traceability, CHANGELOG). The verdict now carries
-  `provider_error`; `run_score` leaves such a row `new` instead of fit-scoring it
-  unscreened (a deterministic disqualification still stands), and a second
-  `_BackendBreaker` over the screen phase aborts on the outage signature. Original
-  report — `[SCREEN · S · found 2026-07-24 while auditing the long-run runbook]`:
-  `screen_posting` catches **any** provider exception and errs toward KEEP
-  (`score/screen.py`), printing one `[screen] provider error, keeping posting
-  unscreened` line per posting. That is the correct policy for *opportunity*
-  uncertainty — one flaky call must not discard a good posting. It is the **wrong**
-  policy for a *systemic* one: when Ollama is simply down (a WSL2 suspend does it), the
-  entire remaining backlog skips screening and is fit-scored blind, so the ~18% that
-  would have been discarded **for free** become **paid** calls and the hard-requirement
-  gate (sponsorship / degree / clearance / location) stops filtering at all. This is the
-  **fifth instance** of the policy error that PRINCIPLES' four-way table exists to name —
-  systemic configuration should **circuit break** — and the one block the 2026-07-23/24
-  sweep never reached: `run_score` builds a `_BackendBreaker` for the fit phase and
-  `run_notify` has one, but the screen loop above it has none.
-  **Not caught by any existing signal:** nothing is marked `failed`, so no failure ratio
-  moves; the only observable is that log line, or a quota burn above ~0.82 messages/row.
-  **Wanted:** the same `_BackendBreaker` shape already used twice — N consecutive
-  provider errors with zero successes aborts the screen phase and leaves the remainder
-  `new` (recoverable), rather than converting an outage into paid calls. Partial
-  insurance already exists on the unmerged branch (Stage 4's `merge_fallback_screen`
-  fills checks the screen produced no verdict for), but insurance is not a breaker.
-  **Blocks nothing, but it is live during the unattended long-run day** — the runbook
-  names the log string as a watch signal with a stop rule, which is a monitoring
-  workaround, not the fix.
+**Previously here, and closed.**
 
-**Previously closed here.** The seven found 2026-07-23 (probing `pipeline.run_score` / `run_notify`,
-`score/screen.py`, `score/location.py`) all shipped their fixes — three on 2026-07-23
-(blind-screen-check-as-pass, `London, ON`, `work_authorization`) and the final **four on
-2026-07-24**: the dead-fit-backend circuit breaker + singles-fallback guard (SCORE), the
-wrong-token / consecutive-failure notify circuit breaker (NOTIFY), the interruptible
-`as_completed` score run (ORCH), and the `notify_attempts` split from `attempts` (ORCH).
-All are in CHANGELOG, with the behavior contracts + invariant→test rows in SPEC §9. Every
-one was the same policy error — a *systemic* condition handled as a per-item verdict — now
-covered by PRINCIPLES "the four kinds of uncertainty" **and** by code that obeys it. The
-two circuit-breaker fixes were the standing precondition for raising the daemon cadence
-(see [In flight](#in-flight)); that precondition is now **met**.
+- **The clearance check fired on the word "security"** — 20 of 24 live discards false.
+  **FIXED 2026-07-28** (`fix/clearance-evidence-floor`): `_check_clearance` requires a
+  `CLEARANCE_TOKENS` match in the description **or** title before honouring
+  `requires_clearance: true`. Contract in SPEC §7.1, numbers and reasoning in CHANGELOG.
+  The ~20 rows it already killed are **still discarded** — queue item 2 recovers them.
+- **A dead SCREEN provider was silent, and every unscreened row went to the PAID scorer**
+  — **FIXED 2026-07-24**: the verdict carries `provider_error`, `run_score` leaves such a
+  row `new`, and a `_BackendBreaker` aborts the screen phase on the outage signature
+  (SPEC §9 + traceability, CHANGELOG).
+- **The seven found 2026-07-23** (probing `pipeline.run_score` / `run_notify`,
+  `score/screen.py`, `score/location.py`) all shipped fixes by 2026-07-24: the
+  blind-screen-check-as-pass, `London, ON`, `work_authorization`, the dead-fit-backend
+  breaker + singles-fallback guard, the wrong-token / consecutive-failure notify breaker,
+  the interruptible `as_completed` score run, and `notify_attempts` split from `attempts`.
+
+**The pattern across all of them, and the reason PRINCIPLES exists.** Nine of the twelve
+were the same policy error — a *systemic* condition handled as a per-item verdict — now
+named in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed
+by every pipeline stage (SPEC §9 + traceability rows). The 2026-07-27/28 pair is a
+*different* class: a per-item verdict acted on **without checking what the JD says**.
+They part company on the remedy — clearance is lexical, so code can floor it on a token;
+degree is semantic, so no floor exists and the answer is routing, not a regex.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Rebuild `_quote_on_topic` as positive-evidence, and scope the phrase floor** —
-  `[SCREEN · S · design decided 2026-07-26 by the operator · do not re-derive the fork]`.
-  **The design call, so the next session does not relitigate it:** on this path a wrong
-  discard and a wrong keep are not comparable. A kept row reaches the human, who reads the
-  JD and catches it; a discarded row is reviewed by nobody. So a MISS is self-correcting
-  and costs one paid fit call, while a FALSE POSITIVE silently deletes a real opportunity.
-  Optimize for keeping.
-  **What to build.** Today the gate fires whenever an authorization word appears and vetoes
-  the exceptions (off-topic / wrong-polarity / soft-preference). That is "discard by
-  default, and the author must anticipate every innocent sentence in English" — three
-  review rounds each found a category that had not been anticipated, and one shipped
-  version disqualified *"We offer generous personal time off"*. **Invert it:** fire only on
-  positive evidence of an employer refusal or a hard bar (`we do not/cannot/will not
-  sponsor`, `sponsorship is not available/offered`, `must be a citizen`, `must have
-  unrestricted authorization`, `must hold permanent residency`); anything unmatched keeps.
-  An incomplete list then produces a miss instead of a wrong discard. All three vetoes
-  become unnecessary rather than needing to be correct — an EEO line, "Visa sponsorship is
-  available", and "prioritizing applicants" each carry no refusal marker.
-  **Second half:** `NO_SPONSOR_PHRASES` is ungated and scans the WHOLE description, which
-  is where both remaining false positives come from (IMC 465/490 — *"or are eligible to
-  work without sponsorship, we encourage you to apply"* is an invitation). Scope it to fire
-  only when the model produced no quote at all.
-  **Expected:** precision near 100%, recall meaningfully below it. That is the intended
-  trade, not a regression — say so in SPEC when the numbers move.
-  **Known and NOT the fix:** the fit scorer's Stage 4 re-check does not cover
-  authorization. `_screen_verdict` always writes the `authorization` key (the phrase floor
-  gives it a verdict with no model data), so `merge_fallback_screen`'s `key not in already`
-  gap test never sees it; verified 2026-07-26. Do not "fix" that to get a second opinion —
-  a second model vote on a disqualification doubles the false-positive surface, which is
-  why that function is a fallback and not a vote (its own docstring). The second checker
-  is the human.
-  **Contract to keep:** `tests/fixtures/sponsorship_quotes.json`. Must-keep should go clean;
-  list the must-flag misses rather than papering over them.
+- **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
+  healthy while doing it — DESIGN FORK, operator's call** — `[SCREEN · S · found by the
+  PR #24 pre-merge review 2026-07-28, reproduced, deliberately NOT decided]`.
+  A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
+  `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
+  (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
+  how a strict backend says nothing) — is **not** flagged `provider_error`. Degree and
+  clearance both suppress themselves on absent data, so `NO_SPONSOR_PHRASES` is the only
+  surviving check, and it discards on a substring of a JD the model never condemned.
+  `run_score` then records a circuit-breaker **success**, so the degraded mode never
+  trips the breaker and walks the whole backlog. Realistic trigger: a wrong `--model`
+  tag or a non-instruct model — `_post` only checks that a dict came back, and none of
+  the hosted backends validate shape either.
+  **Why it was not "fixed" in #24:** four existing tests pin this on purpose
+  (`test_authorization_still_ruled_when_the_model_returns_no_entry`,
+  `test_the_phrase_floor_runs_only_when_no_labels_arrived`,
+  `test_no_sponsorship_disqualifies_when_jd_says_so`,
+  `test_authorization_fails_only_on_explicit_no_sponsorship_phrase`). The floor is
+  *designed* as an independent deterministic signal — like the location gate — so a JD
+  that literally says *"we do not sponsor work visas"* is caught with no model data at
+  all. That is coherent, and the IMC false positives were a floor **precision** problem
+  rather than an argument that the floor should not run. A patch making blind responses
+  keep was written, reverted, and is not in #24.
+  **The fork, and it is genuinely two-sided.** (a) Keep the floor independent and close
+  the *detection* gap instead: validate the screen response shape and treat a blind one
+  as `provider_error`, so the breaker sees it. Costs one paid fit call per row while a
+  backend is misconfigured, buys back the recall the floor exists for. (b) Make a live
+  call's silence mean KEEP (the direction the rest of this design takes), and accept
+  that a code-readable refusal is missed whenever the model is blind. **Recommendation:
+  (a)** — it fixes the invisibility, which is the part with no upside, without giving up
+  a deterministic signal; and it is the same shape as the `provider_error` work that
+  already shipped. Note the inconsistency it leaves meanwhile: `sponsorship_labels: []`
+  KEEPS (a bad count, per SPEC §7.1) while `null` reaches the floor. That is consistent
+  with the SPEC text as written — `[]` is a count, `null` is silence — but it is a thin
+  line for a 4B to land on, and (a) or (b) collapses it either way.
+
+- **`make eval-screen` measures far less than its headline numbers imply — 19 of the
+  "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
+  pre-merge review 2026-07-28, all three arithmetic claims re-verified]`. The gate is
+  real and it caught real defects; what is wrong is reading its per-requirement scores as
+  measurements of the model.
+  1. **The clearance half is a tautology and CANNOT fail, for any model behavior.** Of
+     24 clearance rows, the 20 golden `no bar` rows contain no `CLEARANCE_TOKENS` match
+     in excerpt+title, so `_check_clearance` short-circuits on the evidence floor whatever
+     the model returns; the 4 that do carry a token are all golden `true`, which
+     `judge` excludes from `false_disq` by construction. **Zero rows can produce a
+     clearance false disqualification**, so "20/24 → 0" measures the floor's own regex
+     over the rows it was tuned on — and no future clearance regression is detectable
+     here. Fixing it needs corpus rows that carry a clearance token *and* are golden
+     `no bar` (a JD naming a clearance it does not require).
+  2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
+     non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
+     does can move them.
+  3. **4 corpus rows are labeled on evidence the corpus does not contain.** Ids
+     456/529/534/538 (all IMC, golden `refuses`) have excerpts of exactly 1606 chars —
+     the `_readme` truncation cap — with no `sponsor`/`visa`/`citizen`/`authoriz`/
+     `right to work`/`immigration` token anywhere in them. The cap cut the labeled
+     sentence off and left a lead window. They are guaranteed misses independent of any
+     model or prompt, so every recall figure quoted from this gate is computed partly
+     over rows whose stated premise ("the refusal sentence is inside the text handed to
+     the model") is false. `--selftest`'s corpus invariants do not catch this — they
+     check a label is assertable, never that the excerpt could support it.
+  **Not fixed here** because each one is a corpus rebuild plus a re-run, and #24 was
+  already merging; the numbers on that PR are honest about what was *run*, not about what
+  the corpus can reach.
+  **Two smaller premise gaps in the same tool, also left open** — `[XS]`. `screen_eval`
+  now passes the resolved *model* to `make_screener` (it previously only printed it), but
+  it still ignores `OLLAMA_NUM_CTX`, which `run.main` threads into both the screener and
+  `screen_posting`; with that var set the eval runs a different context window *and* a
+  different `num_ctx*2` JD truncation cap than production. And the report header names
+  `"{backend} default"` rather than the real `DEFAULT_*_SCREEN_MODEL` for the four
+  non-ollama backends, which is what a reader diffs across A/B runs.
+
+- **The sponsorship `+/-1 sentence` window degenerates to the whole JD on bullet-list
+  postings** — `[SCREEN · S · found by the PR #24 pre-merge review 2026-07-28, verified]`.
+  `_sentences` collapses whitespace (so newlines and bullets are gone) and splits only on
+  `[.!?]`, so a JD whose bullets carry no terminal punctuation is **one sentence** and the
+  documented "~400 chars" window becomes the entire description. Measured on the eval
+  corpus: median snippet payload 324 chars as designed, but id 4636's *whole* 1606-char
+  excerpt comes back as a single snippet, and 1154/2807/462 are likewise 100%.
+  This dissolves the per-snippet scoping the IMC 465/490 argument rests on — an offer and
+  a scoped refusal inside one period-free block get **one** label — and SPEC §7.1 claims
+  this design avoids exactly that ("'paragraph' is unbounded and degenerates to the whole
+  JD"). Secondary: snippets are spliced into the prompt untruncated while the JD block is
+  capped at `num_ctx*2`, so the snippet payload is uncapped budget. The fix is splitting
+  on line breaks as well as `[.!?]`, which changes what every snippet contains and so
+  needs a gate re-run — hence recorded rather than done.
+
+- **Sponsorship recall is a DELIBERATE, pinned trade** — `[SCREEN · open by design]`.
+  Retrieve-then-classify shipped 2026-07-28 (false disqualifications 2 → 0; behavior in
+  SPEC §7.1, reasoning in CHANGELOG). What stays open is the other direction: the
+  `sponsor`-only retrieval vocabulary gives up bars phrased without that word — **7 of the
+  13 corpus must-flag sentences** — and each is a miss costing one paid fit call that
+  reaches the human. `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`
+  pins the count in **both** directions so the trade cannot drift silently.
+  **Do not widen the vocabulary to "fix" it.** Every false positive ever recorded on this
+  path came from a word that is not "sponsor" — `citizen` (EEO boilerplate, "a good
+  citizen in our monorepo"), `visa` (the payment network), `authoriz` (OAuth/RBAC),
+  `right to work` ("…in an environment where"). Widening buys recall in the cheap
+  direction and pays for it in the expensive one.
+  **Two predictions this file made before the build were wrong, and that is the durable
+  lesson.** (1) It said all three regex vetoes become unnecessary once a classifier reads
+  the sentence; `_PREFERENCE_ONLY` had to be restored — the 4B calls *"prioritizing
+  applicants who … do not require sponsorship"* a refusal, all three draws. (2) It said the
+  classifier would close IMC 465/490; what actually closed them was stopping a *miscounted*
+  answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
+  principles still needs the measurement.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
@@ -480,61 +511,32 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   recipe-sourced row has ever been screened, fit-scored or notified. Closing it needs a
   score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
   source-filtered slice.
-- **Should a strong-model screen be allowed to OVERTURN a local discard?** — `[SCREEN · S ·
-  MEASURED 2026-07-24 — the query says "just route them"]`. The unblocking query below has
-  now run over the live DB: of **3,262** discarded rows, `location` accounts for 3,066
-  (94.0%), `authorization` 156 (4.8%), `internship` 92 (2.8%), `degree` 34 (1.0%) and
-  `clearance` 8 (0.2%); **degree/clearance-*only* discards are 30 rows, 0.9%.** This entry's
-  own decision rule was "a couple of percent → just route them; fifteen → build the eval
-  first", so it resolves to **route**: ~30 paid fit calls against a ~2,000-message weekly
-  budget, no eval prerequisite, no `M`-sized design. Caveat on the number: most of those
-  3,262 are fetch-time *location*-gate kills, so degree/clearance is a larger share of
-  *screen-stage* discards than 0.9% — but the absolute count is 30, and that is what the
-  cost argument turns on. What remains is the small build: a `needs_confirmation` state
-  routed to SCORE instead of terminal `discarded`. The second-screen architecture
-  is already shipped: the fit scorer's optional `screen` block + `merge_fallback_screen`
-  is exactly "strong model supplies extraction, CODE arbitrates on verifiable JD
-  evidence, not a second vote" — including `_quote_in` enforcing *validated evidence
-  beats model authority*. So the open question is narrower than "add a second screen":
-  **should a local `degree`/`clearance` fail become `needs_confirmation` — routed to
-  SCORE for the strong model to confirm — instead of a terminal `discarded`?**
-  **The cost it would move:** a posting the screen discards today pays **nothing**.
-  That is the entire economic point of screening first. Routing those to SCORE buys
-  each one a paid fit call. Measured base rate from the 2026-07-22 bounded batch: 50
-  rows → 9 screen-discarded (18%); the degree/clearance-only share of that is what
-  would move, against a weekly message budget, over ~4,000 rows.
-  **The benefit is still unmeasured** — the 4B's false-discard *rate* on degree and
-  clearance is unknown, because there is no screen eval (entry below); the query above
-  measured the *volume* at risk, not the error rate within it. That no longer blocks the
-  decision: at 30 rows the cost of routing is small enough that being wrong about the
-  rate is cheap either way, which is exactly what made this an `S` instead of an `M`.
-  The unblocking query itself is **done** (2026-07-24, no code, no quota) — it is
-  reproducible from `disqualification_reason`, which already records which check fired.
-  Related: the `pass`-vs-`unknown` conflation is **fixed 2026-07-23** (CHANGELOG) —
-  `degree`/`clearance` now record no key at all where the model returned nothing, so
-  "blind" is already distinguishable from "passed" and only the third state
-  (`needs_confirmation`) would be new.
-- **`screen.txt` has no eval gate — screen prompt edits are unguarded** — `[SCREEN · M ·
-  blocks the quote-grounding work below]`. `score.txt` cannot change without two
-  consecutive `tools/score_eval.py` PASS against a 23-row golden set (§13, and a
-  merge is blocked on exactly that right now). `screen.txt` has **no equivalent**:
-  `tools/sponsor_diff.py` is a disagreement differ, not a gate, and it covers only
-  the sponsorship clause. So an edit to the degree or clearance clause — including
-  the evidence-grounding change queued below, which necessarily rewrites both —
-  ships on inspection alone. The screen is the cheaper half to gate (Ollama is free,
-  and the labels are per-requirement facts about a JD rather than a judgment), so
-  this is a smaller harness than `score_eval`, not a bigger one: a fixture set of JDs
-  with hand-labeled degree/clearance/sponsorship truth, asserting no false
-  disqualification. Note the golden set for it does not exist yet either; the
-  sponsorship labeled-set run (P1 item 3) would produce the first third of it.
-  **Deflated by the 2026-07-24 measurement above:** the clauses this gate protects
-  (`degree`, `clearance`) decide ~1.2% of discards, so the case for building the
-  harness *before* the quote-grounding rewrite is weaker than when this was written.
-  **Sequencing:** run the sponsorship labeled set first regardless — its three-class
-  hand-labels are per-requirement JD facts, the same shape this fixture needs, so
-  labeling once feeds both and starting here means labeling twice.
+- **Route a local `degree`/`clearance` fail to the strong model as `needs_confirmation`**
+  — `[SCREEN · S · queue item 3 · decided ROUTE 2026-07-24, rates measured 2026-07-28]`.
+  Instead of a terminal `discarded`, a degree/clearance fail becomes `needs_confirmation`
+  and goes to SCORE for the strong model to confirm.
+  **Decided, do not re-litigate the fork.** The 2026-07-24 volume query resolved it: of
+  3,262 discarded rows, degree/clearance-*only* discards were 30 (0.9%), and this entry's
+  own rule was "a couple of percent → just route them". ~30 paid fit calls against a
+  ~2,000-message weekly budget.
+  **What was unmeasured then is measured now, and it strengthens the case:** the 4B's
+  false-discard *rate* inside that volume is **83% for clearance and 24% for degree**
+  (`make eval-screen`). Volume was the wrong ranking function — that is the same lesson
+  the clearance defect taught.
+  **The architecture already exists**, so this is a state, not a redesign: the fit
+  scorer's optional `screen` block + `merge_fallback_screen` is already "strong model
+  supplies extraction, CODE arbitrates on verifiable JD evidence, not a second vote". The
+  `pass`-vs-`unknown` conflation was fixed 2026-07-23, so "blind" is already
+  distinguishable from "passed" and only the third state is new.
+  **The cost it moves:** a posting the screen discards today pays nothing — that is the
+  economic point of screening first. Routing buys each one a paid fit call.
+
 - **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
-  2026-07-23 · decision pending]`. `run_fetch` runs `prefilter_postings` (title
+  2026-07-23 · LIVE since 2026-07-28 · decision pending]`. **Was dormant, now is not:**
+  the live `config.yaml` carried no `feeds:` key at all until 2026-07-28, so `feeds` parsed
+  empty, `run_feed` never ran, and `feed_unresolved` held **0 rows**. Simplify is enabled as
+  of 2026-07-28 for live testing, so this gap now applies to every pass — see queue item 5.
+  `run_fetch` runs `prefilter_postings` (title
   keep-list, `title_exclude`, `max_age_days`) over everything it fetches;
   `run_feed` never calls it — the function isn't in its signature, and resolved
   postings go straight from `_fetch_group` to `upsert_postings`
@@ -567,48 +569,6 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   Chromium render per posting with no stub gate (`browser.py:159`), all of it before
   screening. Uber/Netflix/Morgan Stanley become viable if `custom` gains a
   chained detail call; Citi/Barclays if `custom` gains an HTML mode (both above).
-- **Fit-score gate not re-run — now gates TWO changes, and blocks a merge** — `[SCORE · S ·
-  ~69 Codex messages per run, two runs · deferred by operator]`. One `score_eval`
-  re-run discharges both pending scorer changes:
-  1. the 2026-07-22 `personal_profile.txt` edit (detail below), and
-  2. **plan Stage 4** (Task 9, `66dfb65` on `feat/universality-and-onboarding`) — the
-     appended `score.txt` extraction block feeding `merge_fallback_screen`. The block
-     is additive and instructs the model not to let it change the score or the
-     verdicts, and the rubric/verdict definitions are untouched — but it is still a
-     `score.txt` edit, and this file has destabilised verdicts before.
-
-  **Gate:** two *consecutive* PASS — 0 hard-invariant violations, >=85% per-dimension
-  verdict agreement, <20% flip rate. **On any FAIL, `git revert 66dfb65`** — Stage 4
-  is dropped, not shipped anyway; Stages 1-3 and 5 are unaffected either way. Until
-  this runs, `feat/universality-and-onboarding` should not merge (see
-  [In flight](#in-flight)). Run the free hermetic `python3 tools/score_eval.py
-  --selftest` first.
-
-  On the profile edit specifically: `personal_profile.txt` changed on two
-  lines: target #1 widened from "buy-side or prop" to "buy-side / prop / HFT /
-  market-making / hedge fund", and the anti-target moved from "Low-latency / HFT / C++
-  systems engineering" to "Low-latency systems engineering, in any language, and
-  C++/Java systems-level roles where the deliverable is the engine itself rather than
-  the research and trading tooling built on it". The point of both edits is that the
-  anti-target is a **role**, not an **employer** — an HFT firm is a target-#1 employer;
-  the latency seat inside it is not.
-
-  The scorer reads this file verbatim as the domain verdict's target-fit rule, so the
-  wording is load-bearing (a past prompt tweak destabilised verdicts where a profile
-  edit fixed them). `tools/score_eval.py` has NOT been re-run against the 23-row
-  golden set; shipping a profile change wants two consecutive PASS.
-
-  Two specific things to check when it runs. (1) All 23 golden labels were reviewed by
-  hand on 2026-07-22 and none rests on the old firm-vs-role conflation — 813 is a
-  floor-trader seat, 222 IT/desktop, 824 infra-platform, 592 hardware, 64/125/83
-  research/analyst — so no relabelling is expected, and a flip would be a real signal.
-  (2) **Blind spot: no golden row is a Java posting**, so the gate cannot detect
-  over-rejection of Java-based quant-dev seats at banks (Goldman, Morgan Stanley,
-  BlackRock Aladdin, CME, Nasdaq) — exactly the tier-2 employers the watchlist just
-  expanded into. Adding one such row to the golden set would close it.
-
-  Note `tools/score_eval.py` has no argparse: any unrecognised flag (`--help`) starts a
-  LIVE, quota-spending run. `--selftest` is the free hermetic path.
 - **`score_workers` defaults to 4 for every fit backend — codex rollout cleanup
   regresses under it** — `[SCORE · XS · decision pending]`. Plan Stage 5 made the fit loop
   concurrent (quota-neutral: N parallel `codex exec` calls spend the same messages as
@@ -636,23 +596,6 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
-- **Sponsorship gate — shipped 2026-07-23, precision/recall never measured** —
-  `[SCREEN · M · MERGE BLOCKER · needs a labeled set]`. The quote-grounded rework is in the
-  code and described in SPEC §7.1 + CHANGELOG (it replaced a closed 12-phrase
-  substring list that caught only ~2 of 11 realistic phrasings). What is *unproven* is
-  its precision.
-  **Safe by construction, so not at risk here:** hallucination. A quote absent from
-  the JD fails `_quote_in` verification and the posting is kept, so an invented
-  sentence cannot disqualify anything — this holds on `qwen3.5:4b` too, so **D1**
-  needs no re-litigating.
-  **The actual residual:** *misclassification* — the model quoting real-but-irrelevant
-  JD text and reading it as a no-sponsorship statement. Quote-grounding cannot close
-  this, which is exactly what the labeled set is for.
-  **Open operator gate:** run `tools/sponsor_diff.py` over the ~600 already-scored
-  rows — it diffs the new check against the old phrase list so only the
-  *disagreements* need hand-labeling (*no-sponsorship / offers / silent*), not the
-  full set. That run has not happened.
-
 ### Enhancements — not built, optional
 
 - **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
@@ -695,24 +638,43 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
-- **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,
-  Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
-  forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
-  JSON / `__NEXT_DATA__`. An `html` mode reusing the browser executor's CSS extractor
-  would drop all six to plain HTTP. Related: a `browser` `detail:` block costs **one
-  Chromium render per posting** with no stub gate (`browser.py:159`), which is why
-  Citi (3,567 postings) and Barclays (1,074) are not on the watchlist.
+- **`custom` `html` mode — BUILT on PR #21, but it ingests NOTHING as documented** —
+  `[FETCH · M · reviewed 2026-07-26]`. The executor works; the value claim does not.
+  **The blocker is one line elsewhere:** `pipeline._valid_posting` requires a non-empty
+  `description`, and `custom` has **no `detail:` mechanism and no `fetch_one`** (both
+  greppable, both zero hits), so an `html` recipe can only produce a description if the
+  *listing card itself* carries the JD body. Every example the branch ships —
+  `config.yaml.example`, `SKILL.md`, the test fixture — omits `description`. Driven
+  through the real `run_fetch`: `dropped 3 posting(s) with no description`, **0
+  inserted**, plus 3 `feed_unresolved` rows per cycle. The unit tests miss it because they
+  assert the field *set*, never that `description` is non-empty.
+  So the six boards (Bloomberg, Two Sigma, Citi, Barclays, Moody's, Geode) are **not**
+  unblocked: what they need is a chained detail fetch, which is exactly what `custom`
+  lacks. `SKILL.md`'s Step 3 validation criterion omits `description` too, so the skill
+  actively certifies a broken row as valid.
+  **Two honest ways out:** merge the executor with the docs corrected to say it works only
+  where listing cards carry the full JD body, or hold it until `custom` gains the chained
+  detail call (already an open item — same primitive Uber/Netflix/Morgan Stanley need).
+  **Other confirmed defects on that branch:** `description: [path, path]` raises
+  `AttributeError` in `html` mode though `SKILL.md` documents the list form as shared;
+  `page: {type: url}` is silently ignored rather than raising as `browser` does, so a
+  multi-page board returns page 1 and looks successful; `type: page` starts at 0 with no
+  `start:`, and most server-rendered pagers are 1-indexed; `resp.text` mojibakes non-ASCII
+  when a board omits `charset` (confirmed `MÃ¼nchen`), which matters far more for `html`
+  than for JSON since the payload *is* the prose — pass `resp.content`; `browser` lost its
+  pre-loop `item`-selector validation in the refactor (`parse_jobs([], …)` now returns
+  `[]` where `main` raised); the equivalence test passes coincidentally on a clean
+  three-card fixture (the two executors genuinely differ on de-dup and empty ids); and
+  `SKILL.md`'s Step 3 snippet still `json.load`s a payload that is now a `str`.
+  Related and unchanged: a `browser` `detail:` block costs **one Chromium render per
+  posting** with no stub gate (`browser.py:159`), which is the other reason Citi (3,567
+  postings) and Barclays (1,074) are off the watchlist.
 - **Boards blocked on an executor primitive, not an adapter** — `[FETCH · L]`. Meta needs a
   fetch-page-then-POST handshake (its GraphQL requires a per-session `lsd` CSRF token
   scraped from the HTML) *and* a scroll hook (the rendered DOM holds 11 of 692 cards
   in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
-- **A score records no provenance — SHIPPED 2026-07-24.** `_score_detail` now merges
-  `backend`/`model`/`scorer_version` into the persisted JSON on fit-scored rows only
-  (SPEC §9, CHANGELOG). The eight-field hash provenance stays rejected. **Note for the
-  first big scoring batch:** rows scored *before* this landed carry no stamp, so
-  "unstamped" is the selector for the pre-2026-07-24 backlog.
 - **The codex usage bar is backend-locked — make it backend-aware** — `[WEB · M ·
   now that the fit backend is a user choice]`. `CodexUsageBar` shows a weekly-budget
   *percentage*, which exists only because codex (ChatGPT-Plus) publishes `rate_limits`
@@ -726,33 +688,12 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   the worker stamps the active fit backend into the shared `db/` snapshot dir (fold into
   `codex_usage.json` or a sibling marker), the route already reads that file, and the
   component shows the codex meter on codex and a single "Scoring on {backend} — metered
-  API, no quota meter" line otherwise. No schema change. Shares its data with the SCORE
-  provenance entry above (which wants `backend`/`model`/`scorer_version` in
-  `score_detail`) — one worker-written backend name serves both. **Not "do nothing":**
+  API, no quota meter" line otherwise. No schema change. Shares its data with the scorer
+  provenance already persisted into `score_detail` (`backend`/`model`/`scorer_version`,
+  shipped 2026-07-24, SPEC §9) — one worker-written backend name serves both. **Not "do nothing":**
   leaving it is correct only if codex is the sole path, but backend choice is now a
   user-facing decision, so the meter must stop implying codex is the only backend.
-- **Degree and clearance disqualify on an unverifiable model claim** — `[SCREEN · S · blocked
-  on the screen eval above]`. Of the three LLM-derived checks, only **authorization**
-  is evidence-grounded: the model returns `no_sponsorship_quote` and `_quote_in`
-  verifies the sentence is actually in the JD, so a hallucination cannot disqualify
-  *by construction* (**D1**). `degree` and `clearance` have no such floor — a model
-  that invents `required_degree: "phd"` or `requires_clearance: true` silently
-  discards a good posting, which is precisely the failure D1 was introduced to kill,
-  left standing on two of three checks. The same fix transfers: add a `quote` field to
-  those two clauses in `SCREEN_SCHEMA` + `screen.txt` and reuse `_quote_in`. Bonus, it
-  subsumes the separately-proposed `modality` / `equivalent_experience_allowed` enums
-  without adding them — a JD that only says "Master's preferred" contains no sentence
-  stating a master's is *required*, so a faithful extractor returns null and the check
-  passes. **Do not start before the screen eval exists**: this rewrites two of the
-  three prompt clauses, and there is currently nothing that would catch a regression.
-- **A `discarded` row can never be re-screened after a config change — SHIPPED
-  2026-07-24.** `--rescreen-discarded` (`db.requeue_discarded`) returns every **hydrated**
-  discard to `new` for one pass; one-shot, rejected without `--once` so the interval
-  schedule can't re-charge the paid scorer every pass (SPEC §9, CHANGELOG). The
-  `screen_version` / hash-invalidation columns stay rejected. Pair it with
-  `--score-limit` on a large backlog — screening is free, the fit calls that follow
-  are not.
-  **Still open — un-hydrated stub discards have no way back** `[ORCH · S]`. A stub-gate
+- **Un-hydrated stub discards have no way back** `[ORCH · S]`. A stub-gate
   discard is stored with `description=''` on purpose, and `--rescreen-discarded` skips it
   (requeueing one parks it `scored`/0 permanently). Skipping is not a rescue: nothing
   re-hydrates an existing row, because `upsert_postings` is `ON CONFLICT DO NOTHING` and
@@ -786,7 +727,9 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   endpoint (unauthenticated, zero-dep; personal-use / ToS caveat, keep volume low);
   JobSpy as a possible fallback aggregator.
 - **Remaining feed coverage (the `feed_unresolved` long tail)** — `[FETCH · M · needs
-  iCIMS/ByteDance feed routers]`. Resolution sits at ~78% after tier 1. What's left
+  iCIMS/ByteDance feed routers]`. Resolution sits at ~78% after tier 1 — a figure from the
+  last run the feed was on; the table now holds **0 rows** and re-measures on the first pass
+  after the 2026-07-28 re-enable. What's left
   is iCIMS + ByteDance — both plain HTTP (iCIMS ships as a list adapter, TikTok as a
   `custom` recipe), but closing the *feed* tail still needs a `resolve_url` host
   router + a per-listing `fetch_one`, which the list adapters don't provide.
@@ -946,7 +889,8 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   (c) *Cross-backend scores are not interchangeable.* Already the operating
   assumption — the codex model was chosen on the golden set precisely because a
   synthetic probe mispredicted real-JD behavior twice (§7.1), and `make eval-score`
-  is the gate. The provenance entry above is the missing half.
+  is the gate. Scorer provenance in `score_detail` (shipped 2026-07-24) is the other half:
+  it records which backend produced each score.
   (d) *Fail loudly on missing/duplicate/unknown `job_ref`.* Shipped in
   `make_codex_scorer`, plus `run_score`'s count-mismatch guard.
   **Rejected:**

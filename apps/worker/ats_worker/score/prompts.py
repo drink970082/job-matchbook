@@ -176,11 +176,17 @@ def _job_block(posting: dict, max_desc_chars: int, *, include_location: bool = T
     return f"{header}{location_line}{description}\n"
 
 
-def _candidate_block(candidate) -> str:
+def _candidate_block(candidate, sponsorship_snippets=()) -> str:
     """Render the hard-requirement checklist for the SCREEN call, or '' if nothing
     is configured. Each configured structured field becomes one clause keyed to a
-    "screen" key the model returns a pass/fail verdict for (prose lives in
-    prompts/screen.txt). Only control flow + layout live here.
+    "screen" key the model returns a fact under (prose lives in prompts/screen.txt).
+    Only control flow + layout live here.
+
+    `sponsorship_snippets` are the `sponsor` sentences CODE already retrieved from the
+    JD. They are rendered numbered under the authorization clause, and the model labels
+    them — it is never asked to find them. With **no snippets the clause is omitted
+    entirely**: there is nothing to classify, so asking would only invite an answer
+    about text that is not there.
     """
     if not candidate:
         return ""
@@ -193,8 +199,10 @@ def _candidate_block(candidate) -> str:
     clauses: list[str] = []
     if degree:
         clauses.append(SCORE_C_DEGREE)
-    if auth:
-        clauses.append(SCORE_C_AUTHORIZATION)
+    if auth and sponsorship_snippets:
+        numbered = "\n".join(f"  {n}. {s}"
+                             for n, s in enumerate(sponsorship_snippets, 1))
+        clauses.append(SCORE_C_AUTHORIZATION + "\n" + numbered)
     if clearance:
         clauses.append(SCORE_C_CLEARANCE)
 
@@ -214,12 +222,27 @@ def _candidate_block(candidate) -> str:
 # spelled as an explicit null. What actually prevents a wrong disqualification is CODE,
 # not schema permissiveness: `_screen_verdict` gates each check on the candidate having
 # configured it AND on the model having named a recognized value (`_degree_stated` /
-# an actual bool), and `_quote_in` verifies the
-# sponsorship quote. The default ollama backend ignores the schema entirely (format=json
+# an actual bool), and sponsorship labels are only honoured when their count matches the
+# snippet count CODE supplied. The default ollama backend ignores the schema entirely (format=json
 # constrains output to *some* object), so on it a blind check still arrives as an omitted
 # key — which is why the value test, not a null test, is the one that holds everywhere.
 # Those value tests enumerate the RECOGNIZED values, never the no-data spellings: the
 # latter set is open-ended ("not stated", "TBD", "unclear", ...) and cannot be closed.
+#
+# `degree` asks for a LIST of levels plus a required/preferred bool, not for a single
+# "minimum" — changed 2026-07-28 because the old shape asked the 4B for a JUDGMENT and it
+# reliably got it wrong. Measured by `make eval-screen`: 9 of 38 live degree discards were
+# false, the model reading "PhD, or Master's degree" and "PhD strongly preferred" as a hard
+# PhD bar, all three draws agreeing. Two rounds of prompt wording moved the count to 4 and
+# then 7 without converging. Listing the levels named is an EXTRACTION; taking the lowest
+# is arithmetic CODE does — the same split every other check here already uses, and the
+# reason `_check_degree` stopped being a comparison against one model-chosen value.
+#
+# The fit scorer's Stage 4 block (`_score_schema` above) deliberately still emits the old
+# `required_degree`, and `_check_degree` reads BOTH. That block runs on a strong model,
+# where the minimum is a judgment it can make; changing it would edit `score.txt`, whose
+# gate is two consecutive quota-spending `score_eval` runs — a real cost for no measured
+# benefit.
 SCREEN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -228,14 +251,27 @@ SCREEN_SCHEMA = {
             "properties": {
                 "degree": {
                     "type": "object",
-                    "properties": {"required_degree": {"type": ["string", "null"]}},
-                    "required": ["required_degree"],
+                    "properties": {
+                        "degree_levels": {"type": ["array", "null"],
+                                          "items": {"type": "string"}},
+                        "degree_required": {"type": ["boolean", "null"]},
+                    },
+                    "required": ["degree_levels", "degree_required"],
                     "additionalProperties": False,
                 },
                 "authorization": {
                     "type": "object",
-                    "properties": {"no_sponsorship_quote": {"type": ["string", "null"]}},
-                    "required": ["no_sponsorship_quote"],
+                    "properties": {
+                        # One label per numbered snippet CODE supplied, in order. The
+                        # enum is enforced in `_check_authorization` rather than here:
+                        # the default ollama backend ignores the schema entirely, so a
+                        # code-side check is the only one that holds on every backend.
+                        "sponsorship_labels": {"type": ["array", "null"],
+                                               "items": {"type": "string",
+                                                         "enum": ["refuses", "offers",
+                                                                  "neither"]}},
+                    },
+                    "required": ["sponsorship_labels"],
                     "additionalProperties": False,
                 },
                 "clearance": {

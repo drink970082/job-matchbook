@@ -21,6 +21,14 @@ from tests._helpers import (
 )
 
 
+# A JD that actually STATES a clearance bar. `score._check_clearance` needs one before
+# it will honour `requires_clearance: true` — an ungrounded claim is the 2026-07-27
+# defect and is now kept. Long enough to clear the thin-JD gate and reach the fit call.
+_CLEARED_DESC = ("Build backend services in Python and Go across data pipelines. " * 3
+                 + "Other Requirements: Security Clearance Requirements: this role "
+                   "requires an active TS/SCI clearance with polygraph.")
+
+
 def _assessment(**over):
     """A minimally-valid fit assessment scorecard — passes score._normalize_score's
     enum checks (seniority/domain verdicts) so a fit_fn fake's card doesn't itself
@@ -786,7 +794,7 @@ def test_run_score_scorer_fallback_disqualifies_lands_discarded(db_path):
     # the fit scorer's fallback extraction catches the hard requirement. It must
     # land 'discarded' — not 'scored' — even though the (paid) fit call already ran.
     conn = db.connect(db_path)
-    _seed_new(conn, ["1"])
+    _seed_new(conn, ["1"], description=_CLEARED_DESC)
 
     def screen_fn(posting):
         return {"screen": {}, "disqualified": False, "disqualification_reason": ""}
@@ -1462,7 +1470,7 @@ def test_run_score_stamps_provenance_on_fallback_disqualified_rows(db_path):
     # stamped like any other fit-scored row — it is exactly the kind of verdict an
     # operator re-selects after a score.txt edit.
     conn = db.connect(db_path)
-    _seed_new(conn, ["1"])
+    _seed_new(conn, ["1"], description=_CLEARED_DESC)
     card = _card(screen={"clearance": {"requires_clearance": True}})
 
     pipeline.run_score(

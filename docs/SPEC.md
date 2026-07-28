@@ -587,72 +587,108 @@ worker modules are pure and dependency-injected; real services are wired only in
   CODE then decides pass/fail — on every backend, not just the free 4B `ollama`
   default that motivated it (a small local model is unreliable at the pass/fail
   judgment itself, and keeping it code-side means the check behaves the same
-  regardless of which backend did the extracting): for degree/clearance by applying
-  the candidate's configured constraint to the extracted fact; for **work
-  authorization by a quote-grounded LLM check** (`_check_authorization` / `_quote_in`)
-  — the model returns `no_sponsorship_quote`, the verbatim JD sentence it claims
-  states sponsorship is unavailable, and CODE verifies that sentence is actually
-  present in the description (`_quote_in`, whitespace-collapsed + case-insensitive)
-  *before* disqualifying — a hallucinated quote fails verification and the posting is
-  *kept*, so a hallucination cannot disqualify anything by construction, not by trust.
-  A verified quote must **also be on topic** (`_quote_on_topic`): it has to touch
-  `AUTHORIZATION_TERMS` (sponsor · visa · immigration · authoriz/authoris · citizen ·
-  right to work · work permit · green card). Presence proves a sentence is real, not
-  that it is *about* sponsorship — the 2026-07-25 labeled set caught the model quoting
-  agency boilerplate ("we do not require any assistance from third-parties including
-  agencies in the recruitment of this role") on 5 of 28 fires, wrongly disqualifying
-  those postings. Both gates guard the same direction: a false positive here discards a
-  good posting silently, the error "err toward keep" exists to prevent.
-  This is the **D1** fix: the model's earlier `offers_sponsorship` guess had invented
-  "no" from silence, so the check no longer trusts a bare verdict — it trusts only a
-  verdict it can find verbatim in the JD. `NO_SPONSOR_PHRASES` — the prior gate — is
-  demoted to a **floor** underneath the quote check: it still runs and can only *add*
-  a disqualification, never veto a model pass, so it still catches blunt closed-list
-  phrasings even on `SCREEN_BACKEND=none` (no LLM call at all). **Precision/recall —
-  measured 2026-07-25** on 3,553 already-scored rows via `tools/sponsor_diff.py`, which
-  diffs the check against the old phrase list so only the 21 disagreements needed
-  hand-labeling against the three-class truth (*no-sponsorship / offers / silent*);
-  agreements are free labels. Against 20 known true positives (the union of both
-  systems — so recall is relative to that union, **not** to truth):
+  regardless of which backend did the extracting): for **degree** by taking the LOWEST
+  of the levels the model listed and comparing that rank (see the degree paragraph
+  below); for clearance by applying the candidate's configured constraint to the
+  extracted fact; for **work
+  authorization by RETRIEVE-THEN-CLASSIFY** (`sponsorship_snippets` /
+  `_check_authorization`) — CODE pulls every sentence naming `sponsor` plus one
+  neighbour each side, the prompt numbers them, the MODEL returns one label per snippet
+  (`refuses` / `offers` / `neither`), and CODE decides: any `offers` keeps, else any
+  `refuses` discards, else keep.
 
-  **Measure the whole function, not one branch of it.** `_check_authorization`
-  disqualifies on `(quote grounded AND on topic) OR NO_SPONSOR_PHRASES`, so a number
-  quoted for the quote branch alone flatters it — the ungated floor adds fires nobody
-  counted:
+  **Hallucination is structurally impossible rather than checked for.** The model
+  labels text the code handed it and never supplies text, so there is no channel for
+  invented evidence to reach the decision. That is strictly stronger than the
+  `_quote_in` verification it replaces (retired 2026-07-28 along with
+  `_quote_on_topic`, `_OFF_TOPIC_QUOTE` and `AUTHORIZATION_TERMS`), and free rather
+  than a second step. It also retires the "anticipate every innocent English sentence"
+  problem: an EEO line is simply `neither` to a classifier.
 
-  | | fires | correct | precision | recall |
-  |---|---|---|---|---|
-  | `NO_SPONSOR_PHRASES` alone (the retired gate) | 11 | 9 | 81.8% | 45.0% |
-  | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
-  | quote branch **+ `_quote_on_topic`** | 20 | 20 | 100% | 100% |
-  | **shipped `_check_authorization` (gate OR floor)** | 22 | 20 | **90.9%** | **100%** |
+  **Why this way round.** The previous design had the halves swapped — the MODEL did
+  retrieval (read 16K chars, find the sentence, copy it verbatim) and CODE did
+  classification (three regex vetoes deciding whether that sentence was a refusal).
+  Retrieval on a keyword is trivially deterministic; regexes are bad at stance. Three
+  rounds of whack-a-mole, PR #22's five false positives, and the screen eval's 8-of-16
+  sponsorship recall — on rows whose refusal sentence was *inside the text handed to the
+  model* — were all measuring that mismatch. **Measured effect (`make eval-screen`,
+  2026-07-28): sponsorship false disqualifications 2 → 0 over all 21 corpus rows**,
+  closing the IMC 465/490 residuals open since 2026-07-25.
 
-  The relevance gate removes 8 false positives — 5 agency boilerplate, 3 soft-preference
-  — and **zero** true positives. `_quote_on_topic` is three vetoes then a vocabulary, all
-  resolving toward keep: an off-topic sentence carrying an authorization word (the D1
-  pair: "company-sponsored sports teams", "we do not discriminate on citizenship"), a
-  sentence of the wrong **polarity** ("Visa sponsorship is available for this position."
-  — quote grounding fixes invented text, never inverted meaning), and a soft preference
-  ("prioritizing applicants who…"), which is not a bar because the candidate can still
-  apply.
+  **Window: one snippet per `sponsor` sentence, +/-1 neighbour, NOT merged.** A bare
+  sentence loses its antecedent ("Sponsorship is not among them."); "paragraph" is
+  unbounded and degenerates to the whole JD on exactly the postings where scoping would
+  help. Adjacent hits are **not** merged and may repeat a shared neighbour: the label is
+  about the CENTRE sentence, and merging forces one answer for two. Live rows 465/490 are
+  the proof — one IMC paragraph refuses sponsorship for three named nationalities *and*
+  offers it to Ukrainian applicants, and merged it could only return `refuses`.
 
-  **The vocabulary is measured, not guessed, and that is a standing rule** — a round of
-  speculative terms added for unobserved misses (`opt `, `cpt `, `e-3`, `us person`) each
-  collided with common boilerplate ("generous personal time off", "we adopt", "opt out",
-  "CPT and ICD-10") and was reverted; on a disqualification path a collision costs a real
-  job. Both directions are pinned by a corpus, `tests/fixtures/sponsorship_quotes.json`
-  (32 must-keep / 13 must-flag, every sentence from a real posting, a labeled row, or a
-  review counter-example). **Add a term only with a must-flag sentence that needs it and
-  must-keep still green.** The percentages above are measured on the 2026-07-25 set;
-  sentences added to the corpus since are pinned by the corpus, not re-scored against it.
+  **Two regex vetoes survive, DEMOTED to keep-direction only** (`_not_really_a_refusal`):
+  a `refuses` label on a snippet that plainly OFFERS (`_OFFERS_SPONSORSHIP`) or that is
+  only a PREFERENCE (`_PREFERENCE_ONLY`) is overruled. Neither can create a
+  disqualification. The design expected a classifier to make all three old vetoes
+  unnecessary; two did, and `_PREFERENCE_ONLY` did not — the 4B labelled *"prioritizing
+  applicants who … do not require sponsorship of a visa"* as `refuses` on 3 live TikTok
+  rows, all three draws. Measured, not assumed.
 
-  **The 2 residual false positives are the ungated floor**, not the gate: IMC ids 465/490,
-  where `without sponsorship` appears inside an *invitation* ("or are eligible to work
-  without sponsorship, we encourage you to apply"). Open, not accepted — the floor matches
-  a substring anywhere in the description with no sentence and no relevance check, which
-  is the blunt-instrument tradeoff it was demoted for. Unmeasured, deliberately: false
-  negatives among the 3,523 agreed-negative rows, which neither system flagged and nobody
-  read; recall is relative to the 20-row union of the two systems, **not** to truth.
+  **Every uncertainty resolves toward KEEP**, because a discarded row is reviewed by
+  nobody while a miss costs one paid fit call and reaches the human. A label count that
+  does not match the snippet count means the model answered a different question, so the
+  check is dropped — and crucially it does **not** fall through to the floor. That path
+  is where both IMC false positives came from: the 4B returned one label for three
+  snippets, and `NO_SPONSOR_PHRASES` then matched `without sponsorship` inside *"or are
+  eligible to work without sponsorship, we encourage you to apply"*. **Silence still
+  reaches the floor; a bad count does not** — and `[]` is a bad count, not silence,
+  whenever a snippet was retrieved: `sponsorship_labels` is `["array", "null"]` in the
+  schema, so an empty *array* is a model answer while `null` is the absence of one.
+  "Answered" is therefore `bool(labels) or isinstance(raw, list)` — a **type** test, not
+  a was-a-question-asked test. With nothing retrieved there was no question, so `[]` is
+  the correct empty answer and the floor is the whole verdict.
+  **What that leaves reachable, on purpose for now:** `null`, a missing key, and a
+  response with no `screen` object all still reach the floor and can disqualify, and a
+  live backend returning them is not flagged `provider_error`. The floor is an
+  independent deterministic signal by design (four tests pin it), so a JD that says *"we
+  do not sponsor work visas"* is caught with no model data. Whether a blind-but-live
+  backend should instead KEEP is an open fork in PROGRESS, not settled here.
+  **The floor is also skipped outright on a `provider_error`**, leaving `authorization`
+  absent rather than recording a verdict. It is deterministic but blunt — a substring
+  scan of the whole description — and on a working backend the model's labels overrule
+  it while on a dead one nothing does, so running it during an outage discards precisely
+  the postings this design keeps. `run_score` leaves a `provider_error` row `new` rather
+  than fit-scoring it, so the absent key is never read and `merge_fallback_screen` is
+  never reached: no second model vote, and the next pass screens the row properly.
+
+  **The retrieval vocabulary is `sponsor` alone, and the cost is stated rather than
+  hidden.** Every false positive ever recorded on this path came from a word that is not
+  "sponsor" — `citizen` (EEO boilerplate, "a good citizen in our monorepo"), `visa` (the
+  payment network), `authoriz` (OAuth/RBAC), `right to work` ("…in an environment
+  where"). The narrowing gives up the bars that never say "sponsor": 7 of the 13
+  must-flag sentences in `tests/fixtures/sponsorship_quotes.json` are no longer
+  retrieved and become MISSES. `test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`
+  pins that count in both directions so the trade cannot drift silently. The 72-of-156
+  authorization discards with no `sponsor` token looked like bars this would lose; they
+  are historical damage predating the 2026-07-25 relevance gate, and the genuine ones
+  among them are foreign on-site roles `resolve_location` rejects independently.
+
+  **`NO_SPONSOR_PHRASES` is the floor for SILENCE only** — `SCREEN_BACKEND=none`, a
+  provider error, or the fit scorer's Stage 4 shape. It can only *add* a
+  disqualification, never veto a model pass. And `authorization` **always records a
+  verdict** when the candidate configured it, even when nothing was retrieved and no
+  clause was asked and no LLM call was made: `merge_fallback_screen` fills only the keys
+  the screen left absent, and a second model vote on a disqualification is exactly what
+  that function is documented not to be.
+
+  **Superseded measurements.** The 2026-07-25 precision/recall table
+  (`NO_SPONSOR_PHRASES` 81.8%/45.0%; shipped `_check_authorization` 90.9%/100% over 20
+  known true positives, via the now-retired `tools/sponsor_diff.py`) described the quote
+  design and no longer describes shipped behavior; it is kept in
+  [`../CHANGELOG.md`](../CHANGELOG.md) as history. The standing rule it established still
+  holds and now applies to the veto patterns: **the vocabulary is measured, not guessed**
+  — a round of speculative terms (`opt `, `cpt `, `e-3`, `us person`) each collided with
+  common boilerplate and was reverted, because on a disqualification path a collision
+  costs a real job. Add a term only with a must-flag sentence that needs it and must-keep
+  still green.
+
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
   sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
@@ -664,14 +700,66 @@ worker modules are pure and dependency-injected; real services are wired only in
   `clearance` only materialize their key when the extraction carried a recognized
   **value**, so a ran-but-blind check stays distinguishable from a genuinely cleared one.
   The test is the value, never the entry dict: under a strict schema the model must emit
-  every key, so `{"required_degree": null}` is a non-empty dict that says nothing. And it
-  enumerates the **recognized** values (`_degree_stated` mirrors `_degree_rank`'s degree
-  names; clearance must be an actual `bool`) rather than the no-data spellings — that set
-  is open-ended ("unknown", "not stated", "TBD", "unclear", …) and cannot be closed, so
-  listing it would let a shrug through as a pass. `none` counts as data: `screen.txt`
-  says "Use 'none' if no specific degree is required".
-  (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
-  with no model data.) **Location is a deterministic code gate**
+  every key, so `{"degree_levels": null, "degree_required": null}` is a non-empty dict
+  that says nothing. And it enumerates the **recognized** values (`_degree_extracted`
+  wants a real bool for `degree_required`, plus at least one level `_degree_stated`
+  recognizes whenever it says a degree *is* required; clearance must be an actual `bool`)
+  rather than the no-data spellings — that set is open-ended ("unknown", "not stated",
+  "TBD", "unclear", …) and cannot be closed, so listing it would let a shrug through as a
+  pass. `none` counts as data, and `degree_required: false` needs no levels at all — "no
+  degree required" is a real answer.
+  (`authorization` always records, even when nothing was retrieved and no clause was
+  asked — see the sponsorship paragraph below for why that key must never be absent.)
+
+  **Degree is an EXTRACTION plus arithmetic, not a model judgment.** The model returns
+  `degree_levels` — *every* level the posting names as acceptable — and `degree_required`,
+  a bool separating a hard condition from a preference; CODE takes `min(rank)` and
+  compares it to `highest_degree`, and `degree_required: false` is no bar at all.
+  It used to ask for one `required_degree`, "the MINIMUM", which is a judgment: `make
+  eval-screen` measured the 4B answering it wrong on **9 of 38 live discards**, reading
+  *"PhD, or Master's degree"* and *"PhD strongly preferred"* as a hard PhD bar with all
+  three draws agreeing. Listing what a posting says is extraction; picking the smallest
+  number out of the list is arithmetic. **Measured effect: 9 false disqualifications → 3,
+  recall 27/37 → 28/37** — the direction that matters improved without paying recall for
+  it. Two rounds of pure prompt rewording had reached 4 and 5 and stopped converging.
+  **Residual, and it is a 4B limit rather than a wording gap** (`[SCREEN · XS]`): 2-3
+  rows still fire, all of them a soft or preferred degree bar read as hard, where
+  `degree_required` comes back `true`. Ids 67/68 (*"DESIRABLE CANDIDATES: Ph.D.
+  candidates"*, one JD shape twice) fire in every run observed; a third row joins them in
+  some runs and not others — *"PhD or equivalent industry experience"* (id 738) or
+  *"advanced degree … (preferably a Ph.D.)"* (id 672). **The exact count is not
+  reproducible and must not be treated as a diffable number:** two back-to-back runs on
+  2026-07-28 gave 3 then 2 on identical code, and the screen calls Ollama at
+  `temperature: 0, seed: 0`, so the variance is in the runtime rather than in sampling
+  (`flip` is 0 in both — all three draws agree *within* a run). On genuine sole-PhD roles
+  the same model sometimes *invents* a `master's` level, so it is unreliable in both
+  directions; the honest fix for the remainder is routing a degree fail to the strong
+  model rather than a fifth prompt rewrite (see PROGRESS).
+  **The fit scorer's Stage 4 block still emits the old single `required_degree`, on
+  purpose**, and `_check_degree` reads both shapes: that block runs on a strong model
+  where the minimum is a judgment it can make, and changing it would edit `score.txt`,
+  whose gate is two consecutive quota-spending `score_eval` runs.
+
+  **Clearance carries an EVIDENCE FLOOR, the same shape D1 gave sponsorship.**
+  `_check_clearance` honours `requires_clearance: true` only when `CLEARANCE_TOKENS`
+  (`clearance` · `top secret` · `secret` · `ts/sci` · `polygraph`, case-insensitive)
+  matches the JD **description or the job title** — evidence the code can see, not the
+  model's say-so. Measured 2026-07-27 over 24 live clearance discards: **20 were wrong**,
+  every one of them containing "security" (the engineering domain — "Senior Security
+  Researcher", "Azure security") and **no** clearance token, while all 4 true positives
+  carried an explicit *"Other Requirements: Security Clearance Requirements:"* block. The
+  token list is the measured one and stays that way: widening it re-opens the
+  false-discard direction, which is why bare `sci` (matches "science"/"scientist") and
+  bare `poly` are deliberately absent — the abbreviation is spelled `ts/sci`. A clearance
+  bar phrased with none of these words is a **miss**, which costs one paid fit call and
+  reaches the human; a false discard is reviewed by nobody. The floor is keep-direction
+  only — it can turn a discard into a keep, never the reverse — and it applies to
+  `merge_fallback_screen`'s Stage 4 extraction too, since that routes through the same
+  `_screen_verdict`. `degree` is **not** guarded this way: 38 of 38 live degree discards
+  are grounded (36 in the description, 2 in the title), so the same guard there would be
+  speculative.
+
+  **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
   name via `pycountry`, else a city via **geonamescache** (highest-population match,
@@ -1512,12 +1600,16 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
 
-- **Hard-constraint screening**: work authorization is the quote-grounded LLM check
-  (**D1**, §7.1) — the model's extracted quote is verified against the JD text before
-  it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
-  and its precision/recall have not yet been measured against a labeled set (open
-  item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
-  code check — a misjudgment sends a spurious alert or discards an applicable role.
+- **Hard-constraint screening**: work authorization is **retrieve-then-classify**
+  (**D1**, §7.1) — CODE retrieves the `sponsor` sentences, the model only labels them,
+  so it cannot supply text and hallucination cannot disqualify by construction. It is
+  now **gated**: `make eval-screen` measures 0 false disqualifications over 21 labeled
+  live rows (2026-07-28). What stays unenforced is **recall** — the `sponsor`-only
+  vocabulary gives up bars phrased without that word, deliberately, and each is a miss
+  that costs one paid fit call and reaches the human; **clearance** remains an LLM *semantic* extraction with a
+  code check, now floored on JD evidence (`CLEARANCE_TOKENS` over description + title,
+  §7.1) so an ungrounded `requires_clearance` can no longer discard — the residual is a
+  **miss**: a clearance bar phrased in none of those words costs one paid fit call.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
 - **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual
   gaps are ambiguity-shaped — a city whose **highest-population** bearer is foreign
@@ -1539,10 +1631,15 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
-| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
+| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
+| Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
-| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot and stays scheduled | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
-| Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
+| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
+| Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
+| Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
+| An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
+| The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_score.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
+| Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
@@ -1550,6 +1647,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
+| A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
 | `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
 | `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
@@ -1561,7 +1659,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Score `attempts` and notify `notify_attempts` are independent — score hiccups never pre-spend the notify budget | `test_pipeline.py` (`test_notify_budget_survives_prior_score_hiccups`) |
 | A **dead fit backend** (`_BREAKER_LIMIT` failures, zero successes) circuit-breaks the score pass, leaving the untouched remainder `new`; the `batch_size==1` singles fallback is not re-issued | `test_pipeline.py` (`test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new`, `test_run_score_singles_fallback_not_reissued_at_batch_size_one`) |
 | A score run is interruptible (`KeyboardInterrupt` → `cancel_futures`, queued fit calls not drained) and persists finished work as it completes (`as_completed` + `future→chunk` map) | `test_pipeline.py` (`test_run_score_keyboard_interrupt_cancels_pending_keeps_done`) |
-| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_four_stages_in_order` — the feeds-off path; with a feed enabled the pipeline is five stages) |
+| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_five_stages_in_order`) |
 | A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
 | Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
@@ -1868,6 +1966,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
 | `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
+| `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — the gate `screen.txt` never had. **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 

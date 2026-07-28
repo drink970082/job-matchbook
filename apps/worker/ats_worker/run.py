@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import errno
 import fcntl
+import logging
 import os
 import tempfile
 import threading
@@ -668,7 +669,12 @@ def main(argv=None) -> None:
             # queues, blocks, or runs a partial pass.
             if args.once:
                 raise SystemExit(str(exc)) from None
-            print(f"skipping this scheduled pass: {exc}")
+            # `logging`, not `print`: this and APScheduler's own misfire/max-instances
+            # warnings are the same signal — "a pass did not run" — and an operator
+            # reading journald needs them interleaved on one timestamped stream. The
+            # daemon branch installs the handler (a bare import must still configure
+            # nothing), so before that runs this falls to logging.lastResort.
+            logging.warning("skipping this scheduled pass: %s", exc)
 
     if args.once:
         once()

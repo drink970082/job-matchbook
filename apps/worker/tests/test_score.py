@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from ats_worker import score
+from ats_worker.score import screen as screen_mod  # a few checks are not re-exported
 
 
 class FakeResponse:
@@ -54,6 +55,15 @@ POSTING = {
     "job_title": "Senior Python Engineer",
     "company_name": "Acme",
     "description": "We need Python, Django, and AWS experience.",
+}
+# A posting whose JD ACTUALLY states a clearance bar. `_check_clearance` needs one:
+# a bare `requires_clearance: true` over a JD with no clearance word is the 2026-07-27
+# defect (20 of 24 live discards), and the floor now keeps such a posting. The wording
+# is the real Microsoft `CTJ - Poly` shape the 4 true positives all carried.
+CLEARED_POSTING = {
+    **POSTING,
+    "description": ("We need Python, Django, and AWS experience. Other Requirements: "
+                    "Security Clearance Requirements: an active TS/SCI clearance."),
 }
 RESUME = "Experienced Python and Django developer."
 
@@ -152,7 +162,7 @@ def test_screen_posting_disqualifies_without_calling_fit():
     # it at all, so it structurally cannot pay for a fit call — pipeline.run_score is
     # what gates on `disqualified` before ever calling the injected fit_fn.
     http = FakeHttp(json.dumps({"screen": {"clearance": {"requires_clearance": True}}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"}, num_ctx=8192)
     assert out["disqualified"] is True
     assert "screen" in out
@@ -183,7 +193,7 @@ def test_screen_posting_uses_injected_extract():
         seen["prompt"] = prompt
         return {"screen": {"clearance": {"requires_clearance": True}}}
 
-    out = score.screen_posting(POSTING, extract=extract,
+    out = score.screen_posting(CLEARED_POSTING, extract=extract,
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "clearance: requires security clearance"
@@ -252,6 +262,43 @@ def test_provider_error_still_honours_the_deterministic_gates():
     assert out["disqualified"] is True          # deterministic gate still wins
 
 
+def test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor():
+    # The "authorization always records a verdict" block runs the closed-list floor when
+    # no labels arrived — correct for SCREEN_BACKEND=none, WRONG on a dead provider. The
+    # floor is a substring scan of the whole description that matches "without
+    # sponsorship" inside *"or are eligible to work without sponsorship, we encourage you
+    # to apply"* — an invitation. On a working backend the model's labels overrule it; on
+    # a dead one nothing does, so an Ollama outage would TERMINALLY discard exactly the
+    # postings retrieve-then-classify was built to stop discarding (`run_score` honours a
+    # disqualification even on the provider_error path, writing status `discarded`).
+    # The docstring's "a failure errs toward KEEP, never toward discard" and SPEC §7.1
+    # both say so; the code did not.
+    def extract(prompt, schema):
+        raise score.ScoreError("provider down")
+
+    jd = ("If you are eligible to work without sponsorship, we encourage you to apply. "
+          "We build low-latency trading systems.")
+    out = score.screen_posting({**POSTING, "description": jd}, extract=extract,
+                               candidate={"work_authorization": "requires H-1B sponsorship"})
+    assert out["provider_error"] is True
+    assert out["disqualified"] is False
+    # The key stays ABSENT rather than recording a pass: the row is left `new`, so
+    # nothing downstream reads it and the next pass screens it properly.
+    assert "authorization" not in out["screen"]
+
+
+def test_screen_backend_none_still_records_the_authorization_floor_verdict():
+    # The counterpart the fix must not break. With no provider there is no outage — the
+    # floor IS the intended whole verdict, and dropping it here would silently retire
+    # the only sponsorship signal SCREEN_BACKEND=none has.
+    jd = "We will not sponsor employment visas for this position."
+    out = score.screen_posting({**POSTING, "description": jd}, extract=None,
+                               candidate={"work_authorization": "requires H-1B sponsorship"})
+    assert "provider_error" not in out
+    assert out["disqualified"] is True
+    assert out["screen"]["authorization"]["pass"] is False
+
+
 # --- determinism / Ollama options ----------------------------------------
 
 def test_screen_request_sends_deterministic_options():
@@ -270,8 +317,11 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     # locations is deliberately omitted: it's a code gate now (resolve_location off
     # posting["location"]), so it renders no extraction clause in the SCREEN prompt.
     http = FakeHttp(json.dumps({"screen": {}}))
+    # The authorization clause only renders when CODE retrieved something to classify,
+    # so the JD has to mention sponsorship for all three clauses to appear.
+    posting = dict(POSTING, description="We need Python. We cannot sponsor visas.")
     score.screen_posting(
-        POSTING, extract=_ollama(http),
+        posting, extract=_ollama(http),
         candidate={
             "highest_degree": "Master's",
             "work_authorization": "needs visa sponsorship",
@@ -279,9 +329,12 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
         },
     )
     prompt = http.calls[0][1]["json"]["prompt"]                # the SCREEN call
-    # each structured requirement asks the model to EXTRACT a job fact
-    assert "required_degree" in prompt
-    assert "no_sponsorship_quote" in prompt
+    # each structured requirement asks the model to EXTRACT a job fact — degree asks for
+    # the LEVELS the posting names plus a required/preferred bool, never for a "minimum",
+    # which is a judgment CODE makes by taking the lowest rank.
+    assert "degree_levels" in prompt
+    assert "degree_required" in prompt
+    assert "sponsorship_labels" in prompt
     assert "requires_clearance" in prompt
     assert '"screen"' in prompt
     assert RESUME not in prompt                               # no résumé in the screen call
@@ -364,7 +417,9 @@ def test_deterministic_screen_noop_without_candidate():
     assert out == {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
 
-# degree: LLM extracts required_degree, code compares rank
+# degree: the LLM extracts which levels the posting NAMES plus a required/preferred
+# bool; CODE takes the lowest rank and compares. The legacy single-`required_degree`
+# shape below is the fit scorer's Stage 4 block, still read for the fallback path.
 def test_higher_required_degree_disqualifies():
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
     out = score.screen_posting(POSTING, extract=_ollama(http),
@@ -379,6 +434,62 @@ def test_lower_or_no_required_degree_passes():
         out = score.screen_posting(POSTING, extract=_ollama(http),
                                    candidate={"highest_degree": "Master's"})
         assert out["disqualified"] is False, req
+
+
+def _degree_screen(levels, required, cand="Master's"):
+    http = FakeHttp(_screen_resp(
+        {"degree": {"degree_levels": levels, "degree_required": required}}))
+    return score.screen_posting(POSTING, extract=_ollama(http),
+                                candidate={"highest_degree": cand})
+
+
+def test_degree_levels_take_the_lowest_not_the_highest():
+    # THE DEFECT, pinned. `make eval-screen` measured 9 of 38 live degree discards wrong
+    # because the model was asked for "the minimum" and returned the highest level it
+    # saw. It now lists the levels and CODE takes the lowest, so every one of these
+    # keeps a candidate holding a Master's.
+    for levels in (["phd", "master's"],                       # "PhD, or Master's degree"
+                   ["master's", "phd"],                       # "Ms or PhD" — order-free
+                   ["phd", "master's", "bachelor's"],         # Microsoft's ladder
+                   ["phd", "none"]):                          # "PhD or equivalent"
+        assert _degree_screen(levels, True)["disqualified"] is False, levels
+    # A genuine sole-PhD bar still disqualifies — the fix must not gut the check.
+    out = _degree_screen(["phd"], True)
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "degree: requires phd"
+
+
+def test_a_merely_preferred_degree_is_not_a_bar():
+    # "PhD strongly preferred" / "DESIRABLE CANDIDATES: Ph.D. candidates" — the posting
+    # names a level but does not require it, so there is nothing to disqualify on.
+    out = _degree_screen(["phd"], False)
+    assert out["disqualified"] is False
+    assert out["screen"]["degree"]["pass"] is True
+
+
+def test_unrecognized_degree_levels_are_dropped_not_ranked():
+    # `_degree_rank` returns 0 for any unrecognized string, so counting one as a level
+    # would silently read as "none required" — a pass badge from a shrug. They are
+    # dropped; a list with nothing recognized in it leaves no bar at all.
+    assert _degree_screen(["phd", "unknown"], True)["disqualified"] is True
+    assert _degree_screen(["TBD", "not stated"], True)["disqualified"] is False
+
+
+def test_blind_degree_levels_leave_a_gap_for_the_fallback():
+    # The new shape has two ways to say nothing, and both must record NO verdict so
+    # merge_fallback_screen still sees the gap: a null/garbled `degree_required`, and a
+    # `degree_required: true` with no recognized level to compare against.
+    cand = {"highest_degree": "Master's"}
+    for entry in ({"degree_levels": ["phd"], "degree_required": None},
+                  {"degree_levels": None, "degree_required": "yes-ish"},
+                  {"degree_levels": [], "degree_required": True},
+                  {"degree_levels": ["unclear"], "degree_required": True}):
+        out = score.screen._screen_verdict({"screen": {"degree": entry}}, cand, "JD")
+        assert "degree" not in out["screen"], entry
+    # "no degree required" needs no levels — it is a real answer, not a gap.
+    out = score.screen._screen_verdict(
+        {"screen": {"degree": {"degree_levels": [], "degree_required": False}}}, cand, "JD")
+    assert out["screen"]["degree"]["pass"] is True
 
 
 # authorization: these exercise the NO_SPONSOR_PHRASES floor specifically — the model's
@@ -427,18 +538,84 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
     assert out["disqualified"] is True
 
 
-# clearance: LLM extracts requires_clearance, code checks
+# clearance: LLM extracts requires_clearance, code checks — and CODE also requires the
+# JD to actually SAY so (the evidence floor; see the CLEARANCE_TOKENS block below).
 def test_clearance_required_disqualifies():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
 
 
 def test_clearance_not_required_passes():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": False}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+
+
+# --- the clearance evidence floor (defect found 2026-07-27) ---------------
+# `requires_clearance` is a bare boolean from a 4B model. Acting on it unguarded made
+# 20 of 24 live discards wrong: the model reads "security" (the engineering domain) as
+# the government credential. CODE now requires a clearance token in the JD or title.
+
+def test_ungrounded_clearance_claim_keeps_the_posting():
+    # THE DEFECT, pinned. Every one of the 20 wrong discards looked exactly like this:
+    # "security" all over the JD, `requires_clearance: true`, and not one clearance word.
+    posting = dict(POSTING, job_title="Senior Security Researcher",
+                   description=("Join our security team. You will work on Azure "
+                                "security, application security reviews, and secure "
+                                "coding practices across the platform."))
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+    assert out["screen"]["clearance"]["pass"] is True
+
+
+def test_clearance_grounded_in_the_title_alone_disqualifies():
+    # Evidence is title OR description: the two grounded `degree` discards the same
+    # 2026-07-27 query found state their bar in the title and nowhere else, so the
+    # clearance floor reads both rather than the description only.
+    posting = dict(POSTING, job_title="TS/SCI Cleared Systems Engineer")
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "clearance: requires security clearance"
+
+
+@pytest.mark.parametrize("text", [
+    "You will join our data science team and ship models.",
+    "BS in Computer Science or equivalent experience required.",
+    "Our Chief Scientist leads the research group.",
+    # The three phrasings above all happen to put a non-`ts` word before "sci". These
+    # three do not, and every one of them matched `ts[.\s/-]?sci` before the `\b`:
+    # the separator is optional, so the pattern spanned the word gap in "supporTS
+    # SCIentific". One live posting (id 4899, "how OpenAI supports scientists and life
+    # sciences organizations") was grounding a clearance claim on it.
+    "The platform supports scientific computing at scale.",
+    "Microsoft and its scientific partners collaborate on this.",
+    "You will work with our products scientists every week.",
+])
+def test_science_words_do_not_ground_a_clearance_claim(text):
+    # The `sci` trap: a bare `sci` token would match science/scientist/Science and
+    # re-open the exact false-discard direction this floor exists to close. The set
+    # spells the abbreviation as `ts/sci`, so these three keep.
+    posting = dict(POSTING, description=text)
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+
+
+def test_fallback_screen_clearance_also_needs_evidence():
+    # The fit scorer's Stage 4 extraction routes through the SAME _screen_verdict, so
+    # it must not become a back door around the floor. Ungrounded -> kept.
+    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"clearance": {"requires_clearance": True}}}
+    out = score.merge_fallback_screen(empty, card, POSTING,
+                                      {"security_clearance": "none"})
     assert out["disqualified"] is False
 
 
@@ -584,113 +761,341 @@ def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
 
 
 def test_candidate_holding_clearance_passes_when_role_requires_one():
+    # CLEARED_POSTING so the evidence floor is SATISFIED — this pins the holder
+    # short-circuit, not the floor keeping an ungrounded row by accident.
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "Secret"})
     assert out["disqualified"] is False
 
 
 # --- multi-gate failure reason join --------------------------------------
 
-# --- quote-grounded sponsorship ------------------------------------------
+# --- sponsorship: CODE retrieves, MODEL labels, CODE decides -------------
+#
+# Rewritten 2026-07-28 with the check itself. The old block tested a quote the MODEL
+# retrieved and CODE classified with three regex vetoes; both halves were on the wrong
+# side. There is no quote to verify any more — the model labels text the code handed it,
+# so hallucination is impossible by construction rather than by an ex-post check.
 
 _NEEDS_VISA = {"work_authorization": "needs visa sponsorship"}
 
 
-def _screen_with(quote, description):
-    http = FakeHttp(json.dumps(
-        {"screen": {"authorization": {"no_sponsorship_quote": quote}}}))
+def _screen_labels(labels, description):
+    """Screen `description` with the model returning `labels`, one per retrieved snippet."""
+    http = FakeHttp(json.dumps({"screen": {"authorization": {"sponsorship_labels": labels}}}))
     posting = dict(POSTING, description=description)
     return score.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
 
 
-def test_verified_quote_disqualifies():
-    jd = "Great role. US Citizenship is required for this position. Apply now."
-    out = _screen_with("US Citizenship is required for this position.", jd)
+def _sponsor_jd(sentence):
+    return f"About the role. {sentence} Apply now."
+
+
+# --- retrieval (the half that is now deterministic) ----------------------
+
+def test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side():
+    jd = ("We build trading systems. The team is small. "
+          "We do not offer visa sponsorship. You will own your work. Apply today.")
+    snips = score.sponsorship_snippets(jd)
+    assert len(snips) == 1
+    assert snips[0] == ("The team is small. We do not offer visa sponsorship. "
+                        "You will own your work.")
+
+
+def test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it():
+    # The reason the window is +/-1 and not the sentence alone: "Sponsorship is not
+    # among them" is unlabelable without the sentence before it.
+    jd = "We offer relocation and a signing bonus. Sponsorship is not among them."
+    assert score.sponsorship_snippets(jd) == [
+        "We offer relocation and a signing bonus. Sponsorship is not among them."]
+
+
+def test_a_jd_that_never_says_sponsor_yields_no_snippets():
+    # No snippets means no clause in the prompt and nothing to classify — the check
+    # simply does not run, which is why silence keeps.
+    assert score.sponsorship_snippets(
+        "A normal job description with no mention of immigration status.") == []
+
+
+def test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent():
+    # NOT merged, deliberately. The label is about the CENTRE sentence, so merging two
+    # hits forces one answer for both — and an earlier version of this function did
+    # exactly that, which made live IMC rows 465/490 come back `refuses` on a paragraph
+    # that refuses three named nationalities AND offers sponsorship to Ukrainians.
+    # Repeating a shared neighbour costs a few hundred prompt chars; merging cost a job.
+    assert score.sponsorship_snippets(
+        "Intro. We sponsor visas. We also sponsor conferences. Outro.") == [
+        "Intro. We sponsor visas. We also sponsor conferences.",
+        "We sponsor visas. We also sponsor conferences. Outro."]
+    jd = ("We sponsor a robotics team. " + "Filler sentence. " * 5
+          + "We cannot sponsor work visas. We are hiring now.")
+    snips = score.sponsorship_snippets(jd)
+    assert len(snips) == 2
+    assert "robotics" in snips[0] and "work visas" in snips[1]
+
+
+def test_a_scoped_refusal_beside_an_offer_keeps_the_posting():
+    # The shape that forced per-sentence snippets, reduced from IMC ids 465/490.
+    jd = ("Apply today. We are unable to obtain sponsorship for candidates from certain "
+          "countries. If you hold a biometric passport we can obtain sponsorship for you. "
+          "Contact recruitment.")
+    snips = score.sponsorship_snippets(jd)
+    assert len(snips) == 2
+    assert _screen_labels(["refuses", "offers"], jd)["disqualified"] is False
+
+
+def test_the_abbreviation_trap_pr22_sprang_does_not_split_early():
+    # PR #22's splitter stripped the dot from any single-letter token, merging
+    # "based in the U.S. Citizenship is not required" into a fake citizenship bar.
+    # Under this design a mis-split only widens the window — the model still reads the
+    # words — but the guard is cheap and the case is a real posting.
+    sents = score._sentences("Roles are based in the U.S. Sponsorship is not required. Apply.")
+    assert sents[0] == "Roles are based in the U.S. Sponsorship is not required."
+
+
+# --- the decision rule (the half CODE keeps) -----------------------------
+
+def test_a_refuses_label_disqualifies():
+    out = _screen_labels(["refuses"], _sponsor_jd("We will not sponsor visas for this role."))
     assert out["disqualified"] is True
     assert "sponsorship" in out["disqualification_reason"]
 
 
-def test_real_but_off_topic_quote_keeps_the_posting():
-    # The misclassification residual quote-verification alone cannot close, measured on
-    # the 2026-07-25 labeled set: this exact Optiver sentence is REAL (so _quote_in
-    # passes) but is about recruitment agencies, not visas. It disqualified 5 postings.
-    jd = ("Join our trading floor. Please note: We do not require any assistance from "
-          "third-parties including agencies in the recruitment of this role. Apply now.")
-    out = _screen_with("We do not require any assistance from third-parties including "
-                       "agencies in the recruitment of this role", jd)
+@pytest.mark.parametrize("label", ["neither", "offers"])
+def test_a_non_refusal_label_keeps(label):
+    out = _screen_labels([label], _sponsor_jd("Visa sponsorship is available for this role."))
     assert out["disqualified"] is False
 
 
-def test_sponsorship_quote_corpus_keeps_every_must_keep():
-    # The corpus, not hand-picked examples. Each MUST_KEEP sentence came from a real
-    # posting, a labeled row, or a review that produced it as a counter-example -- and a
-    # wrong answer here SILENTLY DISCARDS A REAL JOB, so this is the direction that
-    # matters. A previous version of this gate passed four bespoke tests while
-    # disqualifying "We offer generous personal time off".
-    corpus = json.loads((Path(__file__).parent / "fixtures" /
-                         "sponsorship_quotes.json").read_text())
-    leaked = [q for q in corpus["must_keep"]
-              if _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
-    assert not leaked, "gate wrongly disqualified:\n" + "\n".join(leaked)
+def test_an_offer_anywhere_outranks_a_refusal():
+    # The two only co-occur when a posting is describing WHO it can sponsor, and a
+    # wrongly-deleted opportunity is the expensive error. Offer wins.
+    jd = ("Intro. We sponsor Skilled Worker visas. " + "Filler. " * 4
+          + "We do not sponsor interns. Outro.")
+    assert len(score.sponsorship_snippets(jd)) == 2
+    assert _screen_labels(["offers", "refuses"], jd)["disqualified"] is False
 
 
-def test_sponsorship_quote_corpus_flags_every_must_flag():
-    # The cheap direction: a miss costs one paid fit call. Still pinned, so a veto added
-    # to fix a MUST_KEEP case cannot quietly gut recall.
-    corpus = json.loads((Path(__file__).parent / "fixtures" /
-                         "sponsorship_quotes.json").read_text())
-    missed = [q for q in corpus["must_flag"]
-              if not _screen_with(q, f"About the role. {q} Apply now.")["disqualified"]]
-    assert not missed, "gate failed to disqualify:\n" + "\n".join(missed)
+def test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one():
+    # _OFFERS_SPONSORSHIP survives DEMOTED: keep-direction only. A model that labels a
+    # plain offer "refuses" is overruled...
+    jd = _sponsor_jd("Visa sponsorship is available for this position.")
+    assert _screen_labels(["refuses"], jd)["disqualified"] is False
+    # ...but the veto cannot invent a disqualification out of a "neither".
+    assert _screen_labels(["neither"], jd)["disqualified"] is False
 
 
-def test_on_topic_quotes_still_disqualify():
-    # Every true-positive shape in that labeled set must survive the relevance guard,
-    # including the ones that never say "sponsor": a citizenship bar and a British
-    # "authorisation" spelling.
-    for quote in ("We will not sponsor individuals for employment authorization.",
-                  "We cannot accept visa holders at this time.",
-                  "This position requires that the candidate selected be an EU Citizen.",
-                  "Must have unrestricted authorisation to work in the UK."):
-        jd = f"About the role. {quote} Apply now."
-        assert _screen_with(quote, jd)["disqualified"] is True, quote
+def test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal():
+    # The design note predicted a classifier would make all three regex vetoes
+    # unnecessary. Two of them, yes; this one no — `make eval-screen` caught the 4B
+    # labelling this exact TikTok sentence `refuses` on 3 live rows, all three draws.
+    # A preference is not a bar: the candidate can still apply.
+    jd = _sponsor_jd("Our Company will be prioritizing applicants who have a current "
+                     "right to work in Singapore, and do not require sponsorship of a visa.")
+    assert _screen_labels(["refuses"], jd)["disqualified"] is False
+    # It is keep-direction only: it cannot turn a real refusal into a keep just because
+    # the word "prefer" appears far from the sponsorship clause.
+    hard = _sponsor_jd("We prefer candidates based in London. We will not sponsor visas.")
+    assert _screen_labels(["refuses"] * len(score.sponsorship_snippets(hard)),
+                          hard)["disqualified"] is True
 
 
-def test_hallucinated_quote_keeps_the_posting():
-    # THE security property of this design: a quote that is not in the JD fails
-    # verification, so hallucination cannot disqualify anything BY CONSTRUCTION.
+def test_a_refusal_is_not_vetoed_by_a_negated_offer_verb():
+    # "we do not PROVIDE sponsorship" must not read as an offer just because it contains
+    # the offer verb — the negation sits immediately before it.
+    jd = _sponsor_jd("Please note that we do not provide immigration sponsorship for this position.")
+    assert _screen_labels(["refuses"], jd)["disqualified"] is True
+
+
+@pytest.mark.parametrize("labels", [
+    [],                       # model said nothing
+    ["refuses", "refuses"],   # more labels than snippets
+    ["yes"],                  # off-vocabulary
+    None,                     # key absent entirely
+])
+def test_unusable_labels_drop_the_check_rather_than_guessing(labels):
+    # A count or vocabulary mismatch means the model answered a different question. The
+    # check is dropped and the posting KEPT — the phrasing here is a genuine refusal the
+    # closed-list floor does NOT carry, so nothing else can rescue it. That is the
+    # intended trade: a miss costs one paid fit call, a false discard costs the job.
+    jd = _sponsor_jd("Sponsorship for this role is unavailable.")
+    assert _screen_labels(labels, jd)["disqualified"] is False, labels
+
+
+def test_label_case_and_whitespace_are_normalized():
+    jd = _sponsor_jd("We will not sponsor visas for this role.")
+    assert _screen_labels(["  Refuses "], jd)["disqualified"] is True
+
+
+def test_a_miscounted_answer_does_not_fall_through_to_the_floor():
+    # Both long-standing IMC false positives (ids 465/490) came from exactly this path:
+    # the 4B returned ONE label for three snippets, the check was dropped, the closed
+    # list then scanned the WHOLE description, and "without sponsorship" matched inside
+    # an invitation to apply. A model that returned labels answered the question — a bad
+    # count is not silence, and must not re-enable the ungated gate this design replaces.
+    jd = _sponsor_jd("If you are eligible to work without sponsorship, we encourage you "
+                     "to apply. We also sponsor conferences.")
+    assert len(score.sponsorship_snippets(jd)) == 2
+    assert "without sponsorship" in jd                    # the floor WOULD match
+    assert _screen_labels(["neither"], jd)["disqualified"] is False   # 1 label, 2 snippets
+    assert _screen_labels(["yes", "yes"], jd)["disqualified"] is False  # off-vocabulary
+
+
+def test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence():
+    # `sponsorship_labels` is `["array", "null"]` in SCREEN_SCHEMA, so `[]` is a legal
+    # answer and a plausible 4B one. It was read as silence because `[]` is falsy, which
+    # sent it to the closed-list floor — re-opening the exact IMC false positive the
+    # design closes, on a JD the floor matches for the wrong reason. `test_unusable_
+    # labels_drop_the_check_rather_than_guessing` covers `[]` too but on a JD carrying NO
+    # floor phrase, so it passed either way; this one pins the direction that costs a job.
+    jd = _sponsor_jd("If you are eligible to work without sponsorship, we encourage you "
+                     "to apply. We also sponsor conferences.")
+    assert len(score.sponsorship_snippets(jd)) == 2       # a question WAS asked...
+    assert "without sponsorship" in jd                    # ...and the floor WOULD match
+    assert _screen_labels([], jd)["disqualified"] is False
+
+
+def test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor():
+    # The other side of the same line, and why the guard is `answered AND snippets`
+    # rather than bare `answered`. With no snippet there was no question to answer, so
+    # `[]` is the correct empty answer and the floor is the whole verdict — the
+    # documented silence path (SPEC §7.1), not a bad count.
+    # This pins a CONTRACT, not a currently-live path: every NO_SPONSOR_PHRASES entry
+    # contains "sponsor", so retrieval always yields a snippet for any JD the floor could
+    # match, and the two branches agree today. It stops mattering the moment the closed
+    # list gains a phrase without that word — at which point bare `answered` would retire
+    # the floor silently. Called directly because this check is not re-exported.
+    jd = "We will not sponsor employment visas for this position."
+    entry = {"sponsorship_labels": []}
+    assert screen_mod._check_authorization("requires H-1B sponsorship", jd, entry, []) \
+        == (False, "no visa sponsorship offered")
+
+
+def test_hallucination_cannot_disqualify_because_the_model_supplies_no_text():
+    # THE security property, now structural. The model returns a label over a snippet
+    # CODE retrieved; there is no channel for invented text to reach the decision.
     jd = "Great role. We welcome applicants from all backgrounds."
-    out = _screen_with("We do not sponsor visas.", jd)
-    assert out["disqualified"] is False
+    assert score.sponsorship_snippets(jd) == []          # nothing retrieved...
+    assert _screen_labels(["refuses"], jd)["disqualified"] is False   # ...so nothing to act on
 
 
-def test_quote_match_tolerates_line_wraps_and_casing():
-    # A faithful quote legitimately differs in whitespace and case; invented text does not.
-    jd = "We will NOT sponsor\n   employment visas for this role."
-    out = _screen_with("we will not sponsor employment visas for this role.", jd)
-    assert out["disqualified"] is True
+# --- the closed-list floor -----------------------------------------------
 
-
-def test_null_quote_falls_through_to_the_phrase_floor():
-    # The list is demoted to a floor that can only ADD a disqualification.
+def test_the_phrase_floor_runs_only_when_no_labels_arrived():
+    # SCREEN_BACKEND=none, a garbled response, or the fit scorer's Stage 4 shape.
     jd = "This employer does not sponsor applicants for work visas."
-    out = _screen_with(None, jd)
-    assert out["disqualified"] is True
+    assert _screen_labels(None, jd)["disqualified"] is True
 
 
-def test_silent_jd_with_null_quote_is_kept():
-    out = _screen_with(None, "A normal job description with no mention of immigration status.")
+def test_the_floor_never_vetoes_a_model_keep():
+    # The floor can only ADD a disqualification. A blunt phrase the model labelled
+    # "offers" must not be resurrected by the closed list.
+    jd = "We can sponsor, but note we have no sponsorship for contract roles."
+    assert _screen_labels(["offers"], jd)["disqualified"] is False
+
+
+def test_a_silent_jd_is_kept():
+    out = _screen_labels(None, "A normal job description with no mention of immigration status.")
     assert out["disqualified"] is False
 
 
 def test_candidate_not_needing_sponsorship_is_never_gated():
     http = FakeHttp(json.dumps(
-        {"screen": {"authorization": {"no_sponsorship_quote": "We will not sponsor."}}}))
+        {"screen": {"authorization": {"sponsorship_labels": ["refuses"]}}}))
     posting = dict(POSTING, description="We will not sponsor.")
     out = score.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "citizen"})
     assert out["disqualified"] is False
+
+
+def test_the_authorization_clause_is_omitted_when_nothing_was_retrieved():
+    # No snippets -> no clause -> the model is never asked a question about text that is
+    # not there. But the VERDICT is still recorded, so merge_fallback_screen sees no gap
+    # and the fit scorer never gets a second vote on a disqualification (SPEC §7.1).
+    http = FakeHttp(_screen_resp({}))
+    posting = dict(POSTING, description="A normal JD with no mention of immigration.")
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={**_NEEDS_VISA, "highest_degree": "Master's"})
+    prompt = http.calls[0][1]["json"]["prompt"]
+    # Assert on the CLAUSE, not the key: the header's worked example names every key.
+    assert "- authorization:" not in prompt        # nothing to classify, so nothing asked
+    assert "- degree:" in prompt                   # the other clauses are unaffected
+    assert out["screen"]["authorization"]["pass"] is True
+
+
+def test_authorization_records_a_verdict_even_with_no_llm_call_at_all():
+    # Sponsorship is the ONLY configured requirement and the JD never says "sponsor", so
+    # the checklist is empty and no call is made. The verdict must still be recorded:
+    # merge_fallback_screen fills only ABSENT keys, and letting the fit scorer supply a
+    # second opinion on a disqualification is what SPEC §7.1 forbids.
+    posting = dict(POSTING, description="A normal JD with no mention of immigration.")
+    out = score.screen_posting(posting, extract=lambda p, s: pytest.fail("no call"),
+                               candidate=_NEEDS_VISA)
+    assert out["screen"]["authorization"]["pass"] is True
+    assert out["disqualified"] is False
+    # ...and the floor still stands on that no-call path.
+    blunt = dict(POSTING, description="This employer does not sponsor work visas.")
+    out = score.screen_posting(blunt, extract=None, candidate=_NEEDS_VISA)
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "authorization: no visa sponsorship offered"
+
+
+def test_the_retrieved_snippets_are_numbered_into_the_prompt():
+    http = FakeHttp(_screen_resp({}))
+    posting = dict(POSTING, description=_sponsor_jd("We will not sponsor visas."))
+    score.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
+    prompt = http.calls[0][1]["json"]["prompt"]
+    assert "sponsorship_labels" in prompt
+    assert "1. About the role. We will not sponsor visas. Apply now." in prompt
+
+
+# --- the corpus, repointed at what this design actually decides ----------
+
+def _corpus():
+    return json.loads((Path(__file__).parent / "fixtures" /
+                       "sponsorship_quotes.json").read_text())
+
+
+def test_every_must_keep_sentence_survives_the_code_path():
+    # A wrong answer here SILENTLY DISCARDS A REAL JOB, so it stays the direction that
+    # matters. Under this design most must_keep sentences are never even retrieved (no
+    # `sponsor` token); the rest reach the model as `neither`/`offers` and keep. The
+    # adversarial case is a model that labels every one of them "refuses" — only the
+    # keep-direction offers-veto stands between that and a deleted job, so that is what
+    # this asserts.
+    leaked = []
+    for q in _corpus()["must_keep"]:
+        jd = _sponsor_jd(q)
+        n = len(score.sponsorship_snippets(jd))
+        if n and _screen_labels(["refuses"] * n, jd)["disqualified"]:
+            leaked.append(q)
+    # The off-topic and EEO shapes are no longer code's problem — they carry no `sponsor`
+    # token, or the model labels them `neither`. What must still hold is that a genuine
+    # OFFER can never be turned into a discard by a mislabel.
+    offers = [q for q in _corpus()["must_keep"] if score._offers_sponsorship(q.lower())]
+    assert len(offers) >= 8, "the offers-veto corpus shrank"
+    assert not [q for q in offers if q in leaked], (
+        "a genuine offer was disqualified:\n" + "\n".join(leaked))
+
+
+def test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up():
+    # `sponsor` alone is the retrieval vocabulary, and that is a MEASURED narrowing: every
+    # false positive on this path ever recorded came from `citizen`/`visa`/`authoriz`/
+    # `right to work`. The cost is real and is stated here rather than hidden: a bar that
+    # never says "sponsor" is not retrieved, so it is a MISS — one paid fit call, and the
+    # posting reaches the human. This pins the SIZE of that trade so it cannot grow
+    # silently, in either direction.
+    flag = _corpus()["must_flag"]
+    retrievable = [q for q in flag if score.sponsorship_snippets(_sponsor_jd(q))]
+    missed = [q for q in flag if q not in retrievable]
+    assert len(retrievable) == 6 and len(missed) == 7, (
+        f"the recall trade moved: {len(retrievable)} retrievable, {len(missed)} missed\n"
+        + "\n".join(missed))
+    # Every retrievable one must actually disqualify when the model labels it refuses.
+    not_flagged = [q for q in retrievable
+                   if not _screen_labels(["refuses"], _sponsor_jd(q))["disqualified"]]
+    assert not not_flagged, "retrieved but not disqualified:\n" + "\n".join(not_flagged)
 
 
 def test_multiple_failing_gates_join_reasons():
@@ -1309,7 +1714,7 @@ def test_fallback_screen_used_when_screen_produced_nothing():
     # the ONLY check. It must be consumed.
     empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(empty, card, POSTING,
+    out = score.merge_fallback_screen(empty, card, CLEARED_POSTING,
                                       {"security_clearance": "none"})
     assert out["disqualified"] is True
 

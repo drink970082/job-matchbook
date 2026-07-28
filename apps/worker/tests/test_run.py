@@ -940,7 +940,7 @@ def test_main_once_refuses_to_start_inside_another_pass(monkeypatch, tmp_path):
     assert calls == []
 
 
-def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path, capsys):
+def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path, caplog):
     # Daemon side of the same refusal: starting (or firing) the scheduler while a
     # hand-run pass holds the lock must skip THIS slot and stay scheduled — the eager
     # startup pass must not take the daemon down with it.
@@ -974,7 +974,15 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
         run.main(["--env", str(tmp_path / "none.env")])
 
     assert calls == []                                   # the pass did not run
-    assert "skipping this scheduled pass" in capsys.readouterr().out
+    # WARNING on the logging stream, not stdout: "a pass did not run" is the same signal
+    # APScheduler emits for a misfire or a max-instances skip, and an operator reading
+    # journald needs the two interleaved and timestamped rather than split across
+    # stdout and stderr.
+    assert "skipping this scheduled pass" in caplog.text
+    # Level, not count: today the eager startup pass and the scheduled firing are both
+    # refused, so this logs twice. Dropping the eager pass is queued, and this test is
+    # about WHERE the signal goes, not how many slots the fake scheduler fires.
+    assert {r.levelname for r in caplog.records} == {"WARNING"}
     assert events == ["add_job", "start"]                # ... but the daemon lives
 
 

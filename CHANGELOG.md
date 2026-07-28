@@ -7,7 +7,127 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Sponsorship screening inverted: CODE retrieves, the MODEL classifies, CODE decides.**
+  The two halves were on the wrong sides. The model did RETRIEVAL — read 16K chars, find
+  the sentence, copy it verbatim — and code did CLASSIFICATION, three regex vetoes
+  deciding whether that sentence was a refusal. Retrieval on a keyword is trivially
+  deterministic and regexes are bad at stance, which is what three rounds of
+  whack-a-mole, PR #22's five false positives, and the screen eval's 8-of-16 recall (on
+  rows whose refusal sentence was *inside the text handed to the model*) were all
+  measuring.
+
+  Now `sponsorship_snippets` pulls every sentence naming `sponsor` plus one neighbour
+  each side, the prompt numbers them, the model returns one label per snippet
+  (`refuses` / `offers` / `neither`), and code decides: any `offers` keeps, else any
+  `refuses` discards, else keep. **Hallucination became structurally impossible rather
+  than checked for** — the model labels text the code handed it and never supplies text
+  — which retires `_quote_in` instead of strengthening it, and `_OFF_TOPIC_QUOTE` with
+  it: an EEO line is simply `neither` to a classifier, so no pattern has to anticipate
+  every innocent sentence in English.
+
+  **Result on `make eval-screen`: sponsorship false disqualifications 2 → 0 across all
+  21 corpus rows**, including the two IMC residuals (465/490) that had been open since
+  2026-07-25. Whole-corpus false disqualifications are **11 → 2-3** counting the degree
+  fix above; the stable pair is one JD shape (ids 67/68) and a third soft-degree-bar row
+  joins it in some runs. The count is not reproducible run-to-run even at
+  `temperature: 0, seed: 0` — two back-to-back runs gave 3 then 2 on identical code — so
+  the number to hold this stack to is the part that *is* stable: **clearance 0 and
+  sponsorship 0**, with every remaining failure inside the documented 4B degree ceiling
+  (SPEC §7.1).
+
+  **Two ways the floor was reached that should not have been — found by the pre-merge
+  review and fixed before merge.** Not an exhaustive list: a live-but-BLIND backend still
+  reaches it, which is an open fork recorded in PROGRESS rather than a defect, because
+  four tests pin the floor as an independent deterministic signal on purpose. Both of
+  these discarded a real job, the direction this design exists to close.
+  (1) On a SCREEN **provider error** the "authorization always records a verdict"
+  block ran the closed-list floor over the whole description, so an Ollama outage
+  terminally discarded exactly the *"eligible to work without sponsorship, we encourage
+  you to apply"* shape — a regression against `main`, which kept it. The block is now
+  skipped on `provider_error`, leaving the key absent; `run_score` leaves such a row
+  `new`, so no second model vote can occur and the next pass screens it properly.
+  (2) `sponsorship_labels: []` is schema-legal (`["array", "null"]`) and a plausible 4B
+  answer, but `[]` is falsy, so a **bad count expressed as an empty array** was read as
+  silence and fell to the floor. "The model answered" is now `bool(labels) or
+  isinstance(raw, list)`, with the floor still reached when nothing was retrieved.
+
+  **Also fixed here:** `CLEARANCE_TOKENS` gained the `\b` in `\bts[.\s/-]?sci`. With the
+  separator optional the pattern matched across a word gap — *"supports scientific"*,
+  *"its scientific"*, *"products scientists"* all grounded a clearance claim, the exact
+  `sci` trap the token list's own comment says it avoids. Narrowing only ever turns a
+  discard into a keep. And `tools/screen_eval.py` now passes the resolved model to
+  `make_screener` instead of only printing it: the model is a keyword argument there, not
+  an `env` key, so every run used the built-in default while the report header claimed
+  whatever `OLLAMA_MODEL`/`SCREEN_MODEL` said — which voids the tool's premise that
+  eval-model equals production-model.
+
+  **Three things the measurement corrected about the design as recorded.** (1) Adjacent
+  snippets must NOT be merged — an early version merged them, and one IMC paragraph that
+  refuses sponsorship for three named nationalities *and* offers it to Ukrainian
+  applicants could then only come back `refuses`. One snippet per `sponsor` sentence,
+  overlapping windows allowed to repeat a neighbour. (2) `_PREFERENCE_ONLY` had to be
+  **restored** as a keep-direction veto: the design expected a classifier to make all
+  three regex vetoes unnecessary, and the 4B labelled *"prioritizing applicants who …
+  do not require sponsorship of a visa"* as `refuses` on 3 live TikTok rows, all three
+  draws. (3) A **miscounted** answer must not fall through to the `NO_SPONSOR_PHRASES`
+  floor — that path is exactly where both IMC false positives came from, the 4B returning
+  one label for three snippets and the closed list then matching `without sponsorship`
+  inside *"or are eligible to work without sponsorship, we encourage you to apply"*.
+  Silence still reaches the floor; a bad count does not.
+
+  The floor survives only for silence (`SCREEN_BACKEND=none`, provider error, the fit
+  scorer's Stage 4 shape), and `authorization` still records a verdict even when nothing
+  was retrieved and no clause was asked — `merge_fallback_screen` fills only absent keys,
+  and a second model vote on a disqualification is what SPEC §7.1 forbids.
+
+  **The retrieval vocabulary narrowed to `sponsor` alone**, and the cost is stated rather
+  than hidden: 7 of the 13 corpus must-flag sentences (citizenship and work-authorization
+  bars that never say "sponsor") are no longer retrieved and become misses — one paid fit
+  call each, reaching the human. A test pins that count in both directions so the trade
+  cannot drift silently. Every false positive ever recorded on this path came from a word
+  that is *not* "sponsor".
+
 ### Added
+
+- **`make eval-screen` — the accuracy gate `screen.txt` never had.** `score.txt` cannot
+  change without two consecutive `tools/score_eval.py` PASS; the screen's degree,
+  clearance and sponsorship clauses shipped on inspection alone, and on 2026-07-27 that
+  cost four days of a clearance check running 83% wrong with nothing to surface it (no row
+  is marked `failed`, so no failure ratio moves). `tools/screen_eval.py` reuses the
+  production wiring (`run.make_screener` -> `score.screen_posting`), draws each corpus row
+  K=3x on the free local Ollama backend, and judges the requirement that row was drawn for
+  against a hand-labeled JD **fact** — "does this JD require a clearance?", never "is this
+  posting disqualified?", because a verdict-labeled set rots the moment `config.yaml`
+  changes and a fact-labeled one does not.
+
+  **The gate is one-directional: zero false disqualification, judged on ANY of the three
+  draws rather than the majority** — a check that discards a good posting one time in
+  three is not a passing check. Recall and flip-rate are reported and never gated: a miss
+  costs one paid fit call and reaches the human, while a false discard is reviewed by
+  nobody. Rows whose label is genuinely ambiguous carry `gate: false` and are reported
+  only — a gate is worthless if it can be argued with. `--selftest` is a free hermetic
+  check of the gate logic *and* of the corpus's own invariants; it runs no model.
+
+  The corpus (`apps/worker/eval/screen_golden.jsonl`, 83 rows) is built from **live fires
+  rather than synthesized JDs** — the 24 clearance discards, the 38 degree discards, and
+  the 21 operator-signed rows of the 2026-07-25 sponsorship worksheet — and stores
+  excerpts, which is also the input shape the sponsorship rewrite will feed the model. It
+  lives under the already-gitignored, privacy-guarded `apps/worker/eval/`, so like
+  `eval/golden.jsonl` the gate is reproducible only with the operator's local files.
+
+  **Its first run FAILED, 11 false disqualifications out of 81 gate-eligible rows** —
+  clearance 0 (the evidence floor above, verified against live data), sponsorship 2 (the
+  known `NO_SPONSOR_PHRASES` residual), **degree 9 — a previously unknown defect**: the 4B
+  reads *"PhD, or Master's degree in…"*, *"PhD (or exceptional MSc)"* and *"PhD … strongly
+  preferred"* as a hard PhD bar. All three draws agreed on all 9, so it is a stable
+  misreading rather than noise. Microsoft's laddered *"Doctorate … OR Master's … OR
+  Bachelor's"* form is read correctly 5 for 5, which places the fix in the prompt clause
+  and not in code. Sponsorship recall is the other finding: **8 of 16 bars missed on rows
+  whose refusal sentence is inside the excerpt the model was handed** — model-side
+  retrieval failing at exactly the job the queued retrieve-then-classify rewrite takes
+  away from it.
 
 - **One pipeline pass at a time per host.** APScheduler's `max_instances=1` already stops
   the scheduler overlapping itself, but nothing stopped a hand-run pass landing inside a
@@ -23,11 +143,70 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   is never unlinked (unlinking races a waiter onto an inode no longer at that path). A
   refused pass is total and non-destructive — it neither queues nor partially runs:
   `--once` exits non-zero naming the holder's pid before any fetch or scorer call, while a
-  scheduled firing prints one line, skips that slot and stays scheduled, so a daemon
+  scheduled firing logs one `logging.WARNING`, skips that slot and stays scheduled, so a daemon
   restarted during a hand run does not die on its eager startup pass. Drives of all three
   paths (clean pass, refusal, SIGKILLed holder) were run through the real CLI.
+  The scheduled skip goes to `logging` rather than `print` so it interleaves with
+  APScheduler's own misfire and max-instances warnings on one timestamped stream —
+  they are all the same signal, "a pass did not run", and an operator reading journald
+  should not have to correlate stdout against stderr to see it.
 
 ### Fixed
+
+- **The degree check read "PhD **or** Master's" as a hard PhD bar: 9 of 38 live discards
+  were wrong.** `screen.txt` asked the 4B for `required_degree`, "the MINIMUM degree the
+  role requires" — a *judgment*, and the one thing this repo's design says not to ask a
+  small local model for. It returned the highest level it saw. Found 2026-07-28 by the new
+  `make eval-screen` gate on its first run, all three draws agreeing on all 9, so a stable
+  misreading rather than noise: *"PhD, or Master's degree in Computer Science"*, *"Ms or
+  PhD"*, *"PhD (or exceptional MSc)"*, *"advanced degree, preferably a Ph.D."*, *"PhD or
+  equivalent industry experience"*, *"PhD or Master's … strongly preferred"*, *"DESIRABLE
+  CANDIDATES: Ph.D. candidates"*.
+
+  **The shape changed, not just the wording.** The model now returns `degree_levels` —
+  every level the posting names as acceptable — plus `degree_required`, a bool separating
+  a hard condition from a preference; CODE takes `min(rank)`. Listing what a posting says
+  is extraction; picking the smallest number out of the list is arithmetic. **9 false
+  disqualifications → 3, with recall 27/37 → 28/37** — the expensive direction improved
+  without buying it from the cheap one. Two rounds of pure prompt rewording first reached
+  4 and then 5 and stopped converging, which is what said the wording was not the problem.
+
+  **Residual: 3 rows, and it is a 4B ceiling rather than a wording gap.** *"DESIRABLE
+  CANDIDATES: Ph.D. candidates"* (ids 67/68 — one JD shape, twice) and *"PhD or equivalent
+  industry experience"* (id 738) still come back `degree_required: true`. Probing the raw
+  output showed the same model *inventing* a `master's` level on genuine sole-PhD roles, so
+  it is unreliable in both directions and a fifth prompt rewrite is not the fix; routing a
+  degree fail to the strong model is (tracked in PROGRESS).
+
+  The fit scorer's Stage 4 block deliberately still emits the old single `required_degree`
+  and `_check_degree` reads both shapes — that block runs on a strong model where the
+  minimum is a judgment it can make, and editing `score.txt` would trigger its own gate of
+  two quota-spending `score_eval` runs for no measured benefit.
+
+- **The clearance check fired on the word "security": 20 of 24 live discards were
+  wrong.** `_check_clearance` acted on a bare `requires_clearance: true` boolean from a
+  4B model with no evidence floor at all — the failure class D1 exists to kill, closed
+  for `authorization` by quote grounding and left standing here. Measured 2026-07-27
+  against `db/applications.db`: of 24 clearance discards, **20 contained "security" (the
+  engineering domain — "Senior Security Researcher", "Azure security") and not one
+  clearance token**; the 4 true positives were all Microsoft `CTJ - Poly` roles carrying
+  an explicit *"Other Requirements: Security Clearance Requirements:"* block. Every one
+  of the 24 post-dates 2026-07-23, so this was live damage, not stale — the most recent
+  pass was 3 for 3 wrong. CODE now requires a `CLEARANCE_TOKENS` match (`clearance` ·
+  `top secret` · `secret` · `ts/sci` · `polygraph`) in the JD **description or the job
+  title** before honouring the flag. On that data the two populations separate perfectly.
+  The token list stays the measured one — bare `sci` (matches "science"/"scientist") and
+  bare `poly` are deliberately absent, since on a disqualification path a collision costs
+  a real job. The guard is **keep-direction only** (it can only turn a discard into a
+  keep), so it needed no eval to ship, and `merge_fallback_screen`'s Stage 4 extraction
+  obeys it too rather than becoming a back door. `degree` is left unguarded on purpose:
+  38 of 38 live degree discards are grounded (36 in the description, 2 in the title), so
+  the symmetric guard would close a hole with no observed instance.
+
+  **Why it went unnoticed for four days:** clearance is 0.7% of discards, so it read as
+  the least consequential check in the block; nothing marks such a row `failed`; and
+  `screen.txt` has no eval gate. Volume ranked it last, error rate ranks it first — the
+  gate is the next queue item.
 
 - **A successful scoring pass printed nothing, so it was indistinguishable from a
   no-op.** `run_score` only ever spoke up on trouble — a fetch drop, a tripped breaker —
