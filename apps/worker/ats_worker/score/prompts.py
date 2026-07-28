@@ -220,6 +220,21 @@ def _candidate_block(candidate) -> str:
 # key — which is why the value test, not a null test, is the one that holds everywhere.
 # Those value tests enumerate the RECOGNIZED values, never the no-data spellings: the
 # latter set is open-ended ("not stated", "TBD", "unclear", ...) and cannot be closed.
+#
+# `degree` asks for a LIST of levels plus a required/preferred bool, not for a single
+# "minimum" — changed 2026-07-28 because the old shape asked the 4B for a JUDGMENT and it
+# reliably got it wrong. Measured by `make eval-screen`: 9 of 38 live degree discards were
+# false, the model reading "PhD, or Master's degree" and "PhD strongly preferred" as a hard
+# PhD bar, all three draws agreeing. Two rounds of prompt wording moved the count to 4 and
+# then 7 without converging. Listing the levels named is an EXTRACTION; taking the lowest
+# is arithmetic CODE does — the same split every other check here already uses, and the
+# reason `_check_degree` stopped being a comparison against one model-chosen value.
+#
+# The fit scorer's Stage 4 block (`_score_schema` above) deliberately still emits the old
+# `required_degree`, and `_check_degree` reads BOTH. That block runs on a strong model,
+# where the minimum is a judgment it can make; changing it would edit `score.txt`, whose
+# gate is two consecutive quota-spending `score_eval` runs — a real cost for no measured
+# benefit.
 SCREEN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -228,8 +243,12 @@ SCREEN_SCHEMA = {
             "properties": {
                 "degree": {
                     "type": "object",
-                    "properties": {"required_degree": {"type": ["string", "null"]}},
-                    "required": ["required_degree"],
+                    "properties": {
+                        "degree_levels": {"type": ["array", "null"],
+                                          "items": {"type": "string"}},
+                        "degree_required": {"type": ["boolean", "null"]},
+                    },
+                    "required": ["degree_levels", "degree_required"],
                     "additionalProperties": False,
                 },
                 "authorization": {

@@ -288,8 +288,11 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
         },
     )
     prompt = http.calls[0][1]["json"]["prompt"]                # the SCREEN call
-    # each structured requirement asks the model to EXTRACT a job fact
-    assert "required_degree" in prompt
+    # each structured requirement asks the model to EXTRACT a job fact — degree asks for
+    # the LEVELS the posting names plus a required/preferred bool, never for a "minimum",
+    # which is a judgment CODE makes by taking the lowest rank.
+    assert "degree_levels" in prompt
+    assert "degree_required" in prompt
     assert "no_sponsorship_quote" in prompt
     assert "requires_clearance" in prompt
     assert '"screen"' in prompt
@@ -373,7 +376,9 @@ def test_deterministic_screen_noop_without_candidate():
     assert out == {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
 
-# degree: LLM extracts required_degree, code compares rank
+# degree: the LLM extracts which levels the posting NAMES plus a required/preferred
+# bool; CODE takes the lowest rank and compares. The legacy single-`required_degree`
+# shape below is the fit scorer's Stage 4 block, still read for the fallback path.
 def test_higher_required_degree_disqualifies():
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
     out = score.screen_posting(POSTING, extract=_ollama(http),
@@ -388,6 +393,62 @@ def test_lower_or_no_required_degree_passes():
         out = score.screen_posting(POSTING, extract=_ollama(http),
                                    candidate={"highest_degree": "Master's"})
         assert out["disqualified"] is False, req
+
+
+def _degree_screen(levels, required, cand="Master's"):
+    http = FakeHttp(_screen_resp(
+        {"degree": {"degree_levels": levels, "degree_required": required}}))
+    return score.screen_posting(POSTING, extract=_ollama(http),
+                                candidate={"highest_degree": cand})
+
+
+def test_degree_levels_take_the_lowest_not_the_highest():
+    # THE DEFECT, pinned. `make eval-screen` measured 9 of 38 live degree discards wrong
+    # because the model was asked for "the minimum" and returned the highest level it
+    # saw. It now lists the levels and CODE takes the lowest, so every one of these
+    # keeps a candidate holding a Master's.
+    for levels in (["phd", "master's"],                       # "PhD, or Master's degree"
+                   ["master's", "phd"],                       # "Ms or PhD" — order-free
+                   ["phd", "master's", "bachelor's"],         # Microsoft's ladder
+                   ["phd", "none"]):                          # "PhD or equivalent"
+        assert _degree_screen(levels, True)["disqualified"] is False, levels
+    # A genuine sole-PhD bar still disqualifies — the fix must not gut the check.
+    out = _degree_screen(["phd"], True)
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "degree: requires phd"
+
+
+def test_a_merely_preferred_degree_is_not_a_bar():
+    # "PhD strongly preferred" / "DESIRABLE CANDIDATES: Ph.D. candidates" — the posting
+    # names a level but does not require it, so there is nothing to disqualify on.
+    out = _degree_screen(["phd"], False)
+    assert out["disqualified"] is False
+    assert out["screen"]["degree"]["pass"] is True
+
+
+def test_unrecognized_degree_levels_are_dropped_not_ranked():
+    # `_degree_rank` returns 0 for any unrecognized string, so counting one as a level
+    # would silently read as "none required" — a pass badge from a shrug. They are
+    # dropped; a list with nothing recognized in it leaves no bar at all.
+    assert _degree_screen(["phd", "unknown"], True)["disqualified"] is True
+    assert _degree_screen(["TBD", "not stated"], True)["disqualified"] is False
+
+
+def test_blind_degree_levels_leave_a_gap_for_the_fallback():
+    # The new shape has two ways to say nothing, and both must record NO verdict so
+    # merge_fallback_screen still sees the gap: a null/garbled `degree_required`, and a
+    # `degree_required: true` with no recognized level to compare against.
+    cand = {"highest_degree": "Master's"}
+    for entry in ({"degree_levels": ["phd"], "degree_required": None},
+                  {"degree_levels": None, "degree_required": "yes-ish"},
+                  {"degree_levels": [], "degree_required": True},
+                  {"degree_levels": ["unclear"], "degree_required": True}):
+        out = score.screen._screen_verdict({"screen": {"degree": entry}}, cand, "JD")
+        assert "degree" not in out["screen"], entry
+    # "no degree required" needs no levels — it is a real answer, not a gap.
+    out = score.screen._screen_verdict(
+        {"screen": {"degree": {"degree_levels": [], "degree_required": False}}}, cand, "JD")
+    assert out["screen"]["degree"]["pass"] is True
 
 
 # authorization: these exercise the NO_SPONSOR_PHRASES floor specifically — the model's

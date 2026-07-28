@@ -38,16 +38,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   gate-eligible rows: **FAIL — 11 false disqualifications, recall 27/37 (73%), 0 flips.**
   A gate that fails on its own baseline is the gate working; it is also why item 3 cannot
   ship until the findings are dispositioned.
-  | requirement | rows | false disqualification |
-  |---|---|---|
-  | clearance | 24 | **0** — item 1's fix verified against live data, 1 miss (id 1405) |
-  | degree | 38 | **9 (24%) — a NEW defect, see Defects** |
-  | sponsorship | 21 | 2 (ids 465/490, the known `NO_SPONSOR_PHRASES` residual item 3 closes) |
+  | requirement | rows | false disq. at baseline | now |
+  |---|---|---|---|
+  | clearance | 24 | **0** — item 1's fix verified against live data | 0 |
+  | degree | 38 | **9 (24%) — a NEW defect** | **3**, fixed on `fix/degree-lower-bound` |
+  | sponsorship | 21 | 2 (ids 465/490, the known `NO_SPONSOR_PHRASES` residual) | 2, item 3 closes them |
   **Sponsorship recall is the other half of the story: 8 of 16 bars missed**, on rows whose
   refusal sentence *is inside the excerpt the model was handed*. That is model-side
   retrieval failing at the one job item 3 takes away from it — independent evidence for the
   retrieve-then-classify inversion, measured rather than argued.
   **Stacked on `fix/clearance-evidence-floor`.**
+
+- **`fix/degree-lower-bound` — the defect the gate found, fixed** `[SCREEN · S · claimed
+  2026-07-28]`. `SCREEN_SCHEMA`'s degree block became `degree_levels` + `degree_required`,
+  `_check_degree` takes `min(rank)` and reads both shapes, `screen.txt` rewritten, 5 new
+  tests. **9 → 3 false disqualifications, recall 27/37 → 28/37.** 683 worker tests pass,
+  coverage 93.77%. **Stacked on `feat/screen-eval-gate`** — it is the branch that can
+  measure it.
 
 - **Four branches LANDED, UNMERGED, all reviewed 2026-07-26 — three need work before they
   merge.** PRs are open; every one has a §7 fresh-subagent review whose findings are
@@ -259,7 +266,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 defect** (degree reads "PhD or Master's" as a PhD bar, found 2026-07-28 *by* the new eval); the clearance floor shipped, the eval gap is closed |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (clearance floor + degree shape change both shipped 2026-07-28); the eval gap is closed and the gate now runs |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -273,9 +280,12 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: one — SCREEN, found 2026-07-28** (the degree check reads "PhD or Master's"
-as a PhD bar; 9 of 38 discards false, all three eval draws agreeing). The clearance one
-found 2026-07-27 shipped its fix 2026-07-28 (evidence floor, details below).
+**Open defects: none — both shipped 2026-07-28.** The clearance check firing on "security"
+(20 of 24 discards false) got a code-side evidence floor; the degree check reading "PhD or
+Master's" as a PhD bar (9 of 38 false) got a shape change, 9 → 3, with recall up. Details
+below. **The 3 residual degree rows are a measured 4B ceiling, not an open defect** — the
+remedy is the `needs_confirmation` routing already decided on 2026-07-24, not more prompt
+work.
 
 Both are the same class, and it is *different* from the five closed before them: not a
 systemic condition mishandled as a per-item verdict, but a **per-item verdict acted on
@@ -312,12 +322,12 @@ take first and why. Each numbered item is independently pickable.
 > 2. ~~**Screen golden set — `[S]`, blocks item 3.**~~ **BUILT 2026-07-28** on
 >    `feat/screen-eval-gate` — `make eval-screen`, 83 rows from live fires, gate = zero
 >    false disqualification. **Its first run FAILED with 11 findings** (see
->    [In flight](#in-flight)), which is the gate doing its job: 2 are the sponsorship
->    residual item 3 closes, and **9 are a new degree defect** that item 3 does not touch.
->    **New decision for the operator, and it is the only open one in this queue:** fix the
->    degree clause first (`[XS]`, one prompt clause, now gated) or run item 3 first and
->    disposition degree after. Item 3 remains blocked either way until the sponsorship
->    findings are the *only* ones left, because a failing gate cannot certify a rewrite.
+>    [In flight](#in-flight)), which is the gate doing its job: 2 were the sponsorship
+>    residual item 3 closes, and **9 were a new degree defect** it does not touch.
+>    **Degree was fixed first, by operator decision — `fix/degree-lower-bound`, 9 → 3**
+>    (see Defects). The gate now stands at **5 false disqualifications: 2 sponsorship + 3
+>    residual degree**, so item 3 has a clean target — closing the 2 is what turns this
+>    gate green apart from a documented 4B ceiling.
 > 3. **Sponsorship: retrieve-then-classify — `[S]`, gated on item 2.** Replaces both the
 >    shipped gate and the rejected PR #22 rebuild. CODE retrieves, MODEL classifies, CODE
 >    decides — the inverse of today's split. Design recorded in the
@@ -437,11 +447,42 @@ exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **The degree check reads "PhD **or** Master's" as a PhD bar — 9 of 38 discards are
-  false** — `[SCREEN · S · found 2026-07-28 by the new screen eval · queue: decide vs
-  item 3]`. `screen.txt`'s degree clause asks for "the MINIMUM degree the role requires …
-  the lower bound for 'X or higher'". It says nothing about a **list of alternatives** or
-  about **preference** language, and the 4B takes the highest degree it sees.
+- **The degree check read "PhD **or** Master's" as a PhD bar — 9 of 38 discards were
+  false; 6 FIXED 2026-07-28, 3 residual** — `[SCREEN · XS residual · found 2026-07-28 by
+  the new screen eval]`. **Fixed on `fix/degree-lower-bound`** by changing the SHAPE, not
+  the wording: the model now returns `degree_levels` (every level the posting names) plus
+  `degree_required` (hard condition vs preference) and CODE takes `min(rank)`. Listing is
+  extraction; taking the smallest is arithmetic. SPEC §7.1 + traceability, CHANGELOG.
+
+  | attempt | degree false disq. | recall |
+  |---|---|---|
+  | baseline | 9 | 27/37 |
+  | prompt reword #1 | 4 | 27/37 |
+  | prompt reword #2 | 5 | 27/37 |
+  | shape change | 4 | 26/37 |
+  | **shape change + a sharpened `degree_required` clause (shipped)** | **3** | **28/37** |
+
+  **Two rounds of rewording reached 4 then 5 and stopped converging** — that non-monotonic
+  wobble is what said the wording was not the problem. The shape change was worth it for
+  the recall column too: every other attempt paid for precision with recall, and this one
+  did not.
+  **RESIDUAL, and do NOT spend a fifth rewrite on it:** ids 67/68 (*"DESIRABLE CANDIDATES:
+  Ph.D. candidates"* — one JD shape, counted twice) and 738 (*"PhD or equivalent industry
+  experience"*) still return `degree_required: true`. Probing the raw model output settled
+  why: the 4B is unreliable in **both** directions — on genuine sole-PhD roles (ids 662,
+  1035) it *invents* a `master's` level that is not in the JD. A model that both
+  under-lists and over-lists is at its ceiling, not mis-instructed.
+  **The honest fix for the remainder is already an approved decision sitting in this
+  file** — route a degree fail to the strong model as `needs_confirmation` instead of a
+  terminal `discarded` (entry under Unverified / deferred; resolved to **route** on
+  2026-07-24 at ~30 rows). That entry says the false-discard *rate* was unmeasured and
+  that this made the decision cheap either way. **It is measured now: 24% for degree, 83%
+  for clearance** — which does not change the decision, it just removes the last reason to
+  defer the build.
+  Original report — `[SCREEN · S · found 2026-07-28]`:
+  `screen.txt`'s degree clause asked for "the MINIMUM degree the role requires …
+  the lower bound for 'X or higher'". It said nothing about a **list of alternatives** or
+  about **preference** language, and the 4B took the highest degree it saw.
   **Measured, not inferred** — `make eval-screen`, `ollama`/`qwen3.5:4b`, K=3, all three
   draws agreed on every one of the 9 (no flip, so this is a stable misreading, not noise):
 

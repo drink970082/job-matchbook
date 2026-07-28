@@ -49,6 +49,36 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The degree check read "PhD **or** Master's" as a hard PhD bar: 9 of 38 live discards
+  were wrong.** `screen.txt` asked the 4B for `required_degree`, "the MINIMUM degree the
+  role requires" — a *judgment*, and the one thing this repo's design says not to ask a
+  small local model for. It returned the highest level it saw. Found 2026-07-28 by the new
+  `make eval-screen` gate on its first run, all three draws agreeing on all 9, so a stable
+  misreading rather than noise: *"PhD, or Master's degree in Computer Science"*, *"Ms or
+  PhD"*, *"PhD (or exceptional MSc)"*, *"advanced degree, preferably a Ph.D."*, *"PhD or
+  equivalent industry experience"*, *"PhD or Master's … strongly preferred"*, *"DESIRABLE
+  CANDIDATES: Ph.D. candidates"*.
+
+  **The shape changed, not just the wording.** The model now returns `degree_levels` —
+  every level the posting names as acceptable — plus `degree_required`, a bool separating
+  a hard condition from a preference; CODE takes `min(rank)`. Listing what a posting says
+  is extraction; picking the smallest number out of the list is arithmetic. **9 false
+  disqualifications → 3, with recall 27/37 → 28/37** — the expensive direction improved
+  without buying it from the cheap one. Two rounds of pure prompt rewording first reached
+  4 and then 5 and stopped converging, which is what said the wording was not the problem.
+
+  **Residual: 3 rows, and it is a 4B ceiling rather than a wording gap.** *"DESIRABLE
+  CANDIDATES: Ph.D. candidates"* (ids 67/68 — one JD shape, twice) and *"PhD or equivalent
+  industry experience"* (id 738) still come back `degree_required: true`. Probing the raw
+  output showed the same model *inventing* a `master's` level on genuine sole-PhD roles, so
+  it is unreliable in both directions and a fifth prompt rewrite is not the fix; routing a
+  degree fail to the strong model is (tracked in PROGRESS).
+
+  The fit scorer's Stage 4 block deliberately still emits the old single `required_degree`
+  and `_check_degree` reads both shapes — that block runs on a strong model where the
+  minimum is a judgment it can make, and editing `score.txt` would trigger its own gate of
+  two quota-spending `score_eval` runs for no measured benefit.
+
 - **The clearance check fired on the word "security": 20 of 24 live discards were
   wrong.** `_check_clearance` acted on a bare `requires_clearance: true` boolean from a
   4B model with no evidence floor at all — the failure class D1 exists to kill, closed

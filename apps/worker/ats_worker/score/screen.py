@@ -357,7 +357,7 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "",
     # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
     # with no model data at all.
     gate("degree", bool(str(candidate.get("highest_degree") or "").strip())
-         and _degree_stated(entry("degree").get("required_degree")),
+         and _degree_extracted(entry("degree")),
          *_check_degree(entry("degree"), candidate.get("highest_degree")))
     gate("authorization", bool(str(candidate.get("work_authorization") or "").strip()),
          *_check_authorization(candidate.get("work_authorization"), description,
@@ -375,14 +375,57 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "",
 
 
 def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
-    """Fail only when the role requires a higher degree than the candidate holds."""
-    required = entry.get("required_degree")
-    if required is None or not str(required).strip():
-        return True, ""
-    req_rank = _degree_rank(required)
+    """Fail only when the role requires a higher degree than the candidate holds.
+
+    The model EXTRACTS which levels the posting names and whether any of them is
+    actually required; CODE takes the LOWEST and compares. It used to be handed one
+    "minimum" the model had chosen — a judgment, and `make eval-screen` measured the 4B
+    getting it wrong on 9 of 38 live discards ("PhD, or Master's degree" and "PhD
+    strongly preferred" both read as a hard PhD bar). Picking the smallest number out of
+    a list is arithmetic; asking a 4B for it was the mistake.
+
+    Reads BOTH shapes. The fit scorer's Stage 4 block still emits the old single
+    `required_degree` and is left alone deliberately (see the SCREEN_SCHEMA comment):
+    it runs on a strong model, and editing `score.txt` costs two quota-spending
+    `score_eval` runs.
+    """
+    if "degree_levels" in entry or "degree_required" in entry:
+        if not _flag(entry.get("degree_required")):
+            return True, ""      # preferred / desirable / equivalence accepted -> no bar
+        ranks = [_degree_rank(v) for v in _as_str_list(entry.get("degree_levels"))
+                 if _degree_stated(v)]
+        if not ranks:
+            return True, ""
+        req_rank = min(ranks)
+    else:                        # legacy single-value shape (the fit scorer's fallback)
+        required = entry.get("required_degree")
+        if required is None or not str(required).strip():
+            return True, ""
+        req_rank = _degree_rank(required)
     if req_rank > _degree_rank(cand_degree):
-        return False, f"requires {DEGREE_RANK.get(req_rank, str(required))}"
+        return False, f"requires {DEGREE_RANK.get(req_rank, 'a higher degree')}"
     return True, ""
+
+
+def _degree_extracted(entry: dict) -> bool:
+    """Did the model actually ANSWER the degree question?
+
+    A blind extraction must record no verdict at all, so `merge_fallback_screen` can
+    still see the gap — materializing a pass badge from an extraction that said nothing
+    is the original 2026-07-23 defect. `degree_required` must be a real bool (the same
+    closed test `clearance` uses); when it says a degree IS required, at least one
+    RECOGNIZED level has to come with it, or there is nothing to compare against.
+    `degree_required: false` needs no levels — "no degree required" is a real answer.
+
+    Falls back to the legacy single-value test for the fit scorer's Stage 4 shape.
+    """
+    if "degree_levels" in entry or "degree_required" in entry:
+        required = entry.get("degree_required")
+        if not isinstance(required, bool):
+            return False
+        return (not required
+                or any(_degree_stated(v) for v in _as_str_list(entry.get("degree_levels"))))
+    return _degree_stated(entry.get("required_degree"))
 
 
 # Vocabulary the quote must touch to count as being ABOUT work authorization.

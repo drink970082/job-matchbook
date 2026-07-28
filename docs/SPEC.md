@@ -581,8 +581,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   CODE then decides pass/fail — on every backend, not just the free 4B `ollama`
   default that motivated it (a small local model is unreliable at the pass/fail
   judgment itself, and keeping it code-side means the check behaves the same
-  regardless of which backend did the extracting): for degree/clearance by applying
-  the candidate's configured constraint to the extracted fact; for **work
+  regardless of which backend did the extracting): for **degree** by taking the LOWEST
+  of the levels the model listed and comparing that rank (see the degree paragraph
+  below); for clearance by applying the candidate's configured constraint to the
+  extracted fact; for **work
   authorization by a quote-grounded LLM check** (`_check_authorization` / `_quote_in`)
   — the model returns `no_sponsorship_quote`, the verbatim JD sentence it claims
   states sponsorship is unavailable, and CODE verifies that sentence is actually
@@ -666,6 +668,29 @@ worker modules are pure and dependency-injected; real services are wired only in
   says "Use 'none' if no specific degree is required".
   (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
   with no model data.)
+
+  **Degree is an EXTRACTION plus arithmetic, not a model judgment.** The model returns
+  `degree_levels` — *every* level the posting names as acceptable — and `degree_required`,
+  a bool separating a hard condition from a preference; CODE takes `min(rank)` and
+  compares it to `highest_degree`, and `degree_required: false` is no bar at all.
+  It used to ask for one `required_degree`, "the MINIMUM", which is a judgment: `make
+  eval-screen` measured the 4B answering it wrong on **9 of 38 live discards**, reading
+  *"PhD, or Master's degree"* and *"PhD strongly preferred"* as a hard PhD bar with all
+  three draws agreeing. Listing what a posting says is extraction; picking the smallest
+  number out of the list is arithmetic. **Measured effect: 9 false disqualifications → 3,
+  recall 27/37 → 28/37** — the direction that matters improved without paying recall for
+  it. Two rounds of pure prompt rewording had reached 4 and 5 and stopped converging.
+  **Residual, and it is a 4B limit rather than a wording gap** (`[SCREEN · XS]`): 3 rows
+  still fire — *"DESIRABLE CANDIDATES: Ph.D. candidates"* (ids 67/68, one JD shape twice)
+  and *"PhD or equivalent industry experience"* (id 738), where `degree_required` still
+  comes back `true`. On genuine sole-PhD roles the same model sometimes *invents* a
+  `master's` level, so it is unreliable in both directions; the honest fix for the
+  remainder is routing a degree fail to the strong model rather than a fifth prompt
+  rewrite (see PROGRESS).
+  **The fit scorer's Stage 4 block still emits the old single `required_degree`, on
+  purpose**, and `_check_degree` reads both shapes: that block runs on a strong model
+  where the minimum is a judgment it can make, and changing it would edit `score.txt`,
+  whose gate is two consecutive quota-spending `score_eval` runs.
 
   **Clearance carries an EVIDENCE FLOOR, the same shape D1 gave sponsorship.**
   `_check_clearance` honours `requires_clearance: true` only when `CLEARANCE_TOKENS`
@@ -1539,7 +1564,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
 | Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
-| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
+| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
+| Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
 | Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
