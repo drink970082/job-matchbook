@@ -488,6 +488,31 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
   principles still needs the measurement.
 
+- **The location gate's corroboration rule keeps 16% of what it used to discard — a
+  DELIBERATE trade, priced for the first time** — `[SCREEN · S · measured 2026-07-28 ·
+  no decision made]`. `resolve_location`'s clause (F) requires **two agreeing resolved
+  tokens** before discarding, so a lone resolved token beside an unresolved one keeps
+  (`location.py:130-137`). That rule is what fixed `London, ON` — `ON` is unresolvable, and
+  `London` alone was discarding Canadian postings under a UK reason — and it should stay.
+  **What was never counted is its price.** Re-running all 3,066 location discards through
+  current code: **493 (16%) would now be KEPT**. Of those, **364 name a country outright** —
+  `Bangalore, India` (x93), `Fab 10N/X, Singapore` (x74), `Jalisco, Mexico`, `Krakow,
+  Poland`, `Caesarea, Israel` — kept only because the sibling token is an old city name, a
+  fab code or a Mexican state. The other 129 are genuinely ambiguous (city or facility code
+  only) and keep correctly.
+  **Why the price changed under it:** the docstring prices this as *"one wasted fit call
+  versus losing a live match"*, written when passes were manual and the feed was off. At
+  `schedule_hours: 4` with Simplify enabled (both 2026-07-28) each one is a paid fit call,
+  six times a day.
+  **The narrow fix, if it is ever wanted:** a literal country name is self-corroborating in
+  a way a city name is not — `London` is ambiguous between GB and Ontario, `India` is not.
+  Requiring corroboration only for *city*-resolved tokens would recover the 364 and leave
+  the `London, ON` case untouched (it carries no country token at all). ~5 lines in clause
+  (E)/(F) plus tests.
+  **Not decided.** Err-toward-keep is the standing policy (PRINCIPLES) and losing a live
+  match is worse than a wasted call; this entry exists so the trade is no longer unpriced,
+  not to argue for reversing it.
+
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
   prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
