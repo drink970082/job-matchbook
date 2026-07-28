@@ -146,10 +146,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   scheduled firing logs one `logging.WARNING`, skips that slot and stays scheduled, so a daemon
   restarted during a hand run does not die on its eager startup pass. Drives of all three
   paths (clean pass, refusal, SIGKILLed holder) were run through the real CLI.
-  The scheduled skip goes to `logging` rather than `print` so it interleaves with
-  APScheduler's own misfire and max-instances warnings on one timestamped stream —
-  they are all the same signal, "a pass did not run", and an operator reading journald
-  should not have to correlate stdout against stderr to see it.
+  The scheduled skip goes to `logging.WARNING` rather than `print`, because APScheduler
+  emits its own misfire and max-instances warnings there and they are the same signal —
+  "a pass did not run" — so one handler can carry both. **No handler is installed yet:**
+  nothing in the package calls `basicConfig`, so the record currently falls to
+  `logging.lastResort` (stderr, untimestamped) and the `[pass] holding ...` line is
+  still a `print` on stdout. This change picks the stream; it does not yet unify the
+  output.
 
 ### Fixed
 

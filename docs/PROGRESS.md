@@ -118,8 +118,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `OSError` from `os.open` killing the daemon, and `ENOLCK` reported as contention, which
   would refuse every pass forever) are fixed on the branch. `main` is merged in — the
   screen stack rewrote all three doc files under it — and the scheduled-skip `print` is
-  now a `logging.WARNING`, so it lands on the same timestamped stream as APScheduler's
-  misfire and max-instances warnings.
+  now a `logging.WARNING`, the stream APScheduler already uses for its own misfire and
+  max-instances warnings. No handler is installed yet, so it lands on stderr via
+  `logging.lastResort`, untimestamped; installing one in the daemon branch is next.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
@@ -162,7 +163,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
   of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the
   board HTTP, workday detail calls, Simplify re-reads, `feed_unresolved` re-attempts and
-  Chromium renders per day (`run_expire`'s 50/pass becoming 200/day is the one welcome
+  Chromium renders per day (`run_expire`'s 50/pass becoming 300/day is the one welcome
   multiple). That reprices two open items below — the missing 429 backoff
   (`phenom/qualcomm` already 429s at **one** pass/day) and pruning permanently-dead
   `feed_unresolved` URLs now retried 6x daily. Both were dormant while the config sat at
@@ -173,16 +174,29 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (a non-blocking `flock`, stale-safe by construction) now refuses the second one
   outright. The claim/lease shapes stay rejected (see
   [Architecture / maintainability](#architecture--maintainability)).
-  **One residual, not blocking** (`[ORCH · XS]`): the lock is one fixed path per host, so
-  two checkouts pointed at two different DBs on the same host would block each other.
-  Correct for the quota argument (one Codex account, one DB) and `TMPDIR` is the escape
-  hatch, but it is an assumption, not a guarantee.
+  **Two residuals, and the second one is the direction that costs money** (`[ORCH · XS]`).
+  (a) The lock is one fixed path per `TMPDIR`, so two checkouts pointed at two different
+  DBs would block each other — harmless, and `TMPDIR` is the escape hatch.
+  (b) **The same keying breaks the guard in the expensive direction.** A daemon started
+  from cron (sanitized env, no `TMPDIR`) or from a systemd unit with `PrivateTmp=yes`
+  resolves a different temp dir than an interactive shell that exports one, so both
+  acquire and both score the same DB. Keying the lock filename on the resolved `--db`
+  path would make the guard match the resource it actually protects — the DB plus the one
+  Codex account. Note the queued systemd unit is exactly how (b) gets reached.
+  **Also still true, and this file previously overstated it:** the earlier review's "raw
+  `OSError` from `os.open` kills the daemon" is only half fixed. The message is now a
+  named `RuntimeError` naming the path, but a daemon still *dies* on it — the eager
+  startup pass sits outside any handler — so one accidental `sudo python -m ats_worker.run`
+  leaves a root-owned lock file that is never unlinked and wedges every later start.
+  `flock` needs no write access, so falling back to `O_RDONLY` when `O_RDWR` fails would
+  keep the guard working and lose only the pid diagnostic.
 
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
   categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
   CHANGELOG). **Stage 3, non-tech discovery feeds:** the watchlist already covers any
   company, so decide the need before building (brittle, anti-bot handling, dilutes the
-  moat).  **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
+  moat).
+  **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
   fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is why
   every `score.txt` change is gated behind `score_eval` (SPEC §7.1).
 
@@ -207,7 +221,8 @@ matching the pipeline walkthrough:
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards || `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
+| `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 4 |
 | `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 |
 

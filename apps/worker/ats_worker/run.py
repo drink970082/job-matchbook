@@ -482,7 +482,11 @@ def pass_lock(path=None):
     unlinked: unlinking races (a second process can end up holding a lock on an inode
     that is no longer the one at this path).
     """
-    path = Path(path or _LOCK_PATH)
+    # `is None`, not `or`: a falsy path ("" from an unset env var, say) would
+    # otherwise silently fall back to the process-wide default and lock the real
+    # /tmp file — the one case where a caller asking for an isolated lock must not
+    # quietly get the shared one.
+    path = Path(_LOCK_PATH if path is None else path)
     try:
         # O_NOFOLLOW: the temp dir is world-writable and sticky, so refuse to follow a
         # symlink another user planted at this path rather than truncating its target.
@@ -669,11 +673,16 @@ def main(argv=None) -> None:
             # queues, blocks, or runs a partial pass.
             if args.once:
                 raise SystemExit(str(exc)) from None
-            # `logging`, not `print`: this and APScheduler's own misfire/max-instances
-            # warnings are the same signal — "a pass did not run" — and an operator
-            # reading journald needs them interleaved on one timestamped stream. The
-            # daemon branch installs the handler (a bare import must still configure
-            # nothing), so before that runs this falls to logging.lastResort.
+            # `logging`, not `print`: this and APScheduler's own misfire and
+            # max-instances warnings are the same signal — "a pass did not run" — and
+            # APScheduler emits its half through `logging`. Putting this one there is
+            # what lets a single handler carry both.
+            # NO handler is installed yet, here or anywhere in the package: importing a
+            # library must configure nothing, and the daemon does not call
+            # `basicConfig` either, so today this falls to `logging.lastResort` —
+            # stderr, level-prefixed, NOT timestamped. Installing that handler in the
+            # daemon branch is queued separately; until it lands, this is the right
+            # stream with the wrong formatting, not a finished job.
             logging.warning("skipping this scheduled pass: %s", exc)
 
     if args.once:
