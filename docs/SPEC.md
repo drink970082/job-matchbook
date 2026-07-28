@@ -603,6 +603,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   including agencies in the recruitment of this role") on 5 of 28 fires, wrongly
   disqualifying those postings.
 
+  **NOT MERGEABLE AS WRITTEN — five confirmed false positives; see PROGRESS.**
+  `_SPONSORSHIP_BAR`'s citizenship clauses fire on passport boilerplate (a live Microsoft
+  row), EEO lines written with "must be", "citizen developer", "senior citizen" and "good
+  citizen"; clause 2's 30-char object window discards postings that *offer* sponsorship.
+  What follows describes the intended design, not a shipped guarantee.
+
   **Why positive evidence and not vetoes.** The gate this replaced fired on any
   authorization word and then subtracted the exceptions (off-topic · wrong polarity ·
   soft preference). That asks the author to anticipate every innocent English sentence
@@ -657,7 +663,18 @@ worker modules are pure and dependency-injected; real services are wired only in
   | quote branch, presence check only | 28 | 20 | 71.4% | 100% |
   | quote branch + the retired `_quote_on_topic` vetoes | 20 | 20 | 100% | 100% |
   | quote branch **+ `_quote_states_refusal`** | 20 | 20 | 100% | 100% |
-  | **shipped `_check_authorization` (gate OR gated floor)** | 20 | 20 | **100%** | **100%** |
+  | **shipped `_check_authorization` (gate OR gated floor)** | 11 verifiable | 11 | **100%** | **not measurable** |
+
+  **Do not quote a whole-function recall from this table.** Only **11** of the 20 rows can
+  be scored against the shipped code: the 19 disagreement rows the old quote branch fired
+  on, minus those the new gate keeps. The other **9 are all one Optiver template** (ids
+  683, 684, 692, 728, 739, 740, 750, 819, 820), and on them `llm_says_no_sponsorship=True`
+  means the model produced a grounded quote — so the shipped code short-circuits at the
+  quote branch and **the floor never runs**. Scoring them through the floor measures a
+  branch that is unreachable for those rows, and their quotes were never persisted, so the
+  verdict is unknowable. Honest reading: **11/11 verified, 9 unverifiable**, so recall on
+  this set is somewhere in 11/20–20/20. Note also that 45% of a "20-row sample" is one
+  company's single template, i.e. ~6 independent employers.
 
   The positive-evidence gate keeps all 8 quote-branch false positives out (5 agency
   boilerplate, 3 soft-preference) and loses **zero** true positives, exactly as the veto
