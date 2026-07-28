@@ -262,6 +262,52 @@ any container Docker marks **unhealthy**. Plain Compose does *not* restart on
 unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
 the sidecar is what closes the loop.
 
+**Keeping the worker alive: a systemd user unit.** The web stack has Docker's
+`restart: unless-stopped` plus the autoheal sidecar; the worker, being native, had
+nothing — a crash or an OOM kill simply ended the job feed, silently, until someone
+noticed. `deploy/ats-worker.service.example` is the supervision: `Restart=always` with
+`RestartSec=30s`, a `StartLimitBurst` so a genuine crash-loop lands in `failed` (visible
+to `systemctl --user status`) instead of restarting forever, and `WorkingDirectory` at
+`apps/worker` because the worker resolves `config.yaml`, `.env`, `resume/` and its default
+`--db` relative to it.
+
+Two `Environment=` lines carry weight. `PYTHONUNBUFFERED=1` is not cosmetic: the
+pipeline's progress lines are plain `print()` with no `flush=`, and Python block-buffers
+stdout whenever it is not a tty — under journald's pipe that means output arrives in 8KB
+lumps, so a hung pass and a quiet pass look identical. `PATH` must reach the `codex` CLI:
+systemd gives a user unit a minimal PATH without `~/.local/bin`, where `codex login`
+installs, so omitting it fails every fit call at exec.
+
+**Journald supplies retention and rotation, so the worker ships no logging code at all** —
+no log files, no rotation, no size caps. That is the whole reason for this shape. One
+caveat, because it is silent: journald's default `Storage=auto` persists to disk only if
+`/var/log/journal` exists, and keeps logs in `/run` otherwise — where they vanish at
+reboot. Check `journalctl --disk-usage`, and `sudo mkdir -p /var/log/journal` if it is
+volatile. `journalctl --user -u ats-worker -f` follows it; the daemon's `logging.basicConfig` (§7.1)
+is what makes the worker's own records timestamped alongside APScheduler's.
+
+**One step needs root and is the operator's, not the tooling's:**
+
+```bash
+mkdir -p ~/.config/systemd/user
+sed "s|/home/YOU/ats|$PWD|" deploy/ats-worker.service.example \
+    > ~/.config/systemd/user/ats-worker.service   # then edit PATH
+systemctl --user daemon-reload
+systemctl --user enable --now ats-worker
+sudo loginctl enable-linger $USER                 # REQUIRED — see below
+```
+
+`Linger=no` is the default, and it tears the user manager down with your last session, so
+without `enable-linger` the worker dies at logout and quietly restarts at next login —
+indistinguishable from an unexplained gap in the feed. `make doctor` reports whether the
+unit is active, because a stopped daemon and one merely waiting for its next wall-clock
+slot both print nothing.
+
+**The unit must NOT set `PrivateTmp=yes`.** `run.pass_lock` keys the one-pass-at-a-time
+lock on `tempfile.gettempdir()`, so a private `/tmp` would hide the daemon from an
+operator's hand-run `--once`: both acquire, both score, and the paid fit scorer is charged
+twice (PROGRESS, ORCH).
+
 **Response headers.** `next.config.mjs` sets a fixed header set on every response
 (`headers()`, matcher `/:path*`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
 nosniff`, `Referrer-Policy: same-origin`, and a `Content-Security-Policy` that is
@@ -1969,7 +2015,12 @@ absent file (which fails loudly) is safer. Longhand:
 6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
    (or `make up`) starts the **web app + autoheal only** — the worker is **not**
    containerized (§6, removed 2026-07-16). Run it natively on the same host:
-   `cd apps/worker && python -m ats_worker.run`. It runs **no pass at launch** — passes
+   `cd apps/worker && python -m ats_worker.run` — but for anything unattended install the
+   **systemd user unit** instead (§6): a shell-run daemon dies with the terminal, is not
+   restarted, and does not appear in `make doctor`'s daemon row. Note the daemon needs
+   `apscheduler` from `requirements.txt`, which `requirements-dev.txt` omits — `--once`
+   never imports it, so a tests-only checkout crash-loops as a daemon and `make doctor`
+   flags that on its `daemon dep` row. It runs **no pass at launch** — passes
    fire on wall-clock slots every `schedule_hours` (add `--run-now` for one immediately).
    It prints the resolved slots and timezone on startup, because with no eager pass a
    fresh daemon is otherwise indistinguishable from a hung one for up to

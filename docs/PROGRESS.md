@@ -113,15 +113,29 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
   `Exited`.
 
-- **Wall-clock schedule — `feat/wall-clock-schedule`, IN FLIGHT** `[ORCH · claimed
-  2026-07-28]`. Cron slots instead of an interval, no eager startup pass, `--run-now` to
-  ask for one, `schedule_hours` bounded to divisors of 24, and `logging.basicConfig` in
-  the daemon branch (the handler the lockfile's skip warning was waiting for). Drilled
-  live for 12s: printed
-  `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`,
-  APScheduler's own lines came back timestamped, and **no pass started**.
-  **Not drilled: `--run-now`.** It runs a real pass, which means network and the paid fit
-  scorer, so it is covered by unit tests only.
+- **Worker supervision and logs — `feat/worker-supervision`, IN FLIGHT** `[INFRA ·
+  claimed 2026-07-28]`. A systemd **user** unit (`deploy/ats-worker.service.example`),
+  journald for retention and rotation so no logging code ships, and a `make doctor` row
+  for whether the daemon is up. `systemd-analyze verify` is clean — it caught
+  `StartLimitIntervalSec` being silently ignored in `[Service]`. **Not installed and not
+  started:** `systemctl --user enable --now` plus `sudo loginctl enable-linger` are
+  operator steps, documented in SPEC §6 rather than executed here, so the unit is verified
+  as *parsing*, never as *running*.
+  **Three things the pre-merge review caught, all fixed on the branch**, and each was the
+  same shape — a config file that verifies clean and still does not work. (1) The unit's
+  own `ExecStart` crash-loops on this host: `apscheduler` is in `requirements.txt` but not
+  `requirements-dev.txt`, so a tests-only checkout runs `--once` fine and then parks in
+  `failed` ~2.5 min after a clean `enable`, with `systemd-analyze verify` silent. `make
+  doctor` now has a `daemon dep` row for exactly that, and it reads `no` on this host
+  today. (2) The documented `sed` substituted `WorkingDirectory` but not the `PATH` line,
+  so the installed unit could not find `codex` and every fit call would fail at exec.
+  (3) `After=network-online.target` orders against nothing in a user manager.
+  **Two residuals recorded rather than fixed:** no SIGTERM handling, so
+  `systemctl --user stop` mid-pass discards an in-flight paid `codex exec` (the unit says
+  so and recommends stopping between slots); and the three apscheduler-gated wiring tests
+  from #25 `importorskip` and therefore **skip in CI**, since CI installs dev requirements
+  only. Adding `apscheduler` to `requirements-dev.txt` would close that, but it is a
+  dependency change and belongs to whoever wants it.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
@@ -756,9 +770,11 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
   (absent from feed).
 - **Deployment / monitoring** — `[INFRA · L · open-ended]`. `ats-web` has a DB-reachability
-  healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the
-  per-job Telegram notification, and the **worker** has no healthcheck — its failures
-  show only in the DB/logs. Includes the deferred scraper **canary self-tests** and
+  healthcheck + `autoheal`, and the worker now has **supervision** (a systemd user unit,
+  journald for logs — SPEC §6). What is still missing is *detection*: `Restart=always`
+  brings a crashed worker back, but a worker that is up and quietly producing nothing —
+  a dead board adapter, a screen backend answering blind — still shows only in the DB.
+  There is no metrics/alerting beyond the per-job Telegram notification. Includes the deferred scraper **canary self-tests** and
   proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
   here).
 - **AI fetch+score fallback for unparseable JDs** — `[FETCH · L · optional]`. Where text

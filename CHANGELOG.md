@@ -7,6 +7,35 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **The worker can be supervised — `deploy/ats-worker.service.example`, a systemd user
+  unit.** The web stack has had `restart: unless-stopped` plus the autoheal sidecar since
+  the beginning; the worker, being native (SPEC §6), had nothing, so a crash or an OOM
+  kill just ended the job feed until a human noticed. `Restart=always` with `RestartSec=30s`
+  and a `StartLimitBurst` that parks a genuine crash-loop in `failed` — visible to
+  `systemctl --user status`, where an endlessly restarting unit is not.
+  **Journald supplies retention and rotation, so no log-file code and no rotation code
+  ships** — that is the entire reason for this shape rather than a log file the worker
+  manages itself. `journalctl --user -u ats-worker -f` follows it, and the daemon's
+  `basicConfig` is what makes the worker's own records timestamped beside APScheduler's.
+  `PYTHONUNBUFFERED=1` is load-bearing rather than tidy: the pipeline's `print()` calls
+  pass no `flush=`, and Python block-buffers stdout when it is not a tty, so under
+  journald's pipe a hung pass and a quiet pass would look the same.
+  Two traps are called out in the file because both fail silently: `StartLimitIntervalSec`
+  belongs in `[Unit]` and is *ignored* in `[Service]` (`systemd-analyze verify` catches
+  it), and `PrivateTmp=yes` must not be set, because `pass_lock` keys on
+  `tempfile.gettempdir()` and a private `/tmp` would let the daemon and a hand run both
+  acquire and both spend paid quota.
+  `sudo loginctl enable-linger $USER` is documented as the one operator step: `Linger=no`
+  is the default and tears the user manager down at logout.
+
+- **`make doctor` reports whether the worker daemon is active** (`systemctl --user
+  is-active ats-worker`). Informational like the other provider rows — hand-run `--once`
+  is a supported workflow — but a stopped daemon and one merely waiting for its next
+  wall-clock slot are otherwise indistinguishable, since both print nothing. A host with
+  no systemd reports the row soft rather than crashing the preflight.
+
 ### Changed
 
 - **The daemon fires on wall-clock slots, and no longer runs a pass at launch.**
@@ -29,20 +58,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   from a file nobody edited. `config.py` rejects both at load, keeping a separate message
   for `0`/negative.
 
-  **Three scheduler settings that are not defaults, each for a measured reason.**
-  `coalesce=True` collapses a backlog into one run, so a 20-hour WSL2 suspend wakes up and
-  fires *one* pass instead of five. `misfire_grace_time=min(3600, schedule_hours*1800)`
-  replaces APScheduler's default of **one second**, which silently drops any slot the host
-  was busy through — the deleted eager `once()` had been masking that, since a restarted
-  daemon always ran promptly whether or not it had missed anything. `max_instances=1` is
-  the default, restated because a duplicate pass re-spends paid quota.
+  **One scheduler setting is a non-default; the other two are restated defaults.**
+  `misfire_grace_time=min(3600, schedule_hours*1800)` replaces APScheduler's default of
+  **one second**, which silently drops any slot the host was busy through — the deleted
+  eager `once()` had been masking that, since a restarted daemon always ran promptly
+  whether or not it had missed anything. `max_instances=1` and `coalesce=True` are
+  *already* the defaults (`BaseScheduler._configure`); they are written out because each
+  would be expensive if it silently changed, not because they change anything here.
+  **What the grace window does NOT buy, since it is easy to read the opposite:**
+  coalescing keeps only the LAST missed run time, and the executor drops even that one if
+  it is older than the window. A host resuming more than an hour past a slot therefore
+  runs **zero** catch-up passes and simply waits for the next slot — a real behavior
+  change from the old eager pass, which always ran on restart.
 
   **The daemon now installs a logging handler** (`basicConfig`, INFO, timestamped) — in
   the daemon branch only, so importing the module still configures nothing. Without it
   APScheduler's misfire warnings, max-instances skips and job tracebacks fell to
-  `logging.lastResort`: message only, no timestamp, on a different stream from the
-  pipeline's `print()`. This is the handler the scheduled-pass-skip warning was waiting
-  for. Startup also prints the resolved slots and timezone, because with no eager pass a
+  `logging.lastResort`: message and level only, no timestamp and no logger name. This is
+  the handler the pass-skip warning added with the lockfile was waiting for. It does
+  **not** unify the streams — `lastResort` and a default `basicConfig` are both
+  StreamHandlers on stderr, and the pipeline still `print()`s to stdout; what it buys is
+  the timestamp and provenance journald needs to interleave them. Startup also prints the resolved slots and timezone, because with no eager pass a
   fresh daemon is otherwise indistinguishable from a hung one for up to `schedule_hours`:
   `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`. The
   timezone comes from `tzlocal`, so a UTC host would defeat the whole change; `TZ=` is the

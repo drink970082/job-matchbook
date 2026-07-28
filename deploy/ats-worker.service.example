@@ -1,0 +1,111 @@
+# systemd USER unit for the job-matchbook worker daemon.
+#
+# The worker is the one piece that is not containerized (SPEC §6): the default fit-score
+# backend shells out to the Codex CLI, which authenticates from the operator's
+# ~/.codex/auth.json, and Ollama is pinned to the host GPU. So supervision is systemd's
+# job here rather than Docker's.
+#
+# `.example` because this file is operator-specific: it hardcodes YOUR checkout path, YOUR
+# PATH, and YOUR python. Every line you must change is marked EDIT.
+#
+# PRECONDITION, and the one that bites: the daemon needs `apscheduler`, which
+# `requirements-dev.txt` does NOT carry — so a checkout set up for tests alone runs
+# `--once` happily and then crash-loops as a daemon, ~2.5 minutes after a clean `enable`,
+# with `systemd-analyze verify` having said nothing. Install the RUNTIME requirements into
+# the SAME interpreter you put in ExecStart:
+#
+#   python3 -m pip install -r requirements.txt
+#   python3 -c 'import apscheduler'      # must be silent
+#
+# Then:
+#
+#   mkdir -p ~/.config/systemd/user
+#   sed -e "s|/home/YOU/ats|$PWD|" -e "s|/home/YOU/.local|$HOME/.local|" \
+#       deploy/ats-worker.service.example > ~/.config/systemd/user/ats-worker.service
+#   # then open it and check ExecStart's interpreter is the one you just installed into
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ats-worker
+#   systemctl --user status ats-worker           # confirm `active (running)`, not `failed`
+#   journalctl --user -u ats-worker -f
+#
+# Run `make doctor` first: it reports both the daemon dep and whether the unit is up.
+#
+# ONE step needs root, and it is not optional — `Linger=no` is the default, which means
+# the user manager (and every unit under it) is torn down when your last session ends:
+#
+#   sudo loginctl enable-linger $USER
+#
+# Without it the worker dies at logout and silently comes back at next login, which looks
+# exactly like an unexplained gap in the job feed.
+
+[Unit]
+Description=job-matchbook worker (fetch -> screen -> score -> notify)
+Documentation=https://github.com/drink970082/job-matchbook/blob/main/docs/SPEC.md
+# NOTE this orders against nothing in practice: the USER manager has no
+# `network-online.target`, and even in the system manager `After=` without a matching
+# `Wants=` produces no wait. It is kept as documentation of intent, and it is harmless
+# because the daemon runs no pass at launch (SPEC §7.1) — the first pass is a wall-clock
+# slot away, long after the network is up. If you want real ordering against a host Ollama
+# you must name its unit: `After=ollama.service`. Nothing breaks without it — a dead screen
+# provider circuit-breaks the screen phase by design (SPEC §9).
+After=network-online.target
+# A crash loop should not be retried forever at a fixed rate: five failures inside 10
+# minutes means the problem is not transient, and a unit sitting in `failed` is visible to
+# `systemctl --user status` where an endlessly restarting one is not.
+# These live in [Unit], NOT [Service] — systemd moved them, and in [Service] they are
+# silently ignored with only a log line to say so (`systemd-analyze verify` catches it).
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# EDIT: your checkout. The worker resolves config.yaml, .env, resume/ and the default
+# --db (../web/prisma/applications.db) relative to this directory.
+WorkingDirectory=/home/YOU/ats/apps/worker
+# EDIT: the interpreter that has requirements.txt installed. `/usr/bin/python3` is right
+# only if you installed there; a pyenv/conda/venv user must give the absolute path to
+# THEIR python, because systemd does not read your shell rc and will not find a shim.
+ExecStart=/usr/bin/python3 -m ats_worker.run
+
+# LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under
+# a pipe (which is what journald gives you) stdout is BLOCK-buffered: output would arrive
+# in 8KB lumps, minutes or hours late, and a pass that hung would look like a pass that
+# printed nothing. Python only line-buffers when stdout is a tty.
+Environment=PYTHONUNBUFFERED=1
+# EDIT: must reach the `codex` CLI (default fit backend) and `ollama`. systemd gives a
+# user unit a minimal PATH that does NOT include ~/.local/bin, where `codex login`
+# installs, so leaving this out makes every fit call fail at exec.
+Environment=PATH=/home/YOU/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+Restart=always
+# Long enough that a crash-loop (bad config, missing dep) does not spin the CPU or flood
+# the journal, short enough that a transient failure costs at most one slot.
+RestartSec=30s
+# Wall-clock slots are rendered in the TZ the process sees, and systemd does NOT inherit
+# your shell's. A user manager typically carries no TZ at all, so the daemon uses the host
+# default; if that is UTC, "passes at 08:00" means 08:00 UTC. Uncomment to pin it (SPEC
+# §7.1 — the no-code override).
+#Environment=TZ=America/New_York
+
+# Pin TMPDIR so this daemon and a hand-run `--once` resolve the SAME pass lock.
+# `run.pass_lock` keys on tempfile.gettempdir(); if you export TMPDIR in your shell rc,
+# your hand run and this unit look at two different files, both acquire, and the paid fit
+# scorer is charged twice.
+Environment=TMPDIR=/tmp
+
+# DO NOT set PrivateTmp=yes here. `run.pass_lock` keys the "one pass at a time" lock on
+# tempfile.gettempdir(), so a private /tmp would make this daemon invisible to an
+# operator's hand-run `--once` — both would acquire, both would score, and the paid fit
+# scorer would be charged twice. See PROGRESS (ORCH) for the standing fix.
+
+# NO graceful shutdown is configured, and that is a known gap rather than an oversight:
+# the worker installs no SIGTERM handler, so `systemctl --user stop|restart` kills it
+# mid-pass and takes any in-flight `codex exec` with it — quota spent, result discarded,
+# the row left `failed`. The pass lock is safe regardless (the kernel releases an flock
+# with the process). Prefer stopping between wall-clock slots.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ats-worker
+
+[Install]
+WantedBy=default.target
