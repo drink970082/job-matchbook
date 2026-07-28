@@ -28,15 +28,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **The screen-evidence stack — four branches, LANDED and UNMERGED** `[SCREEN ·
-  claimed 2026-07-28]`. One unit of work per branch, each stacked on the one above, all
-  on top of `docs/record-review-findings` (unmerged itself). Merge bottom-up.
+- **The screen-evidence stack — three branches, LANDED and UNMERGED, landing as ONE PR**
+  `[SCREEN · claimed 2026-07-28]`. One unit of work per branch, each stacked on the one
+  above, all on top of `docs/record-review-findings` (unmerged itself), so the tip branch
+  `feat/sponsorship-retrieve-classify` already contains all nine commits linearly on `main`.
+  **There is no `feat/screen-eval-gate` branch** — the eval-gate commit `53498c1` rides on
+  `fix/clearance-evidence-floor`, one commit above the clearance fix.
   | branch | what | measured |
   |---|---|---|
-  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title | clearance false discards **20/24 → 0** |
-  | `feat/screen-eval-gate` | `make eval-screen`, 83-row corpus, SPEC §13 | found the degree defect on run one |
+  | `fix/clearance-evidence-floor` | `CLEARANCE_TOKENS` floor over description + title; then `make eval-screen`, 83-row corpus, SPEC §13 | clearance false discards **20/24 → 0**; the gate found the degree defect on run one |
   | `fix/degree-lower-bound` | `degree_levels` + `degree_required`, CODE takes `min` | degree **9 → 3**, recall 27/37 → **28/37** |
   | `feat/sponsorship-retrieve-classify` | CODE retrieves, MODEL labels, CODE decides | sponsorship **2 → 0** |
+  **Merge shape: one PR from the tip, squash-merged** (operator decision 2026-07-28). The
+  repo is squash-merge only (`allow_rebase_merge: false`), so four bottom-up PRs would cost
+  three rebases and three force-pushes for content `main` would end up holding anyway.
+  #22 and #23 close unmerged behind it — #23's 2 commits are contained (note
+  `docs/record-review-findings` also has 1 unpushed commit, so #23 is incomplete as it
+  stands), #22 is superseded by `a8eda24`.
   **Gate now: 11 → 2 false disqualifications** over 81 gate-eligible rows. The 2 left are
   one Cubist JD shape counted twice — the documented 4B ceiling under Defects, not an open
   defect. 696 worker tests, coverage 93.88%, privacy + schema guards clean.
@@ -188,12 +196,12 @@ take first and why. Each numbered item is independently pickable.
 
 > **NEXT STEP: merge the screen-evidence stack, then recover the rows it un-breaks.**
 > The 2026-07-27 queue (clearance guard → golden set → sponsorship rewrite) is **done** —
-> four branches landed 2026-07-28, all unmerged, gate 11 → 2. See [In flight](#in-flight).
+> three branches landed 2026-07-28, all unmerged, gate 11 → 2. See [In flight](#in-flight).
 >
-> 1. **Merge the stack — `[XS]`, and nothing below is worth doing first.** Bottom-up from
->    `docs/record-review-findings`, squash-merge only. Four branches sit on each other; the
->    longer they sit, the more `main` drifts under them. Re-run `make eval-screen` after
->    the merge lands — it is the only check that spans all four.
+> 1. **Merge the stack — `[XS]`, and nothing below is worth doing first.** One PR from the
+>    tip branch `feat/sponsorship-retrieve-classify`, squash-merged; it already carries all
+>    nine commits linearly. The longer they sit, the more `main` drifts under them. Re-run
+>    `make eval-screen` after the merge lands — it is the only check that spans all three.
 > 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
 >    the operator.** The dry run is done and free, so this is now a decision rather than a
 >    discovery. After the stack merges:
