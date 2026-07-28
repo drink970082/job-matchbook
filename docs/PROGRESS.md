@@ -78,64 +78,44 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   file before the build were wrong (see the sponsorship entry). A prompt-facing change
   without a measurement is a guess, however carefully argued.
 
-- **`ats-autoheal`'s socket-gap fix does NOT work — PR #19 needs a redo**
-  `[INFRA · S · reopened 2026-07-26]`. Two claims in the original entry were tested and
-  are false:
-  1. **"`restart: unless-stopped` did not bring it back."** It does —
-     `docker run -d --restart unless-stopped alpine sh -c 'exit 127'` reaches
-     `state=restarting exit=127 restarts=7` within 12s and keeps climbing. Exit 127 is
-     retried unboundedly, so that was never why the container stayed dead.
-  2. **Polling for the socket from inside the container cannot work.** A bind mount is
-     resolved at container *creation*: with a host path that does not exist Docker creates
-     a **directory** there, and creating a real socket at that path later never changes
-     the container's view — measured 10/10 `NOT-A-SOCKET` after the socket appeared. So
-     PR #19's 30s wait delays the identical exit 127 by 30s and changes nothing.
-  **Worse, it hides the failure.** A socket-less sidecar now flaps every 30s and reads
-  `Up (healthy)` for ~80% of each cycle, because the image's healthcheck is
-  `pgrep -f autoheal` and the *waiting shell* has "autoheal" in its argv. The `make up`
-  guard added in the same PR checks `status=running` at t≈0, inside the wait window, so it
-  passes too. The old `Exited (127)` is how the 3-day outage was noticed at all — a net
-  loss of detectability.
-  **The mechanism, still true:** `willfarrell/autoheal`'s entrypoint dispatches on
-  `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]` and there is **no `autoheal` binary
-  in the image** (the loop is inline in `/docker-entrypoint`), so a missing socket takes
-  the `else` branch, `exec`s a command that does not exist, and exits **127**. While it is
-  down nothing auto-recovers `ats-web` from the WSL2 stale-bind-mount failure — the
-  sidecar's entire job (SPEC §6).
-  **Real cause, suspected:** host `/var/run/docker.sock` mtime is 2026-07-23 11:34, the
-  daemon's last restart, matching the death date. The daemon-restart / VM-resume path
-  cannot be addressed from inside the container.
-  **Direction for the redo:** give the sidecar a compose `healthcheck:` that pings the
-  socket (`curl -s --unix-socket "$$DOCKER_SOCK" http://localhost/_ping`) instead of
-  `pgrep`, so a broken sidecar goes *unhealthy* and the restart policy recreates the
-  container — the only action that can re-establish the mount. Make `make up` assert
-  *health* after a settle, not `running` at t=0. Keep the deploy-time check; drop the
-  poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
-  `Exited`.
-
-- **Worker supervision and logs — `feat/worker-supervision`, IN FLIGHT** `[INFRA ·
-  claimed 2026-07-28]`. A systemd **user** unit (`deploy/ats-worker.service.example`),
-  journald for retention and rotation so no logging code ships, and a `make doctor` row
-  for whether the daemon is up. `systemd-analyze verify` is clean — it caught
-  `StartLimitIntervalSec` being silently ignored in `[Service]`. **Not installed and not
-  started:** `systemctl --user enable --now` plus `sudo loginctl enable-linger` are
-  operator steps, documented in SPEC §6 rather than executed here, so the unit is verified
-  as *parsing*, never as *running*.
-  **Three things the pre-merge review caught, all fixed on the branch**, and each was the
-  same shape — a config file that verifies clean and still does not work. (1) The unit's
-  own `ExecStart` crash-loops on this host: `apscheduler` is in `requirements.txt` but not
-  `requirements-dev.txt`, so a tests-only checkout runs `--once` fine and then parks in
-  `failed` ~2.5 min after a clean `enable`, with `systemd-analyze verify` silent. `make
-  doctor` now has a `daemon dep` row for exactly that, and it reads `no` on this host
-  today. (2) The documented `sed` substituted `WorkingDirectory` but not the `PATH` line,
-  so the installed unit could not find `codex` and every fit call would fail at exec.
-  (3) `After=network-online.target` orders against nothing in a user manager.
-  **Two residuals recorded rather than fixed:** no SIGTERM handling, so
-  `systemctl --user stop` mid-pass discards an in-flight paid `codex exec` (the unit says
-  so and recommends stopping between slots); and the three apscheduler-gated wiring tests
-  from #25 `importorskip` and therefore **skip in CI**, since CI installs dev requirements
-  only. Adding `apscheduler` to `requirements-dev.txt` would close that, but it is a
-  dependency change and belongs to whoever wants it.
+- **Autoheal redo — `fix/autoheal-redo`, IN FLIGHT** `[INFRA · claimed 2026-07-28]`,
+  replacing PR #19. **Three claims in the previous entry were wrong and are corrected
+  here**, because each one sent the fix in a useless direction:
+  1. **A bind mount re-resolves at every container START, not at creation.** The old entry
+     measured 10/10 `NOT-A-SOCKET` and concluded polling from inside can never work — but
+     that measurement holds only for an *already-running* container. What actually persists
+     is the directory Docker `mkdir`'d over a missing source path. Verified on this host:
+     `ats-autoheal` created 2026-07-19, started 2026-07-27, `RestartCount 0`, working
+     against the socket inode the daemon replaced 2026-07-23. SPEC §6's thesis — that
+     autoheal restarting `ats-web` cures the stale mount — depends on this and is safe.
+  2. **No compose mechanism acts on `unhealthy`.** The old direction was "go unhealthy and
+     the restart policy recreates the container"; that cannot work. `restart:` fires on
+     container *exit* only, and `depends_on: service_healthy` is a startup gate that would
+     be actively harmful here. A healthcheck reports; something else has to act.
+  3. **A healthcheck contributes ZERO detection for the `Exited (127)` outage that
+     motivated the redo** — healthchecks do not run on stopped containers, and that state
+     was already maximally visible. The gap that is genuinely invisible is a *live* sidecar
+     whose socket died under it, reading `Up (healthy)` forever because the image's check is
+     `pgrep -f autoheal` and `Cmd=["autoheal"]` puts that string in its own argv.
+  **What ships:** a socket-ping healthcheck replacing `pgrep`; an entrypoint watchdog that
+  exits when the socket dies so `restart: unless-stopped` re-resolves the bind; and
+  `make health` (invoked by `up`) polling both containers, treating `NO-HEALTHCHECK` as
+  failure and waiting out web's 40s `start_period` — a fixed sleep reads `starting`, which
+  is the same defect PR #19 shipped as `status=running` at t=0.
+  **The watchdog was a hypothesis and was drilled before merging**, the way the 2026-07-22
+  sidecar drill was: throwaway container, same wrapper, bogus socket path -> **exit 1,
+  restarted 7x in 8s**; same wrapper with a real socket -> **running, RestartCount 0,
+  healthy**; and one container with a dead socket showed the two checks disagreeing —
+  socket-ping `unhealthy`, `pgrep -f autoheal` healthy. The wrapper is correct **only**
+  with the healthcheck: its own shell has "autoheal" in its argv.
+  **Also corrected:** SPEC said "the cure is to recreate the container" without saying that
+  `make up` does **not** recreate a running container whose config hash is unchanged — so
+  the documented cure was unactionable. The operator's cure is `docker restart ats-web` or
+  `docker compose up -d --force-recreate web`.
+  **Recorded as an unverified hypothesis, not in scope:** long-syntax
+  `create_host_path: false` on the socket bind — the only compose knob that touches bind
+  resolution, and it would make a poisoned host path fail the start instead of being
+  mkdir'd. Unverified on this host, which is on the legacy `Binds` path.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
@@ -304,8 +284,9 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 4. **Redo the autoheal fix — `[INFRA · S]`**, PR #19. Direction is written up in
->    [In flight](#in-flight); the fix is a compose `healthcheck:` that pings the socket.
+> 4. ~~**Redo the autoheal fix**~~ — **DONE 2026-07-28** (`fix/autoheal-redo`; #19 closed
+>    unmerged). A socket-ping healthcheck, an entrypoint watchdog drilled before merging,
+>    and `make health`. See [In flight](#in-flight) for the three claims it corrected.
 > 5. **Decide the `run_feed` pre-filter — `[FETCH · S]`, and it comes BEFORE 3 and 4.**
 >    Numbered last only to keep items 2/3 addressable by the entries that cite them. The
 >    Simplify feed was enabled 2026-07-28 for live testing, and `run_feed` never calls

@@ -50,10 +50,15 @@ services:
     labels:
       - autoheal=true # watched by the autoheal sidecar below
 
-  # Watches for containers labeled autoheal=true and restarts any that Docker
-  # marks "unhealthy" (plain Compose does NOT auto-restart on unhealthy by
-  # itself). Needs the Docker socket to issue the restart; local-only, no network
+  # Watches for containers labeled autoheal=true and restarts any that Docker marks
+  # "unhealthy". Needs the Docker socket to issue the restart; local-only, no network
   # exposure. This is what actually recovers ats-web from a stale bind mount.
+  #
+  # NOTHING IN COMPOSE ACTS ON `unhealthy`. `restart:` fires on container EXIT only, and
+  # `depends_on: service_healthy` is a startup gate (and would be actively harmful here —
+  # it would hold the sidecar down whenever web is the thing that needs healing). That is
+  # why this sidecar exists at all, and why the healthcheck below cannot by itself recover
+  # a broken sidecar: a healthcheck reports, the entrypoint watchdog is what acts.
   autoheal:
     image: willfarrell/autoheal:1.2.0
     container_name: ats-autoheal
@@ -65,6 +70,51 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
+    # Exit when the socket dies, so `restart: unless-stopped` recreates us and the START
+    # re-resolves the bind mount. A bind mount is resolved at every container START (not
+    # at creation), so a restart is the only thing that can pick up a docker.sock the
+    # daemon replaced under us — which is what killed this sidecar on 2026-07-23.
+    #
+    # The image's entrypoint dispatches on `[ "$$1" = "autoheal" ] && [ -e "$$DOCKER_SOCK" ]`
+    # and there is no `autoheal` BINARY in the image (the loop is inline in
+    # /docker-entrypoint), so a missing socket already exits 127 — but only at startup.
+    # This covers the socket dying while we are up, which is the case that used to leave a
+    # live sidecar doing nothing forever.
+    #
+    # This wrapper is correct ONLY together with the healthcheck below: the wrapper shell
+    # has "autoheal" in its own argv, so the image's default `pgrep -f autoheal` check
+    # would call it healthy no matter what. Drilled 2026-07-28 against a throwaway
+    # container with a bogus socket path: exit 1, restarted 7x in 8s; and with a real
+    # socket: still running, RestartCount 0, healthy.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        /docker-entrypoint autoheal & child=$$!
+        while curl -fsS --max-time 5 --unix-socket "$$DOCKER_SOCK" http://localhost/_ping >/dev/null 2>&1; do
+          sleep "$${WATCHDOG_INTERVAL:-30}"
+        done
+        echo "[watchdog] docker socket unreachable at $$DOCKER_SOCK - exiting so the restart policy re-resolves the bind mount" >&2
+        kill "$$child" 2>/dev/null || true
+        exit 1
+    # Replaces the image's `pgrep -f autoheal`, which reports healthy for a sidecar that
+    # is doing nothing: `Cmd=["autoheal"]` puts that string in its own argv, so the check
+    # matches itself. A sidecar whose socket died reads `Up (healthy)` forever under it.
+    # Drilled 2026-07-28 in one container with a dead socket: this check said `unhealthy`,
+    # `pgrep -f autoheal` said healthy.
+    #
+    # CMD-SHELL is mandatory — the exec form does not expand variables. The path is
+    # HARDCODED rather than `$$DOCKER_SOCK` so the check and the volume above cannot
+    # disagree about which socket is being tested.
+    #
+    # All four timing fields are set: an omitted one takes the DAEMON default, not the
+    # image's, so inheriting three of them from a 5s-interval image is not what happens.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 # NO worker service — the worker runs NATIVELY on the host (see docs/SPEC.md §6).
 # It was containerized until 2026-07-16; removed because the fit scorer now shells out

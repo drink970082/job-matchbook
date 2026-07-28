@@ -7,6 +7,40 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ats-autoheal` reported healthy while doing nothing, and could not recover itself.**
+  Three things in one, because the previous attempt (PR #19, closed unmerged) was aimed at
+  a mechanism that does not exist.
+  **The healthcheck.** The image's is `pgrep -f autoheal`, and `Cmd=["autoheal"]` puts
+  that string in the process's own argv — so the check matches itself and a sidecar whose
+  socket died under it reads `Up (healthy)` forever. It is now a socket **ping**
+  (`curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping`).
+  `CMD-SHELL` is mandatory (the exec form does not expand variables), the path is
+  hardcoded rather than `$$DOCKER_SOCK` so the check and the volume cannot disagree, and
+  all four timing fields are set because an omitted one takes the *daemon* default, not
+  the image's.
+  **The watchdog.** A healthcheck only reports — **no compose mechanism acts on
+  `unhealthy`**: `restart:` fires on container exit only, and `depends_on:
+  service_healthy` is a startup gate that would be actively harmful here. So the
+  entrypoint now wraps the image's, and exits when the socket goes away; `restart:
+  unless-stopped` then recreates the container, and a bind mount **re-resolves at every
+  container START**, which is what makes the restart a real cure. It is correct only
+  *with* the new healthcheck — the wrapper shell has "autoheal" in its own argv too.
+  **Drilled before merging, as a hypothesis rather than a design:** a throwaway container
+  with the same wrapper and a bogus socket path exited 1 and was restarted 7x in 8s; with
+  a real socket it stayed up at `RestartCount 0`, healthy; and one dead-socket container
+  showed the two checks disagreeing — socket-ping `unhealthy`, `pgrep` healthy.
+  **`make health`.** A new target, invoked by `up`, polling both containers for `healthy`
+  and treating `NO-HEALTHCHECK` as failure, waiting out web's 40s `start_period` and
+  dumping `docker logs --tail 20` when it gives up. A fixed short sleep reads `starting`
+  and calls it success — the same defect PR #19 shipped as `status=running` at t=0.
+
+- **SPEC §6 documented a cure that does nothing.** It said "the cure is to recreate the
+  container" without noting that `make up` does **not** recreate a running container whose
+  config hash is unchanged. The operator's cure is `docker restart ats-web` or
+  `docker compose up -d --force-recreate web`.
+
 ### Added
 
 - **The worker can be supervised — `deploy/ats-worker.service.example`, a systemd user

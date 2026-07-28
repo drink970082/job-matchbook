@@ -9,7 +9,7 @@ DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: ma
 COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
-        test-integration test-e2e test-coverage check-schema check-privacy up down db-push seed-dev \
+        test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
         eval-score
 
 help: ## Show this help
@@ -85,6 +85,16 @@ seed-dev: ## Append realistic sample applications to the local db (vars: DB, COU
 
 up: ## Build + start the web stack (web + autoheal) via Docker Compose — the worker runs natively, see SPEC §6
 	UID=$$(id -u) GID=$$(id -g) docker compose up --build -d
+	$(MAKE) health
+
+health: ## Wait for ats-web + ats-autoheal to report healthy (polls; treats a missing healthcheck as failure)
+	@# A fixed `sleep N && docker inspect` reads `starting` and calls it success — the same
+	@# defect as asserting `status=running` at t=0. ats-web has a 40s start_period, so poll.
+	@# `NO-HEALTHCHECK` must FAIL, not pass: a container with no healthcheck reports an
+	@# empty .State.Health, and treating that as "fine" would silently un-gate this target
+	@# the moment someone drops a healthcheck block.
+	@for c in ats-web ats-autoheal; do 		printf 'waiting for %s ' "$$c"; ok=0; 		for i in $$(seq 1 60); do 			s=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}NO-HEALTHCHECK{{end}}' "$$c" 2>/dev/null || echo MISSING); 			case "$$s" in 				healthy)   ok=1; break ;; 				unhealthy) break ;; 				NO-HEALTHCHECK|MISSING) break ;; 			esac; 			printf '.'; sleep 2; 		done; 		if [ "$$ok" = 1 ]; then echo " healthy"; else 			echo " FAILED ($$s)"; echo "--- docker logs --tail 20 $$c ---"; 			docker logs --tail 20 "$$c" 2>&1 || true; exit 1; fi; 	done
+	@echo "stack healthy"
 
 down: ## Stop the Docker Compose stack
 	docker compose down

@@ -254,13 +254,41 @@ container can end up with a stale view of `./db` while the host and freshly-star
 containers see it fine. Prisma then fails with `SQLITE_CANTOPEN` (Error code 14) —
 the browser shows only a Next.js error digest; the real stack trace is in
 `docker logs ats-web` — even though permissions, ownership, disk, and the mount
-config are all correct. The cure is to recreate the container. To make this
-self-healing, `web` exposes `GET /api/health`, which actually opens the DB
+config are all correct.
+
+**The operator's cure is `docker restart ats-web`** (or `docker compose up -d
+--force-recreate web`). Note what does *not* work: `make up` will **not** recreate a
+running container whose config hash is unchanged, so "just run `make up`" is not a fix for
+this — it is a no-op.
+
+To make it self-healing, `web` exposes `GET /api/health`, which actually opens the DB
 (`SELECT 1` → `200`, else `503`), wired to a Docker `healthcheck`; the `autoheal`
 sidecar (watches the `autoheal=true` label via the mounted Docker socket) restarts
-any container Docker marks **unhealthy**. Plain Compose does *not* restart on
-unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
-the sidecar is what closes the loop.
+any container Docker marks **unhealthy**. **No compose mechanism acts on `unhealthy`** —
+`restart:` fires on container *exit* only, and `depends_on: service_healthy` is a startup
+gate that would be actively harmful here (it would hold the sidecar down exactly when web
+is the thing needing repair). The sidecar is the only thing that closes that loop.
+
+**A bind mount re-resolves at every container START, not at creation.** This is what makes
+the sidecar's restart of `ats-web` a real cure rather than a ritual. The measurement that
+appeared to say otherwise — a source path recreated under a *running* container staying
+invisible to it, 10/10 — is true only for an already-running container; what persists
+across a restart is the directory Docker `mkdir`'d over a missing source path, not a stale
+view. Confirmed on this host: `ats-autoheal` was created 2026-07-19 and started 2026-07-27,
+and works against the socket inode the daemon replaced on 2026-07-23.
+
+**Guarding the guard.** The sidecar's own health was, until 2026-07-28, the image's
+`pgrep -f autoheal` — which reports healthy for a sidecar doing nothing at all, because
+`Cmd=["autoheal"]` puts that string in its own argv. A sidecar whose socket died under it
+therefore read `Up (healthy)` forever. It now has a socket-**ping** healthcheck
+(`curl --unix-socket … /_ping`) plus an entrypoint **watchdog** that exits when the socket
+goes away, so `restart: unless-stopped` fires and the start re-resolves the bind. The two
+are a pair: the watchdog's wrapper shell also carries "autoheal" in its argv, so on its own
+it would reintroduce the same deception. **Automatic recovery of the sidecar from
+unhealthy-but-running is out of reach compose-only without that watchdog** — see above,
+nothing acts on `unhealthy`. `make health` (invoked by `make up`) polls both containers for
+`healthy`, treating a missing healthcheck as failure and waiting out web's 40s
+`start_period`.
 
 **Keeping the worker alive: a systemd user unit.** The web stack has Docker's
 `restart: unless-stopped` plus the autoheal sidecar; the worker, being native, had
