@@ -87,9 +87,25 @@ def _ollama_row(host: str, http_get) -> Check:
         return Check("ollama", False, f"{host}: {exc}", core=False)
 
 
-def run_checks(*, env, find_spec, which, http_get, connect, db_path) -> list[Check]:
+def _daemon_row(run_cmd) -> Check:
+    """Is the worker supervised, i.e. running as the systemd user unit?
+
+    Informational like the other provider rows: a hand-run `--once` workflow is a
+    perfectly good way to use this, so an unsupervised checkout is not a failure. It is
+    reported because a daemon that ISN'T running looks identical to one that is simply
+    between wall-clock slots — the pipeline is silent either way.
+    """
+    code, out = run_cmd(["systemctl", "--user", "is-active", "ats-worker"])
+    state = (out or "").strip() or "unknown"
+    return Check("worker daemon", code == 0,
+                 "active (systemd --user)" if code == 0
+                 else f"{state} — optional; see deploy/ats-worker.service.example",
+                 core=False)
+
+
+def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) -> list[Check]:
     """Pure check core — all I/O is injected, so tests pass fakes and the real
-    main() wires importlib / shutil / requests / sqlite3."""
+    main() wires importlib / shutil / requests / sqlite3 / subprocess."""
     telegram_ok = bool(env.get("TELEGRAM_BOT_TOKEN") and env.get("TELEGRAM_CHAT_ID"))
     anthropic_ok = bool(env.get("ANTHROPIC_API_KEY"))
     openai_ok = bool(env.get("OPENAI_API_KEY"))
@@ -111,6 +127,7 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path) -> list[Che
         Check("telegram", telegram_ok,
               "configured" if telegram_ok
               else "unset (optional — matches show in the Discovered Jobs tab)", core=False),
+        _daemon_row(run_cmd),
     ]
 
 
@@ -128,8 +145,18 @@ def main(argv=None) -> int:
         import requests  # lazy: requests itself may be the missing dep
         return requests.get(url, timeout=2)
 
+    def run_cmd(argv):
+        import subprocess  # lazy, and only reached on the daemon row
+        try:
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=5)
+            return p.returncode, p.stdout
+        except (OSError, subprocess.SubprocessError):
+            # No systemd, or no user manager. Not an error: the daemon is optional.
+            return 1, "unavailable"
+
     checks = run_checks(env=env, find_spec=importlib.util.find_spec, which=shutil.which,
-                        http_get=http_get, connect=sqlite3.connect, db_path=db_path)
+                        http_get=http_get, connect=sqlite3.connect, db_path=db_path,
+                        run_cmd=run_cmd)
     print("doctor — worker preflight\n")
     print(format_report(checks))
     core_fail = [c for c in checks if c.core and not c.ok]

@@ -7,6 +7,35 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **The worker can be supervised — `deploy/ats-worker.service.example`, a systemd user
+  unit.** The web stack has had `restart: unless-stopped` plus the autoheal sidecar since
+  the beginning; the worker, being native (SPEC §6), had nothing, so a crash or an OOM
+  kill just ended the job feed until a human noticed. `Restart=always` with `RestartSec=30s`
+  and a `StartLimitBurst` that parks a genuine crash-loop in `failed` — visible to
+  `systemctl --user status`, where an endlessly restarting unit is not.
+  **Journald supplies retention and rotation, so no log-file code and no rotation code
+  ships** — that is the entire reason for this shape rather than a log file the worker
+  manages itself. `journalctl --user -u ats-worker -f` follows it, and the daemon's
+  `basicConfig` is what makes the worker's own records timestamped beside APScheduler's.
+  `PYTHONUNBUFFERED=1` is load-bearing rather than tidy: the pipeline's `print()` calls
+  pass no `flush=`, and Python block-buffers stdout when it is not a tty, so under
+  journald's pipe a hung pass and a quiet pass would look the same.
+  Two traps are called out in the file because both fail silently: `StartLimitIntervalSec`
+  belongs in `[Unit]` and is *ignored* in `[Service]` (`systemd-analyze verify` catches
+  it), and `PrivateTmp=yes` must not be set, because `pass_lock` keys on
+  `tempfile.gettempdir()` and a private `/tmp` would let the daemon and a hand run both
+  acquire and both spend paid quota.
+  `sudo loginctl enable-linger $USER` is documented as the one operator step: `Linger=no`
+  is the default and tears the user manager down at logout.
+
+- **`make doctor` reports whether the worker daemon is active** (`systemctl --user
+  is-active ats-worker`). Informational like the other provider rows — hand-run `--once`
+  is a supported workflow — but a stopped daemon and one merely waiting for its next
+  wall-clock slot are otherwise indistinguishable, since both print nothing. A host with
+  no systemd reports the row soft rather than crashing the preflight.
+
 ### Changed
 
 - **The daemon fires on wall-clock slots, and no longer runs a pass at launch.**

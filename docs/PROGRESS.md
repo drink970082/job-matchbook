@@ -113,15 +113,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
   `Exited`.
 
-- **Wall-clock schedule — `feat/wall-clock-schedule`, IN FLIGHT** `[ORCH · claimed
-  2026-07-28]`. Cron slots instead of an interval, no eager startup pass, `--run-now` to
-  ask for one, `schedule_hours` bounded to divisors of 24, and `logging.basicConfig` in
-  the daemon branch (the handler the lockfile's skip warning was waiting for). Drilled
-  live for 12s: printed
-  `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`,
-  APScheduler's own lines came back timestamped, and **no pass started**.
-  **Not drilled: `--run-now`.** It runs a real pass, which means network and the paid fit
-  scorer, so it is covered by unit tests only.
+- **Worker supervision and logs — `feat/worker-supervision`, IN FLIGHT** `[INFRA ·
+  claimed 2026-07-28]`. A systemd **user** unit (`deploy/ats-worker.service.example`),
+  journald for retention and rotation so no logging code ships, and a `make doctor` row
+  for whether the daemon is up. `systemd-analyze verify` is clean — it caught
+  `StartLimitIntervalSec` being silently ignored in `[Service]`. **Not installed and not
+  started:** `systemctl --user enable --now` plus `sudo loginctl enable-linger` are
+  operator steps, documented in SPEC §6 rather than executed here, so the unit is verified
+  as *parsing*, never as *running*.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
@@ -756,9 +755,11 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
   (absent from feed).
 - **Deployment / monitoring** — `[INFRA · L · open-ended]`. `ats-web` has a DB-reachability
-  healthcheck + `autoheal` (SPEC §6), but there's no metrics/alerting beyond the
-  per-job Telegram notification, and the **worker** has no healthcheck — its failures
-  show only in the DB/logs. Includes the deferred scraper **canary self-tests** and
+  healthcheck + `autoheal`, and the worker now has **supervision** (a systemd user unit,
+  journald for logs — SPEC §6). What is still missing is *detection*: `Restart=always`
+  brings a crashed worker back, but a worker that is up and quietly producing nothing —
+  a dead board adapter, a screen backend answering blind — still shows only in the DB.
+  There is no metrics/alerting beyond the per-job Telegram notification. Includes the deferred scraper **canary self-tests** and
   proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
   here).
 - **AI fetch+score fallback for unparseable JDs** — `[FETCH · L · optional]`. Where text

@@ -1,0 +1,72 @@
+# systemd USER unit for the job-matchbook worker daemon.
+#
+# The worker is the one piece that is not containerized (SPEC §6): the default fit-score
+# backend shells out to the Codex CLI, which authenticates from the operator's
+# ~/.codex/auth.json, and Ollama is pinned to the host GPU. So supervision is systemd's
+# job here rather than Docker's.
+#
+# `.example` because this file is operator-specific — it hardcodes YOUR checkout path and
+# YOUR PATH. Copy it, edit the two marked lines, and install:
+#
+#   mkdir -p ~/.config/systemd/user
+#   sed "s|/home/YOU/ats|$PWD|" deploy/ats-worker.service.example \
+#       > ~/.config/systemd/user/ats-worker.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ats-worker
+#   journalctl --user -u ats-worker -f
+#
+# ONE step needs root, and it is not optional — `Linger=no` is the default, which means
+# the user manager (and every unit under it) is torn down when your last session ends:
+#
+#   sudo loginctl enable-linger $USER
+#
+# Without it the worker dies at logout and silently comes back at next login, which looks
+# exactly like an unexplained gap in the job feed.
+
+[Unit]
+Description=job-matchbook worker (fetch -> screen -> score -> notify)
+Documentation=https://github.com/drink970082/job-matchbook/blob/main/docs/SPEC.md
+# Ollama runs on the host and the worker reaches it over localhost. This is a hint, not a
+# guarantee: it orders startup only if ollama is also a user unit. Nothing breaks if it
+# is not — a dead screen provider circuit-breaks the screen phase by design (SPEC §9).
+After=network-online.target
+# A crash loop should not be retried forever at a fixed rate: five failures inside 10
+# minutes means the problem is not transient, and a unit sitting in `failed` is visible to
+# `systemctl --user status` where an endlessly restarting one is not.
+# These live in [Unit], NOT [Service] — systemd moved them, and in [Service] they are
+# silently ignored with only a log line to say so (`systemd-analyze verify` catches it).
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# EDIT: your checkout. The worker resolves config.yaml, .env, resume/ and the default
+# --db (../web/prisma/applications.db) relative to this directory.
+WorkingDirectory=/home/YOU/ats/apps/worker
+ExecStart=/usr/bin/python3 -m ats_worker.run
+
+# LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under
+# a pipe (which is what journald gives you) stdout is BLOCK-buffered: output would arrive
+# in 8KB lumps, minutes or hours late, and a pass that hung would look like a pass that
+# printed nothing. Python only line-buffers when stdout is a tty.
+Environment=PYTHONUNBUFFERED=1
+# EDIT: must reach the `codex` CLI (default fit backend) and `ollama`. systemd gives a
+# user unit a minimal PATH that does NOT include ~/.local/bin, where `codex login`
+# installs, so leaving this out makes every fit call fail at exec.
+Environment=PATH=/home/YOU/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+Restart=always
+# Long enough that a crash-loop (bad config, missing dep) does not spin the CPU or flood
+# the journal, short enough that a transient failure costs at most one slot.
+RestartSec=30s
+# DO NOT set PrivateTmp=yes here. `run.pass_lock` keys the "one pass at a time" lock on
+# tempfile.gettempdir(), so a private /tmp would make this daemon invisible to an
+# operator's hand-run `--once` — both would acquire, both would score, and the paid fit
+# scorer would be charged twice. See PROGRESS (ORCH) for the standing fix.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ats-worker
+
+[Install]
+WantedBy=default.target

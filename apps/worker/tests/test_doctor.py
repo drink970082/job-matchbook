@@ -34,7 +34,8 @@ def _make_db(path, *, with_table=True):
 
 def _run(**over):
     kw = dict(env={}, find_spec=_find_all, which=lambda c: f"/usr/bin/{c}",
-              http_get=_http_ok, connect=sqlite3.connect, db_path=":memory:")
+              http_get=_http_ok, connect=sqlite3.connect, db_path=":memory:",
+              run_cmd=lambda argv: (0, "active\n"))
     kw.update(over)
     # :memory: has no job_postings table, so default db_row is a miss unless overridden
     return doctor.run_checks(**kw)
@@ -96,3 +97,37 @@ def test_main_exit_one_when_db_missing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DB_PATH", str(tmp_path / "nope.db"))
     assert doctor.main() == 1
+
+
+def test_the_daemon_row_reports_the_systemd_user_unit_but_never_fails_the_exit_code():
+    # An unsupervised checkout is a legitimate way to use this — hand-run `--once` is
+    # documented — so the row is informational like the other provider rows. It exists
+    # because a daemon that is NOT running looks identical to one merely waiting for its
+    # next wall-clock slot: the pipeline prints nothing either way.
+    [row] = [c for c in _run() if c.label == "worker daemon"]
+    assert row.ok is True and row.core is False
+    assert "active" in row.detail
+
+    [row] = [c for c in _run(run_cmd=lambda argv: (3, "inactive\n"))
+             if c.label == "worker daemon"]
+    assert row.ok is False and row.core is False
+    assert "inactive" in row.detail
+    assert "ats-worker.service.example" in row.detail   # says where to go next
+
+
+def test_the_daemon_row_asks_systemd_the_user_scoped_question():
+    # `systemctl is-active ats-worker` without --user queries the SYSTEM manager, which
+    # on a machine with no system-wide unit answers "inactive" — reporting a correctly
+    # running user daemon as down.
+    seen = []
+    _run(run_cmd=lambda argv: (seen.append(argv), (0, "active"))[1])
+    assert seen == [["systemctl", "--user", "is-active", "ats-worker"]]
+
+
+def test_a_host_without_systemd_reports_the_daemon_row_soft_rather_than_crashing():
+    # doctor's whole job is diagnosing a broken checkout, so it must survive a host where
+    # the command does not exist at all (a container, a non-systemd distro, WSL without
+    # systemd enabled). main() maps that to (1, "unavailable").
+    [row] = [c for c in _run(run_cmd=lambda argv: (1, "unavailable"))
+             if c.label == "worker daemon"]
+    assert row.ok is False and row.core is False
