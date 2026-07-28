@@ -73,6 +73,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
      invitation. Silence still reaches the floor; a bad count does not. This, not the
      classifier, is what closed 465/490.
   **Stacked on `fix/degree-lower-bound`.**
+  **Queue item 4 (recovering the wrongly-discarded rows) is MEASURED but NOT RUN** —
+  operator's call 2026-07-28. The read-only dry run priced it at 46 rows / ~46 Codex
+  messages and is written up in the queue, so whoever runs it is deciding, not
+  discovering. Nothing is lost by waiting: the rows stay `discarded` until then.
 
 - **`fix/degree-lower-bound` — the defect the gate found, fixed** `[SCREEN · S · claimed
   2026-07-28]`. `SCREEN_SCHEMA`'s degree block became `degree_levels` + `degree_required`,
@@ -360,11 +364,38 @@ take first and why. Each numbered item is independently pickable.
 >    [In flight](#in-flight); the one worth carrying: what actually closed 465/490 was
 >    stopping a *miscounted* model answer from falling through to `NO_SPONSOR_PHRASES`,
 >    not the classifier. This file predicted the classifier alone would do it.
-> 4. **Recover the wrongly-discarded rows — `[XS]`, after 1 and 3 land.** ~80 rows sit in
->    `discarded` on evidence that is not in their JD: the 20 phantom-clearance rows above,
->    plus ~60 killed on EEO boilerplate before `_quote_on_topic` shipped. All are hydrated,
->    so `--rescreen-discarded --once` returns them for one pass; screening is free, the fit
->    calls that follow are not, so pair it with `--score-limit`.
+> 4. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
+>    the operator.** The dry run is done and free, so the pass is now a decision rather
+>    than a discovery. **Run it with:**
+>    ```
+>    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once \
+>        --rescreen-discarded --score-limit 736
+>    ```
+>    **Measured by re-screening the live DB read-only against the three fixes** (free —
+>    local Ollama — no rows written): of 213 hydrated discards whose reason names
+>    degree/clearance/authorization, **46 now keep** and 167 stay discarded. So the pass
+>    costs **~46 Codex messages, ~2.3% of a weekly budget**.
+>    | recovered | n | why |
+>    |---|---|---|
+>    | Microsoft clearance | 20 | the phantom-clearance defect (incl. id 1405, a *real* CTJ-Poly role — a miss that costs one paid call and reaches the human, the self-correcting direction) |
+>    | degree | 6 | 519 · 545 · 650 · 662 · 671 and the Microsoft ladders |
+>    | authorization | ~20 | the retired quote gate's false positives |
+>    **Two of the authorization recoveries are postings that OFFER sponsorship and were
+>    being deleted** — Optiver 723 *"Optiver is supportive of US immigration sponsorship
+>    for this role"* and Bridgewater 34 *"we do provide immigration sponsorship for this
+>    position"*. `_OFFERS_SPONSORSHIP` never matched "do provide", so the old gate read
+>    both as refusals. WorldQuant 1067 has no `sponsor` token at all and was killed by the
+>    retired `citizen` vocabulary. One sampled recovery (IMC 529) is a genuine recall loss
+>    and is already a known miss in the eval report.
+>    **`--score-limit 736` is not arbitrary** — under `db.get_by_status`'s
+>    `ORDER BY score DESC, id ASC` that window reaches every one of the 46 targets and
+>    contains **zero** of the 3,959-row pre-existing backlog, so the pass cannot wander
+>    into unrelated paid scoring.
+>    **The side effect to accept before running:** `requeue_discarded` is unfiltered — it
+>    moves all **3,092** hydrated discards out of `discarded` permanently, and the 2,356
+>    outside the window sit as `new` until a later pass re-kills them (free: 3,066 of them
+>    are location, a code path that did not change). 186 un-hydrated stub discards are
+>    skipped by design.
 >
 > **Not in this queue, still open:** the four landed-unmerged branches (#19/#20/#21/#22)
 > tracked in [In flight](#in-flight) — #20 is mergeable, the other three need work. And the
