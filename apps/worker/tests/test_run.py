@@ -1,6 +1,9 @@
 """TDD for the entrypoint: --once runs the three stages in order, env plumbing."""
 from __future__ import annotations
 
+import errno
+import os
+
 import pytest
 
 from ats_worker import config as cfgmod
@@ -814,3 +817,186 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     assert captured["env"]["TELEGRAM_CHAT_ID"] == "c"
     assert captured["env"]["ANTHROPIC_API_KEY"] == "secret-key"
     assert captured["env"]["OPENAI_API_KEY"] == "secret-openai-key"
+
+
+# --- one pass at a time (the host pass lock) ---------------------------------
+
+def test_a_second_pass_is_refused_while_the_first_holds_the_lock(tmp_path):
+    # The real race: a hand-run pass landing inside a scheduled one. The second
+    # acquisition must fail IMMEDIATELY (no blocking, no queueing) and name the holder.
+    # Two fds on one file conflict under flock even inside one process, so this needs
+    # no subprocess.
+    lock = tmp_path / "pass.lock"
+    with run.pass_lock(lock):
+        with pytest.raises(run.PassInProgress) as exc:
+            with run.pass_lock(lock):
+                pytest.fail("a second pass acquired a lock the first one holds")
+    assert str(os.getpid()) in str(exc.value)      # says WHICH process holds it
+    assert "quota" in str(exc.value)               # and why a duplicate pass matters
+
+    with run.pass_lock(lock):                      # released on normal exit
+        pass
+
+
+def test_a_stale_lockfile_does_not_wedge_the_pipeline(tmp_path):
+    # Host killed mid-pass: the file survives with a dead pid in it, but the kernel
+    # dropped the flock with the process. The next pass must take it with no operator
+    # deleting anything by hand.
+    #
+    # This has to be a REAL subprocess that is REALLY killed. Writing a dead pid into a
+    # file nobody ever flocked would pass against a plain PID-file implementation too,
+    # and kernel-release-on-death is the entire reason flock was chosen over one.
+    import subprocess
+    import sys
+    lock = tmp_path / "pass.lock"
+    holder = subprocess.Popen(
+        [sys.executable, "-c",
+         "import fcntl,os,sys\n"
+         "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)\n"
+         "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+         "os.ftruncate(fd, 0); os.write(fd, f'{os.getpid()}\\n'.encode())\n"
+         "print('held', flush=True)\n"
+         "sys.stdin.read()\n",
+         str(lock)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(run.PassInProgress):     # genuinely held by another process
+            with run.pass_lock(lock):
+                pytest.fail("took a lock another process holds")
+        holder.kill()                               # SIGKILL: no cleanup can run
+        holder.wait(timeout=10)
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=10)
+
+    assert lock.exists()                            # nothing unlinked it
+    assert lock.read_text().strip() == str(holder.pid)   # ... and it still names the dead pid
+    with run.pass_lock(lock):                       # taken anyway, no manual cleanup
+        assert lock.read_text().strip() == str(os.getpid())
+
+
+def test_an_unopenable_lock_is_not_reported_as_contention(tmp_path):
+    # A root-owned leftover from one sudo run, a 0600 file, a missing TMPDIR: each makes
+    # os.open fail forever, and "never unlinked" means nothing self-heals. The one thing
+    # it must NOT do is claim a pass is already running, which would send the operator
+    # hunting a process that does not exist.
+    lock = tmp_path / "missing-dir" / "pass.lock"
+    with pytest.raises(RuntimeError) as exc:
+        with run.pass_lock(lock):
+            pytest.fail("opened a lock under a directory that does not exist")
+    assert not isinstance(exc.value, run.PassInProgress)
+    assert str(lock) in str(exc.value)              # names the path to fix
+    assert "TMPDIR" in str(exc.value)
+
+
+def test_a_filesystem_without_flock_is_not_reported_as_contention(monkeypatch, tmp_path):
+    # NFS without lockd, some FUSE mounts: flock raises ENOLCK/ENOSYS rather than
+    # EWOULDBLOCK. Reporting that as contention refuses EVERY pass forever while telling
+    # the operator one is already running — a permanent silent outage.
+    def no_locks(fd, op):
+        raise OSError(errno.ENOLCK, "No locks available")
+    monkeypatch.setattr(run.fcntl, "flock", no_locks)
+    with pytest.raises(RuntimeError) as exc:
+        with run.pass_lock(tmp_path / "pass.lock"):
+            pytest.fail("took a lock on a filesystem that cannot lock")
+    assert not isinstance(exc.value, run.PassInProgress)
+    assert "not contention" in str(exc.value)
+
+
+def test_the_default_lock_path_is_not_under_the_shared_db_dir():
+    # db/ is bind-mounted into the web container; the lock is a property of this host's
+    # processes, not of the data. The autouse fixture redirects _LOCK_PATH for the rest
+    # of the suite, so without this nothing would notice it moving.
+    from tests.conftest import SHIPPED_LOCK_PATH
+    assert SHIPPED_LOCK_PATH == run.Path(run.tempfile.gettempdir()) / "ats-worker-pass.lock"
+    assert "db" not in SHIPPED_LOCK_PATH.parts
+
+
+def test_the_lock_is_released_when_the_pass_raises(tmp_path):
+    lock = tmp_path / "pass.lock"
+    with pytest.raises(ValueError):
+        with run.pass_lock(lock):
+            raise ValueError("boom")
+    with run.pass_lock(lock):
+        pass
+
+
+def test_main_once_refuses_to_start_inside_another_pass(monkeypatch, tmp_path):
+    # End of the wiring: a refused pass runs NOTHING (no fetch, no paid score) and
+    # exits non-zero with a readable message rather than waiting for the lock.
+    calls: list = []
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config("companies: []\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+
+    with run.pass_lock():                          # conftest points _LOCK_PATH at tmp
+        with pytest.raises(SystemExit) as exc:
+            run.main(["--once", "--env", str(tmp_path / "none.env")])
+    assert "already running" in str(exc.value)
+    assert calls == []
+
+
+def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path, caplog):
+    # Daemon side of the same refusal: starting (or firing) the scheduler while a
+    # hand-run pass holds the lock must skip THIS slot and stay scheduled — the eager
+    # startup pass must not take the daemon down with it.
+    import sys
+    import types
+    events: list = []
+
+    class FakeScheduler:
+        # start() must actually FIRE the registered job. Discarding the callable would
+        # leave the eager pre-start() pass as the only thing exercised, and this test
+        # claims to cover a *scheduled firing* skipping its slot.
+        def __init__(self): self.job = None
+        def add_job(self, fn, *a, **kw): events.append("add_job"); self.job = fn
+        def start(self): events.append("start"); self.job()
+
+    blocking = types.ModuleType("apscheduler.schedulers.blocking")
+    blocking.BlockingScheduler = FakeScheduler
+    for name, mod in (("apscheduler", types.ModuleType("apscheduler")),
+                      ("apscheduler.schedulers", types.ModuleType("apscheduler.schedulers")),
+                      ("apscheduler.schedulers.blocking", blocking)):
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    calls: list = []
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config("companies: []\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+
+    with run.pass_lock():
+        run.main(["--env", str(tmp_path / "none.env")])
+
+    assert calls == []                                   # the pass did not run
+    # WARNING on the logging stream, not stdout: "a pass did not run" is the same signal
+    # APScheduler emits for a misfire or a max-instances skip, and an operator reading
+    # journald needs the two interleaved and timestamped rather than split across
+    # stdout and stderr.
+    assert "skipping this scheduled pass" in caplog.text
+    # Level, not count: today the eager startup pass and the scheduled firing are both
+    # refused, so this logs twice. Dropping the eager pass is queued, and this test is
+    # about WHERE the signal goes, not how many slots the fake scheduler fires.
+    assert {r.levelname for r in caplog.records} == {"WARNING"}
+    assert events == ["add_job", "start"]                # ... but the daemon lives
+
+
+def test_main_once_takes_the_lock_and_gives_it_back(monkeypatch, tmp_path):
+    # The lock is held for one pass, not for the process lifetime — otherwise a
+    # daemon would hold it across its whole run and block every hand-run pass.
+    calls: list = []
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config("companies: []\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+
+    run.main(["--once", "--env", str(tmp_path / "none.env")])
+    assert len(calls) == 1
+    with run.pass_lock():                          # free again
+        pass

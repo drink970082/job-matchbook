@@ -113,15 +113,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
   `Exited`.
 
-- **Three older branches, landed and unmerged, all reviewed 2026-07-26.**
+- **The pass lockfile — `feat/pass-lockfile`, PR #20, IN FLIGHT** `[ORCH · claimed
+  2026-07-28]`. Reviewed mergeable 2026-07-26; the 2 defects that review found (a raw
+  `OSError` from `os.open` killing the daemon, and `ENOLCK` reported as contention, which
+  would refuse every pass forever) are fixed on the branch. `main` is merged in — the
+  screen stack rewrote all three doc files under it — and the scheduled-skip `print` is
+  now a `logging.WARNING`, the stream APScheduler already uses for its own misfire and
+  max-instances warnings. No handler is installed yet, so it lands on stderr via
+  `logging.lastResort`, untimestamped; installing one in the daemon branch is next.
+
+- **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
   |---|---|---|
-  | [#20](https://github.com/drink970082/job-matchbook/pull/20) | `feat/pass-lockfile` | **mergeable.** Review found 2 real defects (raw `OSError` from `os.open` killed the daemon; `ENOLCK` reported as contention would refuse every pass forever), both fixed on the branch. |
   | [#19](https://github.com/drink970082/job-matchbook/pull/19) | `fix/autoheal-socket-gap` | **redo** — see above. |
   | [#21](https://github.com/drink970082/job-matchbook/pull/21) | `feat/custom-html-mode` | **ships dead as documented** — see the `custom html` entry under Enhancements. |
-  | [#22](https://github.com/drink970082/job-matchbook/pull/22) | `fix/sponsorship-positive-evidence` | **CLOSE UNMERGED.** Superseded and shipped differently 2026-07-28 (`feat/sponsorship-retrieve-classify`). |
   **Do not merge 19/21 on a green suite** — in both cases the suite is green and the
-  change is still wrong. All were *premise* failures, not coding errors.
+  change is still wrong. Both were *premise* failures, not coding errors. (#22 and #23
+  were closed unmerged 2026-07-28 when the screen stack landed as #24.)
 
 - **Scoring the `new` backlog at scale — deferred, operator's call** `[SCORE · S ·
   quota-bound]`. **3,959 rows `new`** as of 2026-07-28. Measured per-row cost is **~0.4
@@ -155,13 +163,33 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
   of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the
   board HTTP, workday detail calls, Simplify re-reads, `feed_unresolved` re-attempts and
-  Chromium renders per day. That reprices two open items below — the missing 429 backoff
+  Chromium renders per day (`run_expire`'s 50/pass becoming 300/day is the one welcome
+  multiple). That reprices two open items below — the missing 429 backoff
   (`phenom/qualcomm` already 429s at **one** pass/day) and pruning permanently-dead
   `feed_unresolved` URLs now retried 6x daily. Both were dormant while the config sat at
   24h and the feed was off; both are live as of 2026-07-28.
-  **Overlap:** APScheduler defaults to `max_instances=1`, so the scheduler cannot overlap
-  itself. The real exposure is a hand-run pass landing inside a scheduled one, which gets
-  likelier at 4/day — covered by the PID lockfile on PR #20.
+  **Overlap — CLOSED 2026-07-28** (branch `feat/pass-lockfile`, PR #20; SPEC §7.1/§9 +
+  CHANGELOG). APScheduler's `max_instances=1` never let the scheduler overlap itself; the
+  real exposure was a hand-run pass landing inside a scheduled one, and `run.pass_lock`
+  (a non-blocking `flock`, stale-safe by construction) now refuses the second one
+  outright. The claim/lease shapes stay rejected (see
+  [Architecture / maintainability](#architecture--maintainability)).
+  **Two residuals, and the second one is the direction that costs money** (`[ORCH · XS]`).
+  (a) The lock is one fixed path per `TMPDIR`, so two checkouts pointed at two different
+  DBs would block each other — harmless, and `TMPDIR` is the escape hatch.
+  (b) **The same keying breaks the guard in the expensive direction.** A daemon started
+  from cron (sanitized env, no `TMPDIR`) or from a systemd unit with `PrivateTmp=yes`
+  resolves a different temp dir than an interactive shell that exports one, so both
+  acquire and both score the same DB. Keying the lock filename on the resolved `--db`
+  path would make the guard match the resource it actually protects — the DB plus the one
+  Codex account. Note the queued systemd unit is exactly how (b) gets reached.
+  **Also still true, and this file previously overstated it:** the earlier review's "raw
+  `OSError` from `os.open` kills the daemon" is only half fixed. The message is now a
+  named `RuntimeError` naming the path, but a daemon still *dies* on it — the eager
+  startup pass sits outside any handler — so one accidental `sudo python -m ats_worker.run`
+  leaves a root-owned lock file that is never unlinked and wedges every later start.
+  `flock` needs no write access, so falling back to `O_RDONLY` when `O_RDWR` fails would
+  keep the guard working and lose only the pid diagnostic.
 
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
   categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
@@ -190,10 +218,10 @@ matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 3 — **1 residual** (a 4B ceiling, not a coding defect); the eval gap is closed and `make eval-screen` gates the prompt |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; scheduler/cadence and the un-hydrated stub discards |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 4 |
 | `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 |
@@ -267,8 +295,7 @@ take first and why. Each numbered item is independently pickable.
 >    [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
 >    before the first unattended pass, or the feed ingests unfiltered at 6 passes/day.
 >
-> **Also open, not queued:** PR #20 is mergeable, #21 ships dead, **#22 should be closed
-> unmerged** (superseded). The
+> **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
 > (bounded fetch + scoring at scale) remain unrun — read them before any large paid pass
 > for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.

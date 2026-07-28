@@ -328,7 +328,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   (the fetch/screen seams never bind a real network callable as a default —
   `notify.py`'s `http=requests` default is the one deliberate exception), and
   `run.py` supplies `fetch_company`, `fetch_one_company`, and the screen's
-  `http=requests` explicitly at each call site.
+  `http=requests` explicitly at each call site. **One pass at a time per host:** every
+  pass (scheduled or `--once`) runs inside `pass_lock` — a non-blocking `fcntl.flock`
+  on `$TMPDIR/ats-worker-pass.lock`, taken per *pass*, not for the process lifetime, and
+  deliberately not under `db/` (bind-mounted into the web container; the lock is a
+  property of this host's processes, not of the data). A pass that cannot take it runs
+  nothing: `--once` exits non-zero naming the holder's pid, a scheduled firing skips
+  that slot and stays scheduled (§9).
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -1573,6 +1579,33 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   attempt per reopen. Design:
   [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
 
+- **Two pipeline passes never overlap while they resolve the same `TMPDIR`.** The
+  guard is keyed on `tempfile.gettempdir()`, not on the host and not on the DB, and
+  the difference is not academic: a daemon started from cron or from a systemd unit
+  with `PrivateTmp=yes` resolves a *different* temp dir than an interactive shell that
+  exports `TMPDIR`, so both can acquire and both can score the same DB — the paid
+  double-spend this exists to prevent. The only evidence would be two differing
+  `[pass] holding <path>` lines. Keying the filename on the resolved `--db` path would
+  make the guard match the resource it protects; until then the invariant is the one
+  stated here, not "per host". APScheduler's `max_instances=1`
+  stops the scheduler overlapping *itself* (a long pass makes the next firing skip), but
+  not a hand-run pass landing inside a scheduled one — likelier the higher the cadence.
+  The asymmetry that makes it worth guarding: a duplicated notify costs one extra
+  Telegram message, a duplicated **score costs real paid quota**. `run.pass_lock` wraps
+  the whole pass in a non-blocking exclusive `flock`. It is an `flock`, not a PID file,
+  because that makes **staleness self-solving**: the kernel drops the lock when the
+  holder dies, so a host killed mid-pass leaves a file the next pass takes immediately —
+  no operator deleting anything, no guessing whether a recorded pid was reused. Release
+  therefore covers every exit — normal return, exception, SIGINT (the `finally` runs),
+  SIGTERM/SIGKILL (the kernel). The file is truncated and rewritten with the holder's
+  pid so a refusal can name it, and is **never unlinked** (unlinking races: a second
+  process can end up holding a lock on an inode no longer at that path). A refused pass
+  is non-destructive and total — it neither queues, blocks, nor partially runs: `--once`
+  raises `SystemExit` with the message (non-zero, before any fetch or scorer call), a
+  scheduled firing logs one `logging.WARNING` and waits for the next slot. That record
+  has no handler behind it yet (nothing in the worker calls `basicConfig`), so it
+  reaches stderr via `logging.lastResort`, untimestamped.
+
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
@@ -1611,6 +1644,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
+| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout (no handler is installed yet, so it lands on stderr via `logging.lastResort`) | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
 | Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
 | Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
 | An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |

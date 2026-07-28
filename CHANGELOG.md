@@ -129,6 +129,31 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   retrieval failing at exactly the job the queued retrieve-then-classify rewrite takes
   away from it.
 
+- **One pipeline pass at a time per host.** APScheduler's `max_instances=1` already stops
+  the scheduler overlapping itself, but nothing stopped a hand-run pass landing inside a
+  scheduled one — a race that gets likelier at the chosen cadence of 4 passes/day, and one
+  whose costs are asymmetric: a duplicated notify is one extra Telegram message, a
+  duplicated **score spends real paid quota**. Every pass now runs inside `run.pass_lock`,
+  a non-blocking exclusive `fcntl.flock` on `$TMPDIR/ats-worker-pass.lock`. It is an
+  `flock` rather than a PID file because that makes staleness self-solving — the kernel
+  drops the lock when the holder dies, so a host killed mid-pass leaves a file the next
+  pass takes immediately, with no operator deleting anything and no guessing whether a
+  recorded pid was reused. The lock is held per *pass*, not for the process lifetime, so
+  a running daemon does not lock the operator out of a hand run between firings; the file
+  is never unlinked (unlinking races a waiter onto an inode no longer at that path). A
+  refused pass is total and non-destructive — it neither queues nor partially runs:
+  `--once` exits non-zero naming the holder's pid before any fetch or scorer call, while a
+  scheduled firing logs one `logging.WARNING`, skips that slot and stays scheduled, so a daemon
+  restarted during a hand run does not die on its eager startup pass. Drives of all three
+  paths (clean pass, refusal, SIGKILLed holder) were run through the real CLI.
+  The scheduled skip goes to `logging.WARNING` rather than `print`, because APScheduler
+  emits its own misfire and max-instances warnings there and they are the same signal —
+  "a pass did not run" — so one handler can carry both. **No handler is installed yet:**
+  nothing in the package calls `basicConfig`, so the record currently falls to
+  `logging.lastResort` (stderr, untimestamped) and the `[pass] holding ...` line is
+  still a `print` on stdout. This change picks the stream; it does not yet unify the
+  output.
+
 ### Fixed
 
 - **The degree check read "PhD **or** Master's" as a hard PhD bar: 9 of 38 live discards
