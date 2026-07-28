@@ -107,24 +107,27 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   scores **one board at a time**. Fine for a smoke test, misleading as a sample of the
   queue.
 
-- **Run the pipeline as a daemon — cadence chosen 2026-07-23: 4 passes/day at
-  00:00 / 06:00 / 12:00 / 18:00** (`schedule_hours: 6`). Passes are still run by hand; the
-  blocking precondition (two circuit breakers) landed 2026-07-24. One thing is still not
+- **Run the pipeline as a daemon — cadence APPLIED 2026-07-28: 6 passes/day, a 4-hour
+  interval** (`schedule_hours: 4`, live `config.yaml`). Supersedes the 2026-07-23 choice of
+  4/day, which was decided but never written into the config — the file sat at `24` for
+  five days while this entry claimed `6`. Passes are still run by hand; the blocking
+  precondition (two circuit breakers) landed 2026-07-24. One thing is still not
   expressible.
   **The schedule is an interval, not a clock.** `run.main` does
   `scheduler.add_job(once, "interval", hours=cfg.schedule_hours)` and calls `once()`
-  before `start()`, so passes fire at *launch time + 6h + 12h…*: start the worker at 09:47
-  and they land at 09:47/15:47/21:47/03:47, never at midnight. Wall-clock alignment needs
-  a **cron** trigger (`add_job(once, "cron", hour="0,6,12,18")`) — a handful of lines, but
-  a config-shape question (an `hours:` list vs an interval int). The eager `once()` also
+  before `start()`, so passes fire at *launch time + 4h + 8h…*: start the worker at 09:47
+  and they land at 09:47/13:47/17:47…, never on the hour. Wall-clock alignment needs
+  a **cron** trigger (`add_job(once, "cron", hour="0,4,8,12,16,20")`) — a handful of lines,
+  but a config-shape question (an `hours:` list vs an interval int). The eager `once()` also
   means every restart costs an immediate full pass.
   **What does NOT get more expensive: the paid scorer.** `upsert_postings` is
   `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
-  of *newly discovered postings*, not of pass count. What multiplies is fetch: 4x the
+  of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the
   board HTTP, workday detail calls, Simplify re-reads, `feed_unresolved` re-attempts and
   Chromium renders per day. That reprices two open items below — the missing 429 backoff
   (`phenom/qualcomm` already 429s at **one** pass/day) and pruning permanently-dead
-  `feed_unresolved` URLs now retried 4x daily.
+  `feed_unresolved` URLs now retried 6x daily. Both were dormant while the config sat at
+  24h and the feed was off; both are live as of 2026-07-28.
   **Overlap:** APScheduler defaults to `max_instances=1`, so the scheduler cannot overlap
   itself. The real exposure is a hand-run pass landing inside a scheduled one, which gets
   likelier at 4/day — covered by the PID lockfile on PR #20.
@@ -225,6 +228,13 @@ take first and why. Each numbered item is independently pickable.
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
 > 4. **Redo the autoheal fix — `[INFRA · S]`**, PR #19. Direction is written up in
 >    [In flight](#in-flight); the fix is a compose `healthcheck:` that pings the socket.
+> 5. **Decide the `run_feed` pre-filter — `[FETCH · S]`, and it comes BEFORE 3 and 4.**
+>    Numbered last only to keep items 2/3 addressable by the entries that cite them. The
+>    Simplify feed was enabled 2026-07-28 for live testing, and `run_feed` never calls
+>    `prefilter_postings` — so `title_filter`, `title_exclude` and `max_age_days: 30` apply
+>    to **zero** feed-discovered rows. Pick (a)/(b)/(c) from the entry under
+>    [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
+>    before the first unattended pass, or the feed ingests unfiltered at 6 passes/day.
 >
 > **Also open, not queued:** PR #20 is mergeable, #21 ships dead, **#22 should be closed
 > unmerged** (superseded). The
@@ -388,7 +398,11 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   economic point of screening first. Routing buys each one a paid fit call.
 
 - **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
-  2026-07-23 · decision pending]`. `run_fetch` runs `prefilter_postings` (title
+  2026-07-23 · LIVE since 2026-07-28 · decision pending]`. **Was dormant, now is not:**
+  the live `config.yaml` carried no `feeds:` key at all until 2026-07-28, so `feeds` parsed
+  empty, `run_feed` never ran, and `feed_unresolved` held **0 rows**. Simplify is enabled as
+  of 2026-07-28 for live testing, so this gap now applies to every pass — see queue item 5.
+  `run_fetch` runs `prefilter_postings` (title
   keep-list, `title_exclude`, `max_age_days`) over everything it fetches;
   `run_feed` never calls it — the function isn't in its signature, and resolved
   postings go straight from `_fetch_group` to `upsert_postings`
@@ -579,7 +593,9 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   endpoint (unauthenticated, zero-dep; personal-use / ToS caveat, keep volume low);
   JobSpy as a possible fallback aggregator.
 - **Remaining feed coverage (the `feed_unresolved` long tail)** — `[FETCH · M · needs
-  iCIMS/ByteDance feed routers]`. Resolution sits at ~78% after tier 1. What's left
+  iCIMS/ByteDance feed routers]`. Resolution sits at ~78% after tier 1 — a figure from the
+  last run the feed was on; the table now holds **0 rows** and re-measures on the first pass
+  after the 2026-07-28 re-enable. What's left
   is iCIMS + ByteDance — both plain HTTP (iCIMS ships as a list adapter, TikTok as a
   `custom` recipe), but closing the *feed* tail still needs a `resolve_url` host
   router + a per-listing `fetch_one`, which the list adapters don't provide.
