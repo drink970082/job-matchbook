@@ -7,6 +7,46 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`make eval-screen` — the accuracy gate `screen.txt` never had.** `score.txt` cannot
+  change without two consecutive `tools/score_eval.py` PASS; the screen's degree,
+  clearance and sponsorship clauses shipped on inspection alone, and on 2026-07-27 that
+  cost four days of a clearance check running 83% wrong with nothing to surface it (no row
+  is marked `failed`, so no failure ratio moves). `tools/screen_eval.py` reuses the
+  production wiring (`run.make_screener` -> `score.screen_posting`), draws each corpus row
+  K=3x on the free local Ollama backend, and judges the requirement that row was drawn for
+  against a hand-labeled JD **fact** — "does this JD require a clearance?", never "is this
+  posting disqualified?", because a verdict-labeled set rots the moment `config.yaml`
+  changes and a fact-labeled one does not.
+
+  **The gate is one-directional: zero false disqualification, judged on ANY of the three
+  draws rather than the majority** — a check that discards a good posting one time in
+  three is not a passing check. Recall and flip-rate are reported and never gated: a miss
+  costs one paid fit call and reaches the human, while a false discard is reviewed by
+  nobody. Rows whose label is genuinely ambiguous carry `gate: false` and are reported
+  only — a gate is worthless if it can be argued with. `--selftest` is a free hermetic
+  check of the gate logic *and* of the corpus's own invariants; it runs no model.
+
+  The corpus (`apps/worker/eval/screen_golden.jsonl`, 83 rows) is built from **live fires
+  rather than synthesized JDs** — the 24 clearance discards, the 38 degree discards, and
+  the 21 operator-signed rows of the 2026-07-25 sponsorship worksheet — and stores
+  excerpts, which is also the input shape the sponsorship rewrite will feed the model. It
+  lives under the already-gitignored, privacy-guarded `apps/worker/eval/`, so like
+  `eval/golden.jsonl` the gate is reproducible only with the operator's local files.
+
+  **Its first run FAILED, 11 false disqualifications out of 81 gate-eligible rows** —
+  clearance 0 (the evidence floor above, verified against live data), sponsorship 2 (the
+  known `NO_SPONSOR_PHRASES` residual), **degree 9 — a previously unknown defect**: the 4B
+  reads *"PhD, or Master's degree in…"*, *"PhD (or exceptional MSc)"* and *"PhD … strongly
+  preferred"* as a hard PhD bar. All three draws agreed on all 9, so it is a stable
+  misreading rather than noise. Microsoft's laddered *"Doctorate … OR Master's … OR
+  Bachelor's"* form is read correctly 5 for 5, which places the fix in the prompt clause
+  and not in code. Sponsorship recall is the other finding: **8 of 16 bars missed on rows
+  whose refusal sentence is inside the excerpt the model was handed** — model-side
+  retrieval failing at exactly the job the queued retrieve-then-classify rewrite takes
+  away from it.
+
 ### Fixed
 
 - **The clearance check fired on the word "security": 20 of 24 live discards were

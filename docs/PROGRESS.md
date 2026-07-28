@@ -31,6 +31,24 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Stacked on `docs/record-review-findings`**, not on `main` — the defect entry it
   closes and the queue it belongs to only exist on that branch. Merge that one first.
 
+- **`feat/screen-eval-gate` — queue item 2 built, and its FIRST RUN FAILED with 11
+  findings** `[SCREEN · S · claimed 2026-07-28]`. `tools/screen_eval.py` + a hand-labeled
+  83-row corpus (`apps/worker/eval/screen_golden.jsonl`, gitignored with the rest of
+  `eval/`), `make eval-screen`, SPEC §13. Baseline, `ollama`/`qwen3.5:4b`, K=3, 81
+  gate-eligible rows: **FAIL — 11 false disqualifications, recall 27/37 (73%), 0 flips.**
+  A gate that fails on its own baseline is the gate working; it is also why item 3 cannot
+  ship until the findings are dispositioned.
+  | requirement | rows | false disqualification |
+  |---|---|---|
+  | clearance | 24 | **0** — item 1's fix verified against live data, 1 miss (id 1405) |
+  | degree | 38 | **9 (24%) — a NEW defect, see Defects** |
+  | sponsorship | 21 | 2 (ids 465/490, the known `NO_SPONSOR_PHRASES` residual item 3 closes) |
+  **Sponsorship recall is the other half of the story: 8 of 16 bars missed**, on rows whose
+  refusal sentence *is inside the excerpt the model was handed*. That is model-side
+  retrieval failing at the one job item 3 takes away from it — independent evidence for the
+  retrieve-then-classify inversion, measured rather than argued.
+  **Stacked on `fix/clearance-evidence-floor`.**
+
 - **Four branches LANDED, UNMERGED, all reviewed 2026-07-26 — three need work before they
   merge.** PRs are open; every one has a §7 fresh-subagent review whose findings are
   recorded below and in the entries they belong to. **Do not merge 19/21/22 on a green
@@ -241,7 +259,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (the clearance evidence floor shipped 2026-07-28); the eval gap now gates the sponsorship rewrite |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 defect** (degree reads "PhD or Master's" as a PhD bar, found 2026-07-28 *by* the new eval); the clearance floor shipped, the eval gap is closed |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -255,13 +273,18 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: none.** The SCREEN one found 2026-07-27 (the clearance check firing on
-the word "security"; 20 of 24 discards false) shipped its fix 2026-07-28 — evidence floor,
-details below. It was a *different* class from the five closed before it: not a systemic
-condition mishandled as a per-item verdict, but a per-item verdict acted on with **no
-evidence floor** — the D1 gap, which `authorization` closed and `clearance` never did.
-Fixing the check does **not** un-discard the ~80 rows it already killed; that is queue
-item 4.
+**Open defects: one — SCREEN, found 2026-07-28** (the degree check reads "PhD or Master's"
+as a PhD bar; 9 of 38 discards false, all three eval draws agreeing). The clearance one
+found 2026-07-27 shipped its fix 2026-07-28 (evidence floor, details below).
+
+Both are the same class, and it is *different* from the five closed before them: not a
+systemic condition mishandled as a per-item verdict, but a **per-item verdict acted on
+without checking what the JD actually says** — the D1 gap, which `authorization` closed
+and neither `clearance` nor `degree` ever did. They part company on the remedy: clearance
+is lexical, so code can floor it on a token; degree is semantic, so the fix is a prompt
+clause — the first `screen.txt` edit that has a gate to answer to.
+Fixing a check does **not** un-discard the rows it already killed; that is queue item 4,
+and the degree rows now join it.
 
 The five instances of the earlier policy error — a *systemic* condition handled as a
 per-item verdict — have all shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
@@ -286,12 +309,15 @@ take first and why. Each numbered item is independently pickable.
 >    keep-direction only, so it shipped without the golden set, exactly as recorded here.
 >    Full repro and the fix are under
 >    [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
-> 2. **Screen golden set — `[S]`, blocks item 3.** The `screen.txt` eval gap is no longer
->    a nice-to-have: it is the reason a check could run 83% wrong for four days unnoticed.
->    Build it from the *live fires* rather than synthesized JDs — see the
->    [eval-gate entry](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
->    for the corpus, the labeling shape, and the privacy constraint that decides the
->    fixture format.
+> 2. ~~**Screen golden set — `[S]`, blocks item 3.**~~ **BUILT 2026-07-28** on
+>    `feat/screen-eval-gate` — `make eval-screen`, 83 rows from live fires, gate = zero
+>    false disqualification. **Its first run FAILED with 11 findings** (see
+>    [In flight](#in-flight)), which is the gate doing its job: 2 are the sponsorship
+>    residual item 3 closes, and **9 are a new degree defect** that item 3 does not touch.
+>    **New decision for the operator, and it is the only open one in this queue:** fix the
+>    degree clause first (`[XS]`, one prompt clause, now gated) or run item 3 first and
+>    disposition degree after. Item 3 remains blocked either way until the sponsorship
+>    findings are the *only* ones left, because a failing gate cannot certify a rewrite.
 > 3. **Sponsorship: retrieve-then-classify — `[S]`, gated on item 2.** Replaces both the
 >    shipped gate and the rejected PR #22 rebuild. CODE retrieves, MODEL classifies, CODE
 >    decides — the inverse of today's split. Design recorded in the
@@ -410,6 +436,36 @@ allowlist entry. If that reason vocabulary ever grows a second board-named membe
 exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
+
+- **The degree check reads "PhD **or** Master's" as a PhD bar — 9 of 38 discards are
+  false** — `[SCREEN · S · found 2026-07-28 by the new screen eval · queue: decide vs
+  item 3]`. `screen.txt`'s degree clause asks for "the MINIMUM degree the role requires …
+  the lower bound for 'X or higher'". It says nothing about a **list of alternatives** or
+  about **preference** language, and the 4B takes the highest degree it sees.
+  **Measured, not inferred** — `make eval-screen`, `ollama`/`qwen3.5:4b`, K=3, all three
+  draws agreed on every one of the 9 (no flip, so this is a stable misreading, not noise):
+
+  | shape | ids | what the JD says |
+  |---|---|---|
+  | compact alternatives | 260 · 519 · 545 · 672 · 1031 | *"PhD (or exceptional MSc)"* · *"Ms or PhD"* · *"PhD, or Master's degree in…"* · *"advanced degree (preferably a Ph.D.)"* |
+  | explicit equivalence | 738 | *"PhD or equivalent industry experience"* |
+  | preference, not a bar | 849 · 67 · 68 | *"PhD or Master's … strongly preferred"* · *"DESIRABLE CANDIDATES Ph.D. candidates"* |
+
+  **Microsoft's laddered form is handled correctly, 5 for 5** (*"Doctorate … AND 1+ year(s)
+  OR Master's Degree … AND 4+ years OR Bachelor's Degree … AND 5+ years OR equivalent
+  experience"*, ids 1366/1399/1400/1401/1414 all keep). So the model can do the lower-bound
+  reading when the alternatives are spelled out at length; it fails on the compact form and
+  on soft language. That points the fix at the **prompt**, not at code — one clause naming
+  both shapes ("a list of alternatives takes the LOWEST"; "preferred/desirable/ideally is
+  not a requirement — use the level actually required, or 'none'").
+  **And a prompt fix is exactly what the new gate exists to hold**, so this is the first
+  `screen.txt` change that will not ship on inspection. Same class as the clearance defect:
+  a per-item verdict acted on without checking what the JD actually says. Different
+  remedy — clearance had a code-side evidence floor available, degree does not (the
+  distinction is semantic, not lexical).
+  **Cost:** these 9 are 24% of degree discards; degree is 38 of 3,278 discards, so the
+  absolute damage is small — but every one of them silently deleted a real opportunity,
+  and 5 of the 9 are seats the candidate's Master's qualifies for outright.
 
 - **The clearance check fired on the word "security" — 20 of 24 discards were false**
   — **FIXED 2026-07-28** on `fix/clearance-evidence-floor` (SPEC §7.1 + §11 +
@@ -730,8 +786,28 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `degree`/`clearance` now record no key at all where the model returned nothing, so
   "blind" is already distinguishable from "passed" and only the third state
   (`needs_confirmation`) would be new.
-- **`screen.txt` has no eval gate — BUILD IT BEFORE THE SPONSORSHIP REWRITE** — `[SCREEN ·
-  S · queue item 2 · operator decision 2026-07-27]`. Promoted from `M` and from optional:
+- **`screen.txt` has no eval gate — BUILT 2026-07-28, and it caught a defect on its first
+  run** — `[SCREEN · S · queue item 2 · DONE]`. `tools/screen_eval.py` + `make eval-screen`
+  + `apps/worker/eval/screen_golden.jsonl` (83 rows: 24 clearance, 38 degree, 21
+  sponsorship — all from live fires, all hand-labeled as per-requirement JD facts).
+  SPEC §13 carries the gate contract. Three things the build settled that this entry had
+  left open:
+  1. **The privacy constraint dissolved.** `apps/worker/eval/` is already gitignored *and*
+     denied by `tools/check_privacy.mjs`, so the corpus is never published at all — same
+     as `eval/golden.jsonl`. Storing excerpts rather than whole JDs is kept anyway (it is
+     also the input shape item 3 feeds the model), but it is belt-and-braces, not the
+     load-bearing decision this entry expected it to be.
+  2. **The gate is one-directional and judged on ANY draw, not the majority** — a check
+     that discards a good posting one time in three is not a passing check. Recall and
+     flip are reported, never gated.
+  3. **`gate: false` rows exist** — two Maven rows whose JD says "an academic degree" with
+     no level. A label nobody can defend must not be able to fail a gate; it is reported.
+  **The "deflated by the 2026-07-24 measurement" note below was wrong**, and the eval is
+  what proved it: degree/clearance decide ~1.2% of discards, but the *error rate inside
+  that 1.2%* turned out to be 20/24 and 9/38. Volume was the wrong ranking function, which
+  is the same lesson the clearance defect taught. Original entry follows.
+
+  Promoted from `M` and from optional:
   the 2026-07-27 clearance defect is what an unguarded screen looks like — a check ran 83%
   wrong across four days and three passes, and nothing surfaced it because no row is marked
   `failed` and no eval exists. The rewrite in item 3 touches the sponsorship clause; it does
