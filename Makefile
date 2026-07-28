@@ -9,7 +9,7 @@ DB     := file:$(CURDIR)/db/applications.db  # local shared SQLite (override: ma
 COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
-        test-integration test-e2e test-coverage check-schema check-privacy up down db-push seed-dev \
+        test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
         eval-score
 
 help: ## Show this help
@@ -85,6 +85,52 @@ seed-dev: ## Append realistic sample applications to the local db (vars: DB, COU
 
 up: ## Build + start the web stack (web + autoheal) via Docker Compose — the worker runs natively, see SPEC §6
 	UID=$$(id -u) GID=$$(id -g) docker compose up --build -d
+	$(MAKE) health
+
+health: ## Wait for ats-web + ats-autoheal to report healthy (polls; treats a missing healthcheck as failure)
+	@# A fixed `sleep N && docker inspect` reads `starting` and calls it success — the same
+	@# defect as asserting `status=running` at t=0. ats-web has a 40s start_period, so poll:
+	@# 60 tries x 2s = ~120s per container, comfortably past it.
+	@# `NO-HEALTHCHECK` must FAIL, not pass: a container with no healthcheck reports an
+	@# empty .State.Health, and treating that as "fine" would silently un-gate this target
+	@# the moment someone drops a healthcheck block.
+	@# RestartCount is checked too, and it is not belt-and-braces: a crash-looping container
+	@# reads `healthy` with `.State.Status` == `running` for most of each cycle, so polling
+	@# health alone passes it — the residual of the very defect this target exists to close.
+	@# The check is a DELTA against the count at entry, because the cumulative number says
+	@# nothing about now (a container that restarted last week is fine).
+	@# RESIDUAL, stated rather than papered over: this catches a container that flaps
+	@# BEFORE it ever reads healthy. One that comes up healthy and only then starts
+	@# crash-looping is passed, because the poll exits on the first `healthy` — dwelling
+	@# long enough to see it would slow every `make up` for a case the container's own
+	@# restart policy already surfaces in `docker ps`.
+	@# `docker compose up --wait` covers most of this and was considered; it does not treat
+	@# a MISSING healthcheck as failure, which is the case that silently un-gates us.
+	@# The MISSING arm needs `[ -n "$$s" ]`, NOT `|| echo MISSING`: a failing
+	@# `docker inspect` still writes an empty line to STDOUT, so the substitution yields
+	@# the empty string and `|| echo` never fires — which left an absent container spinning
+	@# the whole timeout before failing with a blank status.
+	@for c in ats-web ats-autoheal; do \
+		printf 'waiting for %s ' "$$c"; ok=0; \
+		rc0=$$(docker inspect -f '{{.RestartCount}}' "$$c" 2>/dev/null || echo 0); \
+		for i in $$(seq 1 60); do \
+			s=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}NO-HEALTHCHECK{{end}}' "$$c" 2>/dev/null); \
+			[ -n "$$s" ] || s=MISSING; \
+			rc=$$(docker inspect -f '{{.RestartCount}}' "$$c" 2>/dev/null || echo 0); \
+			if [ "$$rc" != "$$rc0" ]; then s="crash-looping (RestartCount $$rc0 -> $$rc)"; break; fi; \
+			case "$$s" in \
+				healthy) ok=1; break ;; \
+				unhealthy|NO-HEALTHCHECK|MISSING) break ;; \
+			esac; \
+			printf '.'; sleep 2; \
+		done; \
+		if [ "$$ok" = 1 ]; then echo " healthy"; else \
+			echo " FAILED ($$s)"; \
+			echo "--- docker logs --tail 20 $$c ---"; \
+			docker logs --tail 20 "$$c" 2>&1 || true; \
+			exit 1; fi; \
+	done
+	@echo "stack healthy"
 
 down: ## Stop the Docker Compose stack
 	docker compose down

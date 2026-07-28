@@ -254,59 +254,68 @@ container can end up with a stale view of `./db` while the host and freshly-star
 containers see it fine. Prisma then fails with `SQLITE_CANTOPEN` (Error code 14) —
 the browser shows only a Next.js error digest; the real stack trace is in
 `docker logs ats-web` — even though permissions, ownership, disk, and the mount
-config are all correct. The cure is to recreate the container. To make this
-self-healing, `web` exposes `GET /api/health`, which actually opens the DB
+config are all correct.
+
+**The operator's cure is `docker compose up -d --force-recreate web`.** `docker restart
+ats-web` often suffices and is cheaper, but it re-uses the bind source pinned at create
+time (below), so it cannot fix the case where the host inode was replaced — prefer
+`--force-recreate` when the restart does not take. Note what does *not* work at all:
+`make up` will **not** recreate a running container whose config hash is unchanged, so
+"just run `make up`" is a no-op here.
+**The same applies to the sidecar** — if `ats-autoheal` is the thing that is broken,
+`docker compose up -d --force-recreate autoheal` is its cure, for the same reason. Its
+restart policy restarts it, which buys visibility rather than repair.
+
+To make it self-healing, `web` exposes `GET /api/health`, which actually opens the DB
 (`SELECT 1` → `200`, else `503`), wired to a Docker `healthcheck`; the `autoheal`
 sidecar (watches the `autoheal=true` label via the mounted Docker socket) restarts
-any container Docker marks **unhealthy**. Plain Compose does *not* restart on
-unhealthy by itself — `restart: unless-stopped` only fires on container exit — so
-the sidecar is what closes the loop.
+any container Docker marks **unhealthy**. **No compose mechanism acts on `unhealthy`** —
+`restart:` fires on container *exit* only, and `depends_on: service_healthy` is a startup
+gate that would be actively harmful here (it would hold the sidecar down exactly when web
+is the thing needing repair). The sidecar is the only thing that closes that loop.
 
-**Keeping the worker alive: a systemd user unit.** The web stack has Docker's
-`restart: unless-stopped` plus the autoheal sidecar; the worker, being native, had
-nothing — a crash or an OOM kill simply ended the job feed, silently, until someone
-noticed. `deploy/ats-worker.service.example` is the supervision: `Restart=always` with
-`RestartSec=30s`, a `StartLimitBurst` so a genuine crash-loop lands in `failed` (visible
-to `systemctl --user status`) instead of restarting forever, and `WorkingDirectory` at
-`apps/worker` because the worker resolves `config.yaml`, `.env`, `resume/` and its default
-`--db` relative to it.
+**Does a restart re-resolve the bind mount? On this host, NO — measured 2026-07-28.**
+Docker Desktop on WSL2 pins a bind source through a create-time hashed path under
+`/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/`. With a directory bind of the
+same shape as `./db`, replacing the source directory on the host and then
+`docker restart`ing showed the **old** contents, while a freshly *created* container on
+the same path showed the new ones. So restart re-uses the pinned source; only
+re-**creation** picks up a different inode. (This may well differ on native Linux Docker,
+which mounts at start — do not generalize this line beyond WSL2.)
 
-Two `Environment=` lines carry weight. `PYTHONUNBUFFERED=1` is not cosmetic: the
-pipeline's progress lines are plain `print()` with no `flush=`, and Python block-buffers
-stdout whenever it is not a tty — under journald's pipe that means output arrives in 8KB
-lumps, so a hung pass and a quiet pass look identical. `PATH` must reach the `codex` CLI:
-systemd gives a user unit a minimal PATH without `~/.local/bin`, where `codex login`
-installs, so omitting it fails every fit call at exec.
+**What that does and does not say about the stale-mount cure.** The two failure modes are
+different: the measurement above is *the source inode was replaced*, whereas the WSL2
+symptom is *the same inode, a broken view*. A restart re-establishes the container's mount
+namespace and is a plausible cure for the second; it is proven not to be a cure for the
+first — and if the source path is gone entirely the restart cannot even start the
+container. The recovery leg was drilled 2026-07-22 (autoheal does restart a labeled unhealthy
+container), and the detection leg is still unobserved — so "autoheal restarting `ats-web`
+cures a stale mount" remains **reasonable and unproven**, not established. Prefer
+`docker compose up -d --force-recreate web`, which works in both cases.
 
-**Journald supplies retention and rotation, so the worker ships no logging code at all** —
-no log files, no rotation, no size caps. That is the whole reason for this shape. One
-caveat, because it is silent: journald's default `Storage=auto` persists to disk only if
-`/var/log/journal` exists, and keeps logs in `/run` otherwise — where they vanish at
-reboot. Check `journalctl --disk-usage`, and `sudo mkdir -p /var/log/journal` if it is
-volatile. `journalctl --user -u ats-worker -f` follows it; the daemon's `logging.basicConfig` (§7.1)
-is what makes the worker's own records timestamped alongside APScheduler's.
+**Guarding the guard.** The sidecar's health check was, until 2026-07-28, the image's
+`pgrep -f autoheal` — a check that **cannot fail while the container runs**, because
+`Cmd=["autoheal"]` puts that string in the process's own argv and the check matches
+itself. Zero signal. It is now a socket **ping** (`curl --unix-socket … /_ping`), which
+asks the question that matters: can this sidecar still reach the Docker API. Measured in a
+socket-less container held up artificially, with a faster interval than shipped:
+socket-ping reached `unhealthy`, `pgrep` reported healthy throughout. At the shipped 30s
+interval a real socket-less sidecar usually exits before three probes can fail, so what
+`make health` sees is `starting` — which it also fails on. The ping is what makes the
+signal real; the timing is what makes it visible.
 
-**One step needs root and is the operator's, not the tooling's:**
+**No watchdog, and that is a deliberate reversal.** An entrypoint wrapper that exits when
+the socket dies was built and drilled, and then removed, because two measurements killed
+it. (1) The image's `/docker-entrypoint` already runs under `set -e -o pipefail`, so a
+failed Docker API call exits the script: with the socket killed under a live sidecar the
+**stock** image went `Exited (7)` and `restart: unless-stopped` climbed to 8 restarts
+unaided — the "live sidecar doing nothing forever" state the wrapper targeted does not
+exist. (2) The wrapper *created* a worse one: as PID 1 it survives its child, so killing
+the autoheal loop left the container `Up (healthy)` with `RestartCount 0` and no autoheal
+running, indefinitely. Details in PROGRESS.
 
-```bash
-mkdir -p ~/.config/systemd/user
-sed "s|/home/YOU/ats|$PWD|" deploy/ats-worker.service.example \
-    > ~/.config/systemd/user/ats-worker.service   # then edit PATH
-systemctl --user daemon-reload
-systemctl --user enable --now ats-worker
-sudo loginctl enable-linger $USER                 # REQUIRED — see below
-```
-
-`Linger=no` is the default, and it tears the user manager down with your last session, so
-without `enable-linger` the worker dies at logout and quietly restarts at next login —
-indistinguishable from an unexplained gap in the feed. `make doctor` reports whether the
-unit is active, because a stopped daemon and one merely waiting for its next wall-clock
-slot both print nothing.
-
-**The unit must NOT set `PrivateTmp=yes`.** `run.pass_lock` keys the one-pass-at-a-time
-lock on `tempfile.gettempdir()`, so a private `/tmp` would hide the daemon from an
-operator's hand-run `--once`: both acquire, both score, and the paid fit scorer is charged
-twice (PROGRESS, ORCH).
+**`make health`** (invoked by `make up`) polls both containers for `healthy`, treats a
+missing healthcheck as failure, and waits out web's 40s `start_period`.
 
 **Response headers.** `next.config.mjs` sets a fixed header set on every response
 (`headers()`, matcher `/:path*`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
