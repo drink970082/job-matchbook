@@ -394,6 +394,13 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **Not fixed here** because each one is a corpus rebuild plus a re-run, and #24 was
   already merging; the numbers on that PR are honest about what was *run*, not about what
   the corpus can reach.
+  **Two smaller premise gaps in the same tool, also left open** — `[XS]`. `screen_eval`
+  now passes the resolved *model* to `make_screener` (it previously only printed it), but
+  it still ignores `OLLAMA_NUM_CTX`, which `run.main` threads into both the screener and
+  `screen_posting`; with that var set the eval runs a different context window *and* a
+  different `num_ctx*2` JD truncation cap than production. And the report header names
+  `"{backend} default"` rather than the real `DEFAULT_*_SCREEN_MODEL` for the four
+  non-ollama backends, which is what a reader diffs across A/B runs.
 
 - **The sponsorship `+/-1 sentence` window degenerates to the whole JD on bullet-list
   postings** — `[SCREEN · S · found by the PR #24 pre-merge review 2026-07-28, verified]`.
