@@ -941,28 +941,20 @@ def test_main_once_refuses_to_start_inside_another_pass(monkeypatch, tmp_path):
 
 
 def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path, caplog):
-    # Daemon side of the same refusal: starting (or firing) the scheduler while a
-    # hand-run pass holds the lock must skip THIS slot and stay scheduled — the eager
-    # startup pass must not take the daemon down with it.
-    import sys
-    import types
-    events: list = []
+    # Daemon side of the refusal: a scheduled firing that finds the lock held must skip
+    # THIS slot and leave the daemon scheduled. A hand run raises SystemExit instead, and
+    # conflating the two would take the daemon down whenever an operator ran a pass by
+    # hand — which wall-clock slots make MORE likely, not less, because a habitual 08:00
+    # hand run now collides with the 08:00 slot every single day.
+    fired: list = []
 
-    class FakeScheduler:
-        # start() must actually FIRE the registered job. Discarding the callable would
-        # leave the eager pre-start() pass as the only thing exercised, and this test
-        # claims to cover a *scheduled firing* skipping its slot.
-        def __init__(self): self.job = None
-        def add_job(self, fn, *a, **kw): events.append("add_job"); self.job = fn
-        def start(self): events.append("start"); self.job()
+    def fake_scheduler(job, schedule_hours):
+        # Fire the registered job once, the way a real slot would, then return instead
+        # of blocking. Discarding the callable would leave nothing under test.
+        fired.append(schedule_hours)
+        job()
 
-    blocking = types.ModuleType("apscheduler.schedulers.blocking")
-    blocking.BlockingScheduler = FakeScheduler
-    for name, mod in (("apscheduler", types.ModuleType("apscheduler")),
-                      ("apscheduler.schedulers", types.ModuleType("apscheduler.schedulers")),
-                      ("apscheduler.schedulers.blocking", blocking)):
-        monkeypatch.setitem(sys.modules, name, mod)
-
+    monkeypatch.setattr(run, "_run_scheduler", fake_scheduler)
     calls: list = []
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: calls.append(kw))
     real_load_config = cfgmod.load_config
@@ -976,14 +968,10 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     assert calls == []                                   # the pass did not run
     # WARNING on the logging stream, not stdout: "a pass did not run" is the same signal
     # APScheduler emits for a misfire or a max-instances skip, and an operator reading
-    # journald needs the two interleaved and timestamped rather than split across
-    # stdout and stderr.
+    # journald needs the two interleaved rather than split across stdout and stderr.
     assert "skipping this scheduled pass" in caplog.text
-    # Level, not count: today the eager startup pass and the scheduled firing are both
-    # refused, so this logs twice. Dropping the eager pass is queued, and this test is
-    # about WHERE the signal goes, not how many slots the fake scheduler fires.
     assert {r.levelname for r in caplog.records} == {"WARNING"}
-    assert events == ["add_job", "start"]                # ... but the daemon lives
+    assert fired == [24]                                 # ... but the daemon lives on
 
 
 def test_main_once_takes_the_lock_and_gives_it_back(monkeypatch, tmp_path):
@@ -1000,3 +988,90 @@ def test_main_once_takes_the_lock_and_gives_it_back(monkeypatch, tmp_path):
     assert len(calls) == 1
     with run.pass_lock():                          # free again
         pass
+
+
+# --- wall-clock schedule ---------------------------------------------------
+
+@pytest.mark.parametrize("hours,expected", [
+    (1, "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"),
+    (2, "0,2,4,6,8,10,12,14,16,18,20,22"),
+    (3, "0,3,6,9,12,15,18,21"),
+    (4, "0,4,8,12,16,20"),
+    (6, "0,6,12,18"),
+    (8, "0,8,16"),
+    (12, "0,12"),
+])
+def test_the_schedule_is_evenly_spaced_wall_clock_slots(hours, expected):
+    # The behavior change this replaces: `add_job(once, "interval", hours=h)` fired at
+    # LAUNCH TIME + h, so starting the worker at 09:47 put passes at 09:47/13:47/17:47 and
+    # a restart silently re-phased the whole day. Slots are now absolute, so a restart
+    # cannot move them and two hosts agree on when a pass happens.
+    assert run.cron_hours(hours) == expected
+
+
+def test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list():
+    # The off-by-one that would be invisible: `range(0, 24, 24)` is `[0]`, but a `<`-vs-
+    # `<=` slip gives `[]`, which APScheduler accepts as a trigger that NEVER FIRES. The
+    # daemon would start clean, print a schedule, and sit dead forever — and 24 was the
+    # shipped default, so this is the path most installs take.
+    assert run.cron_hours(24) == "0"
+    assert run.cron_hours(24).split(",") == ["0"]
+
+
+def _daemon_harness(monkeypatch, schedule_hours=4):
+    """Wire `main` for a daemon run with no apscheduler and no pipeline."""
+    started: list = []
+    passes: list = []
+    monkeypatch.setattr(run, "_run_scheduler",
+                        lambda job, hours: started.append(hours))
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: passes.append(kw))
+    real_load_config = cfgmod.load_config
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda path: real_load_config(
+                            f"companies: []\nschedule_hours: {schedule_hours}\n"))
+    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
+    return started, passes
+
+
+def test_starting_the_daemon_runs_no_pass_at_launch(monkeypatch, tmp_path):
+    # The eager `once()` before `scheduler.start()` is GONE. It made every restart cost an
+    # immediate full pass — at 6 passes/day a daemon bounced three times ran nine — and it
+    # was also masking APScheduler's one-second default misfire grace, because a restarted
+    # daemon always ran promptly whether or not it had missed a slot.
+    started, passes = _daemon_harness(monkeypatch)
+    run.main(["--env", str(tmp_path / "none.env")])
+    assert passes == []            # nothing ran...
+    assert started == [4]          # ...and the scheduler is up on the configured cadence
+
+
+def test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over(monkeypatch, tmp_path):
+    # The opt-in restoration of the old behavior. Exactly one, and BEFORE the scheduler
+    # blocks — a second pass here would double the startup cost of the paid fit scorer,
+    # and running it after `_run_scheduler` would never happen at all, since that call
+    # blocks for the life of the daemon.
+    started, passes = _daemon_harness(monkeypatch)
+    run.main(["--run-now", "--env", str(tmp_path / "none.env")])
+    assert len(passes) == 1
+    assert started == [4]
+
+
+def test_run_now_and_once_together_are_a_parser_error(monkeypatch, tmp_path):
+    # They are two different programs: --once runs a pass and EXITS, --run-now runs a pass
+    # and then stays on the schedule forever. Silently picking one would either strand an
+    # operator's foreground shell or exit a daemon they meant to leave running.
+    _daemon_harness(monkeypatch)
+    with pytest.raises(SystemExit) as exc:
+        run.main(["--run-now", "--once", "--env", str(tmp_path / "none.env")])
+    assert exc.value.code == 2
+
+
+def test_run_now_does_not_open_the_rescreen_discarded_backdoor(monkeypatch, tmp_path):
+    # `--rescreen-discarded` is one-shot because `once()` closes over the flag: allowing it
+    # alongside --run-now would leave it set on every LATER scheduled firing too, and
+    # resurrect the entire discard pile — thousands of rows — into the paid scorer daily.
+    # It stays bound to --once, which exits before a second firing can exist.
+    _daemon_harness(monkeypatch)
+    with pytest.raises(SystemExit) as exc:
+        run.main(["--run-now", "--rescreen-discarded",
+                  "--env", str(tmp_path / "none.env")])
+    assert exc.value.code == 2

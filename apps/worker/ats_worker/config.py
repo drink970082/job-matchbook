@@ -135,6 +135,11 @@ def _looks_like_yaml_text(value) -> bool:
     return "\n" in value or ":" in value
 
 
+# Divisors of 24, i.e. every cadence that tiles a day evenly. Not a config knob —
+# it is arithmetic, and it is spelled out so the error message can name the options.
+_LEGAL_SCHEDULE_HOURS = (1, 2, 3, 4, 6, 8, 12, 24)
+
+
 def load_config(source) -> Config:
     """Parse a Config from a path (str/PathLike) or a raw YAML string.
 
@@ -176,6 +181,19 @@ def load_config(source) -> Config:
         raise ConfigError(
             f"schedule_hours must be >= 1 (got {schedule_hours}); a 0 or negative "
             "interval hot-loops the whole watchlist."
+        )
+    if 24 % schedule_hours:
+        # AFTER the `< 1` check so 0 keeps its own message. Passes fire on WALL-CLOCK
+        # slots (`run.cron_hours` -> `range(0, 24, h)`), which only tiles the day when h
+        # divides 24. A non-divisor leaves a `24 % h` gap across midnight that is always
+        # TIGHTER than the configured cadence — 5 gives 0,5,10,15,20 and then 4 hours to
+        # the next midnight slot. Worse, anything above 24 collapses to a single `hour=0`,
+        # so `schedule_hours: 48` ("every other day", legal until now) silently becomes
+        # DAILY: a 2x change in paid fit-scorer spend from a file nobody edited. Fail at
+        # load, before the daemon is up.
+        raise ConfigError(
+            f"schedule_hours must divide 24 evenly (got {schedule_hours}); passes run on "
+            f"wall-clock slots, so pick one of {', '.join(map(str, _LEGAL_SCHEDULE_HOURS))}."
         )
 
     return Config(

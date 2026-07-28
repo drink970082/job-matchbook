@@ -9,6 +9,51 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **The daemon fires on wall-clock slots, and no longer runs a pass at launch.**
+  `run.main` did `add_job(once, "interval", hours=cfg.schedule_hours)` and called
+  `once()` before `start()`, so passes landed at *launch time + N*: start the worker at
+  09:47 and they ran at 09:47/13:47/17:47, never on the hour, and every restart re-phased
+  the whole day *and* cost an immediate full pass — at 6 passes/day a daemon bounced
+  three times ran nine. Slots are now absolute (`CronTrigger(hour=cron_hours(h),
+  minute=0)`, where `cron_hours(4)` is `"0,4,8,12,16,20"`), so restarts cannot move them.
+  **`--run-now` restores the eager pass on demand**; it is rejected alongside `--once`
+  (two different programs) and does *not* unlock `--rescreen-discarded`, because `once()`
+  closes over that flag and it would then fire on every later scheduled pass too.
+
+  **No new config key** — the slots are derived from the existing `schedule_hours`, which
+  keeps `_reject_unknown_keys` (it reads `dataclasses.fields(Config)`) untouched. What is
+  new is a **bound**: `schedule_hours` must divide 24. A non-divisor leaves a `24 % h` gap
+  across midnight that is always *tighter* than the configured cadence, and anything above
+  24 collapses to a single `hour=0` — so `schedule_hours: 48` ("every other day", legal
+  before this) would have silently become **daily**, a 2x change in paid fit-scorer spend
+  from a file nobody edited. `config.py` rejects both at load, keeping a separate message
+  for `0`/negative.
+
+  **Three scheduler settings that are not defaults, each for a measured reason.**
+  `coalesce=True` collapses a backlog into one run, so a 20-hour WSL2 suspend wakes up and
+  fires *one* pass instead of five. `misfire_grace_time=min(3600, schedule_hours*1800)`
+  replaces APScheduler's default of **one second**, which silently drops any slot the host
+  was busy through — the deleted eager `once()` had been masking that, since a restarted
+  daemon always ran promptly whether or not it had missed anything. `max_instances=1` is
+  the default, restated because a duplicate pass re-spends paid quota.
+
+  **The daemon now installs a logging handler** (`basicConfig`, INFO, timestamped) — in
+  the daemon branch only, so importing the module still configures nothing. Without it
+  APScheduler's misfire warnings, max-instances skips and job tracebacks fell to
+  `logging.lastResort`: message only, no timestamp, on a different stream from the
+  pipeline's `print()`. This is the handler the scheduled-pass-skip warning was waiting
+  for. Startup also prints the resolved slots and timezone, because with no eager pass a
+  fresh daemon is otherwise indistinguishable from a hung one for up to `schedule_hours`:
+  `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`. The
+  timezone comes from `tzlocal`, so a UTC host would defeat the whole change; `TZ=` is the
+  no-code override.
+
+  **One consequence, accepted rather than fixed:** wall-clock slots systematically
+  synchronize an operator's habits with the daemon's. A routine 08:00 hand run now kills
+  the 08:00 scheduled pass every day, because `pass_lock` skips rather than queues. Jitter
+  would reintroduce the drift the change exists to remove, so the mitigation is visibility
+  (the skip logs at `WARNING`) and SPEC §9 states the collision out loud.
+
 - **Sponsorship screening inverted: CODE retrieves, the MODEL classifies, CODE decides.**
   The two halves were on the wrong sides. The model did RETRIEVAL — read 16K chars, find
   the sentence, copy it verbatim — and code did CLASSIFICATION, three regex vetoes

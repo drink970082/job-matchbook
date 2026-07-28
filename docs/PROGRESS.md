@@ -113,14 +113,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   poll. Verify with `docker ps --filter name=ats-autoheal`: it must read `Up`, not
   `Exited`.
 
-- **The pass lockfile — `feat/pass-lockfile`, PR #20, IN FLIGHT** `[ORCH · claimed
-  2026-07-28]`. Reviewed mergeable 2026-07-26; the 2 defects that review found (a raw
-  `OSError` from `os.open` killing the daemon, and `ENOLCK` reported as contention, which
-  would refuse every pass forever) are fixed on the branch. `main` is merged in — the
-  screen stack rewrote all three doc files under it — and the scheduled-skip `print` is
-  now a `logging.WARNING`, the stream APScheduler already uses for its own misfire and
-  max-instances warnings. No handler is installed yet, so it lands on stderr via
-  `logging.lastResort`, untimestamped; installing one in the daemon branch is next.
+- **Wall-clock schedule — `feat/wall-clock-schedule`, IN FLIGHT** `[ORCH · claimed
+  2026-07-28]`. Cron slots instead of an interval, no eager startup pass, `--run-now` to
+  ask for one, `schedule_hours` bounded to divisors of 24, and `logging.basicConfig` in
+  the daemon branch (the handler the lockfile's skip warning was waiting for). Drilled
+  live for 12s: printed
+  `[schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`,
+  APScheduler's own lines came back timestamped, and **no pass started**.
+  **Not drilled: `--run-now`.** It runs a real pass, which means network and the paid fit
+  scorer, so it is covered by unit tests only.
 
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
@@ -152,13 +153,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   five days while this entry claimed `6`. Passes are still run by hand; the blocking
   precondition (two circuit breakers) landed 2026-07-24. One thing is still not
   expressible.
-  **The schedule is an interval, not a clock.** `run.main` does
-  `scheduler.add_job(once, "interval", hours=cfg.schedule_hours)` and calls `once()`
-  before `start()`, so passes fire at *launch time + 4h + 8h…*: start the worker at 09:47
-  and they land at 09:47/13:47/17:47…, never on the hour. Wall-clock alignment needs
-  a **cron** trigger (`add_job(once, "cron", hour="0,4,8,12,16,20")`) — a handful of lines,
-  but a config-shape question (an `hours:` list vs an interval int). The eager `once()` also
-  means every restart costs an immediate full pass.
+  **The schedule is a clock as of 2026-07-28** (`feat/wall-clock-schedule`; SPEC §7.1/§9/§12
+  + CHANGELOG). It used to be an interval — `add_job(once, "interval", hours=…)` plus an
+  eager `once()` before `start()` — so passes fired at *launch time + N* and every restart
+  both re-phased the day and cost a full pass. Now `CronTrigger(hour=cron_hours(h),
+  minute=0)` puts them on 0/4/8/12/16/20, the eager pass is gone (`--run-now` restores it),
+  and `schedule_hours` is bounded to divisors of 24. The config-shape question resolved to
+  **no new key**: the slots are derived from the existing int, so `_reject_unknown_keys`
+  never had to change.
   **What does NOT get more expensive: the paid scorer.** `upsert_postings` is
   `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
   of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the

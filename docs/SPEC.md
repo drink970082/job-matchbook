@@ -295,8 +295,12 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 ### 7.1 Worker (`apps/worker/ats_worker/`)
 
-- **`run.py` — entrypoint & wiring.** CLI: `--once` (single pass then exit) vs
-  scheduler (immediate pass, then every `schedule_hours`). Flags: `--config`,
+- **`run.py` — entrypoint & wiring.** CLI: `--once` (single pass then exit) vs the
+  daemon, which fires on **wall-clock slots** — `cron_hours(h)` renders
+  `range(0, 24, h)` into APScheduler's `hour=` string (`4` -> `0,4,8,12,16,20`), so
+  passes land at 00:00/04:00/08:00 regardless of when the daemon started and a restart
+  cannot re-phase the day. **The daemon runs NO pass at launch**; `--run-now` restores
+  that on demand and is rejected together with `--once`. Flags: `--config`,
   `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--resume-dir` (directory of resume versions, default `resume/`),
   `--model` (`OLLAMA_MODEL`, the Ollama model tag — only consulted when
@@ -348,9 +352,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   contains any listed keyword, the complement of `title_filter`), `max_age_days`
   (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
   `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
-  `is_empty()`), `feeds`, `schedule_hours` (daemon pass interval in hours; must be
-  `>= 1` — a `0`/negative value would make APScheduler's interval trigger hot-loop the
-  watchlist at a 1-second period, so `config.py` raises `ConfigError`). Bad
+  `is_empty()`), `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
+  **divisor of 24** — `1, 2, 3, 4, 6, 8, 12, 24` — and `config.py` raises `ConfigError`
+  otherwise, with a separate message for `0`/negative. Two failure modes justify the
+  bound: a non-divisor leaves a `24 % h` gap across midnight that is always *tighter*
+  than the configured cadence, and anything above 24 collapses to a single `hour=0`, so
+  `schedule_hours: 48` would silently become daily — twice the paid spend from an
+  unedited file). Bad
   source / missing field → clear
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
@@ -1522,9 +1530,11 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `job_url` instead of being relabelled `scored`/0 as though it had been evaluated.
   `run_once` prints the skipped count so the operator is told, not left to infer it.
   Everything else comes back. It is
-  **one-shot** — `main` rejects it without `--once`, because on the interval schedule
-  it would resurrect the same discards every pass and re-charge the paid fit scorer
-  for each survivor indefinitely. Screening is free on the default ollama backend; the
+  **one-shot** — `main` rejects it without `--once`, because on the schedule it would
+  resurrect the same discards every pass and re-charge the paid fit scorer for each
+  survivor indefinitely. `--run-now` does **not** unlock it either, despite also running
+  a pass promptly: `once()` closes over the flag, so it would still be set on every later
+  scheduled firing. Screening is free on the default ollama backend; the
   fit calls that follow are bounded only by `--score-limit`, so pair the two on a
   large backlog.
 - **A dead screen *provider* circuit-breaks the screen phase — and no unscreened row
@@ -1578,6 +1588,15 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   failures cumulatively, so a row manually reopened from `failed` gets one fresh notify
   attempt per reopen. Design:
   [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
+
+- **Wall-clock slots systematically collide with the operator's habits, and the lock
+  skips rather than queues.** Passes used to fire at launch time + N, which scattered
+  them across the hour; they now land on 00:00/04:00/08:00. An operator who habitually
+  runs `--once` at 08:00 will therefore kill the 08:00 *scheduled* pass every single day
+  — `pass_lock` refuses the second one outright, and a skipped slot is not made up. This
+  is accepted, not a defect: jitter would reintroduce exactly the drift wall-clock slots
+  exist to remove. The mitigation is visibility — the skip logs at `WARNING` — and the
+  workaround is to hand-run off the slot times.
 
 - **Two pipeline passes never overlap while they resolve the same `TMPDIR`.** The
   guard is keyed on `tempfile.gettempdir()`, not on the host and not on the DB, and
@@ -1644,6 +1663,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
+| Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |
+| `schedule_hours` must divide 24: a non-divisor and anything `> 24` are both rejected at config load rather than silently running tighter than configured, or collapsing to daily | `test_config.py` (`test_rejects_a_schedule_that_does_not_divide_the_day`, `test_rejects_a_schedule_longer_than_a_day_instead_of_collapsing_it_to_daily`, `test_every_divisor_of_24_is_accepted`, `test_rejects_non_positive_schedule_hours`) |
+| The daemon runs NO pass at launch; `--run-now` runs exactly one before the scheduler blocks; `--run-now --once` is a parser error, and `--run-now` does not unlock `--rescreen-discarded` | `test_run.py` (`test_starting_the_daemon_runs_no_pass_at_launch`, `test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over`, `test_run_now_and_once_together_are_a_parser_error`, `test_run_now_does_not_open_the_rescreen_discarded_backdoor`) |
 | One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout (no handler is installed yet, so it lands on stderr via `logging.lastResort`) | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
 | Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
 | Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
@@ -1947,8 +1969,16 @@ absent file (which fails loudly) is safer. Longhand:
 6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
    (or `make up`) starts the **web app + autoheal only** — the worker is **not**
    containerized (§6, removed 2026-07-16). Run it natively on the same host:
-   `cd apps/worker && python -m ats_worker.run`. It runs one pass immediately,
-   then every `schedule_hours`.
+   `cd apps/worker && python -m ats_worker.run`. It runs **no pass at launch** — passes
+   fire on wall-clock slots every `schedule_hours` (add `--run-now` for one immediately).
+   It prints the resolved slots and timezone on startup, because with no eager pass a
+   fresh daemon is otherwise indistinguishable from a hung one for up to
+   `schedule_hours`:
+   ```
+   [schedule] passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)
+   ```
+   **The timezone comes from `tzlocal`**, so a host running UTC defeats the point of
+   wall-clock slots. `TZ=America/New_York` in the environment is the no-code override.
 
 **One-off test pass:**
 `cd apps/worker && python -m ats_worker.run --once` (defaults to `config.yaml`/`.env`
