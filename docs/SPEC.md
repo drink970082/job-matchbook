@@ -676,14 +676,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   `clearance` only materialize their key when the extraction carried a recognized
   **value**, so a ran-but-blind check stays distinguishable from a genuinely cleared one.
   The test is the value, never the entry dict: under a strict schema the model must emit
-  every key, so `{"required_degree": null}` is a non-empty dict that says nothing. And it
-  enumerates the **recognized** values (`_degree_stated` mirrors `_degree_rank`'s degree
-  names; clearance must be an actual `bool`) rather than the no-data spellings — that set
-  is open-ended ("unknown", "not stated", "TBD", "unclear", …) and cannot be closed, so
-  listing it would let a shrug through as a pass. `none` counts as data: `screen.txt`
-  says "Use 'none' if no specific degree is required".
-  (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
-  with no model data.)
+  every key, so `{"degree_levels": null, "degree_required": null}` is a non-empty dict
+  that says nothing. And it enumerates the **recognized** values (`_degree_extracted`
+  wants a real bool for `degree_required`, plus at least one level `_degree_stated`
+  recognizes whenever it says a degree *is* required; clearance must be an actual `bool`)
+  rather than the no-data spellings — that set is open-ended ("unknown", "not stated",
+  "TBD", "unclear", …) and cannot be closed, so listing it would let a shrug through as a
+  pass. `none` counts as data, and `degree_required: false` needs no levels at all — "no
+  degree required" is a real answer.
+  (`authorization` always records, even when nothing was retrieved and no clause was
+  asked — see the sponsorship paragraph below for why that key must never be absent.)
 
   **Degree is an EXTRACTION plus arithmetic, not a model judgment.** The model returns
   `degree_levels` — *every* level the posting names as acceptable — and `degree_required`,
@@ -1608,7 +1610,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Score `attempts` and notify `notify_attempts` are independent — score hiccups never pre-spend the notify budget | `test_pipeline.py` (`test_notify_budget_survives_prior_score_hiccups`) |
 | A **dead fit backend** (`_BREAKER_LIMIT` failures, zero successes) circuit-breaks the score pass, leaving the untouched remainder `new`; the `batch_size==1` singles fallback is not re-issued | `test_pipeline.py` (`test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new`, `test_run_score_singles_fallback_not_reissued_at_batch_size_one`) |
 | A score run is interruptible (`KeyboardInterrupt` → `cancel_futures`, queued fit calls not drained) and persists finished work as it completes (`as_completed` + `future→chunk` map) | `test_pipeline.py` (`test_run_score_keyboard_interrupt_cancels_pending_keeps_done`) |
-| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_four_stages_in_order` — the feeds-off path; with a feed enabled the pipeline is five stages) |
+| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_five_stages_in_order`) |
 | A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
 | Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
