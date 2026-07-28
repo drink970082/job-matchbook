@@ -665,7 +665,28 @@ worker modules are pure and dependency-injected; real services are wired only in
   listing it would let a shrug through as a pass. `none` counts as data: `screen.txt`
   says "Use 'none' if no specific degree is required".
   (`authorization` always records, since `NO_SPONSOR_PHRASES` gives it a real verdict
-  with no model data.) **Location is a deterministic code gate**
+  with no model data.)
+
+  **Clearance carries an EVIDENCE FLOOR, the same shape D1 gave sponsorship.**
+  `_check_clearance` honours `requires_clearance: true` only when `CLEARANCE_TOKENS`
+  (`clearance` · `top secret` · `secret` · `ts/sci` · `polygraph`, case-insensitive)
+  matches the JD **description or the job title** — evidence the code can see, not the
+  model's say-so. Measured 2026-07-27 over 24 live clearance discards: **20 were wrong**,
+  every one of them containing "security" (the engineering domain — "Senior Security
+  Researcher", "Azure security") and **no** clearance token, while all 4 true positives
+  carried an explicit *"Other Requirements: Security Clearance Requirements:"* block. The
+  token list is the measured one and stays that way: widening it re-opens the
+  false-discard direction, which is why bare `sci` (matches "science"/"scientist") and
+  bare `poly` are deliberately absent — the abbreviation is spelled `ts/sci`. A clearance
+  bar phrased with none of these words is a **miss**, which costs one paid fit call and
+  reaches the human; a false discard is reviewed by nobody. The floor is keep-direction
+  only — it can turn a discard into a keep, never the reverse — and it applies to
+  `merge_fallback_screen`'s Stage 4 extraction too, since that routes through the same
+  `_screen_verdict`. `degree` is **not** guarded this way: 38 of 38 live degree discards
+  are grounded (36 in the description, 2 in the title), so the same guard there would be
+  speculative.
+
+  **Location is a deterministic code gate**
   (`resolve_location`) matched against the board's `posting["location"]`
   string — not the LLM. It resolves **every** token to a country — US state / country
   name via `pycountry`, else a city via **geonamescache** (highest-population match,
@@ -1494,7 +1515,9 @@ guarantee:
   it can disqualify, with `NO_SPONSOR_PHRASES` as a closed-list floor underneath it —
   and its precision/recall have not yet been measured against a labeled set (open
   item, §7.1/PROGRESS.md); **clearance** remains an LLM *semantic* extraction with a
-  code check — a misjudgment sends a spurious alert or discards an applicable role.
+  code check, now floored on JD evidence (`CLEARANCE_TOKENS` over description + title,
+  §7.1) so an ungrounded `requires_clearance` can no longer discard — the residual is a
+  **miss**: a clearance bar phrased in none of those words costs one paid fit call.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
 - **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual
   gaps are ambiguity-shaped — a city whose **highest-population** bearer is foreign
@@ -1519,6 +1542,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap | `test_score.py::test_blind_screen_entry_still_leaves_a_gap_for_the_fallback` |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | Sponsorship disqualifies only on a quote that is both **present** in the JD and **on topic** — hallucinated and real-but-irrelevant quotes each keep the posting | `test_score.py` (`test_hallucinated_quote_keeps_the_posting`, `test_real_but_off_topic_quote_keeps_the_posting`, `test_on_topic_quotes_still_disqualify`) |
+| Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
 | Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |

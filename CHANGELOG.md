@@ -9,6 +9,31 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The clearance check fired on the word "security": 20 of 24 live discards were
+  wrong.** `_check_clearance` acted on a bare `requires_clearance: true` boolean from a
+  4B model with no evidence floor at all — the failure class D1 exists to kill, closed
+  for `authorization` by quote grounding and left standing here. Measured 2026-07-27
+  against `db/applications.db`: of 24 clearance discards, **20 contained "security" (the
+  engineering domain — "Senior Security Researcher", "Azure security") and not one
+  clearance token**; the 4 true positives were all Microsoft `CTJ - Poly` roles carrying
+  an explicit *"Other Requirements: Security Clearance Requirements:"* block. Every one
+  of the 24 post-dates 2026-07-23, so this was live damage, not stale — the most recent
+  pass was 3 for 3 wrong. CODE now requires a `CLEARANCE_TOKENS` match (`clearance` ·
+  `top secret` · `secret` · `ts/sci` · `polygraph`) in the JD **description or the job
+  title** before honouring the flag. On that data the two populations separate perfectly.
+  The token list stays the measured one — bare `sci` (matches "science"/"scientist") and
+  bare `poly` are deliberately absent, since on a disqualification path a collision costs
+  a real job. The guard is **keep-direction only** (it can only turn a discard into a
+  keep), so it needed no eval to ship, and `merge_fallback_screen`'s Stage 4 extraction
+  obeys it too rather than becoming a back door. `degree` is left unguarded on purpose:
+  38 of 38 live degree discards are grounded (36 in the description, 2 in the title), so
+  the symmetric guard would close a hole with no observed instance.
+
+  **Why it went unnoticed for four days:** clearance is 0.7% of discards, so it read as
+  the least consequential check in the block; nothing marks such a row `failed`; and
+  `screen.txt` has no eval gate. Volume ranked it last, error rate ranks it first — the
+  gate is the next queue item.
+
 - **A successful scoring pass printed nothing, so it was indistinguishable from a
   no-op.** `run_score` only ever spoke up on trouble — a fetch drop, a tripped breaker —
   so a pass that screened, scored and persisted rows exited silently with status 0. On

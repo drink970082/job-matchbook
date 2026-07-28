@@ -63,6 +63,25 @@ NO_SPONSOR_PHRASES = (
     "must be authorized to work without sponsorship",
 )
 
+# The EVIDENCE FLOOR for the clearance gate. `requires_clearance` is a bare boolean
+# from a 4B model, and acting on it unguarded is the D1 failure class that quote
+# grounding closed for `authorization` and never closed here.
+#
+# MEASURED 2026-07-27 over db/applications.db, not guessed: of 24 clearance discards,
+# 20 were WRONG -- every one of them contains "security" (the engineering domain:
+# "Senior Security Researcher", "Azure security") and NOT ONE contains a token below.
+# The 4 true positives are Microsoft `CTJ - Poly` roles carrying an explicit
+# "Other Requirements: Security Clearance Requirements:" block. On that data this set
+# separates the two populations perfectly.
+#
+# This list is the MEASURED one. Widening it re-opens the false-discard direction --
+# the expensive one, since a discarded row is reviewed by nobody. In particular: NOT
+# bare `sci` (matches "science"/"scientist" -- it is already covered inside `ts/sci`)
+# and NOT bare `poly` (matches "polyglot"/"polynomial"). A clearance bar phrased with
+# none of these words is a MISS, which costs one paid fit call and reaches the human.
+CLEARANCE_TOKENS = re.compile(
+    r"clearance|top secret|\bsecret\b|ts[.\s/-]?sci|polygraph", re.IGNORECASE)
+
 # Internship/co-op detection is deterministic from the title (gated by the
 # candidate's exclude_internships flag): a 4B model is unreliable on this, but the
 # title makes it trivial. Whole-word so "internal"/"international"/"cooperation" never match.
@@ -124,7 +143,8 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     if checklist and extract is not None:
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
-            screen = _screen_verdict(data, candidate or {}, description)
+            screen = _screen_verdict(data, candidate or {}, description,
+                                     str(posting.get("job_title") or ""))
         except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
             print(f"[screen] provider error, keeping posting unscreened: {exc}")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
@@ -294,7 +314,8 @@ def _degree_stated(value) -> bool:
                                     "associate", "high school", "diploma", "ged")))
 
 
-def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
+def _screen_verdict(data: dict, candidate: dict, description: str = "",
+                    title: str = "") -> dict:
     """Decide disqualification from the SCREEN call's extracted JOB facts.
 
     For each configured structured requirement the LLM only EXTRACTED a fact about
@@ -305,6 +326,11 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
     configure is skipped, and a key the model invents (e.g. "skills") is ignored, so a
     skill gap can never disqualify. On missing/garbled extraction each checker errs
     toward PASS (don't discard on absent data).
+
+    `title` joins `description` as the clearance check's EVIDENCE. Both are needed:
+    the 2026-07-27 repro matched over both, and the two grounded `degree` discards
+    the same query found (Jump Trading, "Campus AI Researcher, PhD/Postdoc") state
+    their bar in the TITLE and nowhere else.
     """
     screen = data.get("screen") if isinstance(data.get("screen"), dict) else {}
     clean: dict = {}
@@ -338,7 +364,8 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "") -> dict:
                                entry("authorization")))
     gate("clearance", bool(str(candidate.get("security_clearance") or "").strip())
          and isinstance(entry("clearance").get("requires_clearance"), bool),
-         *_check_clearance(entry("clearance"), candidate.get("security_clearance")))
+         *_check_clearance(entry("clearance"), candidate.get("security_clearance"),
+                           f"{description}\n{title}"))
 
     return {
         "screen": clean,
@@ -493,11 +520,20 @@ def _check_authorization(cand_auth, description: str = "",
     return True, ""
 
 
-def _check_clearance(entry: dict, cand_clearance) -> tuple[bool, str]:
-    """Fail only when the candidate has no clearance and the role requires one."""
+def _check_clearance(entry: dict, cand_clearance, evidence: str = "") -> tuple[bool, str]:
+    """Fail only when the candidate has no clearance, the role requires one, AND the
+    JD text actually says so.
+
+    `evidence` is the JD description plus the job title, and the `CLEARANCE_TOKENS`
+    check over it is the EVIDENCE FLOOR: a bare `requires_clearance: true` with no
+    clearance word anywhere in the posting is the model conflating the engineering
+    domain ("security") with the government credential, measured at 20 of 24 live
+    discards. Defaults to `""` so an un-threaded caller KEEPS rather than discards --
+    this guard can only turn a discard into a keep, never the reverse.
+    """
     if _norm_simple(cand_clearance) not in ("", "none"):
         return True, ""  # candidate holds a clearance -> assume sufficient
-    if _flag(entry.get("requires_clearance")):
+    if _flag(entry.get("requires_clearance")) and CLEARANCE_TOKENS.search(evidence or ""):
         return False, "requires security clearance"
     return True, ""
 
@@ -584,7 +620,8 @@ def merge_fallback_screen(screen: dict, card: dict, posting: dict,
     if not gaps:
         return screen
     verdict = _screen_verdict({"screen": gaps}, candidate,
-                              str(posting.get("description") or ""))
+                              str(posting.get("description") or ""),
+                              str(posting.get("job_title") or ""))
     merged = dict(already)
     merged.update({k: v for k, v in (verdict.get("screen") or {}).items() if k in gaps})
     prior = screen.get("disqualification_reason") or ""

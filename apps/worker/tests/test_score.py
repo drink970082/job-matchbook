@@ -55,6 +55,15 @@ POSTING = {
     "company_name": "Acme",
     "description": "We need Python, Django, and AWS experience.",
 }
+# A posting whose JD ACTUALLY states a clearance bar. `_check_clearance` needs one:
+# a bare `requires_clearance: true` over a JD with no clearance word is the 2026-07-27
+# defect (20 of 24 live discards), and the floor now keeps such a posting. The wording
+# is the real Microsoft `CTJ - Poly` shape the 4 true positives all carried.
+CLEARED_POSTING = {
+    **POSTING,
+    "description": ("We need Python, Django, and AWS experience. Other Requirements: "
+                    "Security Clearance Requirements: an active TS/SCI clearance."),
+}
 RESUME = "Experienced Python and Django developer."
 
 
@@ -152,7 +161,7 @@ def test_screen_posting_disqualifies_without_calling_fit():
     # it at all, so it structurally cannot pay for a fit call — pipeline.run_score is
     # what gates on `disqualified` before ever calling the injected fit_fn.
     http = FakeHttp(json.dumps({"screen": {"clearance": {"requires_clearance": True}}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"}, num_ctx=8192)
     assert out["disqualified"] is True
     assert "screen" in out
@@ -183,7 +192,7 @@ def test_screen_posting_uses_injected_extract():
         seen["prompt"] = prompt
         return {"screen": {"clearance": {"requires_clearance": True}}}
 
-    out = score.screen_posting(POSTING, extract=extract,
+    out = score.screen_posting(CLEARED_POSTING, extract=extract,
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "clearance: requires security clearance"
@@ -427,18 +436,76 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
     assert out["disqualified"] is True
 
 
-# clearance: LLM extracts requires_clearance, code checks
+# clearance: LLM extracts requires_clearance, code checks — and CODE also requires the
+# JD to actually SAY so (the evidence floor; see the CLEARANCE_TOKENS block below).
 def test_clearance_required_disqualifies():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
 
 
 def test_clearance_not_required_passes():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": False}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+
+
+# --- the clearance evidence floor (defect found 2026-07-27) ---------------
+# `requires_clearance` is a bare boolean from a 4B model. Acting on it unguarded made
+# 20 of 24 live discards wrong: the model reads "security" (the engineering domain) as
+# the government credential. CODE now requires a clearance token in the JD or title.
+
+def test_ungrounded_clearance_claim_keeps_the_posting():
+    # THE DEFECT, pinned. Every one of the 20 wrong discards looked exactly like this:
+    # "security" all over the JD, `requires_clearance: true`, and not one clearance word.
+    posting = dict(POSTING, job_title="Senior Security Researcher",
+                   description=("Join our security team. You will work on Azure "
+                                "security, application security reviews, and secure "
+                                "coding practices across the platform."))
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+    assert out["screen"]["clearance"]["pass"] is True
+
+
+def test_clearance_grounded_in_the_title_alone_disqualifies():
+    # Evidence is title OR description: the two grounded `degree` discards the same
+    # 2026-07-27 query found state their bar in the title and nowhere else, so the
+    # clearance floor reads both rather than the description only.
+    posting = dict(POSTING, job_title="TS/SCI Cleared Systems Engineer")
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is True
+    assert out["disqualification_reason"] == "clearance: requires security clearance"
+
+
+@pytest.mark.parametrize("text", [
+    "You will join our data science team and ship models.",
+    "BS in Computer Science or equivalent experience required.",
+    "Our Chief Scientist leads the research group.",
+])
+def test_science_words_do_not_ground_a_clearance_claim(text):
+    # The `sci` trap: a bare `sci` token would match science/scientist/Science and
+    # re-open the exact false-discard direction this floor exists to close. The set
+    # spells the abbreviation as `ts/sci`, so these three keep.
+    posting = dict(POSTING, description=text)
+    http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
+    out = score.screen_posting(posting, extract=_ollama(http),
+                               candidate={"security_clearance": "none"})
+    assert out["disqualified"] is False
+
+
+def test_fallback_screen_clearance_also_needs_evidence():
+    # The fit scorer's Stage 4 extraction routes through the SAME _screen_verdict, so
+    # it must not become a back door around the floor. Ungrounded -> kept.
+    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
+    card = {"screen": {"clearance": {"requires_clearance": True}}}
+    out = score.merge_fallback_screen(empty, card, POSTING,
+                                      {"security_clearance": "none"})
     assert out["disqualified"] is False
 
 
@@ -584,8 +651,10 @@ def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
 
 
 def test_candidate_holding_clearance_passes_when_role_requires_one():
+    # CLEARED_POSTING so the evidence floor is SATISFIED — this pins the holder
+    # short-circuit, not the floor keeping an ungrounded row by accident.
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "Secret"})
     assert out["disqualified"] is False
 
@@ -1309,7 +1378,7 @@ def test_fallback_screen_used_when_screen_produced_nothing():
     # the ONLY check. It must be consumed.
     empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(empty, card, POSTING,
+    out = score.merge_fallback_screen(empty, card, CLEARED_POSTING,
                                       {"security_clearance": "none"})
     assert out["disqualified"] is True
 

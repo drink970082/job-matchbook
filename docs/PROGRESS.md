@@ -22,6 +22,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`fix/clearance-evidence-floor` — queue item 1, code + docs done, unmerged**
+  `[SCREEN · XS · claimed 2026-07-28]`. `_check_clearance` now requires a
+  `CLEARANCE_TOKENS` match in the JD description or title before honouring
+  `requires_clearance: true`; `_screen_verdict` threads the title so title-only evidence
+  counts. Keep-direction only, so it needed no eval. 673 worker tests pass, coverage
+  93.72%. SPEC §7.1 + §11 + traceability, CHANGELOG updated in the same commit.
+  **Stacked on `docs/record-review-findings`**, not on `main` — the defect entry it
+  closes and the queue it belongs to only exist on that branch. Merge that one first.
+
 - **Four branches LANDED, UNMERGED, all reviewed 2026-07-26 — three need work before they
   merge.** PRs are open; every one has a §7 fresh-subagent review whose findings are
   recorded below and in the entries they belong to. **Do not merge 19/21/22 on a green
@@ -232,7 +241,7 @@ whole queue. Eight blocks, matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 13 — the long tail lives here; no defects |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 defect** (clearance fires on "security", found 2026-07-27); the eval gap now gates the sponsorship rewrite |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **no defects** (the clearance evidence floor shipped 2026-07-28); the eval gap now gates the sponsorship rewrite |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 3 — **no defects** (dead-backend breaker shipped); the merge-blocking gate re-run remains |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — **no defects** (the data-loss one shipped 2026-07-24) |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 1 — **no defects** (both shipped 2026-07-24); scheduler/cadence only |
@@ -246,11 +255,13 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: one — SCREEN, found 2026-07-27** (the clearance check fires on the word
-"security"; 20 of 24 discards false, repro below). It is a *different* class from the five
-closed ones: not a systemic condition mishandled as a per-item verdict, but a per-item
-verdict acted on with **no evidence floor** — the D1 gap, which `authorization` closed and
-`clearance` never did.
+**Open defects: none.** The SCREEN one found 2026-07-27 (the clearance check firing on
+the word "security"; 20 of 24 discards false) shipped its fix 2026-07-28 — evidence floor,
+details below. It was a *different* class from the five closed before it: not a systemic
+condition mishandled as a per-item verdict, but a per-item verdict acted on with **no
+evidence floor** — the D1 gap, which `authorization` closed and `clearance` never did.
+Fixing the check does **not** un-discard the ~80 rows it already killed; that is queue
+item 4.
 
 The five instances of the earlier policy error — a *systemic* condition handled as a
 per-item verdict — have all shipped fixes: ORCH (2), SCORE (1), NOTIFY (1)
@@ -270,14 +281,11 @@ take first and why. Each numbered item is independently pickable.
 > discarded rows), not read off the code. **Order matters — item 2 gates item 3, by
 > operator decision.**
 >
-> 1. **Clearance guard — `[XS]`, a LIVE defect, and it does NOT wait for the golden set.**
->    20 of 24 clearance discards are false. Full repro under
->    [Defects](#defects--shipped-behavior-that-is-wrong-should-fix). The guard is
->    keep-direction only (it can only turn a discard into a keep), so it cannot introduce
->    a false disqualification and therefore needs no eval to ship — which is why it is
->    first and why the "do not start before the screen eval exists" warning on the
->    degree/clearance quote work does **not** apply to it. That warning is about the full
->    `SCREEN_SCHEMA` + `screen.txt` rewrite, a different and larger change.
+> 1. ~~**Clearance guard — `[XS]`, a LIVE defect.**~~ **DONE 2026-07-28** on
+>    `fix/clearance-evidence-floor` (unmerged; see [In flight](#in-flight)). The guard is
+>    keep-direction only, so it shipped without the golden set, exactly as recorded here.
+>    Full repro and the fix are under
+>    [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
 > 2. **Screen golden set — `[S]`, blocks item 3.** The `screen.txt` eval gap is no longer
 >    a nice-to-have: it is the reason a check could run 83% wrong for four days unnoticed.
 >    Build it from the *live fires* rather than synthesized JDs — see the
@@ -403,8 +411,19 @@ exception.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **The clearance check fires on the word "security" — 20 of 24 discards are false, and it
-  is wrong on current code** — `[SCREEN · XS · found 2026-07-27 · queue item 1]`.
+- **The clearance check fired on the word "security" — 20 of 24 discards were false**
+  — **FIXED 2026-07-28** on `fix/clearance-evidence-floor` (SPEC §7.1 + §11 +
+  traceability, CHANGELOG). `_check_clearance` now requires a `CLEARANCE_TOKENS` match
+  (`clearance` · `top secret` · `secret` · `ts/sci` · `polygraph`) in the JD description
+  **or** the job title before honouring `requires_clearance: true`, and `_screen_verdict`
+  threads the title so title-only evidence counts. Bare `sci` and bare `poly` stay out —
+  they match "science"/"scientist" and "polyglot", and on a disqualification path a
+  collision costs a real job. `merge_fallback_screen` routes through the same
+  `_screen_verdict`, so Stage 4 is not a back door. `degree` deliberately left unguarded:
+  38 of 38 grounded, so the symmetric guard closes a hole with no observed instance.
+  **The ~80 wrongly-discarded rows are still discarded** — recovering them is queue item
+  4, and it waits for item 3. Original report — `[SCREEN · XS · found 2026-07-27 · queue
+  item 1]`:
   `_check_clearance` acts on a bare `requires_clearance: true` boolean with **no evidence
   floor at all** — the failure class D1 exists to kill, left standing here while
   `authorization` got quote grounding.
