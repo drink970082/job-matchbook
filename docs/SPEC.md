@@ -634,10 +634,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   eligible to work without sponsorship, we encourage you to apply"*. **Silence still
   reaches the floor; a bad count does not** — and `[]` is a bad count, not silence,
   whenever a snippet was retrieved: `sponsorship_labels` is `["array", "null"]` in the
-  schema, so an empty array is a model *answer*. "Answered" is therefore
-  `bool(labels) or isinstance(raw, list)`, never `bool(labels)` alone. With nothing
-  retrieved there was no question, so `[]` is the correct empty answer and the floor is
-  the whole verdict.
+  schema, so an empty *array* is a model answer while `null` is the absence of one.
+  "Answered" is therefore `bool(labels) or isinstance(raw, list)` — a **type** test, not
+  a was-a-question-asked test. With nothing retrieved there was no question, so `[]` is
+  the correct empty answer and the floor is the whole verdict.
+  **What that leaves reachable, on purpose for now:** `null`, a missing key, and a
+  response with no `screen` object all still reach the floor and can disqualify, and a
+  live backend returning them is not flagged `provider_error`. The floor is an
+  independent deterministic signal by design (four tests pin it), so a JD that says *"we
+  do not sponsor work visas"* is caught with no model data. Whether a blind-but-live
+  backend should instead KEEP is an open fork in PROGRESS, not settled here.
   **The floor is also skipped outright on a `provider_error`**, leaving `authorization`
   absent rather than recording a verdict. It is deterministic but blunt — a substring
   scan of the whole description — and on a working backend the model's labels overrule

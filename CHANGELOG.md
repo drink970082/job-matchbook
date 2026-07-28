@@ -37,9 +37,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   sponsorship 0**, with every remaining failure inside the documented 4B degree ceiling
   (SPEC §7.1).
 
-  **Two ways the floor stayed reachable, both found by the pre-merge review and fixed
-  before merge.** Both discarded a real job, which is the direction this design exists to
-  close. (1) On a SCREEN **provider error** the "authorization always records a verdict"
+  **Two ways the floor was reached that should not have been — found by the pre-merge
+  review and fixed before merge.** Not an exhaustive list: a live-but-BLIND backend still
+  reaches it, which is an open fork recorded in PROGRESS rather than a defect, because
+  four tests pin the floor as an independent deterministic signal on purpose. Both of
+  these discarded a real job, the direction this design exists to close.
+  (1) On a SCREEN **provider error** the "authorization always records a verdict"
   block ran the closed-list floor over the whole description, so an Ollama outage
   terminally discarded exactly the *"eligible to work without sponsorship, we encourage
   you to apply"* shape — a regression against `main`, which kept it. The block is now

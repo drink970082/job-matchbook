@@ -329,6 +329,42 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
+  healthy while doing it — DESIGN FORK, operator's call** — `[SCREEN · S · found by the
+  PR #24 pre-merge review 2026-07-28, reproduced, deliberately NOT decided]`.
+  A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
+  `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
+  (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
+  how a strict backend says nothing) — is **not** flagged `provider_error`. Degree and
+  clearance both suppress themselves on absent data, so `NO_SPONSOR_PHRASES` is the only
+  surviving check, and it discards on a substring of a JD the model never condemned.
+  `run_score` then records a circuit-breaker **success**, so the degraded mode never
+  trips the breaker and walks the whole backlog. Realistic trigger: a wrong `--model`
+  tag or a non-instruct model — `_post` only checks that a dict came back, and none of
+  the hosted backends validate shape either.
+  **Why it was not "fixed" in #24:** four existing tests pin this on purpose
+  (`test_authorization_still_ruled_when_the_model_returns_no_entry`,
+  `test_the_phrase_floor_runs_only_when_no_labels_arrived`,
+  `test_no_sponsorship_disqualifies_when_jd_says_so`,
+  `test_authorization_fails_only_on_explicit_no_sponsorship_phrase`). The floor is
+  *designed* as an independent deterministic signal — like the location gate — so a JD
+  that literally says *"we do not sponsor work visas"* is caught with no model data at
+  all. That is coherent, and the IMC false positives were a floor **precision** problem
+  rather than an argument that the floor should not run. A patch making blind responses
+  keep was written, reverted, and is not in #24.
+  **The fork, and it is genuinely two-sided.** (a) Keep the floor independent and close
+  the *detection* gap instead: validate the screen response shape and treat a blind one
+  as `provider_error`, so the breaker sees it. Costs one paid fit call per row while a
+  backend is misconfigured, buys back the recall the floor exists for. (b) Make a live
+  call's silence mean KEEP (the direction the rest of this design takes), and accept
+  that a code-readable refusal is missed whenever the model is blind. **Recommendation:
+  (a)** — it fixes the invisibility, which is the part with no upside, without giving up
+  a deterministic signal; and it is the same shape as the `provider_error` work that
+  already shipped. Note the inconsistency it leaves meanwhile: `sponsorship_labels: []`
+  KEEPS (a bad count, per SPEC §7.1) while `null` reaches the floor. That is consistent
+  with the SPEC text as written — `[]` is a count, `null` is silence — but it is a thin
+  line for a 4B to land on, and (a) or (b) collapses it either way.
+
 - **`make eval-screen` measures far less than its headline numbers imply — 19 of the
   "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
   pre-merge review 2026-07-28, all three arithmetic claims re-verified]`. The gate is

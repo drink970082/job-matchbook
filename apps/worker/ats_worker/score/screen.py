@@ -671,6 +671,15 @@ def _check_authorization(cand_auth, description: str = "",
         # have answered, so `[]` is the correct empty answer and the floor is the whole
         # verdict — that is the documented silence path, not a bad count.
         return True, ""
+    # NOTE, and it is an OPEN DESIGN FORK rather than an oversight (PROGRESS, SCREEN):
+    # a live-but-blind response — `sponsorship_labels: null`, the key missing, or no
+    # `screen` object at all — reaches this floor and can discard, and it is NOT flagged
+    # `provider_error`. Four tests pin that on purpose: the floor is meant to be an
+    # INDEPENDENT deterministic signal, like the location gate, so a JD that literally
+    # says "we do not sponsor work visas" is still caught with no model data. The
+    # counter-argument is that a blind backend then discards on a substring the model
+    # never condemned, and scores as a circuit-breaker success while doing it. Deciding
+    # it is the operator's call, not this function's.
     text = " ".join((description or "").lower().split())
     if any(phrase in text for phrase in NO_SPONSOR_PHRASES):
         return False, "no visa sponsorship offered"
