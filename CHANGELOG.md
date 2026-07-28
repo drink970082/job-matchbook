@@ -14,8 +14,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   process's own argv — the check matches itself, and therefore carries **zero** signal
   about whether the sidecar can do its job. It is now a socket **ping**
   (`curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping`),
-  which asks whether the Docker API is still reachable. Measured in one container with a
-  dead socket: socket-ping `unhealthy`, `pgrep` healthy.
+  which asks whether the Docker API is still reachable. Measured in a socket-less container
+  held up artificially, with a faster interval than shipped: socket-ping reached
+  `unhealthy` while `pgrep` reported healthy throughout. At the shipped 30s interval a real
+  socket-less sidecar usually exits before three probes can fail, so `make health` sees
+  `starting` — which it also fails on. The ping makes the signal real; it is not what makes
+  the timing work.
   All four timing fields are set because Docker merges healthcheck fields **individually**
   with the image's — omitting `interval` would silently inherit this image's 5s. The
   socket path is hardcoded rather than `$$DOCKER_SOCK` so the check and the volume cannot
@@ -26,6 +30,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and treating a missing healthcheck as failure, waiting out web's 40s `start_period` and
   dumping `docker logs --tail 20` when it gives up. A fixed short sleep reads `starting`
   and calls it success — the same defect PR #19 shipped as `status=running` at t=0.
+  It also compares a RestartCount delta, because a crash-looping container reads `healthy`
+  with `.State.Status` == `running` for most of each cycle and health alone passes it.
+  Residual, stated rather than papered over: that catches a container flapping before it
+  first reads healthy, not one that comes up healthy and crash-loops afterwards.
 
 - **An entrypoint watchdog was built for this and then REMOVED before merging**, because
   two measurements killed it. It would have exited when the Docker socket went away, so

@@ -123,10 +123,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   containers, treating `NO-HEALTHCHECK` as failure and waiting out web's 40s
   `start_period` — a fixed sleep reads `starting`, the same defect PR #19 shipped as
   `status=running` at t=0.
-  **Known limits of what shipped:** `/_ping` is answered by dockerd's HTTP router before
-  any containerd work, so a daemon wedged on container *operations* still pings OK and
-  reads healthy. And nothing detects a sidecar whose loop died without exiting — which
-  the stock image makes unlikely (`set -e`) but not impossible.
+  **Known limits of what shipped, all measured:** `/_ping` is answered by dockerd's HTTP
+  router before any containerd work, so a daemon wedged on container *operations* still
+  pings OK and reads healthy. Nothing detects a sidecar whose loop died without exiting —
+  the stock image makes that unlikely (`set -e`) but not impossible. `make health` checks
+  a RestartCount delta, which catches a container flapping *before* it first reads
+  healthy, but one that comes up healthy and only then crash-loops is passed — dwelling
+  long enough to catch it would slow every `make up`. And `restart: unless-stopped` on the
+  sidecar buys visibility, not repair: a restart re-uses the create-time-pinned bind
+  source, so `docker compose up -d --force-recreate autoheal` is the actual cure.
   **Recorded, unverified, not in scope:** long-syntax `create_host_path: false` on the
   socket bind — the only compose knob touching bind resolution; it would make a poisoned
   host path fail the start instead of being mkdir'd. Untested here (legacy `Binds` path).
@@ -297,9 +302,10 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 4. ~~**Redo the autoheal fix**~~ — **DONE 2026-07-28** (`fix/autoheal-redo`; #19 closed
->    unmerged). A socket-ping healthcheck, an entrypoint watchdog drilled before merging,
->    and `make health`. See [In flight](#in-flight) for the three claims it corrected.
+> 4. **Redo the autoheal fix — `[INFRA · S]`, in flight** on `fix/autoheal-redo`; #19
+>    closes unmerged behind it. Ships a socket-ping healthcheck and `make health`. The
+>    planned entrypoint watchdog was built, drilled and **removed** — see
+>    [In flight](#in-flight) for that and for the two planned premises that measured false.
 > 5. **Decide the `run_feed` pre-filter — `[FETCH · S]`, and it comes BEFORE 3 and 4.**
 >    Numbered last only to keep items 2/3 addressable by the entries that cite them. The
 >    Simplify feed was enabled 2026-07-28 for live testing, and `run_feed` never calls

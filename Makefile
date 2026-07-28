@@ -94,15 +94,30 @@ health: ## Wait for ats-web + ats-autoheal to report healthy (polls; treats a mi
 	@# `NO-HEALTHCHECK` must FAIL, not pass: a container with no healthcheck reports an
 	@# empty .State.Health, and treating that as "fine" would silently un-gate this target
 	@# the moment someone drops a healthcheck block.
+	@# RestartCount is checked too, and it is not belt-and-braces: a crash-looping container
+	@# reads `healthy` with `.State.Status` == `running` for most of each cycle, so polling
+	@# health alone passes it — the residual of the very defect this target exists to close.
+	@# The check is a DELTA against the count at entry, because the cumulative number says
+	@# nothing about now (a container that restarted last week is fine).
+	@# RESIDUAL, stated rather than papered over: this catches a container that flaps
+	@# BEFORE it ever reads healthy. One that comes up healthy and only then starts
+	@# crash-looping is passed, because the poll exits on the first `healthy` — dwelling
+	@# long enough to see it would slow every `make up` for a case the container's own
+	@# restart policy already surfaces in `docker ps`.
+	@# `docker compose up --wait` covers most of this and was considered; it does not treat
+	@# a MISSING healthcheck as failure, which is the case that silently un-gates us.
 	@# The MISSING arm needs `[ -n "$$s" ]`, NOT `|| echo MISSING`: a failing
 	@# `docker inspect` still writes an empty line to STDOUT, so the substitution yields
 	@# the empty string and `|| echo` never fires — which left an absent container spinning
 	@# the whole timeout before failing with a blank status.
 	@for c in ats-web ats-autoheal; do \
 		printf 'waiting for %s ' "$$c"; ok=0; \
+		rc0=$$(docker inspect -f '{{.RestartCount}}' "$$c" 2>/dev/null || echo 0); \
 		for i in $$(seq 1 60); do \
 			s=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}NO-HEALTHCHECK{{end}}' "$$c" 2>/dev/null); \
 			[ -n "$$s" ] || s=MISSING; \
+			rc=$$(docker inspect -f '{{.RestartCount}}' "$$c" 2>/dev/null || echo 0); \
+			if [ "$$rc" != "$$rc0" ]; then s="crash-looping (RestartCount $$rc0 -> $$rc)"; break; fi; \
 			case "$$s" in \
 				healthy) ok=1; break ;; \
 				unhealthy|NO-HEALTHCHECK|MISSING) break ;; \

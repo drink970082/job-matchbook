@@ -58,10 +58,16 @@ services:
   # `depends_on: service_healthy` is a startup gate (and would be actively harmful here —
   # it would hold the sidecar down whenever web is the thing that needs healing). That is
   # why this sidecar exists at all, and why the healthcheck below REPORTS rather than
-  # repairs. What repairs this sidecar is that the image's own entrypoint runs under
-  # `set -e -o pipefail`, so a failed Docker API call exits the script and
-  # `restart: unless-stopped` restarts it — measured 2026-07-28: with the socket killed
-  # under a live sidecar it went `Exited (7)` and climbed to 8 restarts unaided.
+  # repairs.
+  #
+  # Note what `restart: unless-stopped` does and does NOT do for THIS container. The
+  # image's entrypoint runs under `set -e -o pipefail`, so a failed Docker API call exits
+  # the script and the policy restarts it — measured 2026-07-28: socket killed under a
+  # live sidecar gave `Exited (7)` and 8 restarts unaided. But a restart re-uses the
+  # bind source pinned at CREATE time, so if the host socket inode was replaced the
+  # restart cannot fix it (and if the source is gone, cannot even start). The loop buys
+  # VISIBILITY, not repair. The cure is
+  # `docker compose up -d --force-recreate autoheal`.
   autoheal:
     image: willfarrell/autoheal:1.2.0
     container_name: ats-autoheal
@@ -77,11 +83,18 @@ services:
     # runs: `Cmd=["autoheal"]` puts that string in the process's own argv, so the check
     # matches ITSELF and reports healthy for a sidecar doing nothing at all. Zero signal.
     # This one asks the question that matters — can we still reach the Docker API.
-    # Measured 2026-07-28 in one container with a dead socket: this check said
-    # `unhealthy`, `pgrep -f autoheal` said healthy.
+    # Measured 2026-07-28 in a socket-less container held up artificially (so the probe
+    # could run at all) with a faster interval than shipped: this check reached
+    # `unhealthy`, `pgrep -f autoheal` reported healthy throughout.
+    # With the SHIPPED 30s interval a real socket-less sidecar usually exits before three
+    # probes can fail, so what `make health` actually sees is `starting` — which it also
+    # treats as failure. Either way it fails where `pgrep` would have passed; the ping is
+    # what makes the signal real, not what makes the timing work.
     #
     # The path is HARDCODED rather than `$$DOCKER_SOCK` so the check and the volume above
-    # cannot disagree about which socket is being tested. (`CMD-SHELL` is therefore not
+    # cannot drift apart as edits accumulate. (Setting DOCKER_SOCK explicitly would still
+    # make them disagree — the entrypoint honours it, this check does not.)
+    # (`CMD-SHELL` is therefore not
     # strictly required — no variable is expanded — but it keeps `|| exit 1` readable and
     # matches the web service's form.)
     #

@@ -256,10 +256,15 @@ the browser shows only a Next.js error digest; the real stack trace is in
 `docker logs ats-web` — even though permissions, ownership, disk, and the mount
 config are all correct.
 
-**The operator's cure is `docker restart ats-web`** (or `docker compose up -d
---force-recreate web`). Note what does *not* work: `make up` will **not** recreate a
-running container whose config hash is unchanged, so "just run `make up`" is not a fix for
-this — it is a no-op.
+**The operator's cure is `docker compose up -d --force-recreate web`.** `docker restart
+ats-web` often suffices and is cheaper, but it re-uses the bind source pinned at create
+time (below), so it cannot fix the case where the host inode was replaced — prefer
+`--force-recreate` when the restart does not take. Note what does *not* work at all:
+`make up` will **not** recreate a running container whose config hash is unchanged, so
+"just run `make up`" is a no-op here.
+**The same applies to the sidecar** — if `ats-autoheal` is the thing that is broken,
+`docker compose up -d --force-recreate autoheal` is its cure, for the same reason. Its
+restart policy restarts it, which buys visibility rather than repair.
 
 To make it self-healing, `web` exposes `GET /api/health`, which actually opens the DB
 (`SELECT 1` → `200`, else `503`), wired to a Docker `healthcheck`; the `autoheal`
@@ -282,7 +287,8 @@ which mounts at start — do not generalize this line beyond WSL2.)
 different: the measurement above is *the source inode was replaced*, whereas the WSL2
 symptom is *the same inode, a broken view*. A restart re-establishes the container's mount
 namespace and is a plausible cure for the second; it is proven not to be a cure for the
-first. The recovery leg was drilled 2026-07-22 (autoheal does restart a labeled unhealthy
+first — and if the source path is gone entirely the restart cannot even start the
+container. The recovery leg was drilled 2026-07-22 (autoheal does restart a labeled unhealthy
 container), and the detection leg is still unobserved — so "autoheal restarting `ats-web`
 cures a stale mount" remains **reasonable and unproven**, not established. Prefer
 `docker compose up -d --force-recreate web`, which works in both cases.
@@ -291,8 +297,12 @@ cures a stale mount" remains **reasonable and unproven**, not established. Prefe
 `pgrep -f autoheal` — a check that **cannot fail while the container runs**, because
 `Cmd=["autoheal"]` puts that string in the process's own argv and the check matches
 itself. Zero signal. It is now a socket **ping** (`curl --unix-socket … /_ping`), which
-asks the question that matters: can this sidecar still reach the Docker API. Measured in
-one container with a dead socket: socket-ping `unhealthy`, `pgrep` healthy.
+asks the question that matters: can this sidecar still reach the Docker API. Measured in a
+socket-less container held up artificially, with a faster interval than shipped:
+socket-ping reached `unhealthy`, `pgrep` reported healthy throughout. At the shipped 30s
+interval a real socket-less sidecar usually exits before three probes can fail, so what
+`make health` sees is `starting` — which it also fails on. The ping is what makes the
+signal real; the timing is what makes it visible.
 
 **No watchdog, and that is a deliberate reversal.** An entrypoint wrapper that exits when
 the socket dies was built and drilled, and then removed, because two measurements killed
