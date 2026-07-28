@@ -22,6 +22,52 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Four branches LANDED, UNMERGED, all reviewed 2026-07-26 — three need work before they
+  merge.** PRs are open; every one has a §7 fresh-subagent review whose findings are
+  recorded below and in the entries they belong to. **Do not merge 19/21/22 on a green
+  suite** — in all three cases the suite is green and the change is still wrong.
+  | PR | branch | state |
+  |---|---|---|
+  | [#20](https://github.com/drink970082/job-matchbook/pull/20) | `feat/pass-lockfile` | **mergeable.** Review found 2 real defects (raw `OSError` from `os.open` killed the daemon; `ENOLCK` reported as contention would refuse every pass forever) and 2 tests that did not prove what SPEC cited them for. All fixed on the branch; 676 pass, cov 93.98%. |
+  | [#19](https://github.com/drink970082/job-matchbook/pull/19) | `fix/autoheal-socket-gap` | **fix does not work — redo.** See the autoheal entry below. |
+  | [#21](https://github.com/drink970082/job-matchbook/pull/21) | `feat/custom-html-mode` | **ships dead as documented.** See the `custom html` entry under Enhancements. |
+  | [#22](https://github.com/drink970082/job-matchbook/pull/22) | `fix/sponsorship-positive-evidence` | **5 confirmed false positives.** See the sponsorship entry under Unverified / deferred. |
+  **The pattern worth keeping:** all three failures were *premise* failures, not coding
+  errors — a fix aimed at the wrong cause, a feature whose value claim was untested, and a
+  rewrite that moved a problem rather than removing it. Each branch's own tests passed
+  throughout. The reviews cost four subagents and caught all three.
+
+- **`ats-autoheal`'s socket-gap fix does NOT work, and the recorded root cause was wrong**
+  — `[INFRA · S · reopened 2026-07-26]`. Two claims in the previous entry here were tested
+  and are false:
+  1. **"`restart: unless-stopped` did not bring it back."** It does.
+     `docker run -d --restart unless-stopped alpine sh -c 'exit 127'` reaches
+     `state=restarting exit=127 restarts=7` within 12s and keeps climbing. Exit 127 is
+     retried unboundedly, so that was never the reason the container stayed dead.
+  2. **Polling for the socket from inside the container cannot work.** A bind mount is
+     resolved at container *creation*: with a host path that does not exist, Docker
+     creates a **directory** there, and creating a real socket at that host path later
+     never changes the container's view — measured 10/10 iterations `NOT-A-SOCKET` after
+     the socket appeared on the host. So PR #19's 30s wait delays the identical exit 127
+     by 30s and changes nothing.
+  **Worse, it hides the failure.** With `restart: unless-stopped` still set, a socket-less
+  sidecar now flaps every 30s and reads `Up (healthy)` for ~80% of each cycle, because the
+  image's healthcheck is `pgrep -f autoheal` and the *waiting shell* has "autoheal" in its
+  argv. The `make up` guard added in the same PR checks `status=running` at t≈0, inside
+  the wait window, so it passes too. The old `Exited (127)` is how the 3-day outage was
+  noticed at all — this is a net loss of detectability.
+  **What the real cause probably is:** the host `/var/run/docker.sock` mtime is
+  2026-07-23 11:34 — the daemon's last restart, matching the death date. So the daemon
+  restart / VM resume path is the suspect, and it cannot be addressed from inside the
+  container.
+  **Direction for the redo** (from the review, not yet built): give the sidecar a compose
+  `healthcheck:` that actually pings the socket
+  (`curl -s --unix-socket "$$DOCKER_SOCK" http://localhost/_ping`) instead of `pgrep`,
+  so a broken sidecar goes *unhealthy* and the restart policy recreates the container —
+  the only action that can re-establish the mount. Make `make up` assert *health* after a
+  settle, not `running` at t=0. Keep the deploy-time check; drop the poll.
+  Verify with `docker ps --filter name=ats-autoheal` — it must read `Up`, not `Exited`.
+
 - **The seven-PR stack is MERGED to `main` — 2026-07-26. Nothing is in flight on it.**
   `main` integration + #7 → #10 → #11 → #12 → #13 → #14 → #15, squash-merged in order,
   CI green on `main` and the full gate re-run there (worker 665 / coverage 93.70%; web
@@ -44,18 +90,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
     tests:** an open item deleted by taking one side of `PROGRESS.md` wholesale, and a
     duplicated CHANGELOG entry. Resolving a delta-only doc by "take ours" drops the other
     side's open items — the mirror of the reintroduction hazard, and it is not tested.
-- **`ats-autoheal` was dead for 3 days (Exited 127) — FIXED 2026-07-26 by recreating the
-  container.** Root cause is worth keeping: `willfarrell/autoheal`'s entrypoint dispatches
-  on `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`. There is **no `autoheal` binary
-  in the image** — the loop is inline in `/docker-entrypoint`. So when
-  `/var/run/docker.sock` is momentarily absent (a Docker Desktop restart), the `else`
-  branch runs `exec "$@"`, which tries to exec a command that does not exist and exits
-  **127** — and `restart: unless-stopped` did not bring it back. **Consequence while it
-  was down: nothing auto-recovered `ats-web` from the WSL2 stale-bind-mount failure**,
-  which is the sidecar's entire job (SPEC §6). **Open, small** (`[INFRA · XS]`): the
-  sidecar fails permanently on a transient socket gap. A `depends_on`/socket-wait, or
-  simply checking it is `Up` as part of any deploy check, would close it. Verify with
-  `docker ps --filter name=ats-autoheal` — it must read `Up`, not `Exited`.
+- **`ats-autoheal` was dead for 3 days (Exited 127), recovered 2026-07-26 by recreating
+  the container.** The mechanism that is still true: `willfarrell/autoheal`'s entrypoint
+  dispatches on `if [ "$1" = "autoheal" ] && [ -e "$DOCKER_SOCK" ]`, there is **no
+  `autoheal` binary in the image** (the loop is inline in `/docker-entrypoint`), so a
+  missing socket takes the `else` branch, `exec`s a command that does not exist, and exits
+  **127**. **Consequence while it was down: nothing auto-recovered `ats-web` from the WSL2
+  stale-bind-mount failure**, which is the sidecar's entire job (SPEC §6). The *why it
+  stayed dead* half of this entry was wrong and is corrected in the entry above.
 - **Scoring the `new` backlog at scale — deferred, operator's call** (`[SCORE · S ·
   quota-bound]`). **3,965 rows still `new`** as of 2026-07-26. A 20-row bounded pass ran
   that day on merged `main` and confirmed the pipeline works end-to-end: 12
@@ -380,7 +422,53 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **Rebuild `_quote_on_topic` as positive-evidence, and scope the phrase floor** —
+- **The positive-evidence rebuild is BUILT and REVIEWED but NOT merged — it moved the
+  problem instead of removing it** — `[SCREEN · S · PR #22 · 2026-07-26]`. Read this
+  before touching `fix/sponsorship-positive-evidence`.
+  **The design premise did not survive.** The pitch below is that inverting to positive
+  evidence stops the author having to anticipate every innocent English sentence. It does
+  not: it swaps *which* sentences must be anticipated. The review found **five confirmed
+  false positives**, all reproduced by hand against the branch:
+  | sentence | why it fires |
+  |---|---|
+  | *"a valid US passport **must be** provided to verify your **citizen**ship"* — **live row, Microsoft id 1776** | clause 4's `[^.]{0,60}` window spans the gap |
+  | *"All employment decisions **must be** made without regard to race, …, or **citizen**ship status"* — EEO written with "must be" | same; the fixture's 4 EEO controls all use "we do not discriminate", so the corpus cannot see this shape |
+  | *"**must have** experience enabling **citizen** developers"* / *"**Must have** experience working with senior **citizen**s"* | `citizen` matched as a bare substring |
+  | *"required to be a good **citizen** in our monorepo"* | clause 5's optional word slot absorbs "good" |
+  | *"We **do not offer** relocation assistance, but **visa** sponsorship is available"* | clause 2's `[^.]{0,30}` reaches an object from a different clause — **discards a posting that OFFERS sponsorship**, the worst polarity error available |
+  **Recall is also much worse than the branch claims.** 106 live rows carry blunt refusals
+  the gate misses, measured offline with no model calls: *"not eligible for
+  visa/immigration sponsorship"* (93 rows), *"without the need for employer sponsorship"*
+  (15), *"without company sponsorship"* (13), *"does not now or in the future require
+  employer sponsorship"* (8). `not eligible for (visa |immigration |employment
+  )?sponsorship` collides with nothing in `must_keep`.
+  **RECOMMENDED FIX, operator's call, not yet approved:** drop the citizenship-bar clauses
+  entirely and keep only refusals whose object is *sponsorship* (`we do not/cannot/will
+  not sponsor`, `sponsorship is not available/offered`, `not eligible for … sponsorship`),
+  plus a tighter object window on clause 2. That removes all five false positives and
+  buys back 93 of the 106 misses — narrower and higher-recall at once.
+  **Smaller findings on the same branch, each confirmed:** `_norm_sentence` strips the dot
+  of *any* single-letter token including a sentence-ending one, so *"must be based in the
+  U.S. Citizenship is not required"* merges into a citizenship bar; `_sentence_with` looks
+  only at the **first** occurrence of a phrase, so an invitation earlier in a JD masks a
+  real bar later; the 200-char window gives only 100 chars of lead-in, so a `must` further
+  back than that is cut off; `quote non-empty → keep` uses a non-emptiness test where
+  `prompts.py:221` says no-data spellings ("N/A", "none", "TBD") are open-ended and cannot
+  be enumerated, so such a quote silently retires the whole floor; `known_miss` has no
+  test keeping it disjoint from `must_flag` or bounding its growth, so a regression can be
+  made green by moving it; and `tools/sponsor_diff.py` still models the **retired**
+  ungated floor, so it cannot reproduce the SPEC figure it is cited as the source of.
+  **Measurement correction, already applied to the branch's SPEC:** the published
+  `100% / 100%` was not supportable. Only **11** of the 20 rows can be scored against the
+  shipped code; the other **9 are one Optiver template** on which the model produced a
+  grounded quote, so the code short-circuits and the floor — the branch being scored —
+  never runs. Honest reading: 11/11 verified, 9 unverifiable.
+  **What DID hold up:** D1 (a hallucinated quote still cannot disqualify); the floor
+  measurement (124 ungated → 83 gated over 7,560 descriptions, all 83 notes read and
+  genuine); and the labeled-set improvement (8/8 old false positives suppressed, 0 true
+  positives lost).
+
+- **Original design note, kept because the rebuild is not finished** —
   `[SCREEN · S · design decided 2026-07-26 by the operator · do not re-derive the fork]`.
   **The design call, so the next session does not relitigate it:** on this path a wrong
   discard and a wrong keep are not comparable. A kept row reaches the human, who reads the
@@ -691,13 +779,37 @@ two circuit-breaker fixes were the standing precondition for raising the daemon 
   `/s/details?jobReq={external_id}`) and Jacobs Levy (5 roles, one static page,
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
-- **`custom` has no HTML/CSS mode** — `[FETCH · M]`. Bloomberg, Two Sigma, Citi, Barclays,
-  Moody's and Geode are all plain-`requests`-fetchable with no bot wall, yet each is
-  forced to rung 3 (`browser` + headless Chromium) purely because `custom` only parses
-  JSON / `__NEXT_DATA__`. An `html` mode reusing the browser executor's CSS extractor
-  would drop all six to plain HTTP. Related: a `browser` `detail:` block costs **one
-  Chromium render per posting** with no stub gate (`browser.py:159`), which is why
-  Citi (3,567 postings) and Barclays (1,074) are not on the watchlist.
+- **`custom` `html` mode — BUILT on PR #21, but it ingests NOTHING as documented** —
+  `[FETCH · M · reviewed 2026-07-26]`. The executor works; the value claim does not.
+  **The blocker is one line elsewhere:** `pipeline._valid_posting` requires a non-empty
+  `description`, and `custom` has **no `detail:` mechanism and no `fetch_one`** (both
+  greppable, both zero hits), so an `html` recipe can only produce a description if the
+  *listing card itself* carries the JD body. Every example the branch ships —
+  `config.yaml.example`, `SKILL.md`, the test fixture — omits `description`. Driven
+  through the real `run_fetch`: `dropped 3 posting(s) with no description`, **0
+  inserted**, plus 3 `feed_unresolved` rows per cycle. The unit tests miss it because they
+  assert the field *set*, never that `description` is non-empty.
+  So the six boards (Bloomberg, Two Sigma, Citi, Barclays, Moody's, Geode) are **not**
+  unblocked: what they need is a chained detail fetch, which is exactly what `custom`
+  lacks. `SKILL.md`'s Step 3 validation criterion omits `description` too, so the skill
+  actively certifies a broken row as valid.
+  **Two honest ways out:** merge the executor with the docs corrected to say it works only
+  where listing cards carry the full JD body, or hold it until `custom` gains the chained
+  detail call (already an open item — same primitive Uber/Netflix/Morgan Stanley need).
+  **Other confirmed defects on that branch:** `description: [path, path]` raises
+  `AttributeError` in `html` mode though `SKILL.md` documents the list form as shared;
+  `page: {type: url}` is silently ignored rather than raising as `browser` does, so a
+  multi-page board returns page 1 and looks successful; `type: page` starts at 0 with no
+  `start:`, and most server-rendered pagers are 1-indexed; `resp.text` mojibakes non-ASCII
+  when a board omits `charset` (confirmed `MÃ¼nchen`), which matters far more for `html`
+  than for JSON since the payload *is* the prose — pass `resp.content`; `browser` lost its
+  pre-loop `item`-selector validation in the refactor (`parse_jobs([], …)` now returns
+  `[]` where `main` raised); the equivalence test passes coincidentally on a clean
+  three-card fixture (the two executors genuinely differ on de-dup and empty ids); and
+  `SKILL.md`'s Step 3 snippet still `json.load`s a payload that is now a `str`.
+  Related and unchanged: a `browser` `detail:` block costs **one Chromium render per
+  posting** with no stub gate (`browser.py:159`), which is the other reason Citi (3,567
+  postings) and Barclays (1,074) are off the watchlist.
 - **Boards blocked on an executor primitive, not an adapter** — `[FETCH · L]`. Meta needs a
   fetch-page-then-POST handshake (its GraphQL requires a per-session `lsd` CSRF token
   scraped from the HTML) *and* a scroll hook (the rendered DOM holds 11 of 692 cards
