@@ -9,37 +9,46 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
-- **`ats-autoheal` reported healthy while doing nothing, and could not recover itself.**
-  Three things in one, because the previous attempt (PR #19, closed unmerged) was aimed at
-  a mechanism that does not exist.
-  **The healthcheck.** The image's is `pgrep -f autoheal`, and `Cmd=["autoheal"]` puts
-  that string in the process's own argv — so the check matches itself and a sidecar whose
-  socket died under it reads `Up (healthy)` forever. It is now a socket **ping**
-  (`curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping`).
-  `CMD-SHELL` is mandatory (the exec form does not expand variables), the path is
-  hardcoded rather than `$$DOCKER_SOCK` so the check and the volume cannot disagree, and
-  all four timing fields are set because an omitted one takes the *daemon* default, not
-  the image's.
-  **The watchdog.** A healthcheck only reports — **no compose mechanism acts on
-  `unhealthy`**: `restart:` fires on container exit only, and `depends_on:
-  service_healthy` is a startup gate that would be actively harmful here. So the
-  entrypoint now wraps the image's, and exits when the socket goes away; `restart:
-  unless-stopped` then recreates the container, and a bind mount **re-resolves at every
-  container START**, which is what makes the restart a real cure. It is correct only
-  *with* the new healthcheck — the wrapper shell has "autoheal" in its own argv too.
-  **Drilled before merging, as a hypothesis rather than a design:** a throwaway container
-  with the same wrapper and a bogus socket path exited 1 and was restarted 7x in 8s; with
-  a real socket it stayed up at `RestartCount 0`, healthy; and one dead-socket container
-  showed the two checks disagreeing — socket-ping `unhealthy`, `pgrep` healthy.
-  **`make health`.** A new target, invoked by `up`, polling both containers for `healthy`
-  and treating `NO-HEALTHCHECK` as failure, waiting out web's 40s `start_period` and
+- **`ats-autoheal`'s healthcheck could not fail, so it reported healthy unconditionally.**
+  The image's check is `pgrep -f autoheal`, and `Cmd=["autoheal"]` puts that string in the
+  process's own argv — the check matches itself, and therefore carries **zero** signal
+  about whether the sidecar can do its job. It is now a socket **ping**
+  (`curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping`),
+  which asks whether the Docker API is still reachable. Measured in one container with a
+  dead socket: socket-ping `unhealthy`, `pgrep` healthy.
+  All four timing fields are set because Docker merges healthcheck fields **individually**
+  with the image's — omitting `interval` would silently inherit this image's 5s. The
+  socket path is hardcoded rather than `$$DOCKER_SOCK` so the check and the volume cannot
+  disagree. Known false negative: `/_ping` is answered by dockerd's HTTP router before any
+  containerd work, so a daemon wedged on container operations still pings OK.
+
+- **`make health`** — a new target, invoked by `up`, polling both containers for `healthy`
+  and treating a missing healthcheck as failure, waiting out web's 40s `start_period` and
   dumping `docker logs --tail 20` when it gives up. A fixed short sleep reads `starting`
   and calls it success — the same defect PR #19 shipped as `status=running` at t=0.
 
-- **SPEC §6 documented a cure that does nothing.** It said "the cure is to recreate the
-  container" without noting that `make up` does **not** recreate a running container whose
-  config hash is unchanged. The operator's cure is `docker restart ats-web` or
-  `docker compose up -d --force-recreate web`.
+- **An entrypoint watchdog was built for this and then REMOVED before merging**, because
+  two measurements killed it. It would have exited when the Docker socket went away, so
+  `restart: unless-stopped` could restart the sidecar. (1) That state does not occur: the
+  image's `/docker-entrypoint` runs under `set -e -o pipefail`, so a failed API call exits
+  the script — with a socket killed under a live **stock** sidecar it went `Exited (7)`
+  and restarted itself 8 times unaided. (2) The wrapper introduced a worse failure than it
+  removed: as PID 1 it survives its child, so killing the autoheal loop left the container
+  `Up (healthy)` with `RestartCount 0` and no autoheal running, indefinitely — the exact
+  deception this change exists to remove. It also swallowed SIGTERM. Its own drill passed;
+  the drill was too narrow, because it only ever asked what happens when the *socket*
+  dies. Reasoning in PROGRESS.
+
+- **SPEC §6 documented a cure that does nothing, and a mechanism that does not hold on
+  this platform.** It said "the cure is to recreate the container" without noting that
+  `make up` will **not** recreate a running container whose config hash is unchanged — so
+  the documented cure was a no-op. It also implied a restart re-resolves the bind mount;
+  measured on Docker Desktop/WSL2, it does **not**: the source is pinned through a
+  create-time hashed path, so swapping the host directory and restarting still shows the
+  old contents while a freshly created container shows the new. `docker compose up -d
+  --force-recreate web` is the cure that works in both cases. SPEC now separates a stale
+  *view* of the same inode (plausibly cured by a restart, still unproven) from a
+  *replaced* inode (measurably not).
 
 ### Added
 

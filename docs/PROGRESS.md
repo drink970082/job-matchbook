@@ -79,44 +79,57 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   without a measurement is a guess, however carefully argued.
 
 - **Autoheal redo — `fix/autoheal-redo`, IN FLIGHT** `[INFRA · claimed 2026-07-28]`,
-  replacing PR #19. **Three claims in the previous entry were wrong and are corrected
-  here**, because each one sent the fix in a useless direction:
-  1. **A bind mount re-resolves at every container START, not at creation.** The old entry
-     measured 10/10 `NOT-A-SOCKET` and concluded polling from inside can never work — but
-     that measurement holds only for an *already-running* container. What actually persists
-     is the directory Docker `mkdir`'d over a missing source path. Verified on this host:
-     `ats-autoheal` created 2026-07-19, started 2026-07-27, `RestartCount 0`, working
-     against the socket inode the daemon replaced 2026-07-23. SPEC §6's thesis — that
-     autoheal restarting `ats-web` cures the stale mount — depends on this and is safe.
-  2. **No compose mechanism acts on `unhealthy`.** The old direction was "go unhealthy and
-     the restart policy recreates the container"; that cannot work. `restart:` fires on
-     container *exit* only, and `depends_on: service_healthy` is a startup gate that would
-     be actively harmful here. A healthcheck reports; something else has to act.
-  3. **A healthcheck contributes ZERO detection for the `Exited (127)` outage that
-     motivated the redo** — healthchecks do not run on stopped containers, and that state
-     was already maximally visible. The gap that is genuinely invisible is a *live* sidecar
-     whose socket died under it, reading `Up (healthy)` forever because the image's check is
-     `pgrep -f autoheal` and `Cmd=["autoheal"]` puts that string in its own argv.
-  **What ships:** a socket-ping healthcheck replacing `pgrep`; an entrypoint watchdog that
-  exits when the socket dies so `restart: unless-stopped` re-resolves the bind; and
-  `make health` (invoked by `up`) polling both containers, treating `NO-HEALTHCHECK` as
-  failure and waiting out web's 40s `start_period` — a fixed sleep reads `starting`, which
-  is the same defect PR #19 shipped as `status=running` at t=0.
-  **The watchdog was a hypothesis and was drilled before merging**, the way the 2026-07-22
-  sidecar drill was: throwaway container, same wrapper, bogus socket path -> **exit 1,
-  restarted 7x in 8s**; same wrapper with a real socket -> **running, RestartCount 0,
-  healthy**; and one container with a dead socket showed the two checks disagreeing —
-  socket-ping `unhealthy`, `pgrep -f autoheal` healthy. The wrapper is correct **only**
-  with the healthcheck: its own shell has "autoheal" in its argv.
-  **Also corrected:** SPEC said "the cure is to recreate the container" without saying that
-  `make up` does **not** recreate a running container whose config hash is unchanged — so
-  the documented cure was unactionable. The operator's cure is `docker restart ats-web` or
-  `docker compose up -d --force-recreate web`.
-  **Recorded as an unverified hypothesis, not in scope:** long-syntax
-  `create_host_path: false` on the socket bind — the only compose knob that touches bind
-  resolution, and it would make a poisoned host path fail the start instead of being
-  mkdir'd. Unverified on this host, which is on the legacy `Binds` path.
-
+  replacing PR #19. **The plan for this item asserted three things; the pre-merge review
+  disproved two of them and I reproduced both.** Recorded in full because each was
+  confidently believed and each was wrong.
+  1. **"A bind mount re-resolves at every container START, not at creation" — FALSE on
+     this host.** Docker Desktop/WSL2 pins the source through a create-time hashed path
+     under `/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/`. Measured with a
+     directory bind shaped like `./db`: swap the source dir on the host, `docker restart`
+     -> still the OLD contents; a freshly *created* container on the same path -> the new
+     ones. So restart re-uses the pinned source. (Probably true on native Linux Docker,
+     which mounts at start — which is likely where the belief came from. Do not
+     generalize it.) The earlier `10/10 NOT-A-SOCKET` measurement this was supposed to
+     overturn was, on this platform, right.
+     **Consequence for SPEC §6:** "autoheal's restart of `ats-web` cures the stale mount"
+     is *reasonable but unproven*, not established — a stale VIEW of the same inode is a
+     different failure from a REPLACED inode, and only the second is disproven. SPEC now
+     says so, and points the operator at `--force-recreate`.
+  2. **"A live sidecar whose socket died reads `Up (healthy)` forever" — FALSE.** The
+     image's `/docker-entrypoint` runs under `set -e -o pipefail`, so a failed Docker API
+     call exits the script. Measured against a relay socket killed under a live **stock**
+     sidecar: `Exited (7)`, and `restart: unless-stopped` climbed to 8 restarts unaided.
+     The state the watchdog was designed to fix does not exist.
+  3. **"No compose mechanism acts on `unhealthy`" — TRUE, and it stands.** `restart:`
+     fires on container exit only; `depends_on: service_healthy` is a startup gate that
+     would be actively harmful here. A healthcheck reports; it cannot repair.
+  **THE WATCHDOG WAS BUILT, DRILLED, AND REMOVED.** Its own drill passed — bogus socket
+  path -> exit 1, restarted 7x in 8s; real socket -> running, RestartCount 0, healthy. The
+  drill was simply too narrow: it never asked what happens when the *child* dies. As PID 1
+  the wrapper survives its child, so killing the autoheal loop inside a wrapped container
+  left it `Up (healthy)`, `RestartCount 0`, with no autoheal running — **indefinitely**.
+  That is the exact deception this item exists to remove, reintroduced in a new place, in
+  exchange for fixing a state that does not occur. It also swallowed SIGTERM (a trapless
+  `sh -c` as PID 1 gets no default disposition), turning every `docker stop` into a
+  SIGKILL after the full timeout.
+  **The lesson, and it is the same one the screen stack taught:** a drill that only
+  exercises the failure you designed for is not evidence that the design is safe. Ask what
+  the change makes newly possible, not just whether it does what you meant.
+  **What ships instead — items 1 and 3 only, exactly as the plan's fallback directs.**
+  A socket-ping healthcheck replacing `pgrep -f autoheal` (which cannot fail while the
+  container runs: `Cmd=["autoheal"]` puts that string in its own argv, so the check
+  matches itself — zero signal; measured in one dead-socket container as socket-ping
+  `unhealthy` vs `pgrep` healthy), and `make health` (invoked by `up`) polling both
+  containers, treating `NO-HEALTHCHECK` as failure and waiting out web's 40s
+  `start_period` — a fixed sleep reads `starting`, the same defect PR #19 shipped as
+  `status=running` at t=0.
+  **Known limits of what shipped:** `/_ping` is answered by dockerd's HTTP router before
+  any containerd work, so a daemon wedged on container *operations* still pings OK and
+  reads healthy. And nothing detects a sidecar whose loop died without exiting — which
+  the stock image makes unlikely (`set -e`) but not impossible.
+  **Recorded, unverified, not in scope:** long-syntax `create_host_path: false` on the
+  socket bind — the only compose knob touching bind resolution; it would make a poisoned
+  host path fail the start instead of being mkdir'd. Untested here (legacy `Binds` path).
 - **The other two older branches, landed and unmerged, reviewed 2026-07-26.**
   | PR | branch | state |
   |---|---|---|

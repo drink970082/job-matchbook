@@ -57,8 +57,11 @@ services:
   # NOTHING IN COMPOSE ACTS ON `unhealthy`. `restart:` fires on container EXIT only, and
   # `depends_on: service_healthy` is a startup gate (and would be actively harmful here —
   # it would hold the sidecar down whenever web is the thing that needs healing). That is
-  # why this sidecar exists at all, and why the healthcheck below cannot by itself recover
-  # a broken sidecar: a healthcheck reports, the entrypoint watchdog is what acts.
+  # why this sidecar exists at all, and why the healthcheck below REPORTS rather than
+  # repairs. What repairs this sidecar is that the image's own entrypoint runs under
+  # `set -e -o pipefail`, so a failed Docker API call exits the script and
+  # `restart: unless-stopped` restarts it — measured 2026-07-28: with the socket killed
+  # under a live sidecar it went `Exited (7)` and climbed to 8 restarts unaided.
   autoheal:
     image: willfarrell/autoheal:1.2.0
     container_name: ats-autoheal
@@ -70,45 +73,26 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    # Exit when the socket dies, so `restart: unless-stopped` recreates us and the START
-    # re-resolves the bind mount. A bind mount is resolved at every container START (not
-    # at creation), so a restart is the only thing that can pick up a docker.sock the
-    # daemon replaced under us — which is what killed this sidecar on 2026-07-23.
+    # Replaces the image's `pgrep -f autoheal`, which cannot fail while the container
+    # runs: `Cmd=["autoheal"]` puts that string in the process's own argv, so the check
+    # matches ITSELF and reports healthy for a sidecar doing nothing at all. Zero signal.
+    # This one asks the question that matters — can we still reach the Docker API.
+    # Measured 2026-07-28 in one container with a dead socket: this check said
+    # `unhealthy`, `pgrep -f autoheal` said healthy.
     #
-    # The image's entrypoint dispatches on `[ "$$1" = "autoheal" ] && [ -e "$$DOCKER_SOCK" ]`
-    # and there is no `autoheal` BINARY in the image (the loop is inline in
-    # /docker-entrypoint), so a missing socket already exits 127 — but only at startup.
-    # This covers the socket dying while we are up, which is the case that used to leave a
-    # live sidecar doing nothing forever.
+    # The path is HARDCODED rather than `$$DOCKER_SOCK` so the check and the volume above
+    # cannot disagree about which socket is being tested. (`CMD-SHELL` is therefore not
+    # strictly required — no variable is expanded — but it keeps `|| exit 1` readable and
+    # matches the web service's form.)
     #
-    # This wrapper is correct ONLY together with the healthcheck below: the wrapper shell
-    # has "autoheal" in its own argv, so the image's default `pgrep -f autoheal` check
-    # would call it healthy no matter what. Drilled 2026-07-28 against a throwaway
-    # container with a bogus socket path: exit 1, restarted 7x in 8s; and with a real
-    # socket: still running, RestartCount 0, healthy.
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        /docker-entrypoint autoheal & child=$$!
-        while curl -fsS --max-time 5 --unix-socket "$$DOCKER_SOCK" http://localhost/_ping >/dev/null 2>&1; do
-          sleep "$${WATCHDOG_INTERVAL:-30}"
-        done
-        echo "[watchdog] docker socket unreachable at $$DOCKER_SOCK - exiting so the restart policy re-resolves the bind mount" >&2
-        kill "$$child" 2>/dev/null || true
-        exit 1
-    # Replaces the image's `pgrep -f autoheal`, which reports healthy for a sidecar that
-    # is doing nothing: `Cmd=["autoheal"]` puts that string in its own argv, so the check
-    # matches itself. A sidecar whose socket died reads `Up (healthy)` forever under it.
-    # Drilled 2026-07-28 in one container with a dead socket: this check said `unhealthy`,
-    # `pgrep -f autoheal` said healthy.
+    # All four timing fields are set because Docker merges healthcheck fields
+    # INDIVIDUALLY with the image's: omitting `interval` here would silently inherit this
+    # image's 5s, not a daemon default. Set them all or inherit surprises.
     #
-    # CMD-SHELL is mandatory — the exec form does not expand variables. The path is
-    # HARDCODED rather than `$$DOCKER_SOCK` so the check and the volume above cannot
-    # disagree about which socket is being tested.
+    # KNOWN false negative: `/_ping` is answered by dockerd's HTTP router before any
+    # containerd work, so a daemon wedged on container operations still pings OK.
     #
-    # All four timing fields are set: an omitted one takes the DAEMON default, not the
-    # image's, so inheriting three of them from a 5s-interval image is not what happens.
+    # NO entrypoint watchdog. One was built, drilled, and REMOVED — see PROGRESS.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping || exit 1"]
       interval: 30s

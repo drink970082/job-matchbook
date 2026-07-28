@@ -269,72 +269,43 @@ any container Docker marks **unhealthy**. **No compose mechanism acts on `unheal
 gate that would be actively harmful here (it would hold the sidecar down exactly when web
 is the thing needing repair). The sidecar is the only thing that closes that loop.
 
-**A bind mount re-resolves at every container START, not at creation.** This is what makes
-the sidecar's restart of `ats-web` a real cure rather than a ritual. The measurement that
-appeared to say otherwise — a source path recreated under a *running* container staying
-invisible to it, 10/10 — is true only for an already-running container; what persists
-across a restart is the directory Docker `mkdir`'d over a missing source path, not a stale
-view. Confirmed on this host: `ats-autoheal` was created 2026-07-19 and started 2026-07-27,
-and works against the socket inode the daemon replaced on 2026-07-23.
+**Does a restart re-resolve the bind mount? On this host, NO — measured 2026-07-28.**
+Docker Desktop on WSL2 pins a bind source through a create-time hashed path under
+`/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/`. With a directory bind of the
+same shape as `./db`, replacing the source directory on the host and then
+`docker restart`ing showed the **old** contents, while a freshly *created* container on
+the same path showed the new ones. So restart re-uses the pinned source; only
+re-**creation** picks up a different inode. (This may well differ on native Linux Docker,
+which mounts at start — do not generalize this line beyond WSL2.)
 
-**Guarding the guard.** The sidecar's own health was, until 2026-07-28, the image's
-`pgrep -f autoheal` — which reports healthy for a sidecar doing nothing at all, because
-`Cmd=["autoheal"]` puts that string in its own argv. A sidecar whose socket died under it
-therefore read `Up (healthy)` forever. It now has a socket-**ping** healthcheck
-(`curl --unix-socket … /_ping`) plus an entrypoint **watchdog** that exits when the socket
-goes away, so `restart: unless-stopped` fires and the start re-resolves the bind. The two
-are a pair: the watchdog's wrapper shell also carries "autoheal" in its argv, so on its own
-it would reintroduce the same deception. **Automatic recovery of the sidecar from
-unhealthy-but-running is out of reach compose-only without that watchdog** — see above,
-nothing acts on `unhealthy`. `make health` (invoked by `make up`) polls both containers for
-`healthy`, treating a missing healthcheck as failure and waiting out web's 40s
-`start_period`.
+**What that does and does not say about the stale-mount cure.** The two failure modes are
+different: the measurement above is *the source inode was replaced*, whereas the WSL2
+symptom is *the same inode, a broken view*. A restart re-establishes the container's mount
+namespace and is a plausible cure for the second; it is proven not to be a cure for the
+first. The recovery leg was drilled 2026-07-22 (autoheal does restart a labeled unhealthy
+container), and the detection leg is still unobserved — so "autoheal restarting `ats-web`
+cures a stale mount" remains **reasonable and unproven**, not established. Prefer
+`docker compose up -d --force-recreate web`, which works in both cases.
 
-**Keeping the worker alive: a systemd user unit.** The web stack has Docker's
-`restart: unless-stopped` plus the autoheal sidecar; the worker, being native, had
-nothing — a crash or an OOM kill simply ended the job feed, silently, until someone
-noticed. `deploy/ats-worker.service.example` is the supervision: `Restart=always` with
-`RestartSec=30s`, a `StartLimitBurst` so a genuine crash-loop lands in `failed` (visible
-to `systemctl --user status`) instead of restarting forever, and `WorkingDirectory` at
-`apps/worker` because the worker resolves `config.yaml`, `.env`, `resume/` and its default
-`--db` relative to it.
+**Guarding the guard.** The sidecar's health check was, until 2026-07-28, the image's
+`pgrep -f autoheal` — a check that **cannot fail while the container runs**, because
+`Cmd=["autoheal"]` puts that string in the process's own argv and the check matches
+itself. Zero signal. It is now a socket **ping** (`curl --unix-socket … /_ping`), which
+asks the question that matters: can this sidecar still reach the Docker API. Measured in
+one container with a dead socket: socket-ping `unhealthy`, `pgrep` healthy.
 
-Two `Environment=` lines carry weight. `PYTHONUNBUFFERED=1` is not cosmetic: the
-pipeline's progress lines are plain `print()` with no `flush=`, and Python block-buffers
-stdout whenever it is not a tty — under journald's pipe that means output arrives in 8KB
-lumps, so a hung pass and a quiet pass look identical. `PATH` must reach the `codex` CLI:
-systemd gives a user unit a minimal PATH without `~/.local/bin`, where `codex login`
-installs, so omitting it fails every fit call at exec.
+**No watchdog, and that is a deliberate reversal.** An entrypoint wrapper that exits when
+the socket dies was built and drilled, and then removed, because two measurements killed
+it. (1) The image's `/docker-entrypoint` already runs under `set -e -o pipefail`, so a
+failed Docker API call exits the script: with the socket killed under a live sidecar the
+**stock** image went `Exited (7)` and `restart: unless-stopped` climbed to 8 restarts
+unaided — the "live sidecar doing nothing forever" state the wrapper targeted does not
+exist. (2) The wrapper *created* a worse one: as PID 1 it survives its child, so killing
+the autoheal loop left the container `Up (healthy)` with `RestartCount 0` and no autoheal
+running, indefinitely. Details in PROGRESS.
 
-**Journald supplies retention and rotation, so the worker ships no logging code at all** —
-no log files, no rotation, no size caps. That is the whole reason for this shape. One
-caveat, because it is silent: journald's default `Storage=auto` persists to disk only if
-`/var/log/journal` exists, and keeps logs in `/run` otherwise — where they vanish at
-reboot. Check `journalctl --disk-usage`, and `sudo mkdir -p /var/log/journal` if it is
-volatile. `journalctl --user -u ats-worker -f` follows it; the daemon's `logging.basicConfig` (§7.1)
-is what makes the worker's own records timestamped alongside APScheduler's.
-
-**One step needs root and is the operator's, not the tooling's:**
-
-```bash
-mkdir -p ~/.config/systemd/user
-sed "s|/home/YOU/ats|$PWD|" deploy/ats-worker.service.example \
-    > ~/.config/systemd/user/ats-worker.service   # then edit PATH
-systemctl --user daemon-reload
-systemctl --user enable --now ats-worker
-sudo loginctl enable-linger $USER                 # REQUIRED — see below
-```
-
-`Linger=no` is the default, and it tears the user manager down with your last session, so
-without `enable-linger` the worker dies at logout and quietly restarts at next login —
-indistinguishable from an unexplained gap in the feed. `make doctor` reports whether the
-unit is active, because a stopped daemon and one merely waiting for its next wall-clock
-slot both print nothing.
-
-**The unit must NOT set `PrivateTmp=yes`.** `run.pass_lock` keys the one-pass-at-a-time
-lock on `tempfile.gettempdir()`, so a private `/tmp` would hide the daemon from an
-operator's hand-run `--once`: both acquire, both score, and the paid fit scorer is charged
-twice (PROGRESS, ORCH).
+**`make health`** (invoked by `make up`) polls both containers for `healthy`, treats a
+missing healthcheck as failure, and waits out web's 40s `start_period`.
 
 **Response headers.** `next.config.mjs` sets a fixed header set on every response
 (`headers()`, matcher `/:path*`): `X-Frame-Options: DENY`, `X-Content-Type-Options:
