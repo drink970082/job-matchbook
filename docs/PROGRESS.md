@@ -350,8 +350,8 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
 - **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
-  healthy while doing it — DESIGN FORK, operator's call** — `[SCREEN · S · found by the
-  PR #24 pre-merge review 2026-07-28, reproduced, deliberately NOT decided]`.
+  healthy while doing it — FIX DECIDED 2026-07-29, not built** — `[SCREEN · S · found by
+  the PR #24 pre-merge review 2026-07-28, reproduced]`.
   A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
   `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
   (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
@@ -362,28 +362,19 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   trips the breaker and walks the whole backlog. Realistic trigger: a wrong `--model`
   tag or a non-instruct model — `_post` only checks that a dict came back, and none of
   the hosted backends validate shape either.
-  **Why it was not "fixed" in #24:** four existing tests pin this on purpose
-  (`test_authorization_still_ruled_when_the_model_returns_no_entry`,
-  `test_the_phrase_floor_runs_only_when_no_labels_arrived`,
-  `test_no_sponsorship_disqualifies_when_jd_says_so`,
-  `test_authorization_fails_only_on_explicit_no_sponsorship_phrase`). The floor is
-  *designed* as an independent deterministic signal — like the location gate — so a JD
-  that literally says *"we do not sponsor work visas"* is caught with no model data at
-  all. That is coherent, and the IMC false positives were a floor **precision** problem
-  rather than an argument that the floor should not run. A patch making blind responses
-  keep was written, reverted, and is not in #24.
-  **The fork, and it is genuinely two-sided.** (a) Keep the floor independent and close
-  the *detection* gap instead: validate the screen response shape and treat a blind one
-  as `provider_error`, so the breaker sees it. Costs one paid fit call per row while a
-  backend is misconfigured, buys back the recall the floor exists for. (b) Make a live
-  call's silence mean KEEP (the direction the rest of this design takes), and accept
-  that a code-readable refusal is missed whenever the model is blind. **Recommendation:
-  (a)** — it fixes the invisibility, which is the part with no upside, without giving up
-  a deterministic signal; and it is the same shape as the `provider_error` work that
-  already shipped. Note the inconsistency it leaves meanwhile: `sponsorship_labels: []`
-  KEEPS (a bad count, per SPEC §7.1) while `null` reaches the floor. That is consistent
-  with the SPEC text as written — `[]` is a count, `null` is silence — but it is a thin
-  line for a 4B to land on, and (a) or (b) collapses it either way.
+  **Recorded as a two-sided fork; reading the code 2026-07-29 collapsed it.** Flagging a
+  blind response `provider_error` needs no new policy and **costs no quota**:
+  `screen_posting` already suppresses the floor on that flag ("NOT on a provider error"),
+  `run_score` already leaves such a row `new` rather than fit-scoring it, and the breaker
+  already aborts the phase after 5 with no successes. So the "one paid fit call per row"
+  price this entry quoted was wrong (it is zero), and "keep the floor independent" vs
+  "make silence mean KEEP" are the same code path, not opposed options.
+  **Scope it NARROWLY: response is not a dict, or carries no `screen` dict.** All four
+  tests that pin the floor hand back a well-formed `screen` dict, so a narrow check leaves
+  them green; a broad one (absent labels while snippets are pending) contradicts them and
+  must not be written. `sponsorship_labels: null` and `[]` therefore stay on the floor —
+  the deliberate residual, so a JD that literally says *"we do not sponsor work visas"*
+  is still caught with no model data.
 
 - **`make eval-screen` measures far less than its headline numbers imply — 19 of the
   "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
@@ -398,7 +389,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
      clearance false disqualification**, so "20/24 → 0" measures the floor's own regex
      over the rows it was tuned on — and no future clearance regression is detectable
      here. Fixing it needs corpus rows that carry a clearance token *and* are golden
-     `no bar` (a JD naming a clearance it does not require).
+     `no bar` (a JD naming a clearance it does not require). **Re-verified independently
+     2026-07-29** (the arithmetic, not the write-up): 24 clearance rows, exactly 4 with
+     `requires_clearance: true`, and exactly 20 carrying the corpus's own note *"no
+     clearance token anywhere; 'security' is the engineering domain"* — the same 20.
+     **Fix this one first.** The clearance check that ran 83% wrong for four days is the
+     reason this eval exists, and it is the half the eval cannot see.
   2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
      non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
      does can move them.
@@ -409,26 +405,38 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
      sentence off and left a lead window. They are guaranteed misses independent of any
      model or prompt, so every recall figure quoted from this gate is computed partly
      over rows whose stated premise ("the refusal sentence is inside the text handed to
-     the model") is false. `--selftest`'s corpus invariants do not catch this — they
-     check a label is assertable, never that the excerpt could support it.
-  **Not fixed here** because each one is a corpus rebuild plus a re-run, and #24 was
+     the model") is false. Re-verified by inspection 2026-07-29: all four excerpts end in
+     the `" [...]"` marker (the 1600-char cap plus 6 chars, which is where "exactly 1606"
+     comes from) and carry none of those tokens.
+     `--selftest`'s corpus invariants do not catch this — they check a label is
+     assertable, never that the excerpt could support it, **and that is the cheap fix**:
+     assert that a row labeled as a bar contains its requirement's vocabulary. That turns
+     this class into a CI failure instead of a silent one, and it is a `--selftest` clause
+     rather than the corpus rebuild the rest of this needs.
+  **Not fixed here** because 1 and 2 are a corpus rebuild plus a re-run, and #24 was
   already merging; the numbers on that PR are honest about what was *run*, not about what
   the corpus can reach.
-  **Two smaller premise gaps in the same tool, also left open** — `[XS]`. `screen_eval`
-  now passes the resolved *model* to `make_screener` (it previously only printed it), but
-  it still ignores `OLLAMA_NUM_CTX`, which `run.main` threads into both the screener and
-  `screen_posting`; with that var set the eval runs a different context window *and* a
-  different `num_ctx*2` JD truncation cap than production. And the report header names
-  `"{backend} default"` rather than the real `DEFAULT_*_SCREEN_MODEL` for the four
-  non-ollama backends, which is what a reader diffs across A/B runs.
+  **One smaller premise gap in the same tool, LATENT** — `[XS]`. `screen_eval` now passes
+  the resolved *model* to `make_screener` (it previously only printed it), but it still
+  ignores `OLLAMA_NUM_CTX`, which `run.main` threads into both the screener and
+  `screen_posting` — so with that var set the eval would run a different context window
+  than production. Not active here: it is commented out in `apps/worker/.env`, so both
+  sides run 8192. (The `num_ctx*2` JD truncation cap cannot diverge at all — corpus
+  excerpts stop at 1606 chars against a 16,384-char cap.) Also cosmetic-but-misleading:
+  the report header names `"{backend} default"` rather than the real
+  `DEFAULT_*_SCREEN_MODEL` for the four non-ollama backends, which is what a reader diffs
+  across A/B runs.
 
 - **The sponsorship `+/-1 sentence` window degenerates to the whole JD on bullet-list
   postings** — `[SCREEN · S · found by the PR #24 pre-merge review 2026-07-28, verified]`.
   `_sentences` collapses whitespace (so newlines and bullets are gone) and splits only on
   `[.!?]`, so a JD whose bullets carry no terminal punctuation is **one sentence** and the
-  documented "~400 chars" window becomes the entire description. Measured on the eval
-  corpus: median snippet payload 324 chars as designed, but id 4636's *whole* 1606-char
-  excerpt comes back as a single snippet, and 1154/2807/462 are likewise 100%.
+  documented "~400 chars" window becomes the entire description. The clean case is id
+  4636: two sentences, then a period-free bullet block, so its *whole* 1606-char excerpt
+  comes back as a single snippet. **Three of the four rows first cited here are an
+  artifact of measuring on the corpus** — 1154/2807/462 are 2-3 sentence *excerpts*, where
+  a +/-1 window covers everything for a trivial reason; their real JDs are longer. So
+  re-measure on live `description` values, not excerpts, before quoting a rate.
   This dissolves the per-snippet scoping the IMC 465/490 argument rests on — an offer and
   a scoped refusal inside one period-free block get **one** label — and SPEC §7.1 claims
   this design avoids exactly that ("'paragraph' is unbounded and degenerates to the whole
@@ -458,7 +466,7 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   principles still needs the measurement.
 
 - **The location gate: rebuilt, and the residual leak is now priced rather than
-  unpriced** — `[SCREEN · DONE 2026-07-30, see CHANGELOG]`. This entry used to argue that
+  unpriced** — `[SCREEN · DONE 2026-07-29, see CHANGELOG]`. This entry used to argue that
   clause (F)'s corroboration rule kept 16% of what it once discarded and that "the narrow
   fix, if it is ever wanted" was to exempt tokens naming a country outright. That fix
   shipped in PR #32, and a fuller survey then showed corroboration was only one of nine
@@ -472,15 +480,18 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   for the 3.1% of rows the gazetteer cannot resolve, and the fit scorer as a second net.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
-  needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
+  needs a COUNT, not a run]`. `parse_stub` now dates `"Posted N+ Days Ago"`
   prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
   call (CHANGELOG, SPEC §7.1). Only the confident English `"N[+] Days Ago"` form is
   parsed — a lower bound on age — so "Today"/"Yesterday" and any other locale/wording
   leave `posted_at` None and are kept; a mis-parse can never drop a good posting.
-  Unmeasured: how much of the ~6,703 remaining detail calls this actually cuts (depends
-  on `max_age_days` config and how stale each board is) — the projected drop awaits a
-  live run. Carried over from `main`; the 2026-07-26 integration dropped it once and the
-  §7 review caught it.
+  Unmeasured: how much of the ~6,703 remaining detail calls this actually cuts.
+  **It is not waiting on a run** — `max_age_days: 30` is set and the daemon has been
+  gating 6 passes/day since 2026-07-28, so the drop is already happening uncounted. The
+  free measurement is offline: list the two workday boards (`arrowstreetcapital`, `mlp`)
+  and count stubs whose `_stub_age_days` exceeds 30 — list calls only, zero detail calls,
+  no DB write. Carried over from `main`; the 2026-07-26 integration dropped it once and
+  the §7 review caught it.
 - **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
   `[FETCH · decided 2026-07-22 · do not re-derive]`. `browser/citadel.com` and
   `browser/citadelsecurities.com` scrape their listing pages fine (10 postings each,
@@ -497,6 +508,9 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   and they self-heal if Citadel's Cloudflare behavior relaxes. The only other honest
   option is deleting them; dropping the `detail:` block to take title-only is now a
   no-op, since the guard would drop those rows anyway.
+  **REPRICED 2026-07-29:** "a few renders per cycle" is 6x/day now that the daemon runs,
+  for a known-zero yield — reopened as part of the one watchlist decision in the
+  empty-JD-boards entry below.
 - **Stale-mount recovery — sidecar half PROVEN 2026-07-22, detection half still
   unobserved** — `[INFRA · S · needs a real event]`. A live drill with a throwaway container
   (`--label autoheal=true`, always-failing healthcheck) confirmed the recovery leg
@@ -504,12 +518,18 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   container now"* and restarted it ~31s after start. So label + Docker socket + poll
   interval all work; combined with `health.test.ts` (200/503 logic) the only unproven
   link is **detection** — that a real WSL2 stale mount actually makes Prisma's probe
-  fail. That half is not simulable: a `chmod 000` drill on the live DB left
-  `/api/health` at **200 for 5 minutes**, because Prisma holds an open fd and POSIX
-  checks permissions at `open()`, not on reads through an existing descriptor. So
-  `chmod` is not a valid proxy, and any failure mode that spares open fds would slip
-  past the probe; the observed real symptom is `SQLITE_CANTOPEN` (an *open* failure),
-  which would trip it. Needs a real suspend/resume event to confirm. (SPEC §6.)
+  fail. A `chmod 000` drill on the live DB left `/api/health` at **200 for 5 minutes**,
+  because Prisma holds an open fd and POSIX checks permissions at `open()`, not on reads
+  through an existing descriptor. So `chmod` is not a valid proxy, and any failure mode
+  that spares open fds would slip past the probe; the observed real symptom is
+  `SQLITE_CANTOPEN` (an *open* failure), which would trip it.
+  **Two corrections, 2026-07-29.** (1) `SELECT 1` is a constant expression SQLite answers
+  without reading a page, so the probe can pass with the file gone; reading `sqlite_master`
+  forces a page read and, under WAL, the `-wal`/`-shm` sidecars — one line, strictly
+  stronger. (2) Detection **is** simulable, just not by `chmod`: rename the *directory*
+  holding the DB, so a fresh `open()` fails while the existing fd survives — the shape of a
+  stale mount. Throwaway copy, throwaway container, same rig as the recovery drill.
+  (SPEC §6.)
 - **`onboard-me` evals are owed a run — two scenarios, two different reasons** —
   `[DOCS · S]`. The harness is subagent-driven and has not run since either change landed.
   **id 4 `fresh-checkout-no-telegram-remote-ollama` — written, never run.** Step 0's
@@ -542,9 +562,10 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   own rule was "a couple of percent → just route them". ~30 paid fit calls against a
   ~2,000-message weekly budget.
   **What was unmeasured then is measured now, and it strengthens the case:** the 4B's
-  false-discard *rate* inside that volume is **83% for clearance and 24% for degree**
-  (`make eval-screen`). Volume was the wrong ranking function — that is the same lesson
-  the clearance defect taught.
+  false-discard *rate* is **83% for clearance** (20 of 24 live discards carried no
+  clearance token — the 2026-07-27 audit, **not** `make eval-screen`, which as shown above
+  cannot measure clearance at all) and **24% for degree** (`make eval-screen`). Volume was
+  the wrong ranking function — that is the same lesson the clearance defect taught.
   **The architecture already exists**, so this is a state, not a redesign: the fit
   scorer's optional `screen` block + `merge_fallback_screen` is already "strong model
   supplies extraction, CODE arbitrates on verifiable JD evidence, not a second vote". The
@@ -563,7 +584,15 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   serves, which would be normal and harmless) or the workday `fetch_one` breaking on a
   shape it cannot parse. The counts are tiny — 1-2 ids per group — so this is cheap
   either way; it is listed because "may be broken" repeating six times a day is exactly
-  the signal that gets tuned out. Resolving it means running one of those ids by hand.
+  the signal that gets tuned out. **And the repetition is guaranteed, not incidental:**
+  workday's `existing_external_ids` prune never matches (the feed carries `externalPath`,
+  the DB stores the GUID), so these ids are re-fetched every pass forever.
+  **The ids are already recorded, so this does not need a hand-run first** — a failed
+  detail fetch lands in `feed_unresolved` as `detail_fetch_failed`. What that reason
+  cannot tell you is *which* failure it was, because `_detail_fetch` files a raise (dead
+  req) and an invalid posting (broken parser) under the same string. The watchlist path
+  already separates them (`empty_description`); splitting the feed reason the same way is
+  ~3 lines and makes the warning self-diagnosing.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
@@ -573,11 +602,18 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   2026-07-22 (17%), 118 of 1,579 from 07-23 (7%), 124 of 1,701 from 07-29 (7%)** would be
   refused today. The 07-29 share is the killed hand-run of 2026-07-28 20:57, which
   ingested 1,555 rows on code that predated the feed pre-filter (PR #29).
-  At ~0.8 paid messages each that is **~520 messages of scoring on postings the operator's
-  own config would not accept** — roughly a quarter of a weekly budget. A one-shot
-  `UPDATE ... SET pipeline_status='discarded'` over the queue, using the same filter, is
-  the obvious fix and is free; it is not done because deleting queue rows on a
-  filter's say-so deserves an explicit operator decision, and the filters may yet change.
+  At ~0.8 paid messages each that is ~520 messages of scoring on postings the operator's
+  own config would not accept — but **that headline overstates the live exposure ~5x, and
+  the split is the point.** 531 of the 655 are from 07-22/23, and the score queue is
+  most-recently-touched-then-newest, so they are parked by construction and cost nothing
+  until someone deliberately drains the backlog. What the daemon will actually reach is the
+  **124 rows from 07-29 — ~99 messages, ~5% of a weekly window**, and it will reach them
+  within days at ~38 new rows/pass.
+  A one-shot `UPDATE ... SET pipeline_status='discarded'` over the queue, using the same
+  filter, is the obvious fix, is free, and is a status flip rather than a delete (so it is
+  reversible). It is not done because refusing queue rows on a filter's say-so deserves an
+  explicit operator decision, and the filters may yet change. Do the 124 first; the 531
+  only matter if a backlog run is planned.
 - **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
   `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
   live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
@@ -607,6 +643,14 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   drops on all three passes — `icims/globalcareers-msci` **42**, `citadelsecurities` 7,
   `citadel` 4, `phenom/microsoft` 4-6. They are re-fetched and re-dropped **6x/day**,
   which is what turns a documented no-op into an ongoing fetch cost.
+  **The choice is binary, and one decision covers the three zero-yield rows** — `msci`
+  plus the Citadel pair above. `watched_companies` has no `active` column, so there is no
+  soft-disable: the row stays and keeps paying, or it is deleted. Deleting is the cheap
+  call — re-adding is one `onboard-board` run and the rationale is recorded here, whereas
+  adding a flag is a schema change, i.e. the thing "No schema migration path" below exists
+  to avoid. **`phenom/microsoft` is NOT in this set:** it drops 4-6 bodyless rows per pass
+  but serves full descriptions for the rest, so it is a partial-drop board, not an
+  empty-JD one.
 - **Boards deliberately held off the watchlist** — `[FETCH · XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
@@ -631,6 +675,9 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   it); only the cleanup degrades. **Decision:** leave it (documented-safe, litter only)
   or default the codex/`claude-code` fit path to 1 worker. Screen concurrency already
   defaults to 1 for `ollama` for an unrelated reason (a single GPU serialises anyway).
+  **Still open 2026-07-29:** `run.py` line 231 still defaults `score_workers=4`, and
+  nothing in SPEC/CHANGELOG records a decision — the 2026-07-29 audit dropped this entry
+  by mistake and it is restored here.
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
@@ -656,6 +703,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   honest source for actual spend would be the `anthropic-ratelimit-*` response headers
   off each call — a different shape (short-window headroom, not a weekly budget), not
   built. (SPEC §7.1 "Quota telemetry", §7.2.)
+  **Check the SDK floor before the first live run.** `make_claude_scorer` calls
+  `thinking={"type": "adaptive"}` and `output_config={"format": {"type": "json_schema"}}`,
+  while `requirements.txt` floors at `anthropic>=0.40` — old enough to reject both kwargs.
+  The worker runs on system python3, not `apps/worker/.venv` (which has 0.107.1), so
+  confirm the installed version there and raise the floor to match. A first run that dies
+  on a `TypeError` proves nothing about the backend.
 ### Enhancements — not built, optional
 
 - **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
