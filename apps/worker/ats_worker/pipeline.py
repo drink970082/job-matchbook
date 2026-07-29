@@ -444,6 +444,12 @@ def _score_detail(result: dict, *, disqualified: bool,
     # in the UI (alongside the deterministic <N-char rule), regardless of score.
     if result.get("insufficient_context"):
         detail["insufficient_context"] = True
+    # Which screen checks the local model failed the row on but were re-checked by the
+    # strong model instead of discarding it (SPEC §7.1). Kept whatever the outcome, so a
+    # row that ends up 'discarded' anyway still shows the verdict came from the strong
+    # model — and so the routed population is selectable later without re-deriving it.
+    if result.get("needs_confirmation"):
+        detail["needs_confirmation"] = result["needs_confirmation"]
     if disqualified:
         detail["disqualified"] = True
         detail["disqualification_reason"] = result.get("disqualification_reason", "")
@@ -482,7 +488,13 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
     ruled on every check), so this branch and the 'scored' outcome below are
     byte-identical to pre-fallback behavior.
     """
+    # merge_fallback_screen returns a fresh verdict dict, so the routing marker has to be
+    # carried across it explicitly — it is provenance, not a screen verdict, and belongs
+    # in score_detail whichever way the confirmation goes.
+    confirming = screen.get("needs_confirmation")
     screen = score.merge_fallback_screen(screen, card, posting, candidate)
+    if confirming:
+        screen = {**screen, "needs_confirmation": confirming}
     if screen.get("disqualified"):
         db.save_score(
             conn, row["id"], score=0,
@@ -614,7 +626,7 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # line below. A pass that did work used to print NOTHING on success, so a working
     # run and a no-op run were indistinguishable at the terminal (cost real debugging
     # time 2026-07-26); the breakers below already speak up, so silence read as "fine".
-    tally = {"discarded": 0, "thin": 0, "fit": 0, "failed": 0}
+    tally = {"discarded": 0, "confirming": 0, "thin": 0, "fit": 0, "failed": 0}
 
     # Screen calls are I/O-bound (an HTTP round trip, or a subprocess spawn on the CLI
     # backends), so they run CONCURRENTLY while every DB call stays on this thread —
@@ -668,13 +680,24 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
             else:
                 screen_breaker.record_success()
             if screen.get("disqualified"):
-                db.save_score(
-                    conn, row["id"], score=0,
-                    score_detail=_score_detail(screen, disqualified=True),
-                    now=now, status="discarded",
-                )
-                tally["discarded"] += 1
-            elif len((posting.get("description") or "").strip()) < \
+                # A degree/clearance-ONLY fail is the one disqualification shape a 4B is
+                # measurably bad at (83% / 24% false), so it is re-checked by the strong
+                # model instead of being deleted: the failing verdicts are cleared, which
+                # makes them gaps `merge_fallback_screen` fills from the fit scorer's own
+                # extraction, arbitrated by the same CODE. Everything else stays terminal
+                # and free.
+                confirming = score.demote_for_confirmation(screen)
+                if confirming is None:
+                    db.save_score(
+                        conn, row["id"], score=0,
+                        score_detail=_score_detail(screen, disqualified=True),
+                        now=now, status="discarded",
+                    )
+                    tally["discarded"] += 1
+                    continue
+                screen = confirming
+                tally["confirming"] += 1
+            if len((posting.get("description") or "").strip()) < \
                     db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
                 # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
                 # paid fit call (the UI/notify gate would hold it back anyway). Screen was
@@ -790,8 +813,13 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     remaining = conn.execute(
         "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='new'").fetchone()[0]
     unreached = len(rows) - done
+    # `sent for confirmation` is a SUBSET of the thin/fit counts, not a bucket of its own
+    # — the row was demoted out of `discarded` and then took a normal path. It is on the
+    # line because it is the one number that moved a free outcome to a paid one, and the
+    # bucket it left (`screen-discarded`) is the number an operator would otherwise watch.
     print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
+          f"{tally['confirming']} sent for confirmation, "
           f"{tally['failed']} failed, {unreached} unreached, "
           f"{remaining} left 'new'")
 

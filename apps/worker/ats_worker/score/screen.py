@@ -757,6 +757,51 @@ def _flag(value) -> bool:
     return False
 
 
+# The two checks a local 4B is measurably unreliable on, and the ONLY two that may be
+# routed to the strong model instead of terminally discarding. Both are semantic reads of
+# prose the model has to interpret. Everything else that can disqualify is deterministic
+# CODE — the location gazetteer, the intern/co-op title regex, the sponsorship phrase
+# floor — where re-litigating the verdict on a paid call buys nothing, because no model
+# produced it in the first place.
+_CONFIRMABLE_CHECKS = frozenset({"degree", "clearance"})
+
+
+def demote_for_confirmation(screen: dict) -> dict | None:
+    """Turn a degree/clearance-ONLY disqualification into a keep that carries a
+    `needs_confirmation` marker, or return None to leave the discard alone.
+
+    The measured problem: the 4B's false-discard rate is **83% for clearance** and
+    **24% for degree**, and a discarded posting is reviewed by nobody, so a wrong verdict
+    silently deletes a real job. Volume is small — degree/clearance-only discards were 30
+    of 3,262 — so each one buys a single paid fit call instead (docs/PROGRESS.md item 3).
+
+    The failing verdicts are **removed** rather than flipped to pass. That is what makes
+    this a re-check and not an override: `merge_fallback_screen` fills only the checks the
+    screen left ABSENT, so clearing them is exactly how the fit scorer's own Stage 4
+    extraction gets to answer, with the same CODE arbitration applying the candidate's
+    constraint. Flipping them to `pass` would materialize a verdict nothing produced —
+    the 2026-07-23 blind-check-as-pass defect, in a new place.
+
+    Returns None (leave it discarded) when any failing check is outside
+    `_CONFIRMABLE_CHECKS`, and when the verdict carries no per-check entries at all: an
+    unreadable disqualification shape is not evidence that the disqualification is wrong,
+    and routing it would mean paying for every discard whose shape we cannot classify.
+    """
+    checks = screen.get("screen")
+    if not isinstance(checks, dict):
+        return None
+    failed = [k for k, v in checks.items()
+              if isinstance(v, dict) and not v.get("pass")]
+    if not failed or not _CONFIRMABLE_CHECKS.issuperset(failed):
+        return None
+    return {
+        "screen": {k: v for k, v in checks.items() if k not in failed},
+        "disqualified": False,
+        "disqualification_reason": "",
+        "needs_confirmation": sorted(failed),
+    }
+
+
 def merge_fallback_screen(screen: dict, card: dict, posting: dict,
                           candidate: dict | None) -> dict:
     """Consume the fit scorer's secondary hard-requirement extraction — but ONLY for

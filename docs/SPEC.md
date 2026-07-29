@@ -1110,7 +1110,22 @@ worker modules are pure and dependency-injected; real services are wired only in
   `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
   (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
   that row `failed`), and a disqualified one is persisted `discarded` right here,
-  **never** reaching the fit call; a screen survivor whose trimmed `description` is
+  **never** reaching the fit call — **except a `degree`/`clearance`-only fail, which is
+  routed to the strong model for confirmation instead of being deleted**
+  (`score.demote_for_confirmation`). Those two are the only checks a verdict comes from a
+  4B *reading prose* for, and its measured false-discard rate is **83% for clearance and
+  24% for degree**, against a discard that is reviewed by nobody. The demotion **clears**
+  the failing verdicts rather than flipping them to pass — that is what turns them into
+  gaps `merge_fallback_screen` fills from the fit scorer's own Stage 4 extraction, with
+  the same CODE applying the candidate's constraint — and records
+  `needs_confirmation: [checks]` in `score_detail`, kept whichever way the confirmation
+  goes. A row failing **any** other check (the deterministic location gazetteer, the
+  intern/co-op title regex, the sponsorship phrase floor) stays terminal and free: no
+  model produced those verdicts, so a paid call has nothing to re-litigate. A
+  disqualification carrying **no per-check entries at all** is likewise not routed — an
+  unreadable shape is not evidence the verdict is wrong. It is a routing decision, not a
+  persisted state: screen and fit run in the same pass, so no row is ever stored
+  `needs_confirmation`, and the outcome is the usual `scored`/`discarded`; a screen survivor whose trimmed `description` is
   shorter than `db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (200, the shared low-context
   threshold) is persisted `scored` + `insufficient_context` right here too — the
   UI/notify gate hold back any scored row that thin, so a paid fit call would only buy
@@ -1149,8 +1164,12 @@ it simply waits for an unbounded pass. **The `new` queue is read
   the backlog" an explicit operator action rather than something the schedule does
   silently and expensively. **Every pass ends with one summary
   line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
-  fit-scored, … failed, … unreached, … left 'new'` — so a pass that worked is
-  distinguishable from one with nothing to do. `fit-scored` is the quota-spending count;
+  fit-scored, … sent for confirmation, … failed, … unreached, … left 'new'` — so a pass
+  that worked is distinguishable from one with nothing to do. `fit-scored` is the
+  quota-spending count; `sent for confirmation` is a **subset** of the thin/fit counts
+  rather than a bucket of its own (the row was demoted out of `screen-discarded` and then
+  took a normal path), and it is on the line because it is the one number that moves a
+  free outcome to a paid one;
   `unreached` is what a tripped breaker or an abort did not reach *within this pass's
   slice*; `left 'new'` is the **whole queue**, counted from the DB rather than from the
   slice, so a capped pass cannot report `0 left 'new'` while thousands wait. Both the
@@ -1866,6 +1885,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
+| A `degree`/`clearance`-**only** screen fail is routed to the strong model (`needs_confirmation` in `score_detail`, the failing verdicts cleared so the fallback fills them) instead of discarding; the strong model can still confirm the bar and discard; any other failing check — and a disqualification with no per-check entries — stays terminal and free; the routed count is reported separately from `screen-discarded` | `test_pipeline.py` (`test_a_degree_only_fail_is_confirmed_by_the_strong_model_not_discarded`, `test_the_strong_model_can_still_confirm_the_bar_and_discard`, `test_a_location_fail_alongside_degree_is_still_discarded_free`, `test_a_disqualification_with_no_per_check_verdicts_is_not_routed`, `test_a_routed_row_reports_as_confirming_not_as_screen_discarded`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | `--score-max-id` selects the id range **before** `--score-limit` bounds the spend; the documented recovery recipe survives argparse and arrives at `run_score`; refused without `--once` (on the schedule it would bound every future pass into scoring nothing) and refused when negative (which `max_id > 0` would read as "no bound") | `test_pipeline.py` (`test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach`, `test_run_score_max_id_applies_before_the_limit`), `test_run.py` (`test_score_max_id_reaches_run_score`, `test_the_documented_recovery_recipe_is_accepted_and_wired`, `test_a_negative_score_max_id_is_refused_not_read_as_no_bound`, `test_score_max_id_requires_once`) |
 | Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |

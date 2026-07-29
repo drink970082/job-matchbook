@@ -7,6 +7,44 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **A degree/clearance-only screen fail is now confirmed by the strong model instead of
+  deleting the posting.** Those two are the only screen checks whose verdict comes from a
+  4B *reading prose*, and its measured false-discard rate is **83% for clearance and 24%
+  for degree** — against an outcome (`discarded`) that is terminal and reviewed by nobody.
+  Volume made it cheap to fix rather than tune: degree/clearance-**only** discards were 30
+  of 3,262, so each one now buys a single paid fit call.
+
+  `score.demote_for_confirmation` **clears** the failing verdicts rather than flipping
+  them to pass. That is what makes this a re-check and not an override:
+  `merge_fallback_screen` fills only the checks the screen left absent, so clearing them
+  is exactly how the fit scorer's own Stage 4 extraction gets to answer, with the same
+  CODE applying the candidate's constraint. Flipping to `pass` would have materialized a
+  verdict nothing produced — the 2026-07-23 blind-check-as-pass defect in a new place. The
+  disqualification reason a confirmed bar lands with is therefore the strong model's, not
+  the 4B string it replaced.
+
+  Scoped deliberately narrow. A row failing **any** other check — the deterministic
+  location gazetteer, the intern/co-op title regex, the sponsorship phrase floor — stays
+  terminal and free, because no model produced those verdicts and a paid call has nothing
+  to re-litigate. A disqualification carrying **no per-check entries** is likewise not
+  routed: an unreadable shape is not evidence the verdict is wrong, and routing it would
+  mean paying for every discard whose shape cannot be classified.
+
+  Built as an **in-pass routing decision plus a `needs_confirmation` marker in
+  `score_detail`**, not a new `pipeline_status`. PROGRESS proposed a state; screen and fit
+  run in the same pass, so no row would ever be stored in it, and a real status would mean
+  new `constants.ts` values and UI buckets for something never observed. The marker
+  survives whichever way the confirmation goes, so the routed population stays selectable.
+  The pass summary reports `… sent for confirmation` as a **subset** of the thin/fit
+  counts — it is the one number that moves a free outcome to a paid one.
+
+  Known residual: a degree/clearance-only fail on a JD below the low-context threshold is
+  kept without confirmation, since the thin-JD path spends no fit call. A thin JD cannot
+  support a degree-bar reading either way, and those rows are held back from notify and
+  shown for human review. (SPEC §7.1, §9.)
+
 ### Added
 
 - **`--score-max-id N` — the selector the discard recovery needed.** `--score-limit`
