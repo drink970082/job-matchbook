@@ -14,7 +14,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 // ponytail: path deny-list only — no content/entropy scan for stray API keys.
 // Add one if a key ever lands in source; a path list has no false positives.
 const RULES = [
-    [/(^|\/)\.env(\.local)?$/, 'secrets file (commit .env.example instead)'],
+    // `.env` followed by end-or-a-dot: catches every suffixed variant (.env.local,
+    // .env.bak, .env.production) without matching `.environment` or `setEnv.ts`.
+    // ALLOW exempts *.example, which is the only one the repo ships.
+    [/(^|\/)\.env($|\.)/, 'secrets file (commit .env.example instead)'],
     [/(^|\/)config\.ya?ml$/, 'per-user worker config (commit config.yaml.example)'],
     [/\.db($|-wal$|-shm$)|^db\//, 'the SQLite database'],
     [/^apps\/worker\/resume\//, 'the real resume / personal profile'],
@@ -37,13 +40,18 @@ if (process.argv.includes('--self-test')) {
         'apps/worker/resume/README.md',
         'apps/worker/.env',
         'apps/worker/.env.example',
+        '.env.bak-tsserve',
+        'apps/worker/.env.production',
+        'apps/web/src/environment.ts',
         'apps/worker/config.yaml',
         'db/applications.db-wal',
         'apps/worker/quant_job_boards.txt',
         'apps/web/src/lib/actions.ts',
     ]).map(([p]) => p))
-    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', 'apps/worker/config.yaml', 'db/applications.db-wal', 'apps/worker/quant_job_boards.txt']
-    const wantNot = ['apps/worker/resume/resume.txt.example', 'apps/worker/resume/README.md', 'apps/worker/.env.example', 'apps/web/src/lib/actions.ts']
+    // The .env.<suffix> rows are the 2026-07-29 gap: the rule used to be a literal
+    // `.env`, so a backup was invisible here AND unignored by .gitignore.
+    const want = ['apps/worker/resume/resume.txt', 'apps/worker/.env', '.env.bak-tsserve', 'apps/worker/.env.production', 'apps/worker/config.yaml', 'db/applications.db-wal', 'apps/worker/quant_job_boards.txt']
+    const wantNot = ['apps/worker/resume/resume.txt.example', 'apps/worker/resume/README.md', 'apps/worker/.env.example', 'apps/web/src/environment.ts', 'apps/web/src/lib/actions.ts']
     const bad = [...want.filter((p) => !flagged.has(p)), ...wantNot.filter((p) => flagged.has(p))]
     if (bad.length) { console.error('SELF-TEST FAILED: ' + bad.join(', ')); process.exit(1) }
     console.log('self-test ok')

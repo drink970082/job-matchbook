@@ -193,7 +193,8 @@ your block before proposing a redesign of it.
 
 **Open defects: one, and it is a model ceiling rather than a coding error** — 3 rows where
 the 4B reads a soft degree bar as hard. Everything else found in the 2026-07-23 → 07-28
-sweep has shipped a fix (twelve in total; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
+sweep has shipped a fix (thirteen in total, counting the 2026-07-29 `.env.<suffix>`
+privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
 
 **Fixing a check does not un-discard the rows it already killed.** ~46 rows sit in
 `discarded` on evidence the current code would not act on — that is queue item 2, measured
@@ -311,19 +312,16 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **The remedy is queue item 3**, `needs_confirmation` routing, which turns these from
   deleted jobs into one paid fit call each.
 
-- **Both privacy guards match `.env` EXACTLY, so any `.env.<suffix>` variant is
-  unguarded** — `[INFRA · XS · found 2026-07-29, deliberately not fixed]`.
-  `.gitignore` line 11 is a literal `.env`, and `tools/check_privacy.mjs` RULES uses
-  `/(^|\/)\.env(\.local)?$/`. A file like `.env.bak`, `.env.old` or `.env.production` is
-  therefore **both untracked-and-unignored and invisible to `make check-privacy`** — it
-  shows as `??` and one `git add -A` puts it in a public repo. Found via a real
-  `.env.bak-tsserve` in the root (a pre-Tailscale-serve backup holding only `WEB_BIND`,
-  so nothing leaked — the pattern is the defect, not that file). **The fix is two lines:**
-  `.env*` + `!.env.example` in `.gitignore`, and `/(^|\/)\.env($|\.)/` in the RULES regex
-  — `ALLOW` already exempts `*.example`, and `--self-test` can pin the new pattern.
-
 **Previously here, and closed.**
 
+- **Both privacy guards matched `.env` EXACTLY, so any `.env.<suffix>` variant was
+  unguarded** — **FIXED 2026-07-29** (`fix/env-suffix-privacy-guard`). `.gitignore` now
+  matches `.env*` with a `!.env.example` re-include, and `check_privacy.mjs` RULES reads
+  `/(^|\/)\.env($|\.)/`; `--self-test` pins `.env.bak-tsserve` and `.env.production` as
+  denied and `apps/web/src/environment.ts` as allowed, so the "`.env` followed by end or a
+  dot" boundary cannot silently widen back. Found via a real `.env.bak-tsserve` in the root
+  (a pre-Tailscale-serve backup holding only `WEB_BIND`, so nothing leaked — the pattern
+  was the defect, not that file). SPEC §11, CHANGELOG.
 - **The clearance check fired on the word "security"** — 20 of 24 live discards false.
   **FIXED 2026-07-28** (`fix/clearance-evidence-floor`): `_check_clearance` requires a
   `CLEARANCE_TOKENS` match in the description **or** title before honouring
