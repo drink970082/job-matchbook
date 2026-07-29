@@ -901,23 +901,9 @@ worker modules are pure and dependency-injected; real services are wired only in
     and `make eval-score` gates verdict accuracy. If that gate ever fails, the
     escape hatch is majority-of-K draws or A/B-ing `--score-backend claude`; the
     residual ±10–15 score noise affects only display/ranking, never routing.
-    **Quota-usage capture (free):** when `run.py` passes a `usage_path` (production
-    `run_once` only, not the eval harness), the scorer snapshots codex's own `/status`
-    accounting (`used_percent`, `window_minutes`, `resets_at`, `plan_type`) to
-    `codex_usage.json` in the shared db dir, piggybacking the scoring message — no
-    probe call. The figures live only in the **session rollout** (`--json` stdout
-    carries no `rate_limits`; verified 0.144.5), which `--ephemeral` suppresses — so
-    when capturing, the scorer drops `--ephemeral`, reads the newest rollout past a
-    pre-call mtime mark, then deletes it **only when it's the sole rollout newer than
-    the mark** (`_rollouts_after`): zero or 2+ newer means a concurrent codex session
-    landed in the window, and the guard leaves them all rather than risk nuking that
-    session's history. The capture sits in a `finally` around the exec call, so the
-    résumé-bearing rollout is reaped even when the call raises — a failed call never
-    leaks the prompt to disk. Best-effort (a parse failure never breaks a score); the
-    observed `primary` limit is the **weekly** window (`window_minutes=10080`), and
-    whatever non-null limits codex reports are kept, so a 5h secondary would render
-    too. Shown by the web usage bar (§7.2); a live "now" reading is out of scope (it
-    would cost a quota message).
+    Scoring calls are unconditionally `--ephemeral`: nothing is written to
+    `~/.codex/sessions`, so the résumé+profile+JD prompt never reaches disk. (Before
+    2026-07-29 the quota bar forced `--ephemeral` off — see **Quota telemetry** below.)
   - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
@@ -926,6 +912,39 @@ worker modules are pure and dependency-injected; real services are wired only in
     `batch_size` (harmless no-op chunking cadence on this backend): Claude's win is the
     cached system prefix (already flat per-call marginal cost), not fewer round-trips,
     so batching would only save request count, which doesn't matter on metered billing.
+
+  **Quota telemetry (`score/usage.py`, free).** After a scoring pass that actually
+  built a scorer, `run_once` makes **one** HTTP GET against the active backend's own
+  usage endpoint and writes a snapshot to `scorer_usage.json` in the shared db dir
+  (`{backend, plan_type, limits:[{key, used_percent, window_minutes, resets_at}]}`).
+  Best-effort by contract: `capture_usage` never raises, and a failed fetch leaves the
+  PREVIOUS snapshot in place rather than truncating it — a transient 429 should dim the
+  bar's freshness (the web reads file mtime as `as_of`), not blank it. The write is
+  atomic (tmp + `os.replace`, tmp name keyed by pid+thread). Endpoints:
+  - **codex** — `GET https://chatgpt.com/backend-api/codex/usage`, bearer token +
+    `chatgpt-account-id` from `$CODEX_HOME/auth.json`. Yields `plan_type` and
+    `rate_limit.primary_window`/`secondary_window` (`used_percent`,
+    `limit_window_seconds` → `window_minutes`, `reset_at`). The observed `primary` is
+    the **weekly** window (10080 min). This is the SAME budget the scorer spends.
+    chatgpt.com is behind Cloudflare, which 403s urllib's default `Python-urllib/3.x`
+    (and a browser-looking `Mozilla/5.0`), so an honest client `User-Agent` is sent.
+  - **claude** — `GET https://api.anthropic.com/api/oauth/usage`, bearer token from
+    `$CLAUDE_CONFIG_DIR/.credentials.json` + `anthropic-beta: oauth-2025-04-20`.
+    Normalises the richer `limits[]` array (`kind`/`group`/`percent`/`resets_at`, plus
+    `scope.model.display_name` for the model-scoped weekly row) and falls back to the
+    flat named buckets (`five_hour`, `seven_day`, …). ISO reset strings are parsed to
+    epoch seconds so both backends share one field.
+    **This is the Claude Code SUBSCRIPTION budget, which is NOT what the claude scorer
+    spends** — `make_claude_scorer` bills `ANTHROPIC_API_KEY` (metered; no
+    percent-of-quota endpoint exists for it). The snapshot records `backend` and the
+    bar states the distinction outright (§7.2) so the two are never conflated.
+
+  Before 2026-07-29 the codex figures were scraped from the session **rollout** (the
+  only place `codex exec` records `rate_limits`; `--json` stdout does not), which forced
+  `--ephemeral` off, left the résumé-bearing prompt on disk until a guarded reap, and
+  identified "our" rollout by mtime. The endpoint returns the same accounting directly,
+  so all of that is gone. A live "now" reading still isn't attempted per scoring call —
+  the snapshot reflects the last pass, a budget indicator rather than a live meter.
 
   Either backend raises `ScoreError` on a failed call. On `claude` (single-call) that
   fails **one** posting, same as before. On `codex` (batched) a raised `ScoreError` — or
@@ -1123,10 +1142,11 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
   `GET` runs `SELECT 1` (`200 {status:"ok"}`, else `503`) so a stale bind mount is
   caught and the `autoheal` sidecar can restart the container (§6).
-- **`app/api/codex-usage/route.ts`** — serves the codex quota snapshot the worker
-  captures off each scoring call (§7.1): reads `codex_usage.json` (path derived from
-  `DATABASE_URL`, overridable via `CODEX_USAGE_FILE`), returns the snapshot plus `as_of`
-  (the file mtime). Missing/unparseable → empty state (`{limits:[], as_of:null}`, still
+- **`app/api/scorer-usage/route.ts`** — serves the fit-backend quota snapshot the
+  worker captures once per scoring pass (§7.1): reads `scorer_usage.json` (path derived
+  from `DATABASE_URL`, overridable via `SCORER_USAGE_FILE`), returns the snapshot —
+  including the `backend` it describes — plus `as_of` (the file mtime).
+  Missing/unparseable → empty state (`{backend:null, limits:[], as_of:null}`, still
   `200`), since the worker may not have scored yet.
 - **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
   shape `{ success, ... }` or `{ data, total }`). Key actions:
@@ -1194,9 +1214,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   (category picker on Mark Applied), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
-  backlog), `CodexUsageBar` (codex quota bar on the Discovered Jobs view — polls
-  `/api/codex-usage`, one bar per limit with % + "resets in Nd Hh" + "as of"; reflects
-  the last scoring call, not a live reading), `JobDetailModal` (JD + score detail), and
+  backlog), `ScorerUsageBar` (fit-backend quota bar on the Discovered Jobs view — polls
+  `/api/scorer-usage`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
+  the last scoring pass, not a live reading. **Labels itself by backend** from the
+  snapshot, so switching `SCORE_BACKEND` relabels the bar instead of showing the other
+  provider's numbers under the old name; two windows of the same length are
+  disambiguated by the model scope in the key (`weekly · Fable`); on `claude` it states
+  outright that it reads the Claude Code SUBSCRIPTION, not the `ANTHROPIC_API_KEY`
+  spend the scorer actually bills), `JobDetailModal` (JD + score detail), and
   the four charts `TimelineHeatmap` /
   `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
 
@@ -1839,7 +1864,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Config load/validate (sources, slugs, recipes, candidate block) | `test_config.py` |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
-| `/api/health` 200/503 probe; `/api/codex-usage` snapshot route; usage-bar rendering | `web/src/__tests__/health.test.ts`, `codex-usage.test.ts`, `web/src/components/__tests__/CodexUsageBar.test.tsx` |
+| Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_score.py` (`test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`, `test_codex_scorer_always_stays_ephemeral`), `test_run.py` (`test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored`, `test_run_once_skips_the_quota_fetch_when_nothing_was_scored`) |
+| `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |

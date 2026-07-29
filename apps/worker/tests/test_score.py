@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -1587,124 +1588,175 @@ def test_codex_batch_missing_job_ref_raises(monkeypatch):
         score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
 
 
-# --- codex quota-usage capture (usage_path + _capture_usage, rollout-based) -------
+# --- fit-backend quota telemetry (score.usage, provider usage endpoints) ---------
+#
+# Replaced the rollout-scraping capture on 2026-07-29: the figures now come from one
+# HTTP GET per pass. Every test here mocks `_get_json` — nothing reaches the network.
 
-def _rollout_line(used, window, resets, secondary=None, plan="plus"):
-    """One codex session-rollout event carrying a rate_limits record (the rollout is
-    the ONLY place codex records it — `--json` stdout does not; see _capture_usage)."""
-    rl = {"limit_id": "codex", "plan_type": plan,
-          "primary": {"used_percent": used, "window_minutes": window, "resets_at": resets},
-          "secondary": secondary}
-    return json.dumps({"type": "event_msg", "payload": {"rate_limits": rl}})
+CODEX_USAGE_BODY = {
+    "plan_type": "plus",
+    "rate_limit": {
+        "primary_window": {"used_percent": 11, "limit_window_seconds": 604800,
+                           "reset_at": 1785905532},
+        "secondary_window": None,
+    },
+}
 
-
-def _fake_sessions(monkeypatch, tmp_path):
-    sess = tmp_path / "sessions"
-    sess.mkdir(exist_ok=True)
-    monkeypatch.setattr(score.usage, "_sessions_dir", lambda: str(sess))
-    return sess
-
-
-def _write_rollout(sess, lines, name="rollout-x.jsonl"):
-    p = sess / name
-    p.write_text("\n".join(lines))
-    return p
-
-
-def test_capture_usage_reads_rollout_and_deletes_it(tmp_path, monkeypatch):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    roll = _write_rollout(sess, [json.dumps({"type": "other"}),
-                                 _rollout_line(32.0, 10080, 1784839672)])
-    path = str(tmp_path / "codex_usage.json")
-    score._capture_usage(path, since_mtime=0.0)
-    snap = json.loads((tmp_path / "codex_usage.json").read_text())
-    assert snap["plan_type"] == "plus"
-    assert snap["limits"] == [
-        {"key": "primary", "used_percent": 32.0, "window_minutes": 10080, "resets_at": 1784839672}]
-    assert not roll.exists()                                 # rollout deleted after capture
-    # atomic write leaves no tmp behind, whatever its (now per-call-unique) name
-    assert not list(tmp_path.glob("codex_usage.json*.tmp"))
+# The live 2026-07-29 shape: BOTH the flat named buckets and the richer `limits[]`
+# array, with a model-scoped weekly row beside the pooled one.
+CLAUDE_USAGE_BODY = {
+    "five_hour": {"utilization": 2.0, "resets_at": "2026-07-29T19:59:59.561596+00:00"},
+    "seven_day": {"utilization": 72.0, "resets_at": "2026-08-02T12:00:00.561620+00:00"},
+    "seven_day_opus": None,
+    "limits": [
+        {"kind": "session", "group": "session", "percent": 2,
+         "resets_at": "2026-07-29T19:59:59.561596+00:00", "scope": None},
+        {"kind": "weekly_all", "group": "weekly", "percent": 72,
+         "resets_at": "2026-08-02T12:00:00.561620+00:00", "scope": None},
+        {"kind": "weekly_scoped", "group": "weekly", "percent": 2,
+         "resets_at": "2026-08-02T11:59:59.561861+00:00",
+         "scope": {"model": {"id": None, "display_name": "Fable"}}},
+    ],
+}
 
 
-def test_capture_usage_latest_line_wins_and_includes_secondary(tmp_path, monkeypatch):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    secondary = {"used_percent": 5.0, "window_minutes": 300, "resets_at": 111}
-    _write_rollout(sess, [_rollout_line(10.0, 10080, 1),                        # stale
-                          _rollout_line(40.0, 10080, 2, secondary=secondary)])  # freshest wins
-    path = str(tmp_path / "u.json")
-    score._capture_usage(path, 0.0)
-    by_key = {l["key"]: l for l in json.loads((tmp_path / "u.json").read_text())["limits"]}
-    assert by_key["primary"]["used_percent"] == 40.0
-    assert by_key["secondary"]["window_minutes"] == 300
+@pytest.fixture
+def codex_login(tmp_path, monkeypatch):
+    """A logged-in codex home (CODEX_HOME is codex's own override)."""
+    home = tmp_path / "codex"
+    home.mkdir()
+    (home / "auth.json").write_text(json.dumps(
+        {"tokens": {"access_token": "tok", "account_id": "acct"}}))
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    return home
 
 
-def test_capture_usage_ignores_rollouts_older_than_since_mtime(tmp_path, monkeypatch):
-    import os
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    old = _write_rollout(sess, [_rollout_line(99.0, 10080, 1)])
-    os.utime(old, (1000, 1000))                          # stamp it in the past
-    path = str(tmp_path / "u.json")
-    score._capture_usage(path, since_mtime=5000.0)       # cutoff newer than the rollout
-    assert not (tmp_path / "u.json").exists()            # nothing new -> no snapshot
-    assert old.exists()                                  # a pre-existing rollout is NOT deleted
+@pytest.fixture
+def claude_login(tmp_path, monkeypatch):
+    home = tmp_path / "claude"
+    home.mkdir()
+    (home / ".credentials.json").write_text(json.dumps(
+        {"claudeAiOauth": {"accessToken": "tok"}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    return home
 
 
-def test_capture_usage_no_rollout_never_raises(tmp_path, monkeypatch):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    score._capture_usage(str(tmp_path / "none.json"), 0.0)   # empty sessions dir
-    assert not (tmp_path / "none.json").exists()
-    # an unwritable snapshot path must also be swallowed, never raised
-    _write_rollout(sess, [_rollout_line(1.0, 1, 1)])
-    score._capture_usage("/nonexistent-dir/deep/none.json", 0.0)
-
-
-def test_codex_scorer_captures_usage_and_drops_ephemeral(monkeypatch, tmp_path):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    usage = str(tmp_path / "codex_usage.json")
+def test_fetch_codex_usage_normalizes_the_window(codex_login, monkeypatch):
     seen = {}
-    def run(cmd, **kwargs):
+
+    def get_json(url, headers):
+        seen["url"], seen["headers"] = url, headers
+        return CODEX_USAGE_BODY
+
+    monkeypatch.setattr(score.usage, "_get_json", get_json)
+    snap = score.fetch_codex_usage()
+    assert snap == {"backend": "codex", "plan_type": "plus", "limits": [
+        {"key": "primary", "used_percent": 11, "window_minutes": 10080,
+         "resets_at": 1785905532}]}
+    # limit_window_seconds -> minutes, so the web's windowLabel reads it as "weekly".
+    assert snap["limits"][0]["window_minutes"] == 10080
+    assert seen["url"] == score.usage.CODEX_USAGE_URL
+    assert seen["headers"]["chatgpt-account-id"] == "acct"
+
+
+def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
+    # chatgpt.com is behind Cloudflare, which 403s urllib's default Python-urllib/3.x.
+    # Without an explicit UA the bar silently never updates (verified 2026-07-29).
+    seen = {}
+    monkeypatch.setattr(score.usage, "_get_json",
+                        lambda url, headers: seen.update(headers) or CODEX_USAGE_BODY)
+    score.fetch_codex_usage()
+    assert seen["User-Agent"] and not seen["User-Agent"].startswith("Python-urllib")
+
+
+def test_fetch_codex_usage_none_when_not_logged_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
+    monkeypatch.setattr(score.usage, "_get_json",
+                        lambda *a, **k: pytest.fail("must not call out without auth"))
+    assert score.fetch_codex_usage() is None
+
+
+def test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope(
+        claude_login, monkeypatch):
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
+    snap = score.fetch_claude_usage()
+    assert snap["backend"] == "claude"
+    # The scoped weekly row must stay distinguishable from the pooled one — both are
+    # "weekly", and 72% beside 2% under one label reads as a contradiction.
+    assert [(l["key"], l["used_percent"], l["window_minutes"]) for l in snap["limits"]] == [
+        ("session", 2, 300),
+        ("weekly_all", 72, 10080),
+        ("weekly_scoped (Fable)", 2, 10080),
+    ]
+
+
+def test_claude_usage_falls_back_to_the_flat_buckets(claude_login, monkeypatch):
+    # An account on the other side of the limits[] migration must still render.
+    body = {k: v for k, v in CLAUDE_USAGE_BODY.items() if k != "limits"}
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: body)
+    snap = score.fetch_claude_usage()
+    assert [(l["key"], l["used_percent"]) for l in snap["limits"]] == [
+        ("five_hour", 2.0), ("seven_day", 72.0)]      # the null seven_day_opus is skipped
+
+
+def test_claude_usage_parses_iso_resets_into_epoch_seconds(claude_login, monkeypatch):
+    # Codex sends an int, Claude an ISO string; the web reads one epoch field.
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
+    resets = score.fetch_claude_usage()["limits"][0]["resets_at"]
+    assert isinstance(resets, int)
+    assert resets == int(datetime.fromisoformat(
+        "2026-07-29T19:59:59.561596+00:00").timestamp())
+
+
+def test_epoch_tolerates_a_z_suffix_and_junk():
+    assert score._epoch(1785905532) == 1785905532
+    assert score._epoch("2026-07-29T19:59:59Z") == score._epoch("2026-07-29T19:59:59+00:00")
+    assert score._epoch("not-a-date") is None
+    assert score._epoch(None) is None
+
+
+def test_capture_usage_writes_atomically_and_leaves_no_tmp(codex_login, tmp_path,
+                                                           monkeypatch):
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    path = str(tmp_path / "scorer_usage.json")
+    assert score.capture_usage(path, "codex") is True
+    assert json.loads((tmp_path / "scorer_usage.json").read_text())["backend"] == "codex"
+    assert not list(tmp_path.glob("scorer_usage.json*.tmp"))
+
+
+def test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails(
+        codex_login, tmp_path, monkeypatch):
+    # A transient 429 / expired token must dim the bar's freshness, not blank it.
+    path = tmp_path / "scorer_usage.json"
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    score.capture_usage(str(path), "codex")
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: None)
+    assert score.capture_usage(str(path), "codex") is False
+    assert json.loads(path.read_text())["backend"] == "codex"   # previous reading intact
+
+
+def test_capture_usage_never_raises(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
+    assert score.capture_usage("/nonexistent-dir/deep/none.json", "codex") is False
+    assert score.capture_usage(str(tmp_path / "u.json"), "gemini") is False   # unknown backend
+
+
+def test_codex_scorer_always_stays_ephemeral(monkeypatch):
+    # The quota bar no longer needs the session rollout, so --ephemeral is unconditional
+    # again: a scoring pass writes NOTHING to ~/.codex/sessions, and the full
+    # résumé+profile+JD prompt is never on disk to be reaped.
+    seen = {}
+
+    def run(cmd, **kw):
         seen["cmd"] = cmd
-        out = cmd[cmd.index("--output-last-message") + 1]
+        out = [a for a in cmd if a.endswith("out.json")][0]
         with open(out, "w", encoding="utf-8") as fh:
-            json.dump({"results": [{"job_ref": 1, **CODEX_PAYLOAD}]}, fh)
-        _write_rollout(sess, [_rollout_line(32.0, 10080, 999)])  # codex's rollout for this call
+            json.dump({"results": [{"job_ref": 1, "score": 7}]}, fh)
         return Mock(returncode=0, stdout="", stderr="")
+
     monkeypatch.setattr(score.subprocess, "run", run)
-    score.make_codex_scorer("gpt-5.6-sol", usage_path=usage)([{**POSTING, "id": 1}], {"swe": "r"})
-    assert "--ephemeral" not in seen["cmd"]  # capturing -> rollout must be written, not suppressed
-    assert "--json" not in seen["cmd"]
-    written = json.loads((tmp_path / "codex_usage.json").read_text())
-    assert written["limits"][0]["used_percent"] == 32.0
-    assert not (sess / "rollout-x.jsonl").exists()  # rollout cleaned up after capture
-
-
-def test_codex_scorer_keeps_ephemeral_without_usage_path(monkeypatch):
-    # The eval/test path (no usage_path) keeps --ephemeral, its exact gated call.
-    seen = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
     score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
     assert "--ephemeral" in seen["cmd"]
-    assert "--json" not in seen["cmd"]
-
-
-def test_capture_usage_skips_delete_when_concurrent_rollout_present(tmp_path, monkeypatch):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    ours = _write_rollout(sess, [_rollout_line(32.0, 10080, 1)], name="rollout-a.jsonl")
-    theirs = _write_rollout(sess, [_rollout_line(5.0, 300, 2)], name="rollout-b.jsonl")
-    score._capture_usage(str(tmp_path / "u.json"), since_mtime=0.0)
-    assert ours.exists() and theirs.exists()   # ambiguous -> delete nothing
-
-
-def test_codex_scorer_cleans_rollout_on_failure(monkeypatch, tmp_path):
-    sess = _fake_sessions(monkeypatch, tmp_path)
-    def run(cmd, **kw):
-        _write_rollout(sess, [_rollout_line(1.0, 1, 1)])   # rollout written, then fail
-        return Mock(returncode=1, stdout="boom", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    with pytest.raises(score.ScoreError):
-        score.make_codex_scorer("gpt-5.6-sol", usage_path=str(tmp_path / "u.json"))(
-            [{**POSTING, "id": 1}], {"swe": "r"})
-    assert not (sess / "rollout-x.jsonl").exists()   # résumé prompt not left on disk
 
 
 # --- scorer fallback screen check ----------------------------------------

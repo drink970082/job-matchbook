@@ -30,8 +30,8 @@ from . import prompts as prompts_mod
 from .fetch import fetch_company, fetch_one_company
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import (make_claude_scorer, make_codex_scorer, make_ollama_extract,
-                    screen_posting)
+from .score import (capture_usage, make_claude_scorer, make_codex_scorer,
+                    make_ollama_extract, screen_posting)
 from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
                                     DEFAULT_CODEX_SCREEN_MODEL,
                                     DEFAULT_OPENAI_SCREEN_MODEL,
@@ -101,16 +101,15 @@ _ENV_ARGPARSE_KEYS = frozenset({
 
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
-                usage_path=None):
+                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL):
     """Pick the fit-score backend. Both twins expose the same batch-first
     `fit(postings, resumes) -> list[dict]` contract (one scorecard per input
     posting, in order; a single posting is `fit([posting], resumes)[0]`), so
-    only this line changes. `usage_path` (codex only) enables free quota-usage
-    capture off the scoring call; None disables it."""
+    only this line changes. Quota telemetry is NOT wired here — it is one HTTP
+    GET per pass against the provider's usage endpoint (`score.capture_usage`),
+    independent of the scoring call."""
     if backend == "codex":
-        return make_codex_scorer(codex_score_model, profile=profile,
-                                 usage_path=usage_path)
+        return make_codex_scorer(codex_score_model, profile=profile)
     if backend == "claude":
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
@@ -365,11 +364,11 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # so this closure is cheap and the hermetic tests touch neither).
         _scorer_cell: list = []
         _scorer_lock = threading.Lock()
-        # Land the codex quota snapshot next to the REAL db file (resolve the
+        # Land the quota snapshot next to the REAL db file (resolve the
         # prisma/applications.db symlink) so it sits in the shared db/ mount the
-        # web reads as /data/codex_usage.json. See docs/SPEC.md §7.1.
+        # web reads as /data/scorer_usage.json. See docs/SPEC.md §7.1.
         usage_path = os.path.join(
-            os.path.dirname(os.path.realpath(db_path)), "codex_usage.json")
+            os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json")
 
         def fit_fn(postings):
             if not _scorer_cell:
@@ -381,8 +380,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                         _scorer_cell.append(
                             make_scorer(score_backend, env=env, profile=profile,
                                         codex_score_model=codex_score_model,
-                                        anthropic_score_model=anthropic_score_model,
-                                        usage_path=usage_path)
+                                        anthropic_score_model=anthropic_score_model)
                         )
             return _scorer_cell[0](postings, resumes)
 
@@ -395,6 +393,13 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                                score_backend,
                                codex_score_model=codex_score_model,
                                anthropic_score_model=anthropic_score_model))
+        # Refresh the quota bar for whichever backend just scored — ONE free HTTP GET
+        # against the provider's own usage endpoint, after the pass so it reflects what
+        # the pass just spent. Only when the scorer was actually built: a pass that
+        # scored nothing spent nothing, and re-fetching would just move `as_of` forward
+        # on an unchanged reading. Best-effort by contract (never raises).
+        if _scorer_cell:
+            capture_usage(usage_path, score_backend)
 
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.

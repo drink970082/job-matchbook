@@ -39,6 +39,26 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`feat/usage-endpoint-both-backends` — the quota bar reads a provider endpoint and
+  follows `SCORE_BACKEND`** `[SCORE+WEB · M]`. Closes the "codex usage bar is
+  backend-locked" gap that used to sit under Open. Two changes: (1) `score/usage.py` now
+  makes ONE HTTP GET per pass (`/backend-api/codex/usage`, `/api/oauth/usage`) instead of
+  scraping a codex session rollout — which deletes the `--ephemeral`-off hack, so a
+  scoring pass no longer writes the résumé+JD prompt to disk at all; (2) the snapshot
+  records `backend`, so the bar (`ScorerUsageBar`, `/api/scorer-usage`,
+  `scorer_usage.json`) relabels itself instead of showing "No codex usage" forever on
+  `SCORE_BACKEND=claude`. See SPEC §7.1 "Quota telemetry" and §13.
+  **The claude caveat the old Open item flagged is REAL and is now stated in the UI, not
+  designed away:** `/api/oauth/usage` reports the **Claude Code subscription**, while
+  `make_claude_scorer` bills `ANTHROPIC_API_KEY` (metered — no percent-of-quota endpoint
+  exists for it). The bar shows the subscription numbers under an explicit one-line
+  disclaimer. If the operator wants the budget the claude scorer *actually* spends, the
+  honest source is the `anthropic-ratelimit-*` response headers off each scoring call —
+  a different shape (short-window headroom, not a weekly budget) and not built here.
+  **Also unresolved:** `ANTHROPIC_API_KEY` is not set in this deployment, so the claude
+  backend cannot currently run at all; the claude half of this is verified against the
+  live endpoint but not against a live claude scoring pass.
+
 - **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
@@ -93,7 +113,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
   **QUOTA IS THE BINDING CONSTRAINT AND `--score-limit 60` EXCEEDS IT** `[SCORE · XS ·
   operator's call, not made]`. Three passes consumed **10% of the weekly Codex window**
-  (`db/codex_usage.json`, window resets 2026-08-05). 42 passes/week projects to **~140%**
+  (`db/scorer_usage.json`, window resets 2026-08-05). 42 passes/week projects to **~140%**
   — the quota runs out around day 5 of 7. **~40 would land near ~90%**, but that only
   covers fresh intake (~38 rows/pass reach `new`), so nothing would drain. Deciding this
   is an operator action; it is one number in `ExecStart`.
@@ -742,24 +762,6 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   in a virtualized inner scroller with no URL pagination). Balyasny's Salesforce Aura
   endpoint needs an `aura.context` `fwuid` hash that rotates every release. Recorded
   so the next attempt starts from the known blocker rather than re-deriving it.
-- **The codex usage bar is backend-locked — make it backend-aware** — `[WEB · M ·
-  now that the fit backend is a user choice]`. `CodexUsageBar` shows a weekly-budget
-  *percentage*, which exists only because codex (ChatGPT-Plus) publishes `rate_limits`
-  in its session rollout. The alternate fit backend is metered pay-per-token Anthropic
-  API (`backends_claude.py` — "metered API billing"): no fixed budget, no percentage,
-  no rollout, so there is nothing to fill a Claude meter and a per-backend *bar* is the
-  wrong shape. The real defect is cosmetic — on `SCORE_BACKEND=claude` the bar shows
-  "No codex usage recorded yet" forever, reading as "codex is broken" when codex is
-  simply unused — and the web (a separate container) can't tell which backend the
-  native worker is on (`SCORE_BACKEND` is worker-side). **Fix is relabel, not rebuild:**
-  the worker stamps the active fit backend into the shared `db/` snapshot dir (fold into
-  `codex_usage.json` or a sibling marker), the route already reads that file, and the
-  component shows the codex meter on codex and a single "Scoring on {backend} — metered
-  API, no quota meter" line otherwise. No schema change. Shares its data with the scorer
-  provenance already persisted into `score_detail` (`backend`/`model`/`scorer_version`,
-  shipped 2026-07-24, SPEC §9) — one worker-written backend name serves both. **Not "do nothing":**
-  leaving it is correct only if codex is the sole path, but backend choice is now a
-  user-facing decision, so the meter must stop implying codex is the only backend.
 - **Un-hydrated stub discards have no way back** `[ORCH · S]`. A stub-gate
   discard is stored with `description=''` on purpose, and `--rescreen-discarded` skips it
   (requeueing one parks it `scored`/0 permanently). Skipping is not a rescue: nothing

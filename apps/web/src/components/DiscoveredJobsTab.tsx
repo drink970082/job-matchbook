@@ -3,7 +3,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DiscoveredJobsTable, type JobPosting } from './DiscoveredJobsTable'
-import { CodexUsageBar } from './CodexUsageBar'
+import { ScorerUsageBar } from './ScorerUsageBar'
 import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
 
 interface DiscoveredJobsTabProps {
@@ -49,7 +49,7 @@ export function DiscoveredJobsTab({
                 <CardTitle className="text-lg">Discovered Jobs</CardTitle>
             </CardHeader>
             <CardContent>
-                <CodexUsageBar />
+                <ScorerUsageBar />
                 <DiscoveredJobsTable
                     data={data}
                     total={total}
