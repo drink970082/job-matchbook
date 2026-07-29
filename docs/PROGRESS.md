@@ -39,33 +39,6 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **`fix/location-gate-tier1` — the location gate rebuilt on evidence tiers**
-  `[SCREEN · M]`. Tier 1 of the three-tier plan: the deterministic gate only. Measured on
-  the live corpus — **416 rows keep -> discard, 0 the other way, 0 US-eligible strings
-  discarded**, residual leak pinned at 6 strings / 14 rows, **1.0%** of rows flagged
-  `ask_llm` for a later tier. Ships a **committed** corpus fixture
-  (`tests/fixtures/location_corpus.jsonl`, 1,611 strings) labeled by an *independent*
-  oracle, so the zero-false-discard invariant is gated in CI rather than in a gitignored
-  eval set. `pycountry`/`geonamescache` are pinned to `==` in the same commit: the corpus
-  gate asserts exact counts, so the gazetteer data is part of the contract.
-  **Tier 1.5 folded in** (same day): alternatenames aliases, a punctuation retry for
-  site-code formats, and a facility-noun strip. Built instead of tier 2 after measuring
-  that 197 of the 296 unresolved rows were gazetteer gaps, not judgement — and after
-  probing the local model directly: qwen3.5:4b scored 11/14 on the hard residual with
-  **zero wrong answers** (its three misses abstain, which err-toward-keep already turns
-  into the right verdict). Ollama was never the bottleneck.
-  **Deliberately NOT in this branch** — tier 2 (a model fallback for the remaining 1.0%)
-  and tier 3 (fit scorer as a second net); tier 3 is now recommended AGAINST, since it
-  would cost the D5 guarantee plus two paid eval runs to catch rows that already keep.
-  If a model tier is ever built it should take the injected `extract` and read a
-  per-check backend override, so it runs free on Ollama and can be pointed at codex for
-  ~2.5% of the weekly quota — a GLOBAL `SCREEN_BACKEND=codex` would cost ~80%.
-  Tier 3 additionally needs
-  `merge_fallback_screen`'s gap semantics fixed first: it fills only keys the screen left
-  ABSENT, and `deterministic_screen` currently always writes `screen["location"]`, so a
-  tier-3 location fact is structurally unreachable until tier 1 stops writing the key on
-  an unresolved verdict (`resolved: False` already carries that signal).
-
 - **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
