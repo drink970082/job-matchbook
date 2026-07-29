@@ -564,16 +564,10 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
     'new' for the next pass.
 
-    `max_id` > 0 restricts the pass to rows with `id <= max_id` — the SELECTOR, as
-    opposed to `limit`, which is the BUDGET. The two are not interchangeable and the
-    difference is what made this necessary: the queue is newest-first, so `limit` can
-    only ever name rows from the NEW end. A `--rescreen-discarded` recovery wants the
-    OLD end — `requeue_discarded` stamps one `updated_at` across every discard, so they
-    tie and break by `id DESC`, and the wrongly-discarded targets are among the lowest
-    ids in that tied set. `limit` N would score the N newest requeued discards and reach
-    none of them (docs/PROGRESS.md queue item 2). Applied BEFORE `limit`, so the two
-    compose as "these rows, and at most this many of them"; the reverse order would
-    hand the cap to the newest rows and then filter every one of them away.
+    `max_id` > 0 restricts the pass to rows with `id <= max_id` — the SELECTOR to
+    `limit`'s BUDGET, applied BEFORE it. The queue is newest-first, so `limit` can only
+    name rows from the NEW end; a `--rescreen-discarded` recovery target sits at the old
+    end. See SPEC §7.1 for why they are not interchangeable.
 
     `screen_workers`/`score_workers` bound how many screen/fit calls run
     concurrently (each I/O-bound: an HTTP round trip or a subprocess spawn) —

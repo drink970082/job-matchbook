@@ -318,11 +318,9 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # same pass re-screens it under the new rules. Screening is free on the
         # default ollama backend; the PAID fit call that follows for each survivor is
         # what --score-limit bounds.
-        # It bounds the SPEND, not the SELECTION, and the difference matters here.
-        # requeue_discarded is unfiltered, so the cap lands on an arbitrary prefix of
-        # every requeued discard — it cannot be aimed at the rows a particular rescreen
-        # was for. Recovering a specific set needs a selector this flag does not have
-        # (SPEC §9, PROGRESS queue item 2).
+        # --score-limit bounds the SPEND, not the SELECTION: requeue_discarded is
+        # unfiltered, so the cap lands on an arbitrary prefix of every requeued discard.
+        # Aiming at a specific set is --score-max-id's job (SPEC §7.1).
         if rescreen_discarded:
             # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
             # discards. Requeueing one destroys it, but skipping it is not a rescue
@@ -716,17 +714,18 @@ def main(argv=None) -> None:
                              "the paid fit scorer on a large fresh intake")
     parser.add_argument("--score-max-id", type=int, default=0,
                         help="score only 'new' rows with id <= N (0 = no bound). The "
-                             "SELECTOR to --score-limit's budget: the queue is "
-                             "newest-first, so a cap can only name the newest rows, "
-                             "while a --rescreen-discarded recovery target sits at the "
-                             "OLD end. Applied before --score-limit")
+                             "selector to --score-limit's budget, applied first; "
+                             "requires --once")
     parser.add_argument("--no-notify", action="store_true",
                         help="score but send no Telegram alerts — for bulk/unattended "
                              "passes; rows stay 'scored' and alert on a later pass")
     parser.add_argument("--rescreen-discarded", action="store_true",
                         help="return every 'discarded' row to 'new' first, so this "
                              "pass re-screens them under the current candidate "
-                             "hard requirements (pair with --score-limit)")
+                             "hard requirements. To recover a SPECIFIC set of discards "
+                             "pair it with --score-max-id, not --score-limit: the queue "
+                             "is newest-first, so a cap cannot name the old ids a "
+                             "recovery targets")
     parser.add_argument("--import-companies", action="store_true",
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -805,13 +804,22 @@ def main(argv=None) -> None:
         parser.error("--rescreen-discarded is a one-shot operator action: "
                      "pass --once (then start the daemon normally)")
 
-    # Same one-shot reasoning, opposite failure mode. `once()` closes over the parsed
-    # args, so an id bound set on the daemon holds for EVERY scheduled firing: the first
-    # pass drains whatever sits under it, and every pass after that screens nothing while
-    # fresh intake (which always has higher ids) piles up 'new' behind the bound. That is
-    # a daemon that reports healthy passes and scores nothing — the exact silence the
-    # 2026-07-28 lock-file wedge cost a day to find. Refuse it at the boundary.
-    if args.score_max_id and not args.once:
+    # A NEGATIVE bound must not read as "no bound". `run_score` tests `max_id > 0`, so a
+    # sign typo would sail past the one-shot guard below and then silently disable the
+    # filter — and the documented recipe pairs this flag with --rescreen-discarded, which
+    # requeues thousands of rows to 'new' first. The flag that exists to bound spend would
+    # become an unbounded paid pass over the whole requeued pile. 0 stays the explicit
+    # "no bound"; anything below it is a typo, not an intent.
+    if args.score_max_id < 0:
+        parser.error(f"--score-max-id must be >= 0 (got {args.score_max_id}); 0 means "
+                     "no bound, and a negative value would silently disable the filter")
+
+    # Same one-shot reasoning as --rescreen-discarded, opposite failure mode. `once()`
+    # closes over the parsed args, so a bound left on the daemon holds for EVERY scheduled
+    # firing: the first pass drains what sits under it, and every pass after screens
+    # nothing while higher-id intake piles up 'new' behind it — a daemon reporting healthy
+    # passes and scoring nothing. Refuse it at the boundary.
+    if args.score_max_id > 0 and not args.once:
         parser.error("--score-max-id is a one-shot operator selector: pass --once. On "
                      "the schedule it would bound every future pass, so nothing newer "
                      f"than id {args.score_max_id} would ever be scored")

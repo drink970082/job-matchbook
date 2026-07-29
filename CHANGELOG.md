@@ -27,8 +27,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   closes over the parsed args, so a bound left on the daemon would hold for every future
   firing — the first pass drains what is under it and every pass after screens nothing
   while higher-id intake piles up behind the bound, a daemon that logs healthy passes and
-  scores nothing. Rejected alternative: inverting the queue for this one operator flag,
-  which adds a second ordering to reason about for the same result. (SPEC §7.1, §9.)
+  scores nothing. A **negative** value is a parser error rather than "no bound": `run_score`
+  tests `max_id > 0`, so a sign typo would otherwise clear the guard and then silently
+  disable the filter on a pass that had just requeued 3,232 rows. Rejected alternative:
+  inverting the queue for this one operator flag, which adds a second ordering to reason
+  about for the same result. (SPEC §7.1, §9.)
 
 ### Fixed
 

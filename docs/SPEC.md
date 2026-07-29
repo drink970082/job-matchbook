@@ -1133,7 +1133,13 @@ the new end, while a `--rescreen-discarded` recovery target sits at the old end
 break by `id DESC`). Like `--rescreen-discarded` it is **one-shot — `main` rejects it
 without `--once`** (§9): `once()` closes over the parsed args, so a bound left on the
 daemon would hold for every future firing and every pass after the first would score
-nothing while higher-id intake piled up behind it. **The `new` queue is read
+nothing while higher-id intake piled up behind it. A negative `N` is a parser error, not
+"no bound" — `run_score` tests `max_id > 0`, so a sign typo would otherwise pass the
+one-shot guard and silently disable the filter on a `--rescreen-discarded` pass. One
+documented promise bends under a bound: a `run_retry` requeue above `N` is **not**
+rescored that same pass (it keeps its original id, and the bound is applied to ids, not
+to recency). It burns no retry budget — `requeue_failed` does not touch `attempts` — so
+it simply waits for an unbounded pass. **The `new` queue is read
   newest-id-first** (`get_by_status(..., newest_first=True)` — the one caller that asks
   for it), which is what makes `limit` usable on a schedule: every `new` row has score
   NULL, so the default `score DESC, id ASC` degenerates to oldest-first and a bounded
@@ -1708,9 +1714,9 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   a subtlety.** `requeue_discarded` stamps `updated_at`, so requeued rows do sort to the
   front of the `new` queue — but the queue holds *every* requeued discard (the UPDATE is
   unfiltered), so a bounded pass reaches an arbitrary prefix of thousands of them and
-  the operator cannot aim the cap at the rows the rescreen was for. Recovering a
-  *specific* set of discards needs a selector this flag does not have; PROGRESS queue
-  item 2 records the concrete case.
+  the operator cannot aim the cap at the rows the rescreen was for. Aiming at a
+  *specific* set is what `--score-max-id` is for (§7.1) — pair the two, not
+  `--score-limit`.
   Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
   `run_retry` guards two. **Filtered on exactly one condition — the row must have a
   non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
@@ -1861,7 +1867,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
-| `--score-max-id` selects the id range **before** `--score-limit` bounds the spend, reaches `run_score`, and is refused without `--once` (on the schedule it would bound every future pass into scoring nothing) | `test_pipeline.py` (`test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach`, `test_run_score_max_id_applies_before_the_limit`), `test_run.py` (`test_score_max_id_reaches_run_score`, `test_score_max_id_requires_once`) |
+| `--score-max-id` selects the id range **before** `--score-limit` bounds the spend; the documented recovery recipe survives argparse and arrives at `run_score`; refused without `--once` (on the schedule it would bound every future pass into scoring nothing) and refused when negative (which `max_id > 0` would read as "no bound") | `test_pipeline.py` (`test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach`, `test_run_score_max_id_applies_before_the_limit`), `test_run.py` (`test_score_max_id_reaches_run_score`, `test_the_documented_recovery_recipe_is_accepted_and_wired`, `test_a_negative_score_max_id_is_refused_not_read_as_no_bound`, `test_score_max_id_requires_once`) |
 | Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |
 | `schedule_hours` must divide 24: a non-divisor and anything `> 24` are both rejected at config load rather than silently running tighter than configured, or collapsing to daily | `test_config.py` (`test_rejects_a_schedule_that_does_not_divide_the_day`, `test_rejects_a_schedule_longer_than_a_day_instead_of_collapsing_it_to_daily`, `test_every_divisor_of_24_is_accepted`, `test_rejects_non_positive_schedule_hours`) |
 | The daemon runs NO pass at launch; `--run-now` runs exactly one before the scheduler blocks; `--run-now --once` is a parser error, and `--run-now` does not unlock `--rescreen-discarded` | `test_run.py` (`test_starting_the_daemon_runs_no_pass_at_launch`, `test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over`, `test_run_now_and_once_together_are_a_parser_error`, `test_run_now_does_not_open_the_rescreen_discarded_backdoor`) |

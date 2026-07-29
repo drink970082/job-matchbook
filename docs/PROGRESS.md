@@ -219,18 +219,26 @@ take first and why. Each numbered item is independently pickable.
 >    2026-07-29, the run itself still the OPERATOR'S CALL (it spends quota).** The dry run
 >    is done and free, so this is a decision rather than a discovery. The recipe:
 >    ```
->    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once \
+>    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once --no-notify \
 >        --rescreen-discarded --score-max-id 1417
 >    ```
->    `--score-max-id` (PR pending) bounds the pass to `id <= N` and is applied BEFORE
->    `--score-limit`. 1417 is the top of the degree/clearance/authorization discard range
->    (ids 7-1417) and the pre-existing paid backlog starts at 1419, so the bound selects
->    the recovery targets and structurally cannot reach the backlog. No `--score-limit` is
->    wanted here: a budget would re-introduce the newest-first problem inside the selection.
->    Rows in 7-1417 discarded for other reasons (mostly location) are re-screened for free
->    and re-killed by the deterministic gate, so the paid cost stays the ~46 survivors.
->    Like `--rescreen-discarded`, the flag requires `--once` — on the daemon it would bound
->    every future pass and silently score nothing.
+>    `--score-max-id` bounds the pass to `id <= N`, applied BEFORE `--score-limit`. 1417 is
+>    the top of the degree/clearance/authorization discard range (ids 7-1417) and the
+>    pre-existing paid backlog starts at 1419, so the bound selects the recovery targets and
+>    structurally cannot reach the backlog. No `--score-limit` is wanted here: a budget would
+>    re-introduce the newest-first problem inside the selection. Like `--rescreen-discarded`,
+>    the flag requires `--once`, and a negative value is a parser error rather than "no bound".
+>    **`--no-notify` is not optional here.** `run_notify` has no per-pass cap, so without it
+>    every newly-matched recovered row fires a Telegram alert in one burst. The rows stay
+>    `scored` and alert on a later normal pass.
+>    **What the ~46 does and does not cover.** It is measured over the **213 hydrated**
+>    degree/clearance/authorization discards, which are a subset of the **736** such
+>    discards in ids 7-1417 (the rest are un-hydrated stubs `requeue_discarded` skips by
+>    design). Rows in that id range discarded for *other* reasons are also requeued and
+>    re-screened for free; the location half of those re-discards for free too (PR #35
+>    tightened that gate one-directionally with a clean discard side), but **the survivor
+>    count for the non-location, non-d/c/a remainder was never measured**. Treat ~46 as the
+>    measured floor, not a ceiling.
 >    Re-screening the live DB read-only against the three fixes (free, local Ollama, no
 >    writes): of 213 hydrated discards whose reason names degree/clearance/authorization,
 >    **46 now keep** — **~46 Codex messages, ~2.3% of a weekly budget**. 20 Microsoft
