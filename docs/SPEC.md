@@ -830,25 +830,61 @@ worker modules are pure and dependency-injected; real services are wired only in
   are grounded (36 in the description, 2 in the title), so the same guard there would be
   speculative.
 
-  **Location is a deterministic code gate**
-  (`resolve_location`) matched against the board's `posting["location"]`
-  string — not the LLM. It resolves **every** token to a country — US state / country
-  name via `pycountry`, else a city via **geonamescache** (highest-population match,
-  so a tiny US namesake like Paris TX can't mask Paris FR) — and errs toward keep:
-  keep if any token is US or an allowed country, discard only when the foreign reading
-  is **corroborated** — every token resolved, or at least two did, **or any one token
-  names a country outright** — and none are
-  allowed (naming the first foreign country), keep if nothing resolves (**D2**). The
-  corroboration requirement exists because only **US** subdivisions are in the
-  gazetteer: without it, `London, ON` dropped its unresolved `ON` and was judged by
-  `London` alone as United Kingdom, discarding a Canadian posting under a reason that
-  named the wrong country. The **named-country exemption** exists because the *city*
-  gazetteer has holes: geonamescache indexes Bengaluru but not Bangalore, and no Penang
-  at all, so `Bangalore, India` / `Penang, Malaysia - Grande` resolved on their country
-  token alone, failed corroboration, and leaked into the live queue as US-eligible
-  (2026-07-29). A token that *names* a country is self-corroborating; the
-  city-only case is unchanged, so `Hyderabad, TS` still keeps (one wasted fit call,
-  never a lost live match). US-state and remote strings keep, so a
+  **Location is a deterministic code gate** (`location_verdict`, with
+  `resolve_location` as its two-value shim) matched against the board's
+  `posting["location"]` string — not the LLM. **Evidence tiers, not first match**
+  (rebuilt 2026-07-30 after a 9,633-row survey measured 317 rows kept that were clearly
+  non-US, against a clean discard side):
+
+  - **TIER A** — a token that NAMES a country, including informal spellings resolved
+    through `_COUNTRY_ALIASES` (`UK`, `England`, `Scotland`, `LDN`, `UAE`), or a US
+    state. Self-corroborating: one such token decides. A country named inside a token the
+    splitter cannot break (`Remote Canada`, `India-Pune`) is found by a phrase-level scan,
+    which skips US state names so a street address (`885 GEORGIA ST W:VANCOUVER`) is never
+    read as the country Georgia.
+  - **TIER B** — a foreign subdivision (`Telangana`, `Ontario`, from a pycountry index
+    admitting only unambiguous non-US names) or a gazetteer city, both looked up on an
+    NFKD-**folded** key so a board's ASCII `Montreal`/`Sao Paulo`/`Zurich` reaches the
+    stored `Montréal`/`São Paulo`/`Zürich` (6,449 of 30,699 city keys carry non-ASCII).
+    Each token votes for *every* country it could denote and the supporting-token count
+    settles it: `Toronto, Ontario` reads Canada 2-1, while a bare `Charlotte` ties and
+    keeps its US reading (it is also a parish of Saint Vincent). Tier B *discards* only
+    when **corroborated** — every token resolved, or two agree — which is what still
+    keeps `London, ON`.
+  - **neither** — no verdict is recorded at all (`resolved: False`), so the gate stays
+    silent rather than blessing the row, and sets `ask_llm` when a token named something
+    the gazetteer does not know.
+
+  Ordering is load-bearing in three places. The **remote hint runs after Tier A**, so
+  `Remote - India` discards while `Remote - US` keeps (85 rows). The literal `remote`
+  allow-entry is excluded from the direct allowed-list match, because matching it as a
+  *place* was the other half of that bug. And **any allowed evidence keeps, whatever tier
+  found it** — never `all` — so `New York City, London, Singapore` survives; that single
+  choice is what preserves the zero-false-discard invariant. Region acronyms are a
+  stoplist (`EMEA`, `APAC`), not a population floor: `Apac` is a Ugandan town of 67,700
+  against `Zug` CH at 30,542, so no floor separates them, and the acronym used to make
+  `APAC - India - Pune` discard as "on-site in **Uganda**". Regions that *contain* the US
+  (`Americas`, `AMER`) count as weak US evidence rather than noise (err toward keep).
+  Three cheap passes run before a token is given up on, added once measurement showed
+  that **197 of the 296 unresolved rows were gazetteer gaps rather than judgement** — a
+  model tier would have been paying per posting for a lookup table. (1) geonamescache's
+  `alternatenames` (141k keys the primary index discards) resolve `NYC`, `Bangalore`,
+  `Gurgaon`, `Frankfurt`; a 3-4 character alias additionally needs a million-person city
+  behind it, or facility codes collide (`MOD` made an Indian row read as US-eligible).
+  (2) A token that resolved to nothing is retried split on `- . /` — the site-code
+  formats (`FR-Paris`, `PL-Warsaw-Lixa C`, `USA.VA.Reston`); splitting on those up front
+  would shred `Winston-Salem`, so it only ever runs on a failure. A 2-letter prefix that
+  is both a US state code and a country code reads as the COUNTRY only when another part
+  corroborates it (`DE-Germany`, `CA-Toronto`), and stays the state otherwise
+  (`USA.VA.Reston` is Virginia, not the Holy See). (3) A trailing facility noun is
+  stripped last (`San Francisco HQ`).
+
+  Measured on the live corpus: **416 rows moved keep -> discard, 0 moved the other way,
+  0 US-eligible strings discarded**; the residual leak is pinned at 6 strings / 14 rows
+  and unresolved rows are down to **1.0%** (`tests/fixtures/location_corpus.jsonl`).
+  Exempting *unambiguous* city names from corroboration was measured (+26 rows) and
+  **rejected**: it discarded a US university building as Tanzania (via "Coast") and an
+  Israeli site as Italy. US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN
@@ -1471,13 +1507,16 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   ingests nothing; an unmapped epoch is unparseable, so `max_age_days` never fires —
   which is why the mapping is pinned by tests rather than left implicit. An absent
   or unreadable date keeps the listing, matching the board path.
-  **The gate is decisive here, unlike on the board path**, and that is the one
-  asymmetry: `run_fetch` re-runs `prefilter_postings` over what the board returned, so
-  the `posted_at` it stores is the one it judged; `run_feed` judges the feed's
-  `date_posted` and never re-checks the date `_fetch_group` ultimately stores. A feed
-  row can therefore sit in the DB dated older than `max_age_days`. Accepted: the
-  feed's date is the only one available before the fetch, and the fetch is the cost
-  being avoided.
+  **The age gate then runs a second time, on the board's own date.** The pre-resolve
+  pass judges the feed's `date_posted` — a proxy, but the only date available while the
+  fetch is still avoidable, so that is where the cost is saved; before the upsert,
+  `prefilter_postings` re-judges the `posted_at` the board returned, which is the date
+  actually stored. The two disagree on evergreen requisitions (a greenhouse req first
+  published 13 months ago that Simplify re-lists as fresh), and without the second pass
+  a feed row could sit in the DB dated older than `max_age_days` — a guarantee the
+  board path makes. Age only on the second pass: the title filters already passed on
+  the feed's title, and the detail-fetch-collapse check reads the unfiltered result (an
+  all-stale board is not a broken scraper).
   Survivors are grouped by `(source, slug)`, ids already present are skipped, and the
   board is fetched with the existing adapter keeping **only** the surfaced postings
   (a feed company is never ingested in full like a watchlist company). Each kept
@@ -1784,12 +1823,16 @@ guarantee:
   §7.1) so an ungrounded `requires_clearance` can no longer discard — the residual is a
   **miss**: a clearance bar phrased in none of those words costs one paid fit call.
   The kept `disqualification_reason` + `reopenJobPosting` let a human override.
-- **Location** (`resolve_location`, **D2**, §7.1) errs toward keep; the residual
-  gaps are ambiguity-shaped — a city whose **highest-population** bearer is foreign
-  discards even when the posting meant a smaller US namesake ("Manchester" → GB,
-  though Manchester NH exists; real boards append the state, which the US-state
-  guard keeps), and a token that resolves to nothing still keeps. Both are backed by
-  the human in the loop (kept `disqualification_reason` + `reopenJobPosting`).
+- **Location** (`location_verdict`, **D2**, §7.1) errs toward keep. It is **now gated**:
+  `test_location.py` measures **0 false discards** across all 1,611 distinct location
+  strings in the live DB, in CI, against a committed corpus whose labels come from an
+  independent oracle rather than the code under test. What stays unenforced is the
+  *residual leak*, pinned at 6 strings / 14 rows rather than driven to zero: a city whose
+  highest-population bearer is foreign still discards when the posting meant a smaller US
+  namesake ("Manchester" → GB, though Manchester NH exists; real boards append the state,
+  which the US-state guard keeps), and a string the gazetteer cannot resolve still keeps.
+  Both are backed by the human in the loop (kept `disqualification_reason` +
+  `reopenJobPosting`).
 
 ### Invariant → test traceability
 
@@ -1816,7 +1859,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
 | The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_score.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
 | Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
-| Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep; a token that NAMES a country is self-corroborating (a city-only reading still needs a second agreeing token) | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
+| Deterministic location gate (`location_verdict`, pycountry + geonamescache, evidence-tiered): a NAMED country / US state decides alone and outranks the remote hint; city/subdivision evidence is diacritic-folded, votes for every reading it allows, and discards only when corroborated; region acronyms are a stoplist; any allowed evidence keeps | `test_location.py` (`test_resolve_location`, `test_location_verdict_marks_what_escalates`, `test_token_country_*`, `test_folding_is_the_same_function_everywhere`) + gate integration tests in `test_score.py` |
+| **Zero false discards** over every distinct location string in the live DB, gated in CI against a committed corpus labeled by an INDEPENDENT oracle (not by the code under test); the residual leak set is pinned EXACTLY, in both directions, so the accepted trade cannot drift silently | `test_location.py` (`test_no_us_eligible_string_is_ever_discarded`, `test_the_leak_set_is_pinned_exactly`, `test_the_corpus_is_labeled_the_way_the_gate_assumes`, `test_a_discard_always_names_a_country_the_string_actually_mentions`), `tests/fixtures/location_corpus.jsonl` |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
@@ -1854,6 +1898,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
 | Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
+| The feed re-runs the age gate on the BOARD's `posted_at` before upsert, so a fresh-per-feed evergreen req is not stored older than `max_age_days` | `test_feed_pipeline.py` (`test_run_feed_re_gates_on_the_boards_date_not_the_feeds`) |
 | `new` queue read most-recently-touched-then-newest so `--score-limit` reaches today's discoveries **and** a `run_retry` requeue keeping its old id; other queues keep score-first | `test_db.py`, `test_pipeline.py` (`test_run_score_limit_takes_the_newest_rows_not_the_oldest`, `test_run_score_reaches_a_retried_row_inside_the_cap`) |
 | The score summary separates `unreached` (this pass's slice) from `left 'new'` (the whole queue), so a capped pass cannot report an empty queue | `test_pipeline.py` (`test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice`, `test_run_score_summary_counts_rows_a_breaker_never_reached`) |
 | An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |

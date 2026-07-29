@@ -449,6 +449,23 @@ def test_run_feed_keeps_a_listing_inside_the_age_window(db_path):
     assert inserted == 1
 
 
+def test_run_feed_re_gates_on_the_boards_date_not_the_feeds(db_path):
+    # The feed says fresh; the board's own posted_at is 13 months old (evergreen
+    # greenhouse reqs Simplify re-lists). The stored date is the board's, so it is
+    # the one that must be judged — else the gate passes and the DB holds a row
+    # older than max_age_days, which the watchlist path never does.
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Software Engineer",
+                                                 date_posted=RECENT_EPOCH)],
+        keep_categories=["Software"], max_age_days=30,
+        fetch_fn=lambda s, sl, n: [_posting("aaaa-1111", source=s,
+                                            posted_at="2025-06-16")],
+    )
+    assert inserted == 0
+    assert db.get_by_status(conn, "new") == []
+
+
 @pytest.mark.parametrize("bad", [None, "", "not-a-date", [], {}, "2026-06-01"])
 def test_run_feed_keeps_a_listing_with_no_readable_date(db_path, bad):
     # Err toward keep, the same policy the board path applies to a dateless posting.
