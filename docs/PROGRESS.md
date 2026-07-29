@@ -311,6 +311,17 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **The remedy is queue item 3**, `needs_confirmation` routing, which turns these from
   deleted jobs into one paid fit call each.
 
+- **Both privacy guards match `.env` EXACTLY, so any `.env.<suffix>` variant is
+  unguarded** — `[INFRA · XS · found 2026-07-29, deliberately not fixed]`.
+  `.gitignore` line 11 is a literal `.env`, and `tools/check_privacy.mjs` RULES uses
+  `/(^|\/)\.env(\.local)?$/`. A file like `.env.bak`, `.env.old` or `.env.production` is
+  therefore **both untracked-and-unignored and invisible to `make check-privacy`** — it
+  shows as `??` and one `git add -A` puts it in a public repo. Found via a real
+  `.env.bak-tsserve` in the root (a pre-Tailscale-serve backup holding only `WEB_BIND`,
+  so nothing leaked — the pattern is the defect, not that file). **The fix is two lines:**
+  `.env*` + `!.env.example` in `.gitignore`, and `/(^|\/)\.env($|\.)/` in the RULES regex
+  — `ALLOW` already exempts `*.example`, and `--self-test` can pin the new pattern.
+
 **Previously here, and closed.**
 
 - **The clearance check fired on the word "security"** — 20 of 24 live discards false.
