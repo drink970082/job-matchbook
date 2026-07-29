@@ -38,11 +38,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   against `Zug` CH at 30,542. Regions that *contain* the US (`Americas`, `AMER`) count as
   weak US evidence rather than noise.
 
-  **Measured, not asserted:** 328 rows moved keep -> discard, **0 moved the other way, and
+  Three further passes run before a token is given up on, added once measurement showed
+  that **197 of the 296 unresolved rows were gazetteer gaps rather than judgement** — a
+  model tier would have been paying per posting for a lookup table. geonamescache's
+  `alternatenames` (141k keys the primary index discarded) resolve `NYC`, `Bangalore`,
+  `Gurgaon`, `Frankfurt`, with a million-person floor on 3-4 character aliases so facility
+  codes don't collide (`MOD` had made an Indian row read as US-eligible). A token that
+  resolved to nothing is retried split on `- . /`, catching the site-code formats
+  (`FR-Paris`, `PL-Warsaw-Lixa C`); splitting on those up front would shred
+  `Winston-Salem`, so it only runs on a failure, and a 2-letter prefix that is both a US
+  state code and a country code reads as the country only when another part corroborates
+  it (`DE-Germany` discards; `USA.VA.Reston` stays Virginia). Trailing facility nouns are
+  stripped last (`San Francisco HQ`).
+
+  **Measured, not asserted:** 416 rows moved keep -> discard, **0 moved the other way, and
   0 US-eligible strings were discarded.** The residual leak is pinned at 6 strings / 14
   rows rather than driven to zero — every one is a foreign country named alongside an
   ambiguous token that also reads as a US city, and tightening that is exactly what would
-  start deleting real jobs. 3.1% of rows now report `ask_llm`, for a later free-model tier.
+  start deleting real jobs. Unresolved rows are down to **1.0%**. Exempting *unambiguous*
+  city names from the corroboration rule was measured (+26 rows) and **rejected**: it
+  discarded a US university building as Tanzania (via "Coast") and an Israeli site as
+  Italy.
 
   The invariant is gated **in CI** by `tests/fixtures/location_corpus.jsonl` — committed,
   unlike the two `eval/` golden sets, because a board location string is a place name

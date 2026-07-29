@@ -181,6 +181,40 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     ("New York City, London, Singapore", ["remote", "USA"], True, ""),
     ("London, Montreal, Singapore", ["remote", "USA"], False, "on-site in United Kingdom"),
 
+    # --- tier 1.5 (2026-07-30, same day): three deterministic passes that took the
+    # escalation set from 3.1% of rows to 1.0% without moving the leak ceiling. Built
+    # after measuring that 197 of the 296 escalating rows were gazetteer gaps, not
+    # judgement — a model tier would have been paying per posting for a lookup table.
+
+    # (10) geonamescache `alternatenames` — 141k keys the primary index discarded.
+    ("NYC", ["remote", "USA"], True, ""),
+    ("Bangalore", ["remote", "USA"], False, "on-site in India"),
+    ("Gurgaon", ["remote", "USA"], False, "on-site in India"),
+    ("Frankfurt", ["remote", "USA"], False, "on-site in Germany"),
+    # ...but a SHORT alias needs a big city behind it, or facility codes collide: `MOD`
+    # is an alternate name for a small US place, and it made this row keep as US-eligible
+    # while naming India twice.
+    ("Sanand - 303A - AT/SSD/MOD, India", ["remote", "USA"], False, "on-site in India"),
+
+    # (11) site-code formats with no separator the tokenizer recognises. Splitting on
+    # `- . /` up front would shred "Winston-Salem", so it only retries a token that
+    # already resolved to nothing.
+    ("FR-Paris", ["remote", "USA"], False, "on-site in France"),
+    ("PL-Warsaw-Lixa C", ["remote", "USA"], False, "on-site in Poland"),
+    ("NO-Oslo-MSO", ["remote", "USA"], False, "on-site in Norway"),
+    # A 2-letter prefix that is BOTH a US state code and a country code reads as the
+    # country only when another part corroborates it...
+    ("DE-Germany-Remote", ["remote", "USA"], False, "on-site in Germany"),
+    ("CO-Colombia-Remote", ["remote", "USA"], False, "on-site in Colombia"),
+    ("CA-Toronto-York St 24/25", ["remote", "USA"], False, "on-site in Canada"),
+    # ...and stays the STATE when nothing does: VA is Virginia here, not the Holy See.
+    ("USA.VA.Reston", ["remote", "USA"], True, ""),
+
+    # (12) trailing facility nouns, stripped only after every index missed.
+    ("San Francisco HQ", ["remote", "USA"], True, ""),
+    ("New York City Office", ["remote", "USA"], True, ""),
+    ("London Office", ["remote", "USA"], False, "on-site in United Kingdom"),
+
     # --- preserved: cases earlier eras paid for, which the rebuild must not break.
     ("London, ON", ["Canada", "USA", "remote"], True, ""),      # D8: Canadian London
     ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""),   # accepted miss, now escalated
@@ -205,9 +239,15 @@ def test_resolve_location(location, allowed, want_keep, want_note):
     ("Montreal", True, False),              # Tier B, corroborated (nothing unresolvable)
     ("Remote", True, False),                # vague only -> the remote rule decided
     ("EMEA", False, False),                 # nothing to resolve, and no model can help
-    ("NYC", False, True),                   # unknown token -> a model may do better
+    ("NYC", True, False),                   # tier 1.5: the alias index resolves it now
     ("London, ON", False, True),            # lone city + unresolvable region
+    # Bangalore resolves, but "Bagmane Tridib" does not, so corroboration still withholds
+    # — the SAME rule that protects "London, ON". Exempting unambiguous city names was
+    # measured (26 rows) and REJECTED: it discarded "1067 Energy, Coast, and Environment
+    # Building" as Tanzania (via "Coast") and an Israeli site as Italy. A rule that gains
+    # 26 rows by inventing false discards is not a gain.
     ("Bangalore - Bagmane Tridib", False, True),
+    ("Penn State University Park", False, True),   # still genuinely a judgement call
 ])
 def test_location_verdict_marks_what_escalates(location, want_resolved, want_ask):
     """`resolved` is what gates whether a location verdict is RECORDED at all, and

@@ -865,9 +865,26 @@ worker modules are pure and dependency-injected; real services are wired only in
   against `Zug` CH at 30,542, so no floor separates them, and the acronym used to make
   `APAC - India - Pune` discard as "on-site in **Uganda**". Regions that *contain* the US
   (`Americas`, `AMER`) count as weak US evidence rather than noise (err toward keep).
-  Measured on the live corpus: **328 rows moved keep -> discard, 0 moved the other way,
+  Three cheap passes run before a token is given up on, added once measurement showed
+  that **197 of the 296 unresolved rows were gazetteer gaps rather than judgement** — a
+  model tier would have been paying per posting for a lookup table. (1) geonamescache's
+  `alternatenames` (141k keys the primary index discards) resolve `NYC`, `Bangalore`,
+  `Gurgaon`, `Frankfurt`; a 3-4 character alias additionally needs a million-person city
+  behind it, or facility codes collide (`MOD` made an Indian row read as US-eligible).
+  (2) A token that resolved to nothing is retried split on `- . /` — the site-code
+  formats (`FR-Paris`, `PL-Warsaw-Lixa C`, `USA.VA.Reston`); splitting on those up front
+  would shred `Winston-Salem`, so it only ever runs on a failure. A 2-letter prefix that
+  is both a US state code and a country code reads as the COUNTRY only when another part
+  corroborates it (`DE-Germany`, `CA-Toronto`), and stays the state otherwise
+  (`USA.VA.Reston` is Virginia, not the Holy See). (3) A trailing facility noun is
+  stripped last (`San Francisco HQ`).
+
+  Measured on the live corpus: **416 rows moved keep -> discard, 0 moved the other way,
   0 US-eligible strings discarded**; the residual leak is pinned at 6 strings / 14 rows
-  (`tests/fixtures/location_corpus.jsonl`). US-state and remote strings keep, so a
+  and unresolved rows are down to **1.0%** (`tests/fixtures/location_corpus.jsonl`).
+  Exempting *unambiguous* city names from corroboration was measured (+26 rows) and
+  **rejected**: it discarded a US university building as Tanzania (via "Coast") and an
+  Israeli site as Italy. US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN

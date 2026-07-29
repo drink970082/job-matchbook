@@ -189,6 +189,64 @@ def _city_index() -> dict[str, str]:
     return _CITY_INDEX
 
 
+_ALIAS_INDEX: dict[str, str] | None = None
+
+
+def _alias_index() -> dict[str, str]:
+    """Lazy index of geonamescache's `alternatenames` — the endonyms, abbreviations and
+    former names boards actually write: `NYC`, `Bangalore` (indexed as Bengaluru),
+    `Gurgaon` (Gurugram), `Frankfurt` (Frankfurt am Main), `Bombay`. 141k keys the
+    primary index throws away, and the single largest remaining source of unresolved
+    strings after the 2026-07-30 rebuild.
+
+    Same highest-population-wins policy as `_city_index`, and consulted only AFTER it,
+    so an alias can never override a primary name. ASCII-only and 3+ characters: the
+    alternatenames list is full of non-Latin scripts and 2-letter stubs that would
+    collide with country and US-state codes.
+
+    SHORT aliases additionally need a big city behind them. A 3-4 character alias is
+    mostly noise — `MOD` is an alternate name for some small US place, and it made
+    `Sanand - 303A - AT/SSD/MOD, India` keep as US-eligible despite naming India twice.
+    Requiring a million people for those keeps the ones boards actually write (`NYC` ->
+    New York) and drops the facility-code collisions; longer aliases (`Bangalore`,
+    `Gurgaon`, `Frankfurt`) carry enough signal on their own."""
+    global _ALIAS_INDEX
+    if _ALIAS_INDEX is None:
+        import geonamescache
+        idx: dict[str, str] = {}
+        best: dict[str, int] = {}
+        for c in geonamescache.GeonamesCache().get_cities().values():
+            pop = c.get("population") or 0
+            for alt in (c.get("alternatenames") or []):
+                name = _fold(alt)
+                if len(name) < 3 or not name.isascii():
+                    continue
+                if len(name) <= 4 and pop < 1_000_000:
+                    continue
+                if name not in best or pop > best[name]:
+                    best[name] = pop
+                    idx[name] = c["countrycode"]
+        _ALIAS_INDEX = idx
+    return _ALIAS_INDEX
+
+
+# Site/facility nouns boards append to a real place name ("San Francisco HQ", "London
+# Office", "San Francisco Bay Area"). Stripped only as a LAST resort, after the token
+# failed every index, so a real place called "... Office" is never shadowed.
+_SITE_SUFFIXES = ("bay area", "metro area", "metropolitan area", "greater area", "area",
+                  "headquarters", "head office", "office", "hq", "campus", "site",
+                  "location", "region")
+
+
+def _strip_site_suffix(folded: str) -> str:
+    """'san francisco hq' -> 'san francisco'. Returns the input unchanged when nothing
+    strips, so callers can test for a change."""
+    for suffix in _SITE_SUFFIXES:
+        if folded.endswith(" " + suffix):
+            return folded[: -(len(suffix) + 1)].strip()
+    return folded
+
+
 def _classify_token(token: str) -> tuple[str, str | None]:
     """Classify one location token as (kind, ISO alpha-2 or None). Kinds:
     'vague' | 'country' | 'us_state' | 'subdivision' | 'city' | 'unknown'.
@@ -200,7 +258,12 @@ def _classify_token(token: str) -> tuple[str, str | None]:
       3. country   — alias table, then pycountry.
       4. subdivision — foreign, unambiguous, name-only.
       5. city      — folded gazetteer, highest population wins.
-      6. unknown   — resolves to nothing AND is not knowingly uninformative, so it
+      6. alias     — geonamescache alternatenames ('NYC', 'Bangalore', 'Frankfurt'),
+                     after the primary index so it can only ADD resolutions.
+      7. site-noun strip — one retry with a trailing facility word removed
+                     ('San Francisco HQ' -> 'San Francisco'), last so a real place is
+                     never shadowed by it.
+      8. unknown   — resolves to nothing AND is not knowingly uninformative, so it
                      withholds corroboration from a lone city reading.
     """
     raw = str(token or "").strip()
@@ -219,9 +282,14 @@ def _classify_token(token: str) -> tuple[str, str | None]:
     sub = _subdivision_index().get(folded)
     if sub:
         return "subdivision", sub
-    city = _city_index().get(folded)
+    city = _city_index().get(folded) or _alias_index().get(folded)
     if city:
         return "city", city
+    stripped = _strip_site_suffix(folded)
+    if stripped != folded and stripped:
+        kind, code = _classify_token(stripped)
+        if kind != "unknown":
+            return kind, code
     return "unknown", None
 
 
@@ -246,9 +314,15 @@ def _weak_readings(token: str) -> set[str]:
     sub = _subdivision_index().get(folded)
     if sub:
         out.add(sub)
-    city = _city_index().get(folded)
-    if city:
-        out.add(city)
+    for index in (_city_index(), _alias_index()):
+        city = index.get(folded)
+        if city:
+            out.add(city)
+            break
+    if not out:
+        stripped = _strip_site_suffix(folded)
+        if stripped != folded and stripped:
+            return _weak_readings(stripped)
     return out
 
 
@@ -299,6 +373,53 @@ def _phrase_countries(location_str) -> list[tuple[str, str]]:
         code = _country_code(match.group(1))
         if code:
             out.append((match.group(1), code))
+    return out
+
+
+# The punctuation the primary tokenizer deliberately ignores, used ONLY to retry a token
+# that already resolved to nothing. Splitting on these up front would shred
+# "Winston-Salem"; splitting only on failure cannot, because "Winston-Salem" resolves.
+_SUBPART_RE = re.compile(r"[-–—./\\]+")
+
+
+def _expand_unresolved(classified: list) -> list:
+    """Give every token that named nothing one more chance, split on `- . /` — the
+    site-code formats boards use with no separator the splitter recognises:
+    `PL-Warsaw-Lixa C`, `FR-Paris`, `NO-Oslo-MSO`, `USA.VA.Reston`, `IN-Pune`.
+
+    Sub-parts are appended as ordinary tokens, so the normal tiering decides: an
+    unambiguous country prefix (`FR`, `NO`, `PL`, `AU`) becomes Tier A and discards.
+    A prefix that collides with a US state code is read as the COUNTRY only when a
+    later part corroborates it — `DE-Germany-Remote` and `CO-Colombia-Remote` name their
+    country twice, and `CA-Toronto` has Toronto to vouch for Canada, while `USA.VA.Reston`
+    keeps Virginia because nothing there points at the Holy See. Uncorroborated, the
+    state reading wins and the row keeps: err toward keep, no worse than the unresolved
+    status quo.
+
+    A token whose parts all still fail keeps its original `unknown` classification, so
+    it goes on withholding corroboration."""
+    out = []
+    for entry in classified:
+        token, kind, _code = entry
+        if kind != "unknown":
+            out.append(entry)
+            continue
+        parts = [p for p in _SUBPART_RE.split(str(token)) if p.strip()]
+        if len(parts) < 2:
+            out.append(entry)
+            continue
+        resolved = [(p, *_classify_token(p)) for p in parts]
+        # Corroborated country prefix: a part read as a US state whose 2-letter code is
+        # ALSO a country code that another part independently names.
+        others = {c for _, k, c in resolved if c and k != "us_state"}
+        resolved = [
+            (p, "country", _country_code(p))
+            if k == "us_state" and len(p.strip()) == 2 and _country_code(p) in others
+            else (p, k, c)
+            for p, k, c in resolved
+        ]
+        resolved = [r for r in resolved if r[1] != "unknown"]
+        out.extend(resolved or [entry])
     return out
 
 
@@ -362,7 +483,7 @@ def location_verdict(location_str, allowed_locations) -> dict:
     keep_codes = allowed_codes | {"US"}
 
     tokens = _tokenize(location_str)
-    classified = [(t, *_classify_token(t)) for t in tokens]
+    classified = _expand_unresolved([(t, *_classify_token(t)) for t in tokens])
     codes = [c for _, _, c in classified if c]
     # Whether the STRING says remote (not the JD prose, so a JD that merely says "not
     # remote" can't false-match). Computed up front because it only ever decorates the
