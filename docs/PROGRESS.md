@@ -61,12 +61,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   and accept that it now drains from the **top** of the id range. The old
   "one board at a time" sampling caveat still applies, mirrored.
 
-- **Run the pipeline as a daemon — cadence APPLIED 2026-07-28: 6 passes/day, a 4-hour
-  interval** (`schedule_hours: 4`, live `config.yaml`). Supersedes the 2026-07-23 choice of
-  4/day, which was decided but never written into the config — the file sat at `24` for
-  five days while this entry claimed `6`. Passes are still run by hand; the blocking
-  precondition (two circuit breakers) landed 2026-07-24. One thing is still not
-  expressible.
+- **Run the pipeline as a daemon — RUNNING UNATTENDED as of 2026-07-28 21:17 EDT.**
+  `systemctl --user ats-worker` is `enabled` + `active (running)`, linger is on, and the
+  daemon reports `passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`.
+  `ExecStart` carries **`--score-limit 60`**: the flag defaults to 0 = no cap and the
+  daemon closes over its flags for every slot, so without it the first firing would have
+  fit-scored the whole `new` table (3,959 rows x ~0.4 paid msgs = ~1,600 messages, most
+  of a weekly budget) in one pass. At 60 the per-pass ceiling is 360 rows/day, ~144
+  paid messages/day at full saturation.
+  **Four things had to land first, and three of them were not the schedule.** (0)
+  `apscheduler` was missing from the system python3, so the daemon would have
+  crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
+  and re-screened six times a day. (2) The newest-first score queue, or a bounded pass
+  would have spent ~2 weeks on the backlog before reaching a job found today. (3) The
+  read-only lock fallback, since an unattended daemon is exactly where a silently wedged
+  pass hides. Cadence choice below supersedes the 2026-07-23 choice of 4/day, which was
+  decided but never written into the config — the file sat at `24` for five days while
+  this entry claimed `6`. One thing is still not expressible.
   **The schedule is a clock as of 2026-07-28** (`feat/wall-clock-schedule`; SPEC §7.1/§9/§12
   + CHANGELOG). It used to be an interval — `add_job(once, "interval", hours=…)` plus an
   eager `once()` before `start()` — so passes fired at *launch time + N* and every restart
@@ -682,10 +693,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
   (absent from feed).
 - **Deployment / monitoring** — `[INFRA · L · open-ended]`. `ats-web` has a DB-reachability
-  healthcheck + `autoheal`, and the worker now has **supervision** (a systemd user unit,
-  journald for logs — SPEC §6). What is still missing is *detection*: `Restart=always`
-  brings a crashed worker back, but a worker that is up and quietly producing nothing —
-  a dead board adapter, a screen backend answering blind — still shows only in the DB.
+  healthcheck + `autoheal`, and the worker is **supervised and running** as of
+  2026-07-28 (a systemd user unit, journald for logs — SPEC §6). What is still missing is
+  *detection*, and it matters more now that nobody is watching each pass:
+  `Restart=always` brings a crashed worker back, but a worker that is up and quietly
+  producing nothing — a dead board adapter, a screen backend answering blind — still
+  shows only in the DB.
   There is no metrics/alerting beyond the per-job Telegram notification. Includes the deferred scraper **canary self-tests** and
   proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
   here).
