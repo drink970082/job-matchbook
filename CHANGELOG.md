@@ -10,11 +10,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ### Changed
 
 - **A degree/clearance-only screen fail is now confirmed by the strong model instead of
-  deleting the posting.** Those two are the only screen checks whose verdict comes from a
-  4B *reading prose*, and its measured false-discard rate is **83% for clearance and 24%
-  for degree** — against an outcome (`discarded`) that is terminal and reviewed by nobody.
-  Volume made it cheap to fix rather than tune: degree/clearance-**only** discards were 30
-  of 3,262, so each one now buys a single paid fit call.
+  deleting the posting.** The selection rule is **measured false-disqualification rate**,
+  not "a model produced the verdict" — `authorization` is also a 4B labelling retrieved
+  prose. Degree measured **24%** (9 of 38 live discards) and clearance **83%** (20 of 24);
+  authorization measured **0** false disqualifications on the gate and already carries the
+  precision machinery the other two lack (retrieve-then-classify, the offers/preference
+  vetoes, quote verification), so it is left alone — a second look is the wrong trade on
+  the one check where a false positive is worst. Both rates are **pre-fix**: they are why
+  the routing was decided, not a claim about what the shipped code does now. The clearance
+  evidence floor (#24) already catches all 20 for free and the `degree_levels`/`min(rank)`
+  rewrite cut degree's residual to 2-3 rows per eval run — a 4B ceiling four prompt
+  attempts failed to close, which is what the routing insures against. Volume makes it
+  cheap: degree/clearance-**only** discards were 30 of 3,262, so each buys one paid call.
 
   `score.demote_for_confirmation` **clears** the failing verdicts rather than flipping
   them to pass. That is what makes this a re-check and not an override:
@@ -25,25 +32,40 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   disqualification reason a confirmed bar lands with is therefore the strong model's, not
   the 4B string it replaced.
 
-  Scoped deliberately narrow. A row failing **any** other check — the deterministic
-  location gazetteer, the intern/co-op title regex, the sponsorship phrase floor — stays
-  terminal and free, because no model produced those verdicts and a paid call has nothing
-  to re-litigate. A disqualification carrying **no per-check entries** is likewise not
-  routed: an unreadable shape is not evidence the verdict is wrong, and routing it would
-  mean paying for every discard whose shape cannot be classified.
+  Scoped deliberately narrow. A row failing **any** other check — `authorization`, the
+  location gazetteer, the intern/co-op title regex — stays terminal and free. A
+  disqualification carrying **no per-check entries**, or an entry that is not a
+  well-formed verdict, is likewise not routed: an unreadable shape is not evidence the
+  verdict is wrong, and routing it would mean paying for every discard whose shape cannot
+  be classified.
+
+  **This also fixed a latent defect in `merge_fallback_screen` that the routing newly
+  exposed.** That function only runs when the screen left a GAP, and until now nothing
+  ever cleared one — so nobody had noticed that `_screen_verdict` re-rules every check the
+  *candidate* configured, not just the gap keys. With no entry and no snippets,
+  `authorization` falls through to the blunt `NO_SPONSOR_PHRASES` substring floor — the
+  exact path that produced both long-standing IMC false positives — and the resulting
+  `disqualified`/reason were merged unfiltered. A demoted row could therefore be discarded
+  on `authorization` while its own `score_detail` recorded `authorization: {"pass": true}`,
+  throwing away the paid call that had just kept it. The verdict is now rebuilt from the
+  filled gap checks only.
 
   Built as an **in-pass routing decision plus a `needs_confirmation` marker in
   `score_detail`**, not a new `pipeline_status`. PROGRESS proposed a state; screen and fit
   run in the same pass, so no row would ever be stored in it, and a real status would mean
   new `constants.ts` values and UI buckets for something never observed. The marker
   survives whichever way the confirmation goes, so the routed population stays selectable.
-  The pass summary reports `… sent for confirmation` as a **subset** of the thin/fit
-  counts — it is the one number that moves a free outcome to a paid one.
+  The pass summary reports `… sent for confirmation`, which **overlaps** the other counts
+  rather than adding to them (a demoted row lands in `fit-scored`, or in `failed`/
+  `unreached` when the fit phase errors or breaks) and is excluded from the `done`
+  arithmetic for that reason.
 
   Known residual: a degree/clearance-only fail on a JD below the low-context threshold is
-  kept without confirmation, since the thin-JD path spends no fit call. A thin JD cannot
-  support a degree-bar reading either way, and those rows are held back from notify and
-  shown for human review. (SPEC §7.1, §9.)
+  kept **without** confirmation, since the thin-JD path spends no fit call. That row is
+  deliberately not counted as sent for confirmation, though it keeps the marker — which
+  names a confirmation it still needs. A thin JD cannot support a degree-bar reading
+  either way, and those rows are held back from notify and shown for human review.
+  (SPEC §7.1, §9.)
 
 ### Added
 

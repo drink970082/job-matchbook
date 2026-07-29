@@ -528,6 +528,75 @@ def test_a_disqualification_with_no_per_check_verdicts_is_not_routed(db_path):
     assert fit_calls == []
 
 
+def test_the_fallback_cannot_overturn_a_check_the_screen_already_answered(db_path):
+    # The defect routing newly exposed. merge_fallback_screen only runs when the screen
+    # left a GAP, and until now nothing cleared one — so nobody noticed that
+    # _screen_verdict re-rules every CONFIGURED check, not just the gap keys. With no
+    # entry and no snippets, `authorization` falls through to the blunt NO_SPONSOR_PHRASES
+    # substring floor: the exact path that produced both long-standing IMC false
+    # positives. Result was a row discarded on `authorization` while its own score_detail
+    # recorded authorization as PASSING — and the paid call that had just kept it thrown
+    # away. Only the cleared check may rule here.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    # The screen passed authorization on real model labels; degree is the only failure.
+    screen = {"screen": {"degree": {"pass": False, "note": "requires a PhD"},
+                         "authorization": {"pass": True, "note": ""}},
+              "disqualified": True, "disqualification_reason": "degree: requires a PhD"}
+    conn.execute(
+        "UPDATE job_postings SET description=? WHERE external_id='1'",
+        # carries a NO_SPONSOR_PHRASES substring inside an INVITATION to apply
+        ["We welcome all backgrounds. If you are eligible to work without sponsorship, "
+         "we encourage you to apply. " + "Build trading systems. " * 20],
+    )
+    pipeline.run_score(
+        conn, now=NOW, screen_fn=lambda p: screen,
+        fit_fn=lambda ps: [{"score": 91, "assessment": _assessment(),
+                            "screen": {"degree": {"required_degree": None}}} for _ in ps],
+        candidate={"highest_degree": "bachelor", "work_authorization": "needs sponsorship"})
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    detail = _json.loads(row["score_detail"])
+    assert row["pipeline_status"] == "scored"
+    assert detail["screen"]["authorization"]["pass"] is True
+    assert "disqualification_reason" not in detail
+
+
+def test_a_thin_jd_demotion_is_not_counted_as_a_confirmation(db_path, capsys):
+    # A demoted row below the low-context threshold takes the thin-JD path, which spends
+    # NO fit call — so nothing confirms the cleared check. Counting it would inflate the
+    # one number on the line that is supposed to mean "this cost quota".
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    conn.execute("UPDATE job_postings SET description='too thin' WHERE external_id='1'")
+    fit_calls = []
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("degree: requires a PhD", degree=False),
+                       fit_fn=lambda ps: fit_calls.append(len(ps)) or [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    out = capsys.readouterr().out
+    assert fit_calls == []
+    assert "1 thin-JD (no fit call)" in out
+    assert "0 sent for confirmation" in out
+    # The marker still rides along — it names a confirmation the row STILL NEEDS, which
+    # is true, and the row is held under Low-context for a human either way.
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert _json.loads(row["score_detail"])["needs_confirmation"] == ["degree"]
+
+
+def test_a_confirming_row_is_not_double_counted_in_the_pass_accounting(db_path, capsys):
+    # `done` must count each row exactly once. Adding `confirming` to it drives
+    # `unreached` NEGATIVE, and no existing accounting test has a confirming row in it.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("degree: requires a PhD", degree=False),
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    out = capsys.readouterr().out
+    assert "1 sent for confirmation" in out
+    assert "0 unreached" in out
+
+
 def test_a_routed_row_reports_as_confirming_not_as_screen_discarded(db_path, capsys):
     # The summary line is the only per-pass signal. A routed row is a quota-SPENDING
     # outcome, so counting it as 'screen-discarded' (which means "cost nothing") would

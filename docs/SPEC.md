@@ -1112,16 +1112,24 @@ worker modules are pure and dependency-injected; real services are wired only in
   that row `failed`), and a disqualified one is persisted `discarded` right here,
   **never** reaching the fit call — **except a `degree`/`clearance`-only fail, which is
   routed to the strong model for confirmation instead of being deleted**
-  (`score.demote_for_confirmation`). Those two are the only checks a verdict comes from a
-  4B *reading prose* for, and its measured false-discard rate is **83% for clearance and
-  24% for degree**, against a discard that is reviewed by nobody. The demotion **clears**
+  (`score.demote_for_confirmation`). The selection rule is **measured false-disqualification
+  rate**, not "a model produced the verdict" — `authorization` is also a 4B labelling
+  retrieved prose, and it is excluded because its measured false-disqualification count on
+  the gate is **0** and it already carries the precision machinery the other two lack
+  (retrieve-then-classify, the offers/preference vetoes, quote verification), so a second
+  look is the wrong trade on the one check where a false positive is worst. Degree and
+  clearance measured **24%** (9 of 38 live discards) and **83%** (20 of 24) respectively —
+  both **pre-fix** figures, and the reason the routing was decided rather than a claim
+  about current behavior: the clearance evidence floor already catches all 20 for free and
+  the `degree_levels`/`min(rank)` rewrite cut degree's residual to 2-3 rows per eval run.
+  Routing is insurance for that residual, which is a 4B ceiling no prompt has closed in
+  four attempts. The demotion **clears**
   the failing verdicts rather than flipping them to pass — that is what turns them into
   gaps `merge_fallback_screen` fills from the fit scorer's own Stage 4 extraction, with
   the same CODE applying the candidate's constraint — and records
   `needs_confirmation: [checks]` in `score_detail`, kept whichever way the confirmation
-  goes. A row failing **any** other check (the deterministic location gazetteer, the
-  intern/co-op title regex, the sponsorship phrase floor) stays terminal and free: no
-  model produced those verdicts, so a paid call has nothing to re-litigate. A
+  goes. A row failing **any** other check — `authorization`, the location gazetteer, the
+  intern/co-op title regex — stays terminal and free. A
   disqualification carrying **no per-check entries at all** is likewise not routed — an
   unreadable shape is not evidence the verdict is wrong. It is a routing decision, not a
   persisted state: screen and fit run in the same pass, so no row is ever stored
@@ -1166,10 +1174,14 @@ it simply waits for an unbounded pass. **The `new` queue is read
   line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
   fit-scored, … sent for confirmation, … failed, … unreached, … left 'new'` — so a pass
   that worked is distinguishable from one with nothing to do. `fit-scored` is the
-  quota-spending count; `sent for confirmation` is a **subset** of the thin/fit counts
-  rather than a bucket of its own (the row was demoted out of `screen-discarded` and then
-  took a normal path), and it is on the line because it is the one number that moves a
-  free outcome to a paid one;
+  quota-spending count; `sent for confirmation` **overlaps** the other counts rather than
+  adding to them — the row was demoted out of `screen-discarded`, reached the fit phase,
+  and landed wherever that phase put it (`fit-scored` normally, `failed` on a scorer
+  error, `unreached` behind a tripped breaker) — and it is on the line because it is the
+  number that moves a free outcome to a paid one. A demotion that lands in the **thin-JD**
+  path is deliberately **not** counted: no fit call runs, so nothing confirms it (the
+  `needs_confirmation` marker still rides along, naming a confirmation the row still
+  needs);
   `unreached` is what a tripped breaker or an abort did not reach *within this pass's
   slice*; `left 'new'` is the **whole queue**, counted from the DB rather than from the
   slice, so a capped pass cannot report `0 left 'new'` while thousands wait. Both the
@@ -1885,7 +1897,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
 | A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
 | Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
-| A `degree`/`clearance`-**only** screen fail is routed to the strong model (`needs_confirmation` in `score_detail`, the failing verdicts cleared so the fallback fills them) instead of discarding; the strong model can still confirm the bar and discard; any other failing check — and a disqualification with no per-check entries — stays terminal and free; the routed count is reported separately from `screen-discarded` | `test_pipeline.py` (`test_a_degree_only_fail_is_confirmed_by_the_strong_model_not_discarded`, `test_the_strong_model_can_still_confirm_the_bar_and_discard`, `test_a_location_fail_alongside_degree_is_still_discarded_free`, `test_a_disqualification_with_no_per_check_verdicts_is_not_routed`, `test_a_routed_row_reports_as_confirming_not_as_screen_discarded`) |
+| A `degree`/`clearance`-**only** screen fail is routed to the strong model (`needs_confirmation` in `score_detail`, the failing verdicts cleared so the fallback fills them) instead of discarding; the strong model can still confirm the bar and discard; any other failing check — and a disqualification with no per-check entries, or an unreadable one — stays terminal and free; the routed count is reported separately from `screen-discarded`, is **not** counted on the thin-JD path (no fit call runs), and is not double-counted in the pass accounting | `test_pipeline.py` (`test_a_degree_only_fail_is_confirmed_by_the_strong_model_not_discarded`, `test_the_strong_model_can_still_confirm_the_bar_and_discard`, `test_a_location_fail_alongside_degree_is_still_discarded_free`, `test_a_disqualification_with_no_per_check_verdicts_is_not_routed`, `test_a_routed_row_reports_as_confirming_not_as_screen_discarded`, `test_a_thin_jd_demotion_is_not_counted_as_a_confirmation`, `test_a_confirming_row_is_not_double_counted_in_the_pass_accounting`), `test_score.py::test_only_a_degree_or_clearance_only_failure_is_demoted` |
+| `merge_fallback_screen` may only rule on the checks it FILLED: `_screen_verdict` re-rules every configured check, and `authorization` produces a floor verdict from no entry at all, so an unfiltered read would let the blunt `NO_SPONSOR_PHRASES` substring floor overturn a check the screen already answered — discarding a row whose own `score_detail` records that check as passing | `test_pipeline.py::test_the_fallback_cannot_overturn_a_check_the_screen_already_answered` |
 | Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
 | `--score-max-id` selects the id range **before** `--score-limit` bounds the spend; the documented recovery recipe survives argparse and arrives at `run_score`; refused without `--once` (on the schedule it would bound every future pass into scoring nothing) and refused when negative (which `max_id > 0` would read as "no bound") | `test_pipeline.py` (`test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach`, `test_run_score_max_id_applies_before_the_limit`), `test_run.py` (`test_score_max_id_reaches_run_score`, `test_the_documented_recovery_recipe_is_accepted_and_wired`, `test_a_negative_score_max_id_is_refused_not_read_as_no_bound`, `test_score_max_id_requires_once`) |
 | Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |

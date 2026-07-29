@@ -757,12 +757,24 @@ def _flag(value) -> bool:
     return False
 
 
-# The two checks a local 4B is measurably unreliable on, and the ONLY two that may be
-# routed to the strong model instead of terminally discarding. Both are semantic reads of
-# prose the model has to interpret. Everything else that can disqualify is deterministic
-# CODE — the location gazetteer, the intern/co-op title regex, the sponsorship phrase
-# floor — where re-litigating the verdict on a paid call buys nothing, because no model
-# produced it in the first place.
+# The two checks that may be routed to the strong model instead of terminally discarding.
+# The rule is NOT "a model produced the verdict" — `authorization` is also a 4B labelling
+# retrieved prose, and the location gazetteer/intern regex are the only genuinely
+# model-free gates. The rule is MEASURED false-disqualification rate:
+#
+#   degree      24% (9 of 38 live discards, 2026-07-28 eval)   -> route
+#   clearance   83% (20 of 24 live discards, 2026-07-27 audit) -> route
+#   authorization  0 false disqualifications on the gate       -> leave alone
+#
+# `authorization` already has the precision machinery these two lack — retrieve-then-
+# classify, the offers/preference vetoes, quote verification — and it is the one check
+# where a false POSITIVE is worst, so a second look is the wrong trade there.
+#
+# Both rates are PRE-FIX and are the reason the routing was decided, not a claim about
+# what the shipped code does now: the clearance evidence floor (#24) already catches all
+# 20 of those for free, and the degree_levels/min(rank) rewrite cut degree's residual to
+# 2-3 rows per eval run. Routing is insurance for that residual — a 4B ceiling no prompt
+# has closed in four attempts — not a fix for the rates above.
 _CONFIRMABLE_CHECKS = frozenset({"degree", "clearance"})
 
 
@@ -770,10 +782,9 @@ def demote_for_confirmation(screen: dict) -> dict | None:
     """Turn a degree/clearance-ONLY disqualification into a keep that carries a
     `needs_confirmation` marker, or return None to leave the discard alone.
 
-    The measured problem: the 4B's false-discard rate is **83% for clearance** and
-    **24% for degree**, and a discarded posting is reviewed by nobody, so a wrong verdict
-    silently deletes a real job. Volume is small — degree/clearance-only discards were 30
-    of 3,262 — so each one buys a single paid fit call instead (docs/PROGRESS.md item 3).
+    See `_CONFIRMABLE_CHECKS` for why these two and not the others. Volume is small —
+    degree/clearance-only discards were 30 of 3,262 — so each one buys a single paid fit
+    call instead of being deleted unreviewed (docs/PROGRESS.md item 3).
 
     The failing verdicts are **removed** rather than flipped to pass. That is what makes
     this a re-check and not an override: `merge_fallback_screen` fills only the checks the
@@ -788,10 +799,17 @@ def demote_for_confirmation(screen: dict) -> dict | None:
     and routing it would mean paying for every discard whose shape we cannot classify.
     """
     checks = screen.get("screen")
-    if not isinstance(checks, dict):
+    if not isinstance(checks, dict) or not checks:
         return None
-    failed = [k for k, v in checks.items()
-              if isinstance(v, dict) and not v.get("pass")]
+    # An entry that is not a well-formed verdict is the no-entries case in miniature: it
+    # cannot be classified, so it must not be silently skipped on the way to a demotion
+    # (skipping would let `{"degree": fail, "location": "not in USA"}` route and carry the
+    # unreadable check through as if it had passed). Not producible in-repo today —
+    # `_screen_verdict` and `deterministic_screen` always write `{"pass":…, "note":…}` —
+    # but the doctrine has to hold for the shape, not for today's callers.
+    if not all(isinstance(v, dict) and "pass" in v for v in checks.values()):
+        return None
+    failed = [k for k, v in checks.items() if not v.get("pass")]
     if not failed or not _CONFIRMABLE_CHECKS.issuperset(failed):
         return None
     return {
@@ -833,14 +851,28 @@ def merge_fallback_screen(screen: dict, card: dict, posting: dict,
     verdict = _screen_verdict({"screen": gaps}, candidate,
                               str(posting.get("description") or ""),
                               str(posting.get("job_title") or ""))
+    # ONLY the gap checks may add a disqualification here, and the entries are not the
+    # whole story — the VERDICT has to be narrowed too. `_screen_verdict` re-rules every
+    # check the CANDIDATE configured, not just the ones in `gaps`, and `authorization`
+    # produces a verdict from the NO_SPONSOR_PHRASES floor even with no entry and no
+    # snippets. So an unfiltered read lets the blunt floor overturn a check the screen
+    # already answered — persisting `authorization: {"pass": true}` next to
+    # `disqualification_reason: "authorization: ..."`, and throwing away the paid call
+    # that had just kept the row. Dormant while `already` held every configured check
+    # (gaps empty -> early return above); reachable the moment a caller clears one, which
+    # is exactly what `demote_for_confirmation` does.
+    filled = {k: v for k, v in (verdict.get("screen") or {}).items() if k in gaps}
     merged = dict(already)
-    merged.update({k: v for k, v in (verdict.get("screen") or {}).items() if k in gaps})
+    merged.update(filled)
+    # Rebuilt from `filled` rather than taken from `verdict`, same reason and same shape
+    # `_screen_verdict` uses ("key: note", or bare key when there is no note).
+    extra = "; ".join(f"{k}: {v.get('note')}" if v.get("note") else k
+                      for k, v in filled.items() if not v.get("pass"))
     prior = screen.get("disqualification_reason") or ""
-    extra = verdict.get("disqualification_reason") or ""
     reason = "; ".join(r for r in (prior, extra) if r)
     return {
         "screen": merged,
-        "disqualified": bool(screen.get("disqualified")) or bool(verdict.get("disqualified")),
+        "disqualified": bool(screen.get("disqualified")) or bool(extra),
         "disqualification_reason": reason,
     }
 

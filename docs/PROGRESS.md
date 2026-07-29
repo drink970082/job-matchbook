@@ -582,6 +582,15 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   without confirmation (it takes the thin-JD path, which spends no fit call) — a thin JD
   cannot support a degree-bar reading either way, and those rows are held back from notify
   and shown for human review.
+  **The rates below are PRE-FIX and must not be re-quoted as current.** 83%/24% are why
+  the routing was decided; the clearance evidence floor (#24) already catches all 20 of
+  those clearance rows for free, and the degree residual is the 2-3 rows in Defects. The
+  build insures the residual, it does not re-fix the measured rate.
+  **The `authorization` exclusion is NOT "no model produced that verdict"** — that
+  rationale was written into the first draft and is false; authorization is a 4B labelling
+  retrieved snippets. It is excluded because its measured false-disqualification count is
+  **0** and it already carries retrieve-then-classify plus the offers/preference vetoes,
+  so a second look is the wrong trade on the check where a false positive is worst.
   Instead of a terminal `discarded`, a degree/clearance fail becomes `needs_confirmation`
   and goes to SCORE for the strong model to confirm.
   **Decided, do not re-litigate the fork.** The 2026-07-24 volume query resolved it: of

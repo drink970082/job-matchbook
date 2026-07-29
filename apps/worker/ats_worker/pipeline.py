@@ -680,14 +680,14 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
             else:
                 screen_breaker.record_success()
             if screen.get("disqualified"):
-                # A degree/clearance-ONLY fail is the one disqualification shape a 4B is
-                # measurably bad at (83% / 24% false), so it is re-checked by the strong
-                # model instead of being deleted: the failing verdicts are cleared, which
-                # makes them gaps `merge_fallback_screen` fills from the fit scorer's own
-                # extraction, arbitrated by the same CODE. Everything else stays terminal
-                # and free.
-                confirming = score.demote_for_confirmation(screen)
-                if confirming is None:
+                # A degree/clearance-ONLY fail is re-checked by the strong model instead
+                # of being deleted: the failing verdicts are cleared, which makes them
+                # gaps `merge_fallback_screen` fills from the fit scorer's own extraction,
+                # arbitrated by the same CODE. Which checks qualify and why — measured
+                # false-disqualification rate, not "a model produced it" — is
+                # `score.screen._CONFIRMABLE_CHECKS`. Everything else stays terminal and free.
+                demoted = score.demote_for_confirmation(screen)
+                if demoted is None:
                     db.save_score(
                         conn, row["id"], score=0,
                         score_detail=_score_detail(screen, disqualified=True),
@@ -695,16 +695,22 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
                     )
                     tally["discarded"] += 1
                     continue
-                screen = confirming
-                tally["confirming"] += 1
+                screen = demoted
             if len((posting.get("description") or "").strip()) < \
                     db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH:
                 # Too thin to trust a fit verdict on — bucket it low-context WITHOUT the
                 # paid fit call (the UI/notify gate would hold it back anyway). Screen was
                 # free (Ollama), so hard-disqualifications on thin JDs are still caught above.
+                # A demoted row lands here UNCONFIRMED: no fit call runs, so nothing rules
+                # on the check that was cleared. The `needs_confirmation` marker stays —
+                # it names a confirmation the row still needs, and a thin-JD row is held
+                # back from notify and shown for human review anyway — but it must NOT be
+                # counted below, which reports confirmations that actually cost quota.
                 _persist_low_context(conn, row, screen, now=now)
                 tally["thin"] += 1
             else:
+                if screen.get("needs_confirmation"):
+                    tally["confirming"] += 1
                 survivors.append((row, posting, screen))
 
     # Fit calls are also I/O-bound. Concurrency is QUOTA-NEUTRAL: N parallel codex
@@ -813,10 +819,13 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     remaining = conn.execute(
         "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='new'").fetchone()[0]
     unreached = len(rows) - done
-    # `sent for confirmation` is a SUBSET of the thin/fit counts, not a bucket of its own
-    # — the row was demoted out of `discarded` and then took a normal path. It is on the
-    # line because it is the one number that moved a free outcome to a paid one, and the
-    # bucket it left (`screen-discarded`) is the number an operator would otherwise watch.
+    # `sent for confirmation` OVERLAPS the other counts rather than adding to them: the
+    # row was demoted out of `discarded`, reached the fit phase, and then landed wherever
+    # that phase put it — `fit-scored` normally, but `failed` on a scorer error and
+    # `unreached` behind a tripped breaker. It is on the line because it is the number
+    # that moved a free outcome to a paid one, and the bucket it left (`screen-discarded`)
+    # is what an operator would otherwise be watching. It is NOT in `done` for the same
+    # reason: every row already increments exactly one of the four terms there.
     print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
           f"{tally['confirming']} sent for confirmation, "
