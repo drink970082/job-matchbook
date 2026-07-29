@@ -39,6 +39,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`fix/bucket-rules-and-location-gate` — first-live-pass UI/gate fixes** `[UI+SCORE · S]`.
+  Four defects found reviewing the 2026-07-29 queue by hand: (1) Below bar was the
+  catch-all, so `too_junior` rows the scorer had already ruled out sat beside genuine near
+  misses — the keep half now requires `seniority=match` and everything else scored routes
+  to Discarded; (2) `resolve_location`'s corroboration rule leaked foreign on-site roles
+  whose city the gazetteer misses (`Bangalore, India`, `Penang, Malaysia`) — a token that
+  *names* a country is now self-corroborating; (3) the Low-context why-cell called a
+  4,560-char JD "Thin JD" when the scorer's `insufficient_context` flag was what caught
+  it; (4) the Fit-assessment verdict rows were laid out as independent flex rows and
+  didn't align. See SPEC §7.1 (location), §12 (buckets) and the CHANGELOG.
+  **DB reset, same day:** the 509 `scored`/`notified` rows scored before 2026-07-29 were
+  **deleted** — the scoring prompt has since been tuned, so those verdicts were not
+  comparable to current output. Backup at `db/applications.db.backup-20260729-pre-scorereset`.
+  The 148 rows from the day's live passes were kept; the 3,857 `discarded` rows were
+  **not** touched (they are screen output, not fit output). Rows still live on their
+  boards will re-enter as `new` on the next fetch.
+
 - **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is

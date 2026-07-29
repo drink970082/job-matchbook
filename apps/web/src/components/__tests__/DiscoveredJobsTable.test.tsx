@@ -259,6 +259,41 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getByText(/internship\/co-op role/)).toBeInTheDocument()
   })
 
+  it('falls back to the verdict shortfall for a Discarded row with no disqualification reason', () => {
+    // The Discarded bucket also holds LIVE fit-verdict rejects, which carry no keyed
+    // disqualification_reason — printing the literal "disqualified" would be a lie.
+    const rows = [
+      {
+        ...mockJobs[0],
+        id: 25,
+        score: 8,
+        score_detail: JSON.stringify({
+          assessment: {
+            seniority: { verdict: 'too_junior' },
+            domain: { verdict: 'mismatch' },
+            must_haves: { missing: ['6 years of network routing'] },
+          },
+        }),
+      },
+    ]
+    renderTable({ data: rows, total: 1 })
+    fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
+    expect(screen.getByText('Too junior')).toBeInTheDocument()
+    expect(screen.getByText('Mismatch')).toBeInTheDocument()
+    expect(screen.queryByText(/✕ disqualified/)).not.toBeInTheDocument()
+  })
+
+  it('names WHICH low-context rule caught the row (short body vs scorer flag)', () => {
+    const rows = [
+      { ...mockJobs[0], id: 26, description: 'Too short.' },                    // < 200 chars
+      { ...mockJobs[0], id: 27, description: 'x'.repeat(4560) },                // scorer flag
+    ]
+    renderTable({ data: rows, total: 2 })
+    fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
+    expect(screen.getByText('Thin JD (10 chars)')).toBeInTheDocument()
+    expect(screen.getByText('Scorer found no usable detail (4560 chars)')).toBeInTheDocument()
+  })
+
   it('sends minScore in the filter payload', () => {
     jest.useFakeTimers()
     try {

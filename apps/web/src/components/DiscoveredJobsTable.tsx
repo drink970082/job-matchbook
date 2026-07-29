@@ -22,6 +22,7 @@ import {
 import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
 import { verdictClass, verdictLabel, safeParseDetail } from '@/lib/score-detail'
+import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
@@ -135,52 +136,61 @@ function parseDetail(raw?: string | null): ParsedDetail | null {
     }
 }
 
-// The signature element: a bucket-aware "why is this row here" subline under the role
-// title, scannable at a glance so you don't open each posting.
-function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; detail: ParsedDetail | null }) {
-    if (bucket === 'belowbar') {
-        // The shape of the shortfall: a pill for each of seniority/domain that isn't a
-        // clean match (too_junior, adjacent, mismatch…), then the specific gap.
-        const pills = [detail?.seniorityVerdict, detail?.domainVerdict]
-            .filter((v): v is string => !!v && v !== 'match')
-        const gap = detail?.firstMissing
-            ? `missing: ${detail.firstMissing}`
-            : (detail?.summary || detail?.domainNote || detail?.seniorityNote || '')
-        // Structured assessment (post round-2) is preferred; legacy rows with no
-        // scorecard fall back to the one-line `reasoning` so Below bar still says WHY
-        // it fell short, not just the score.
-        if (pills.length === 0 && !gap) {
-            const why = detail?.reasoning ?? ''
-            if (!why) return null
-            return (
-                <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={why}>
-                    {why}
-                </div>
-            )
-        }
+// The shape of the shortfall: a pill for each of seniority/domain that isn't a clean
+// match (too_junior, adjacent, mismatch…), then the specific gap. Shared by Below bar
+// (near misses) and the fit-verdict half of Discarded — the two differ only in WHICH
+// verdicts land them there, not in how the shortfall reads.
+function VerdictShortfall({ detail }: { detail: ParsedDetail | null }) {
+    const pills = [detail?.seniorityVerdict, detail?.domainVerdict]
+        .filter((v): v is string => !!v && v !== 'match')
+    const gap = detail?.firstMissing
+        ? `missing: ${detail.firstMissing}`
+        : (detail?.summary || detail?.domainNote || detail?.seniorityNote || '')
+    // Structured assessment (post round-2) is preferred; legacy rows with no scorecard
+    // fall back to the one-line `reasoning` so the row still says WHY it fell short,
+    // not just the score.
+    if (pills.length === 0 && !gap) {
+        const why = detail?.reasoning ?? ''
+        if (!why) return null
         return (
-            <div className="mt-0.5 flex items-center gap-1 min-w-0 text-[11px]">
-                {pills.map((v) => (
-                    <Badge
-                        key={v}
-                        variant="secondary"
-                        className={`${verdictClass(v)} shrink-0 px-1.5 py-0 text-[10px] font-medium`}
-                    >
-                        {verdictLabel(v)}
-                    </Badge>
-                ))}
-                {pills.length > 0 && gap && <span className="shrink-0 text-muted-foreground">·</span>}
-                {gap && (
-                    <span className="truncate min-w-0 text-muted-foreground" title={gap}>
-                        {gap}
-                    </span>
-                )}
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={why}>
+                {why}
             </div>
         )
     }
+    return (
+        <div className="mt-0.5 flex items-center gap-1 min-w-0 text-[11px]">
+            {pills.map((v) => (
+                <Badge
+                    key={v}
+                    variant="secondary"
+                    className={`${verdictClass(v)} shrink-0 px-1.5 py-0 text-[10px] font-medium`}
+                >
+                    {verdictLabel(v)}
+                </Badge>
+            ))}
+            {pills.length > 0 && gap && <span className="shrink-0 text-muted-foreground">·</span>}
+            {gap && (
+                <span className="truncate min-w-0 text-muted-foreground" title={gap}>
+                    {gap}
+                </span>
+            )}
+        </div>
+    )
+}
+
+// The signature element: a bucket-aware "why is this row here" subline under the role
+// title, scannable at a glance so you don't open each posting.
+function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; detail: ParsedDetail | null }) {
+    if (bucket === 'belowbar') return <VerdictShortfall detail={detail} />
 
     if (bucket === 'discarded') {
-        const reason = detail?.disqualificationReason || 'disqualified'
+        // Two populations share this bucket (see actions.ts). A hard-constraint screen
+        // failure has a keyed disqualification_reason; a fit-verdict reject has none, and
+        // reads as the same shortfall line Below bar uses. Falling back to the literal
+        // "disqualified" for a row that was never disqualified would be a lie.
+        const reason = detail?.disqualificationReason
+        if (!reason) return <VerdictShortfall detail={detail} />
         return (
             <div className="mt-0.5 truncate text-[11px] font-medium text-red-600" title={reason}>
                 ✕ {reason}
@@ -189,10 +199,17 @@ function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; 
     }
 
     if (bucket === 'lowcontext') {
+        // Low-context has TWO causes (actions.ts lowContextIds) and they read differently:
+        // a genuinely short body, or a full-length JD the fit scorer itself flagged as
+        // too boilerplate/truncated to trust. Reporting a 4,560-char JD as "Thin JD" was
+        // simply wrong — say which rule caught it.
         const len = (job.description ?? '').trim().length
+        const why = len < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH
+            ? `Thin JD (${len} chars)`
+            : `Scorer found no usable detail (${len} chars)`
         return (
             <div className="mt-0.5 text-[11px] text-muted-foreground">
-                Thin JD ({len} chars)
+                {why}
             </div>
         )
     }
