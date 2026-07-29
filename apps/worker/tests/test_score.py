@@ -1186,6 +1186,16 @@ def test_truncate_boundary_and_disabled():
     ("Toronto, ON", ["Canada", "USA", "remote"], True, ""),   # unchanged: Toronto->CA, allowed
     ("London, Ontario", ["Canada", "USA", "remote"], True, ""),  # unchanged: Ontario reads US, kept
     ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""), # accepted miss: lone city, region unresolved
+    # --- 2026-07-29 repros: the D8 corroboration rule must NOT apply to a token that
+    # NAMES a country. geonamescache indexes Bengaluru (not Bangalore) and no Penang at
+    # all, so these strings resolved on their country token alone — and every one of them
+    # leaked into the live queue as US-eligible.
+    ("Bangalore, India", ["remote", "USA"], False, "on-site in India"),
+    ("Bangalore,India", ["remote", "USA"], False, "on-site in India"),      # no space after comma
+    ("India, Bangalore", ["remote", "USA"], False, "on-site in India"),     # country-first order
+    ("Penang, Malaysia - Grande", ["remote", "USA"], False, "on-site in Malaysia"),
+    ("Remote - India", ["remote", "USA"], True, "remote"),  # (B) still wins over the country name
+    ("Bangalore, India", ["India", "remote"], True, ""),    # allowed country still keeps
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
     passed, note = score.resolve_location(location, allowed)

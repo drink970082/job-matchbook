@@ -836,13 +836,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   name via `pycountry`, else a city via **geonamescache** (highest-population match,
   so a tiny US namesake like Paris TX can't mask Paris FR) — and errs toward keep:
   keep if any token is US or an allowed country, discard only when the foreign reading
-  is **corroborated** — every token resolved, or at least two did — and none are
+  is **corroborated** — every token resolved, or at least two did, **or any one token
+  names a country outright** — and none are
   allowed (naming the first foreign country), keep if nothing resolves (**D2**). The
   corroboration requirement exists because only **US** subdivisions are in the
   gazetteer: without it, `London, ON` dropped its unresolved `ON` and was judged by
   `London` alone as United Kingdom, discarding a Canadian posting under a reason that
-  named the wrong country. It costs misses only (`Hyderabad, TS` keeps = one fit call),
-  never a live match. US-state and remote strings keep, so a
+  named the wrong country. The **named-country exemption** exists because the *city*
+  gazetteer has holes: geonamescache indexes Bengaluru but not Bangalore, and no Penang
+  at all, so `Bangalore, India` / `Penang, Malaysia - Grande` resolved on their country
+  token alone, failed corroboration, and leaked into the live queue as US-eligible
+  (2026-07-29). A token that *names* a country is self-corroborating; the
+  city-only case is unchanged, so `Hyderabad, TS` still keeps (one wasted fit call,
+  never a lost live match). US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
   carries no location clause. The scoring prompts live in **two** files —
   `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN
@@ -1197,17 +1203,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   (200; the trimmed-`description` char count below which a scored posting is bucketed
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
   to extend statuses/sources (categories are edited in-app, not here).** `MATCH_SCORE_THRESHOLD` was **removed** — the
-  Discovered-Jobs matched/below-bar split is now the verdict predicate (`matchedIds()` in
-  `lib/actions.ts`, mirroring the worker's `db.get_notifiable`), not a score cutoff; the
-  fit score is display/ranking only.
+  Discovered-Jobs matched/below-bar/discarded split is now the verdict predicate
+  (`matchedIds()` / `belowBarIds()` in `lib/actions.ts`, the former mirroring the worker's
+  `db.get_notifiable`), not a score cutoff; the fit score is display/ranking only.
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (bucket tabs on their
   own row — Matched/Below-bar/Discarded/Failed/Low-context — above a filter row of sort
   toggle Best match/Newest posted + score/disqualification-cause filters; a bucket-aware
-  per-row "why" subline (below-bar seniority/domain verdict pills + top missing must-have,
-  falling back to the legacy one-line `reasoning` for pre-S2.1 rows; disqualification
-  reason; thin-JD size; pipeline error); a `recommended_resume` label under the score;
+  per-row "why" subline (a shared `VerdictShortfall` — seniority/domain verdict pills +
+  top missing must-have — for below-bar AND for the fit-reject half of discarded, falling
+  back to the legacy one-line `reasoning` for pre-S2.1 rows; the keyed disqualification
+  reason when there is one; **which** low-context rule caught the row — a short body
+  ("Thin JD (N chars)") vs the scorer's own `insufficient_context` flag on a full-length
+  JD; pipeline error); a `recommended_resume` label under the score;
   folded Company/location/source and Posted/Fetched date columns + bulk
   Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
   `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
@@ -1531,14 +1540,20 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) — so **the UI's Matched tab and the Telegram alert
   agree**: a short-but-confident `match/match` JD is held back on both sides and shown
   under **Low-context**. (The `200` is hand-synced between `get_notifiable` and web
-  `constants.ts` — a cross-service constant, flagged in both.) **belowbar** = `{scored,
-  notified}` rows outside
-  that id set — every scored-but-not-a-verdict-match row, *including* deep misses, so
-  nothing scored is orphaned (a row that reached scoring is never retroactively
-  disqualified, so this is cleanly "scored, not a match"); **discarded** =
-  disqualified **only**: `pipeline_status='discarded'` with the screen's `disqualified:true`
-  (substring-matched in `score_detail`, tolerating `"disqualified": true` / `"disqualified":true`
-  spacing) — a non-matching scored row is **not** discarded (it lives in belowbar);
+  `constants.ts` — a cross-service constant, flagged in both.) The **keep** half of the
+  verdicts always requires `seniority=match` — a seniority miss is disqualifying, not
+  partial (`prompts/score.txt`) — and then splits on domain: **belowbar** = `{scored,
+  notified}` rows reading `seniority=match AND domain=adjacent` (`belowBarIds()`, the
+  same raw-query shape as `matchedIds()`) — the **near miss**, worth a human glance;
+  **discarded** = the audit view, **two** populations OR'd: (1) hard-constraint screen
+  failures, `pipeline_status='discarded'` with the screen's `disqualified:true`
+  (substring-matched in `score_detail`, tolerating `"disqualified": true` /
+  `"disqualified":true` spacing), and (2) **fit-verdict rejects** — live rows in neither
+  the matched nor the below-bar id set, i.e. a seniority miss (`too_junior`/`too_senior`)
+  or `domain=mismatch`. Together the three buckets cover every scored row, so nothing is
+  orphaned. Only population (1) carries a keyed `disqualification_reason`, so the
+  discarded why-cell falls back to the same verdict-shortfall line Below bar uses rather
+  than claiming a row was "disqualified" when it wasn't;
   **lowcontext** = `{scored, notified}` rows too thin to score with confidence, by
   **either** signal (OR): a short JD body (`LENGTH(TRIM(description)) <
   LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the fit scorer's
@@ -1801,7 +1816,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
 | The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_score.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
 | Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
-| Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
+| Deterministic location gate (`resolve_location`, pycountry + geonamescache; every token resolved): foreign→discard, US-state/US-city/remote/missing→keep; a token that NAMES a country is self-corroborating (a city-only reading still needs a second agreeing token) | `test_score.py` (`test_resolve_location`, `test_token_country_*` + gate integration tests) |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
@@ -1822,7 +1837,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A score run is interruptible (`KeyboardInterrupt` → `cancel_futures`, queued fit calls not drained) and persists finished work as it completes (`as_completed` + `future→chunk` map) | `test_pipeline.py` (`test_run_score_keyboard_interrupt_cancels_pending_keeps_done`) |
 | `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_five_stages_in_order`) |
 | A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
-| Discovered-jobs score-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; discarded = disqualified only; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
+| Discovered-jobs verdict-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; keep needs `seniority=match`, then domain splits match→matched / adjacent→belowbar; discarded = hard-constraint failures **plus** fit-verdict rejects; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |

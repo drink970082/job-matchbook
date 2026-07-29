@@ -127,14 +127,18 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
           states, not Israel/Canada/Gabon) or an allowed country; discard only when the
           foreign reading is CORROBORATED and none are allowed, naming the first
           foreign country.
-      (F) nothing resolved -> keep (err toward keep, as today). A LONE resolved token
-          sitting beside an unresolved one is uncorroborated and also keeps: no
+      (F) nothing resolved -> keep (err toward keep, as today). A lone CITY-derived
+          token sitting beside an unresolved one is uncorroborated and also keeps: no
           country's subdivisions but the US's are in the gazetteer, so 'London, ON'
           used to drop its unresolved 'ON' and be judged by 'London'->GB — discarding
-          a Canadian posting under a reason that named the wrong country. Requiring a
-          second agreeing token ('London, England, United Kingdom' still discards on
-          London+United Kingdom) costs only misses: 'Hyderabad, TS' now keeps, which
-          is one wasted fit call versus losing a live match.
+          a Canadian posting under a reason that named the wrong country. That
+          corroboration rule does NOT apply to a token that names a country outright:
+          'India' in 'Bangalore, India' is self-corroborating, and demanding a second
+          agreeing token leaked every foreign posting whose city the gazetteer misses
+          (geonamescache indexes Bengaluru, not Bangalore; Penang not at all — so
+          'Bangalore, India' and 'Penang, Malaysia - Grande' both scored as US-eligible).
+          The remaining cost is city-only strings: 'Hyderabad, TS' still keeps, which is
+          one wasted fit call versus losing a live match.
     """
     if not location_str or not str(location_str).strip():
         return True, ""                                                      # (A)
@@ -162,7 +166,11 @@ def resolve_location(location_str, allowed_locations) -> tuple[bool, str]:
     # country; discard only when the foreign reading is corroborated (see (F)).
     resolved = [(t, _token_country(t)) for t in tokens]
     codes = [c for _, c in resolved if c]
-    if not codes or (len(codes) == 1 and len(codes) < len(resolved)):
+    # A token that NAMES a country needs no second opinion; only city-derived codes do.
+    # (_country_code, not `c`, because _token_country resolves a US state first —
+    # 'Georgia' -> US — and the state reading is the one that must win.)
+    named_country = any(c and _country_code(t) for t, c in resolved)
+    if not codes or (not named_country and len(codes) == 1 and len(codes) < len(resolved)):
         return True, ""                                                      # (F)
     keep_codes = allowed_codes | {"US"}  # ponytail: US always keep-worthy (US-based operator + postal guard)
     if any(c in keep_codes for c in codes):

@@ -53,15 +53,20 @@ export async function getApplications(params: {
 const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
 
 // Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
-// non-lowcontext bucket is mutually exclusive of the derived low-context id set:
-//   matched    — live (scored|notified) + fit verdicts are seniority=match AND
-//                domain=match AND NOT insufficient_context (the actionable set —
-//                the SAME predicate the worker's notify gate uses, so the UI and
-//                the Telegram notification never disagree; see matchedIds)
-//   belowbar   — live + NOT in the matched id set (scored, but not a verdict match —
-//                incl. deep misses; nothing scored is ever orphaned)
-//   discarded  — disqualified ONLY: pipeline_status='discarded' with the screen's
-//                disqualified:true (hard-constraint failures — the audit view)
+// non-lowcontext bucket is mutually exclusive of the derived low-context id set.
+// The KEEP half of the fit verdicts requires seniority=match — a seniority miss is
+// disqualifying, not partial (see prompts/score.txt) — and then splits on domain:
+//   matched    — live (scored|notified) + seniority=match AND domain=match AND NOT
+//                insufficient_context (the actionable set — the SAME predicate the
+//                worker's notify gate uses, so the UI and the Telegram notification
+//                never disagree; see matchedIds)
+//   belowbar   — live + seniority=match AND domain=adjacent: the NEAR MISS, worth a
+//                human glance (see belowBarIds)
+//   discarded  — the audit view, two populations: hard-constraint screen failures
+//                (pipeline_status='discarded' + disqualified:true) AND live rows the
+//                fit verdicts rejected (too_junior/too_senior, or domain=mismatch).
+//                Everything scored that is neither matched nor below bar lands here,
+//                so nothing is ever orphaned.
 //   lowcontext — live but the JD was too thin to score with confidence (derived)
 //   failed     — pipeline failure, for monitoring
 export type JobBucket = 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowcontext'
@@ -89,7 +94,7 @@ function buildJobWhere(params: {
     bucket?: JobBucket
     search?: string
     minScore?: number
-}, matchIds: number[]): Prisma.job_postingsWhereInput {
+}, matchIds: number[], belowIds: number[]): Prisma.job_postingsWhereInput {
     const bucket = params.bucket ?? 'matched'
     const search = params.search || ''
     const minScore = params.minScore
@@ -98,26 +103,36 @@ function buildJobWhere(params: {
     if (bucket === 'failed') {
         bucketFilter = { pipeline_status: 'failed' }
     } else if (bucket === 'discarded') {
-        // Disqualified ONLY — hard-constraint screen failures. (Below-threshold scored
-        // rows are NOT disqualified; they live in the `belowbar` bucket now.)
-        // Substring-match the score_detail JSON; tolerate json.dumps spacing
-        // ("disqualified": true) and compact ("disqualified":true).
+        // Two populations, OR'd. (1) Hard-constraint screen failures: status
+        // 'discarded' + disqualified:true — substring-matched on the score_detail JSON,
+        // tolerating json.dumps spacing ("disqualified": true) and compact
+        // ("disqualified":true). (2) Fit-verdict rejects: live rows in neither the
+        // matched nor the below-bar set — a seniority miss (too_junior/too_senior) or
+        // domain=mismatch. Guarded like the lowIds `notIn`: an empty keep set must NOT
+        // emit `NOT IN ()` (which SQLite/Prisma would treat as excluding nothing rather
+        // than excluding everything) — with nothing kept, every live row IS a reject.
+        const keepIds = [...matchIds, ...belowIds]
         bucketFilter = {
-            pipeline_status: 'discarded',
             OR: [
-                { score_detail: { contains: '"disqualified": true' } },
-                { score_detail: { contains: '"disqualified":true' } },
+                {
+                    pipeline_status: 'discarded',
+                    OR: [
+                        { score_detail: { contains: '"disqualified": true' } },
+                        { score_detail: { contains: '"disqualified":true' } },
+                    ],
+                },
+                {
+                    pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
+                    ...(keepIds.length > 0 ? { id: { notIn: keepIds } } : {}),
+                },
             ],
         }
     } else if (bucket === 'belowbar') {
-        // Scored but not a verdict match: live rows outside the matched id set (incl.
-        // deep misses — nothing scored is orphaned). ACTIVE rows are never
-        // disqualified, so this is cleanly "scored yet not a match". Guarded like the
-        // lowIds `notIn`: an empty matchIds must NOT emit `NOT IN ()` (which SQLite/
-        // Prisma would treat as excluding nothing rather than excluding everything).
+        // The near miss: seniority=match AND domain=adjacent. An empty belowIds
+        // correctly yields `id IN ()` → no rows, so no guard is needed here.
         bucketFilter = {
             pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
-            ...(matchIds.length > 0 ? { id: { notIn: matchIds } } : {}),
+            id: { in: belowIds },
         }
     } else {
         // matched — the SAME verdict predicate as the worker's notify gate
@@ -200,6 +215,23 @@ async function matchedIds(): Promise<number[]> {
     return rows.map((r) => Number(r.id))
 }
 
+// Ids of "below bar" postings — the NEAR MISS: seniority=match AND domain=adjacent
+// (and not flagged insufficient_context). Same raw-query shape as matchedIds, and the
+// two sets together are the whole KEEP half of the fit verdicts: domain=match is
+// actionable (Matched), domain=adjacent is worth a glance (Below bar). A seniority
+// miss never reaches either — prompts/score.txt treats seniority as disqualifying
+// rather than partial — so those rows fall through to the Discarded audit view.
+async function belowBarIds(): Promise<number[]> {
+    const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
+        SELECT id FROM job_postings
+        WHERE pipeline_status IN ('scored', 'notified')
+          AND json_extract(score_detail, '$.assessment.seniority.verdict') = 'match'
+          AND json_extract(score_detail, '$.assessment.domain.verdict') = 'adjacent'
+          AND COALESCE(json_extract(score_detail, '$.insufficient_context'), 0) <> 1
+    `
+    return rows.map((r) => Number(r.id))
+}
+
 export async function getJobPostings(params: {
     bucket?: JobBucket
     search?: string
@@ -214,7 +246,9 @@ export async function getJobPostings(params: {
     const search = params.search || ''
     const minScore = params.minScore
 
-    const [lowIds, matchIds] = await Promise.all([lowContextIds(), matchedIds()])
+    const [lowIds, matchIds, belowIds] = await Promise.all([
+        lowContextIds(), matchedIds(), belowBarIds(),
+    ])
     let where: Prisma.job_postingsWhereInput
     if (params.bucket === 'lowcontext') {
         // The low-context bucket IS the thin-JD id set, plus the shared search/minScore filters.
@@ -232,7 +266,7 @@ export async function getJobPostings(params: {
         // exclusive (a thin-JD scored row shows only under Low-context). Append the
         // exclusion as a peer clause (keeping buildJobWhere's flat AND shape); guarded
         // so an empty set doesn't emit a `NOT IN ()`.
-        const base = buildJobWhere(params, matchIds)
+        const base = buildJobWhere(params, matchIds, belowIds)
         // Discarded-only cause sub-filter: layer the raw-query id set as `id IN`.
         const causeClause =
             params.bucket === 'discarded' && params.cause
@@ -327,8 +361,10 @@ export async function removeAllInView(filter: {
     cause?: DisqualifyCause
 }) {
     try {
-        const [lowIds, matchIds] = await Promise.all([lowContextIds(), matchedIds()])
-        const base = buildJobWhere(filter, matchIds)
+        const [lowIds, matchIds, belowIds] = await Promise.all([
+            lowContextIds(), matchedIds(), belowBarIds(),
+        ])
+        const base = buildJobWhere(filter, matchIds, belowIds)
         const causeClause =
             filter.bucket === 'discarded' && filter.cause
                 ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
@@ -336,9 +372,10 @@ export async function removeAllInView(filter: {
         // Mirror getJobPostings' "every other bucket" exclusion (buildJobWhere has no
         // lowcontext case of its own — see getJobPostings) so a bulk-remove can never
         // sweep up a row that's actually showing under the Low-context tab. Same guard:
-        // an empty lowIds must not emit `NOT IN ()`. No-op today (the button only shows
-        // on Discarded, whose pipeline_status='discarded' never overlaps lowContextIds'
-        // scored|notified scope) — defensive if the button is ever exposed elsewhere.
+        // an empty lowIds must not emit `NOT IN ()`. This is load-bearing now that the
+        // Discarded bucket also holds LIVE fit-verdict rejects (scored|notified), which
+        // DO overlap lowContextIds' scope — a thin-JD row must not be swept from a view
+        // it isn't showing in.
         const where: Prisma.job_postingsWhereInput = {
             AND: [
                 ...(base.AND as Prisma.job_postingsWhereInput[]),

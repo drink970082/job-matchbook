@@ -280,7 +280,12 @@ describe('Backend Actions', () => {
       )
     })
 
-    it('discarded bucket = disqualified only (discarded status + disqualified flag)', async () => {
+    it('discarded bucket = hard-constraint failures OR live fit-verdict rejects', async () => {
+      // Queue: low-context = [], matched = [11], below-bar = [22] — the union is the
+      // KEEP set, and every live row outside it is a fit-verdict reject.
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 11 }])
+      mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 22 }])
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
@@ -291,10 +296,18 @@ describe('Backend Actions', () => {
           where: expect.objectContaining({
             AND: expect.arrayContaining([
               expect.objectContaining({
-                pipeline_status: 'discarded',
                 OR: [
-                  { score_detail: { contains: '"disqualified": true' } },
-                  { score_detail: { contains: '"disqualified":true' } },
+                  {
+                    pipeline_status: 'discarded',
+                    OR: [
+                      { score_detail: { contains: '"disqualified": true' } },
+                      { score_detail: { contains: '"disqualified":true' } },
+                    ],
+                  },
+                  {
+                    pipeline_status: { in: ['scored', 'notified'] },
+                    id: { notIn: [11, 22] },
+                  },
                 ],
               }),
             ]),
@@ -303,8 +316,22 @@ describe('Backend Actions', () => {
       )
     })
 
-    it('belowbar bucket = live rows outside the matched-verdict id set', async () => {
-      // Queue: low-context = [] (no notIn), matched-verdict = [11, 22] (excluded via notIn).
+    it('discarded bucket omits notIn entirely when nothing is kept', async () => {
+      // Guard: an empty keep set must not emit `id: { notIn: [] }` — with nothing
+      // matched and nothing near-missing, EVERY live row is a reject.
+      mockPrisma.$queryRaw.mockResolvedValue([] as any)
+      mockPrisma.job_postings.findMany.mockResolvedValue([])
+      mockPrisma.job_postings.count.mockResolvedValue(0)
+
+      await getJobPostings({ bucket: 'discarded' })
+
+      const where = (mockPrisma.job_postings.findMany.mock.calls[0][0] as any).where
+      expect(JSON.stringify(where)).not.toContain('notIn')
+    })
+
+    it('belowbar bucket = exactly the near-miss id set (seniority match + domain adjacent)', async () => {
+      // Queue: low-context = [], matched-verdict = [] (unused here), below-bar = [11, 22].
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
       mockPrisma.$queryRaw.mockResolvedValueOnce([])
       mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 11 }, { id: 22 }])
       mockPrisma.job_postings.findMany.mockResolvedValue([])
@@ -318,25 +345,12 @@ describe('Backend Actions', () => {
             AND: expect.arrayContaining([
               expect.objectContaining({
                 pipeline_status: { in: ['scored', 'notified'] },
-                id: { notIn: [11, 22] },
+                id: { in: [11, 22] },
               }),
             ]),
           }),
         })
       )
-    })
-
-    it('belowbar bucket omits notIn entirely when the matched-verdict id set is empty', async () => {
-      // Guard: an empty matchIds must not emit `id: { notIn: [] }` (which would exclude
-      // nothing rather than nothing being excluded from a would-be-empty set).
-      mockPrisma.$queryRaw.mockResolvedValue([] as any)
-      mockPrisma.job_postings.findMany.mockResolvedValue([])
-      mockPrisma.job_postings.count.mockResolvedValue(0)
-
-      await getJobPostings({ bucket: 'belowbar' })
-
-      const where = (mockPrisma.job_postings.findMany.mock.calls[0][0] as any).where
-      expect(JSON.stringify(where)).not.toContain('notIn')
     })
 
     it('failed bucket filters to pipeline_status=failed', async () => {
@@ -394,10 +408,10 @@ describe('Backend Actions', () => {
     })
 
     it('cause sub-filter layers a disqualification-cause id set onto the discarded bucket', async () => {
-      // getJobPostings runs lowContextIds() then matchedIds() (via Promise.all, in that
-      // order), then disqualifyCauseIds(); all three use $queryRaw. Queue: low-context =
-      // [] (no notIn), matched-verdict = [] (unused by the discarded bucket), cause =
-      // [4, 8] (the id IN set).
+      // getJobPostings runs lowContextIds(), matchedIds(), belowBarIds() (via Promise.all,
+      // in that order), then disqualifyCauseIds(); all four use $queryRaw. Queue:
+      // low-context = [], matched = [], below-bar = [], cause = [4, 8] (the id IN set).
+      mockPrisma.$queryRaw.mockResolvedValueOnce([])
       mockPrisma.$queryRaw.mockResolvedValueOnce([])
       mockPrisma.$queryRaw.mockResolvedValueOnce([])
       mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 4 }, { id: 8 }])

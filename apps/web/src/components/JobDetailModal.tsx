@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import {
     Dialog,
     DialogContent,
@@ -184,15 +184,20 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                 <div className="space-y-3 px-4 pb-4">
                                     {assessment ? (
                                         <>
-                                            <div className="flex flex-wrap gap-x-6 gap-y-2">
+                                            {/* A 3-column grid, not per-row flex: the label and pill
+                                                columns size to the widest cell, so the notes start at
+                                                the same x on both rows. Under flex each row sized
+                                                independently and a wide pill ("too_junior") pushed its
+                                                note out of line with the row below. */}
+                                            <div className="grid grid-cols-[max-content_max-content_1fr] items-start gap-x-2 gap-y-2">
                                                 {([['Seniority', assessment.seniority], ['Domain', assessment.domain]] as const).map(([label, v]) => (
-                                                    <div key={label} className="flex items-center gap-1.5 text-sm">
-                                                        <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-                                                        <Badge variant="secondary" className={verdictClass(v.verdict)}>
+                                                    <Fragment key={label}>
+                                                        <span className="text-xs font-semibold text-muted-foreground py-0.5">{label}</span>
+                                                        <Badge variant="secondary" className={`${verdictClass(v.verdict)} justify-center`}>
                                                             {v.verdict || '—'}
                                                         </Badge>
-                                                        {v.note && <span className="text-xs text-muted-foreground">{v.note}</span>}
-                                                    </div>
+                                                        <span className="text-xs text-muted-foreground py-0.5">{v.note}</span>
+                                                    </Fragment>
                                                 ))}
                                             </div>
                                             {assessment.mustHaves.met.length > 0 && (
