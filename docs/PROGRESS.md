@@ -66,26 +66,6 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   tier-3 location fact is structurally unreachable until tier 1 stops writing the key on
   an unresolved verdict (`resolved: False` already carries that signal).
 
-- **`feat/usage-endpoint-both-backends` — the quota bar reads a provider endpoint and
-  follows `SCORE_BACKEND`** `[SCORE+WEB · M]`. Closes the "codex usage bar is
-  backend-locked" gap that used to sit under Open. Two changes: (1) `score/usage.py` now
-  makes ONE HTTP GET per pass (`/backend-api/codex/usage`, `/api/oauth/usage`) instead of
-  scraping a codex session rollout — which deletes the `--ephemeral`-off hack, so a
-  scoring pass no longer writes the résumé+JD prompt to disk at all; (2) the snapshot
-  records `backend`, so the bar (`ScorerUsageBar`, `/api/scorer-usage`,
-  `scorer_usage.json`) relabels itself instead of showing "No codex usage" forever on
-  `SCORE_BACKEND=claude`. See SPEC §7.1 "Quota telemetry" and §13.
-  **The claude caveat the old Open item flagged is REAL and is now stated in the UI, not
-  designed away:** `/api/oauth/usage` reports the **Claude Code subscription**, while
-  `make_claude_scorer` bills `ANTHROPIC_API_KEY` (metered — no percent-of-quota endpoint
-  exists for it). The bar shows the subscription numbers under an explicit one-line
-  disclaimer. If the operator wants the budget the claude scorer *actually* spends, the
-  honest source is the `anthropic-ratelimit-*` response headers off each scoring call —
-  a different shape (short-window headroom, not a weekly budget) and not built here.
-  **Also unresolved:** `ANTHROPIC_API_KEY` is not set in this deployment, so the claude
-  backend cannot currently run at all; the claude half of this is verified against the
-  live endpoint but not against a live claude scoring pass.
-
 - **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
