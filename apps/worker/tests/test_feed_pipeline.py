@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from ats_worker import db, pipeline
 from tests._helpers import NOW, FIXTURES, make_posting as _posting
 
@@ -447,18 +449,21 @@ def test_run_feed_keeps_a_listing_inside_the_age_window(db_path):
     assert inserted == 1
 
 
-def test_run_feed_keeps_a_listing_with_no_readable_date(db_path):
+@pytest.mark.parametrize("bad", [None, "", "not-a-date", [], {}, "2026-06-01"])
+def test_run_feed_keeps_a_listing_with_no_readable_date(db_path, bad):
     # Err toward keep, the same policy the board path applies to a dateless posting.
+    # Parametrized rather than looped over one connection: a loop reusing the same url
+    # makes every iteration after the first a no-op upsert, so the assertion would pass
+    # on iteration 1 alone and the other cases would measure nothing.
+    # "2026-06-01" is an ISO date, NOT the epoch int the feed actually sends — int()
+    # rejects it, so it must land here (kept) rather than be silently half-parsed.
     conn = db.connect(db_path)
-    for bad in (None, "", "not-a-date"):
-        inserted = pipeline.run_feed(
-            conn, now=NOW, feed_fn=lambda b=bad: [_listing("Software Engineer",
-                                                           date_posted=b)],
-            keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
-            detail_fetch_fn=_detail_serves, max_age_days=30,
-        )
-        # first call inserts, the rest dedup via ON CONFLICT DO NOTHING
-        assert inserted in (0, 1)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, max_age_days=30,
+        feed_fn=lambda: [_listing("Software Engineer", date_posted=bad)],
+    )
+    assert inserted == 1
     assert len(db.get_by_status(conn, "new")) == 1
 
 

@@ -318,7 +318,12 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # candidate hard-requirement edit, bring every discard back to 'new' so this
         # same pass re-screens it under the new rules. Screening is free on the
         # default ollama backend; the PAID fit call that follows for each survivor is
-        # bounded by --score-limit, so pair the two on a large backlog.
+        # what --score-limit bounds.
+        # It bounds the SPEND, not the SELECTION, and the difference matters here.
+        # requeue_discarded is unfiltered, so the cap lands on an arbitrary prefix of
+        # every requeued discard — it cannot be aimed at the rows a particular rescreen
+        # was for. Recovering a specific set needs a selector this flag does not have
+        # (SPEC §9, PROGRESS queue item 2).
         if rescreen_discarded:
             # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
             # discards. Requeueing one destroys it, but skipping it is not a rescue
@@ -473,6 +478,32 @@ class PassInProgress(RuntimeError):
     """Another pipeline pass on this host already holds the lock."""
 
 
+def _recorded_holder(fd) -> str:
+    """The pid recorded in the lock file, but only if a process by that number is
+    actually alive — else "unknown".
+
+    The file is never unlinked, so whatever pid it holds outlives its writer. Two ways
+    a contender would otherwise report a corpse as the live holder and send the
+    operator hunting a process that does not exist: a read-only holder cannot
+    overwrite the previous pid at all, and even a writable one has a window between
+    taking the flock and writing. Liveness is the only thing that distinguishes them
+    from here. A recycled pid can still mislead — which is exactly why the lock is an
+    flock and the pid is a diagnostic, not the mechanism.
+    """
+    raw = os.pread(fd, 32, 0).decode("utf-8", "replace").strip()
+    try:
+        os.kill(int(raw), 0)
+    except ValueError:
+        return "unknown"                 # empty file, or not a number
+    except ProcessLookupError:
+        return "unknown"                 # recorded, but that process is gone
+    except PermissionError:
+        return raw                       # alive, just not ours to signal (a root pass)
+    except OSError:
+        return "unknown"
+    return raw
+
+
 def _lock_open_error(path, exc) -> str:
     """The message for a lock we could not open AT ALL. Opening is not contention and
     must never be reported as it, so it names the path and the fix."""
@@ -525,12 +556,16 @@ def pass_lock(path=None):
             fd = os.open(str(path), os.O_RDONLY | _flags)
             read_only = True
         except OSError as exc:
+            # Not even readable — a 0600 file owned by someone else lands HERE, not in
+            # the generic branch below, because EACCES is a PermissionError. Nothing to
+            # degrade to, so fail loud like any other unopenable lock.
             raise RuntimeError(_lock_open_error(path, exc)) from exc
     except OSError as exc:
-        # Opening the lock is NOT contention, and must not be reported as it. A
-        # umask-0600 file, a missing TMPDIR — each fails here forever, and "never
-        # unlinked" means nothing self-heals. Fail loud and name the path, rather than
-        # a traceback or a false "already running".
+        # Opening the lock is NOT contention, and must not be reported as it. A missing
+        # TMPDIR, a symlink refused by O_NOFOLLOW (ELOOP), a read-only filesystem
+        # (EROFS) — each fails here forever, and "never unlinked" means nothing
+        # self-heals. Fail loud and name the path, rather than a traceback or a false
+        # "already running".
         raise RuntimeError(_lock_open_error(path, exc)) from exc
     else:
         read_only = False
@@ -547,19 +582,21 @@ def pass_lock(path=None):
                     f"contention — the filesystem holding it does not support flock. "
                     f"Point TMPDIR at a local filesystem."
                 ) from exc
-            holder = os.pread(fd, 32, 0).decode("utf-8", "replace").strip() or "unknown"
             raise PassInProgress(
-                f"another pipeline pass is already running on this host (pid {holder}, "
-                f"lock {path}) — refusing to start a second one; a duplicate pass would "
-                f"re-spend paid fit-scorer quota"
+                f"another pipeline pass is already running on this host "
+                f"(pid {_recorded_holder(fd)}, lock {path}) — refusing to start a "
+                f"second one; a duplicate pass would re-spend paid fit-scorer quota"
             ) from None
         if read_only:
-            # The lock is held and doing its job; only the pid record is unavailable.
-            # Say so loudly — a contending pass will report "pid unknown", and the
-            # operator should fix the file's owner rather than learn to ignore that.
+            # The lock is held and doing its job; only the pid record is unavailable,
+            # so the file keeps whatever pid its last writable holder left. That is why
+            # a contender checks liveness (_recorded_holder) instead of trusting the
+            # bytes — otherwise it would name a corpse as the running pass. Say all of
+            # it out loud: the operator should fix the file's owner, not learn to
+            # ignore a degraded lock.
             print(f"[pass] holding {path} read-only (pid {os.getpid()} NOT recorded — "
-                  f"this file is not writable by this user; a second pass will report "
-                  f"'pid unknown'. Check its owner and mode)", flush=True)
+                  f"this file is not writable by this user, so it still holds an older "
+                  f"pid. Check its owner and mode)", flush=True)
         else:
             os.ftruncate(fd, 0)
             os.write(fd, f"{os.getpid()}\n".encode())

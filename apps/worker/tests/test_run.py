@@ -911,6 +911,57 @@ def test_an_unwritable_lock_still_guards_the_pass(tmp_path, capsys):
     assert "NOT recorded" in out                 # and so is the lost pid diagnostic
 
 
+def test_an_unreadable_lock_fails_loud_instead_of_degrading(tmp_path, monkeypatch):
+    # The read-only fallback exists for a lock we can still READ. One we cannot open at
+    # all has nothing to degrade to, so it must fail loud like any other unopenable
+    # lock — never silently proceed without a guard, and never claim contention.
+    lock = tmp_path / "pass.lock"
+    lock.write_text("1\n")
+    real_open = os.open
+
+    def denied(p, flags, *a, **kw):     # both modes refused, as for a 0600 file
+        if str(p) == str(lock):         # owned by another user
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open(p, flags, *a, **kw)
+
+    monkeypatch.setattr(run.os, "open", denied)
+    with pytest.raises(RuntimeError) as exc:
+        with run.pass_lock(lock):
+            pytest.fail("held a lock that could not be opened in either mode")
+    assert not isinstance(exc.value, run.PassInProgress)
+    assert str(lock) in str(exc.value)
+    assert "TMPDIR" in str(exc.value)
+
+
+def test_a_contender_never_names_a_dead_pid_as_the_holder(tmp_path):
+    # The lock file is never unlinked, so its pid outlives the process that wrote it.
+    # A read-only holder cannot overwrite it at all, and even a writable one has a
+    # window between taking the flock and writing — so the bytes alone would make a
+    # contender report a corpse as the running pass and send the operator hunting a
+    # process that does not exist. That is the very "is this pid the same process"
+    # guessing game flock exists to avoid.
+    lock = tmp_path / "pass.lock"
+    lock.write_text("999999\n")                  # a pid that is not running
+    lock.chmod(0o444)                            # force the read-only hold
+    with run.pass_lock(lock):
+        with pytest.raises(run.PassInProgress) as exc:
+            with run.pass_lock(lock):
+                pytest.fail("two passes held the lock at once")
+    assert "pid unknown" in str(exc.value)
+    assert "999999" not in str(exc.value)
+
+
+def test_a_contender_names_the_holder_when_the_pid_is_live(tmp_path):
+    # The diagnostic still works in the normal case — the liveness check must not
+    # turn every contention message into a useless "unknown".
+    lock = tmp_path / "pass.lock"
+    with run.pass_lock(lock):
+        with pytest.raises(run.PassInProgress) as exc:
+            with run.pass_lock(lock):
+                pytest.fail("two passes held the lock at once")
+    assert f"pid {os.getpid()}" in str(exc.value)
+
+
 def test_a_filesystem_without_flock_is_not_reported_as_contention(monkeypatch, tmp_path):
     # NFS without lockd, some FUSE mounts: flock raises ENOLCK/ENOSYS rather than
     # EWOULDBLOCK. Reporting that as contention refuses EVERY pass forever while telling

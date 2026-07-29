@@ -240,12 +240,21 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     one bad board never aborts the batch.
 
     `title_filter`/`title_exclude`/`max_age_days` are the operator's coarse filters,
-    the SAME ones `run_fetch` applies and via the same `prefilter_postings` — one
-    ingest rule for both paths, so they cannot drift apart again. They run before
-    the resolve, which is the only point that saves all three downstream costs (URL
-    resolve, board detail fetch, screen call). The feed's own `prefilter_fn` gate is
-    a different thing and still runs first: it covers active/category/sponsorship,
+    the same ones `run_fetch` applies and through the same `prefilter_postings`, so
+    the rule cannot drift apart between the two paths. They run before the resolve,
+    the earliest point that saves anything. The feed's own `prefilter_fn` gate is a
+    different thing and still runs first: it covers active/category/sponsorship,
     which the board path has no equivalent for.
+
+    **One asymmetry to know about, deliberate and not yet closed.** `run_fetch` treats
+    its stub-level filter as a pure optimization and re-runs `prefilter_postings` over
+    what the board actually returned, so the stored `posted_at` is the one that was
+    judged. Here the filter is *decisive* and judged on the FEED's `date_posted`, which
+    is a proxy: nothing re-checks the `posted_at` that `_fetch_group` ultimately
+    stores. So a feed row can sit in the DB with a stored date older than
+    `max_age_days` (the feed's own date disagreed with the board's), which the board
+    path guarantees against. Accepted because the feed's date is the only one available
+    before the fetch and the fetch is the cost being avoided; recorded in PROGRESS.
     """
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -273,10 +282,14 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
     for x in prefilter_fn(feed_fn(), keep_categories):
         # Same one-listing call shape as run_fetch's `_keep` stub gate. Dropping here
-        # rather than at the ingest tail is the whole point: past this line the
-        # listing costs a resolve, a board detail fetch and a screen call, six times
-        # a day. A drop is not recorded in feed_unresolved — the operator's own
-        # config refused it, so it is not an unresolved backlog item.
+        # rather than at the ingest tail is the whole point: past this line the listing
+        # costs a resolve, a board detail fetch and a screen call. Be exact about the
+        # recurrence, because it is easy to overstate — a listing that INGESTS pays
+        # those once (`existing_external_ids` prunes it afterwards and `run_score` only
+        # reads 'new'), so the win there is one-time and large. What recurs every pass
+        # is the resolve for anything that never lands: an unresolvable URL, a board
+        # that stops serving the id. A drop here is not recorded in `feed_unresolved` —
+        # the operator's own config refused it, so it is not an unresolved backlog item.
         if not prefilter_postings([_feed_posting_view(x)], title_filter=title_filter,
                                   title_exclude=title_exclude,
                                   max_age_days=max_age_days, now=now):
@@ -573,8 +586,9 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          STILL fails marks only that row 'failed'.
     """
     survivors: list[tuple] = []  # (row, posting, screen)
-    # Newest first, so `limit` takes today's discoveries rather than the back of the
-    # backlog — see get_by_status. The backlog then drains from its tail only when a
+    # Most-recently-touched then newest, so `limit` takes today's discoveries — and the
+    # rows run_retry just requeued, which keep their OLD ids — rather than the back of
+    # the backlog (see get_by_status). The backlog then drains from its tail only when a
     # pass has headroom under the cap, which keeps clearing it an operator decision
     # instead of something the schedule does silently and expensively.
     rows = db.get_by_status(conn, "new", newest_first=True)
@@ -754,10 +768,18 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # One line, always — the pass is otherwise silent on success. `fit` is the number
     # that spent quota; `left new` is whatever a tripped breaker or an abort did not
     # reach, so a partial pass reads as partial instead of as a smaller pass.
+    # Counted from the DB, not from `len(rows) - done`: under `--score-limit` that
+    # arithmetic is over the SLICE, so a capped pass always claimed "0 left 'new'"
+    # while thousands of rows waited. On the daemon that line prints six times a day,
+    # and a queue that is not draining is exactly what it must not hide.
     done = tally["discarded"] + tally["thin"] + tally["fit"] + tally["failed"]
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='new'").fetchone()[0]
+    unreached = len(rows) - done
     print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
-          f"{tally['failed']} failed, {len(rows) - done} left 'new'")
+          f"{tally['failed']} failed, {unreached} unreached, "
+          f"{remaining} left 'new'")
 
 
 # --- retry ------------------------------------------------------------------

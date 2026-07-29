@@ -32,7 +32,19 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
+- **`feat/feed-prefilter` — landed, in review, THREE units of work on one branch.**
+  Everything the 4-hour daemon needed before it could be turned on: the feed
+  pre-filter (queue item 5), the newest-first score queue, and the read-only pass-lock
+  fallback. They are independently revertible and by the rule in
+  [`DEVELOPMENT.md`](./DEVELOPMENT.md) §7 should have been three branches; they were
+  not, because each was found by the one before it while making the daemon safe to
+  start, and splitting them after the fact would have re-ordered commits that the
+  §7 review had already read. Recorded rather than hidden — do not take this as
+  precedent. The daemon itself is running (see the daemon entry below); it started
+  from this branch's tree, so `main` must land these before it is the code in
+  production.
+
+- **PR #21 (`feat/custom-html-mode`) is the only OTHER branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
   still wrong — a premise failure, not a coding error. #19 closed unmerged 2026-07-28
@@ -51,7 +63,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
   out (SPEC §9).
   **CHANGED 2026-07-28 — read this before quoting an old `--score-limit` recipe.** The
-  `new` queue is now read **newest-id-first** (`fix/score-queue-newest-first`; SPEC §7.1
+  `new` queue is now read **newest-id-first** (`feat/feed-prefilter`; SPEC §7.1
   + CHANGELOG), because the old `score DESC, id ASC` was oldest-first for this queue
   (every `new` row has score NULL) and a scheduled bounded pass would have spent ~2 weeks
   on this backlog before reaching a job discovered today. Consequences for anyone
@@ -111,7 +123,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   path would make the guard match the resource it actually protects — the DB plus the one
   Codex account. Note the queued systemd unit is exactly how (b) gets reached.
   **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
-  (`fix/lock-readonly-fallback`; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
+  (`feat/feed-prefilter`; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
   accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
   unlinked, by design — and every later pass got `EACCES`. The eager pass used to kill
   the daemon at startup, loudly; once that pass was dropped the `RuntimeError` was raised
@@ -202,7 +214,7 @@ take first and why. Each numbered item is independently pickable.
 >    exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
 >    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
 >    the first 736 rows of the queue were the targets and nothing else. The queue is
->    newest-id-first as of 2026-07-28 (`fix/score-queue-newest-first`), which inverts
+>    newest-id-first as of 2026-07-28 (`feat/feed-prefilter`), which inverts
 >    exactly that: a bounded pass now takes the **newest** rows, so `--score-limit 736`
 >    would spend 736 rows of paid scoring on the backlog and reach **zero** of the 46
 >    targets. Reaching the oldest target now needs a window of 3,232 requeued discards
@@ -507,6 +519,26 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **The cost it moves:** a posting the screen discards today pays nothing — that is the
   economic point of screening first. Routing buys each one a paid fit call.
 
+- **The feed's age gate judges a PROXY date and never re-checks the stored one** —
+  `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted, not closed]`.
+  `run_fetch` treats its stub-level filter as a pure optimization and re-runs
+  `prefilter_postings` over what the board actually returned, so the `posted_at` it
+  stores is the one it judged. `run_feed`'s gate is *decisive* and judged on Simplify's
+  `date_posted`; nothing re-checks the date `_fetch_group` ultimately stores. So a feed
+  row can sit in the DB dated older than `max_age_days` — a guarantee the board path
+  makes and this one does not. **Measured on the live feed:** of the 1,044 listings
+  refused as stale, **108 carry a `date_updated` inside the window** — still being
+  refreshed, and dropped on the older field. Accepted because the feed's date is the
+  only one available *before* the fetch, and the fetch is the cost being avoided. The
+  cheap improvement, if it is ever wanted, is judging `max(date_posted, date_updated)`.
+- **`max_age_days` silently gained feed scope on upgrade** — `[FETCH · XS · found by the
+  pre-merge review 2026-07-28 · accepted]`. The key previously meant "watchlist fetch
+  freshness"; it now also governs feed discovery, which on this config removes ~half the
+  feed's surface. That is the intended fix, but an existing checkout gets it with no
+  notice — the only announcement is a comment in `config.yaml.example`, which a live
+  `config.yaml` never re-reads. There is no per-feed override. Left as-is: a second
+  freshness knob for one feed is more config than the problem justifies, and the
+  CHANGELOG carries the change. Revisit if a second feed wants a different window.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix

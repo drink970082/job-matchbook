@@ -182,8 +182,10 @@ before either ingestion path ever reaches Ollama: `fetch.prefilter_postings` (th
 narrows what each company fetch returns, and the same intern/location gate the
 screen stage uses (`score.deterministic_screen`) runs immediately after — a gate
 miss is upserted straight to `discarded` (with its reason), skipping the Ollama call
-entirely. The feed path is unaffected; its postings still gate at the screen stage
-via `screen_posting`, which runs the identical `deterministic_screen` helper.
+entirely. The feed runs the same `prefilter_postings` over its listings' own metadata
+before resolving them (§7.1 feed ingestion), but **not** the deterministic
+intern/location gate: those postings gate one stage later at `screen_posting`, which
+runs the identical `deterministic_screen` helper.
 
 A posting moves through a `pipeline_status` state machine in the database
 (§[9](#9-behaviors-and-invariants)). "Mark Applied" is the seam between the two
@@ -436,7 +438,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `filter_postings(postings, title_filter)` — optional case-insensitive
     title-substring pre-filter (title only; geography is handled by the scorer).
   - `prefilter_postings(postings, *, title_filter, title_exclude, max_age_days, now)`
-    — the fetch-time coarse pre-filter the watchlist path runs (deterministic, no
+    — the fetch-time coarse pre-filter **both** ingestion paths run (deterministic, no
     LLM): the positive `title_filter` keep-list above, a negative `title_exclude`
     drop (title contains any listed keyword), and a `max_age_days` freshness drop (a
     parsed `posted_at` older than N days is dropped; `0`/omitted `max_age_days` and a
@@ -1069,9 +1071,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   the backlog" an explicit operator action rather than something the schedule does
   silently and expensively. **Every pass ends with one summary
   line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
-  fit-scored, … failed, … left 'new'` — so a pass that worked is distinguishable from
-  one with nothing to do; `fit-scored` is the quota-spending count and `left 'new'` is
-  whatever a tripped breaker or an abort did not reach. Both the screen phase and the
+  fit-scored, … failed, … unreached, … left 'new'` — so a pass that worked is
+  distinguishable from one with nothing to do. `fit-scored` is the quota-spending count;
+  `unreached` is what a tripped breaker or an abort did not reach *within this pass's
+  slice*; `left 'new'` is the **whole queue**, counted from the DB rather than from the
+  slice, so a capped pass cannot report `0 left 'new'` while thousands wait. Both the
   per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
   write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
   `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),
@@ -1420,8 +1424,11 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   then by the operator's own `title_filter` / `title_exclude` / `max_age_days`
   through the **same** `fetch.prefilter_postings` `run_fetch` uses — one ingest rule
   for both paths, so they cannot drift apart. Both gates run *before* the resolve,
-  the only point that saves all three downstream costs (URL resolve, board detail
-  fetch, screen call); a listing the operator's config refuses is dropped outright,
+  the earliest point that saves anything: a refused listing costs no URL resolve, no
+  board detail fetch and no screen call. For a listing that would have *ingested*
+  those are one-time costs (`existing_external_ids` prunes it next pass and
+  `run_score` only reads `new`); what recurs every pass is the resolve for whatever
+  never lands. A listing the operator's config refuses is dropped outright,
   **not** recorded in `feed_unresolved` (nothing about it is unresolved). The feed's
   own field names are translated first (`_feed_posting_view`): the feed publishes
   `title` where the filter reads `job_title`, and `date_posted` as a **Unix epoch
@@ -1430,6 +1437,13 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   ingests nothing; an unmapped epoch is unparseable, so `max_age_days` never fires —
   which is why the mapping is pinned by tests rather than left implicit. An absent
   or unreadable date keeps the listing, matching the board path.
+  **The gate is decisive here, unlike on the board path**, and that is the one
+  asymmetry: `run_fetch` re-runs `prefilter_postings` over what the board returned, so
+  the `posted_at` it stores is the one it judged; `run_feed` judges the feed's
+  `date_posted` and never re-checks the date `_fetch_group` ultimately stores. A feed
+  row can therefore sit in the DB dated older than `max_age_days`. Accepted: the
+  feed's date is the only one available before the fetch, and the fetch is the cost
+  being avoided.
   Survivors are grouped by `(source, slug)`, ids already present are skipped, and the
   board is fetched with the existing adapter keeping **only** the surfaced postings
   (a feed company is never ingested in full like a watchlist company). Each kept
@@ -1600,6 +1614,13 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   itself — would leave every prior discard frozen under the old rule, and a **false**
   discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
   run immediately before `run_retry`) returns them to `new` for this pass.
+  **It does NOT compose with `--score-limit`, and that is a real limitation rather than
+  a subtlety.** `requeue_discarded` stamps `updated_at`, so requeued rows do sort to the
+  front of the `new` queue — but the queue holds *every* requeued discard (the UPDATE is
+  unfiltered), so a bounded pass reaches an arbitrary prefix of thousands of them and
+  the operator cannot aim the cap at the rows the rescreen was for. Recovering a
+  *specific* set of discards needs a selector this flag does not have; PROGRESS queue
+  item 2 records the concrete case.
   Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
   `run_retry` guards two. **Filtered on exactly one condition — the row must have a
   non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
@@ -1793,7 +1814,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
 | Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
-| `new` queue read newest-first so `--score-limit` reaches today's discoveries; other queues keep score-first | `test_db.py`, `test_pipeline.py::test_run_score_limit_takes_the_newest_rows_not_the_oldest` |
+| `new` queue read most-recently-touched-then-newest so `--score-limit` reaches today's discoveries **and** a `run_retry` requeue keeping its old id; other queues keep score-first | `test_db.py`, `test_pipeline.py` (`test_run_score_limit_takes_the_newest_rows_not_the_oldest`, `test_run_score_reaches_a_retried_row_inside_the_cap`) |
+| The score summary separates `unreached` (this pass's slice) from `left 'new'` (the whole queue), so a capped pass cannot report an empty queue | `test_pipeline.py` (`test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice`, `test_run_score_summary_counts_rows_a_breaker_never_reached`) |
+| An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |

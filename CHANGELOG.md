@@ -17,9 +17,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   executor catches and logs it. The unit stayed `active (running)`, reported a healthy
   schedule, and never completed a pass — the worse failure, not the better one. It now
   falls back to `O_RDONLY`, since `flock` needs no write access: the guard stays
-  exclusive and only the pid record is lost, which both the holding pass and a contending
-  one say out loud rather than degrading quietly. Opening failures that are *not* a
-  permission problem (missing TMPDIR, a 0600 file owned by someone else) still fail loud.
+  exclusive and only the pid record is lost, which the holding pass says out loud rather
+  than degrading quietly. A lock that cannot be opened in *either* mode — a 0600 file
+  owned by someone else — still fails loud; so do the non-permission failures (missing
+  TMPDIR, a symlink refused by `O_NOFOLLOW`, a read-only filesystem).
+  **The pid a contender reports is now liveness-checked.** Since the file is never
+  unlinked its pid outlives the process that wrote it, and a read-only holder cannot
+  overwrite it at all — so the naive read named a *corpse* as the running pass and sent
+  the operator hunting a process that does not exist. That is the same "is this recorded
+  pid the same process" guessing game the flock exists to avoid. `_recorded_holder`
+  reports the pid only when a process by that number is alive, and "unknown" otherwise.
 - **`--score-limit` scored the oldest rows, so on a schedule it would never reach a job
   discovered today.** Every `new` row has `score` NULL — nothing has scored it yet, that
   being the point — so `get_by_status`'s `ORDER BY score DESC, id ASC` degenerated to
@@ -33,6 +40,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   something the schedule does silently and expensively. Two existing tests carried an
   implicit oldest-first assumption and now seed or select in the order they meant.
   (SPEC §7.1 scoring.)
+  **It is `updated_at DESC, id DESC`, not plain `id DESC`, and the difference is a
+  retry that would otherwise never run.** `run_retry` requeues a `failed` row to `new`
+  keeping its ORIGINAL id, and both SPEC §7.1/§9 and its own contract promise the row is
+  rescored *that same pass*; under newest-id-first an old failed row sorts behind the
+  entire backlog and a capped pass never reaches it, so the retry budget would burn down
+  without a single retry being attempted. Ordering by recency-of-touch satisfies both:
+  `upsert_postings` leaves `updated_at` NULL, so fresh intake ties with the backlog and
+  the id tiebreak orders it, while a requeued row carries a timestamp and sorts ahead.
+  Caught by the §7 pre-merge review, not by the suite — the plain-`id DESC` version was
+  fully green.
+  **`--rescreen-discarded` does not compose with `--score-limit`**, which the flag's own
+  comment previously claimed it did. Requeued discards do sort to the front, but
+  `requeue_discarded` is unfiltered, so the cap lands on an arbitrary prefix of every
+  requeued row and cannot be aimed at the ones a given rescreen was for. Documented in
+  SPEC §9; PROGRESS queue item 2 carries the concrete case.
+- **A capped scoring pass reported `0 left 'new'` while thousands of rows waited.** The
+  count was `len(rows) - done` over the `--score-limit` *slice*, so it could only ever
+  describe the slice. Harmless when every pass was uncapped and hand-run; on a daemon
+  shipping `--score-limit` by default it prints six times a day, and a queue that is not
+  draining is precisely what that line must not hide. The summary now separates
+  `N unreached` (rows in this pass's slice a breaker or abort did not reach — the old
+  meaning) from `N left 'new'` (the whole queue, counted from the DB).
 - **The discovery feed ignored every one of the operator's coarse filters.** `run_fetch`
   has always applied `title_filter`, `title_exclude` and `max_age_days` via
   `fetch.prefilter_postings`; `run_feed` never called it, so none of the three touched a
@@ -40,8 +69,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   enabled. Measured against the real feed the day before the fix: 17,659 listings ->
   2,013 past the feed's own `active`/category/sponsorship gate -> **1,193 of those (59%)
   refused by at least one operator filter** (1,049 stale, 302 title), leaving 820. Each
-  refused listing was buying a URL resolve, a board detail fetch and a screen call, six
-  times a day. **The stale half is the surprise** — the feed marks listings `active: true`
+  refused listing was buying a URL resolve, a board detail fetch and a screen call.
+  **Be exact about the recurrence:** for a listing that ingests those are *one-time*
+  costs — `existing_external_ids` prunes it on the next pass and `run_score` only reads
+  `new` — so the ~1,193-listing saving is large but paid once, and what recurs every
+  pass is the resolve for whatever never lands.
+  **The stale half is the surprise** — the feed marks listings `active: true`
   for months (sampled one posted 2025-12-01), so `max_age_days` does more work here than
   the title rules do. Anyone re-deriving these counts should re-measure: they are one
   snapshot of a feed that changes daily. The feed now runs the **same** `prefilter_postings` call, before the
