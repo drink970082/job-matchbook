@@ -227,7 +227,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
-             score_limit: int = 0, screen_workers: int = 0,
+             score_limit: int = 0, score_max_id: int = 0, screen_workers: int = 0,
              score_workers: int = 4, rescreen_discarded: bool = False,
              no_notify: bool = False) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
@@ -387,6 +387,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
                            batch_size=batch_size, limit=score_limit,
+                           max_id=score_max_id,
                            screen_workers=workers, score_workers=score_workers,
                            candidate=candidate,
                            scorer_meta=_scorer_meta(
@@ -713,6 +714,12 @@ def main(argv=None) -> None:
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
+    parser.add_argument("--score-max-id", type=int, default=0,
+                        help="score only 'new' rows with id <= N (0 = no bound). The "
+                             "SELECTOR to --score-limit's budget: the queue is "
+                             "newest-first, so a cap can only name the newest rows, "
+                             "while a --rescreen-discarded recovery target sits at the "
+                             "OLD end. Applied before --score-limit")
     parser.add_argument("--no-notify", action="store_true",
                         help="score but send no Telegram alerts — for bulk/unattended "
                              "passes; rows stay 'scored' and alert on a later pass")
@@ -798,6 +805,17 @@ def main(argv=None) -> None:
         parser.error("--rescreen-discarded is a one-shot operator action: "
                      "pass --once (then start the daemon normally)")
 
+    # Same one-shot reasoning, opposite failure mode. `once()` closes over the parsed
+    # args, so an id bound set on the daemon holds for EVERY scheduled firing: the first
+    # pass drains whatever sits under it, and every pass after that screens nothing while
+    # fresh intake (which always has higher ids) piles up 'new' behind the bound. That is
+    # a daemon that reports healthy passes and scores nothing — the exact silence the
+    # 2026-07-28 lock-file wedge cost a day to find. Refuse it at the boundary.
+    if args.score_max_id and not args.once:
+        parser.error("--score-max-id is a one-shot operator selector: pass --once. On "
+                     "the schedule it would bound every future pass, so nothing newer "
+                     f"than id {args.score_max_id} would ever be scored")
+
     cfg = config_mod.load_config(args.config)
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
@@ -839,6 +857,7 @@ def main(argv=None) -> None:
                          batch_size=args.batch_size,
                          fetch_only=args.fetch_only, score_only=args.score_only,
                          score_limit=args.score_limit,
+                         score_max_id=args.score_max_id,
                          screen_workers=args.screen_workers,
                          score_workers=args.score_workers,
                          rescreen_discarded=args.rescreen_discarded,
