@@ -394,6 +394,49 @@ def test_run_score_reaches_a_retried_row_inside_the_cap(db_path):
     assert scored == ["old-failed", "5"]
 
 
+def test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach(db_path):
+    # The recovery selector (PROGRESS queue item 2). --score-limit bounds the SPEND
+    # from the newest end; it can never name the OLDEST rows, which is exactly where a
+    # --rescreen-discarded recovery target sits: requeue_discarded stamps updated_at on
+    # every discard at once, so they tie and break by id DESC, and the wrongly-discarded
+    # rows are among the lowest ids in that tied set. max_id selects from the other end.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4", "5"])
+    scored = []
+
+    def screen_fn(posting):
+        scored.append(posting["external_id"])
+        return {"disqualified": False}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [{"score": 90, "assessment": _assessment()}
+                                          for _ in ps],
+                       max_id=2)
+    # ids 1-2 only, and still newest-first WITHIN the selection
+    assert scored == ["2", "1"]
+    assert sorted(r["external_id"] for r in db.get_by_status(conn, "new")) \
+        == ["3", "4", "5"]
+
+
+def test_run_score_max_id_applies_before_the_limit(db_path):
+    # Order matters and only one order is useful: select the id range, THEN bound the
+    # spend inside it. Limit-then-select would hand the cap to the newest rows and
+    # filter them all away, so the pass would score nothing while looking bounded.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4", "5"])
+    scored = []
+
+    def screen_fn(posting):
+        scored.append(posting["external_id"])
+        return {"disqualified": False}
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: [{"score": 90, "assessment": _assessment()}
+                                          for _ in ps],
+                       max_id=3, limit=2)
+    assert scored == ["3", "2"]
+
+
 def test_run_score_thin_jd_skips_paid_fit(db_path):
     # A screen-surviving JD shorter than the low-context threshold must NOT reach the
     # paid fit scorer — it's marked scored + insufficient_context directly, since the

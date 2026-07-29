@@ -553,8 +553,8 @@ class _BackendBreaker:
 
 
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
-              limit: int = 0, screen_workers: int = 1, score_workers: int = 4,
-              candidate=None, scorer_meta=None) -> None:
+              limit: int = 0, max_id: int = 0, screen_workers: int = 1,
+              score_workers: int = 4, candidate=None, scorer_meta=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -563,6 +563,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     only the paid fit scorer costs quota, so a bounded first pass over a huge fresh
     intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
     'new' for the next pass.
+
+    `max_id` > 0 restricts the pass to rows with `id <= max_id` — the SELECTOR to
+    `limit`'s BUDGET, applied BEFORE it. The queue is newest-first, so `limit` can only
+    name rows from the NEW end; a `--rescreen-discarded` recovery target sits at the old
+    end. See SPEC §7.1 for why they are not interchangeable.
 
     `screen_workers`/`score_workers` bound how many screen/fit calls run
     concurrently (each I/O-bound: an HTTP round trip or a subprocess spawn) —
@@ -596,6 +601,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # pass has headroom under the cap, which keeps clearing it an operator decision
     # instead of something the schedule does silently and expensively.
     rows = db.get_by_status(conn, "new", newest_first=True)
+    # Select, then bound. Filtered here rather than in SQL because the full 'new' read
+    # already happens and this is the only caller that wants it — pushing an optional
+    # predicate into db.get_by_status would buy nothing but a wider signature.
+    if max_id > 0:
+        rows = [row for row in rows if row["id"] <= max_id]
     if limit > 0:
         rows = rows[:limit]
     postings = [dict(row) for row in rows]

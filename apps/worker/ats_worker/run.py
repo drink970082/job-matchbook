@@ -227,7 +227,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
-             score_limit: int = 0, screen_workers: int = 0,
+             score_limit: int = 0, score_max_id: int = 0, screen_workers: int = 0,
              score_workers: int = 4, rescreen_discarded: bool = False,
              no_notify: bool = False) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
@@ -318,11 +318,9 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # same pass re-screens it under the new rules. Screening is free on the
         # default ollama backend; the PAID fit call that follows for each survivor is
         # what --score-limit bounds.
-        # It bounds the SPEND, not the SELECTION, and the difference matters here.
-        # requeue_discarded is unfiltered, so the cap lands on an arbitrary prefix of
-        # every requeued discard — it cannot be aimed at the rows a particular rescreen
-        # was for. Recovering a specific set needs a selector this flag does not have
-        # (SPEC §9, PROGRESS queue item 2).
+        # --score-limit bounds the SPEND, not the SELECTION: requeue_discarded is
+        # unfiltered, so the cap lands on an arbitrary prefix of every requeued discard.
+        # Aiming at a specific set is --score-max-id's job (SPEC §7.1).
         if rescreen_discarded:
             # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
             # discards. Requeueing one destroys it, but skipping it is not a rescue
@@ -387,6 +385,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
                            batch_size=batch_size, limit=score_limit,
+                           max_id=score_max_id,
                            screen_workers=workers, score_workers=score_workers,
                            candidate=candidate,
                            scorer_meta=_scorer_meta(
@@ -713,13 +712,20 @@ def main(argv=None) -> None:
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
+    parser.add_argument("--score-max-id", type=int, default=0,
+                        help="score only 'new' rows with id <= N (0 = no bound). The "
+                             "selector to --score-limit's budget, applied first; "
+                             "requires --once")
     parser.add_argument("--no-notify", action="store_true",
                         help="score but send no Telegram alerts — for bulk/unattended "
                              "passes; rows stay 'scored' and alert on a later pass")
     parser.add_argument("--rescreen-discarded", action="store_true",
                         help="return every 'discarded' row to 'new' first, so this "
                              "pass re-screens them under the current candidate "
-                             "hard requirements (pair with --score-limit)")
+                             "hard requirements. To recover a SPECIFIC set of discards "
+                             "pair it with --score-max-id, not --score-limit: the queue "
+                             "is newest-first, so a cap cannot name the old ids a "
+                             "recovery targets")
     parser.add_argument("--import-companies", action="store_true",
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -798,6 +804,26 @@ def main(argv=None) -> None:
         parser.error("--rescreen-discarded is a one-shot operator action: "
                      "pass --once (then start the daemon normally)")
 
+    # A NEGATIVE bound must not read as "no bound". `run_score` tests `max_id > 0`, so a
+    # sign typo would sail past the one-shot guard below and then silently disable the
+    # filter — and the documented recipe pairs this flag with --rescreen-discarded, which
+    # requeues thousands of rows to 'new' first. The flag that exists to bound spend would
+    # become an unbounded paid pass over the whole requeued pile. 0 stays the explicit
+    # "no bound"; anything below it is a typo, not an intent.
+    if args.score_max_id < 0:
+        parser.error(f"--score-max-id must be >= 0 (got {args.score_max_id}); 0 means "
+                     "no bound, and a negative value would silently disable the filter")
+
+    # Same one-shot reasoning as --rescreen-discarded, opposite failure mode. `once()`
+    # closes over the parsed args, so a bound left on the daemon holds for EVERY scheduled
+    # firing: the first pass drains what sits under it, and every pass after screens
+    # nothing while higher-id intake piles up 'new' behind it — a daemon reporting healthy
+    # passes and scoring nothing. Refuse it at the boundary.
+    if args.score_max_id > 0 and not args.once:
+        parser.error("--score-max-id is a one-shot operator selector: pass --once. On "
+                     "the schedule it would bound every future pass, so nothing newer "
+                     f"than id {args.score_max_id} would ever be scored")
+
     cfg = config_mod.load_config(args.config)
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
@@ -839,6 +865,7 @@ def main(argv=None) -> None:
                          batch_size=args.batch_size,
                          fetch_only=args.fetch_only, score_only=args.score_only,
                          score_limit=args.score_limit,
+                         score_max_id=args.score_max_id,
                          screen_workers=args.screen_workers,
                          score_workers=args.score_workers,
                          rescreen_discarded=args.rescreen_discarded,

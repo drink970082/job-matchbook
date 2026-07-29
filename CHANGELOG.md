@@ -7,6 +7,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`--score-max-id N` — the selector the discard recovery needed.** `--score-limit`
+  bounds the *spend*; it cannot bound the *selection*. Since PR #29 the `new` queue is
+  read `COALESCE(updated_at,'') DESC, id DESC`, so a cap can only ever name rows from the
+  newest end — and a `--rescreen-discarded` recovery target sits at the oldest.
+  `requeue_discarded` stamps one `updated_at` across all 3,232 discards at once, so they
+  tie and break by `id DESC` while the ~46 wrongly-discarded rows are among the *lowest*
+  ids in that tied set: `--score-limit 736` would have scored the 736 newest requeued
+  discards and reached **zero** targets, and reaching the oldest needed the whole 3,232 —
+  the cost the bound existed to avoid. `--score-max-id 1417` names them directly (the
+  degree/clearance/authorization discards occupy ids 7-1417; the pre-existing paid backlog
+  starts at 1419, so the bound structurally cannot reach it).
+
+  Applied **before** `--score-limit`, so the two compose as "these rows, and at most this
+  many of them"; the reverse order would hand the cap to the newest rows and then filter
+  every one of them away. Like `--rescreen-discarded`, it **requires `--once`**: `once()`
+  closes over the parsed args, so a bound left on the daemon would hold for every future
+  firing — the first pass drains what is under it and every pass after screens nothing
+  while higher-id intake piles up behind the bound, a daemon that logs healthy passes and
+  scores nothing. A **negative** value is a parser error rather than "no bound": `run_score`
+  tests `max_id > 0`, so a sign typo would otherwise clear the guard and then silently
+  disable the filter on a pass that had just requeued 3,232 rows. Rejected alternative:
+  inverting the queue for this one operator flag, which adds a second ordering to reason
+  about for the same result. (SPEC §7.1, §9.)
+
 ### Fixed
 
 - **Both privacy guards matched `.env` exactly, so every `.env.<suffix>` variant was

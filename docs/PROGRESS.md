@@ -215,13 +215,30 @@ take first and why. Each numbered item is independently pickable.
 > surviving items keep their original numbers — 2 and 3 — because other entries in this
 > file cite them by number.
 >
-> 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
->    the operator.** The dry run is done and free, so this is now a decision rather than a
->    discovery. After the stack merges:
+> 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, SELECTOR BUILT
+>    2026-07-29, the run itself still the OPERATOR'S CALL (it spends quota).** The dry run
+>    is done and free, so this is a decision rather than a discovery. The recipe:
 >    ```
->    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once \
->        --rescreen-discarded --score-limit 736
+>    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once --no-notify \
+>        --rescreen-discarded --score-max-id 1417
 >    ```
+>    `--score-max-id` bounds the pass to `id <= N`, applied BEFORE `--score-limit`. 1417 is
+>    the top of the degree/clearance/authorization discard range (ids 7-1417) and the
+>    pre-existing paid backlog starts at 1419, so the bound selects the recovery targets and
+>    structurally cannot reach the backlog. No `--score-limit` is wanted here: a budget would
+>    re-introduce the newest-first problem inside the selection. Like `--rescreen-discarded`,
+>    the flag requires `--once`, and a negative value is a parser error rather than "no bound".
+>    **`--no-notify` is not optional here.** `run_notify` has no per-pass cap, so without it
+>    every newly-matched recovered row fires a Telegram alert in one burst. The rows stay
+>    `scored` and alert on a later normal pass.
+>    **What the ~46 does and does not cover.** It is measured over the **213 hydrated**
+>    degree/clearance/authorization discards, which are a subset of the **736** such
+>    discards in ids 7-1417 (the rest are un-hydrated stubs `requeue_discarded` skips by
+>    design). Rows in that id range discarded for *other* reasons are also requeued and
+>    re-screened for free; the location half of those re-discards for free too (PR #35
+>    tightened that gate one-directionally with a clean discard side), but **the survivor
+>    count for the non-location, non-d/c/a remainder was never measured**. Treat ~46 as the
+>    measured floor, not a ceiling.
 >    Re-screening the live DB read-only against the three fixes (free, local Ollama, no
 >    writes): of 213 hydrated discards whose reason names degree/clearance/authorization,
 >    **46 now keep** — **~46 Codex messages, ~2.3% of a weekly budget**. 20 Microsoft
@@ -231,8 +248,8 @@ take first and why. Each numbered item is independently pickable.
 >    role"* and Bridgewater 34 *"we do provide immigration sponsorship for this position"*;
 >    `_OFFERS_SPONSORSHIP` never matched "do provide". One sampled recovery (IMC 529) is a
 >    genuine recall loss, already a known miss in the eval report.
->    **THE `--score-limit 736` RECIPE ABOVE NO LONGER WORKS — do not run it.** It was
->    exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
+>    **Why the old `--score-limit 736` recipe had to be replaced — do not resurrect it.**
+>    It was exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
 >    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
 >    the first 736 rows of the queue were the targets and nothing else. As of 2026-07-28
 >    (PR #29) the queue is `COALESCE(updated_at,'') DESC, id DESC`, which inverts exactly
@@ -242,12 +259,11 @@ take first and why. Each numbered item is independently pickable.
 >    while the 46 targets are among the **lowest** ids in that set. `--score-limit 736`
 >    would therefore score the 736 *newest* requeued discards and reach **zero** targets.
 >    Reaching the oldest one needs the whole 3,232 — the cost the bound existed to avoid.
->    **So this item needs a selector, not a limit** — `[XS, unbuilt]`. The recovery
->    targets are precisely the low ids, and "first N of the queue" can no longer name
->    them from either end at once. The cheap shapes: an id-bounded `--score-max-id`, or
->    inverting the queue for this one operator flag. Neither is built; pick one when the
->    run is actually wanted. The measurement below is unaffected — it is a property of
->    the rows, not of the ordering.
+>    **This item needed a selector, not a limit — BUILT 2026-07-29** (`--score-max-id`,
+>    the id-bound shape; inverting the queue for one operator flag was the alternative and
+>    was rejected as a second ordering to reason about). The measurement below is
+>    unaffected — it is a property of the rows, not of the ordering. What is left is the
+>    run, which spends ~46 messages.
 >    **The side effect to accept first:** `requeue_discarded` is unfiltered — it moves all
 >    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
 >    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code

@@ -565,6 +565,61 @@ def test_rescreen_discarded_requires_once(monkeypatch, tmp_path, capsys):
     assert "--once" in capsys.readouterr().err
 
 
+def test_score_max_id_reaches_run_score(monkeypatch):
+    # The selector is useless if run_once swallows it: PROGRESS queue item 2 needs the
+    # bound to arrive at run_score, which is the only place the queue is sliced.
+    assert _run_once_capturing_run_score(monkeypatch)["max_id"] == 0
+    assert _run_once_capturing_run_score(monkeypatch, score_max_id=1417)["max_id"] == 1417
+
+
+def test_the_documented_recovery_recipe_is_accepted_and_wired(monkeypatch, tmp_path):
+    # The half the two tests either side of this one MISS. One calls run_once directly
+    # and the other only pins the refusal, so nothing exercised main() -> run_once: both
+    # "the guard refuses the flag even with --once" and "args.score_max_id never reaches
+    # run_once" left the whole suite green. This drives the exact recipe PROGRESS queue
+    # item 2 documents, through argparse, and asserts it arrives.
+    seen: dict = {}
+    monkeypatch.setattr(run, "run_once", lambda cfg, **k: seen.update(k))
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    resumes = tmp_path / "resume"
+    resumes.mkdir()
+    (resumes / "resume_main.txt").write_text("a resume")
+
+    run.main(["--once", "--rescreen-discarded", "--score-max-id", "1417",
+              "--config", str(cfg), "--env", str(tmp_path / "none.env"),
+              "--db", str(tmp_path / "x.db"), "--resume-dir", str(resumes)])
+    assert seen["score_max_id"] == 1417
+    assert seen["rescreen_discarded"] is True
+
+
+def test_a_negative_score_max_id_is_refused_not_read_as_no_bound(monkeypatch, tmp_path,
+                                                                 capsys):
+    # run_score tests `max_id > 0`, so a sign typo would pass the one-shot guard and then
+    # silently disable the filter. Paired with --rescreen-discarded (3,232 rows requeued
+    # to 'new' first) that turns the flag that bounds spend into an unbounded paid pass.
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--score-max-id", "-1417", "--config", str(cfg),
+                  "--env", str(tmp_path / "none.env")])
+    assert "must be >= 0" in capsys.readouterr().err
+
+
+def test_score_max_id_requires_once(monkeypatch, tmp_path, capsys):
+    # Opposite failure mode to --rescreen-discarded's, same guard. `once()` closes over
+    # the parsed args, so a bound left on the daemon holds for every future firing: the
+    # first pass drains what is under it and every pass after scores NOTHING while fresh
+    # intake (always higher ids) piles up behind the bound. A daemon that logs healthy
+    # passes and never scores is the one failure this repo has already paid for once.
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    with pytest.raises(SystemExit):
+        run.main(["--score-max-id", "1417", "--config", str(cfg),
+                  "--env", str(tmp_path / "none.env")])
+    assert "--once" in capsys.readouterr().err
+
+
 def test_make_scorer_rejects_an_unknown_backend():
     # A typo'd --score-backend must fail loudly, not silently fall back to a paid API.
     with pytest.raises(ValueError, match="unknown score backend"):
