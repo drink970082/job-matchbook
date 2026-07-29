@@ -9,6 +9,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Quota telemetry is a provider endpoint now, not a scraped session rollout — and the
+  bar follows `SCORE_BACKEND`.** The codex figures used to live only in the session
+  rollout (`codex exec --json` never carries `rate_limits`), so capturing them forced
+  `--ephemeral` off on every scoring call, left the full résumé+profile+JD prompt on
+  disk until a guarded reap, and identified "our" rollout by mtime.
+  `GET https://chatgpt.com/backend-api/codex/usage` returns the same accounting
+  directly, so scoring calls are unconditionally `--ephemeral` again and write nothing.
+  Claude Code has an equivalent — `GET https://api.anthropic.com/api/oauth/usage` with
+  `anthropic-beta: oauth-2025-04-20` — so `run_once` makes one free GET per pass against
+  whichever backend actually scored, and the snapshot records which one. The bar
+  (`CodexUsageBar` -> `ScorerUsageBar`, `/api/codex-usage` -> `/api/scorer-usage`,
+  `codex_usage.json` -> `scorer_usage.json`, `CODEX_USAGE_FILE` -> `SCORER_USAGE_FILE`)
+  relabels itself from that field instead of reading "No codex usage recorded yet"
+  forever on `SCORE_BACKEND=claude`. This closes the "codex usage bar is backend-locked"
+  gap. Two things worth knowing: chatgpt.com is behind Cloudflare, which 403s urllib's
+  default `Python-urllib/3.x` (an honest client `User-Agent` is sent — a browser-looking
+  one is also refused); and `/api/oauth/usage` reports the Claude Code **subscription**
+  budget, which is NOT what `make_claude_scorer` bills (`ANTHROPIC_API_KEY`, metered, no
+  percent-of-quota endpoint) — the bar states that outright rather than implying one
+  number covers both.
 - **The Discovered-Jobs keep half now requires `seniority=match`, and Below bar means
   near miss.** Below bar was the catch-all — every live row outside `matchedIds()`, so a
   `too_junior` posting the scorer had already judged unwinnable sat in the same tab as a
@@ -22,6 +42,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `VerdictShortfall` line (the pills Below bar already used) instead of printing the
   literal "disqualified" for a row that was never disqualified. The notify gate is
   untouched — it was already `match/match`.
+  **Live-DB consequence, recorded here because it is not reproducible from the code:**
+  the 509 `scored`/`notified` rows scored before 2026-07-29 were deleted when this
+  landed — the scoring prompt had since been tuned, so those verdicts were not
+  comparable to current output, and under the new rules most would have re-bucketed
+  anyway. Backup at `db/applications.db.backup-20260729-pre-scorereset`. The 148 rows
+  from that day's live passes were kept; the 3,857 `discarded` rows were not touched
+  (screen output, not fit output). Rows still live on their boards re-enter as `new`.
 
 ### Fixed
 

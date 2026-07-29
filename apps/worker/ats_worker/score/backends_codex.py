@@ -11,7 +11,6 @@ import tempfile
 
 from .errors import ScoreError
 from .prompts import _job_block, _scorer_system_sections, _score_schema
-from .usage import _rollout_mtime_ceiling, _capture_usage
 
 
 # --- real adapter (exercised only in Docker; never imported at module load) ---
@@ -37,8 +36,7 @@ def _batch_schema(labels: list) -> dict:
 
 
 def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
-                      verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex",
-                      usage_path: str | None = None):
+                      verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex"):
     """Build a `fit(postings, resumes) -> list[dict]` callable backed by the Codex CLI.
 
     The ChatGPT-subscription twin of make_claude_scorer: flat-rate instead of metered.
@@ -126,40 +124,28 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                    "-c", f"model_reasoning_effort={reasoning_effort}",
                    "-c", f"model_verbosity={verbosity}",
                    "--output-schema", schema_path, "--output-last-message", out_path,
-                   # --ephemeral suppresses the session rollout — but the rollout is
-                   # the ONLY place codex records rate_limits (used for the quota bar;
-                   # --json stdout does NOT carry it). So when capturing usage we drop
-                   # --ephemeral, read the rollout, then delete it (see _capture_usage).
-                   # The eval/test path (no usage_path) keeps --ephemeral, so its call
-                   # and verdicts are byte-for-byte unchanged.
-                   "--sandbox", "read-only", "--skip-git-repo-check",
-                   *([] if usage_path else ["--ephemeral"]),
+                   # --ephemeral is unconditional again: the quota bar used to need the
+                   # session rollout (the only place codex records rate_limits), which
+                   # meant dropping --ephemeral and leaving the résumé+JD prompt on disk
+                   # until it was reaped. `score.usage` now reads the same accounting
+                   # from GET /backend-api/codex/usage, so nothing is written at all.
+                   "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                    "--color", "never", "-C", tmp, "-"]
-            # Mark the newest existing rollout so _capture_usage can find the one
-            # THIS call writes (only when capturing — the walk is not free).
-            usage_since = _rollout_mtime_ceiling() if usage_path else 0.0
             try:
-                try:
-                    proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                          text=True, timeout=timeout)
-                except subprocess.TimeoutExpired as exc:
-                    raise ScoreError(f"codex exec timed out after {timeout}s") from exc
-                except FileNotFoundError as exc:
-                    raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
-                if proc.returncode != 0:
-                    tail = (proc.stdout or proc.stderr or "").strip()[-400:]
-                    raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
-                try:
-                    with open(out_path, encoding="utf-8") as fh:
-                        data = json.load(fh)
-                except (OSError, json.JSONDecodeError) as exc:
-                    raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
-            finally:
-                # Runs on success AND failure: since capturing drops --ephemeral, the
-                # rollout (full résumé+profile+JD prompt) must be reaped even when the
-                # exec raises — otherwise a failed call leaves that prompt on disk.
-                if usage_path:
-                    _capture_usage(usage_path, usage_since)
+                proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                      text=True, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise ScoreError(f"codex exec timed out after {timeout}s") from exc
+            except FileNotFoundError as exc:
+                raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
+            if proc.returncode != 0:
+                tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+                raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
+            try:
+                with open(out_path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
         if not isinstance(data, dict) or not isinstance(data.get("results"), list):
             raise ScoreError(f"codex batch response missing 'results' array: {data!r}")
 

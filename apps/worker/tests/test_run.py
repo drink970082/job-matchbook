@@ -446,6 +446,53 @@ def test_run_once_stamps_the_active_fit_backend_and_model(monkeypatch):
     assert claude["model"] == "claude-sonnet-5"
 
 
+def _run_once_capturing_usage(monkeypatch, *, scored: bool, **kw):
+    """Run one pass whose run_score optionally exercises `fit_fn` once, returning the
+    `(path, backend)` capture_usage was called with — or None if it wasn't."""
+    seen: list = []
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
+
+    def run_score(conn, **k):
+        if scored:
+            k["fit_fn"]([{"id": 1, "job_title": "t", "description": "d"}])
+
+    monkeypatch.setattr(run.pipeline, "run_score", run_score)
+    # The scorer itself must never be built for real (no codex subprocess in tests).
+    monkeypatch.setattr(run, "make_scorer", lambda *a, **k: lambda postings, resumes: [])
+    monkeypatch.setattr(run, "capture_usage", lambda path, backend: seen.append((path, backend)))
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
+    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV, **kw)
+    return seen[0] if seen else None
+
+
+def test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored(monkeypatch):
+    # The bar must follow SCORE_BACKEND: capturing codex's quota while claude did the
+    # scoring would show a budget nothing is spending. The snapshot lands beside the
+    # shared DB so the web container can read it.
+    path, backend = _run_once_capturing_usage(monkeypatch, scored=True)
+    assert backend == "codex"
+    assert path.endswith("scorer_usage.json")
+
+    _, backend = _run_once_capturing_usage(monkeypatch, scored=True, score_backend="claude")
+    assert backend == "claude"
+
+
+def test_run_once_skips_the_quota_fetch_when_nothing_was_scored(monkeypatch):
+    # A pass that built no scorer spent nothing; re-fetching would only move the bar's
+    # `as_of` forward on an unchanged reading.
+    assert _run_once_capturing_usage(monkeypatch, scored=False) is None
+
+
 def test_scorer_meta_model_tracks_the_backend_make_scorer_picks():
     # The two must not drift: whatever model make_scorer hands the backend is the
     # model the provenance stamp claims.
