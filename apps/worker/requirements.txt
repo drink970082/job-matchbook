@@ -3,5 +3,9 @@ beautifulsoup4>=4.12
 anthropic>=0.40
 apscheduler>=3.10
 PyYAML>=6.0
-pycountry>=23
-geonamescache>=3.0.1
+# PINNED, not floored: tests/fixtures/location_corpus.jsonl gates exact leak counts
+# over 1,611 real location strings, so the gazetteer DATA is part of the contract.
+# An upstream population or subdivision update silently flips cases; a pinned
+# version turns that into a deliberate bump with a re-measured ceiling.
+pycountry==26.2.16
+geonamescache==3.0.1

@@ -1,0 +1,1612 @@
+{"_readme": "Location-gate corpus: every distinct `location` string in the operator's live DB (db/applications.db, captured 2026-07-30; 9,633 rows with a location / 1,611 distinct). COMMITTED, unlike apps/worker/eval/ -- a board location string is a place name, not JD text or resume context, so the privacy rule that keeps the other golden sets out of git does not apply, and committing it is what lets CI gate the invariant. LABELS COME FROM AN INDEPENDENT ORACLE, never from resolve_location -- a corpus labeled by the code under test only asserts that the code agrees with itself. The oracle is a deliberately dumb substring scan sharing no code with score/location.py: `us` is true when the string names the US or a US state in full; `foreign` lists ISO codes for full country names (>=4 chars, so no 2-letter codes, and no English-word collisions like Jersey/Georgia/Turkey). expect=keep when US and nothing foreign; expect=discard when foreign and nothing US; expect=either when the oracle ABSTAINS (mixed signals, or a city-only string it cannot judge) -- those rows are reported, never gated. THE GATE IS ONE-DIRECTIONAL: zero false discards, no tolerance. A leak costs one paid fit call and still reaches the human; a false discard deletes a real job that nobody reviews. Leaks are therefore PINNED, not zero. REBUILD: SELECT location, COUNT(*) FROM job_postings WHERE location IS NOT NULL AND TRIM(location) <> '' GROUP BY 1."}
+{"s": "Singapore", "n": 561, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "San Jose", "n": 467, "expect": "either", "us": false, "foreign": []}
+{"s": "Seattle, Washington, USA", "n": 270, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sunnyvale, CA, USA", "n": 254, "expect": "keep", "us": true, "foreign": []}
+{"s": "London", "n": 207, "expect": "either", "us": false, "foreign": []}
+{"s": "Seattle", "n": 178, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, CA, USA", "n": 172, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bangalore, India", "n": 132, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "New York", "n": 123, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bengaluru, Karnataka, IND", "n": 120, "expect": "either", "us": false, "foreign": []}
+{"s": "United States, Washington, Redmond", "n": 117, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco", "n": 116, "expect": "either", "us": false, "foreign": []}
+{"s": "San Jose, California, US", "n": 88, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boise, ID - Main Site", "n": 86, "expect": "either", "us": false, "foreign": []}
+{"s": "Fab 10N/X, Singapore", "n": 86, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Taichung - Fab 16, Taiwan", "n": 81, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Bengaluru", "n": 71, "expect": "either", "us": false, "foreign": []}
+{"s": "NYC", "n": 70, "expect": "either", "us": false, "foreign": []}
+{"s": "Bucharest", "n": 66, "expect": "either", "us": false, "foreign": []}
+{"s": "New York, NY", "n": 62, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States", "n": 58, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bangkok", "n": 54, "expect": "either", "us": false, "foreign": []}
+{"s": "New York, New York, USA", "n": 53, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY, USA", "n": 52, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sydney", "n": 52, "expect": "either", "us": false, "foreign": []}
+{"s": "Fab 10A, Singapore", "n": 51, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Hyderabad, Telangana, IND", "n": 51, "expect": "either", "us": false, "foreign": []}
+{"s": "Hyderabad - Phoenix Aquila, India", "n": 47, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "San Francisco, CA", "n": 47, "expect": "either", "us": false, "foreign": []}
+{"s": "San Jose, CA, USA", "n": 47, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, CA, Santa Clara", "n": 47, "expect": "keep", "us": true, "foreign": []}
+{"s": "London, UK", "n": 46, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Vancouver, British Columbia, CAN", "n": 46, "expect": "either", "us": false, "foreign": []}
+{"s": "Austin, Texas", "n": 45, "expect": "keep", "us": true, "foreign": []}
+{"s": "HKG", "n": 45, "expect": "either", "us": false, "foreign": []}
+{"s": "Kuala Lumpur", "n": 44, "expect": "either", "us": false, "foreign": []}
+{"s": "Kirkland, WA, USA", "n": 43, "expect": "keep", "us": true, "foreign": []}
+{"s": "London, United Kingdom", "n": 43, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "United States, Multiple Locations, Multiple Locations", "n": 42, "expect": "keep", "us": true, "foreign": []}
+{"s": "Cupertino", "n": 38, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, CALIFORNIA, us", "n": 38, "expect": "keep", "us": true, "foreign": []}
+{"s": "Multiple Cities", "n": 38, "expect": "either", "us": false, "foreign": []}
+{"s": "Mumbai, India", "n": 38, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "RTP, North Carolina, US", "n": 37, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States - NY New York", "n": 37, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hong Kong", "n": 36, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "LDN", "n": 36, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago", "n": 35, "expect": "either", "us": false, "foreign": []}
+{"s": "Hiroshima - Fab 15, Japan", "n": 34, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Shanghai, China", "n": 34, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "Sydney, Australia", "n": 34, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Bellevue, Washington, USA", "n": 33, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, IL", "n": 33, "expect": "either", "us": false, "foreign": []}
+{"s": "MSB, Singapore", "n": 33, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Bengaluru, India", "n": 32, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Los Angeles", "n": 32, "expect": "either", "us": false, "foreign": []}
+{"s": "Milpitas, California, US", "n": 32, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin", "n": 31, "expect": "either", "us": false, "foreign": []}
+{"s": "BENGALURU, KARNATAKA, India", "n": 31, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Dallas", "n": 31, "expect": "either", "us": false, "foreign": []}
+{"s": "Redmond, Washington, USA", "n": 31, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Mateo, CA, United States", "n": 31, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boise, ID - ID1", "n": 30, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, Ireland", "n": 30, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "New York City", "n": 30, "expect": "keep", "us": true, "foreign": []}
+{"s": "Pune, India", "n": 30, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Remote - US", "n": 30, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, Texas, USA", "n": 29, "expect": "keep", "us": true, "foreign": []}
+{"s": "Dubai", "n": 29, "expect": "either", "us": false, "foreign": []}
+{"s": "Hybrid", "n": 28, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin", "n": 27, "expect": "either", "us": false, "foreign": []}
+{"s": "Sanand - 303A - AT/SSD/MOD, India", "n": 27, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Amsterdam, North Holland, Netherlands", "n": 26, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "India, Karnataka, Bangalore", "n": 26, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Remote - United States", "n": 26, "expect": "keep", "us": true, "foreign": []}
+{"s": "Warsaw", "n": 25, "expect": "either", "us": false, "foreign": []}
+{"s": "San Jose, California, United States of America", "n": 24, "expect": "keep", "us": true, "foreign": []}
+{"s": "India, Telangana, Hyderabad", "n": 23, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Office - USA - CA - Headquarters", "n": 23, "expect": "keep", "us": true, "foreign": []}
+{"s": "Taichung - MTB, Taiwan", "n": 23, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Herndon, Virginia, USA", "n": 22, "expect": "keep", "us": true, "foreign": []}
+{"s": "Salt Lake City", "n": 22, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA, USA", "n": 22, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - USA", "n": 21, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seattle, WA, USA", "n": 21, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sunnyvale, California, USA", "n": 21, "expect": "keep", "us": true, "foreign": []}
+{"s": "Toronto, Canada", "n": 21, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Amsterdam", "n": 20, "expect": "either", "us": false, "foreign": []}
+{"s": "London, England, United Kingdom", "n": 20, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Chicago, United States", "n": 19, "expect": "keep", "us": true, "foreign": []}
+{"s": "Arlington, Virginia, USA", "n": 18, "expect": "keep", "us": true, "foreign": []}
+{"s": "Krakow, Poland", "n": 18, "expect": "discard", "us": false, "foreign": ["PL"]}
+{"s": "New York, New York, United States", "n": 18, "expect": "keep", "us": true, "foreign": []}
+{"s": "Taiwan, Taipei City, Taipei", "n": 18, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "US-CA-Menlo Park", "n": 18, "expect": "keep", "us": true, "foreign": []}
+{"s": "Jalisco, Mexico", "n": 17, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "San Bruno, CA, USA", "n": 17, "expect": "keep", "us": true, "foreign": []}
+{"s": "Taipei, Taiwan", "n": 17, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Taoyuan - Fab 11, Taiwan", "n": 17, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Toronto", "n": 17, "expect": "either", "us": false, "foreign": []}
+{"s": "Yorktown Heights, US", "n": 17, "expect": "keep", "us": true, "foreign": []}
+{"s": "Amsterdam, Netherlands", "n": 16, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "Chicago, Illinois, United States", "n": 16, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hong Kong, Hong Kong", "n": 16, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Hyderabad", "n": 16, "expect": "either", "us": false, "foreign": []}
+{"s": "Japan, Tokyo-to, Tokyo", "n": 16, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Paris, France", "n": 16, "expect": "discard", "us": false, "foreign": ["FR"]}
+{"s": "Remote", "n": 16, "expect": "either", "us": false, "foreign": []}
+{"s": "Reston, VA, USA", "n": 16, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Jose, California", "n": 16, "expect": "keep", "us": true, "foreign": []}
+{"s": "Singapore, Singapore", "n": 16, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Toronto, Ontario, CAN", "n": 16, "expect": "either", "us": false, "foreign": []}
+{"s": "Bengaluru, India ", "n": 15, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Boston, MA, United States", "n": 15, "expect": "keep", "us": true, "foreign": []}
+{"s": "Budapest", "n": 15, "expect": "either", "us": false, "foreign": []}
+{"s": "Lisbon", "n": 15, "expect": "either", "us": false, "foreign": []}
+{"s": "Miaoli - Tongluo, Taiwan", "n": 15, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "SGP", "n": 15, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA | New York City, NY", "n": 15, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santa Clara, California", "n": 15, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sydney,  Australia", "n": 15, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Tokyo", "n": 15, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta, GA, USA", "n": 14, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, TX, USA", "n": 14, "expect": "keep", "us": true, "foreign": []}
+{"s": "In-Office", "n": 14, "expect": "either", "us": false, "foreign": []}
+{"s": "Manassas, VA -  Fab 6", "n": 14, "expect": "either", "us": false, "foreign": []}
+{"s": "Mumbai", "n": 14, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote Canada", "n": 14, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "San Francisco, California, US", "n": 14, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago; New York", "n": 13, "expect": "keep", "us": true, "foreign": []}
+{"s": "Dublin, IRL", "n": 13, "expect": "either", "us": false, "foreign": []}
+{"s": "India", "n": 13, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Japan", "n": 13, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Remote - India", "n": 13, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Remote US", "n": 13, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hanoi, Vietnam", "n": 12, "expect": "discard", "us": false, "foreign": ["VN"]}
+{"s": "India, Hyderabad, DVS, SEZ-1 – Orion B4; FL 7,8,9,11 (Hyderabad - Divyasree 3)", "n": 12, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Kuala Lumpur, Malaysia", "n": 12, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Mexico City, Mexico", "n": 12, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Nashville, TN, United States", "n": 12, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York", "n": 12, "expect": "keep", "us": true, "foreign": []}
+{"s": "Paris", "n": 12, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote-Friendly, United States; San Francisco, CA | New York City, NY | Washington, DC", "n": 12, "expect": "keep", "us": true, "foreign": []}
+{"s": "Richardson, TX", "n": 12, "expect": "either", "us": false, "foreign": []}
+{"s": "US-WA-Bellevue", "n": 12, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View", "n": 12, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta, GA", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "Cambridge, MA, USA", "n": 11, "expect": "keep", "us": true, "foreign": []}
+{"s": "Cupertino, California, USA", "n": 11, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hanoi OR Ho Chi Minh City", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "Jakarta", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Greater London", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "Mexico City", "n": 11, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Munich", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "North Reading, Massachusetts, USA", "n": 11, "expect": "keep", "us": true, "foreign": []}
+{"s": "Palo Alto, CA", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, California, USA", "n": 11, "expect": "keep", "us": true, "foreign": []}
+{"s": "Stamford, Connecticut, United States", "n": 11, "expect": "keep", "us": true, "foreign": []}
+{"s": "Syracuse, NY - Downtown Office", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "Tokyo, Japan", "n": 11, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Wilmington, DE", "n": 11, "expect": "either", "us": false, "foreign": []}
+{"s": "Bangalore - Bagmane Tridib", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston, Massachusetts, USA", "n": 10, "expect": "keep", "us": true, "foreign": []}
+{"s": "California", "n": 10, "expect": "keep", "us": true, "foreign": []}
+{"s": "Edinburgh, Scotland", "n": 10, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Gurugram", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "Israel, Yokneam", "n": 10, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Longmont-MAX- Office, CO", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "Los Angeles, California", "n": 10, "expect": "keep", "us": true, "foreign": []}
+{"s": "Madrid", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "Penang, Malaysia - Grande", "n": 10, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Remote - Canada", "n": 10, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "San Francisco Bay Area", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "Sao Paulo", "n": 10, "expect": "either", "us": false, "foreign": []}
+{"s": "São Paulo, Brazil", "n": 10, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "United States - Remote", "n": 10, "expect": "keep", "us": true, "foreign": []}
+{"s": "Zug, Switzerland", "n": 10, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "Chennai, Tamil Nadu, IND", "n": 9, "expect": "either", "us": false, "foreign": []}
+{"s": "Ho Chi Minh City", "n": 9, "expect": "either", "us": false, "foreign": []}
+{"s": "Maynard, Massachusetts, US", "n": 9, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, California, USA", "n": 9, "expect": "keep", "us": true, "foreign": []}
+{"s": "Pittsburgh, PA, USA", "n": 9, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote Poland", "n": 9, "expect": "discard", "us": false, "foreign": ["PL"]}
+{"s": "San Francisco, California, United States", "n": 9, "expect": "keep", "us": true, "foreign": []}
+{"s": "Secaucus, New Jersey", "n": 9, "expect": "keep", "us": true, "foreign": []}
+{"s": "Shanghai", "n": 9, "expect": "either", "us": false, "foreign": []}
+{"s": "Tainan, Taiwan", "n": 9, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Austin, Texas, United States", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "Caesarea, Israel", "n": 8, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Canada - Remote (ON, AB, BC, or NS Only)", "n": 8, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Czech Republic, Prague, Prague", "n": 8, "expect": "either", "us": false, "foreign": []}
+{"s": "Dallas, Texas", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "Galway, Ireland", "n": 8, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Gurugram, Haryana", "n": 8, "expect": "either", "us": false, "foreign": []}
+{"s": "India - Hyderabad", "n": 8, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Telangana, Hyderabad, India, Karnataka, Bangalore, India, Uttar Pradesh, Noida", "n": 8, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "London, England, GBR", "n": 8, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "New York, NY (HQ)", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "PETACH TIKVA, Israel", "n": 8, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "San Diego", "n": 8, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA • New York, NY • United States", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Jose, CA", "n": 8, "expect": "either", "us": false, "foreign": []}
+{"s": "Santa Clara, California, USA", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santa Clara, California, us", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seattle, Washington, United States", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "Singapore, Central, Singapore", "n": 8, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Sunnyvale", "n": 8, "expect": "either", "us": false, "foreign": []}
+{"s": "USA.VA.Reston", "n": 8, "expect": "keep", "us": true, "foreign": []}
+{"s": "United Kingdom - UK London", "n": 8, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "United Kingdom, London, London", "n": 8, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Bellevue", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Brazil", "n": 7, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "Chicago, Illinois", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Culver City, California, USA", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Haifa, Haifa, ISR", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Hyderabad, India", "n": 7, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "London, Montreal, Singapore", "n": 7, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Memphis, TN; Southaven, MS", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, California", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, Chicago", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Newark, New Jersey, USA", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "O'Fallon, Missouri", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "PL-Warsaw-Lixa C", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Palo Alto, California, USA", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Raleigh, NC, USA", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote Spain", "n": 7, "expect": "discard", "us": false, "foreign": ["ES"]}
+{"s": "San Francisco, CA; New York, NY", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, California", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seoul", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto, Ontario", "n": 7, "expect": "either", "us": false, "foreign": []}
+{"s": "US-NY-New York", "n": 7, "expect": "keep", "us": true, "foreign": []}
+{"s": "United Kingdom", "n": 7, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Zhubei, Taiwan", "n": 7, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "1000 Nicollet Mall, Minneapolis,MN 55403-2542", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Albany, NY", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "BU3-Budapest-GTC White House, Vaci ut 47, District XIII, Budapest", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Berlin", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston, Massachusetts, United States", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "CT - Hartford", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Canada, British Columbia, Vancouver", "n": 6, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Carlsbad, California, US", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Denver, Colorado, USA", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "GB-London", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Gurugram, Haryana, India", "n": 6, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Gurugram, India", "n": 6, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Karnataka, Bangalore, India, Telangana, Hyderabad", "n": 6, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Lemont, IL USA", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "London, Greater London, England, United Kingdom", "n": 6, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Los Angeles, CA, USA", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Madrid, Spain", "n": 6, "expect": "discard", "us": false, "foreign": ["ES"]}
+{"s": "Melbourne, Victoria, AUS", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Mexico City, México", "n": 6, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Montevideo", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "New York City, New York, United States of America", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY, United States", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Mexico", "n": 6, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Remote, United Kingdom", "n": 6, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Reston, VA, United States", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco HQ", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA | New York City, NY | Seattle, WA", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA, US; Remote, US", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Taipei City, TWN", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Tel Aviv-Yafo, Israel", "n": 6, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Tel Aviv-Yafo, Tel Aviv, ISR", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto, ON, CAN", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "US, Arizona, Phoenix", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Virginia, Reston", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington, D.C.", "n": 6, "expect": "keep", "us": true, "foreign": []}
+{"s": "Yerevan", "n": 6, "expect": "either", "us": false, "foreign": []}
+{"s": "Abu Dhabi", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Austin, TX", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "BUCHAREST, Romania", "n": 5, "expect": "discard", "us": false, "foreign": ["RO"]}
+{"s": "Bangalore", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston, MA", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Boulder, CO, USA", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Brazil, São Paulo, São Paulo", "n": 5, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "CA-Toronto-York St 24/25", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Cambridge, US", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Canada", "n": 5, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Chicago - 125 S Franklin", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, IL, USA", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, IL, United States", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, US", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Frankfurt", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Fremont, CA, USA", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Greenwich, CT", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Hong Kong, Hong Kong; Sydney,  Australia", "n": 5, "expect": "discard", "us": false, "foreign": ["AU", "HK"]}
+{"s": "Ireland, Dublin, Dublin", "n": 5, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Kansas City, MO", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "London ", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Mexico City, Mexico City, MEX", "n": 5, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "N/A", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "New York, New York; Miami, Florida; Remote (USA)", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "North Sydney, Australia", "n": 5, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Penn State University Park", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - United Kingdom", "n": 5, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Remote, United States", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Romania, Bucharest, Bucharest", "n": 5, "expect": "discard", "us": false, "foreign": ["RO"]}
+{"s": "San Diego, CA, USA", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santa Clara", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Sao Paulo, Sao Paulo, BRA", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Singapore, Singapore, Singapore", "n": 5, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Sofia", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "Stockholm, Sweden", "n": 5, "expect": "discard", "us": false, "foreign": ["SE"]}
+{"s": "Tel Aviv, Israel", "n": 5, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Toronto, ON, CA", "n": 5, "expect": "either", "us": false, "foreign": []}
+{"s": "US, CA, Remote", "n": 5, "expect": "keep", "us": true, "foreign": []}
+{"s": "United Kingdom, Cambridgeshire, Cambridge", "n": 5, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Vancouver, British Columbia, Canada", "n": 5, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "7000 Target Pkwy N,NCD-0375 Brooklyn Park,MN 55445", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Aarhus, Central Denmark Region, Denmark", "n": 4, "expect": "discard", "us": false, "foreign": ["DK"]}
+{"s": "Austin, TX, United States", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Australia, New South Wales, Sydney", "n": 4, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Bangalore, Karnataka, in", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Bellevue, WA", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Birmingham", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Central - United States", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Central Singapore, Singapore", "n": 4, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Charlotte", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Cork", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Denver, Colorado", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Distributed", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "FR-Paris", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Gurgaon", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Hanoi OR Ho Chi Minh City ", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Hyderabad, Telangana", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "India - Mumbai - Maharashtra", "n": 4, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Israel, Haifa", "n": 4, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Israel, Raanana", "n": 4, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Israel, Tel Aviv", "n": 4, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Japan, Tokyo-to, Tokyo, Japan, Osaka-fu, Osaka", "n": 4, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Jersey City", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Kirkland, Washington, us", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "London; Amsterdam", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Malaysia, Federal Territory of Kuala Lumpur, Bukit Jalil", "n": 4, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Malaysia, Penang", "n": 4, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Minneapolis, MN", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Montreal", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "NO-Oslo-MSO", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "New York City Office", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Overland Park OPX", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Pittsburgh, PA", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Ramat Gan", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Ireland", "n": 4, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Remote - UK", "n": 4, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Remote, Bangalore", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote, USA", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Richardson", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Richardson, Texas, US", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA | Seattle, WA", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, California, us", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sanand - 303C - Facilities/Construction, India", "n": 4, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Santa Monica", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Seattle, WA", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Seoul, South Korea", "n": 4, "expect": "discard", "us": false, "foreign": ["KR"]}
+{"s": "Shenzhen", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "Switzerland, Zürich, Zürich", "n": 4, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "Sydney, New South Wales, AUS", "n": 4, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Taiwan", "n": 4, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Tel Aviv", "n": 4, "expect": "either", "us": false, "foreign": []}
+{"s": "United States, Virginia, Reston, United States, Washington, Redmond, United States, Maryland, Annapolis Junction", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington, DC", "n": 4, "expect": "keep", "us": true, "foreign": []}
+{"s": "ZAPOPAN, JALISCO, Mexico", "n": 4, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Zurich, Switzerland", "n": 4, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "AU-Melbourne", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Amsterdam ", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Arlington, VA", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta, Georgia, us", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, Texas, US", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, Texas, United States of America", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, Texas, us", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bangkok, Thailand", "n": 3, "expect": "discard", "us": false, "foreign": ["TH"]}
+{"s": "Beijing, Beijing, China", "n": 3, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "Beijing, CHN", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Bellevue, Washington", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Berlin, Berlin, DEU", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Bogota, Colombia", "n": 3, "expect": "discard", "us": false, "foreign": ["CO"]}
+{"s": "Boulder, Colorado, US", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bratislava, Slovakia", "n": 3, "expect": "discard", "us": false, "foreign": ["SK"]}
+{"s": "Burlington, MA", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "CA-Ontario-Toronto", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Cambridge, England, GBR", "n": 3, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Canada, BC, Vancouver", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Charlotte, NC", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago - 20 S. Wacker", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, IL ", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Clay, NY", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Cork, Ireland; Dublin, Ireland", "n": 3, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Crewe, England, gb", "n": 3, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Czech Republic, Multiple Locations, Multiple Locations", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Dallas, Texas, USA", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Denver, CO", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Denver, CO, US", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Dublin, ie", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Finland, Uusimaa, Helsinki", "n": 3, "expect": "discard", "us": false, "foreign": ["FI"]}
+{"s": "Gdansk, Pomeranian Voivodeship, POL", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Gurugram, Haryana, IND", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Hamburg", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Hawthorne, CA", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Hong Kong, Multiple Locations, Multiple Locations", "n": 3, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Hsinchu, Taiwan", "n": 3, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Huntsville, AL", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "IN-Pune", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "India - Bangalore", "n": 3, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India - Bangalore - Karnataka", "n": 3, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Bengaluru", "n": 3, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Multiple Locations, Multiple Locations", "n": 3, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Ireland, Leixlip", "n": 3, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Irvine, California, USA", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Israel, Multiple Locations, Multiple Locations", "n": 3, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "JP-Tokyo", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Jakarta Selatan", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Jakarta Utara", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Japan, Multiple Locations, Multiple Locations", "n": 3, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Kanata, Ontario, Canada", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Korea, Seoul, Seoul", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "LO9-London - Drapers Gardens", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Lithuania - Vilnius", "n": 3, "expect": "discard", "us": false, "foreign": ["LT"]}
+{"s": "London, Singapore", "n": 3, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "London, gb", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Los Angeles, CA", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Lysaker, Norway", "n": 3, "expect": "discard", "us": false, "foreign": ["NO"]}
+{"s": "Madison, WI, USA", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Madrid, Community of Madrid, ESP", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Malaysia, Johor, Johor Bahru", "n": 3, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Malaysia, Selangor, Kuala Lumpur", "n": 3, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "McLean, VA", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Mexico City – Mariano Escobedo", "n": 3, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Mexico, Guadalajara", "n": 3, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Minato, Japan", "n": 3, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Montreal, Canada", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "New York - 300 Vesey Street", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York City, NY", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, us", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Northridge, California, USA", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Palo Alto, California, United States", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Philippines - Taguig City - National Capital Region", "n": 3, "expect": "discard", "us": false, "foreign": ["PH"]}
+{"s": "Poland", "n": 3, "expect": "discard", "us": false, "foreign": ["PL"]}
+{"s": "Princeton, NJ", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - California", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote / Boston / Salt Lake City / San Francisco / New York", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Riyadh, Saudi Arabia", "n": 3, "expect": "discard", "us": false, "foreign": ["SA"]}
+{"s": "STORE SUPPORT CENTER, ATLANTA - 9090", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Salt Lake City, Utah, United States", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Mateo", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Santa Clara, CALIFORNIA, us", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Scottsdale, Arizona, United States of America", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Shanghai, CHN", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "TORONTO, Ontario, Canada", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Thailand, Bangkok, Bangkok", "n": 3, "expect": "discard", "us": false, "foreign": ["TH"]}
+{"s": "Tokyo, JPN", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Tokyo, jp", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto, Canada; Vancouver, Canada", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "US, California, Santa Clara", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-CO-Denver", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - New York City - New York", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, GA, Atlanta", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States ", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Arizona, Phoenix", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Maryland, Annapolis Junction", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Oregon, Hillsboro", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, New York, New York", "n": 3, "expect": "keep", "us": true, "foreign": []}
+{"s": "Warsaw, Poland", "n": 3, "expect": "discard", "us": false, "foreign": ["PL"]}
+{"s": "Waterloo, ON, Canada", "n": 3, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Westlake, TX", "n": 3, "expect": "either", "us": false, "foreign": []}
+{"s": "(USA) Crossman Respect Building CA SUNNYVALE Home Office", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "900 River Rd, King of Prussia,PA 19406", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Addison, TX, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Albany, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Alpharetta, GA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Amsterdam, NL", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Annapolis Junction, Maryland, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Arlington, VA, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta, GA, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta, Georgia, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Australia - Sydney - New South Wales", "n": 2, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, New South Wales, Sydney, Australia, Victoria, Melbourne, Australia, Queensland, Brisbane", "n": 2, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, New South Wales, Sydney, Australia, Victoria, Melbourne, Australia, Queensland, Brisbane, Australia, Australian Capital Territory, Canberra", "n": 2, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, Victoria, Melbourne", "n": 2, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "BATON ROUGE, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "BRA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Bangalore, Dubai, Geneva, Hong Kong, Houston, London, Madrid, Montreal, New York, Paris, Singapore, Zug, Boston", "n": 2, "expect": "either", "us": true, "foreign": ["HK", "SG"]}
+{"s": "Bangalore, Karnataka, India", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Barcelona", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Beaverton", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Beijing", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Beijing OR Shanghai", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Belfast - Millennium House", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Belgium - Brussels", "n": 2, "expect": "discard", "us": false, "foreign": ["BE"]}
+{"s": "Belgrade, Serbia", "n": 2, "expect": "discard", "us": false, "foreign": ["RS"]}
+{"s": "Bengaluru - BLR1", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Bengaluru, IND", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Bentonville, AR", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Berlin, Germany; Munich, Germany", "n": 2, "expect": "discard", "us": false, "foreign": ["DE"]}
+{"s": "Betterment HQ - New York City", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boise, ID - SIG Building", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston, Massachusetts, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boston, Massachusetts, United States of America", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Brookfield, WI", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Buffalo, NY", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "CA-ON-Kitchener", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Cairo", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "California - Remote", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "California, USA - Remote", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Canada, British Columbia, Vancouver, Canada, Ontario, Greater Toronto", "n": 2, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Ontario, Ottawa", "n": 2, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Cape Town, Western Cape, ZAF", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, IL or New York, NY", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, us", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, New York City", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago; New York, New York, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "China", "n": 2, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "China, Beijing, Beijing", "n": 2, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "China, Shanghai, Shanghai", "n": 2, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "China, Shenzhen", "n": 2, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "DE-Berlin-Trion Building", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Delhi", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Dubai, London, Paris, Hong Kong, Sydney, Toronto", "n": 2, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Dubai, United Arab Emirates", "n": 2, "expect": "discard", "us": false, "foreign": ["AE"]}
+{"s": "Dublin, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, IE", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, Ireland; Paris, France", "n": 2, "expect": "discard", "us": false, "foreign": ["FR", "IE"]}
+{"s": "Durham, NC, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Düsseldorf", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "EMEA - United Kingdom - London - Agar St", "n": 2, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "FL, Orlando (6545 Corporate Ctr Blvd)", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Fab 10W, Singapore", "n": 2, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Fontana", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Frisco, TX ", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Georgia, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Greenville", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Hanoi", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Hanoi or Ho Chi Minh City", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Hashimoto, Japan", "n": 2, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Headquarters/Sunnyvale Office", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Heredia, Costa Rica", "n": 2, "expect": "discard", "us": false, "foreign": ["CR"]}
+{"s": "Hong Kong ", "n": 2, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Hong Kong SAR, Hong Kong Island, Hong Kong", "n": 2, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Houston, London, Madrid, Montreal, New York, Paris, Singapore, Zug, Bangalore, Dubai, Geneva, Hong Kong, Boston", "n": 2, "expect": "either", "us": true, "foreign": ["HK", "SG"]}
+{"s": "Houston, Texas, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hyderabad, Telangana, in", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Hyderabad, in", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "IN-Bangalore-MSO", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "IND.Pune", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Iasi, ROU", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "India - Remote", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Bangalore", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Karnataka, Bangalore, India, Maharashtra, Mumbai", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Maharashtra, Mumbai", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Pune", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Uttar Pradesh, Noida, India, Karnataka, Bangalore", "n": 2, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Ireland", "n": 2, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Israel, Kiryat-Gat", "n": 2, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Jersey City, New Jersey, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Jupiter, FL", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "KR-Seoul", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Kouvola", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Lisbon, Portugal", "n": 2, "expect": "discard", "us": false, "foreign": ["PT"]}
+{"s": "London Office", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Amsterdam", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "London, England", "n": 2, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "London, England, gb", "n": 2, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "London, Montreal", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Montreal, Singapore, Warsaw", "n": 2, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "London, United Kingdom; New York, NY, United States; Singapore", "n": 2, "expect": "either", "us": true, "foreign": ["GB", "SG"]}
+{"s": "Malaysia, Kulim", "n": 2, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Malvern, PA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "McLean, Virginia", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Menlo Park, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Menlo Park, CA; New York, NY", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mexico - Mexico City", "n": 2, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Milan", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Milpitas, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Minato-Ku", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Montreal, QC, CAN", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, California, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, California; San Francisco, California", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Nashville, Tennessee, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Netherlands, Groningen, Eemshaven", "n": 2, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "New York ", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York City, London, Singapore", "n": 2, "expect": "either", "us": true, "foreign": ["SG"]}
+{"s": "New York City, New York", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, London, Singapore", "n": 2, "expect": "either", "us": true, "foreign": ["SG"]}
+{"s": "New York, NY, United States; Singapore", "n": 2, "expect": "either", "us": true, "foreign": ["SG"]}
+{"s": "New York, NY; St. Louis, MO; Washington, DC", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, United States, San Francisco, California, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, United States; Remote - United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Newark, NJ, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Niskayuna", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Northeast - United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Oakland, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Oakland, CA; Mesa, AZ", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "POUGHKEEPSIE, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Palo Alto; San Francisco", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Penang, Malaysia - Mini-Grande", "n": 2, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Perth, Western Australia, AUS", "n": 2, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Petah Tikva, il", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Philadelphia, PA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Philippines, Metro Manila, Makati City", "n": 2, "expect": "discard", "us": false, "foreign": ["PH"]}
+{"s": "Phoenix, Arizona, us", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Portland, Oregon, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Pune", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Pune, IND", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Pune, Maharashtra, IND", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Purchase, New York", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Brazil", "n": 2, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "Remote - Ontario, Canada", "n": 2, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Remote - Singapore", "n": 2, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Remote, Americas; Remote, Canada; Remote, United Kingdom", "n": 2, "expect": "either", "us": true, "foreign": ["CA", "GB"]}
+{"s": "Remote, Canada; Remote, US", "n": 2, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "Remote-Friendly (Travel Required) | San Francisco, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Richfield, Ohio, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Rolle, Switzerland", "n": 2, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "Salt Lake City, UT", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "San Diego, California", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Diego, California, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Diego, California, us", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA - US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; New York, NY; Washington, DC", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Oakland, CA", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA; Seattle, WA; New York, NY", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Seattle, WA; Sunnyvale, CA; New York, NY", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Luis Obispo, California, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santiago, Chile", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Sao Paulo, Brazil", "n": 2, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "Seattle, WA, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seattle, Washington, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seoul, Republic of Korea", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Shanghai ", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Singapore, Hong Kong", "n": 2, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Singapore, North West, Singapore", "n": 2, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "South San Francisco, California", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Spring, Texas, United States of America", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "São Paulo, São Paulo, Brazil", "n": 2, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "TORONTO, ON, Canada", "n": 2, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Taichung - AATT, Taiwan", "n": 2, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Taipei", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Taipei - MTT office, Taiwan", "n": 2, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Tempe, Arizona, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Thornton, CO, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Toronto, ON", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto, Ontario, ca", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "US - Austin, TX", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US - Torrance, CA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US Remote", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, California, Folsom", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, Oregon, Hillsboro", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, Remote", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, Texas, Austin", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-IL-Chicago-MSO", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-MA-TEWKSBURY-TB3 ~ 50 Apple Hill Dr ~ CONCORD BLDG, Tewksbury Tb3 300 Concord", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-VA-DULLES-710 ~ 22110 Pacific Blvd ~ BLDG 10", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-VA-McLean", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - El Segundo, CA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Omaha, NE", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Philadelphia - Pennsylvania", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, CA, Pleasanton", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "UT - Cottonwood Heights; FL - Jacksonville; CA - San Francisco; NY - New York; WA - Seattle; NC -Charlotte; TX - Frisco; DE - Greenville", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United Kingdom, Newport, Newport", "n": 2, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "United States, Arizona, Phoenix, United States, Arizona, Goodyear", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Oregon, Hillsboro, United States, North Carolina, Raleigh", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Santa Clara", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Lakewood, 165 South Union Blvd", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, Washington, Redmond, United States, California, Mountain View, United States, Texas, Austin, United States, Texas, Houston, United States, Illinois, Chicago, United States, New York, New York, United States, Massachusetts, Cambridge, United States, Georgia, Atlanta", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, New York, New York, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, Oregon, Hillsboro, United States, Texas, Austin, United States, California, Mountain View, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Oregon, Hillsboro, United States, Washington, Redmond, United States, California, Mountain View, United States, North Carolina, Raleigh, United States, Texas, Austin", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, Abilene", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, San Antonio, United States, Texas, Abilene", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Dulles", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Reston", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Reston, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, California, Santa Clara, United States, Texas, Austin, United States, North Carolina, Raleigh, United States, Oregon, Hillsboro, United States, Idaho, Boise", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, Oregon, Hillsboro", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Multiple Locations, Multiple Locations", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Oregon, Hillsboro, United States, California, Mountain View", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Virginia, Reston, United States, Maryland, Annapolis Junction", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Washington, Redmond", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Wyoming, Cheyenne", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Florida-Melbourne", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Vancouver", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Vancouver, BC, CAN", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Vietnam, Ha Noi - Capital, Hanoi", "n": 2, "expect": "discard", "us": false, "foreign": ["VN"]}
+{"s": "Washington, DC, US", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "West Memphis, AR, USA", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "West Palm Beach, Florida, us", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "White Plains, New York, United States", "n": 2, "expect": "keep", "us": true, "foreign": []}
+{"s": "Wilmington-MA (Upton)", "n": 2, "expect": "either", "us": false, "foreign": []}
+{"s": "Zürich, Switzerland", "n": 2, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": " London, Montreal, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": " Montreal, Bangalore, Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": " Singapore, Bangalore, London, Warsaw, Montreal", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "1067 Energy, Coast, and Environment Building", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "17th Floor, 5 Aldermanbury Square, London, EC2V 7HR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "30 Corporate Woods", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "300 Creekview Ave, Bldg H, Logan Township,NJ 08085-2597", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "333 Earle Ovington Blvd - Uniondale, NY", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "379 Interpace Pkwy, Parsippany, 07054", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "4725 Piedmont Row Drive Suite 600 Charlotte, North Carolina 28210", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "885 GEORGIA ST W:VANCOUVER", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "9400 Tuscany Way, Bldg 2, Austin,TX 78754", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "AMER - Canada - British Columbia - Vancouver - Bentall Centre", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "AMER - Canada - Ontario - Offsite/Home", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "AMER - Canada - Ontario - Toronto - University Ave", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "APAC - India - Pune - ABIL Boulevard", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "AU-Sydney", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "AU-Victoria-Remote", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "AZ Blue Phoenix, AZ 85021", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "AZ Phoenix", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Aachen", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Aarhus", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Add ALL locations here", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Addison, TEXAS, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Akron, OH, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Albany", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Alberta; British Columbia; Manitoba; Nova Scotia; Ontario; Quebec", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Albuquerque, NM", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Alexandria, VA, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Allentown, PA - 1110 American Parkway", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Almaty", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Almaty, Kazakhstan", "n": 1, "expect": "discard", "us": false, "foreign": ["KZ"]}
+{"s": "Amarillo, TX, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "American Fork_84003", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ames, IA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Amman, JOR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Amsterdam, Netherlands; London, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB", "NL"]}
+{"s": "Amsterdam; Chicago; London; New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Anderson, SC, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Ann Arbor, MI", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ann Arbor, MI; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Ann Arbor, Michigan, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Annapolis Junction, MD", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Annapolis Junction, Maryland", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Annapolis Junction, Maryland, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Argentina, Buenos Aires, Buenos Aires, Chile, Santiago, Santiago", "n": 1, "expect": "discard", "us": false, "foreign": ["AR"]}
+{"s": "Arlington", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Arlington, VA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Arlington, Virginia, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Armenia", "n": 1, "expect": "discard", "us": false, "foreign": ["AM"]}
+{"s": "Asda House", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ashburn", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ashburn, Virginia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Asti, Piedmont, ITA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta - Onsite", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta, GA (Open Remote - Eastern Time Zone)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Atlanta, GA | NYC, NY | Remote, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta, Georgia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta, Georgia, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Atlanta, Georgia, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Audubon, PA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Aurora, CO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Austin OR Chicago OR Miami OR New York OR Old Greenwich OR San Francisco OR West Palm Beach", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin TX", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Austin, TX, United States; Boulder, Colorado, United States; Chicago, Illinois, United States; London, United Kingdom; New York, NY, United States", "n": 1, "expect": "either", "us": true, "foreign": ["GB"]}
+{"s": "Austin, TX, United States; Chicago, Illinois, United States; New York, NY, United States; Singapore", "n": 1, "expect": "either", "us": true, "foreign": ["SG"]}
+{"s": "Austin, TX, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, TX; Palo Alto, CA; Washington, D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin, TX; St. Louis, MO; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin; New York City; Palo Alto; San Francisco; United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Austin; New York; New York City; San Francisco; United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Australia - Melbourne", "n": 1, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Australia, Australian Capital Territory, Canberra, Australia, New South Wales, Sydney, Australia, Victoria, Melbourne", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Australia, Multiple Locations, Multiple Locations, Australia, New South Wales, Sydney, Australia, Victoria, Melbourne", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, New South Wales, Sydney, Australia, Victoria, Melbourne", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "Australia, Victoria, Melbourne, Australia, South Australia, Adelaide", "n": 1, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Aventura", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Avezzano (AQ), Italy", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "B3G - Skyline Belgrade, Kneza Milosa 88, Belgrade", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "BHX - 2 Colmore Square, 2 Colmore Square, 38 Colmore Circus, Birmingham", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "BOURNEMOUTH, DORSET, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Bangalore ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bangalore - India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Bangalore, India; Remote, Canada; Remote, Israel; Remote, United Kingdom; Remote, United States", "n": 1, "expect": "either", "us": true, "foreign": ["CA", "GB", "IL", "IN"]}
+{"s": "Bangalore, London, Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bangalore, Montreal, Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bangalore,India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Bangalore-Affluence", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Barcelona, Catalonia, ESP", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Barcelona, Spain", "n": 1, "expect": "discard", "us": false, "foreign": ["ES"]}
+{"s": "Bastrop, TX", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Battle Creek, MI, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Bay Area", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bay Area, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Belfast", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Belfast, Northern Ireland, gb", "n": 1, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Belgium", "n": 1, "expect": "discard", "us": false, "foreign": ["BE"]}
+{"s": "Bengaluru, Karnataka", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bengaluru, Karnataka, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Berlin, Germany", "n": 1, "expect": "discard", "us": false, "foreign": ["DE"]}
+{"s": "Beth Israel Deaconess Medical Center", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Bethesda, MD", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bethesda, MD, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Birmingham, GBR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Boca Raton, FL Corporate Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bogota, Colombia (Bldg 978)", "n": 1, "expect": "discard", "us": false, "foreign": ["CO"]}
+{"s": "Boise, ID - North Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bolling AFB, DC", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bordeaux, France; Lyon, France; Madrid, Spain; Nantes, France; Paris, France; Sophia Antipolis, France", "n": 1, "expect": "discard", "us": false, "foreign": ["ES", "FR"]}
+{"s": "Boston, MA (Hybrid)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston, MA, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boston, Massachusetts", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boston, Massachusetts, USA; New York, New York, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boston-MA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Boston; Massachusetts", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boston; New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boulder, CO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Boulder, Colorado, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boxborough, Massachusetts", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Boxborough, Massachusetts, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Brazil, São Paulo, Campinas", "n": 1, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "Brazil; São Paulo", "n": 1, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "Brisbane, Australia", "n": 1, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "Brisbane, Queensland, AUS", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bristol", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Bristol, England, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Bristol, England, gb", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Broomfield, Colorado, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Brussels", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Budapest, Hungary", "n": 1, "expect": "discard", "us": false, "foreign": ["HU"]}
+{"s": "Buenos Aires", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "CA - San Francisco HQ; CA - California Remote; NY - New York City", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "CA-Alberta-Remote", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "CAMBRIDGE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "CO - VIRTUAL", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "CO-Colombia-Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["CO"]}
+{"s": "Calgary Headquarters ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "California - Redwood City", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "California - San Francisco", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "California - San Francisco ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Cambridge Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Cambridge, MA, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Canada ", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Alberta, Calgary", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Alberta, Calgary, Canada, British Columbia, Vancouver, Canada, Alberta, Edmonton", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, BC, Victoria", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, British Columbia, Vancouver, Canada, Ontario, Greater Toronto, Canada, Québec, Montreal, Canada, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Ontario, Greater Toronto", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Ontario, Greater Toronto, Canada, British Columbia, Vancouver, Canada, Ontario, Ottawa, Canada, Alberta, Calgary", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Ontario, Toronto", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Québec, Montreal, Canada, Québec, Quebec City, Canada, Ontario, Greater Toronto, Canada, Ontario, Ottawa", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Canada, Toronto, Ontario", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Carlsbad, California", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Carmel, IN", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Carol Stream", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Casablanca, Morocco", "n": 1, "expect": "discard", "us": false, "foreign": ["MA"]}
+{"s": "Central Hong Kong, Hong Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Centreville, VA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chantilly, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chantilly, Virginia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Charlotte, North Carolina", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chengdu", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chengdu Metro Area", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chennai", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, IL (Hybrid)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, IL, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, IL; Menlo Park, CA; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, United States, New York, New York, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, Illinois, United States; London, United Kingdom; New York, NY, United States", "n": 1, "expect": "either", "us": true, "foreign": ["GB"]}
+{"s": "Chicago, NYC", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago, New York, Amsterdam", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, US-Remote, Toronto ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago, United States; Miami, United States; New York, United States; Philadelphia, United States; San Francisco, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Chicago/Summa - Amsterdam", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chicago; Hong Kong; London; New York; Singapore", "n": 1, "expect": "either", "us": true, "foreign": ["HK", "SG"]}
+{"s": "Chicago; London", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Chile, Santiago, Santiago", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "China, Beijing", "n": 1, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "China, Beijing, Beijing, China, Shanghai, Shanghai, Hong Kong SAR, Hong Kong Island, Hong Kong, Taiwan, Taipei City, Taipei", "n": 1, "expect": "discard", "us": false, "foreign": ["CN", "HK", "TW"]}
+{"s": "China, Shanghai", "n": 1, "expect": "discard", "us": false, "foreign": ["CN"]}
+{"s": "Chonburi, Thailand", "n": 1, "expect": "discard", "us": false, "foreign": ["TH"]}
+{"s": "Cincinnati, OH (USA)", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Ciudad Autónoma de Buenos Aires, Argentina", "n": 1, "expect": "discard", "us": false, "foreign": ["AR"]}
+{"s": "Collinsville, IL", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Colombo, Sri Lanka", "n": 1, "expect": "discard", "us": false, "foreign": ["LK"]}
+{"s": "Colorado Springs", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Colorado, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Columbia, SC", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Columbia, South Carolina", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Columbia, South Carolina, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Columbus, OH, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Concord Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Conshohocken, PA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Cookeville, TN", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Cork, Ireland", "n": 1, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Corp-Main - Diamond Bar, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Costa Rica", "n": 1, "expect": "discard", "us": false, "foreign": ["CR"]}
+{"s": "Costa Rica - Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["CR"]}
+{"s": "Costa Rica, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["CR"]}
+{"s": "Courbevoie, Ile-de-France, FRA", "n": 1, "expect": "discard", "us": false, "foreign": ["FR"]}
+{"s": "DE-Germany-Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["DE"]}
+{"s": "Dallas, TX", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Dallas, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Daytona Beach, FL", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Delaware, OH, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Delhi, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Denmark, Copenhagen, Kongens Lyngby", "n": 1, "expect": "discard", "us": false, "foreign": ["DK"]}
+{"s": "Denver", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Denver, CO; Menlo Park, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Denver, Colorado, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Denver, Colorado, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Des Moines, IA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Des Moines, IA, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Detroit", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Distributed; Hybrid", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Doha, Qatar ", "n": 1, "expect": "discard", "us": false, "foreign": ["QA"]}
+{"s": "Downtown Houston", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Dubai, Dubai, United Arab Emirates", "n": 1, "expect": "discard", "us": false, "foreign": ["AE"]}
+{"s": "Dubai, UAE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, CA; Sunnyvale, CA; San Jose, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, County Dublin, Ireland", "n": 1, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Dublin, Ireland ", "n": 1, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Dublin, Ireland; London, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB", "IE"]}
+{"s": "Dublin, London", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Dublin, OH / Hybrid", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Duluth, Georgia, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Dunstable, England (Vocalink)", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Durham", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Eagan, MN", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "East Palo Alto, California, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Edina, Minnesota, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Edinburgh", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Edinburgh, Scotland, GBR", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Edmond, OK", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Edmonton, Hybrid", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Eindhoven - Netherlands", "n": 1, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "El Paso", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "El Segundo, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Eschborn, Germany", "n": 1, "expect": "discard", "us": false, "foreign": ["DE"]}
+{"s": "Essex Junction, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "External, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "FARMINGTON HILLS, MI, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Fenton, MO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Fins Only-US-CA-San Mateo", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Florida, United States ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Folsom, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Folsom, California", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Fort Collins, Colorado", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Fort Meade, MD, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Fort Wayne, IN, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "France, Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["FR"]}
+{"s": "France, Remote; Germany, Remote; Italy, Remote; Spain, Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["DE", "ES", "FR", "IT"]}
+{"s": "Frisco - TX; Charlotte - NC", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "GBR_WS_Malvern", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "GEORGIA - VIRTUAL - GA01", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "GLASGOW, LANARKSHIRE, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "GUJARAT, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Geneva", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Geneva OR London OR Paris OR Zug", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Geneva, Geneva, Switzerland", "n": 1, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "Geneva, London, Paris, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Germany, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["DE"]}
+{"s": "Germany, Multiple Locations, Multiple Locations, Netherlands, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["DE", "NL"]}
+{"s": "Glasgow, UK (ZUK118)", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Great Britain - London", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Greece, Attica, Athens", "n": 1, "expect": "discard", "us": false, "foreign": ["GR"]}
+{"s": "Greenwich, Connecticut, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Greenwich, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Gurgaon, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Gurugram, Sydney", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "HQ: San Francisco", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "HYDERABAD, TELANGANA, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Hackensack, NJ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Harrisburg, PA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Harrogate, England (Vocalink)", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Harvard Square", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Hawthorne, NY, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Helsinki, Uusimaa, Finland", "n": 1, "expect": "discard", "us": false, "foreign": ["FI"]}
+{"s": "Herndon, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Herndon, Virginia, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Herzliya", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Hillsboro-OR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ho Chi Minh City ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Holmdel, New Jersey, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Home based - Worldwide", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Hong Kong, HKG", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Hong Kong, Shanghai", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Hong Kong, Shanghai, Singapore, Sydney", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Hong Kong, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Hong Kong; London; Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Hong Kong; Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Hong kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Houston 1400 Smith Street", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Houston, TX - OPIS", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Houston, TX or San Francisco Bay Area", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Houston, Texas, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Houston, Texas, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Houston, Texas, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Houston, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Hybrid - London, UK", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Hybrid - Luxembourg", "n": 1, "expect": "discard", "us": false, "foreign": ["LU"]}
+{"s": "Hyderabad, IND", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Hyderabad, Telangana, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "IL - Chicago", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IL - Work from home", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IL-Tel Aviv-MSO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IN - Bengaluru", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IN - Indianapolis - Keystone Crossing", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IN - TDC 1 (IN110)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IN-Mumbai-MSO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IND-BANGALORE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "IND-PUNE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Illinois - Chicago", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "India, Haryana, Gurgaon", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Mumbai, Godrej Two,  (Mumbai)", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Telangana, Hyderabad, India, Karnataka, Bangalore", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India, Uttar Pradesh, Noida, India, Karnataka, Bangalore, India, Telangana, Hyderabad", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "India-Pune", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Indianapolis-Indiana-United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Information Technology Center", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ireland - Dublin", "n": 1, "expect": "discard", "us": false, "foreign": ["IE"]}
+{"s": "Irvine, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Irvine, CA, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Irving", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Irving, TX, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Islamabad, PK", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Israel, Haifa, Haifa", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Israel, Multiple Locations, Multiple Locations, Israel, Tel Aviv, Herzliya", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Israel, Tel Aviv, Tel Aviv", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Israel, Tel Hai", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Issy Les Moulineaux, PARIS, fr", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Istanbul, Turkey", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Italy - Milan", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Italy - Rome", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Italy, Milano, Milan", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Jackson, MS - Main Campus", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Jacksonville, 5201 Gate Parkway", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Japan, Tokyo", "n": 1, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Japan, Tokyo-to, Tokyo, Japan, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Jersey City, NJ, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Kansas City, MO, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Kirkland, WA, USA; San Francisco, CA, USA; Mountain View, CA, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Kleinmachnow", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Korea, Busan, Busan", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Korea, Republic of - Seoul", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "LONDON, LONDON, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "LONDON, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Lafayette, Colorado, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Lawrence, NY", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Leeds, England, gb", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Lehi", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Lexington, KY", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Lincoln, Nebraska, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Linthicum-Maryland-United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Livonia, MI, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "London - Tower Place West", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "London - UK2", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "London and Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "London, GBR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Madrid, Montreal, Bangalore, Singapore, Hong Kong, Warsaw", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "London, Montreal, Bangalore & Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Montreal, Madrid, Bangalore", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Montreal, Singapore, Honk Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "London, Montreal, Singapore, Warsaw, Zug", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "London, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "London, New York, Paris", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "London, Paris, Amsterdam", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "London, Paris, Hong Kong, Tokyo", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "London, United Kingdom, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["GB", "SG"]}
+{"s": "Longmont, Colorado", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Los Angeles, CA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Los Angeles, CA, United States; New York, NY, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Los Angeles, California; Remote - California; San Francisco, California", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "MASON BUS AND INNOVATION CTR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "MDC – Montreal", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "MIL - Be'er Sheva Negev Park - Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "MTI - Beer Sheva - Home", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "MX-Mexico-Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "MY - KUALA LUMPUR NO 10 JALAN P RAMLEE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "MY - PENANG 38 JALAN SULTAN AHMAD SHAH - LOTS 3.02 7.01 & 9.01", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Madison, WI", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Maitland", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Malaysia, Multiple Locations, Multiple Locations, Singapore, Singapore, Singapore, Thailand, Bangkok, Bangkok, Vietnam, Multiple Locations, Multiple Locations, Philippines, Multiple Locations, Multiple Locations, Indonesia, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["ID", "MY", "PH", "SG", "TH", "VN"]}
+{"s": "Malaysia, Pulau Pinang, Gelugor", "n": 1, "expect": "discard", "us": false, "foreign": ["MY"]}
+{"s": "Manchester - Bonded Warehouse", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Manchester, Greater Manchester, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Manila", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Maryland, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Maryland; Virginia; Washington, D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Maryville, TN, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mason, OH, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Melbourne, Victoria, au", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Memphis, TN, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Memphis, Tennessee, United States; Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Menlo Park Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Menlo Park, CA; New York, NY; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Meridian - Main", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Merritt Island, Florida, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mesa, AZ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Mexico City, MX", "n": 1, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Mexico City, México, Puerto Rico, Multiple Locations, Multiple Locations", "n": 1, "expect": "either", "us": true, "foreign": ["MX", "PR"]}
+{"s": "Mexico, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Mexico, Querétaro, Querétaro City", "n": 1, "expect": "discard", "us": false, "foreign": ["MX"]}
+{"s": "Miami", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Miami, FL, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Miami, Florida", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Miami, Florida, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Miami, Florida, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Miami, Florida, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Middlesex", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Midlothian, TX, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Midrand, South Africa", "n": 1, "expect": "discard", "us": false, "foreign": ["ZA"]}
+{"s": "Milan, Italy", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Milpitas, CA, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Milpitas, California, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Milwaukee WI; Chicago, IL; New York, NY; San Francisco, CA; Phoenix, AZ; Austin, TX; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Milwaukee, WI", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Minneapolis, MN, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Minneapolis, Minnesota, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Monaco", "n": 1, "expect": "discard", "us": false, "foreign": ["MC"]}
+{"s": "Monrovia, IN, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Montevideo ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Montreal , London , Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Montreal, London, Singapore, Bangalore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Montreal, QC, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Montreal, QUEBEC, ca", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Montreal, Warsaw, Bangalore", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Montréal", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Montréal, Québec", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Morrow, GA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View CA USA; San Francisco CA USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, US ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, US; New York, NY, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, US; San Francisco, CA, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, US; San Francisco, CA, US; New York, NY, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, USA; San Francisco, CA USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, USA; San Francisco, CA, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, USA; San Francisco, CA, USA; Kirkland, WA, USA; New York City, NY, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, CA;  San Francisco, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Mountain View, Ca, USA ; Novi, Mi, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, California ; San Francisco, California ; New York City, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, California, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Mountain View, California; San Francisco, California; Pittsburgh, Pennsylvania", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Multiple Location", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Multiple Locations", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Mumbai, Maharastra", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Muskogee, OK, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "NC - Raleigh (27601)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "NL-Amsterdam", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "NOIDA, UTTAR PRADESH, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "NORTH RYDE, Australia", "n": 1, "expect": "discard", "us": false, "foreign": ["AU"]}
+{"s": "NY7 - 50 Hudson Yards, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "NYC (Brooklyn)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "NYC Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Naperville", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Nashville, Tennessee, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Netherlands, Noord-Holland, Amsterdam", "n": 1, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "New Delhi", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "New Delhi, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "New York - 1166", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York - New York City", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York - Remote (B)", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York City ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York City & Singapore", "n": 1, "expect": "either", "us": true, "foreign": ["SG"]}
+{"s": "New York City; Palo Alto; Seattle", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York City; United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York OR Old Greenwich OR Chicago OR Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York | Stamford | West Palm Beach / Miami", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, Chicago, Charleston, Las Vegas, Miami", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, Greenwich", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, London, or Paris", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY, USA; Norwalk, CT", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Chicago, IL", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Chicago, IL; San Francisco, CA; Los Angeles, CA; Seattle, WA; Denver, CO", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Los Angeles, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Miami, FL; Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Palo Alto, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Remote, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Chicago, IL; Austin, TX; Denver, CO; Los Angeles, CA; Miami, FL; Seattle, WA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Los Angeles, CA, Miami, FL", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Los Angeles, CA; Chicago, IL; Seattle, WA; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Los Angeles, CA; Chicago, IL; Seattle, WA; Washington, DC; Tempe, AZ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Los Angeles, CA; Seattle, WA; Sunnyvale, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Los Angeles, CA; Seattle, WA; Washington, DC; Tempe, AZ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Seattle, WA; Chicago, IL; Austin, TX; Denver, CO; Atlanta, GA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Seattle, WA; Los Angeles, CA; Chicago, IL; Sunnyvale, CA; Austin, TX; Denver, CO; Atlanta, GA; Miami, FL; Boston, MA; Washington, DC; Phoenix, AZ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Seattle, WA; Los Angeles, CA; Chicago, IL; Tempe, AZ; Denver, CO; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; San Francisco, CA; Seattle, WA; Los Angeles, CA; Sunnyvale, CA; Chicago, IL; Austin, TX; Denver, CO; Atlanta, GA; Miami, FL; Boston, MA; Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Washington, DC; Atlanta, GA; Miami, FL; Boston, MA; Philadelphia, PA; Chicago, IL; Houston, TX; Dallas, TX; Austin, TX; Phoenix, AZ; Denver, CO; Seattle, WA; Portland, OR; San Francisco, CA; Los Angeles, CA; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, NY; Washington, DC; Chicago, IL; Seattle, WA; San Francisco, CA; Los Angeles, CA; Phoenix, AZ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, USA; San Francisco, California, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, New York, United States; Palo Alto, California, United States; Washington, District of Columbia, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, Seattle", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, US, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New York/ San Francisco", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "New Zealand, Auckland, Auckland, Australia, New South Wales, Sydney, New Zealand, Wellington, Wellington", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "GB", "NZ"]}
+{"s": "Newark, DE, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Newark, New Jersey, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Newcastle upon Tyne, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Newport News, VA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Nigeria, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["NG"]}
+{"s": "Noida", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Noida, Uttar Pradesh, IND", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Noida, Uttarpradesh", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Norfolk, GBR", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Norfolk, VA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "North America - ET, Remote - United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "North America/USA/California/Rancho Cordova, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "North America/USA/Missouri/St. Louis - WPE, MO", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "North Chicago, IL, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Northeast - United States; Southeast - United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Norwalk, CT", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Norwalk, Connecticut, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Oakland, CA ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Offices at Vernon Place", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ohio - Columbus, One Nationwide Plaza", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Oklahoma City - 440 NE 39th Street", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Old Greenwich", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ontario - Remote", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ontario Remote", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ontario Remote Work", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ontario, CAN - Remote", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Orange (OH), Ohio, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Orlando, Florida, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Oslo, Norway", "n": 1, "expect": "discard", "us": false, "foreign": ["NO"]}
+{"s": "Ottawa", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Ottawa, Ontario, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "PA - Philadelphia, 1701 John F Kennedy Blvd", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "PH - QUEZON CITY - GBF CENTER 2", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "PL-Warsaw", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Palo Alto", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Palo Alto, CA, US; Remote, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Palo Alto, CA; Seattle, WA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Palo Alto; Seattle", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Paris, FRA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Peoria, IL", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Philadelphia", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Philadelphia, Pennsylvania", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Philippines, Manila, One Le Grand Tower (Manila - One Le Grand)", "n": 1, "expect": "discard", "us": false, "foreign": ["PH"]}
+{"s": "Phoenix Metro Area, AZ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Phoenix, AZ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Phoenix, AZ, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Phoenix, Arizona, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Phoenix, Arizona, United States Of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Plano, TX", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Plano, Texas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Portland", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Portland, OR, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Prairie View, TX", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Raleigh - 1 Glenwood", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Raleigh, North Carolina, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Ramat-Gan, Israel", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "Raritan, New Jersey, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Reading, England, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Red Deer", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Redmond, WA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Redwood City, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote (Vancouver)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Alberta, Canada (DNU)", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Remote - British Columbia, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Remote - Canada; Remote - US", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "Remote - Delaware  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - EMEA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Georgia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Georgia  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Indiana  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Kentucky  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Massachusetts  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Michigan", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Michigan  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Minnesota  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Multiple Locations", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Nevada  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Nevada, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - New Hampshire  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Oklahoma  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Ontario, Canada (DNU)", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Remote - Other", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Poland", "n": 1, "expect": "discard", "us": false, "foreign": ["PL"]}
+{"s": "Remote - Rhode Island  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - SF Bay Area", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Seattle", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote - Tennessee  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Texas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - The Netherlands", "n": 1, "expect": "discard", "us": false, "foreign": ["NL"]}
+{"s": "Remote - USA or Canada", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "Remote - Washington", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote - Wisconsin  ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote Illinois", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Remote Ireland; Remote, Poland; Remote, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB", "IE", "PL"]}
+{"s": "Remote Opportunity - VA, NC, SC, GA,  FL, AL, TX, & CO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Remote UK", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Remote in the US, Remote in Canada", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "Remote, Brazil; Remote, Mexico; Remote, United States", "n": 1, "expect": "either", "us": true, "foreign": ["BR", "MX"]}
+{"s": "Remote, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Remote, Canada; Remote, India; Remote, US", "n": 1, "expect": "either", "us": true, "foreign": ["CA", "IN"]}
+{"s": "Remote, Canada; Remote, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["CA", "GB"]}
+{"s": "Remote, Canada; Remote, United Kingdom; Remote, US", "n": 1, "expect": "either", "us": true, "foreign": ["CA", "GB"]}
+{"s": "Remote, Canada; Remote, United States", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "Remote, France; Remote, Germany; Remote, Ireland; Remote, Netherlands; Remote, Spain; Remote, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["DE", "ES", "FR", "GB", "IE", "NL"]}
+{"s": "Remote, India", "n": 1, "expect": "discard", "us": false, "foreign": ["IN"]}
+{"s": "Remote, Israel; Remote, United Kingdom", "n": 1, "expect": "discard", "us": false, "foreign": ["GB", "IL"]}
+{"s": "Remote, Japan", "n": 1, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Remote, North America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote, UK", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Remote, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Remote- USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Reno, Nevada, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Reston, VA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Richmond, VA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Riga, LVA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Riverside, CA, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Rocket Center, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Romania, Bucharest, Bucharest, Jordan, Amman, Amman", "n": 1, "expect": "discard", "us": false, "foreign": ["JO", "RO"]}
+{"s": "Romania, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["RO"]}
+{"s": "Roseville, CA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Runnemede", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "SAN JOSE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "SAO PAULO, SP, Brazil", "n": 1, "expect": "discard", "us": false, "foreign": ["BR"]}
+{"s": "SE-Stockholm-MSO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "SF", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "SF Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "SG-Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Saijo, Japan", "n": 1, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Saint Paul, Minnesota, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Saint Petersburg, Florida - United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Antonio Home Office I", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Antonio, TX, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Diego, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Diego, California, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco or Seattle", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA: Seattle, WA; Los Angeles, CA; Austin, TX; Chicago, IL; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Los Angeles, CA; Seattle, WA; Chicago, IL; Phoenix, AZ; Washington D.C.; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Mountain View, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA; New York, NY; Washington D.C.; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Phoenix, AZ; Chicago, IL; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Seattle, WA; Los Angeles, CA; Austin, TX; Chicago, IL; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Seattle, WA; Sunnyvale, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA; Seattle, WA; Tempe, AZ; Chicago, IL; New York, NY; Washington, DC; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; St. Louis, MO; New York, NY; Washington, DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Sunnyvale, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA; Sunnyvale, CA; Los Angeles, CA; Seattle, WA; New York, NY", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco, CA; Sunnyvale, CA; Seattle, WA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Francisco, CA; Sunnyvale, CA; United States - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Francisco-HQ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "San Jose, CA, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Jose, California, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San Jose, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "San José, CA, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sandy Springs, Georgia, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santa Barbara, California, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Santa Clara HQ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Santa Clara, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Santa Clara, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Sausalito, CA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Schaumburg, IL", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Seattle, WA, US; Palo Alto, CA, US; Remote, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seattle, WA, US; Remote, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Seattle, Washington", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Secaucus, NJ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Seoul, Korea", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Shanghai or Hong Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK"]}
+{"s": "Shanghai, Singapore, Hong Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Shanghai; Singapore; Hong Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Singapore - Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore / Hong Kong", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Singapore OR Sydney", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore | London", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore, Hong Kong, Shanghai", "n": 1, "expect": "discard", "us": false, "foreign": ["HK", "SG"]}
+{"s": "Singapore, London, Dubai", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore, Montreal , London", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore, SGP", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Singapore, Singapore, Singapore, Malaysia, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["MY", "SG"]}
+{"s": "Singapore, sg", "n": 1, "expect": "discard", "us": false, "foreign": ["SG"]}
+{"s": "Sofia, BG", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Somerville-MA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "South Netanya, Israel", "n": 1, "expect": "discard", "us": false, "foreign": ["IL"]}
+{"s": "South San Francisco", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "South San Francisco ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "South San Francisco, CA ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Spain - Madrid", "n": 1, "expect": "discard", "us": false, "foreign": ["ES"]}
+{"s": "St Louis, MO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Staines, gb", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Stamford, CT", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Stockholm", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Stockholm, SE", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Stockholm, se", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Support Center - Akron, OH", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Suwanee, GA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Suzhou", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Switzerland, Zurich", "n": 1, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "Sydney, AUS", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Sydney, Australia; Tokyo, Japan", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "JP"]}
+{"s": "Sydney, NSW", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Sydney, New South Wales, Australia", "n": 1, "expect": "discard", "us": false, "foreign": ["AU", "GB"]}
+{"s": "São Paulo", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "TN - Nashville", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "TUCSON, US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Taipei City", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Taipei Metro Area", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Taipei,Taiwan", "n": 1, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Taiwan, Multiple Locations, Multiple Locations", "n": 1, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Taiwan, New Taipei City, New Taipei City", "n": 1, "expect": "discard", "us": false, "foreign": ["TW"]}
+{"s": "Tampa, Florida, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Temple Terrace, Florida", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Texas, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Thailand, Bangkok, Bangkok, Singapore, Singapore, Singapore", "n": 1, "expect": "discard", "us": false, "foreign": ["SG", "TH"]}
+{"s": "Thalwil, Switzerland", "n": 1, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "The Hague", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Titusville, New Jersey, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Tokyo Prefecture, Japan", "n": 1, "expect": "discard", "us": false, "foreign": ["JP"]}
+{"s": "Tokyo, JP", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Topeka, Kansas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Toronto - 100 Adelaide St W", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto - Bremner", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto Office", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Toronto, ON, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Tower 02, Manyata Embassy Business Park, Racenahali & Nagawara Villages. Outer Ring Rd, Bangalore 540065", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Tucson, AZ", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Tulsa, OK", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Tulsa, OK, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Two PNC Plaza (PA374)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "UK", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "UK, Remote", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "UK-London", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "US", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US - Foster City, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US - Michigan - Livonia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US - TX - DALLAS 5430 LBJ FREEWAY 35 HRS", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US Remote - MA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US and Canada Offices", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "US | OH | Cincinnati - 4445 Lake Forest Drive", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, MA, Westford", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, TX, Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US, WA, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-CA-Bay Area-Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-CA-Dublin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-CA-Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-CO-BUCKLEY-SFB-CUST ~ 18500 E 6th Ave ~ BUCKLEY SFB (External Site)", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-FL-Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-GA-Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-IN-FT WAYNE-150A ~ 1010 Production Rd ~ BLDG 150A", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-IN-Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-MA-WOBURN-WB1 ~ 235 Presidential Way ~ SPENCER BLDG", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-NC-Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-NY-BINGHAMTON-288 ~ 31 Lewis Rd ~ LEWIS", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-PA-STATE COLLEGE-5A ~ 302 Science Park Rd ~ BLDG 5A", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-TN Nashville", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-TX-RICHARDSON-C17 ~ 1717 Cityline Dr ~ CITYLINE C17", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-VA Richmond - CoStar Tower", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "US-VA-ARLINGTON-1000 ~ 1000 Wilson Blvd ~ WILSON, Fl 23", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Atlanta - Georgia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Hazelwood, MO", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Indianapolis - Lakeview Parkway - Multiple OpCo", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Kennesaw, GA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Missouri - St. Louis - Rider Trail", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Mountain View, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Pennsylvania - West Point", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Sunnyvale, CA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA - Texas - Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA LA Home Office (LAHOME)", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA MD Annapolis Junction", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA NJ - Franklin Lakes", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA TX Frisco", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA VA Sterling", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, CA, San Francisco", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, CO, Boulder", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, IL, Chicago", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, NY, Remote", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "USA, Washington DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "UT - Cottonwood Heights; FL - Jacksonville", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "UT MAIN CAMPUS", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "UY-Montevideo", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "United Kingdom - London", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "United Kingdom, Gloucestershire, Cheltenham, United Kingdom, London, London", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "United States - California - Pleasanton", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States - Worcester, MA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Oregon, Hillsboro, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Oregon, Hillsboro, United States, Washington, Redmond, United States, California, San Diego", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Washington, Redmond, United States, Massachusetts, Boston, United States, New York, New York, United States, Multiple Locations, Multiple Locations", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, California, Mountain View, United States, Washington, Redmond, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Colorado, Denver, United States, New York, New York, United States, New Jersey, Bridgewater, United States, Connecticut, Farmington", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Georgia, Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Georgia, Atlanta, United States, North Carolina, Charlotte, United States, District of Columbia, Washington D.C., United States, Illinois, Chicago", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Georgia, Atlanta, United States, North Dakota, Fargo, United States, Texas, Las Colinas, United States, Washington, Seattle, United States, California, Los Angeles, United States, California, San Diego, United States, Arizona, Phoenix, United States, Illinois, Chicago, United States, Texas, Austin, United States, North Carolina, Charlotte, United States, Florida, Fort Lauderdale", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Illinois, Chicago", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Indiana, West Lafayette", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, Georgia, Atlanta, United States, Texas, Dallas, United States, North Dakota, Fargo, United States, Washington, Seattle, United States, California, San Diego, United States, Arizona, Phoenix, United States, Colorado, Denver, United States, Illinois, Chicago, United States, Texas, Austin, United States, Florida, Fort Lauderdale", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, North Dakota, Fargo, United States, Texas, Las Colinas, United States, Georgia, Atlanta, United States, Washington, Seattle, United States, California, San Diego, United States, Arizona, Phoenix, United States, Colorado, Denver, United States, Illinois, Chicago, United States, Texas, Austin, United States, Texas, Houston", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, Washington, Redmond, United States, California, Mountain View, United States, Texas, Austin, United States, Texas, Houston, United States, Illinois, Chicago, United States, Massachusetts, Cambridge, United States, New York, New York, United States, Georgia, Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Multiple Locations, Multiple Locations, United States, Washington, Redmond, United States, Georgia, Atlanta, United States, Texas, Dallas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, New York, New York, United States, New Jersey, Paramus", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Charlotte", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Charlotte, United States, Texas, Las Colinas, United States, North Dakota, Fargo, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Charlotte, United States, Washington, Redmond, United States, Texas, Las Colinas, United States, North Dakota, Fargo", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, California, Mountain View, United States, Oregon, Hillsboro", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, California, Mountain View, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, Oregon, Hillsboro, United States, California, Mountain View", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, Texas, Austin, United States, California, Mountain View, United States, Oregon, Hillsboro", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, Texas, Austin, United States, Oregon, Hillsboro, United States, California, Mountain View, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Carolina, Raleigh, United States, Washington, Redmond, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Dakota, Fargo, United States, North Carolina, Charlotte, United States, Texas, Las Colinas, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, North Dakota, Fargo, United States, Texas, Las Colinas, United States, North Carolina, Charlotte", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Oregon, Hillsboro, United States, Texas, Austin, United States, Washington, Redmond, United States, California, Mountain View", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Oregon, Hillsboro, United States, Washington, Redmond, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Oregon, Hillsboro, United States, Washington, Redmond, United States, Texas, Austin, United States, North Carolina, Raleigh", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, Austin, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, Dallas, United States, Georgia, Atlanta, United States, Illinois, Chicago, United States, North Dakota, Fargo, United States, Multiple Locations, Multiple Locations", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, Dallas, United States, Illinois, Chicago, United States, North Dakota, Fargo, United States, Texas, Austin, United States, Texas, Houston, United States, Washington, Redmond, United States, Colorado, Denver, United States, California, Los Angeles, United States, California, San Diego, United States, Arizona, Phoenix, United States, Georgia, Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, Houston", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Texas, San Antonio", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Boydton", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Dulles, United States, Virginia, Sterling, United States, Virginia, Ashburn, United States, Virginia, Manassas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Manassas", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Reston, United States, Maryland, Annapolis Junction", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Virginia, Reston, United States, Maryland, Annapolis Junction, United States, Washington, Redmond", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, California, Santa Clara, United States, Oregon, Hillsboro, United States, North Carolina, Raleigh, United States, Idaho, Boise, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, Georgia, Atlanta, United States, Virginia, Reston, United States, District of Columbia, Washington D.C., United States, New York, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, North Carolina, Raleigh, United States, Texas, Austin, United States, Oregon, Hillsboro", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, Oregon, Hillsboro, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Mountain View, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, California, Sunnyvale", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Georgia, Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Georgia, Atlanta, United States, Arizona, Phoenix, United States, Texas, San Antonio, United States, District of Columbia, Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Massachusetts, Cambridge", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, New York, Garden City, United States, California, Mountain View, United States, California, San Francisco, United States, Massachusetts, Boston", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, New York, New York", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, North Carolina, Durham, United States, North Carolina, Raleigh", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, North Dakota, Fargo, United States, Texas, Las Colinas, United States, North Carolina, Charlotte", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Oregon, Hillsboro, United States, California, Mountain View, United States, California, Santa Clara, United States, Texas, Austin, United States, District of Columbia, Washington D.C., United States, North Carolina, Raleigh, United States, Idaho, Boise", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Oregon, Hillsboro, United States, Texas, Austin, United States, California, Mountain View, United States, California, Santa Clara, United States, North Carolina, Raleigh, United States, District of Columbia, Washington D.C., United States, Idaho, Boise", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Austin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Austin, United States, California, Mountain View", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Austin, United States, California, Mountain View, United States, District of Columbia, Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Austin, United States, California, Mountain View, United States, Oregon, Hillsboro, United States, North Carolina, Raleigh", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Austin, United States, North Carolina, Raleigh, United States, Oregon, Hillsboro", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, Dallas, United States, Georgia, Atlanta", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Texas, San Antonio, United States, Georgia, Atlanta, United States, Arizona, Phoenix, United States, District of Columbia, Washington D.C.", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States, Washington, Redmond, United States, Virginia, Reston, United States, Georgia, Atlanta, United States, Maryland, Annapolis Junction", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Alabama-Huntsville", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-California-El Segundo", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-California-Northridge", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-California-Redondo Beach", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Colorado-Aurora", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Colorado-Boulder", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Colorado-Schriever AFB", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Mississippi-Iuka", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-North Carolina-Morrisville", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Oklahoma-Oklahoma City", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Utah-Roy", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States-Virginia-McLean", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "United States/Canada", "n": 1, "expect": "either", "us": true, "foreign": ["CA"]}
+{"s": "United States; USCA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "University of Maryland College Park", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Uxbridge, UK (ZUK131)", "n": 1, "expect": "discard", "us": false, "foreign": ["GB"]}
+{"s": "Vancouver, Canada", "n": 1, "expect": "discard", "us": false, "foreign": ["CA"]}
+{"s": "Vancouver, WA - 805 Broadway", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Vienna, Austria", "n": 1, "expect": "discard", "us": false, "foreign": ["AT"]}
+{"s": "Vietnam, Haiphong City, Haiphong City", "n": 1, "expect": "discard", "us": false, "foreign": ["VN"]}
+{"s": "Vilnius", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Vimercate (MB), Italy", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Vimercate, Italy", "n": 1, "expect": "discard", "us": false, "foreign": ["IT"]}
+{"s": "Virginia - Mclean", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Wakefield, MA (Hybrid)", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Wakefield, MA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Warren, Michigan, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Warrenton, VA, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington D.C., DC, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington D.C., District of Columbia", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington D.C.; Atlanta, GA; Philadelphia, PA; Boston, MA; Raleigh, NC; Miami, FL; LA, Seattle, WA; Chicago, IL; Austin, TX; Denver, CO", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington DC", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington University Danforth Campus", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington, DC ", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington, DC, us", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Washington, DC; Atlanta, GA; Philadelphia, PA; Boston, MA; Raleigh-Durham, NC; Miami, FL; Los Angeles, CA; Seattle, WA; Chicago, IL; Austin, TX; Denver, CO", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Waterloo, Ontario", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Waukesha Ridgeview, Wisconsin", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Waukesha, WI - USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "West Palm Beach", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Westerville, OH, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Westford, Massachusetts, United States of America", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Westport, CT & New York City", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Wheat Ridge, CO", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Wichita Falls, TX, USA", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Windsor, CT, United States", "n": 1, "expect": "keep", "us": true, "foreign": []}
+{"s": "Woburn, MA", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Work From Home", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Zurich", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "Zurich - Switzerland", "n": 1, "expect": "discard", "us": false, "foreign": ["CH"]}
+{"s": "chicago", "n": 1, "expect": "either", "us": false, "foreign": []}
+{"s": "gurugram", "n": 1, "expect": "either", "us": false, "foreign": []}

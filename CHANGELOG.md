@@ -7,6 +7,51 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The location gate leaked foreign on-site roles nine different ways; it is now
+  evidence-tiered and gated in CI.** A survey of every distinct `location` string in the
+  live DB (9,633 rows / 1,611 strings) found **317 rows kept that were clearly non-US** —
+  3.3% of rows, 5.5% of everything the gate kept — against a **clean discard side (0 false
+  discards)**. The failure was entirely one-directional over-keeping, in nine classes:
+  informal country names pycountry cannot resolve (`UK`, `England`, `Scotland`, `LDN`,
+  `UAE` — 116 rows; the alias table existed but was consulted only for the *allowed* list,
+  never for a token, which also meant `locations: ["UK","USA"]` silently discarded every UK
+  role); the remote hint firing **before** any country resolved, so `Remote - India` kept
+  (85 rows); `Ontario` resolving to Ontario, **California**, which rescued
+  `Toronto, Ontario, CAN` despite two of three tokens saying Canada (53 rows); vague region
+  tokens (82 rows); nothing resolving at all (62 rows); ASCII-vs-diacritic city misses —
+  the gazetteer stores `Montréal`/`São Paulo`/`Zürich` while boards write ASCII, and 6,449
+  of its 30,699 city keys carry non-ASCII (32 rows); unknown foreign subdivisions
+  (`Haryana`, `Telangana`, `NSW` — 25 rows); multi-country strings (13 rows); and strings
+  with no separator at all (`Remote Canada`, `India-Pune`), which never tokenized.
+  Plus a wrong-*reason* bug: `APAC` is a town in Uganda, so `APAC - India - Pune` discarded
+  as "on-site in **Uganda**" — right verdict, wrong country in the audit trail.
+
+  The gate now classifies every token into an evidence tier and reads the verdict off the
+  strongest evidence present (SPEC §7.1). Three orderings are load-bearing: the remote hint
+  runs **after** a named country decides; the literal `remote` allow-entry is excluded from
+  the direct allowed-list match (it is a work arrangement, not a place — the other half of
+  that bug); and **any** allowed evidence keeps, never `all`, which is what preserves the
+  zero-false-discard invariant for `New York City, London, Singapore`. Region acronyms are
+  a stoplist rather than a population floor, because none exists: `Apac` UG is 67,700
+  against `Zug` CH at 30,542. Regions that *contain* the US (`Americas`, `AMER`) count as
+  weak US evidence rather than noise.
+
+  **Measured, not asserted:** 328 rows moved keep -> discard, **0 moved the other way, and
+  0 US-eligible strings were discarded.** The residual leak is pinned at 6 strings / 14
+  rows rather than driven to zero — every one is a foreign country named alongside an
+  ambiguous token that also reads as a US city, and tightening that is exactly what would
+  start deleting real jobs. 3.1% of rows now report `ask_llm`, for a later free-model tier.
+
+  The invariant is gated **in CI** by `tests/fixtures/location_corpus.jsonl` — committed,
+  unlike the two `eval/` golden sets, because a board location string is a place name
+  rather than JD text, and because a gate only the operator can run is not a gate. Its
+  labels come from an **independent oracle** (a deliberately dumb substring scan sharing no
+  code with the resolver), since a corpus labeled by the code under test only proves the
+  code agrees with itself. `pycountry` and `geonamescache` are pinned to `==` in the same
+  commit: the corpus asserts exact counts, so the gazetteer data is part of the contract.
+
 ### Changed
 
 - **Quota telemetry is a provider endpoint now, not a scraped session rollout — and the
@@ -52,6 +97,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`max_age_days` now also judges the date a feed row actually stores.** `run_feed`
+  gated on Simplify's `date_posted` before the resolve and never re-checked the
+  `posted_at` the board itself returned, so an evergreen requisition the feed re-lists as
+  fresh was ingested and stored with its true first-published date — a `greenhouse` row
+  dated 2025-06-16 landed on 2026-07-29 under `max_age_days: 30`, and 127 of that pass's
+  2,568 rows were older than the window, all of them feed-path. `run_feed` re-runs
+  `prefilter_postings` over the fetched postings before the upsert, which is what
+  `run_fetch` has always done with its stub gate. Age only on the second pass: the title
+  filters already passed on the feed's title, and the detail-fetch-collapse warning must
+  keep reading the unfiltered result (an all-stale board is not a broken scraper). The
+  pre-resolve gate is unchanged — it is where the fetch cost is saved. Closes half of the
+  "feed's age gate judges a PROXY date" item in `PROGRESS.md`; the `date_updated` half
+  stays open.
 - **The location gate leaked foreign on-site roles whose city the gazetteer misses.**
   `resolve_location`'s corroboration rule (added so `London, ON` wouldn't be discarded as
   United Kingdom on its city token alone) demanded two agreeing tokens before any

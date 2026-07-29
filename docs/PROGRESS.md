@@ -39,6 +39,22 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`fix/location-gate-tier1` — the location gate rebuilt on evidence tiers**
+  `[SCREEN · M]`. Tier 1 of the three-tier plan: the deterministic gate only. Measured on
+  the live corpus — **328 rows keep -> discard, 0 the other way, 0 US-eligible strings
+  discarded**, residual leak pinned at 6 strings / 14 rows, 3.1% of rows now flagged
+  `ask_llm` for a later tier. Ships a **committed** corpus fixture
+  (`tests/fixtures/location_corpus.jsonl`, 1,611 strings) labeled by an *independent*
+  oracle, so the zero-false-discard invariant is gated in CI rather than in a gitignored
+  eval set. `pycountry`/`geonamescache` are pinned to `==` in the same commit: the corpus
+  gate asserts exact counts, so the gazetteer data is part of the contract.
+  **Deliberately NOT in this branch** — tier 2 (free Ollama fallback for the unresolved
+  3.1%) and tier 3 (fit scorer as a second net). Tier 3 additionally needs
+  `merge_fallback_screen`'s gap semantics fixed first: it fills only keys the screen left
+  ABSENT, and `deterministic_screen` currently always writes `screen["location"]`, so a
+  tier-3 location fact is structurally unreachable until tier 1 stops writing the key on
+  an unresolved verdict (`resolved: False` already carries that signal).
+
 - **`feat/usage-endpoint-both-backends` — the quota bar reads a provider endpoint and
   follows `SCORE_BACKEND`** `[SCORE+WEB · M]`. Closes the "codex usage bar is
   backend-locked" gap that used to sit under Open. Two changes: (1) `score/usage.py` now
@@ -473,30 +489,19 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
   principles still needs the measurement.
 
-- **The location gate's corroboration rule keeps 16% of what it used to discard — a
-  DELIBERATE trade, priced for the first time** — `[SCREEN · S · measured 2026-07-28 ·
-  no decision made]`. `resolve_location`'s clause (F) requires **two agreeing resolved
-  tokens** before discarding, so a lone resolved token beside an unresolved one keeps
-  (`location.py:130-137`). That rule is what fixed `London, ON` — `ON` is unresolvable, and
-  `London` alone was discarding Canadian postings under a UK reason — and it should stay.
-  **What was never counted is its price.** Re-running all 3,066 location discards through
-  current code: **493 (16%) would now be KEPT**. Of those, **364 name a country outright** —
-  `Bangalore, India` (x93), `Fab 10N/X, Singapore` (x74), `Jalisco, Mexico`, `Krakow,
-  Poland`, `Caesarea, Israel` — kept only because the sibling token is an old city name, a
-  fab code or a Mexican state. The other 129 are genuinely ambiguous (city or facility code
-  only) and keep correctly.
-  **Why the price changed under it:** the docstring prices this as *"one wasted fit call
-  versus losing a live match"*, written when passes were manual and the feed was off. At
-  `schedule_hours: 4` with Simplify enabled (both 2026-07-28) each one is a paid fit call,
-  six times a day.
-  **The narrow fix, if it is ever wanted:** a literal country name is self-corroborating in
-  a way a city name is not — `London` is ambiguous between GB and Ontario, `India` is not.
-  Requiring corroboration only for *city*-resolved tokens would recover the 364 and leave
-  the `London, ON` case untouched (it carries no country token at all). ~5 lines in clause
-  (E)/(F) plus tests.
-  **Not decided.** Err-toward-keep is the standing policy (PRINCIPLES) and losing a live
-  match is worse than a wasted call; this entry exists so the trade is no longer unpriced,
-  not to argue for reversing it.
+- **The location gate: rebuilt, and the residual leak is now priced rather than
+  unpriced** — `[SCREEN · DONE 2026-07-30, see CHANGELOG]`. This entry used to argue that
+  clause (F)'s corroboration rule kept 16% of what it once discarded and that "the narrow
+  fix, if it is ever wanted" was to exempt tokens naming a country outright. That fix
+  shipped in PR #32, and a fuller survey then showed corroboration was only one of nine
+  failure classes: informal country names (`UK`/`England`/`LDN`, 116 rows), the remote
+  hint firing before any country resolved (`Remote - India`, 85 rows), `Ontario` resolving
+  to Ontario **California** (53 rows), ASCII-vs-diacritic city misses (32 rows), unknown
+  foreign subdivisions (25 rows), and region acronyms resolving to same-named villages
+  (`APAC` -> Uganda). The gate is now evidence-tiered (SPEC §7.1) and the trade is
+  **pinned in CI**: 0 false discards over 1,611 live strings, residual leak exactly 6
+  strings / 14 rows. **Still open:** tiers 2 and 3 of the plan — a free Ollama fallback
+  for the 3.1% of rows the gazetteer cannot resolve, and the fit scorer as a second net.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a run with `max_age_days` set]`. `parse_stub` now dates `"Posted N+ Days Ago"`
@@ -605,18 +610,16 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   `UPDATE ... SET pipeline_status='discarded'` over the queue, using the same filter, is
   the obvious fix and is free; it is not done because deleting queue rows on a
   filter's say-so deserves an explicit operator decision, and the filters may yet change.
-- **The feed's age gate judges a PROXY date and never re-checks the stored one** —
-  `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted, not closed]`.
-  `run_fetch` treats its stub-level filter as a pure optimization and re-runs
-  `prefilter_postings` over what the board actually returned, so the `posted_at` it
-  stores is the one it judged. `run_feed`'s gate is *decisive* and judged on Simplify's
-  `date_posted`; nothing re-checks the date `_fetch_group` ultimately stores. So a feed
-  row can sit in the DB dated older than `max_age_days` — a guarantee the board path
-  makes and this one does not. **Measured on the live feed:** of the 1,044 listings
-  refused as stale, **108 carry a `date_updated` inside the window** — still being
-  refreshed, and dropped on the older field. Accepted because the feed's date is the
-  only one available *before* the fetch, and the fetch is the cost being avoided. The
-  cheap improvement, if it is ever wanted, is judging `max(date_posted, date_updated)`.
+- **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
+  `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
+  live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
+  the window** — still being refreshed, and dropped on the older field. Accepted because
+  the pre-resolve gate is where the fetch cost is saved and `date_posted` is what the
+  feed leads with. The cheap improvement, if it is ever wanted, is judging
+  `max(date_posted, date_updated)`. (The other half of this item — that nothing re-checked
+  the `posted_at` the board actually returned, so a feed row could be *stored* older than
+  `max_age_days` — is closed: `run_feed` now re-runs `prefilter_postings` before the
+  upsert. It was leaking 127 of the 2,568 rows ingested 2026-07-29.)
 - **`max_age_days` silently gained feed scope on upgrade** — `[FETCH · XS · found by the
   pre-merge review 2026-07-28 · accepted]`. The key previously meant "watchlist fetch
   freshness"; it now also governs feed discovery, which on this config removes ~half the

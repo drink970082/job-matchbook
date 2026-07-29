@@ -1150,68 +1150,10 @@ def test_truncate_boundary_and_disabled():
     assert score._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
 
 
-# --- resolve_location: deterministic country gate over the board location string ---
-
-@pytest.mark.parametrize("location,allowed,want_keep,want_note", [
-    ("Shanghai, China", ["remote", "USA"], False, "on-site in China"),
-    ("Amsterdam, North Holland, Netherlands", ["remote", "USA"], False, "on-site in Netherlands"),
-    ("Sydney, Australia", ["remote", "USA"], False, "on-site in Australia"),
-    ("London, England, United Kingdom", ["remote", "USA"], False, "on-site in United Kingdom"),
-    ("Chicago, Illinois, United States", ["remote", "USA"], True, ""),
-    ("New York, New York", ["remote", "USA"], True, ""),
-    ("Austin, TX", ["remote", "USA"], True, ""),              # state code
-    ("Atlanta, Georgia", ["remote", "USA"], True, ""),        # GA state vs GE country collision
-    ("Toronto, Ontario", ["remote", "USA"], True, ""),        # subdivision, not a country -> keep (accepted leak)
-    ("Remote - US", ["remote", "USA"], True, "remote"),
-    ("", ["remote", "USA"], True, ""),                        # missing -> keep
-    (None, ["remote", "USA"], True, ""),
-    ("London, England, United Kingdom", ["New York"], False, "on-site in United Kingdom"),
-    ("New York, New York", ["New York"], True, ""),           # city-restricted keeps its city
-    ("Chicago, IL", ["New York"], True, ""),                  # US postal code, not Israel
-    ("Sacramento, CA", ["New York"], True, ""),               # CA=California, not Canada
-    ("London - United Kingdom", ["remote", "USA"], False, "on-site in United Kingdom"),  # space-dash separator
-    ("Paris – France", ["remote", "USA"], False, "on-site in France"),                    # en-dash separator
-    ("Winston-Salem, NC", ["remote", "USA"], True, ""),       # bare hyphen is NOT a separator
-    # --- D2 repros: resolve EVERY token (city→country via geonamescache), not the last ---
-    ("New York City, London, Singapore", ["remote", "USA"], True, ""),         # id=1009: NYC is US -> keep
-    ("London", ["remote", "USA"], False, "on-site in United Kingdom"),         # id=324: bare foreign city -> discard
-    ("Hanoi OR Ho Chi Minh City", ["remote", "USA"], False, "on-site in Viet Nam"),  # id=1071: 'OR' split + both VN
-    ("London, Montreal, Singapore", ["remote", "USA"], False, "on-site in United Kingdom"),  # id=885: all foreign
-    ("San Jose", ["remote", "USA"], True, ""),               # ambiguous name, US the largest match -> keep
-    # --- D8 repros: an UNRESOLVED region token must not let a city token decide alone.
-    # 'ON' is in no gazetteer (only US subdivisions are), so 'London, ON' used to be
-    # judged by 'London'->GB — a false discard whose reason named the wrong country.
-    ("London, ON", ["Canada", "USA", "remote"], True, ""),    # id=D8: Canadian London kept
-    ("Tokyo, Japan", ["Canada", "USA", "remote"], False, "on-site in Japan"),  # both resolve -> still discard
-    ("Toronto, ON", ["Canada", "USA", "remote"], True, ""),   # unchanged: Toronto->CA, allowed
-    ("London, Ontario", ["Canada", "USA", "remote"], True, ""),  # unchanged: Ontario reads US, kept
-    ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""), # accepted miss: lone city, region unresolved
-    # --- 2026-07-29 repros: the D8 corroboration rule must NOT apply to a token that
-    # NAMES a country. geonamescache indexes Bengaluru (not Bangalore) and no Penang at
-    # all, so these strings resolved on their country token alone — and every one of them
-    # leaked into the live queue as US-eligible.
-    ("Bangalore, India", ["remote", "USA"], False, "on-site in India"),
-    ("Bangalore,India", ["remote", "USA"], False, "on-site in India"),      # no space after comma
-    ("India, Bangalore", ["remote", "USA"], False, "on-site in India"),     # country-first order
-    ("Penang, Malaysia - Grande", ["remote", "USA"], False, "on-site in Malaysia"),
-    ("Remote - India", ["remote", "USA"], True, "remote"),  # (B) still wins over the country name
-    ("Bangalore, India", ["India", "remote"], True, ""),    # allowed country still keeps
-])
-def test_resolve_location(location, allowed, want_keep, want_note):
-    passed, note = score.resolve_location(location, allowed)
-    assert passed is want_keep, (location, allowed)
-    assert note == want_note, (location, allowed)
-
-
-def test_token_country_resolves_states_countries_and_cities():
-    assert score._token_country("London") == "GB"          # foreign city (no US namesake)
-    assert score._token_country("New York City") == "US"    # US city
-    assert score._token_country("Chicago") == "US"
-    assert score._token_country("CA") == "US"               # US state code, NOT Canada
-    assert score._token_country("Georgia") == "US"          # US state, NOT the country
-    assert score._token_country("China") == "CN"            # country name
-    assert score._token_country("Nowhereville") is None     # unresolved
-
+# --- resolve_location: the gate's own unit table now lives in tests/test_location.py
+# (moved 2026-07-30 with the evidence-tier rebuild — the module under test is
+# score/location.py, and the surface roughly tripled). The SCREEN-level tests above
+# stay here: they exercise screen_posting's wiring, not the resolver.
 
 # --- real adapter: import safety ------------------------------------------
 

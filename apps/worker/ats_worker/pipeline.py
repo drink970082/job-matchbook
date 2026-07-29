@@ -246,15 +246,13 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     different thing and still runs first: it covers active/category/sponsorship,
     which the board path has no equivalent for.
 
-    **One asymmetry to know about, deliberate and not yet closed.** `run_fetch` treats
-    its stub-level filter as a pure optimization and re-runs `prefilter_postings` over
-    what the board actually returned, so the stored `posted_at` is the one that was
-    judged. Here the filter is *decisive* and judged on the FEED's `date_posted`, which
-    is a proxy: nothing re-checks the `posted_at` that `_fetch_group` ultimately
-    stores. So a feed row can sit in the DB with a stored date older than
-    `max_age_days` (the feed's own date disagreed with the board's), which the board
-    path guarantees against. Accepted because the feed's date is the only one available
-    before the fetch and the fetch is the cost being avoided; recorded in PROGRESS.
+    The age gate runs TWICE, on two different dates, and both are needed. Before the
+    resolve it judges the FEED's `date_posted` — a proxy, but the only date available
+    while the fetch is still avoidable, so that is where the cost is saved. Before the
+    upsert it re-judges the `posted_at` the board itself returned, which is the date
+    actually stored. Without the second pass a feed row could sit in the DB dated older
+    than `max_age_days` whenever the two dates disagreed (evergreen greenhouse reqs
+    Simplify re-lists as fresh); with it, both paths make the same guarantee.
     """
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -361,7 +359,13 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
                   f"0/{len(missing)} resolved (scraper may be broken)")
         for p in keep:
             p["company_slug"] = slug
-        inserted += db.upsert_postings(conn, keep, now=now)
+        # Re-run the age gate over the date the BOARD returned, which is the one
+        # about to be stored — the gate above judged the feed's proxy date. Same
+        # guarantee run_fetch makes. Age only: the title filters already passed on
+        # the feed's title, and the collapse check above must see the unfiltered
+        # keep (an all-stale board is not a broken scraper).
+        fresh = prefilter_postings(keep, max_age_days=max_age_days, now=now)
+        inserted += db.upsert_postings(conn, fresh, now=now)
         for p in keep:  # a URL that once failed now resolves — clear its stale row.
             m = meta.get(p["external_id"])
             if m:
