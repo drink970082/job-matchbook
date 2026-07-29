@@ -50,9 +50,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Selector for the pre-2026-07-24 backlog:** rows scored before scorer provenance
   landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
   out (SPEC §9).
-  **Still open, not blocking:** rows are taken `score DESC, id ASC`, so a bounded pass
-  scores **one board at a time**. Fine for a smoke test, misleading as a sample of the
-  queue.
+  **CHANGED 2026-07-28 — read this before quoting an old `--score-limit` recipe.** The
+  `new` queue is now read **newest-id-first** (`fix/score-queue-newest-first`; SPEC §7.1
+  + CHANGELOG), because the old `score DESC, id ASC` was oldest-first for this queue
+  (every `new` row has score NULL) and a scheduled bounded pass would have spent ~2 weeks
+  on this backlog before reaching a job discovered today. Consequences for anyone
+  draining it by hand: a bounded pass now takes the **newest** rows, so `--score-limit N`
+  no longer walks the backlog at all — it scores current intake. To work the backlog
+  deliberately, use `--score-only` (which skips ingest, so nothing newer arrives first)
+  and accept that it now drains from the **top** of the id range. The old
+  "one board at a time" sampling caveat still applies, mirrored.
 
 - **Run the pipeline as a daemon — cadence APPLIED 2026-07-28: 6 passes/day, a 4-hour
   interval** (`schedule_hours: 4`, live `config.yaml`). Supersedes the 2026-07-23 choice of
@@ -180,10 +187,22 @@ take first and why. Each numbered item is independently pickable.
 >    role"* and Bridgewater 34 *"we do provide immigration sponsorship for this position"*;
 >    `_OFFERS_SPONSORSHIP` never matched "do provide". One sampled recovery (IMC 529) is a
 >    genuine recall loss, already a known miss in the eval report.
->    **`--score-limit 736` is not arbitrary:** under `db.get_by_status`'s
->    `ORDER BY score DESC, id ASC` that window reaches every one of the 46 targets and
->    contains **zero** of the 3,959-row pre-existing backlog, so the pass cannot wander
->    into unrelated paid scoring.
+>    **THE `--score-limit 736` RECIPE ABOVE NO LONGER WORKS — do not run it.** It was
+>    exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
+>    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
+>    the first 736 rows of the queue were the targets and nothing else. The queue is
+>    newest-id-first as of 2026-07-28 (`fix/score-queue-newest-first`), which inverts
+>    exactly that: a bounded pass now takes the **newest** rows, so `--score-limit 736`
+>    would spend 736 rows of paid scoring on the backlog and reach **zero** of the 46
+>    targets. Reaching the oldest target now needs a window of 3,232 requeued discards
+>    *plus* the 3,959 backlog rows ahead of them — i.e. the whole table, which is the
+>    cost the bound existed to avoid.
+>    **So this item needs a selector, not a limit** — `[XS, unbuilt]`. The recovery
+>    targets are precisely the low ids, and "first N of the queue" can no longer name
+>    them from either end at once. The cheap shapes: an id-bounded `--score-max-id`, or
+>    inverting the queue for this one operator flag. Neither is built; pick one when the
+>    run is actually wanted. The measurement below is unaffected — it is a property of
+>    the rows, not of the ordering.
 >    **The side effect to accept first:** `requeue_discarded` is unfiltered — it moves all
 >    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
 >    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code

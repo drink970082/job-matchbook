@@ -197,9 +197,22 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 
 # --- queries --------------------------------------------------------------
 
-def get_by_status(conn: sqlite3.Connection, status: str):
+def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool = False):
+    """Rows in `status`, best-scored first by default.
+
+    `newest_first` flips to plain `id DESC` and exists for ONE caller: the 'new'
+    queue `run_score` reads. Every 'new' row has score NULL — nothing has scored it
+    yet, that being the point — so `score DESC` is inert there and the default
+    ordering degenerates to oldest-id-first. Under `--score-limit` that means a
+    bounded pass always works the *back* of the backlog and a posting discovered
+    today waits behind every older one; at 6 passes/day against a few thousand
+    pending rows, that is weeks, which defeats running on a schedule at all.
+    The other queues (scored/discarded) have real scores, so they keep the
+    score-first ordering the UI and the operator expect.
+    """
+    order = "id DESC" if newest_first else "score DESC, id ASC"
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
+        f"SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY {order}",
         [status],
     ).fetchall()
 

@@ -573,7 +573,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          STILL fails marks only that row 'failed'.
     """
     survivors: list[tuple] = []  # (row, posting, screen)
-    rows = db.get_by_status(conn, "new")
+    # Newest first, so `limit` takes today's discoveries rather than the back of the
+    # backlog — see get_by_status. The backlog then drains from its tail only when a
+    # pass has headroom under the cap, which keeps clearing it an operator decision
+    # instead of something the schedule does silently and expensively.
+    rows = db.get_by_status(conn, "new", newest_first=True)
     if limit > 0:
         rows = rows[:limit]
     postings = [dict(row) for row in rows]

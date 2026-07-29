@@ -333,6 +333,27 @@ def test_run_score_limit_caps_rows_scored(db_path):
     assert len(db.get_by_status(conn, "scored")) == 2
 
 
+def test_run_score_limit_takes_the_newest_rows_not_the_oldest(db_path):
+    # The half of --score-limit that decides whether running on a schedule is worth
+    # anything: a bounded pass must reach the postings discovered THIS pass, not chew
+    # the back of a backlog that a job found today would sit behind for weeks.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2", "3", "4", "5"])
+    scored = []
+
+    def screen_fn(posting):
+        scored.append(posting["external_id"])
+        return {"disqualified": False}
+
+    def fit_fn(postings):
+        return [{"score": 90, "assessment": _assessment()} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, limit=2)
+    assert sorted(scored) == ["4", "5"]
+    assert sorted(r["external_id"] for r in db.get_by_status(conn, "new")) \
+        == ["1", "2", "3"]
+
+
 def test_run_score_thin_jd_skips_paid_fit(db_path):
     # A screen-surviving JD shorter than the low-context threshold must NOT reach the
     # paid fit scorer — it's marked scored + insufficient_context directly, since the
@@ -727,7 +748,7 @@ def test_run_score_batches_survivors_and_falls_back_on_batch_error(db_path):
     pipeline.run_score(conn, now=NOW, batch_size=10,
                        screen_fn=lambda p: {"disqualified": False},
                        fit_fn=fit_fn)
-    assert calls["batch"][0] == [1, 2, 3]     # tried as one batch
+    assert sorted(calls["batch"][0]) == [1, 2, 3]   # tried as one batch (queue is newest-first)
     assert calls["single"] == 3               # fell back to singles
     assert len(db.get_by_status(conn, "scored")) == 3
 
@@ -753,7 +774,7 @@ def test_run_score_falls_back_on_non_scoreerror_batch_failure(db_path):
     pipeline.run_score(conn, now=NOW, batch_size=10,
                        screen_fn=lambda p: {"disqualified": False},
                        fit_fn=fit_fn)
-    assert calls["batch"][0] == [1, 2, 3]     # tried as one batch
+    assert sorted(calls["batch"][0]) == [1, 2, 3]   # tried as one batch (queue is newest-first)
     assert calls["single"] == 3               # fell back to singles despite RuntimeError
     # Every survivor still processed to 'scored' — the pass was NOT aborted.
     assert len(db.get_by_status(conn, "scored")) == 3
@@ -899,7 +920,9 @@ def test_run_score_keyboard_interrupt_cancels_pending_keeps_done(db_path):
     # finished-but-unwritten results. score_workers=1 makes ordering deterministic.
     import time
     conn = db.connect(db_path)
-    _seed_new(conn, ["1", "2", "3", "4"])
+    # Seeded in reverse: run_score reads the 'new' queue newest-id-first, so this puts
+    # "1".."4" through the scorer in that order and the assertions below stay readable.
+    _seed_new(conn, ["4", "3", "2", "1"])
     called = []
 
     def fit_fn(postings):
@@ -1405,9 +1428,13 @@ def test_run_score_one_screen_success_disarms_the_breaker(db_path):
     conn = db.connect(db_path)
     ids = [str(i) for i in range(pipeline._BREAKER_LIMIT + 3)]
     _seed_new(conn, ids)
+    # The queue is newest-id-first, so the last-seeded row is screened first — that is
+    # where the one good call has to sit for the breaker to see a success before it
+    # counts _BREAKER_LIMIT consecutive failures.
+    first_screened = ids[-1]
 
     def screen_fn(posting):
-        if posting["external_id"] == "0":
+        if posting["external_id"] == first_screened:
             return {"screen": {}, "disqualified": False}      # one good call
         return {"screen": {}, "disqualified": False, "provider_error": True}
 

@@ -1053,7 +1053,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`. **Every pass ends with one summary
+  large fresh intake; the remainder stays `new`. **The `new` queue is read
+  newest-id-first** (`get_by_status(..., newest_first=True)` — the one caller that asks
+  for it), which is what makes `limit` usable on a schedule: every `new` row has score
+  NULL, so the default `score DESC, id ASC` degenerates to oldest-first and a bounded
+  pass would work the back of the backlog while a posting discovered today waited
+  behind every older one. Newest-first spends the cap on the current pass's discoveries
+  and lets a backlog drain from its tail only when there is headroom, keeping "clear
+  the backlog" an explicit operator action rather than something the schedule does
+  silently and expensively. **Every pass ends with one summary
   line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
   fit-scored, … failed, … left 'new'` — so a pass that worked is distinguishable from
   one with nothing to do; `fit-scored` is the quota-spending count and `left 'new'` is
@@ -1779,6 +1787,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
 | Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
+| `new` queue read newest-first so `--score-limit` reaches today's discoveries; other queues keep score-first | `test_db.py`, `test_pipeline.py::test_run_score_limit_takes_the_newest_rows_not_the_oldest` |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |

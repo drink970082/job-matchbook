@@ -9,6 +9,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`--score-limit` scored the oldest rows, so on a schedule it would never reach a job
+  discovered today.** Every `new` row has `score` NULL — nothing has scored it yet, that
+  being the point — so `get_by_status`'s `ORDER BY score DESC, id ASC` degenerated to
+  plain oldest-id-first for that queue. A bounded pass therefore always worked the back
+  of the backlog: against the 3,959 rows pending when the 4-hour cadence went in, a
+  posting found today sat behind roughly two weeks of older ones, which defeats running
+  on a schedule at all. `run_score` now reads the queue `newest_first=True` (the only
+  caller that does; the `scored`/`discarded` queues keep the score-first ordering the UI
+  and the operator expect). A backlog now drains from its tail only when a pass has
+  headroom under the cap, which keeps clearing it an explicit operator action instead of
+  something the schedule does silently and expensively. Two existing tests carried an
+  implicit oldest-first assumption and now seed or select in the order they meant.
+  (SPEC §7.1 scoring.)
 - **The discovery feed ignored every one of the operator's coarse filters.** `run_fetch`
   has always applied `title_filter`, `title_exclude` and `max_age_days` via
   `fetch.prefilter_postings`; `run_feed` never called it, so none of the three touched a
