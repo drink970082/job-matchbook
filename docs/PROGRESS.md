@@ -25,6 +25,13 @@ no eager startup pass (#25), a systemd user unit (#26), and an autoheal healthch
 can actually fail (#27). **`make eval-screen` is RED on `main`** at 2-3 degree
 false-disqualifications; that is the documented ceiling, and queue item 3 is its remedy.
 
+**The system has been running unattended since 2026-07-28 22:19 EDT** (PR #29 — feed
+pre-filter, newest-first score queue, read-only lock fallback). The first three passes ran
+2026-07-29 with no restarts, missed slots, tracebacks or breaker trips. **What they proved
+is that the constraint is no longer correctness, it is QUOTA:** three passes spent 10% of
+the weekly Codex window, which projects to ~140% at 6 passes/day. The open decisions are
+therefore about spend and intake, not about whether the pipeline works — see In flight.
+
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
 
@@ -39,10 +46,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   behind the autoheal redo (#27); #22 and #23 closed the same day behind the screen
   stack (#24).
 
-- **Scoring the `new` backlog at scale — deferred, operator's call** `[SCORE · S ·
-  quota-bound]`. **3,959 rows `new`** as of 2026-07-28. Measured per-row cost is **~0.4
-  paid messages** (the free screen discards ~60%), so the whole backlog is on the order of
-  **~1,600 messages** — most of a weekly budget, which is why it is not run casually.
+- **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
+  `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
+  first three live passes (the free screen discards ~18%, not the ~60% an earlier
+  estimate assumed — that estimate is retired). The 3,959-row backlog is therefore on the
+  order of **~3,200 messages**, more than a full weekly budget.
+  **The queue as of 2026-07-29, and the shape is the point:** 5,660 `new` = **3,959 from
+  2026-07-22/23** (the original backlog) + **1,701 from 07-29**. All 148 rows the three
+  live passes scored were ingested that same day; **not one backlog row was touched**.
+  That is newest-first working as designed, but the consequence is now measured rather
+  than predicted: today's pool alone takes ~13 days to clear at ~22 rows/pass, and the
+  2026-07-22/23 rows only begin after that. Treat the backlog as parked until a
+  deliberate operator run, not as something the schedule will eventually reach.
   Run it with `--score-only --score-limit N` from `apps/worker`
   (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the
   [runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2 carry the
@@ -62,16 +77,34 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   and accept that it now drains from the **top** of the id range. The old
   "one board at a time" sampling caveat still applies, mirrored.
 
-- **Run the pipeline as a daemon — RUNNING UNATTENDED as of 2026-07-28, restarted onto
-  merged `main` at 22:19 EDT (PR #29).** No pass has completed yet; the first is the
-  00:00 slot.
+- **Run the pipeline as a daemon — RUNNING UNATTENDED since 2026-07-28 22:19 EDT
+  (PR #29). First three passes measured 2026-07-29; the mechanism works, the BUDGET
+  does not.**
   `systemctl --user ats-worker` is `enabled` + `active (running)`, linger is on, and the
   daemon reports `passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`.
-  `ExecStart` carries **`--score-limit 60`**: the flag defaults to 0 = no cap and the
-  daemon closes over its flags for every slot, so without it the first firing would have
-  fit-scored the whole `new` table (3,959 rows x ~0.4 paid msgs = ~1,600 messages, most
-  of a weekly budget) in one pass. At 60 the per-pass ceiling is 360 rows/day, ~144
-  paid messages/day at full saturation.
+  Zero restarts, no missed slots, no tracebacks, no circuit-breaker trips, no lock
+  contention. 7 jobs notified on day one.
+
+  | pass (EDT) | ingested | scored | paid fit calls | duration |
+  |---|---|---|---|---|
+  | 00:00 | 703 | 60 | 49 | 55 min |
+  | 04:00 | 86 | 60 | 52 | 55 min |
+  | 08:00 | 84 | 60 | 47 | 60 min |
+
+  **QUOTA IS THE BINDING CONSTRAINT AND `--score-limit 60` EXCEEDS IT** `[SCORE · XS ·
+  operator's call, not made]`. Three passes consumed **10% of the weekly Codex window**
+  (`db/codex_usage.json`, window resets 2026-08-05). 42 passes/week projects to **~140%**
+  — the quota runs out around day 5 of 7. **~40 would land near ~90%**, but that only
+  covers fresh intake (~38 rows/pass reach `new`), so nothing would drain. Deciding this
+  is an operator action; it is one number in `ExecStart`.
+  **Lowering the CADENCE does not help, and this is the counter-intuitive part.** Half
+  the passes ingest twice as much each, so paid calls/week are unchanged — quota is a
+  function of newly discovered postings, not of pass count (already stated below, now
+  observed). The only levers that reduce spend are a lower `--score-limit` (parks more
+  work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
+  **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
+  the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
+  quota arithmetic should use the measured rate, not the estimate.
   **Four things had to land first, and three of them were not the schedule.** (0)
   `apscheduler` was missing from the system python3, so the daemon would have
   crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
@@ -150,9 +183,9 @@ matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 14 — the long tail lives here; no defects (the feed pre-filter closed 2026-07-28) |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — no defects, but **quota is now the binding constraint**: `--score-limit 60` projects to ~140% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
@@ -178,7 +211,10 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: recover the wrongly-discarded rows.**
+> **NEXT STEP: set `--score-limit` to something the weekly quota can pay for.** That is
+> item 6, it is one number in the systemd unit, and it outranks 2 and 3 because the
+> daemon is spending against a budget right now — at `60` the quota runs out around day 5
+> of 7. Items 2 and 3 both COST quota, so neither is startable until 6 is settled.
 > **Items 1, 4 and 5 are DONE** (2026-07-28): the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -234,6 +270,19 @@ take first and why. Each numbered item is independently pickable.
 >    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
 >    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
 >    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
+> 6. **Set `--score-limit` to fit the weekly quota — `[SCORE · XS]`, OPERATOR'S CALL, and
+>    it blocks 2 and 3.** Measured over the first three live passes: 10% of the weekly
+>    Codex window for three passes, so 42 passes/week projects to **~140%** and the quota
+>    dies around day 5. **~40 lands near ~90%** but only covers fresh intake (~38 rows/pass
+>    reach `new`), so nothing drains — the honest choice is between *keeping up* and
+>    *catching up*, and the budget does not fund both. It is one number in
+>    `ExecStart` (`~/.config/systemd/user/ats-worker.service`), then
+>    `systemctl --user daemon-reload && systemctl --user restart ats-worker` **between
+>    slots** — a restart mid-pass kills an in-flight `codex exec` and spends the quota for
+>    nothing (the unit configures no graceful shutdown; see `deploy/*.example`).
+>    **Do not reach for the cadence instead:** halving the passes doubles the intake each
+>    one carries, so paid calls/week do not move. Only a lower cap or less intake
+>    (`title_filter`, `max_age_days`, dropping low-yield boards) reduces spend.
 >
 > **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
@@ -511,6 +560,31 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **The cost it moves:** a posting the screen discards today pays nothing — that is the
   economic point of screening first. Routing buys each one a paid fit call.
 
+- **The feed's workday route reports a detail-fetch collapse on every pass** —
+  `[FETCH · XS · observed 2026-07-29 · cause unknown]`. All three live passes logged
+  `[feed] workday: detail-fetch collapse — 0/1 resolved (scraper may be broken)` and
+  `0/2` (the 08:00 pass logged three such lines). The warning is `run_feed`'s deliberate
+  signal that a detail source resolved ids but kept **none** — the case it exists to make
+  loud rather than silent, so the mechanism is working. What is unknown is whether these
+  are genuinely dead reqs (the feed surfaces an `externalPath` the CXS endpoint no longer
+  serves, which would be normal and harmless) or the workday `fetch_one` breaking on a
+  shape it cannot parse. The counts are tiny — 1-2 ids per group — so this is cheap
+  either way; it is listed because "may be broken" repeating six times a day is exactly
+  the signal that gets tuned out. Resolving it means running one of those ids by hand.
+- **655 rows already in the `new` queue fail today's filters and will each cost a paid
+  fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
+  runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
+  re-runs only the deterministic intern/location gate, not title or age. So every row
+  ingested before its filter existed keeps its place in the queue. Re-running the current
+  `title_filter`/`title_exclude`/`max_age_days` over the live queue: **413 of 2,380 from
+  2026-07-22 (17%), 118 of 1,579 from 07-23 (7%), 124 of 1,701 from 07-29 (7%)** would be
+  refused today. The 07-29 share is the killed hand-run of 2026-07-28 20:57, which
+  ingested 1,555 rows on code that predated the feed pre-filter (PR #29).
+  At ~0.8 paid messages each that is **~520 messages of scoring on postings the operator's
+  own config would not accept** — roughly a quarter of a weekly budget. A one-shot
+  `UPDATE ... SET pipeline_status='discarded'` over the queue, using the same filter, is
+  the obvious fix and is free; it is not done because deleting queue rows on a
+  filter's say-so deserves an explicit operator decision, and the filters may yet change.
 - **The feed's age gate judges a PROXY date and never re-checks the stored one** —
   `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted, not closed]`.
   `run_fetch` treats its stub-level filter as a pure optimization and re-runs
@@ -538,6 +612,10 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   drops them; the next run will also record them in `feed_unresolved`), but it produces
   nothing, so it is a candidate to drop or to route through a detail-fetch once one
   exists. `citadelsecurities`/`citadel` (browser) are the same story (dropped 7 + 3).
+  **CONFIRMED RECURRING, every pass, 2026-07-29:** the live daemon logs the identical
+  drops on all three passes — `icims/globalcareers-msci` **42**, `citadelsecurities` 7,
+  `citadel` 4, `phenom/microsoft` 4-6. They are re-fetched and re-dropped **6x/day**,
+  which is what turns a documented no-op into an ongoing fetch cost.
 - **Boards deliberately held off the watchlist** — `[FETCH · XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
@@ -602,6 +680,14 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   `requests_per_second` / `max_concurrency` policy across all of them buys nothing
   measured. Port the same ~15 lines to a second adapter **when a second board 429s**,
   not before.
+  **The backoff is not covering qualcomm, and the reason is that it is not a 429** —
+  `[FETCH · XS · observed 2026-07-29]`. Every live pass fails it identically:
+  `phenom/careers.qualcomm.com: skipped after error: 403 Client Error: Forbidden ... 
+  &start=1060` (also seen at `start=990`, `start=1220`). A **403 deep into pagination**,
+  at a varying offset, reads as a block rather than a rate limit, and the bounded-retry
+  path only handles 429. So qualcomm is lost on every pass and the salvage never runs.
+  Whether the right answer is treating 403-mid-pagination as retryable, or dropping the
+  board, needs one look at what the endpoint actually returns — not yet done.
 - **Recipe validation happens a full pass late** — `[FETCH · S]`. `config.py` checks only
   that a `custom`/`browser` row *carries* a recipe mapping, and `get_watchlist` skips
   one whose JSON is malformed. Everything else — a bad `mode`, an `item_path` that
