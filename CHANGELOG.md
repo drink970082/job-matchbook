@@ -7,7 +7,45 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **The Discovered-Jobs keep half now requires `seniority=match`, and Below bar means
+  near miss.** Below bar was the catch-all — every live row outside `matchedIds()`, so a
+  `too_junior` posting the scorer had already judged unwinnable sat in the same tab as a
+  genuine near miss (`prompts/score.txt` treats seniority as *disqualifying, not
+  partial*, so those rows were never actionable). The split is now: `seniority=match AND
+  domain=match` → **Matched**, `seniority=match AND domain=adjacent` → **Below bar**
+  (`belowBarIds()`, the same raw-query shape as `matchedIds()`), and **everything else
+  scored** → **Discarded**, which now holds two populations — hard-constraint screen
+  failures *and* fit-verdict rejects. Only the first carries a keyed
+  `disqualification_reason`, so the discarded why-cell falls back to the shared
+  `VerdictShortfall` line (the pills Below bar already used) instead of printing the
+  literal "disqualified" for a row that was never disqualified. The notify gate is
+  untouched — it was already `match/match`.
+
 ### Fixed
+
+- **The location gate leaked foreign on-site roles whose city the gazetteer misses.**
+  `resolve_location`'s corroboration rule (added so `London, ON` wouldn't be discarded as
+  United Kingdom on its city token alone) demanded two agreeing tokens before any
+  discard. But geonamescache indexes *Bengaluru*, not Bangalore, and carries no Penang at
+  all — so `Bangalore, India` and `Penang, Malaysia - Grande` resolved on their **country**
+  token alone, failed corroboration, and were kept as US-eligible. Eight such rows reached
+  the live queue on 2026-07-29 (Cisco Bangalore, Micron Penang, Intel India/Malaysia,
+  Target Bangalore), each costing a paid fit call for a job in a country the candidate
+  cannot work in. A token that *names* a country is now self-corroborating; the city-only
+  case is unchanged, so `London, ON` still keeps and `Hyderabad, TS` still costs one
+  wasted fit call rather than a lost live match.
+
+- **The Low-context why-cell reported a 4,560-char JD as "Thin JD".** The bucket has two
+  entry rules (`lowContextIds`) — a body under `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, or
+  the fit scorer's own `insufficient_context` flag on a full-length but boilerplate JD —
+  and the cell hardcoded the first. It now names which rule caught the row.
+
+- **The Fit-assessment verdict rows didn't line up.** `JobDetailModal` laid Seniority and
+  Domain out as independent flex rows, so a wide pill (`too_junior`) pushed its note out
+  of line with the row below. A 3-column grid sizes the label and pill columns to the
+  widest cell instead.
 
 - **An unwritable pass lock wedged the daemon silently.** `pass_lock` opened the file
   `O_RDWR`, so one accidental `sudo python -m ats_worker.run` left a root-owned lock —
