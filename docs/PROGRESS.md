@@ -32,19 +32,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **`feat/feed-prefilter` — landed, in review, THREE units of work on one branch.**
-  Everything the 4-hour daemon needed before it could be turned on: the feed
-  pre-filter (queue item 5), the newest-first score queue, and the read-only pass-lock
-  fallback. They are independently revertible and by the rule in
-  [`DEVELOPMENT.md`](./DEVELOPMENT.md) §7 should have been three branches; they were
-  not, because each was found by the one before it while making the daemon safe to
-  start, and splitting them after the fact would have re-ordered commits that the
-  §7 review had already read. Recorded rather than hidden — do not take this as
-  precedent. The daemon itself is running (see the daemon entry below); it started
-  from this branch's tree, so `main` must land these before it is the code in
-  production.
-
-- **PR #21 (`feat/custom-html-mode`) is the only OTHER branch left landed-and-unmerged** —
+- **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
   still wrong — a premise failure, not a coding error. #19 closed unmerged 2026-07-28
@@ -63,7 +51,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
   out (SPEC §9).
   **CHANGED 2026-07-28 — read this before quoting an old `--score-limit` recipe.** The
-  `new` queue is now read **newest-id-first** (`feat/feed-prefilter`; SPEC §7.1
+  `new` queue is now read **most-recently-touched, then newest id**
+  (`COALESCE(updated_at,'') DESC, id DESC` — PR #29; SPEC §7.1
   + CHANGELOG), because the old `score DESC, id ASC` was oldest-first for this queue
   (every `new` row has score NULL) and a scheduled bounded pass would have spent ~2 weeks
   on this backlog before reaching a job discovered today. Consequences for anyone
@@ -73,7 +62,9 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   and accept that it now drains from the **top** of the id range. The old
   "one board at a time" sampling caveat still applies, mirrored.
 
-- **Run the pipeline as a daemon — RUNNING UNATTENDED as of 2026-07-28 21:17 EDT.**
+- **Run the pipeline as a daemon — RUNNING UNATTENDED as of 2026-07-28, restarted onto
+  merged `main` at 22:19 EDT (PR #29).** No pass has completed yet; the first is the
+  00:00 slot.
   `systemctl --user ats-worker` is `enabled` + `active (running)`, linger is on, and the
   daemon reports `passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`.
   `ExecStart` carries **`--score-limit 60`**: the flag defaults to 0 = no cap and the
@@ -123,7 +114,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   path would make the guard match the resource it actually protects — the DB plus the one
   Codex account. Note the queued systemd unit is exactly how (b) gets reached.
   **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
-  (`feat/feed-prefilter`; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
+  (PR #29; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
   accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
   unlinked, by design — and every later pass got `EACCES`. The eager pass used to kill
   the daemon at startup, loudly; once that pass was dropped the `RuntimeError` was raised
@@ -190,7 +181,7 @@ take first and why. Each numbered item is independently pickable.
 > **NEXT STEP: recover the wrongly-discarded rows.**
 > **Items 1, 4 and 5 are DONE** (2026-07-28): the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
-> (#25), the systemd unit (#26) and the feed pre-filter (`feat/feed-prefilter`). The
+> (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
 > surviving items keep their original numbers — 2 and 3 — because other entries in this
 > file cite them by number.
 >
@@ -213,13 +204,14 @@ take first and why. Each numbered item is independently pickable.
 >    **THE `--score-limit 736` RECIPE ABOVE NO LONGER WORKS — do not run it.** It was
 >    exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
 >    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
->    the first 736 rows of the queue were the targets and nothing else. The queue is
->    newest-id-first as of 2026-07-28 (`feat/feed-prefilter`), which inverts
->    exactly that: a bounded pass now takes the **newest** rows, so `--score-limit 736`
->    would spend 736 rows of paid scoring on the backlog and reach **zero** of the 46
->    targets. Reaching the oldest target now needs a window of 3,232 requeued discards
->    *plus* the 3,959 backlog rows ahead of them — i.e. the whole table, which is the
->    cost the bound existed to avoid.
+>    the first 736 rows of the queue were the targets and nothing else. As of 2026-07-28
+>    (PR #29) the queue is `COALESCE(updated_at,'') DESC, id DESC`, which inverts exactly
+>    that. `requeue_discarded` stamps `updated_at`, so the good news is the pass cannot
+>    wander into the paid backlog — every requeued discard sorts ahead of it. The bad news
+>    is that all **3,232** of them do, tied on the same timestamp and broken by `id DESC`,
+>    while the 46 targets are among the **lowest** ids in that set. `--score-limit 736`
+>    would therefore score the 736 *newest* requeued discards and reach **zero** targets.
+>    Reaching the oldest one needs the whole 3,232 — the cost the bound existed to avoid.
 >    **So this item needs a selector, not a limit** — `[XS, unbuilt]`. The recovery
 >    targets are precisely the low ids, and "first N of the queue" can no longer name
 >    them from either end at once. The cheap shapes: an id-bounded `--score-max-id`, or
@@ -238,7 +230,7 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 5. **DONE 2026-07-28** (`feat/feed-prefilter`) — `run_feed` now runs the same
+> 5. **DONE 2026-07-28** (PR #29) — `run_feed` now runs the same
 >    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
 >    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
 >    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
