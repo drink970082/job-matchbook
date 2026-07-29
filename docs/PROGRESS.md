@@ -642,6 +642,16 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   so a *destructive* change (drop/rename a column) has no backfill or rollback and
   can lose retained `applications` / `status_history` data. Back up
   `db/applications.db` before schema changes. (SPEC §8.)
+- **The claude scoring backend has never run in this deployment** — `[SCORE · XS ·
+  residual of #33]`. `ANTHROPIC_API_KEY` is not set here, so `--score-backend claude`
+  cannot execute at all; the quota half of #33 is verified against the live
+  `/api/oauth/usage` endpoint, but no claude *scoring* pass has ever been observed —
+  `make_claude_scorer` and the `backend: "claude"` snapshot path are covered by tests
+  only. Separately and by design, that endpoint reports the Claude Code SUBSCRIPTION
+  budget while the scorer bills the metered key; the bar states this outright and the
+  honest source for actual spend would be the `anthropic-ratelimit-*` response headers
+  off each call — a different shape (short-window headroom, not a weekly budget), not
+  built. (SPEC §7.1 "Quota telemetry", §7.2.)
 ### Enhancements — not built, optional
 
 - **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
