@@ -32,7 +32,19 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
+- **`feat/feed-prefilter` — landed, in review, THREE units of work on one branch.**
+  Everything the 4-hour daemon needed before it could be turned on: the feed
+  pre-filter (queue item 5), the newest-first score queue, and the read-only pass-lock
+  fallback. They are independently revertible and by the rule in
+  [`DEVELOPMENT.md`](./DEVELOPMENT.md) §7 should have been three branches; they were
+  not, because each was found by the one before it while making the daemon safe to
+  start, and splitting them after the fact would have re-ordered commits that the
+  §7 review had already read. Recorded rather than hidden — do not take this as
+  precedent. The daemon itself is running (see the daemon entry below); it started
+  from this branch's tree, so `main` must land these before it is the code in
+  production.
+
+- **PR #21 (`feat/custom-html-mode`) is the only OTHER branch left landed-and-unmerged** —
   reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
   Enhancements). Do not merge it on a green suite: the suite is green and the change is
   still wrong — a premise failure, not a coding error. #19 closed unmerged 2026-07-28
@@ -50,16 +62,34 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Selector for the pre-2026-07-24 backlog:** rows scored before scorer provenance
   landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
   out (SPEC §9).
-  **Still open, not blocking:** rows are taken `score DESC, id ASC`, so a bounded pass
-  scores **one board at a time**. Fine for a smoke test, misleading as a sample of the
-  queue.
+  **CHANGED 2026-07-28 — read this before quoting an old `--score-limit` recipe.** The
+  `new` queue is now read **newest-id-first** (`feat/feed-prefilter`; SPEC §7.1
+  + CHANGELOG), because the old `score DESC, id ASC` was oldest-first for this queue
+  (every `new` row has score NULL) and a scheduled bounded pass would have spent ~2 weeks
+  on this backlog before reaching a job discovered today. Consequences for anyone
+  draining it by hand: a bounded pass now takes the **newest** rows, so `--score-limit N`
+  no longer walks the backlog at all — it scores current intake. To work the backlog
+  deliberately, use `--score-only` (which skips ingest, so nothing newer arrives first)
+  and accept that it now drains from the **top** of the id range. The old
+  "one board at a time" sampling caveat still applies, mirrored.
 
-- **Run the pipeline as a daemon — cadence APPLIED 2026-07-28: 6 passes/day, a 4-hour
-  interval** (`schedule_hours: 4`, live `config.yaml`). Supersedes the 2026-07-23 choice of
-  4/day, which was decided but never written into the config — the file sat at `24` for
-  five days while this entry claimed `6`. Passes are still run by hand; the blocking
-  precondition (two circuit breakers) landed 2026-07-24. One thing is still not
-  expressible.
+- **Run the pipeline as a daemon — RUNNING UNATTENDED as of 2026-07-28 21:17 EDT.**
+  `systemctl --user ats-worker` is `enabled` + `active (running)`, linger is on, and the
+  daemon reports `passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`.
+  `ExecStart` carries **`--score-limit 60`**: the flag defaults to 0 = no cap and the
+  daemon closes over its flags for every slot, so without it the first firing would have
+  fit-scored the whole `new` table (3,959 rows x ~0.4 paid msgs = ~1,600 messages, most
+  of a weekly budget) in one pass. At 60 the per-pass ceiling is 360 rows/day, ~144
+  paid messages/day at full saturation.
+  **Four things had to land first, and three of them were not the schedule.** (0)
+  `apscheduler` was missing from the system python3, so the daemon would have
+  crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
+  and re-screened six times a day. (2) The newest-first score queue, or a bounded pass
+  would have spent ~2 weeks on the backlog before reaching a job found today. (3) The
+  read-only lock fallback, since an unattended daemon is exactly where a silently wedged
+  pass hides. Cadence choice below supersedes the 2026-07-23 choice of 4/day, which was
+  decided but never written into the config — the file sat at `24` for five days while
+  this entry claimed `6`. One thing is still not expressible.
   **The schedule is a clock as of 2026-07-28** (`feat/wall-clock-schedule`; SPEC §7.1/§9/§12
   + CHANGELOG). It used to be an interval — `add_job(once, "interval", hours=…)` plus an
   eager `once()` before `start()` — so passes fired at *launch time + N* and every restart
@@ -92,16 +122,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   acquire and both score the same DB. Keying the lock filename on the resolved `--db`
   path would make the guard match the resource it actually protects — the DB plus the one
   Codex account. Note the queued systemd unit is exactly how (b) gets reached.
-  **(c) An unopenable lock file wedges the daemon SILENTLY, and dropping the eager pass
-  changed the shape of that rather than fixing it.** `pass_lock` opens `O_RDWR`, so one
-  accidental `sudo python -m ats_worker.run` leaves a root-owned lock file — never
-  unlinked, by design — and every later pass gets `EACCES`. It used to kill the daemon at
-  startup, loudly, via the eager pass. With that pass gone the `RuntimeError` is raised
-  *inside* the APScheduler job, where the executor catches and logs it at ERROR: the
-  daemon stays up, reports a healthy schedule, and simply never completes a pass. That is
-  the worse failure, not the better one. `flock` needs no write access, so falling back to
-  `O_RDONLY` when `O_RDWR` fails would keep the guard working and cost only the pid
-  diagnostic.
+  **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
+  (`feat/feed-prefilter`; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
+  accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
+  unlinked, by design — and every later pass got `EACCES`. The eager pass used to kill
+  the daemon at startup, loudly; once that pass was dropped the `RuntimeError` was raised
+  *inside* the APScheduler job, where the executor catches and logs it, so the daemon
+  stayed up, reported a healthy schedule and never completed a pass. It now falls back to
+  `O_RDONLY` — `flock` needs no write access — which keeps the guard exclusive and costs
+  only the pid diagnostic, announced on both the holding and the contending side.
+  **Residual (a)/(b) above are unchanged**, and (b) is the one that costs money.
 
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
   categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
@@ -129,7 +159,7 @@ matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 14 — the long tail lives here; no defects (the feed pre-filter closed 2026-07-28) |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
@@ -157,12 +187,12 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: recover the wrongly-discarded rows, then give `run_feed` the pre-filter.**
-> **Items 1 and 4 are DONE and removed** (2026-07-28): the screen stack merged as #24 and
-> the autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
-> (#25) and the systemd unit (#26). The surviving items keep their original numbers — 2, 3
-> and 5 — because other entries in this file cite them by number. **Item 5 is the one that
-> comes first in real urgency;** it is numbered last only to keep those citations valid.
+> **NEXT STEP: recover the wrongly-discarded rows.**
+> **Items 1, 4 and 5 are DONE** (2026-07-28): the screen stack merged as #24 and the
+> autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
+> (#25), the systemd unit (#26) and the feed pre-filter (`feat/feed-prefilter`). The
+> surviving items keep their original numbers — 2 and 3 — because other entries in this
+> file cite them by number.
 >
 > 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
 >    the operator.** The dry run is done and free, so this is now a decision rather than a
@@ -180,10 +210,22 @@ take first and why. Each numbered item is independently pickable.
 >    role"* and Bridgewater 34 *"we do provide immigration sponsorship for this position"*;
 >    `_OFFERS_SPONSORSHIP` never matched "do provide". One sampled recovery (IMC 529) is a
 >    genuine recall loss, already a known miss in the eval report.
->    **`--score-limit 736` is not arbitrary:** under `db.get_by_status`'s
->    `ORDER BY score DESC, id ASC` that window reaches every one of the 46 targets and
->    contains **zero** of the 3,959-row pre-existing backlog, so the pass cannot wander
->    into unrelated paid scoring.
+>    **THE `--score-limit 736` RECIPE ABOVE NO LONGER WORKS — do not run it.** It was
+>    exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
+>    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
+>    the first 736 rows of the queue were the targets and nothing else. The queue is
+>    newest-id-first as of 2026-07-28 (`feat/feed-prefilter`), which inverts
+>    exactly that: a bounded pass now takes the **newest** rows, so `--score-limit 736`
+>    would spend 736 rows of paid scoring on the backlog and reach **zero** of the 46
+>    targets. Reaching the oldest target now needs a window of 3,232 requeued discards
+>    *plus* the 3,959 backlog rows ahead of them — i.e. the whole table, which is the
+>    cost the bound existed to avoid.
+>    **So this item needs a selector, not a limit** — `[XS, unbuilt]`. The recovery
+>    targets are precisely the low ids, and "first N of the queue" can no longer name
+>    them from either end at once. The cheap shapes: an id-bounded `--score-max-id`, or
+>    inverting the queue for this one operator flag. Neither is built; pick one when the
+>    run is actually wanted. The measurement below is unaffected — it is a property of
+>    the rows, not of the ordering.
 >    **The side effect to accept first:** `requeue_discarded` is unfiltered — it moves all
 >    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
 >    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code
@@ -196,18 +238,10 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 5. **Give `run_feed` the fetch-time pre-filter — `[FETCH · S]`, DECIDED (a) 2026-07-28,
->    not yet built, and it comes BEFORE 2 and 3.** Numbered last only to keep items 2/3
->    addressable by the entries that cite them. The Simplify feed was enabled 2026-07-28 for
->    live testing and `run_feed` never calls `prefilter_postings`, so `title_filter`,
->    `title_exclude` and `max_age_days: 30` apply to **zero** feed-discovered rows.
->    **Measured against the live feed, not argued:** 17,659 listings → 2,013 survive the
->    feed's own gate → **59% of those (1,193) are rejected by at least one of the three
->    operator filters**, leaving 820. The split is 1,049 stale (>30d — the feed carries
->    `active: true` listings months old) and 302 title rejects. At 6 passes/day each of the
->    1,193 costs a URL resolve, a board detail fetch and a screen call. Build option (a):
->    thread `cfg` through and call the same `prefilter_postings` `run_fetch` uses, as one
->    shared ingest tail so the two paths cannot drift apart again.
+> 5. **DONE 2026-07-28** (`feat/feed-prefilter`) — `run_feed` now runs the same
+>    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
+>    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
+>    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
 >
 > **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
@@ -485,43 +519,26 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **The cost it moves:** a posting the screen discards today pays nothing — that is the
   economic point of screening first. Routing buys each one a paid fit call.
 
-- **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
-  2026-07-23 · LIVE since 2026-07-28 · DECIDED (a) 2026-07-28, not yet built]`. **Was
-  dormant, now is not:** the live `config.yaml` carried no `feeds:` key at all until
-  2026-07-28, so `feeds` parsed empty, `run_feed` never ran, and `feed_unresolved` held
-  **0 rows**. Simplify is enabled as of 2026-07-28 for live testing, so this gap now applies
-  to every pass — see queue item 5.
-  `run_fetch` runs `prefilter_postings` (title
-  keep-list, `title_exclude`, `max_age_days`) over everything it fetches;
-  `run_feed` never calls it — the function isn't in its signature, and resolved
-  postings go straight from `_fetch_group` to `upsert_postings`
-  (`pipeline.py:299`). So **none of the three operator filters apply to any
-  feed-discovered posting**; the feed's own gate covers only `active` / `category` /
-  `sponsorship`. The *deterministic candidate* gate being feed-late is deliberate and
-  documented (SPEC §7.1 — `screen_posting` re-runs it one stage later); this one is
-  not, and `max_age_days` in particular reads as a global freshness rule.
-  **Decided (a): the feed inherits all three**, as one shared ingest tail (validate →
-  record-unresolved → stamp slug → upsert) so the question can't be silently answered
-  again. (b) `max_age_days`-only and (c) stay-exempt were rejected on a live measurement of
-  the feed, taken 2026-07-28 before any code was written:
-
-  | stage | listings |
-  |---|---|
-  | fetched | 17,659 |
-  | after the feed's own gate (`active` + category + `sponsorship`) | 2,013 |
-  | of those, stale (`date_posted` > `max_age_days: 30`) | 1,049 |
-  | of those, rejected by `title_filter` / `title_exclude` | 302 |
-  | **rejected by at least one of the three** | **1,193 (59%)** |
-  | survive all three | 820 |
-
-  So the majority of what the feed ingests is material the operator's own config already
-  refuses, and each one costs a URL resolve, a board detail fetch and a screen call, six
-  times a day. (b) would capture 1,049 of the 1,193 — most of the win — but leaves the title
-  rules split across two ingest paths, which is the drift this entry exists to prevent.
-  **The stale half is the surprise:** the feed marks listings `active: true` for months
-  (sampled one posted 2025-12-01), so `max_age_days` does more work here than the title
-  rules do. Anyone re-deriving this should re-measure rather than trust the counts — they
-  are one snapshot of a feed that changes daily.
+- **The feed's age gate judges a PROXY date and never re-checks the stored one** —
+  `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted, not closed]`.
+  `run_fetch` treats its stub-level filter as a pure optimization and re-runs
+  `prefilter_postings` over what the board actually returned, so the `posted_at` it
+  stores is the one it judged. `run_feed`'s gate is *decisive* and judged on Simplify's
+  `date_posted`; nothing re-checks the date `_fetch_group` ultimately stores. So a feed
+  row can sit in the DB dated older than `max_age_days` — a guarantee the board path
+  makes and this one does not. **Measured on the live feed:** of the 1,044 listings
+  refused as stale, **108 carry a `date_updated` inside the window** — still being
+  refreshed, and dropped on the older field. Accepted because the feed's date is the
+  only one available *before* the fetch, and the fetch is the cost being avoided. The
+  cheap improvement, if it is ever wanted, is judging `max(date_posted, date_updated)`.
+- **`max_age_days` silently gained feed scope on upgrade** — `[FETCH · XS · found by the
+  pre-merge review 2026-07-28 · accepted]`. The key previously meant "watchlist fetch
+  freshness"; it now also governs feed discovery, which on this config removes ~half the
+  feed's surface. That is the intended fix, but an existing checkout gets it with no
+  notice — the only announcement is a comment in `config.yaml.example`, which a live
+  `config.yaml` never re-reads. There is no per-feed override. Left as-is: a second
+  freshness knob for one feed is more config than the problem justifies, and the
+  CHANGELOG carries the change. Revisit if a second feed wants a different window.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
@@ -708,10 +725,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **Dropped:** greenhouse embed-token (job id only, no board slug); SuccessFactors
   (absent from feed).
 - **Deployment / monitoring** — `[INFRA · L · open-ended]`. `ats-web` has a DB-reachability
-  healthcheck + `autoheal`, and the worker now has **supervision** (a systemd user unit,
-  journald for logs — SPEC §6). What is still missing is *detection*: `Restart=always`
-  brings a crashed worker back, but a worker that is up and quietly producing nothing —
-  a dead board adapter, a screen backend answering blind — still shows only in the DB.
+  healthcheck + `autoheal`, and the worker is **supervised and running** as of
+  2026-07-28 (a systemd user unit, journald for logs — SPEC §6). What is still missing is
+  *detection*, and it matters more now that nobody is watching each pass:
+  `Restart=always` brings a crashed worker back, but a worker that is up and quietly
+  producing nothing — a dead board adapter, a screen backend answering blind — still
+  shows only in the DB.
   There is no metrics/alerting beyond the per-job Telegram notification. Includes the deferred scraper **canary self-tests** and
   proactive Telegram/banner alerting for silently-broken scrapers (SPEC §9 points
   here).

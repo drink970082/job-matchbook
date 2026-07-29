@@ -182,8 +182,10 @@ before either ingestion path ever reaches Ollama: `fetch.prefilter_postings` (th
 narrows what each company fetch returns, and the same intern/location gate the
 screen stage uses (`score.deterministic_screen`) runs immediately after — a gate
 miss is upserted straight to `discarded` (with its reason), skipping the Ollama call
-entirely. The feed path is unaffected; its postings still gate at the screen stage
-via `screen_posting`, which runs the identical `deterministic_screen` helper.
+entirely. The feed runs the same `prefilter_postings` over its listings' own metadata
+before resolving them (§7.1 feed ingestion), but **not** the deterministic
+intern/location gate: those postings gate one stage later at `screen_posting`, which
+runs the identical `deterministic_screen` helper.
 
 A posting moves through a `pipeline_status` state machine in the database
 (§[9](#9-behaviors-and-invariants)). "Mark Applied" is the seam between the two
@@ -393,7 +395,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   deliberately not under `db/` (bind-mounted into the web container; the lock is a
   property of this host's processes, not of the data). A pass that cannot take it runs
   nothing: `--once` exits non-zero naming the holder's pid, a scheduled firing skips
-  that slot and stays scheduled (§9).
+  that slot and stays scheduled (§9). An **unwritable** lock file (the root-owned
+  leftover of one `sudo` run) degrades to an `O_RDONLY` hold rather than failing —
+  `flock` needs no write access, so the guard stays exclusive and only the pid record is
+  lost, which both sides announce. Failing there instead would leave the daemon `active
+  (running)` on a healthy-looking schedule while completing no pass, since with no eager
+  startup pass the error is raised inside the APScheduler job. Other open failures
+  (missing `TMPDIR`, a file this user simply cannot read) still fail loud.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -430,7 +438,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `filter_postings(postings, title_filter)` — optional case-insensitive
     title-substring pre-filter (title only; geography is handled by the scorer).
   - `prefilter_postings(postings, *, title_filter, title_exclude, max_age_days, now)`
-    — the fetch-time coarse pre-filter the watchlist path runs (deterministic, no
+    — the fetch-time coarse pre-filter **both** ingestion paths run (deterministic, no
     LLM): the positive `title_filter` keep-list above, a negative `title_exclude`
     drop (title contains any listed keyword), and a `max_age_days` freshness drop (a
     parsed `posted_at` older than N days is dropped; `0`/omitted `max_age_days` and a
@@ -1012,7 +1020,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   clearance disqualification the SCREEN call found), so the feed path — which never
   goes through `run_fetch` — gates identically, just one stage later.
   `run_feed` (optional) runs
-  the feed: prefilter → resolve → record-unresolved, then groups survivors by
+  the feed: feed gate → operator pre-filter (`prefilter_postings`, the same call
+  `run_fetch` makes) → resolve → record-unresolved, then groups survivors by
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
   board via the existing adapter and keep **only** the surfaced ids (exact
@@ -1052,11 +1061,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`. **Every pass ends with one summary
+  large fresh intake; the remainder stays `new`. **The `new` queue is read
+  newest-id-first** (`get_by_status(..., newest_first=True)` — the one caller that asks
+  for it), which is what makes `limit` usable on a schedule: every `new` row has score
+  NULL, so the default `score DESC, id ASC` degenerates to oldest-first and a bounded
+  pass would work the back of the backlog while a posting discovered today waited
+  behind every older one. Newest-first spends the cap on the current pass's discoveries
+  and lets a backlog drain from its tail only when there is headroom, keeping "clear
+  the backlog" an explicit operator action rather than something the schedule does
+  silently and expensively. **Every pass ends with one summary
   line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
-  fit-scored, … failed, … left 'new'` — so a pass that worked is distinguishable from
-  one with nothing to do; `fit-scored` is the quota-spending count and `left 'new'` is
-  whatever a tripped breaker or an abort did not reach. Both the screen phase and the
+  fit-scored, … failed, … unreached, … left 'new'` — so a pass that worked is
+  distinguishable from one with nothing to do. `fit-scored` is the quota-spending count;
+  `unreached` is what a tripped breaker or an abort did not reach *within this pass's
+  slice*; `left 'new'` is the **whole queue**, counted from the DB rather than from the
+  slice, so a capped pass cannot report `0 left 'new'` while thousands wait. Both the
   per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
   write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
   `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),
@@ -1401,8 +1420,31 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   CXS detail endpoint (`fetch_one`, like the other detail sources — §7.1 dual-mode),
   so no board-list keep-filter is involved.
 - **Pre-filter then resolve then keep-only-surfaced.** Listings are gated on
-  `active` + `category` keep-list + non-explicit-`sponsorship` *before* any fetch;
-  survivors are grouped by `(source, slug)`, ids already present are skipped, and the
+  `active` + `category` keep-list + non-explicit-`sponsorship` *before* any fetch,
+  then by the operator's own `title_filter` / `title_exclude` / `max_age_days`
+  through the **same** `fetch.prefilter_postings` `run_fetch` uses — one ingest rule
+  for both paths, so they cannot drift apart. Both gates run *before* the resolve,
+  the earliest point that saves anything: a refused listing costs no URL resolve, no
+  board detail fetch and no screen call. For a listing that would have *ingested*
+  those are one-time costs (`existing_external_ids` prunes it next pass and
+  `run_score` only reads `new`); what recurs every pass is the resolve for whatever
+  never lands. A listing the operator's config refuses is dropped outright,
+  **not** recorded in `feed_unresolved` (nothing about it is unresolved). The feed's
+  own field names are translated first (`_feed_posting_view`): the feed publishes
+  `title` where the filter reads `job_title`, and `date_posted` as a **Unix epoch
+  int** where the age gate parses an ISO date. Both mistranslations fail *silently*
+  and in opposite directions — an unmapped title matches no keep-list, so the feed
+  ingests nothing; an unmapped epoch is unparseable, so `max_age_days` never fires —
+  which is why the mapping is pinned by tests rather than left implicit. An absent
+  or unreadable date keeps the listing, matching the board path.
+  **The gate is decisive here, unlike on the board path**, and that is the one
+  asymmetry: `run_fetch` re-runs `prefilter_postings` over what the board returned, so
+  the `posted_at` it stores is the one it judged; `run_feed` judges the feed's
+  `date_posted` and never re-checks the date `_fetch_group` ultimately stores. A feed
+  row can therefore sit in the DB dated older than `max_age_days`. Accepted: the
+  feed's date is the only one available before the fetch, and the fetch is the cost
+  being avoided.
+  Survivors are grouped by `(source, slug)`, ids already present are skipped, and the
   board is fetched with the existing adapter keeping **only** the surfaced postings
   (a feed company is never ingested in full like a watchlist company). Each kept
   posting is stamped with its resolved `company_slug`. A **raising** board list-fetch
@@ -1572,6 +1614,13 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   itself — would leave every prior discard frozen under the old rule, and a **false**
   discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
   run immediately before `run_retry`) returns them to `new` for this pass.
+  **It does NOT compose with `--score-limit`, and that is a real limitation rather than
+  a subtlety.** `requeue_discarded` stamps `updated_at`, so requeued rows do sort to the
+  front of the `new` queue — but the queue holds *every* requeued discard (the UPDATE is
+  unfiltered), so a bounded pass reaches an arbitrary prefix of thousands of them and
+  the operator cannot aim the cap at the rows the rescreen was for. Recovering a
+  *specific* set of discards needs a selector this flag does not have; PROGRESS queue
+  item 2 records the concrete case.
   Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
   `run_retry` guards two. **Filtered on exactly one condition — the row must have a
   non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
@@ -1721,7 +1770,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |
 | `schedule_hours` must divide 24: a non-divisor and anything `> 24` are both rejected at config load rather than silently running tighter than configured, or collapsing to daily | `test_config.py` (`test_rejects_a_schedule_that_does_not_divide_the_day`, `test_rejects_a_schedule_longer_than_a_day_instead_of_collapsing_it_to_daily`, `test_every_divisor_of_24_is_accepted`, `test_rejects_non_positive_schedule_hours`) |
 | The daemon runs NO pass at launch; `--run-now` runs exactly one before the scheduler blocks; `--run-now --once` is a parser error, and `--run-now` does not unlock `--rescreen-discarded` | `test_run.py` (`test_starting_the_daemon_runs_no_pass_at_launch`, `test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over`, `test_run_now_and_once_together_are_a_parser_error`, `test_run_now_does_not_open_the_rescreen_discarded_backdoor`) |
-| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout (the daemon installs a timestamped handler for it; a bare import installs none) | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`) |
+| One pass at a time per host (`pass_lock`): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout (the daemon installs a timestamped handler for it; a bare import installs none) | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`); an unwritable lock still guards exclusively and says the pid is unrecorded (`test_an_unwritable_lock_still_guards_the_pass`) |
 | Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
 | Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
 | An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
@@ -1764,6 +1813,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `fetch_one_company` dispatcher (detail source / unknown / non-detail) | `test_fetch.py` |
 | `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
+| Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
+| `new` queue read most-recently-touched-then-newest so `--score-limit` reaches today's discoveries **and** a `run_retry` requeue keeping its old id; other queues keep score-first | `test_db.py`, `test_pipeline.py` (`test_run_score_limit_takes_the_newest_rows_not_the_oldest`, `test_run_score_reaches_a_retried_row_inside_the_cap`) |
+| The score summary separates `unreached` (this pass's slice) from `left 'new'` (the whole queue), so a capped pass cannot report an empty queue | `test_pipeline.py` (`test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice`, `test_run_score_summary_counts_rows_a_breaker_never_reached`) |
+| An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |

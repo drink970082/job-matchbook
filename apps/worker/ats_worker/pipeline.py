@@ -35,6 +35,7 @@ Stage gating:
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from . import db, score
@@ -200,12 +201,34 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
     return [p for p in postings if p.get("external_id") in missing], []
 
 
+def _feed_posting_view(listing: dict) -> dict:
+    """A feed listing in the shape `prefilter_postings` reads.
+
+    The translation is load-bearing, not cosmetic, and it fails SILENTLY in both
+    directions if skipped: the feed publishes `title` where the filter reads
+    `job_title` (so a non-empty title_filter would match nothing and the feed would
+    ingest ZERO rows), and it publishes `date_posted` as a Unix epoch int where
+    `_too_old` parses an ISO date (so max_age_days would quietly never fire — and
+    stale listings are the larger half of what the filters catch here).
+
+    An absent or unreadable date yields None, which `_too_old` keeps — the same
+    err-toward-keep policy the board path already applies to a dateless posting.
+    """
+    try:
+        posted_at = datetime.fromtimestamp(
+            int(listing.get("date_posted")), tz=timezone.utc).date().isoformat()
+    except (TypeError, ValueError, OSError, OverflowError):
+        posted_at = None
+    return {"job_title": listing.get("title") or "", "posted_at": posted_at}
+
+
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
              classify_fn=_resolve.classify_reason, fetch_fn=None,
              detail_fetch_fn=None, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved,
-             resolve_embedded_fn=None, max_workers: int = 12) -> int:
+             resolve_embedded_fn=None, max_workers: int = 12,
+             title_filter=None, title_exclude=None, max_age_days: int = 0) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
     feed-surfaced postings. Returns rows inserted.
@@ -215,6 +238,23 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     feeds. Listings we can't resolve are recorded (feed_unresolved) as a
     next-step backlog, never silently dropped. Mirrors run_fetch's resilience:
     one bad board never aborts the batch.
+
+    `title_filter`/`title_exclude`/`max_age_days` are the operator's coarse filters,
+    the same ones `run_fetch` applies and through the same `prefilter_postings`, so
+    the rule cannot drift apart between the two paths. They run before the resolve,
+    the earliest point that saves anything. The feed's own `prefilter_fn` gate is a
+    different thing and still runs first: it covers active/category/sponsorship,
+    which the board path has no equivalent for.
+
+    **One asymmetry to know about, deliberate and not yet closed.** `run_fetch` treats
+    its stub-level filter as a pure optimization and re-runs `prefilter_postings` over
+    what the board actually returned, so the stored `posted_at` is the one that was
+    judged. Here the filter is *decisive* and judged on the FEED's `date_posted`, which
+    is a proxy: nothing re-checks the `posted_at` that `_fetch_group` ultimately
+    stores. So a feed row can sit in the DB with a stored date older than
+    `max_age_days` (the feed's own date disagreed with the board's), which the board
+    path guarantees against. Accepted because the feed's date is the only one available
+    before the fetch and the fetch is the cost being avoided; recorded in PROGRESS.
     """
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -241,6 +281,19 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             job_title=listing.get("title") or "", host=host, reason=reason, now=now)
 
     for x in prefilter_fn(feed_fn(), keep_categories):
+        # Same one-listing call shape as run_fetch's `_keep` stub gate. Dropping here
+        # rather than at the ingest tail is the whole point: past this line the listing
+        # costs a resolve, a board detail fetch and a screen call. Be exact about the
+        # recurrence, because it is easy to overstate — a listing that INGESTS pays
+        # those once (`existing_external_ids` prunes it afterwards and `run_score` only
+        # reads 'new'), so the win there is one-time and large. What recurs every pass
+        # is the resolve for anything that never lands: an unresolvable URL, a board
+        # that stops serving the id. A drop here is not recorded in `feed_unresolved` —
+        # the operator's own config refused it, so it is not an unresolved backlog item.
+        if not prefilter_postings([_feed_posting_view(x)], title_filter=title_filter,
+                                  title_exclude=title_exclude,
+                                  max_age_days=max_age_days, now=now):
+            continue
         url = x.get("url")
         if not url:
             continue
@@ -533,7 +586,12 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          STILL fails marks only that row 'failed'.
     """
     survivors: list[tuple] = []  # (row, posting, screen)
-    rows = db.get_by_status(conn, "new")
+    # Most-recently-touched then newest, so `limit` takes today's discoveries — and the
+    # rows run_retry just requeued, which keep their OLD ids — rather than the back of
+    # the backlog (see get_by_status). The backlog then drains from its tail only when a
+    # pass has headroom under the cap, which keeps clearing it an operator decision
+    # instead of something the schedule does silently and expensively.
+    rows = db.get_by_status(conn, "new", newest_first=True)
     if limit > 0:
         rows = rows[:limit]
     postings = [dict(row) for row in rows]
@@ -710,10 +768,18 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # One line, always — the pass is otherwise silent on success. `fit` is the number
     # that spent quota; `left new` is whatever a tripped breaker or an abort did not
     # reach, so a partial pass reads as partial instead of as a smaller pass.
+    # Counted from the DB, not from `len(rows) - done`: under `--score-limit` that
+    # arithmetic is over the SLICE, so a capped pass always claimed "0 left 'new'"
+    # while thousands of rows waited. On the daemon that line prints six times a day,
+    # and a queue that is not draining is exactly what it must not hide.
     done = tally["discarded"] + tally["thin"] + tally["fit"] + tally["failed"]
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='new'").fetchone()[0]
+    unreached = len(rows) - done
     print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
-          f"{tally['failed']} failed, {len(rows) - done} left 'new'")
+          f"{tally['failed']} failed, {unreached} unreached, "
+          f"{remaining} left 'new'")
 
 
 # --- retry ------------------------------------------------------------------

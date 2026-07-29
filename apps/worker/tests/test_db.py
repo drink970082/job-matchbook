@@ -220,6 +220,18 @@ def test_get_by_status_orders_by_score_then_id(db_path):
     assert [r["external_id"] for r in rows] == ["a", "b", "c"]  # 90s by id, then 40
 
 
+def test_get_by_status_newest_first_reverses_the_new_queue(db_path):
+    # Every 'new' row has score NULL, so the default ordering is oldest-id-first and a
+    # --score-limit pass would never reach a posting discovered today. run_score asks
+    # for newest-first; nothing else does.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting("old"), posting("mid"), posting("new")], now=NOW)
+    assert [r["external_id"] for r in db.get_by_status(conn, "new")] \
+        == ["old", "mid", "new"]
+    assert [r["external_id"] for r in db.get_by_status(conn, "new", newest_first=True)] \
+        == ["new", "mid", "old"]
+
+
 def test_upsert_stores_board_posted_at(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1", posted_at="2026-04-17")], now=NOW)

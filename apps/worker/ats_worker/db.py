@@ -197,9 +197,34 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 
 # --- queries --------------------------------------------------------------
 
-def get_by_status(conn: sqlite3.Connection, status: str):
+def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool = False):
+    """Rows in `status`, best-scored first by default.
+
+    `newest_first` exists for ONE caller: the 'new' queue `run_score` reads. Every
+    'new' row has score NULL — nothing has scored it yet, that being the point — so
+    `score DESC` is inert there and the default ordering degenerates to
+    oldest-id-first. Under `--score-limit` that means a bounded pass always works the
+    *back* of the backlog and a posting discovered today waits behind every older
+    one; at 6 passes/day against a few thousand pending rows, that is weeks, which
+    defeats running on a schedule at all. The other queues (scored/discarded) have
+    real scores, so they keep the score-first ordering the UI and the operator expect.
+
+    It is `updated_at DESC, id DESC` and NOT plain `id DESC`, because a retried row
+    breaks the "newest id == most recent work" assumption. `run_retry` requeues a
+    'failed' row to 'new' with `updated_at=now` but its ORIGINAL id, and both SPEC §7.1
+    and `run_retry`'s own contract promise it is rescored THAT SAME pass — under
+    `id DESC` an old failed row would sort behind the entire backlog and never be
+    reached inside the cap. "Most recently touched, then newest" satisfies both:
+    `upsert_postings` leaves `updated_at` NULL on insert, so fresh intake ties with the
+    backlog and the id tiebreak orders it, while a requeued row carries a real
+    timestamp and sorts ahead of every NULL. COALESCE spells that out rather than
+    leaning on SQLite's NULL collation.
+    `test_run_score_reaches_a_retried_row_inside_the_cap` is what stops this from
+    silently regressing if `updated_at` ever starts being stamped at insert.
+    """
+    order = "COALESCE(updated_at,'') DESC, id DESC" if newest_first else "score DESC, id ASC"
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
+        f"SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY {order}",
         [status],
     ).fetchall()
 

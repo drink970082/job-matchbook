@@ -69,6 +69,8 @@ feeds:
     enabled: false              # set true to pull the feed each pass
     # Cheap keep-list applied to the feed's own `category` before any fetch/score
     # (drops Product/Hardware). Sponsorship/location are still judged by the LLM.
+    # title_filter, title_exclude and max_age_days above apply here too, before any
+    # URL resolve or detail fetch — the feed is the firehose, so they save the most.
     categories: ["Software", "AI/ML/Data", "Quant"]
     # url: ""                   # optional override of the listings.json URL
 

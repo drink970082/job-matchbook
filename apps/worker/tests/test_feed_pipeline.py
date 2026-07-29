@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from ats_worker import db, pipeline
 from tests._helpers import NOW, FIXTURES, make_posting as _posting
 
@@ -379,3 +381,110 @@ def test_run_feed_skips_listing_without_url(db_path):
     )
     assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
     assert db.get_by_status(conn, "new") == []
+
+
+# --- the operator's coarse filters, applied at the feed --------------------
+#
+# run_fetch has always run title_filter / title_exclude / max_age_days over what it
+# fetches; run_feed did not, so none of the three applied to a feed-discovered
+# posting. These pin the shared rule AND the two silent-failure modes of the key
+# translation the feed needs (title vs job_title, epoch vs ISO date).
+
+def _listing(title, *, date_posted=None,
+             url="https://jobs.ashbyhq.com/acme/aaaa-1111"):
+    return {"url": url, "company_name": "Acme", "title": title,
+            "category": "Software", "sponsorship": "Other", "active": True,
+            "date_posted": date_posted}
+
+
+# NOW is 2026-06-04, so 1780272000 is 3 days old and 1767225600 is ~155 days old.
+RECENT_EPOCH = 1780272000
+STALE_EPOCH = 1767225600
+
+
+def test_run_feed_drops_a_title_excluded_listing_before_it_costs_anything(db_path):
+    # The cost claim: a refused listing must be dropped BEFORE the resolve, because
+    # past that line it also buys a board detail fetch and a screen call, every pass.
+    conn = db.connect(db_path)
+    resolves: list = []
+
+    def resolve_fn(url):
+        resolves.append(url)
+        return ("ashby", "acme", "aaaa-1111")
+
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Staff Software Engineer")],
+        keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        resolve_fn=resolve_fn, title_exclude=["staff"],
+    )
+    assert inserted == 0
+    assert resolves == []
+    # Not an unresolved-backlog item: the operator's own config refused it.
+    assert conn.execute("SELECT COUNT(*) FROM feed_unresolved").fetchone()[0] == 0
+
+
+def test_run_feed_age_gates_on_the_feeds_epoch_date(db_path):
+    # The feed publishes date_posted as a Unix epoch int; _too_old parses an ISO
+    # date. Hand the raw int through and it is unparseable -> kept -> max_age_days
+    # silently never fires, which is the LARGER half of what these filters catch.
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Software Engineer",
+                                                 date_posted=STALE_EPOCH)],
+        keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, max_age_days=30,
+    )
+    assert inserted == 0
+    assert db.get_by_status(conn, "new") == []
+
+
+def test_run_feed_keeps_a_listing_inside_the_age_window(db_path):
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Software Engineer",
+                                                 date_posted=RECENT_EPOCH)],
+        keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, max_age_days=30,
+    )
+    assert inserted == 1
+
+
+@pytest.mark.parametrize("bad", [None, "", "not-a-date", [], {}, "2026-06-01"])
+def test_run_feed_keeps_a_listing_with_no_readable_date(db_path, bad):
+    # Err toward keep, the same policy the board path applies to a dateless posting.
+    # Parametrized rather than looped over one connection: a loop reusing the same url
+    # makes every iteration after the first a no-op upsert, so the assertion would pass
+    # on iteration 1 alone and the other cases would measure nothing.
+    # "2026-06-01" is an ISO date, NOT the epoch int the feed actually sends — int()
+    # rejects it, so it must land here (kept) rather than be silently half-parsed.
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, max_age_days=30,
+        feed_fn=lambda: [_listing("Software Engineer", date_posted=bad)],
+    )
+    assert inserted == 1
+    assert len(db.get_by_status(conn, "new")) == 1
+
+
+def test_run_feed_reads_the_feeds_title_key_not_job_title(db_path):
+    # The feed keys the title as `title`; prefilter_postings reads `job_title`. Skip
+    # the translation and a non-empty title_filter matches NOTHING — the feed goes
+    # silently to zero rows rather than erroring.
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Software Engineer")],
+        keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, title_filter=["engineer"],
+    )
+    assert inserted == 1
+
+
+def test_run_feed_title_filter_still_refuses_an_off_target_role(db_path):
+    conn = db.connect(db_path)
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [_listing("Recruiting Coordinator")],
+        keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=_detail_serves, title_filter=["engineer"],
+    )
+    assert inserted == 0
