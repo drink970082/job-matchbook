@@ -35,6 +35,7 @@ Stage gating:
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from . import db, score
@@ -200,12 +201,34 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
     return [p for p in postings if p.get("external_id") in missing], []
 
 
+def _feed_posting_view(listing: dict) -> dict:
+    """A feed listing in the shape `prefilter_postings` reads.
+
+    The translation is load-bearing, not cosmetic, and it fails SILENTLY in both
+    directions if skipped: the feed publishes `title` where the filter reads
+    `job_title` (so a non-empty title_filter would match nothing and the feed would
+    ingest ZERO rows), and it publishes `date_posted` as a Unix epoch int where
+    `_too_old` parses an ISO date (so max_age_days would quietly never fire — and
+    stale listings are the larger half of what the filters catch here).
+
+    An absent or unreadable date yields None, which `_too_old` keeps — the same
+    err-toward-keep policy the board path already applies to a dateless posting.
+    """
+    try:
+        posted_at = datetime.fromtimestamp(
+            int(listing.get("date_posted")), tz=timezone.utc).date().isoformat()
+    except (TypeError, ValueError, OSError, OverflowError):
+        posted_at = None
+    return {"job_title": listing.get("title") or "", "posted_at": posted_at}
+
+
 def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
              prefilter_fn=_prefilter.prefilter, resolve_fn=_resolve.resolve_url,
              classify_fn=_resolve.classify_reason, fetch_fn=None,
              detail_fetch_fn=None, detail_sources=DETAIL_SOURCES,
              record_unresolved_fn=db.record_unresolved,
-             resolve_embedded_fn=None, max_workers: int = 12) -> int:
+             resolve_embedded_fn=None, max_workers: int = 12,
+             title_filter=None, title_exclude=None, max_age_days: int = 0) -> int:
     """Ingest a discovery feed: prefilter cheaply, resolve each apply URL back to
     its board, then REUSE the board adapters to fetch the JD — keeping ONLY the
     feed-surfaced postings. Returns rows inserted.
@@ -215,6 +238,14 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
     feeds. Listings we can't resolve are recorded (feed_unresolved) as a
     next-step backlog, never silently dropped. Mirrors run_fetch's resilience:
     one bad board never aborts the batch.
+
+    `title_filter`/`title_exclude`/`max_age_days` are the operator's coarse filters,
+    the SAME ones `run_fetch` applies and via the same `prefilter_postings` — one
+    ingest rule for both paths, so they cannot drift apart again. They run before
+    the resolve, which is the only point that saves all three downstream costs (URL
+    resolve, board detail fetch, screen call). The feed's own `prefilter_fn` gate is
+    a different thing and still runs first: it covers active/category/sponsorship,
+    which the board path has no equivalent for.
     """
     # The feed is I/O-bound: hundreds of board/listing fetches dominate the runtime.
     # So network work is run CONCURRENTLY (ThreadPoolExecutor) while every DB call
@@ -241,6 +272,15 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
             job_title=listing.get("title") or "", host=host, reason=reason, now=now)
 
     for x in prefilter_fn(feed_fn(), keep_categories):
+        # Same one-listing call shape as run_fetch's `_keep` stub gate. Dropping here
+        # rather than at the ingest tail is the whole point: past this line the
+        # listing costs a resolve, a board detail fetch and a screen call, six times
+        # a day. A drop is not recorded in feed_unresolved — the operator's own
+        # config refused it, so it is not an unresolved backlog item.
+        if not prefilter_postings([_feed_posting_view(x)], title_filter=title_filter,
+                                  title_exclude=title_exclude,
+                                  max_age_days=max_age_days, now=now):
+            continue
         url = x.get("url")
         if not url:
             continue

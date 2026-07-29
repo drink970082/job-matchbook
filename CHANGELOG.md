@@ -9,6 +9,31 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The discovery feed ignored every one of the operator's coarse filters.** `run_fetch`
+  has always applied `title_filter`, `title_exclude` and `max_age_days` via
+  `fetch.prefilter_postings`; `run_feed` never called it, so none of the three touched a
+  feed-discovered posting. Dormant while the feed was off, live the moment Simplify was
+  enabled. Measured against the real feed the day before the fix: 17,659 listings ->
+  2,013 past the feed's own `active`/category/sponsorship gate -> **1,193 of those (59%)
+  refused by at least one operator filter** (1,049 stale, 302 title), leaving 820. Each
+  refused listing was buying a URL resolve, a board detail fetch and a screen call, six
+  times a day. **The stale half is the surprise** — the feed marks listings `active: true`
+  for months (sampled one posted 2025-12-01), so `max_age_days` does more work here than
+  the title rules do. Anyone re-deriving these counts should re-measure: they are one
+  snapshot of a feed that changes daily. The feed now runs the **same** `prefilter_postings` call, before the
+  resolve — the only point that saves all three — as one shared ingest rule so the two
+  paths cannot drift apart again. A listing the config refuses is dropped, not recorded
+  in `feed_unresolved`: nothing about it is unresolved.
+  **Two silent failure modes in the translation, which is why it is pinned by tests.**
+  The feed publishes `title` where the filter reads `job_title`, and `date_posted` as a
+  **Unix epoch int** (`1764549850`) where `_too_old` parses an ISO date. Wiring the raw
+  listing straight through fails quietly in *both* directions and in opposite ways: an
+  unmapped title matches no keep-list, so the feed would ingest **zero** rows; an
+  unmapped epoch raises inside `date.fromisoformat` and falls through to
+  "unparseable -> keep", so `max_age_days` would never fire — and stale listings are
+  1,049 of the 1,193, the larger half of the win. `_feed_posting_view` does the mapping;
+  an absent or unreadable date still keeps the listing, matching the board path.
+  (SPEC §7.1 feed ingestion.)
 - **`ats-autoheal`'s healthcheck could not fail, so it reported healthy unconditionally.**
   The image's check is `pgrep -f autoheal`, and `Cmd=["autoheal"]` puts that string in the
   process's own argv — the check matches itself, and therefore carries **zero** signal

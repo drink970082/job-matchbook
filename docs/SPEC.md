@@ -1012,7 +1012,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   clearance disqualification the SCREEN call found), so the feed path — which never
   goes through `run_fetch` — gates identically, just one stage later.
   `run_feed` (optional) runs
-  the feed: prefilter → resolve → record-unresolved, then groups survivors by
+  the feed: feed gate → operator pre-filter (`prefilter_postings`, the same call
+  `run_fetch` makes) → resolve → record-unresolved, then groups survivors by
   `(source, slug)`, skips ids already ingested (`existing_external_ids`), and ingests
   the surfaced postings via one of two paths: **per-board** sources fetch the whole
   board via the existing adapter and keep **only** the surfaced ids (exact
@@ -1401,8 +1402,21 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   CXS detail endpoint (`fetch_one`, like the other detail sources — §7.1 dual-mode),
   so no board-list keep-filter is involved.
 - **Pre-filter then resolve then keep-only-surfaced.** Listings are gated on
-  `active` + `category` keep-list + non-explicit-`sponsorship` *before* any fetch;
-  survivors are grouped by `(source, slug)`, ids already present are skipped, and the
+  `active` + `category` keep-list + non-explicit-`sponsorship` *before* any fetch,
+  then by the operator's own `title_filter` / `title_exclude` / `max_age_days`
+  through the **same** `fetch.prefilter_postings` `run_fetch` uses — one ingest rule
+  for both paths, so they cannot drift apart. Both gates run *before* the resolve,
+  the only point that saves all three downstream costs (URL resolve, board detail
+  fetch, screen call); a listing the operator's config refuses is dropped outright,
+  **not** recorded in `feed_unresolved` (nothing about it is unresolved). The feed's
+  own field names are translated first (`_feed_posting_view`): the feed publishes
+  `title` where the filter reads `job_title`, and `date_posted` as a **Unix epoch
+  int** where the age gate parses an ISO date. Both mistranslations fail *silently*
+  and in opposite directions — an unmapped title matches no keep-list, so the feed
+  ingests nothing; an unmapped epoch is unparseable, so `max_age_days` never fires —
+  which is why the mapping is pinned by tests rather than left implicit. An absent
+  or unreadable date keeps the listing, matching the board path.
+  Survivors are grouped by `(source, slug)`, ids already present are skipped, and the
   board is fetched with the existing adapter keeping **only** the surfaced postings
   (a feed company is never ingested in full like a watchlist company). Each kept
   posting is stamped with its resolved `company_slug`. A **raising** board list-fetch
@@ -1764,6 +1778,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `fetch_one_company` dispatcher (detail source / unknown / non-detail) | `test_fetch.py` |
 | `run_feed` detail-fetch path (per-id fetch, bad-listing isolation, slug stamp) | `test_feed_pipeline.py` |
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
+| Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
 | Unresolved-feed grouping by host+reason | `web/src/__tests__/unresolved.test.ts`, `unresolved.int.test.ts` |

@@ -296,6 +296,13 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                             s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
                         resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
                             url, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                        # The same three coarse filters run_fetch gets above. The feed
+                        # is the firehose (~18k listings), so this is where they save
+                        # the most: without them the majority of what the feed's own
+                        # gate passes is material this config already refuses.
+                        title_filter=cfg.title_filter,
+                        title_exclude=cfg.title_exclude,
+                        max_age_days=cfg.max_age_days,
                     )
 
             # Re-check a capped batch of live postings and expire the dead ones, so a

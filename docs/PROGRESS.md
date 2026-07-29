@@ -129,7 +129,7 @@ matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 14 — the long tail lives here; no defects (the feed pre-filter closed 2026-07-28) |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 2 — no defects |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
@@ -157,12 +157,12 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: recover the wrongly-discarded rows, then give `run_feed` the pre-filter.**
-> **Items 1 and 4 are DONE and removed** (2026-07-28): the screen stack merged as #24 and
-> the autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
-> (#25) and the systemd unit (#26). The surviving items keep their original numbers — 2, 3
-> and 5 — because other entries in this file cite them by number. **Item 5 is the one that
-> comes first in real urgency;** it is numbered last only to keep those citations valid.
+> **NEXT STEP: recover the wrongly-discarded rows.**
+> **Items 1, 4 and 5 are DONE** (2026-07-28): the screen stack merged as #24 and the
+> autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
+> (#25), the systemd unit (#26) and the feed pre-filter (`feat/feed-prefilter`). The
+> surviving items keep their original numbers — 2 and 3 — because other entries in this
+> file cite them by number.
 >
 > 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, run DEFERRED by
 >    the operator.** The dry run is done and free, so this is now a decision rather than a
@@ -196,18 +196,10 @@ take first and why. Each numbered item is independently pickable.
 >    not change the decision, it removes the last reason to defer the build. A
 >    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
 >    residual 4B misreadings from deleted jobs into one paid fit call each.
-> 5. **Give `run_feed` the fetch-time pre-filter — `[FETCH · S]`, DECIDED (a) 2026-07-28,
->    not yet built, and it comes BEFORE 2 and 3.** Numbered last only to keep items 2/3
->    addressable by the entries that cite them. The Simplify feed was enabled 2026-07-28 for
->    live testing and `run_feed` never calls `prefilter_postings`, so `title_filter`,
->    `title_exclude` and `max_age_days: 30` apply to **zero** feed-discovered rows.
->    **Measured against the live feed, not argued:** 17,659 listings → 2,013 survive the
->    feed's own gate → **59% of those (1,193) are rejected by at least one of the three
->    operator filters**, leaving 820. The split is 1,049 stale (>30d — the feed carries
->    `active: true` listings months old) and 302 title rejects. At 6 passes/day each of the
->    1,193 costs a URL resolve, a board detail fetch and a screen call. Build option (a):
->    thread `cfg` through and call the same `prefilter_postings` `run_fetch` uses, as one
->    shared ingest tail so the two paths cannot drift apart again.
+> 5. **DONE 2026-07-28** (`feat/feed-prefilter`) — `run_feed` now runs the same
+>    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
+>    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
+>    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
 >
 > **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
@@ -485,43 +477,6 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   **The cost it moves:** a posting the screen discards today pays nothing — that is the
   economic point of screening first. Routing buys each one a paid fit call.
 
-- **`run_feed` ingests without the fetch-time coarse pre-filter** — `[FETCH · S · found
-  2026-07-23 · LIVE since 2026-07-28 · DECIDED (a) 2026-07-28, not yet built]`. **Was
-  dormant, now is not:** the live `config.yaml` carried no `feeds:` key at all until
-  2026-07-28, so `feeds` parsed empty, `run_feed` never ran, and `feed_unresolved` held
-  **0 rows**. Simplify is enabled as of 2026-07-28 for live testing, so this gap now applies
-  to every pass — see queue item 5.
-  `run_fetch` runs `prefilter_postings` (title
-  keep-list, `title_exclude`, `max_age_days`) over everything it fetches;
-  `run_feed` never calls it — the function isn't in its signature, and resolved
-  postings go straight from `_fetch_group` to `upsert_postings`
-  (`pipeline.py:299`). So **none of the three operator filters apply to any
-  feed-discovered posting**; the feed's own gate covers only `active` / `category` /
-  `sponsorship`. The *deterministic candidate* gate being feed-late is deliberate and
-  documented (SPEC §7.1 — `screen_posting` re-runs it one stage later); this one is
-  not, and `max_age_days` in particular reads as a global freshness rule.
-  **Decided (a): the feed inherits all three**, as one shared ingest tail (validate →
-  record-unresolved → stamp slug → upsert) so the question can't be silently answered
-  again. (b) `max_age_days`-only and (c) stay-exempt were rejected on a live measurement of
-  the feed, taken 2026-07-28 before any code was written:
-
-  | stage | listings |
-  |---|---|
-  | fetched | 17,659 |
-  | after the feed's own gate (`active` + category + `sponsorship`) | 2,013 |
-  | of those, stale (`date_posted` > `max_age_days: 30`) | 1,049 |
-  | of those, rejected by `title_filter` / `title_exclude` | 302 |
-  | **rejected by at least one of the three** | **1,193 (59%)** |
-  | survive all three | 820 |
-
-  So the majority of what the feed ingests is material the operator's own config already
-  refuses, and each one costs a URL resolve, a board detail fetch and a screen call, six
-  times a day. (b) would capture 1,049 of the 1,193 — most of the win — but leaves the title
-  rules split across two ingest paths, which is the drift this entry exists to prevent.
-  **The stale half is the surprise:** the feed marks listings `active: true` for months
-  (sampled one posted 2025-12-01), so `max_age_days` does more work here than the title
-  rules do. Anyone re-deriving this should re-measure rather than trust the counts — they
-  are one snapshot of a feed that changes daily.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
