@@ -39,13 +39,6 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **PR #21 (`feat/custom-html-mode`) is the only branch left landed-and-unmerged** —
-  reviewed 2026-07-26, **ships dead as documented** (see the `custom html` entry under
-  Enhancements). Do not merge it on a green suite: the suite is green and the change is
-  still wrong — a premise failure, not a coding error. #19 closed unmerged 2026-07-28
-  behind the autoheal redo (#27); #22 and #23 closed the same day behind the screen
-  stack (#24).
-
 - **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
   `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
   first three live passes (the free screen discards ~18%, not the ~60% an earlier
@@ -703,7 +696,10 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   apply-by-email). Writing the two watchlist rows is a separate operator step — use the
   `onboard-board` skill, which now has the template available to it.
 - **`custom` `html` mode — BUILT on PR #21, but it ingests NOTHING as documented** —
-  `[FETCH · M · reviewed 2026-07-26]`. The executor works; the value claim does not.
+  `[FETCH · M · reviewed 2026-07-26 · PR #21 CLOSED unmerged 2026-07-29]`. The executor
+  works; the value claim does not. No branch carries this now — re-cut it when `custom`
+  gains the chained detail call. (#19 closed unmerged 2026-07-28 behind the autoheal redo
+  #27; #22 and #23 the same day behind the screen stack #24.)
   **The blocker is one line elsewhere:** `pipeline._valid_posting` requires a non-empty
   `description`, and `custom` has **no `detail:` mechanism and no `fetch_one`** (both
   greppable, both zero hits), so an `html` recipe can only produce a description if the
