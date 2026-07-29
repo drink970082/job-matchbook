@@ -2224,7 +2224,9 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   `apps/worker/tests/fixtures/schema.sql` and `apps/web/prisma/schema.prisma` fall
   out of sync.
 - **Privacy guard:** `tools/check_privacy.mjs` (`make check-privacy`) fails if git
-  *tracks* any private file — `.env`, `config.yaml`, `db/` or any `*.db`,
+  *tracks* any private file — `.env` **and every `.env.<suffix>` variant** (`.bak`,
+  `.local`, `.production`; `.gitignore` matches `.env*` for the same reason, since a
+  literal rule left a backup both unignored and unchecked), `config.yaml`, `db/` or any `*.db`,
   `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`,
   `resumes/`. `.gitignore` only guards the default path; this catches `git add -f`,
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content

@@ -9,6 +9,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Both privacy guards matched `.env` exactly, so every `.env.<suffix>` variant was
+  unguarded.** `.gitignore` carried a literal `.env` and `tools/check_privacy.mjs` a
+  `/(^|\/)\.env(\.local)?$/` rule, so a file like `.env.bak`, `.env.old` or
+  `.env.production` was **both unignored and invisible to `make check-privacy`** — it
+  showed as `??` in `git status` and one `git add -A` would have committed it to a public
+  repo. Found via a real `.env.bak-tsserve` in the repo root (a pre-Tailscale-serve backup
+  holding only `WEB_BIND`, so nothing leaked; the pattern was the defect, not that file).
+  `.gitignore` now matches `.env*` with a `!.env.example` re-include — no leading slash,
+  so it covers the root compose env and `apps/worker/.env` alike — and the RULES entry
+  reads `/(^|\/)\.env($|\.)/`, which is "`.env` followed by end-or-a-dot" and so still
+  passes `.environment`-style names and `setEnv.ts`. `--self-test` pins both directions
+  (`.env.bak-tsserve` and `apps/worker/.env.production` denied,
+  `apps/web/src/environment.ts` and `apps/worker/.env.example` allowed), so the boundary
+  cannot silently widen back. (SPEC §11.)
+
 - **The location gate leaked foreign on-site roles nine different ways; it is now
   evidence-tiered and gated in CI.** A survey of every distinct `location` string in the
   live DB (9,633 rows / 1,611 strings) found **317 rows kept that were clearly non-US** —

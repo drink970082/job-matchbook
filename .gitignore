@@ -5,10 +5,15 @@ db/
 # Per-user secrets & config. The repo ships ONLY *.example templates; each user
 # copies them to the real filename (which stays gitignored), so no personal data
 # — resume, target companies, API keys, chat id — is ever committed/pushed.
-apps/worker/.env
+# `.env*`, not a literal `.env`: a variant or backup — `.env.bak`, `.env.old`,
+# `.env.production`, `.env.local` — is a secrets file too, and a literal rule left
+# every one of them untracked-AND-unignored, one `git add -A` from a public repo.
+# No leading slash, so it applies at every depth (root compose env, which carries
+# the operator's bind address, and apps/worker/.env alike). Only *.example is
+# re-included, and that is the one file the repo ships.
+.env*
+!.env.example
 apps/worker/.venv
-# Compose reads this at `make up`; it carries the operator's bind address (WEB_BIND).
-.env
 apps/worker/config.yaml
 # Ignore the CONTENTS of resume/ (not the dir itself, so the re-includes below
 # work — a dir-level ignore would suppress them).
