@@ -891,6 +891,26 @@ def test_an_unopenable_lock_is_not_reported_as_contention(tmp_path):
     assert "TMPDIR" in str(exc.value)
 
 
+def test_an_unwritable_lock_still_guards_the_pass(tmp_path, capsys):
+    # The expensive shape of the same failure: one accidental `sudo python -m
+    # ats_worker.run` leaves a root-owned lock file that is never unlinked. flock needs
+    # no write access, so refusing here would trade a WORKING guard for a daemon that
+    # stays `active (running)`, reports a healthy schedule and never completes a pass —
+    # the RuntimeError would be raised inside the APScheduler job, where the executor
+    # catches and logs it. Degrade to a read-only hold instead.
+    lock = tmp_path / "pass.lock"
+    lock.write_text("999\n")
+    lock.chmod(0o444)
+    with run.pass_lock(lock):
+        # still exclusive: a second pass is refused, which is the whole point
+        with pytest.raises(run.PassInProgress):
+            with run.pass_lock(lock):
+                pytest.fail("two passes held an unwritable lock at once")
+    out = capsys.readouterr().out
+    assert "read-only" in out                    # the degradation is announced,
+    assert "NOT recorded" in out                 # and so is the lost pid diagnostic
+
+
 def test_a_filesystem_without_flock_is_not_reported_as_contention(monkeypatch, tmp_path):
     # NFS without lockd, some FUSE mounts: flock raises ENOLCK/ENOSYS rather than
     # EWOULDBLOCK. Reporting that as contention refuses EVERY pass forever while telling

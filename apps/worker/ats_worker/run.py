@@ -473,6 +473,14 @@ class PassInProgress(RuntimeError):
     """Another pipeline pass on this host already holds the lock."""
 
 
+def _lock_open_error(path, exc) -> str:
+    """The message for a lock we could not open AT ALL. Opening is not contention and
+    must never be reported as it, so it names the path and the fix."""
+    return (f"cannot open the pass lock at {path}: {exc}. Nothing is wrong with the "
+            f"pipeline — fix the file (check its owner and mode) or point TMPDIR "
+            f"somewhere this user can write.")
+
+
 @contextmanager
 def pass_lock(path=None):
     """Hold the host-wide pass lock for the duration of one whole pass.
@@ -488,26 +496,44 @@ def pass_lock(path=None):
     queues. The file is only truncated and rewritten with the holder's pid, never
     unlinked: unlinking races (a second process can end up holding a lock on an inode
     that is no longer the one at this path).
+
+    An unwritable lock file degrades to a read-only hold rather than failing: `flock`
+    needs no write access, so refusing there would trade a working guard for a broken
+    daemon (see the PermissionError branch).
     """
     # `is None`, not `or`: a falsy path ("" from an unset env var, say) would
     # otherwise silently fall back to the process-wide default and lock the real
     # /tmp file — the one case where a caller asking for an isolated lock must not
     # quietly get the shared one.
     path = Path(_LOCK_PATH if path is None else path)
+    _flags = os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
     try:
         # O_NOFOLLOW: the temp dir is world-writable and sticky, so refuse to follow a
         # symlink another user planted at this path rather than truncating its target.
-        fd = os.open(str(path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o644)
+        fd = os.open(str(path), os.O_RDWR | _flags, 0o644)
+    except PermissionError:
+        # `flock` needs no write access, so an unwritable lock file must not stop the
+        # guard from WORKING — it only stops the pid diagnostic. This matters because
+        # the failure is otherwise both permanent and invisible: one accidental
+        # `sudo python -m ats_worker.run` leaves a root-owned file that is never
+        # unlinked (by design, see above), and since the daemon runs no pass at
+        # launch, the RuntimeError below would be raised inside the APScheduler job,
+        # where the executor catches and logs it. The unit would stay `active
+        # (running)`, report a healthy schedule, and never complete a pass — which is
+        # the worse failure, not the better one. Degrade to read-only instead.
+        try:
+            fd = os.open(str(path), os.O_RDONLY | _flags)
+            read_only = True
+        except OSError as exc:
+            raise RuntimeError(_lock_open_error(path, exc)) from exc
     except OSError as exc:
         # Opening the lock is NOT contention, and must not be reported as it. A
-        # root-owned leftover (one pass run under sudo), a umask-0600 file, a missing
-        # TMPDIR — each fails here forever, and "never unlinked" means nothing self-heals.
-        # Fail loud and name the path, rather than a traceback or a false "already running".
-        raise RuntimeError(
-            f"cannot open the pass lock at {path}: {exc}. Nothing is wrong with the "
-            f"pipeline — fix the file (check its owner and mode) or point TMPDIR "
-            f"somewhere this user can write."
-        ) from exc
+        # umask-0600 file, a missing TMPDIR — each fails here forever, and "never
+        # unlinked" means nothing self-heals. Fail loud and name the path, rather than
+        # a traceback or a false "already running".
+        raise RuntimeError(_lock_open_error(path, exc)) from exc
+    else:
+        read_only = False
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -527,11 +553,19 @@ def pass_lock(path=None):
                 f"lock {path}) — refusing to start a second one; a duplicate pass would "
                 f"re-spend paid fit-scorer quota"
             ) from None
-        os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        # Printed because the guard is void between two passes that resolve TMPDIR
-        # differently, and that is otherwise undetectable from the outside.
-        print(f"[pass] holding {path} (pid {os.getpid()})", flush=True)
+        if read_only:
+            # The lock is held and doing its job; only the pid record is unavailable.
+            # Say so loudly — a contending pass will report "pid unknown", and the
+            # operator should fix the file's owner rather than learn to ignore that.
+            print(f"[pass] holding {path} read-only (pid {os.getpid()} NOT recorded — "
+                  f"this file is not writable by this user; a second pass will report "
+                  f"'pid unknown'. Check its owner and mode)", flush=True)
+        else:
+            os.ftruncate(fd, 0)
+            os.write(fd, f"{os.getpid()}\n".encode())
+            # Printed because the guard is void between two passes that resolve TMPDIR
+            # differently, and that is otherwise undetectable from the outside.
+            print(f"[pass] holding {path} (pid {os.getpid()})", flush=True)
         yield path
     finally:
         os.close(fd)   # releases the flock

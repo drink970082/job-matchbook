@@ -9,6 +9,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **An unwritable pass lock wedged the daemon silently.** `pass_lock` opened the file
+  `O_RDWR`, so one accidental `sudo python -m ats_worker.run` left a root-owned lock —
+  never unlinked, by design — and every later pass got `EACCES`. That used to kill the
+  daemon loudly at startup via the eager first pass; once that pass was dropped for
+  wall-clock scheduling, the `RuntimeError` moved *inside* the APScheduler job, where the
+  executor catches and logs it. The unit stayed `active (running)`, reported a healthy
+  schedule, and never completed a pass — the worse failure, not the better one. It now
+  falls back to `O_RDONLY`, since `flock` needs no write access: the guard stays
+  exclusive and only the pid record is lost, which both the holding pass and a contending
+  one say out loud rather than degrading quietly. Opening failures that are *not* a
+  permission problem (missing TMPDIR, a 0600 file owned by someone else) still fail loud.
 - **`--score-limit` scored the oldest rows, so on a schedule it would never reach a job
   discovered today.** Every `new` row has `score` NULL — nothing has scored it yet, that
   being the point — so `get_by_status`'s `ORDER BY score DESC, id ASC` degenerated to

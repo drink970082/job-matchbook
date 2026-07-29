@@ -65,7 +65,16 @@ WorkingDirectory=/home/YOU/ats/apps/worker
 # EDIT: the interpreter that has requirements.txt installed. `/usr/bin/python3` is right
 # only if you installed there; a pyenv/conda/venv user must give the absolute path to
 # THEIR python, because systemd does not read your shell rc and will not find a shim.
-ExecStart=/usr/bin/python3 -m ats_worker.run
+#
+# EDIT the flags too, and `--score-limit` is the one that costs money if you skip it. It
+# defaults to 0 = no cap, and the daemon closes over your flags for EVERY slot — so the
+# first slot fit-scores the whole `new` table on the paid backend. That is fine on a
+# fresh checkout with nothing pending and expensive on a checkout with a backlog: at the
+# measured ~0.4 paid messages per row, a few thousand pending rows is most of a weekly
+# budget in one pass. Pick a per-pass ceiling: N rows x 6 passes/day x ~0.4 messages.
+# The queue is newest-first (SPEC §7.1), so the cap is spent on the current pass's
+# discoveries and any backlog drains from its tail only when there is headroom.
+ExecStart=/usr/bin/python3 -m ats_worker.run --score-limit 60
 
 # LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under
 # a pipe (which is what journald gives you) stdout is BLOCK-buffered: output would arrive

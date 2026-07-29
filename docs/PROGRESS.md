@@ -99,16 +99,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   acquire and both score the same DB. Keying the lock filename on the resolved `--db`
   path would make the guard match the resource it actually protects — the DB plus the one
   Codex account. Note the queued systemd unit is exactly how (b) gets reached.
-  **(c) An unopenable lock file wedges the daemon SILENTLY, and dropping the eager pass
-  changed the shape of that rather than fixing it.** `pass_lock` opens `O_RDWR`, so one
-  accidental `sudo python -m ats_worker.run` leaves a root-owned lock file — never
-  unlinked, by design — and every later pass gets `EACCES`. It used to kill the daemon at
-  startup, loudly, via the eager pass. With that pass gone the `RuntimeError` is raised
-  *inside* the APScheduler job, where the executor catches and logs it at ERROR: the
-  daemon stays up, reports a healthy schedule, and simply never completes a pass. That is
-  the worse failure, not the better one. `flock` needs no write access, so falling back to
-  `O_RDONLY` when `O_RDWR` fails would keep the guard working and cost only the pid
-  diagnostic.
+  **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
+  (`fix/lock-readonly-fallback`; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
+  accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
+  unlinked, by design — and every later pass got `EACCES`. The eager pass used to kill
+  the daemon at startup, loudly; once that pass was dropped the `RuntimeError` was raised
+  *inside* the APScheduler job, where the executor catches and logs it, so the daemon
+  stayed up, reported a healthy schedule and never completed a pass. It now falls back to
+  `O_RDONLY` — `flock` needs no write access — which keeps the guard exclusive and costs
+  only the pid diagnostic, announced on both the holding and the contending side.
+  **Residual (a)/(b) above are unchanged**, and (b) is the one that costs money.
 
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
   categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
