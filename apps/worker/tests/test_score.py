@@ -981,6 +981,36 @@ def test_hallucination_cannot_disqualify_because_the_model_supplies_no_text():
     assert _screen_labels(["refuses"], jd)["disqualified"] is False   # ...so nothing to act on
 
 
+# --- demote_for_confirmation ---------------------------------------------
+
+def test_only_a_degree_or_clearance_only_failure_is_demoted():
+    ok = lambda: {"pass": True, "note": ""}
+    bad = lambda n="": {"pass": False, "note": n}
+    d = lambda checks: score.demote_for_confirmation(
+        {"screen": checks, "disqualified": True, "disqualification_reason": "x"})
+
+    # the two confirmable checks, alone or together, with passing checks alongside
+    assert d({"degree": bad("requires a PhD"), "authorization": ok()}) == {
+        "screen": {"authorization": ok()}, "disqualified": False,
+        "disqualification_reason": "", "needs_confirmation": ["degree"]}
+    assert d({"degree": bad(), "clearance": bad()})["needs_confirmation"] == \
+        ["clearance", "degree"]
+
+    # anything else in the failure set keeps the whole discard terminal and free
+    assert d({"degree": bad(), "location": bad()}) is None
+    assert d({"authorization": bad()}) is None
+    assert d({"internships": bad()}) is None
+
+    # nothing to classify -> not demoted. An unreadable ENTRY counts as unclassifiable
+    # too, or `location` below would ride through as though it had passed.
+    assert d({}) is None
+    assert d({"degree": ok()}) is None
+    assert score.demote_for_confirmation({"disqualified": True}) is None
+    assert score.demote_for_confirmation({"screen": [], "disqualified": True}) is None
+    assert d({"degree": bad(), "location": "not in USA"}) is None
+    assert d({"degree": bad(), "location": {"note": "no pass key"}}) is None
+
+
 # --- the closed-list floor -----------------------------------------------
 
 def test_the_phrase_floor_runs_only_when_no_labels_arrived():

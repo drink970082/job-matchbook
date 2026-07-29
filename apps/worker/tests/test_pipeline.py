@@ -437,6 +437,182 @@ def test_run_score_max_id_applies_before_the_limit(db_path):
     assert scored == ["3", "2"]
 
 
+def _dq(reason, **checks):
+    """A screen verdict shaped the way _screen_verdict/deterministic_screen build one:
+    per-check entries AND the joined reason string."""
+    return {"screen": {k: {"pass": v, "note": ""} for k, v in checks.items()},
+            "disqualified": True, "disqualification_reason": reason}
+
+
+def test_a_degree_only_fail_is_confirmed_by_the_strong_model_not_discarded(db_path):
+    # PROGRESS queue item 3. The 4B reads a soft degree bar as hard on a handful of rows
+    # and the posting is DELETED — reviewed by nobody. Routing turns each into one paid
+    # fit call, where the strong model's own extraction is arbitrated by the same CODE.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    fit_calls = []
+
+    def fit_fn(postings):
+        fit_calls.append(len(postings))
+        # The strong model says no degree is required -> the row survives.
+        return [{"score": 88, "assessment": _assessment(),
+                 "screen": {"degree": {"required_degree": None}}} for _ in postings]
+
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("degree: requires a PhD", degree=False),
+                       fit_fn=fit_fn, candidate={"highest_degree": "bachelor"})
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "scored"
+    assert fit_calls == [1]                       # it DID reach the paid scorer
+    detail = _json.loads(row["score_detail"])
+    assert detail["needs_confirmation"] == ["degree"]   # and says why it got there
+
+
+def test_the_strong_model_can_still_confirm_the_bar_and_discard(db_path):
+    # Routing must not become "keep everything": when the strong model's extraction
+    # agrees a higher degree is required, CODE re-applies the candidate's constraint and
+    # the row lands 'discarded' exactly as before — just one paid call later.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(
+        conn, now=NOW,
+        screen_fn=lambda p: _dq("degree: requires a doctorate", degree=False),
+        fit_fn=lambda ps: [{"score": 70, "assessment": _assessment(),
+                            "screen": {"degree": {"required_degree": "phd"}}}
+                           for _ in ps],
+        candidate={"highest_degree": "bachelor"})
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert row["pipeline_status"] == "discarded"
+    detail = _json.loads(row["score_detail"])
+    # The reason is REGENERATED from the strong model's extraction, not the 4B string the
+    # demotion cleared ("requires a doctorate"). That is the point of clearing the verdict
+    # rather than flipping it: what lands in the DB is the confirming model's answer.
+    assert detail["disqualification_reason"] == "degree: requires phd"
+    assert detail["needs_confirmation"] == ["degree"]   # provenance survives the discard
+
+
+def test_a_location_fail_alongside_degree_is_still_discarded_free(db_path):
+    # The routing is scoped to the two SEMANTIC checks a 4B gets wrong. location and
+    # internships are deterministic CODE gates with no model judgment in them, so a row
+    # failing one of those must never buy a paid call to re-litigate it.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1", "2"])
+    fit_calls = []
+
+    def screen_fn(posting):
+        if posting["external_id"] == "1":
+            return _dq("degree: requires a PhD; location: on-site in Canada",
+                       degree=False, location=False)
+        return _dq("internship/co-op role", internships=False)
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn,
+                       fit_fn=lambda ps: fit_calls.append(len(ps)) or [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    assert sorted(r["external_id"] for r in db.get_by_status(conn, "discarded")) == ["1", "2"]
+    assert fit_calls == []
+
+
+def test_a_disqualification_with_no_per_check_verdicts_is_not_routed(db_path):
+    # The conservative default. A screen that reports `disqualified` without per-check
+    # entries gives nothing to classify — routing it would mean paying for every
+    # disqualification whose shape we cannot read. Stays free and terminal.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    fit_calls = []
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: {"disqualified": True,
+                                            "disqualification_reason": "requires a PhD"},
+                       fit_fn=lambda ps: fit_calls.append(len(ps)) or [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    assert db.get_by_status(conn, "discarded")[0]["external_id"] == "1"
+    assert fit_calls == []
+
+
+def test_the_fallback_cannot_overturn_a_check_the_screen_already_answered(db_path):
+    # The defect routing newly exposed. merge_fallback_screen only runs when the screen
+    # left a GAP, and until now nothing cleared one — so nobody noticed that
+    # _screen_verdict re-rules every CONFIGURED check, not just the gap keys. With no
+    # entry and no snippets, `authorization` falls through to the blunt NO_SPONSOR_PHRASES
+    # substring floor: the exact path that produced both long-standing IMC false
+    # positives. Result was a row discarded on `authorization` while its own score_detail
+    # recorded authorization as PASSING — and the paid call that had just kept it thrown
+    # away. Only the cleared check may rule here.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    # The screen passed authorization on real model labels; degree is the only failure.
+    screen = {"screen": {"degree": {"pass": False, "note": "requires a PhD"},
+                         "authorization": {"pass": True, "note": ""}},
+              "disqualified": True, "disqualification_reason": "degree: requires a PhD"}
+    conn.execute(
+        "UPDATE job_postings SET description=? WHERE external_id='1'",
+        # carries a NO_SPONSOR_PHRASES substring inside an INVITATION to apply
+        ["We welcome all backgrounds. If you are eligible to work without sponsorship, "
+         "we encourage you to apply. " + "Build trading systems. " * 20],
+    )
+    pipeline.run_score(
+        conn, now=NOW, screen_fn=lambda p: screen,
+        fit_fn=lambda ps: [{"score": 91, "assessment": _assessment(),
+                            "screen": {"degree": {"required_degree": None}}} for _ in ps],
+        candidate={"highest_degree": "bachelor", "work_authorization": "needs sponsorship"})
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    detail = _json.loads(row["score_detail"])
+    assert row["pipeline_status"] == "scored"
+    assert detail["screen"]["authorization"]["pass"] is True
+    assert "disqualification_reason" not in detail
+
+
+def test_a_thin_jd_demotion_is_not_counted_as_a_confirmation(db_path, capsys):
+    # A demoted row below the low-context threshold takes the thin-JD path, which spends
+    # NO fit call — so nothing confirms the cleared check. Counting it would inflate the
+    # one number on the line that is supposed to mean "this cost quota".
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    conn.execute("UPDATE job_postings SET description='too thin' WHERE external_id='1'")
+    fit_calls = []
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("degree: requires a PhD", degree=False),
+                       fit_fn=lambda ps: fit_calls.append(len(ps)) or [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    out = capsys.readouterr().out
+    assert fit_calls == []
+    assert "1 thin-JD (no fit call)" in out
+    assert "0 sent for confirmation" in out
+    # The marker still rides along — it names a confirmation the row STILL NEEDS, which
+    # is true, and the row is held under Low-context for a human either way.
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert _json.loads(row["score_detail"])["needs_confirmation"] == ["degree"]
+
+
+def test_a_confirming_row_is_not_double_counted_in_the_pass_accounting(db_path, capsys):
+    # `done` must count each row exactly once. Adding `confirming` to it drives
+    # `unreached` NEGATIVE, and no existing accounting test has a confirming row in it.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("degree: requires a PhD", degree=False),
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       candidate={"highest_degree": "bachelor"})
+    out = capsys.readouterr().out
+    assert "1 sent for confirmation" in out
+    assert "0 unreached" in out
+
+
+def test_a_routed_row_reports_as_confirming_not_as_screen_discarded(db_path, capsys):
+    # The summary line is the only per-pass signal. A routed row is a quota-SPENDING
+    # outcome, so counting it as 'screen-discarded' (which means "cost nothing") would
+    # hide exactly the number this feature moves.
+    conn = db.connect(db_path)
+    _seed_new(conn, ["1"])
+    pipeline.run_score(conn, now=NOW,
+                       screen_fn=lambda p: _dq("clearance: requires a clearance",
+                                               clearance=False),
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       candidate={"security_clearance": "none"})
+    out = capsys.readouterr().out
+    assert "0 screen-discarded" in out
+    assert "1 sent for confirmation" in out
+
+
 def test_run_score_thin_jd_skips_paid_fit(db_path):
     # A screen-surviving JD shorter than the low-context threshold must NOT reach the
     # paid fit scorer — it's marked scored + insufficient_context directly, since the
@@ -509,7 +685,7 @@ def test_run_score_summary_counts_rows_a_breaker_never_reached(tmp_path, capsys)
     out = capsys.readouterr().out
     assert "[score] 6 row(s):" in out
     unreached = int(out.split("failed, ")[1].split(" unreached")[0])
-    failed = int(out.split("fit-scored, ")[1].split(" failed")[0])
+    failed = int(out.split("confirmation, ")[1].split(" failed")[0])
     assert failed + unreached == 6  # every row accounted for, none double-counted
     assert unreached > 0            # the breaker stopped short of the whole backlog
     # `left 'new'` is the DB truth, which for an uncapped pass equals the unreached

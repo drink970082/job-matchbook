@@ -177,7 +177,7 @@ matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 6 — **1 residual** (a 4B ceiling, not a coding defect) plus the three the #24 pre-merge review opened: the blind-backend floor fork, what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus the three the #24 pre-merge review opened: the blind-backend floor fix (decided, unbuilt), what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — no defects, but **quota is now the binding constraint**: `--score-limit 60` projects to ~140% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
@@ -205,15 +205,17 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: set `--score-limit` to something the weekly quota can pay for.** That is
-> item 6, it is one number in the systemd unit, and it outranks 2 and 3 because the
-> daemon is spending against a budget right now — at `60` the quota runs out around day 5
-> of 7. Items 2 and 3 both COST quota, so neither is startable until 6 is settled.
-> **Items 1, 4 and 5 are DONE** (2026-07-28): the screen stack merged as #24 and the
+> **NEXT STEP, and it is now the ONLY one left here: set `--score-limit` to something the
+> weekly quota can pay for.** That is item 6, it is one number in the systemd unit, and
+> the daemon is spending against a budget right now — at `60` the quota runs out around
+> day 5 of 7. **Item 3 is DONE** (2026-07-29) and **item 2's code is DONE**, leaving only
+> its run, which spends ~46 messages and is the operator's call — so item 6 no longer
+> blocks a build, it gates two *runs*, and both should wait for the cap to be settled.
+> **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
-> surviving items keep their original numbers — 2 and 3 — because other entries in this
-> file cite them by number.
+> surviving items keep their original numbers because other entries in this file cite
+> them by number.
 >
 > 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, SELECTOR BUILT
 >    2026-07-29, the run itself still the OPERATOR'S CALL (it spends quota).** The dry run
@@ -268,14 +270,14 @@ take first and why. Each numbered item is independently pickable.
 >    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
 >    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code
 >    path that did not change). 186 un-hydrated stub discards are skipped by design.
-> 3. **Route a degree/clearance fail to the strong model — `[S]`, and it is the remedy for
->    the last 3 gate failures.** Decided **route** on 2026-07-24 at ~30 rows; the entry
->    under [Unverified / deferred](#unverified--deferred--behavior-may-be-fine-but-nothing-proves-it-or-a-decision-is-pending)
->    said the false-discard *rate* was unmeasured and that this made the decision cheap
->    either way. **It is measured now — 83% for clearance, 24% for degree** — which does
->    not change the decision, it removes the last reason to defer the build. A
->    `needs_confirmation` state routed to SCORE instead of terminal `discarded` turns the
->    residual 4B misreadings from deleted jobs into one paid fit call each.
+> 3. **DONE 2026-07-29** — a degree/clearance-only screen fail is routed to the strong
+>    model instead of discarding (`score.demote_for_confirmation`; SPEC §7.1 + §9
+>    traceability, CHANGELOG). Built as an in-pass routing decision plus a
+>    `needs_confirmation` marker in `score_detail`, **not** a new `pipeline_status`:
+>    screen and fit run in the same pass, so no row would ever be stored in that state,
+>    and adding one would mean new buckets in `constants.ts` and the UI for something
+>    never observed. The residual degree defect below is now one paid fit call per row
+>    rather than a deleted job.
 > 5. **DONE 2026-07-28** (PR #29) — `run_feed` now runs the same
 >    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
 >    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
@@ -325,8 +327,10 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   clause reached 3 while *raising* recall). Probing the raw output settled why: the same
   model **invents** a `master's` level on genuine sole-PhD roles, so it is unreliable in
   both directions — a ceiling, not mis-instruction.
-  **The remedy is queue item 3**, `needs_confirmation` routing, which turns these from
-  deleted jobs into one paid fit call each.
+  **The remedy shipped 2026-07-29** (queue item 3, `needs_confirmation` routing): these
+  rows are no longer deleted, they buy one paid fit call each and the strong model's
+  extraction decides. The 4B ceiling itself is unchanged and unfixable at this size — what
+  changed is what a misreading costs.
 
 **Previously here, and closed.**
 
@@ -568,7 +572,25 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
   source-filtered slice.
 - **Route a local `degree`/`clearance` fail to the strong model as `needs_confirmation`**
-  — `[SCREEN · S · queue item 3 · decided ROUTE 2026-07-24, rates measured 2026-07-28]`.
+  — `[SCREEN · DONE 2026-07-29, see SPEC §7.1 + CHANGELOG]`. Kept here for the reasoning
+  trail; the behavior itself is now in SPEC. **One shape change from what this entry
+  proposed:** it is a routing decision inside one pass plus a `score_detail` marker, not a
+  new `pipeline_status` — screen and fit run in the same pass, so nothing is ever stored
+  in the intermediate state, and a real status would mean new `constants.ts` values and UI
+  buckets for a row nobody can ever observe. **Still open, deliberately:** a
+  degree/clearance-only fail on a JD thinner than the low-context threshold is kept
+  without confirmation (it takes the thin-JD path, which spends no fit call) — a thin JD
+  cannot support a degree-bar reading either way, and those rows are held back from notify
+  and shown for human review.
+  **The rates below are PRE-FIX and must not be re-quoted as current.** 83%/24% are why
+  the routing was decided; the clearance evidence floor (#24) already catches all 20 of
+  those clearance rows for free, and the degree residual is the 2-3 rows in Defects. The
+  build insures the residual, it does not re-fix the measured rate.
+  **The `authorization` exclusion is NOT "no model produced that verdict"** — that
+  rationale was written into the first draft and is false; authorization is a 4B labelling
+  retrieved snippets. It is excluded because its measured false-disqualification count is
+  **0** and it already carries retrieve-then-classify plus the offers/preference vetoes,
+  so a second look is the wrong trade on the check where a false positive is worst.
   Instead of a terminal `discarded`, a degree/clearance fail becomes `needs_confirmation`
   and goes to SCORE for the strong model to confirm.
   **Decided, do not re-litigate the fork.** The 2026-07-24 volume query resolved it: of
