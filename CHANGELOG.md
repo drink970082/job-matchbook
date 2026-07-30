@@ -47,6 +47,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `make eval-screen`'s recall figures need a free re-run as a result; the
   false-disqualification gate is unaffected, since golden `refuses` rows are excluded from
   `false_disq` by construction.
+- **The feed's detail-fetch failure reason now names WHICH failure it was.**
+  `_detail_fetch` filed a raise/`None` and a posting that came back but failed
+  `_valid_posting` under the same `detail_fetch_failed` string, so neither the
+  `feed_unresolved` row nor the `[feed] <source>: detail-fetch collapse — 0/N resolved
+  (scraper may be broken)` warning could say which had happened. The two diagnoses are
+  opposite: a raise or `None` is usually a **dead req** (the feed surfaces an
+  `externalPath` the board no longer serves — normal and harmless), while a body that came
+  back and does not parse is a **broken scraper**. That matters because the warning is not
+  incidental — workday's `existing_external_ids` prune never matches (the feed carries
+  `externalPath`, the DB stores the GUID), so those ids are re-fetched and the line
+  re-printed every pass, six times a day, which is exactly the signal that gets tuned out.
+  `_detail_fetch` now returns `(external_id, reason)` pairs; an invalid posting is filed as
+  `empty_description`, the **same** string the watchlist path already uses for the same
+  condition, so one query over `feed_unresolved` covers both paths. The collapse warning
+  names the split. Rows recorded before this carry the old conflated string.
 
 ### Changed
 

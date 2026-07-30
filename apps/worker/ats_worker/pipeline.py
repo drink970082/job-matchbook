@@ -153,23 +153,37 @@ def _valid_posting(p: dict) -> bool:
 
 
 def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,
-                  name: str) -> tuple[list[dict], list[str]]:
+                  name: str) -> tuple[list[dict], list[tuple[str, str]]]:
     """Fetch each surfaced id one at a time, for sources with no board-list endpoint.
-    Returns (kept, failed_ids): a failure is a raise, a None, or an invalid posting
-    (so a silently-broken scraper is surfaced, not swallowed). One bad listing is
-    isolated, mirroring the list adapters' per-item resilience."""
+    Returns (kept, failures) where each failure is `(external_id, reason)`. One bad
+    listing is isolated, mirroring the list adapters' per-item resilience.
+
+    The two failures are DIFFERENT diagnoses and are recorded as different reasons —
+    both used to be filed under `detail_fetch_failed`, which made the collapse warning
+    unable to say which had happened:
+
+      `detail_fetch_failed` — a raise or a None. The endpoint did not serve the id,
+        which for a feed-surfaced `externalPath` is usually a dead req: normal and
+        harmless.
+      `empty_description` — a posting came back but is missing a required field. That
+        is a scraper parsing a shape it does not understand, and it is the one worth
+        acting on. Same reason string the watchlist path uses for the same condition,
+        so one query over `feed_unresolved` covers both paths.
+    """
     kept: list[dict] = []
-    failed: list[str] = []
+    failed: list[tuple[str, str]] = []
     for ext in ids:
         try:
             posting = detail_fetch_fn(source, slug, ext, name)
         except Exception:  # noqa: BLE001 — skip one bad listing, keep the rest
-            failed.append(ext)
+            failed.append((ext, "detail_fetch_failed"))
             continue
         if posting and _valid_posting(posting):
             kept.append(posting)
+        elif posting:
+            failed.append((ext, "empty_description"))
         else:
-            failed.append(ext)
+            failed.append((ext, "detail_fetch_failed"))
     return kept, failed
 
 
@@ -183,7 +197,7 @@ def _safe_call(fn, *args):
 
 
 def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
-                 detail_sources) -> tuple[list[dict], list[str]]:
+                 detail_sources) -> tuple[list[dict], list[tuple[str, str]]]:
     """Network-only: fetch one (source, slug) group, returning (keep, failed_ids).
     NO DB access — this runs in a worker thread (SQLite stays on the main thread).
     Per-item isolation is preserved so one bad board/listing never aborts the rest."""
@@ -197,7 +211,7 @@ def _fetch_group(source, slug, name, missing, *, detail_fetch_fn, fetch_fn,
     # records them, rather than silently dropping the feed-surfaced postings.
     postings = _safe_call(fetch_fn, source, slug, name)
     if postings is None:
-        return [], list(missing)
+        return [], [(m, "list_fetch_failed") for m in missing]
     return [p for p in postings if p.get("external_id") in missing], []
 
 
@@ -343,20 +357,25 @@ def run_feed(conn, *, now, feed_fn, keep_categories, feed_name="simplify",
 
     inserted = 0
     for (source, slug, name, missing, meta), (keep, failed) in zip(work, fetched):
-        for fid in failed:
+        for fid, reason in failed:
             m = meta[fid]
             record_unresolved_fn(
                 conn, feed=feed_name, url=m["url"],
                 company_name=m["company_name"], job_title=m["job_title"],
                 host=(urlparse(m["url"]).hostname or ""),
-                reason=("detail_fetch_failed" if source in detail_sources
-                        else "list_fetch_failed"),
-                now=now)
+                reason=reason, now=now)
         # A detail source that resolved ids but kept NONE = the scraper likely broke
         # (a genuinely-empty board never reaches here — missing is non-empty).
+        # The warning names WHICH failure, because the two have opposite meanings and
+        # this line repeats every pass: dead reqs are normal (the feed surfaces an
+        # externalPath the board no longer serves), unparseable bodies are not. Without
+        # the split, "may be broken" six times a day is the signal that gets tuned out.
         if source in detail_sources and not keep:
+            unparseable = sum(1 for _, r in failed if r == "empty_description")
+            diagnosis = (f"{unparseable} unparseable — scraper may be broken"
+                         if unparseable else f"{len(failed)} dead req(s), none unparseable")
             print(f"[feed] {source}: detail-fetch collapse — "
-                  f"0/{len(missing)} resolved (scraper may be broken)")
+                  f"0/{len(missing)} resolved ({diagnosis})")
         for p in keep:
             p["company_slug"] = slug
         # Re-run the age gate over the date the BOARD returned, which is the one

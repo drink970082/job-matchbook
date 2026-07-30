@@ -641,12 +641,17 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   the signal that gets tuned out. **And the repetition is guaranteed, not incidental:**
   workday's `existing_external_ids` prune never matches (the feed carries `externalPath`,
   the DB stores the GUID), so these ids are re-fetched every pass forever.
-  **The ids are already recorded, so this does not need a hand-run first** — a failed
-  detail fetch lands in `feed_unresolved` as `detail_fetch_failed`. What that reason
-  cannot tell you is *which* failure it was, because `_detail_fetch` files a raise (dead
-  req) and an invalid posting (broken parser) under the same string. The watchlist path
-  already separates them (`empty_description`); splitting the feed reason the same way is
-  ~3 lines and makes the warning self-diagnosing.
+  **The reason is now self-diagnosing — SPLIT 2026-07-29** (`fix/feed-failure-reason`;
+  SPEC §7.1, CHANGELOG). `_detail_fetch` used to file a raise/`None` (dead req) and an
+  invalid posting (broken parser) under one `detail_fetch_failed` string, so the record
+  could not say which. It now returns `(id, reason)` pairs and an invalid posting is filed
+  as `empty_description` — the same string the watchlist path uses for the same condition,
+  so one query over `feed_unresolved` covers both paths — and the collapse warning names
+  the split (`N unparseable — scraper may be broken` vs `N dead req(s), none unparseable`).
+  **What that means for this entry: the diagnosis is now a free DB read, no hand-run.**
+  Query `feed_unresolved` for the workday host after the next pass; `empty_description`
+  means the scraper, `detail_fetch_failed` means dead reqs and this entry closes as
+  harmless. Rows recorded before the split carry the old conflated string.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
