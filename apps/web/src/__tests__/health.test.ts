@@ -24,6 +24,19 @@ test('GET returns 200 ok when the DB query succeeds', async () => {
     expect(await res.json()).toEqual({ status: 'ok' })
 })
 
+test('the probe reads a table, not a constant expression', async () => {
+    // `SELECT 1` is a constant SQLite answers from the query planner without touching a
+    // page, so it returns 200 with the database file GONE -- the exact failure this probe
+    // exists to catch. Reading sqlite_master forces a real page read and, under WAL, the
+    // -wal/-shm sidecars. Pinned here because the regression is invisible: both existing
+    // tests pass either way, since they mock $queryRaw and never look at the SQL.
+    mockQueryRaw.mockResolvedValue([{ name: 'applications' }])
+    await GET()
+    const sql = (mockQueryRaw.mock.calls[0][0] as unknown as string[]).join('?')
+    expect(sql).toMatch(/from\s+sqlite_master/i)
+    expect(sql).not.toMatch(/^\s*select\s+1\s*$/i)
+})
+
 test('GET returns 503 with a generic error when the DB query throws', async () => {
     const spy = jest.spyOn(console, 'error').mockImplementation(() => {})
     try {

@@ -269,7 +269,8 @@ time (below), so it cannot fix the case where the host inode was replaced — pr
 restart policy restarts it, which buys visibility rather than repair.
 
 To make it self-healing, `web` exposes `GET /api/health`, which actually opens the DB
-(`SELECT 1` → `200`, else `503`), wired to a Docker `healthcheck`; the `autoheal`
+and **reads a page from it** (`SELECT name FROM sqlite_master LIMIT 1` → `200`, else `503`),
+wired to a Docker `healthcheck`; the `autoheal`
 sidecar (watches the `autoheal=true` label via the mounted Docker socket) restarts
 any container Docker marks **unhealthy**. **No compose mechanism acts on `unhealthy`** —
 `restart:` fires on container *exit* only, and `depends_on: service_healthy` is a startup
@@ -1245,8 +1246,12 @@ it simply waits for an unbounded pass. **The `new` queue is read
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
   'force-dynamic'` so it always reads the live db.
 - **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
-  `GET` runs `SELECT 1` (`200 {status:"ok"}`, else `503`) so a stale bind mount is
-  caught and the `autoheal` sidecar can restart the container (§6).
+  `GET` runs `SELECT name FROM sqlite_master LIMIT 1` (`200 {status:"ok"}`, else `503`) so a
+  stale bind mount is caught and the `autoheal` sidecar can restart the container (§6).
+  **It reads a table on purpose, not `SELECT 1`:** a constant expression is answered from
+  the query planner without touching a page, so it returns `200` with the database file
+  gone — the exact failure the probe exists to catch. A table read forces a real page read
+  and, under WAL, the `-wal`/`-shm` sidecars too.
 - **`app/api/scorer-usage/route.ts`** — serves the fit-backend quota snapshot the
   worker captures once per scoring pass (§7.1): reads `scorer_usage.json` (path derived
   from `DATABASE_URL`, overridable via `SCORER_USAGE_FILE`), returns the snapshot —
