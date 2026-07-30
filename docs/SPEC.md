@@ -269,8 +269,8 @@ time (below), so it cannot fix the case where the host inode was replaced — pr
 restart policy restarts it, which buys visibility rather than repair.
 
 To make it self-healing, `web` exposes `GET /api/health`, which actually opens the DB
-and **reads a page from it** (`SELECT name FROM sqlite_master LIMIT 1` → `200`, else `503`),
-wired to a Docker `healthcheck`; the `autoheal`
+and **reads an application table** (`SELECT 1 FROM job_postings LIMIT 1` → `200`, else
+`503`), wired to a Docker `healthcheck`; the `autoheal`
 sidecar (watches the `autoheal=true` label via the mounted Docker socket) restarts
 any container Docker marks **unhealthy**. **No compose mechanism acts on `unhealthy`** —
 `restart:` fires on container *exit* only, and `depends_on: service_healthy` is a startup
@@ -292,9 +292,35 @@ symptom is *the same inode, a broken view*. A restart re-establishes the contain
 namespace and is a plausible cure for the second; it is proven not to be a cure for the
 first — and if the source path is gone entirely the restart cannot even start the
 container. The recovery leg was drilled 2026-07-22 (autoheal does restart a labeled unhealthy
-container), and the detection leg is still unobserved — so "autoheal restarting `ats-web`
+container), so "autoheal restarting `ats-web`
 cures a stale mount" remains **reasonable and unproven**, not established. Prefer
 `docker compose up -d --force-recreate web`, which works in both cases.
+
+**What the probe can and cannot detect — MEASURED 2026-07-29**, against a throwaway copy of
+the live DB: three candidate probe bodies x four filesystem failures. This replaced a
+reasoned argument that turned out to be wrong, and the table is why the probe names an
+application table.
+
+| failure mode | `SELECT 1` | `sqlite_master` read | `job_postings` read |
+|---|---|---|---|
+| rename the DB's directory **after** connect | 200 | 200 | 200 |
+| delete the DB file **after** connect | 200 | 200 | 200 |
+| rename the DB's directory **before** connect | 503 | 503 | 503 |
+| delete the DB file **before** connect | **200** | **200** | **503** |
+
+Three things follow, and the first two contradict what this document previously claimed.
+(1) **`SELECT 1` and a `sqlite_master` read are indistinguishable** in every mode. The
+"a constant expression is answered without a page read" argument is true about SQLite and
+irrelevant here: once the connection is open, *both* read through the same already-open fd.
+(2) **Nothing detects a break that happens after connect**, for that same reason — POSIX
+keeps the inode reachable through a live descriptor. Accepted, not fixable by a probe; a
+restart re-opens. It is also why the earlier `chmod 000` drill left the live probe at 200
+for five minutes, and why `chmod` was rejected as a proxy.
+(3) **A missing DB file is the mode that discriminates, and it is the dangerous one:**
+SQLite silently **creates an empty database**, so the two weaker probes report healthy
+forever against a tracker holding no data. Naming a real table turns that into `no such
+table: job_postings` → 503 → autoheal restarts. The cost is that a checkout whose schema was
+never pushed reports unhealthy — correct, since that web container genuinely cannot serve.
 
 **Guarding the guard.** The sidecar's health check was, until 2026-07-28, the image's
 `pgrep -f autoheal` — a check that **cannot fail while the container runs**, because
@@ -1254,12 +1280,14 @@ it simply waits for an unbounded pass. **The `new` queue is read
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
   'force-dynamic'` so it always reads the live db.
 - **`app/api/health/route.ts`** — DB-reachability probe for the Docker healthcheck.
-  `GET` runs `SELECT name FROM sqlite_master LIMIT 1` (`200 {status:"ok"}`, else `503`) so a
+  `GET` runs `SELECT 1 FROM job_postings LIMIT 1` (`200 {status:"ok"}`, else `503`) so a
   stale bind mount is caught and the `autoheal` sidecar can restart the container (§6).
-  **It reads a table on purpose, not `SELECT 1`:** a constant expression is answered from
-  the query planner without touching a page, so it returns `200` with the database file
-  gone — the exact failure the probe exists to catch. A table read forces a real page read
-  and, under WAL, the `-wal`/`-shm` sidecars too.
+  **It names an APPLICATION table on purpose, and which query it runs is measured rather
+  than reasoned** — the drill matrix is in §6. `SELECT 1` and a `sqlite_master` read are
+  behaviorally identical in every failure mode tested; the one that discriminates is a
+  missing DB file, where SQLite silently creates an empty database and both weaker probes
+  report healthy forever against a tracker with no data. A real table name yields `no such
+  table: job_postings`.
 - **`app/api/scorer-usage/route.ts`** — serves the fit-backend quota snapshot the
   worker captures once per scoring pass (§7.1): reads `scorer_usage.json` (path derived
   from `DATABASE_URL`, overridable via `SCORER_USAGE_FILE`), returns the snapshot —

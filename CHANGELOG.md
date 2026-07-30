@@ -22,6 +22,29 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   response is blind only when it is not a dict, or carries neither a `screen` object nor any
   requirement key; `{"nonsense": 1}`, `{"screen": "pass"}` and `{"screen": null}` all still
   are. The flat and nested shapes are pinned byte-identical.
+- **`/api/health` reported healthy against a database SQLite had silently re-created
+  empty.** PR #47 changed the probe from `SELECT 1` to a `sqlite_master` read on the
+  reasoning that a constant expression is answered without a page read. **A drill measured
+  that reasoning to be wrong** (2026-07-29, throwaway copy, four failure modes x three
+  candidate probes — matrix in SPEC §6):
+
+  | failure mode | `SELECT 1` | `sqlite_master` | `job_postings` |
+  |---|---|---|---|
+  | rename dir AFTER connect | 200 | 200 | 200 |
+  | delete file AFTER connect | 200 | 200 | 200 |
+  | rename dir BEFORE connect | 503 | 503 | 503 |
+  | **delete file BEFORE connect** | **200** | **200** | **503** |
+
+  `SELECT 1` and `sqlite_master` are behaviorally **identical** in every mode, so #47 was
+  inert. The mode that discriminates is the last one: with the file absent SQLite silently
+  **creates an empty database**, so both weaker probes report healthy forever against a
+  tracker holding no data — precisely the silent failure the route exists to prevent.
+  Naming a real application table yields `no such table: job_postings` → 503 → `autoheal`
+  restarts the container. The probe is now `SELECT 1 FROM job_postings LIMIT 1`.
+  **The AFTER-connect column is not fixable by a probe and is accepted:** once the
+  connection is open, reads go through the existing fd, so nothing on the filesystem can
+  invalidate them (the same reason the earlier `chmod 000` drill left the live probe at 200
+  for five minutes). A restart re-opens.
 
 - **A live screen backend that answered BLINDLY looked healthy and quietly discarded real
   jobs.** A backend returning valid JSON with no usable verdict — a non-dict, or a dict

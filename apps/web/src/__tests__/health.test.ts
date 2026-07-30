@@ -24,16 +24,18 @@ test('GET returns 200 ok when the DB query succeeds', async () => {
     expect(await res.json()).toEqual({ status: 'ok' })
 })
 
-test('the probe reads a table, not a constant expression', async () => {
-    // `SELECT 1` is a constant SQLite answers from the query planner without touching a
-    // page, so it returns 200 with the database file GONE -- the exact failure this probe
-    // exists to catch. Reading sqlite_master forces a real page read and, under WAL, the
-    // -wal/-shm sidecars. Pinned here because the regression is invisible: both existing
-    // tests pass either way, since they mock $queryRaw and never look at the SQL.
-    mockQueryRaw.mockResolvedValue([{ name: 'applications' }])
+test('the probe reads an application table, not a constant or sqlite_master', async () => {
+    // Measured, not reasoned (drill 2026-07-29): with the DB file absent SQLite silently
+    // CREATES an empty database, so `SELECT 1` AND `SELECT name FROM sqlite_master` both
+    // report healthy forever against a tracker with no data. Only naming a real table
+    // fails ("no such table: job_postings"), which is what lets autoheal restart the
+    // container. Pinned here because the regression is invisible to the other two tests:
+    // they mock $queryRaw and never look at the SQL, so they pass whatever it says.
+    mockQueryRaw.mockResolvedValue([{ '1': 1 }])
     await GET()
     const sql = (mockQueryRaw.mock.calls[0][0] as unknown as string[]).join('?')
-    expect(sql).toMatch(/from\s+sqlite_master/i)
+    expect(sql).toMatch(/from\s+job_postings/i)
+    expect(sql).not.toMatch(/sqlite_master/i)
     expect(sql).not.toMatch(/^\s*select\s+1\s*$/i)
 })
 
