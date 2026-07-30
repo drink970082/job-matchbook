@@ -645,11 +645,27 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   until someone deliberately drains the backlog. What the daemon will actually reach is the
   **124 rows from 07-29 — ~99 messages, ~5% of a weekly window**, and it will reach them
   within days at ~38 new rows/pass.
-  A one-shot `UPDATE ... SET pipeline_status='discarded'` over the queue, using the same
-  filter, is the obvious fix, is free, and is a status flip rather than a delete (so it is
-  reversible). It is not done because refusing queue rows on a filter's say-so deserves an
-  explicit operator decision, and the filters may yet change. Do the 124 first; the 531
-  only matter if a backlog run is planned.
+  **SWEPT TWICE 2026-07-29, and the counts above are now history — do not re-quote them.**
+  A first bulk `UPDATE` at 19:45Z took 336 rows (285 from 07-22, 51 from 07-23) and left
+  `score_detail` NULL, so those carry no reason. A second, operator-run pass at 00:07Z on
+  07-30 took **275** more and stamps
+  `disqualification_reason: "prefilter: refused by the current title/age filters"`; its ids
+  are in `db/runs/prefilter-sweep-20260729.json` and the pre-sweep DB copy is
+  `db/applications.db.backup-20260729-2242-pre-prefilter-sweep`, so it reverts row-for-row.
+  Queue 5,544 -> 5,269. The **124 from 07-29 was down to 3 by then** — the daemon had
+  already reached and scored the rest, exactly as this entry predicted.
+  **Two things the sweep taught, and they outlast the numbers.** (1) The count is a
+  function of *when you run it*: `_too_old` truncates both sides to a date (`[:10]`), so
+  every posting ages a full day the instant UTC rolls over — the same queue measured 198 at
+  22:39Z and 275 at 00:07Z, 88 minutes apart. (2) **The leak is structural, not a backlog
+  artifact.** `prefilter_postings` runs at ingest only and `screen_posting` re-checks
+  location/intern but never title or age, so any row that sits long enough ages past
+  `max_age_days` and becomes a paid call on a posting the config refuses. The queue
+  regrows this on its own, roughly a day's worth at a time; at `--score-limit 60` against
+  ~38 fresh rows/pass the daemon dips ~22 rows/pass into exactly that stale region.
+  A pre-screen age re-check in `run_score` is the real fix and is **NOT queued** — the
+  operator's plan as of 2026-07-29 is to keep test-running, adjust, and re-run the system
+  wholesale, which resets these populations anyway.
 - **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
   `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
   live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
