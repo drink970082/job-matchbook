@@ -25,6 +25,11 @@ the task needs:
   "err toward keep" is one row of four.
 - **`docs/DEVELOPMENT.md`** — the session rail: task classification, the verify gate,
   definition of done, and the branch/PR/merge protocol (§7).
+- **`docs/SCORING.md`** — the scoring subsystem as a *rebuild spec*, self-contained and
+  portable (it assumes no repo knowledge, so it restates what SPEC covers). Read it
+  before touching `score/`, either prompt, or an eval — its "measured history" section
+  records what has already been tried and failed, and its "known-hostile directions"
+  list is why several odd-looking rules are the way they are.
 
 When you change behavior, update the matching section of `SPEC.md`, `PROGRESS.md` and
 `CHANGELOG.md` **in the same commit**. Conventions in `CONTRIBUTING.md`.
