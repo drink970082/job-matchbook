@@ -27,6 +27,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   not sponsor work visas"* is still caught with no model data — the deliberate residual.
   All four tests pinning the floor hand back a well-formed `screen` dict, so a broader
   check would have contradicted them. SPEC §7.1 + §9 traceability.
+- **`screen_eval --selftest` now catches a corpus row whose excerpt cannot support its own
+  label.** The existing invariants checked that a label is *assertable*, never that the
+  text handed to the model could support it. Four IMC rows (456/529/534/538) were golden
+  `refuses` with excerpts cut at the 1600-char cap **before** the refusal sentence, so they
+  carried no sponsorship vocabulary at all — guaranteed misses independent of any model or
+  prompt, which means every recall figure `make eval-screen` printed was computed partly
+  over rows whose stated premise was false. `unsupportable_bars` asserts that a row labeled
+  as a **bar** carries that requirement's vocabulary in its excerpt+title; it found exactly
+  those four and nothing else across the other 79 rows. Only the bar direction is asserted —
+  for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar.
+  The sponsorship set is deliberately wider than the production retrieval vocabulary
+  (`sponsor` alone), because a bar phrased without that word is a pinned, accepted recall
+  loss rather than a corpus defect. Clearance reuses `screen.CLEARANCE_TOKENS`, the regex
+  that decides whether the production check may fire at all.
+
+  The four excerpts were rebuilt locally around the refusal sentence, so the labels are now
+  supportable. That repair is **data, not a commit** — `apps/worker/eval/` is gitignored.
+  `make eval-screen`'s recall figures need a free re-run as a result; the
+  false-disqualification gate is unaffected, since golden `refuses` rows are excluded from
+  `false_disq` by construction.
 
 ### Changed
 

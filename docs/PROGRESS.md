@@ -430,11 +430,25 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
      the model") is false. Re-verified by inspection 2026-07-29: all four excerpts end in
      the `" [...]"` marker (the 1600-char cap plus 6 chars, which is where "exactly 1606"
      comes from) and carry none of those tokens.
-     `--selftest`'s corpus invariants do not catch this — they check a label is
-     assertable, never that the excerpt could support it, **and that is the cheap fix**:
-     assert that a row labeled as a bar contains its requirement's vocabulary. That turns
-     this class into a CI failure instead of a silent one, and it is a `--selftest` clause
-     rather than the corpus rebuild the rest of this needs.
+     **FIXED 2026-07-29** (`fix/eval-corpus-vocabulary`; SPEC §12, CHANGELOG).
+     `--selftest`'s corpus invariants checked that a label is assertable, never that the
+     excerpt could support it; `unsupportable_bars` now asserts that a row labeled as a
+     **bar** carries that requirement's vocabulary in its own excerpt+title, so this class
+     fails loudly instead of silently deflating recall. It found exactly these four and
+     nothing else across the other 79 rows.
+     **The four excerpts were then REBUILT, and the repair is local data, not a commit**
+     (`apps/worker/eval/` is gitignored; pre-repair copy at
+     `eval/screen_golden.jsonl.backup-20260729-pre-excerpt-repair`). Each now carries
+     *"Please note that immigration sponsorship is not offered for this specific opening"*
+     — the sentence the labels always rested on. **`sponsorship_snippets` could not do the
+     rebuild**, which is the bullet-JD defect below biting in practice: these JDs are
+     period-free blocks, so its +/-1 *sentence* window returned the whole JD and the
+     1600-cap cut the refusal off a second time. A +/-780 *character* window centred on
+     the match was used instead.
+     **`make eval-screen`'s recall figures are therefore stale and need a free re-run** —
+     4 rows that could never be caught now can be. The false-disqualification gate is
+     unaffected (these are golden `refuses`, which `judge` excludes from `false_disq` by
+     construction).
   **Not fixed here** because 1 and 2 are a corpus rebuild plus a re-run, and #24 was
   already merging; the numbers on that PR are honest about what was *run*, not about what
   the corpus can reach.
