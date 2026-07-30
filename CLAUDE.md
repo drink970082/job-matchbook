@@ -22,6 +22,12 @@ walks the order):
   — "err toward keep" is only one row.
 - **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)** — the session rail: task
   classification, verify-gate evidence table, definition of done, team protocol.
+- **[`docs/SCORING.md`](./docs/SCORING.md)** — the scoring subsystem as a *rebuild
+  spec*, self-contained and portable (it assumes no repo knowledge, so it restates
+  what SPEC covers). Read it before touching `score/`, either prompt, or an eval —
+  its "measured history" section is the record of what has already been tried and
+  failed, and its "known-hostile directions" list is why several odd-looking rules
+  are the way they are.
 
 Keep them current: when you change behavior, in the **same commit** update the
 matching section of `SPEC.md` (capabilities/behavior), `PROGRESS.md` (close the gap
