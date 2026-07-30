@@ -263,6 +263,50 @@ def test_a_blind_response_is_a_provider_error_not_a_verdict(blind):
     assert "authorization" not in out["screen"]
 
 
+def test_the_flat_shape_is_a_verdict_and_is_honoured():
+    # OBSERVED, not hypothetical: `make eval-screen` hit this on a live qwen3.5:4b run
+    # (2026-07-29), roughly 1 call in 100 -- the model drops the `screen` wrapper and
+    # returns the requirement keys at the top level, carrying a COMPLETE and correct
+    # verdict. Reading it as silence threw that verdict away, and once a blind response
+    # became a provider_error it aborted the eval outright on the first occurrence.
+    # A SOLE PhD bar, because `degree_levels` takes min(rank): the response actually seen
+    # was `["phd", "master's"]`, which correctly does NOT bar a Master's candidate.
+    flat = {"degree": {"degree_levels": ["phd"], "degree_required": True},
+            "clearance": {"requires_clearance": False}}
+    out = score.screen_posting(POSTING, extract=lambda p, s: flat,
+                               candidate={"highest_degree": "Master's",
+                                          "security_clearance": "none"})
+    assert "provider_error" not in out
+    # The verdict is USED, not merely tolerated: a PhD bar disqualifies a Master's.
+    assert out["disqualified"] is True
+    assert out["screen"]["degree"]["pass"] is False
+    assert out["screen"]["clearance"]["pass"] is True
+
+
+def test_the_observed_flat_response_is_kept_not_discarded():
+    # The exact payload from the 2026-07-29 eval run. `["phd", "master's"]` under min(rank)
+    # is a master's bar, so a Master's candidate passes -- and the point is that the row is
+    # SCREENED and kept, rather than deferred as a provider error.
+    seen = {"degree": {"degree_levels": ["phd", "master's"], "degree_required": True},
+            "clearance": {"requires_clearance": False}}
+    out = score.screen_posting(POSTING, extract=lambda p, s: seen,
+                               candidate={"highest_degree": "Master's",
+                                          "security_clearance": "none"})
+    assert "provider_error" not in out
+    assert out["disqualified"] is False
+    assert out["screen"]["degree"]["pass"] is True
+
+
+def test_the_flat_shape_and_the_schema_shape_agree():
+    # One reader for both shapes, so they cannot drift apart.
+    inner = {"degree": {"degree_levels": ["phd"], "degree_required": True}}
+    candidate = {"highest_degree": "Master's"}
+    flat = score.screen_posting(POSTING, extract=lambda p, s: inner, candidate=candidate)
+    nested = score.screen_posting(POSTING, extract=lambda p, s: {"screen": inner},
+                                 candidate=candidate)
+    assert flat == nested
+
+
 def test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor():
     # The deliberate residual, and the line the narrow scope is drawn on: a well-formed
     # but empty `screen` dict is a backend that ANSWERED. The floor still runs, so a JD

@@ -719,7 +719,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   a was-a-question-asked test. With nothing retrieved there was no question, so `[]` is
   the correct empty answer and the floor is the whole verdict.
   **A BLIND response is a provider failure, not a verdict.** A live backend that returns
-  a non-dict, or a dict with no `screen` object, is flagged `provider_error` — the row is
+  nothing usable — not a dict, or a dict carrying neither a `screen` object nor any
+  requirement key — is flagged `provider_error` — the row is
   left `new`, the floor is skipped, and the breaker counts a failure. Without that,
   degree and clearance suppress themselves on absent data and the floor is the *only*
   surviving check: a blunt substring scan disqualifying on a JD the model never
@@ -727,6 +728,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   never trips it and walks the whole backlog. It costs no quota — the row is not
   fit-scored. Realistic trigger is a wrong `--model` tag or a non-instruct model: `_post`
   only checks that a dict came back and no hosted backend validates shape either.
+  **Two response shapes are accepted, and the second is not hypothetical.** `verdict_block`
+  reads `{"screen": {...}}` *and* the flat `{"degree": {...}, "clearance": {...}}` the local
+  4B emits about 1 call in 100 — a complete, correct verdict with the wrapper missing.
+  Reading it as silence threw that verdict away, and once a blind response became a
+  `provider_error` it aborted `make eval-screen` on the first occurrence (observed
+  2026-07-29). The **same** function supplies both the blind check and `_screen_verdict`'s
+  reader, so the two cannot drift apart about what "usable" means.
   **The scope is narrow, and the residual is deliberate:** `sponsorship_labels: null`,
   `[]`, a missing key and an empty `screen` dict are all *answers* and still reach the
   floor, so a JD that says *"we do not sponsor work visas"* is caught with no model data.
@@ -1945,7 +1953,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
-| A **blind** live backend (non-dict, or no `screen` object) is a `provider_error`, not a verdict — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`) |
+| A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
 | `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
 | `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |

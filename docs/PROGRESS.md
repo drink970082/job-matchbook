@@ -331,6 +331,13 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   rows are no longer deleted, they buy one paid fit call each and the strong model's
   extraction decides. The 4B ceiling itself is unchanged and unfixable at this size — what
   changed is what a misreading costs.
+  **RE-MEASURED 2026-07-29 (post-#45 corpus repair): the count is 4, at the top of its
+  band, and this run was internally STABLE** — ids 67, 68, 672 and 738, every one
+  disqualified on all 3 draws, with a whole-run flip count of **0**. So the earlier "moved
+  3 → 2 between back-to-back runs" instability did not reproduce here; a single run's count
+  is still not a trend, and the standing instruction not to diff it holds. The repair did
+  not touch degree rows, so 4 is a draw from the same distribution rather than a
+  regression.
 
 **Previously here, and closed.**
 
@@ -370,10 +377,18 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
 - **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
   healthy while doing it — FIXED 2026-07-29** (`fix/blind-screen-backend`; SPEC §7.1 + §9
   traceability, CHANGELOG) — `[SCREEN · found by the PR #24 pre-merge review 2026-07-28,
-  reproduced]`. Kept here for the reasoning trail. Shipped exactly as scoped below: a
-  non-dict or a missing `screen` object raises into the existing dead-provider path, so no
-  new policy and no quota. `sponsorship_labels: null` and `[]` stay on the floor — the
-  deliberate residual.
+  reproduced]`. Kept here for the reasoning trail. A response carrying no usable verdict
+  raises into the existing dead-provider path, so no new policy and no quota.
+  `sponsorship_labels: null` and `[]` stay on the floor — the deliberate residual.
+  **AMENDED SAME DAY, and the amendment is the lesson** (`fix/flat-screen-response`): the
+  first cut defined blind as "no `screen` object", and the local 4B drops that wrapper on
+  ~1 call in 100 while returning a complete, correct verdict flat. So the check discarded
+  good answers, and because the eval aborts on a provider error by design, it also made
+  `make eval-screen` unrunnable — most 249-call runs would hit it. `verdict_block` now
+  accepts both shapes and feeds both the blind check and the verdict reader.
+  **Nothing but running the gate could have caught this.** No unit test knew the flat shape
+  existed; four tests pinned the floor and all of them hand back a well-formed `screen`
+  dict. A shape assumption is only as good as the live run that contradicts it.
   A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
   `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
   (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
@@ -445,10 +460,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
      period-free blocks, so its +/-1 *sentence* window returned the whole JD and the
      1600-cap cut the refusal off a second time. A +/-780 *character* window centred on
      the match was used instead.
-     **`make eval-screen`'s recall figures are therefore stale and need a free re-run** —
-     4 rows that could never be caught now can be. The false-disqualification gate is
-     unaffected (these are golden `refuses`, which `judge` excludes from `false_disq` by
-     construction).
+     **RE-RUN 2026-07-29, and the repair paid off: 3 of the 4 flipped from
+     structurally-unhittable to HIT** (456/534/538, all 3 draws each); only 529 still
+     misses. Recall is now **31/37 (84%)**; the comparable pre-repair figure is 28/37 (76%),
+     since those 3 could not be reached by any model or prompt. The false-disqualification
+     gate was unaffected as predicted — golden `refuses` rows are excluded from `false_disq`
+     by construction. Full report: `apps/worker/eval/last_screen_run.md` (gitignored).
   **Not fixed here** because 1 and 2 are a corpus rebuild plus a re-run, and #24 was
   already merging; the numbers on that PR are honest about what was *run*, not about what
   the corpus can reach.

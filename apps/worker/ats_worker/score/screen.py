@@ -160,13 +160,16 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
             # scan discarding JDs the model never condemned, while the breaker records a
             # success and the degraded backend walks the whole backlog. Raising routes it
             # through the one path that already handles a dead provider correctly.
-            # Scope is deliberately NARROW — not a dict, or no `screen` object. An empty
-            # `screen` dict, `sponsorship_labels: null` and `[]` stay on the floor, so a
-            # JD that literally says "we do not sponsor work visas" is still caught with
-            # no model data (the four tests pinning the floor hand back a well-formed
-            # `screen` dict, and a broader check would contradict them).
-            if not isinstance(data, dict) or not isinstance(data.get("screen"), dict):
-                raise ScoreError(f"blind response, no 'screen' object: {data!r:.200}")
+            # `verdict_block` decides what counts as an answer, and the SAME function
+            # supplies `_screen_verdict`'s reader — they cannot drift apart. It accepts the
+            # flat shape the 4B emits about 1 call in 100, which is a real verdict and must
+            # not be discarded as silence. An empty `screen` dict, `sponsorship_labels:
+            # null` and `[]` are answers too and stay on the floor, so a JD that literally
+            # says "we do not sponsor work visas" is still caught with no model data (the
+            # four tests pinning the floor hand back a well-formed `screen` dict, and a
+            # broader check would contradict them).
+            if verdict_block(data) is None:
+                raise ScoreError(f"blind response, no usable verdict: {data!r:.200}")
             screen = _screen_verdict(data, candidate or {}, description,
                                      str(posting.get("job_title") or ""), snippets)
         except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
@@ -369,6 +372,38 @@ def _degree_stated(value) -> bool:
                                     "associate", "high school", "diploma", "ged")))
 
 
+# The requirement keys a screen response is recognized BY. Reading them is what makes a
+# response an answer rather than silence, which is why the blind-response check and the
+# verdict reader share one definition — they must never disagree about what "usable" means.
+_REQUIREMENT_KEYS = ("degree", "authorization", "clearance")
+
+
+def verdict_block(data) -> dict | None:
+    """The requirement dict inside a screen response, or None if there isn't one.
+
+    Accepts BOTH shapes, and the second one is not hypothetical: the local 4B drops the
+    `screen` wrapper on roughly 1 call in 100 and returns the requirement keys at the top
+    level, carrying a complete and correct verdict. Treating that as no-answer threw a good
+    verdict away and — once a blind response became a `provider_error` — aborted
+    `make eval-screen` outright on the first occurrence.
+
+      {"screen": {"degree": {...}, ...}}   the schema shape
+      {"degree": {...}, "clearance": {...}}  the flat shape, same content
+
+    None means genuinely nothing usable came back: not a dict, or a dict carrying neither a
+    `screen` object nor any requirement key. An EMPTY `screen` dict is an answer (the model
+    said nothing about anything), so it returns `{}` — falsy, but not None. Callers that
+    care about the difference must test `is None`.
+    """
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("screen"), dict):
+        return data["screen"]
+    if any(isinstance(data.get(k), dict) for k in _REQUIREMENT_KEYS):
+        return data
+    return None
+
+
 def _screen_verdict(data: dict, candidate: dict, description: str = "",
                     title: str = "", snippets: list[str] | None = None) -> dict:
     """Decide disqualification from the SCREEN call's extracted JOB facts.
@@ -387,7 +422,7 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "",
     the same query found (Jump Trading, "Campus AI Researcher, PhD/Postdoc") state
     their bar in the TITLE and nowhere else.
     """
-    screen = data.get("screen") if isinstance(data.get("screen"), dict) else {}
+    screen = verdict_block(data) or {}
     clean: dict = {}
     failures: list[str] = []
 
