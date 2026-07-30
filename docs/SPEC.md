@@ -1108,13 +1108,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   and a shorter timeout. A fetched posting is **validated** (`_valid_posting`:
   non-empty `external_id` + `job_title` + `description`) before it counts — an empty JD
   means a scrape silently lost the body, the main way an HTML/JS scraper breaks without
-  raising. Any failed id (board raise / detail raise / `None` / invalid) is recorded in
-  `feed_unresolved` — `reason="list_fetch_failed"` for a per-board source's raising list
-  fetch, `reason="detail_fetch_failed"` for a detail source's per-id failure (host from
-  the listing URL) — so a broken scraper or a down board surfaces on the unresolved
-  board instead of vanishing; a detail source that resolves ids but
-  keeps **none** also prints a one-line collapse warning. Each kept posting is stamped
-  with its `company_slug`.
+  raising. Any failed id is recorded in `feed_unresolved`, and the reason **names which
+  failure it was** — the two have opposite meanings, so one string for both made the
+  record undiagnosable: `reason="list_fetch_failed"` for a per-board source's raising list
+  fetch; `reason="detail_fetch_failed"` for a detail source's raise or `None` (the
+  endpoint did not serve the id, which for a feed-surfaced `externalPath` is usually a
+  dead req — normal and harmless); `reason="empty_description"` when a posting *came back*
+  and failed `_valid_posting` (a scraper parsing a shape it does not understand — the one
+  worth acting on). That is the **same** string the watchlist path uses for the same
+  condition, so one query over `feed_unresolved` covers both paths. Host comes from the
+  listing URL. A detail source that resolves ids but keeps **none** also prints a
+  one-line collapse warning, which names the split (`N unparseable — scraper may be
+  broken` vs `N dead req(s), none unparseable`) because that line repeats every pass and
+  an undiagnosable warning gets tuned out. Each kept posting is stamped with its
+  `company_slug`.
   `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
   (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
   that row `failed`), and a disqualified one is persisted `discarded` right here,
@@ -1592,12 +1599,14 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   fetching each surfaced id directly via `fetch_one` (per-id try/except → one bad
   listing skipped), not by listing-then-filtering; its `external_id` is exactly the
   resolved id, so no keep-filter is needed.
-- **Silently-broken scrapers are made visible.** A detail-fetch failure — a raise, a
-  `None`, or a posting failing `_valid_posting` (non-empty id/title/description) — is
-  recorded in `feed_unresolved` (`reason="detail_fetch_failed"`) like an unresolvable
-  URL, so it shows on the unresolved board rather than vanishing into the swallowed
-  per-listing exception. A source that resolves ids but keeps none additionally prints a
-  collapse warning. (Canary self-tests and proactive Telegram/banner alerting are
+- **Silently-broken scrapers are made visible, and the record says which break it was.**
+  A detail-fetch failure is recorded in `feed_unresolved` like an unresolvable URL, so it
+  shows on the unresolved board rather than vanishing into the swallowed per-listing
+  exception — a raise or a `None` as `reason="detail_fetch_failed"` (usually a dead req),
+  a posting that came back and failed `_valid_posting` as `reason="empty_description"` (a
+  broken parser). Filing both under one string is what made the collapse warning unable to
+  say which had happened. A source that resolves ids but keeps none additionally prints a
+  collapse warning naming the split. (Canary self-tests and proactive Telegram/banner alerting are
   deferred — see PROGRESS.) These sources are **feed-only**: they
   cannot enumerate a board, so they are absent from `VALID_SOURCES` (not
   watch-listable) and excluded from promotion suggestions.

@@ -267,8 +267,14 @@ def test_run_feed_detail_skips_none_result(db_path):
 
 
 def test_run_feed_detail_records_invalid_posting(db_path):
-    # A scraper that returns a posting with NO description silently lost the JD;
-    # it must be rejected (not inserted) and recorded as a detail-fetch failure.
+    # A scraper that returns a posting with NO description silently lost the JD; it must
+    # be rejected (not inserted) and recorded as `empty_description` — NOT
+    # `detail_fetch_failed`. The two diagnoses are opposite: a raise/None is usually a
+    # dead req (the feed surfaces an externalPath the board no longer serves — normal),
+    # while a body that came back and does not parse is a broken scraper. Filing both
+    # under one string is why the "may be broken" warning could not say which, six times
+    # a day. `empty_description` is the same string the watchlist path uses for the same
+    # condition, so ONE query over feed_unresolved covers both paths.
     conn = db.connect(db_path)
     listings = [{
         "url": "https://jobs.jobvite.com/acme/job/xyz", "company_name": "Acme",
@@ -282,7 +288,29 @@ def test_run_feed_detail_records_invalid_posting(db_path):
     assert inserted == 0
     assert db.get_by_status(conn, "new") == []
     assert conn.execute(
-        "SELECT reason FROM feed_unresolved").fetchone()["reason"] == "detail_fetch_failed"
+        "SELECT reason FROM feed_unresolved").fetchone()["reason"] == "empty_description"
+
+
+def test_the_collapse_warning_names_which_failure_it_saw(db_path, capsys):
+    # The warning repeats every pass forever (workday's existing_external_ids prune
+    # never matches the feed's externalPath), so it has to be self-diagnosing or it gets
+    # tuned out. Two collapses, same count, opposite meanings.
+    listing = {"url": "https://jobs.jobvite.com/acme/job/xyz", "company_name": "Acme",
+               "title": "SWE", "category": "Software", "sponsorship": "Other",
+               "active": True}
+
+    def collapse(detail_fetch_fn):
+        conn = db.connect(db_path)
+        pipeline.run_feed(conn, now=NOW, feed_fn=lambda: [listing],
+                          keep_categories=["Software"], fetch_fn=_make_fetch_fn([]),
+                          detail_fetch_fn=detail_fetch_fn)
+        return capsys.readouterr().out
+
+    dead = collapse(lambda *a: None)
+    assert "dead req" in dead and "unparseable" not in dead.split("dead req")[0]
+    broken = collapse(
+        lambda s, sl, ext, n: _posting(ext, source=s, description=""))
+    assert "1 unparseable" in broken and "scraper may be broken" in broken
 
 
 def test_run_feed_detail_collapse_warns(db_path, capsys):
