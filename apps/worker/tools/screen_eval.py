@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -86,6 +87,46 @@ def fact_is_a_bar(drawn_for: str, facts: dict) -> bool | None:
 # The screen verdict key each requirement lands under in `out["screen"]`.
 VERDICT_KEY = {"clearance": "clearance", "degree": "degree",
                "sponsorship": "authorization"}
+
+# The vocabulary a row labeled as a BAR must contain for that label to be supportable by
+# the text handed to the model. Checked in `--selftest`, and it is a check on the CORPUS,
+# not on the model: a row whose excerpt cannot support its own label is a guaranteed miss
+# for any model or prompt, so every recall figure computed over it is meaningless. Four
+# IMC rows were exactly that — golden `refuses`, excerpts truncated at the `_readme` cap
+# before the refusal sentence, no sponsorship word anywhere in them.
+#
+# Only the BAR direction is asserted. A `no bar` row legitimately contains nothing: for
+# clearance and sponsorship, absence of the vocabulary IS the evidence of no bar.
+#
+# `clearance` reuses the production floor's own tokens (`screen.CLEARANCE_TOKENS`) because
+# that regex is what decides whether the check may fire at all. The other two are stated
+# here rather than borrowed: the sponsorship set is deliberately WIDER than the production
+# retrieval vocabulary (`sponsor` alone), since a bar phrased without that word is a
+# pinned, accepted recall loss — a corpus premise the eval measures, not a corpus defect.
+BAR_VOCAB = {
+    "clearance": score.screen.CLEARANCE_TOKENS,
+    "sponsorship": re.compile(
+        r"sponsor|visa|citizen|authoriz|right to work|immigration|work permit|"
+        r"green card|permanent resident|\bh-?1b\b|\bead\b|opt\b", re.IGNORECASE),
+    # A bar for CANDIDATE (Master's) means a doctorate is required, so "degree" or
+    # "bachelor's" alone cannot support the label — it has to name the doctorate.
+    "degree": re.compile(r"ph\.?\s?d|doctora|d\.?phil", re.IGNORECASE),
+}
+
+
+def unsupportable_bars(rows: list[dict]) -> list[tuple]:
+    """Corpus rows labeled as a bar whose own text carries none of that requirement's
+    vocabulary. Returns `(id, drawn_for, excerpt_len)` for each — a corpus defect."""
+    bad = []
+    for r in rows:
+        if fact_is_a_bar(r["drawn_for"], r["facts"]) is not True:
+            continue
+        if not r.get("gate", True):
+            continue
+        evidence = f"{r.get('title') or ''} {r.get('excerpt') or ''}"
+        if not BAR_VOCAB[r["drawn_for"]].search(evidence):
+            bad.append((r["id"], r["drawn_for"], len(r.get("excerpt") or "")))
+    return bad
 
 
 def measured_bar(out: dict, drawn_for: str) -> bool:
@@ -292,6 +333,24 @@ def selftest() -> int:
         assert r["excerpt"].strip(), f"row {r['id']} has an empty excerpt"
         assert fact_is_a_bar(r["drawn_for"], r["facts"]) is not None or not r.get("gate", True), \
             f"row {r['id']} is gated but its label is not assertable"
+
+    # The invariants above check that a label is ASSERTABLE; this one checks the excerpt
+    # could actually support it. They are different failures, and only the second one
+    # catches a truncated excerpt — a guaranteed miss that silently deflates recall.
+    assert unsupportable_bars([{"id": 1, "drawn_for": "sponsorship", "gate": True,
+                                "title": "t", "excerpt": "no vocabulary here",
+                                "facts": {"sponsorship": "refuses"}}])
+    assert not unsupportable_bars([{"id": 1, "drawn_for": "sponsorship", "gate": True,
+                                    "title": "t", "excerpt": "we do not sponsor visas",
+                                    "facts": {"sponsorship": "refuses"}}])
+    # A `no bar` row needs no vocabulary — its absence is the evidence.
+    assert not unsupportable_bars([{"id": 1, "drawn_for": "clearance", "gate": True,
+                                    "title": "t", "excerpt": "nothing relevant",
+                                    "facts": {"requires_clearance": False}}])
+    bad = unsupportable_bars(rows)
+    assert not bad, (
+        "corpus rows labeled as a bar whose excerpt carries none of that requirement's "
+        f"vocabulary — guaranteed misses, so any recall figure over them is meaningless: {bad}")
 
     print(f"selftest ok — {len(rows)} corpus rows "
           + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
