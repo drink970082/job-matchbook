@@ -32,12 +32,79 @@ is that the constraint is no longer correctness, it is QUOTA:** three passes spe
 the weekly Codex window, which projects to ~140% at 6 passes/day. The open decisions are
 therefore about spend and intake, not about whether the pipeline works — see In flight.
 
+**Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
+paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
+of them buy a "no". Seniority is the half a *free* local extraction can reach — see the
+first In-flight entry.
+
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
 
 ---
 
 ## In flight
+
+- **Cut paid fit calls with a FREE seniority extraction, not a model swap — investigated
+  2026-07-30, nothing implemented yet** `[SCORE · M · measured]`.
+  **The finding is the verdict matrix.** Over the 396 rows scored in the 7 days to
+  2026-07-30: `domain` came back **mismatch 298 (75%) / adjacent 72 (18%) / match 24
+  (6%)**, and `seniority` came back **too_junior on 214 (54%)**; 175 (44%) are both.
+  All 14 notified rows are `domain=match`; the other 10 match rows split 7 `too_junior`
+  + 3 `insufficient_context`, exactly as the §6 predicate implies. **96% of paid calls
+  buy a "no".**
+  **The lever this points at is seniority, not domain.** SCORING §4.2 measures seniority
+  ONLY against a bar the JD states explicitly (a years number or a senior/lead/staff/
+  principal rank; no bar stated → `match`). That is the closed-vocabulary bounded
+  extraction SCORING §9.1 lists as *weak-model-capable*, and the same shape change that
+  fixed degree in §8.1 — model lists `stated_min_years` / `stated_rank`, **code**
+  compares against the candidate's STAGE. `domain` cannot move here: it needs the profile
+  and the résumé, and §9.1 puts it strong-model-only.
+  **It must be a re-ordering, not a new filter.** The queue is most-recently-touched-first
+  (below); sending free-layer `too_junior` rows to the BACK leaves them in `new` alongside
+  the existing 9,218 — observable, searchable, reversible — so a false negative costs a
+  delay, not a deleted posting. No new `pipeline_status`, no skip-reason column, no paid
+  audit sample. **This framing is load-bearing:** the 396 labels are *Sol's verdicts, not
+  human labels*, so the training/validation set inherits Sol's errors. Good enough for a
+  prioritizer; **not** good enough for a terminal discard.
+  **Next step is free** (no quota, no DB writes): run the local screen over those 396
+  rows, extract the two fields, apply the code rule, and score precision/recall against
+  Sol's 214 `too_junior`. Only if that fails is a model swap back on the table.
+  **Measured this session** (`db/applications.db`, `db/scorer_usage.json`): backlog 9,218
+  `new` (9,131 with `description` ≥ 200), oldest 2026-07-22; 7-day flow 5,326 new /
+  451 discarded / 382 scored / 14 notified, **380 paid fit calls**; quota snapshot
+  `used_percent 32`, weekly window, resets 2026-08-05; all 434 scored rows are
+  `gpt-5.6-sol`.
+  **Unreconciled, and do not average the two:** 383 of those 451 discards are the
+  deterministic **location** gazetteer (India 207, Mexico 47, China 43, Taiwan 33, …), not
+  the model screen. So the 54% "discard rate" over rows that left `new` and the ~18%
+  per-pass model-screen rate in the entry below are different denominators. Steady-state
+  demand is somewhere in **~2,800–4,900 fit calls/week** until they are reconciled.
+  **Also unverified, and the gap estimate rests on it:** how much of that 32% is the
+  pipeline versus evals and interactive use. 380 calls → 32% puts the weekly ceiling at
+  ~1,190 only if *all* of it were scoring; the real figure is higher. Until that is
+  split, the shortfall is 1.4×–2.4× and no tighter.
+  **`used_percent` is an integer** and `limits[]` carries no credits/units field
+  (`score/usage.py:144` passes the provider value through unmodified), so a single call
+  moves it ~0.05% — **the two-call token-bound-vs-message-bound experiment is not
+  runnable.** Whether the quota is token- or message-bound remains open.
+  **Ruled out this session, with reasons, so they are not re-proposed:** swapping the fit
+  model to a cheaper tier (at the low end of the capacity range a 2× model still does not
+  reach steady state, let alone the ~4,200-call backlog — and SCORING §8.7 requires a full
+  real-JD eval anyway); a compressed "candidate card" replacing the résumés (unproven
+  quota premise, and SCORING §8.4 makes candidate evidence the most destabilising input to
+  `domain`); a cheap-model → strong-model cascade (SCORING §9.3's second-vote hazard); a
+  stronger local screen (only 1 confirmation route in the 7 days, and it cannot touch
+  `domain`); and shadow-running the existing prefilters for the reduction — `fetch.
+  prefilter_postings` is title keep/exclude + `posted_at` age and `feed/prefilter.py` is
+  active/category/sponsorship metadata, so **those 396 rows are already their output**.
+  **Blocked on this path, tracked separately:** `score_eval.py:73` pins the model to
+  `run.DEFAULT_CODEX_SCORE_MODEL` and ignores `CODEX_SCORE_MODEL` (which `run.py:759` does
+  read), so no model A/B is runnable without that one-line patch — needed only if step 1
+  fails. Two unrelated defects surfaced and are NOT part of this work: `config.yaml`'s
+  four-value `work_authorization` cannot express F-1 OPT (authorised now, sponsorship
+  later — `authorized-no-sponsorship` skips the check entirely, `needs visa sponsorship`
+  discards jobs workable today), and SCORING §2.4/§6 omit the `notified` status the DB
+  actually uses.
 
 - **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
   `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
@@ -100,7 +167,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
   **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
   the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate.
+  quota arithmetic should use the measured rate, not the estimate. **The first In-flight
+  entry measures a different 54% over a different denominator — 383 of those discards are
+  the deterministic location gazetteer, not the model screen — and the two are NOT
+  reconciled.** Do not average them.
   **Four things had to land first, and three of them were not the schedule.** (0)
   `apscheduler` was missing from the system python3, so the daemon would have
   crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
@@ -153,16 +223,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   stayed up, reported a healthy schedule and never completed a pass. It now falls back to
   `O_RDONLY` — `flock` needs no write access — which keeps the guard exclusive and costs
   only the pid diagnostic, announced on both the holding and the contending side.
-  **Residual (a)/(b) above are unchanged**, and (b) is the one that costs money.
+  **Residuals (a) and (b) are FIXED above** (2026-07-30, the db-keyed lock); (c) is the
+  2026-07-28 `O_RDONLY` fallback and stands.
 
-- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
-  categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
-  CHANGELOG). **Stage 3, non-tech discovery feeds:** the watchlist already covers any
-  company, so decide the need before building (brittle, anti-bot handling, dilutes the
-  moat).
+- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (CHANGELOG). **Stage 3,
+  non-tech discovery feeds:** the watchlist already covers any company, so decide the need
+  before building (brittle, anti-bot handling, dilutes the moat).
   **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
-  fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is why
-  every `score.txt` change is gated behind `score_eval` (SPEC §7.1).
+  fit-scoring prompt — every `score.txt` change is gated behind `score_eval` (SPEC §7.1,
+  SCORING §8.4).
 
 ---
 
@@ -394,79 +463,34 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   not touch degree rows, so 4 is a draw from the same distribution rather than a
   regression.
 
-**Previously here, and closed.**
+**Thirteen others found in the 2026-07-23 → 07-29 sweep have shipped fixes** and their
+records are in CHANGELOG + SPEC (§7.1, §9 traceability, §11); they are not repeated here.
+**One consequence outlives them:** the ~20 rows the clearance defect already killed are
+still `discarded` — queue item 2 recovers them.
 
-- **Both privacy guards matched `.env` EXACTLY, so any `.env.<suffix>` variant was
-  unguarded** — **FIXED 2026-07-29** (`fix/env-suffix-privacy-guard`). `.gitignore` now
-  matches `.env*` with a `!.env.example` re-include, and `check_privacy.mjs` RULES reads
-  `/(^|\/)\.env($|\.)/`; `--self-test` pins `.env.bak-tsserve` and `.env.production` as
-  denied and `apps/web/src/environment.ts` as allowed, so the "`.env` followed by end or a
-  dot" boundary cannot silently widen back. Found via a real `.env.bak-tsserve` in the root
-  (a pre-Tailscale-serve backup holding only `WEB_BIND`, so nothing leaked — the pattern
-  was the defect, not that file). SPEC §11, CHANGELOG.
-- **The clearance check fired on the word "security"** — 20 of 24 live discards false.
-  **FIXED 2026-07-28** (`fix/clearance-evidence-floor`): `_check_clearance` requires a
-  `CLEARANCE_TOKENS` match in the description **or** title before honouring
-  `requires_clearance: true`. Contract in SPEC §7.1, numbers and reasoning in CHANGELOG.
-  The ~20 rows it already killed are **still discarded** — queue item 2 recovers them.
-- **A dead SCREEN provider was silent, and every unscreened row went to the PAID scorer**
-  — **FIXED 2026-07-24**: the verdict carries `provider_error`, `run_score` leaves such a
-  row `new`, and a `_BackendBreaker` aborts the screen phase on the outage signature
-  (SPEC §9 + traceability, CHANGELOG).
-- **The seven found 2026-07-23** (probing `pipeline.run_score` / `run_notify`,
-  `score/screen.py`, `score/location.py`) all shipped fixes by 2026-07-24: the
-  blind-screen-check-as-pass, `London, ON`, `work_authorization`, the dead-fit-backend
-  breaker + singles-fallback guard, the wrong-token / consecutive-failure notify breaker,
-  the interruptible `as_completed` score run, and `notify_attempts` split from `attempts`.
-
-**The pattern across all of them, and the reason PRINCIPLES exists.** Nine of the twelve
-were the same policy error — a *systemic* condition handled as a per-item verdict — now
-named in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed
-by every pipeline stage (SPEC §9 + traceability rows). The 2026-07-27/28 pair is a
-*different* class: a per-item verdict acted on **without checking what the JD says**.
-They part company on the remedy — clearance is lexical, so code can floor it on a token;
-degree is semantic, so no floor exists and the answer is routing, not a regex.
+**The pattern, and the reason PRINCIPLES exists.** Nine of the thirteen were the same
+policy error — a *systemic* condition handled as a per-item verdict — now named in
+[`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed by every
+pipeline stage. The 2026-07-27/28 pair is a *different* class: a per-item verdict acted on
+**without checking what the JD says**. They part company on the remedy — clearance is
+lexical, so code can floor it on a token; degree is semantic, so no floor exists and the
+answer is routing, not a regex.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
-  healthy while doing it — FIXED 2026-07-29** (`fix/blind-screen-backend`; SPEC §7.1 + §9
-  traceability, CHANGELOG) — `[SCREEN · found by the PR #24 pre-merge review 2026-07-28,
-  reproduced]`. Kept here for the reasoning trail. A response carrying no usable verdict
-  raises into the existing dead-provider path, so no new policy and no quota.
-  `sponsorship_labels: null` and `[]` stay on the floor — the deliberate residual.
-  **AMENDED SAME DAY, and the amendment is the lesson** (`fix/flat-screen-response`): the
-  first cut defined blind as "no `screen` object", and the local 4B drops that wrapper on
-  ~1 call in 100 while returning a complete, correct verdict flat. So the check discarded
-  good answers, and because the eval aborts on a provider error by design, it also made
-  `make eval-screen` unrunnable — most 249-call runs would hit it. `verdict_block` now
-  accepts both shapes and feeds both the blind check and the verdict reader.
-  **Nothing but running the gate could have caught this.** No unit test knew the flat shape
-  existed; four tests pinned the floor and all of them hand back a well-formed `screen`
-  dict. A shape assumption is only as good as the live run that contradicts it.
-  A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
-  `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
-  (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
-  how a strict backend says nothing) — is **not** flagged `provider_error`. Degree and
-  clearance both suppress themselves on absent data, so `NO_SPONSOR_PHRASES` is the only
-  surviving check, and it discards on a substring of a JD the model never condemned.
-  `run_score` then records a circuit-breaker **success**, so the degraded mode never
-  trips the breaker and walks the whole backlog. Realistic trigger: a wrong `--model`
-  tag or a non-instruct model — `_post` only checks that a dict came back, and none of
-  the hosted backends validate shape either.
-  **Recorded as a two-sided fork; reading the code 2026-07-29 collapsed it.** Flagging a
-  blind response `provider_error` needs no new policy and **costs no quota**:
-  `screen_posting` already suppresses the floor on that flag ("NOT on a provider error"),
-  `run_score` already leaves such a row `new` rather than fit-scoring it, and the breaker
-  already aborts the phase after 5 with no successes. So the "one paid fit call per row"
-  price this entry quoted was wrong (it is zero), and "keep the floor independent" vs
-  "make silence mean KEEP" are the same code path, not opposed options.
-  **Scope it NARROWLY: response is not a dict, or carries no `screen` dict.** All four
-  tests that pin the floor hand back a well-formed `screen` dict, so a narrow check leaves
-  them green; a broad one (absent labels while snippets are pending) contradicts them and
-  must not be written. `sponsorship_labels: null` and `[]` therefore stay on the floor —
-  the deliberate residual, so a JD that literally says *"we do not sponsor work visas"*
-  is still caught with no model data.
+- **The blind-backend residual: `sponsorship_labels: null` and `[]` still reach the phrase
+  floor** — `[SCREEN · open by decision, the operator's call]`. The defect this came from
+  shipped a fix 2026-07-29 (SPEC §7.1 + §9, CHANGELOG); the fork it left open is stated as
+  one in SCORING §3.7. A live-but-blind response is deliberately **not** flagged
+  `provider_error`, so the floor stays an independent deterministic signal and a JD that
+  literally says *"we do not sponsor work visas"* is still caught with no model data. The
+  counter-argument — a blind backend then discards on a substring the model never
+  condemned, and scores as a breaker *success* while doing it — is real and unresolved.
+  **The lesson worth keeping:** the first cut defined "blind" as "no `screen` object", and
+  the 4B drops that wrapper on ~1 call in 100 while returning a complete correct verdict
+  flat — so it threw away good answers and made `make eval-screen` unrunnable. No unit test
+  knew the flat shape existed. **A shape assumption is only as good as the live run that
+  contradicts it**, and the blind check and the verdict reader must share one predicate.
 
 - **`make eval-screen` measures far less than its headline numbers imply — 19 of the
   "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
@@ -573,19 +597,11 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
   principles still needs the measurement.
 
-- **The location gate: rebuilt, and the residual leak is now priced rather than
-  unpriced** — `[SCREEN · DONE 2026-07-29, see CHANGELOG]`. This entry used to argue that
-  clause (F)'s corroboration rule kept 16% of what it once discarded and that "the narrow
-  fix, if it is ever wanted" was to exempt tokens naming a country outright. That fix
-  shipped in PR #32, and a fuller survey then showed corroboration was only one of nine
-  failure classes: informal country names (`UK`/`England`/`LDN`, 116 rows), the remote
-  hint firing before any country resolved (`Remote - India`, 85 rows), `Ontario` resolving
-  to Ontario **California** (53 rows), ASCII-vs-diacritic city misses (32 rows), unknown
-  foreign subdivisions (25 rows), and region acronyms resolving to same-named villages
-  (`APAC` -> Uganda). The gate is now evidence-tiered (SPEC §7.1) and the trade is
-  **pinned in CI**: 0 false discards over 1,611 live strings, residual leak exactly 6
-  strings / 14 rows. **Still open:** tiers 2 and 3 of the plan — a free Ollama fallback
-  for the 3.1% of rows the gazetteer cannot resolve, and the fit scorer as a second net.
+- **The location gate's tiers 2 and 3 — not built** — `[SCREEN · M]`. Tier 1 shipped
+  2026-07-29 (evidence-tiered gate, SPEC §7.1 + CHANGELOG; the trade is pinned in CI at 0
+  false discards over 1,611 live strings, residual leak exactly 6 strings / 14 rows).
+  **Still open:** a free Ollama fallback for the 3.1% of rows the gazetteer cannot
+  resolve, and the fit scorer as a second net.
 
 - **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
   needs a COUNT, not a run]`. `parse_stub` now dates `"Posted N+ Days Ago"`
@@ -672,43 +688,18 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
   source-filtered slice.
 - **Route a local `degree`/`clearance` fail to the strong model as `needs_confirmation`**
-  — `[SCREEN · DONE 2026-07-29, see SPEC §7.1 + CHANGELOG]`. Kept here for the reasoning
-  trail; the behavior itself is now in SPEC. **One shape change from what this entry
-  proposed:** it is a routing decision inside one pass plus a `score_detail` marker, not a
-  new `pipeline_status` — screen and fit run in the same pass, so nothing is ever stored
-  in the intermediate state, and a real status would mean new `constants.ts` values and UI
-  buckets for a row nobody can ever observe. **Still open, deliberately:** a
-  degree/clearance-only fail on a JD thinner than the low-context threshold is kept
-  without confirmation (it takes the thin-JD path, which spends no fit call) — a thin JD
-  cannot support a degree-bar reading either way, and those rows are held back from notify
-  and shown for human review.
-  **The rates below are PRE-FIX and must not be re-quoted as current.** 83%/24% are why
-  the routing was decided; the clearance evidence floor (#24) already catches all 20 of
-  those clearance rows for free, and the degree residual is the 2-3 rows in Defects. The
-  build insures the residual, it does not re-fix the measured rate.
-  **The `authorization` exclusion is NOT "no model produced that verdict"** — that
-  rationale was written into the first draft and is false; authorization is a 4B labelling
-  retrieved snippets. It is excluded because its measured false-disqualification count is
-  **0** and it already carries retrieve-then-classify plus the offers/preference vetoes,
-  so a second look is the wrong trade on the check where a false positive is worst.
-  Instead of a terminal `discarded`, a degree/clearance fail becomes `needs_confirmation`
-  and goes to SCORE for the strong model to confirm.
-  **Decided, do not re-litigate the fork.** The 2026-07-24 volume query resolved it: of
-  3,262 discarded rows, degree/clearance-*only* discards were 30 (0.9%), and this entry's
-  own rule was "a couple of percent → just route them". ~30 paid fit calls against a
-  ~2,000-message weekly budget.
-  **What was unmeasured then is measured now, and it strengthens the case:** the 4B's
-  false-discard *rate* is **83% for clearance** (20 of 24 live discards carried no
-  clearance token — the 2026-07-27 audit, **not** `make eval-screen`, which as shown above
-  cannot measure clearance at all) and **24% for degree** (`make eval-screen`). Volume was
-  the wrong ranking function — that is the same lesson the clearance defect taught.
-  **The architecture already exists**, so this is a state, not a redesign: the fit
-  scorer's optional `screen` block + `merge_fallback_screen` is already "strong model
-  supplies extraction, CODE arbitrates on verifiable JD evidence, not a second vote". The
-  `pass`-vs-`unknown` conflation was fixed 2026-07-23, so "blind" is already
-  distinguishable from "passed" and only the third state is new.
-  **The cost it moves:** a posting the screen discards today pays nothing — that is the
-  economic point of screening first. Routing buys each one a paid fit call.
+  — `[SCREEN · shipped 2026-07-29 · one residual open by decision]`.
+  **The behavior, the pre-fix 83%/24% rates and why `authorization` is excluded are
+  now in SCORING §5.3** — read it there; those rates are pre-fix and must not be re-quoted
+  as current.
+  **What stays here is one deliberate hole:** a degree/clearance-only fail on a JD thinner
+  than the low-context threshold is kept *without* confirmation, because it takes the
+  thin-JD path and spends no fit call. A thin JD cannot support a degree-bar reading either
+  way, and those rows are already held back from notify and shown for human review.
+  **And one shape decision, so it is not re-proposed:** routing is an in-pass decision plus
+  a `score_detail` marker, **not** a new `pipeline_status` — screen and fit run in the same
+  pass, so no row is ever stored in that state, and a real status would mean new
+  `constants.ts` values and UI buckets for something nobody can observe.
 
 - **The feed's workday route reports a detail-fetch collapse on every pass** —
   `[FETCH · XS · observed 2026-07-29 · cause unknown]`. All three live passes logged
