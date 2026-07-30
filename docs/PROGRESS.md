@@ -559,10 +559,13 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   through an existing descriptor. So `chmod` is not a valid proxy, and any failure mode
   that spares open fds would slip past the probe; the observed real symptom is
   `SQLITE_CANTOPEN` (an *open* failure), which would trip it.
-  **Two corrections, 2026-07-29.** (1) `SELECT 1` is a constant expression SQLite answers
-  without reading a page, so the probe can pass with the file gone; reading `sqlite_master`
-  forces a page read and, under WAL, the `-wal`/`-shm` sidecars — one line, strictly
-  stronger. (2) Detection **is** simulable, just not by `chmod`: rename the *directory*
+  **Two corrections, 2026-07-29.** (1) **FIXED** (`fix/health-probe-page-read`; SPEC §6 +
+  §7.2, CHANGELOG): `SELECT 1` is a constant expression SQLite answers without reading a
+  page, so the probe could pass with the file gone. It now reads `sqlite_master`, which
+  forces a page read and, under WAL, the `-wal`/`-shm` sidecars. The regression is
+  invisible to the two existing tests — they mock `$queryRaw` and never look at the SQL —
+  so a third test pins that the probe reads a table rather than a constant.
+  (2) Detection **is** simulable, just not by `chmod`: rename the *directory*
   holding the DB, so a fresh `open()` fails while the existing fd survives — the shape of a
   stale mount. Throwaway copy, throwaway container, same rig as the recovery drill.
   (SPEC §6.)

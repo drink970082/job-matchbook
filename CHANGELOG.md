@@ -62,6 +62,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `empty_description`, the **same** string the watchlist path already uses for the same
   condition, so one query over `feed_unresolved` covers both paths. The collapse warning
   names the split. Rows recorded before this carry the old conflated string.
+- **`/api/health` could report 200 with the database file gone.** The probe ran
+  `SELECT 1`, a constant expression SQLite answers from the query planner without touching
+  a page — so it proved the Prisma client existed, not that the DB was reachable, which is
+  the entire point of the route. It now reads `SELECT name FROM sqlite_master LIMIT 1`, forcing
+  a real page read and, under WAL, the `-wal`/`-shm` sidecars. A row rather than a count
+  because the SQLite connector returns counts as `BigInt`, which throws on
+  `JSON.stringify` — nothing serializes this result today, and this way nothing can start
+  to. Verified through Prisma against a throwaway copy of the live DB, not only against
+  the mock. That is the failure the
+  `autoheal` sidecar exists to repair: the recovery leg is proven (drill, 2026-07-22), and
+  detection was the unproven half. The regression is invisible to the two existing tests,
+  which mock `$queryRaw` and never inspect the SQL, so a third test pins that the probe
+  reads a table rather than a constant. Detection against a real stale mount is still
+  unobserved — the drill that would prove it (rename the directory holding a throwaway DB
+  copy, so a fresh `open()` fails while the existing fd survives) is recorded in PROGRESS.
 
 ### Changed
 

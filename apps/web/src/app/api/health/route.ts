@@ -11,7 +11,14 @@ export const dynamic = 'force-dynamic' // never cache; every probe hits the DB
 
 export async function GET() {
     try {
-        await prisma.$queryRaw`SELECT 1`
+        // Reads sqlite_master, NOT `SELECT 1`. `SELECT 1` is a constant expression SQLite
+        // answers from the query planner without touching a page, so it returns 200 with
+        // the database file gone — the exact failure this probe exists to catch. Reading a
+        // table forces a real page read and, under WAL, the -wal/-shm sidecars too.
+        // A row rather than `count(*)`: the SQLite connector returns counts as BigInt,
+        // which throws on JSON.stringify. Nothing serializes this result today, and this
+        // way nothing can start to.
+        await prisma.$queryRaw`SELECT name FROM sqlite_master LIMIT 1`
         return NextResponse.json({ status: 'ok' }, { status: 200 })
     } catch (err) {
         // Detail stays server-side only; the 503 body must not leak internals (paths,
