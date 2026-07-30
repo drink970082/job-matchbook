@@ -85,12 +85,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   | 08:00 | 84 | 60 | 47 | 60 min |
 
   **QUOTA IS THE BINDING CONSTRAINT — CAP SET TO `40` ON 2026-07-30** `[SCORE · XS ·
-  operator's call, MADE]`. Three passes consumed **10% of the weekly Codex window**
-  (`db/scorer_usage.json`, window resets 2026-08-05); re-measured at 8 passes it is
-  **23% in 1.4 days**, ~2.9%/pass, so `60` projected to **~121%/week** — quote the 8-pass
-  number, not the 3-pass ~140%. `40` projects to ~81% and leaves room for hand runs. It
-  covers fresh intake only, so nothing drains: the choice made is *keeping up*. Queue
-  item 6 carries the arithmetic.
+  operator's call, MADE]`. Over the window's first **7 passes** (23% by 04:50 on 07-30,
+  window resets 2026-08-05) that is **~3.3%/pass at `--score-limit 60`**, so `60`
+  projected to **~138%/week** — the quota would have died around day 6 of 7. `40`
+  projects to **~92%**, which is under budget but NOT roomy: it covers fresh intake only,
+  so nothing drains, and the choice made is *keeping up*. Queue item 6 carries the rest.
+  **Do not read `db/scorer_usage.json` without checking its mtime** — see the
+  `capture_usage` defect below; a 07-30 reading of "23%" was in fact 8 hours old, and the
+  live figure at 12:41 was **32%**.
   **Lowering the CADENCE does not help, and this is the counter-intuitive part.** Half
   the passes ingest twice as much each, so paid calls/week are unchanged — quota is a
   function of newly discovered postings, not of pass count (already stated below, now
@@ -181,7 +183,7 @@ matching the pipeline walkthrough:
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — no defects, but **quota is now the binding constraint**: `--score-limit 60` projects to ~140% of the weekly budget (In flight), and 655 queued rows fail today's filters |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect** (`capture_usage` stopped writing the quota snapshot, silently, 2026-07-30) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
@@ -194,33 +196,51 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: one, and it is a model ceiling rather than a coding error** — 3 rows where
-the 4B reads a soft degree bar as hard. Everything else found in the 2026-07-23 → 07-28
-sweep has shipped a fix (thirteen in total, counting the 2026-07-29 `.env.<suffix>`
+**Open defects: two.** One is a model ceiling rather than a coding error — 3 rows where
+the 4B reads a soft degree bar as hard. The other is new on 2026-07-30 and is a real
+coding defect: `capture_usage` silently stopped writing the quota snapshot, which is the
+instrument the spend decisions are made on. Everything else found in the 2026-07-23 →
+07-28 sweep has shipped a fix (thirteen in total, counting the 2026-07-29 `.env.<suffix>`
 privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
 
-**Fixing a check does not un-discard the rows it already killed.** ~46 rows sit in
-`discarded` on evidence the current code would not act on — that is queue item 2, measured
-and waiting on an operator decision.
+**Fixing a check does not un-discard the rows it already killed — RESOLVED 2026-07-30.**
+The recovery ran: 73 paid calls recovered 52 scored rows, 4 of them matches. Queue item 2
+has the numbers and the two ways the estimate was low.
 
 ### Do next — the pick order
 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP: run item 2.** Item 6 is DONE (2026-07-30, `--score-limit 40`), so the cap
-> that gated it is settled and the recovery run has budget. **Item 3 is DONE**
-> (2026-07-29) and **item 2's code is DONE**, leaving only its run, which spends ~46
-> messages and is the operator's call.
+> **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
+> 1, 4, 5 on 07-28). **The next thing to take is the `capture_usage` defect** under
+> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix): the quota bar stopped
+> updating silently, and quota is the binding constraint, so the instrument matters more
+> than anything left in the catalogue below.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
 > surviving items keep their original numbers because other entries in this file cite
 > them by number.
 >
-> 2. **Recover the wrongly-discarded rows — `[XS]`, MEASURED 2026-07-28, SELECTOR BUILT
->    2026-07-29, the run itself still the OPERATOR'S CALL (it spends quota).** The dry run
->    is done and free, so this is a decision rather than a discovery. The recipe:
+> 2. **DONE 2026-07-30 — the recovery ran.** 764 rows in `id <= 1417` were re-screened;
+>    **691 re-discarded for free, 73 reached the paid scorer** (of which 23 arrived via
+>    #42's `demote_for_confirmation` path), and **52 came back scored**. Four are
+>    seniority+domain `match` and will alert on the next normal pass, `--no-notify` having
+>    held them back: **Optiver 723** (the *"is supportive of US immigration sponsorship"*
+>    row this item was named for), Optiver 738, Tower Research 964, WorldQuant 1074.
+>    **The paid cost was 73 calls, not the ~46 predicted** — the dry run measured only the
+>    213 hydrated degree/clearance/authorization discards, while the pass also requeues
+>    rows discarded in that id range for *other* reasons, which is the "measured floor,
+>    not a ceiling" caveat below coming true at ~1.6x. ~5% of the weekly window.
+>    **The side effect landed bigger than recorded, too:** `requeue_discarded` moved
+>    **4,644** hydrated discards to `new` (not the 3,092 measured on 07-28 — the pool had
+>    grown), so `new` went 5,287 -> 9,218 and the 3,880 rows outside the id window now sit
+>    there. The note below says "a later pass re-kills them"; **at `--score-limit 40`
+>    against ~205 rows/pass of fresh intake, no scheduled pass will ever reach them** —
+>    they are parked, not queued. 632 un-hydrated stubs were left alone by design.
+>    A pre-run backup is at `db/applications.db.backup-20260730-1119-pre-discard-recovery`.
+>    The recipe, for the record:
 >    ```
 >    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once --no-notify \
 >        --rescreen-discarded --score-max-id 1417
@@ -285,10 +305,16 @@ take first and why. Each numbered item is independently pickable.
 >    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
 > 6. **DONE 2026-07-30 — `--score-limit` is `40`** (`~/.config/systemd/user/ats-worker.service`
 >    and `deploy/ats-worker.service.example`; restarted 11:07 EDT, between slots).
->    Re-measured at the decision, over 8 passes rather than 3: **23% of the weekly window
->    in 1.4 days**, i.e. ~2.9% per pass, so 42 passes/week projects to **~121%** (not the
->    ~140% the 3-pass sample said — quote the 8-pass number). `40` projects to **~81%**,
->    which leaves ~19% for hand runs including item 2's ~2.3%. Intake over the last 24h
+>    Re-measured at the decision, over **7 passes**: 23% of the weekly window by 04:50 on
+>    07-30, i.e. **~3.3% per pass**, so 42 passes/week projects to **~138%** — close to
+>    the 3-pass sample's ~140%, which was right for the wrong reason.
+>    **The first arithmetic done here was WRONG and the lesson is about the instrument,
+>    not the sums:** `db/scorer_usage.json` carries no `as_of` field, so "23%" was read as
+>    current when it was 8 hours and one pass stale (`capture_usage` had silently stopped
+>    writing — defect below), which understated the burn as ~2.9%/pass and ~121%/week.
+>    **Check the file's mtime before quoting it.** `40` projects to **~92%**: under
+>    budget, but the ~8% left over is one recovery run, not a comfortable margin — item
+>    2's run then spent ~5%. Intake over the last 24h
 >    was **~205 rows/pass** (median ~85 — it is spiky), so the cap, not intake, binds:
 >    every pass saturated it. The cost is that `40` parks ~20 more rows/pass than `60`
 >    (~120/day), and the backlog grows either way. The **choice made is *keeping up*, not
@@ -322,6 +348,25 @@ migration path, deployment/monitoring, dead-link sweep, more adapters, README
 screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
+
+- **`capture_usage` silently stopped writing the quota snapshot, and the quota is the
+  binding constraint** — `[SCORE · XS · found 2026-07-30]`. `db/scorer_usage.json` was
+  last written **04:50 on 07-30** despite two later passes that both fit-scored (the
+  08:00 daemon pass, 49 paid calls, and the 12:00-ish recovery run, 73). Called by hand
+  against the very same resolved path it returns `True` and writes correctly (live
+  reading 32% where the file still said 23%), so the fetch is failing *inside the pass*
+  and nothing says so: `capture_usage` is best-effort by contract and swallows every
+  exception, `run_once` ignores the return value, and the file has **no `as_of` field**,
+  so a stale snapshot is indistinguishable from a fresh one at a glance — only the mtime
+  tells you, and the web renders the bar from that mtime while the CLI shows nothing.
+  **This is how the first `--score-limit` arithmetic came out ~17 points optimistic.**
+  Two things to fix, and they are separable: (1) find why the fetch fails under a pass
+  but not standalone — a concurrent `codex exec` touching `~/.codex/auth.json` is the
+  first suspect; (2) regardless of (1), make the failure
+  *visible* — log at WARNING when `capture_usage` returns False, and stamp `as_of` into
+  the snapshot so a stale reading is legible without an `ls -la`. (2) is the one that
+  matters more: the instrument being wrong is survivable, the instrument being
+  **silently** wrong is what cost the decision.
 
 - **The 4B misreads a soft degree bar as a hard one — 2-3 rows, and it is a MODEL CEILING,
   not a wording gap** — `[SCREEN · XS · residual of the 2026-07-28 degree fix]`.
