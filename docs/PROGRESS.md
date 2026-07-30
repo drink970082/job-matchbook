@@ -177,7 +177,7 @@ matching the pipeline walkthrough:
 | Tag | Covers | Open now |
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 5 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus the three the #24 pre-merge review opened: the blind-backend floor fix (decided, unbuilt), what the eval can actually reach, and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — no defects, but **quota is now the binding constraint**: `--score-limit 60` projects to ~140% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
@@ -368,8 +368,12 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
 - **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
-  healthy while doing it — FIX DECIDED 2026-07-29, not built** — `[SCREEN · S · found by
-  the PR #24 pre-merge review 2026-07-28, reproduced]`.
+  healthy while doing it — FIXED 2026-07-29** (`fix/blind-screen-backend`; SPEC §7.1 + §9
+  traceability, CHANGELOG) — `[SCREEN · found by the PR #24 pre-merge review 2026-07-28,
+  reproduced]`. Kept here for the reasoning trail. Shipped exactly as scoped below: a
+  non-dict or a missing `screen` object raises into the existing dead-provider path, so no
+  new policy and no quota. `sponsorship_labels: null` and `[]` stay on the floor — the
+  deliberate residual.
   A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
   `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
   (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is

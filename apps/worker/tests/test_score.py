@@ -240,6 +240,42 @@ def test_working_extract_sets_no_provider_error():
     assert "provider_error" not in out
 
 
+@pytest.mark.parametrize("blind", [
+    {"nonsense": 1},                    # valid JSON, no verdict anywhere
+    {"screen": "pass"},                 # `screen` present but not an object
+    {"screen": None},                   # the schema-legal way to say nothing
+    ["screen"],                         # not even a dict
+    "screen",
+])
+def test_a_blind_response_is_a_provider_error_not_a_verdict(blind):
+    # A backend that answers with no usable verdict looks HEALTHY: degree and clearance
+    # suppress themselves on absent data, so the sponsorship phrase floor is the only
+    # surviving check and it discards on a substring the model never condemned — while
+    # the breaker records a success, so the degraded mode never trips it and walks the
+    # whole backlog. Realistic trigger is a wrong `--model` tag or a non-instruct model.
+    jd = ("If you are eligible to work without sponsorship, we encourage you to apply. "
+          "We build low-latency trading systems.")
+    out = score.screen_posting({**POSTING, "description": jd},
+                               extract=lambda p, s: blind,
+                               candidate={"work_authorization": "requires H-1B sponsorship"})
+    assert out["provider_error"] is True
+    assert out["disqualified"] is False
+    assert "authorization" not in out["screen"]
+
+
+def test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor():
+    # The deliberate residual, and the line the narrow scope is drawn on: a well-formed
+    # but empty `screen` dict is a backend that ANSWERED. The floor still runs, so a JD
+    # that says so outright is caught with no model data. Widening the blind check to
+    # cover this would contradict the four tests that pin the floor.
+    jd = "We will not sponsor employment visas for this position."
+    out = score.screen_posting({**POSTING, "description": jd},
+                               extract=lambda p, s: {"screen": {}},
+                               candidate={"work_authorization": "requires H-1B sponsorship"})
+    assert "provider_error" not in out
+    assert out["disqualified"] is True
+
+
 def test_screen_backend_none_is_not_a_provider_error():
     # SCREEN_BACKEND=none has no provider to fail: the deterministic gates run alone
     # and the row is legitimately scored, exactly as documented. It must not be

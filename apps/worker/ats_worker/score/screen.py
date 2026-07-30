@@ -152,6 +152,21 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     if checklist and extract is not None:
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
+            # A BLIND response is a provider failure, not a verdict. `_post` only checks
+            # that a dict came back and the hosted backends validate no shape either, so
+            # a wrong `--model` tag or a non-instruct model returns valid JSON carrying
+            # nothing. Degree and clearance then self-suppress on absent data and the
+            # sponsorship phrase floor becomes the ONLY live check — a blunt substring
+            # scan discarding JDs the model never condemned, while the breaker records a
+            # success and the degraded backend walks the whole backlog. Raising routes it
+            # through the one path that already handles a dead provider correctly.
+            # Scope is deliberately NARROW — not a dict, or no `screen` object. An empty
+            # `screen` dict, `sponsorship_labels: null` and `[]` stay on the floor, so a
+            # JD that literally says "we do not sponsor work visas" is still caught with
+            # no model data (the four tests pinning the floor hand back a well-formed
+            # `screen` dict, and a broader check would contradict them).
+            if not isinstance(data, dict) or not isinstance(data.get("screen"), dict):
+                raise ScoreError(f"blind response, no 'screen' object: {data!r:.200}")
             screen = _screen_verdict(data, candidate or {}, description,
                                      str(posting.get("job_title") or ""), snippets)
         except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure

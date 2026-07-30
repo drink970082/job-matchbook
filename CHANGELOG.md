@@ -7,6 +7,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A live screen backend that answered BLINDLY looked healthy and quietly discarded real
+  jobs.** A backend returning valid JSON with no usable verdict — a non-dict, or a dict
+  with no `screen` object — was not flagged `provider_error`. Degree and clearance both
+  suppress themselves on absent data, so `NO_SPONSOR_PHRASES` became the **only** surviving
+  check: a blunt substring scan of the whole description, disqualifying on a JD the model
+  never condemned. Worse, `run_score` recorded a circuit-breaker **success** for each one,
+  so the degraded mode could never trip the breaker and would walk the entire backlog.
+  Realistic trigger is a wrong `--model` tag or a non-instruct model — `_post` only checks
+  that a dict came back, and none of the hosted backends validate shape either.
+  `screen_posting` now raises into the path that already handles a dead provider
+  correctly, so the fix needed **no new policy and costs no quota**: the floor is already
+  suppressed on `provider_error`, `run_score` already leaves such a row `new` instead of
+  fit-scoring it, and the breaker already aborts the phase after 5 with zero successes.
+  **Scoped narrowly on purpose.** `sponsorship_labels: null`, `[]`, a missing key and an
+  empty `screen` dict are *answers* and still reach the floor, so a JD that says *"we do
+  not sponsor work visas"* is still caught with no model data — the deliberate residual.
+  All four tests pinning the floor hand back a well-formed `screen` dict, so a broader
+  check would have contradicted them. SPEC §7.1 + §9 traceability.
+
 ### Changed
 
 - **A degree/clearance-only screen fail is now confirmed by the strong model instead of

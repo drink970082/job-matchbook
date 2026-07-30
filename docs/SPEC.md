@@ -717,12 +717,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   "Answered" is therefore `bool(labels) or isinstance(raw, list)` — a **type** test, not
   a was-a-question-asked test. With nothing retrieved there was no question, so `[]` is
   the correct empty answer and the floor is the whole verdict.
-  **What that leaves reachable, on purpose for now:** `null`, a missing key, and a
-  response with no `screen` object all still reach the floor and can disqualify, and a
-  live backend returning them is not flagged `provider_error`. The floor is an
-  independent deterministic signal by design (four tests pin it), so a JD that says *"we
-  do not sponsor work visas"* is caught with no model data. Whether a blind-but-live
-  backend should instead KEEP is an open fork in PROGRESS, not settled here.
+  **A BLIND response is a provider failure, not a verdict.** A live backend that returns
+  a non-dict, or a dict with no `screen` object, is flagged `provider_error` — the row is
+  left `new`, the floor is skipped, and the breaker counts a failure. Without that,
+  degree and clearance suppress themselves on absent data and the floor is the *only*
+  surviving check: a blunt substring scan disqualifying on a JD the model never
+  condemned, while `run_score` records a breaker **success**, so the degraded backend
+  never trips it and walks the whole backlog. It costs no quota — the row is not
+  fit-scored. Realistic trigger is a wrong `--model` tag or a non-instruct model: `_post`
+  only checks that a dict came back and no hosted backend validates shape either.
+  **The scope is narrow, and the residual is deliberate:** `sponsorship_labels: null`,
+  `[]`, a missing key and an empty `screen` dict are all *answers* and still reach the
+  floor, so a JD that says *"we do not sponsor work visas"* is caught with no model data.
+  The floor is an independent deterministic signal by design (four tests pin it, all
+  handing back a well-formed `screen` dict).
   **The floor is also skipped outright on a `provider_error`**, leaving `authorization`
   absent rather than recording a verdict. It is deterministic but blunt — a substring
   scan of the whole description — and on a working backend the model's labels overrule
@@ -1779,7 +1787,11 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   (location/intern, which cost nothing and ran fine) disqualified it, in which case that
   verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with the
   same signature as the fit one (`_BREAKER_LIMIT` provider errors, zero successes),
-  aborting it and cancelling the queued remainder. One success disarms it. `extract=None`
+  aborting it and cancelling the queued remainder. One success disarms it. **A backend
+  that fails by answering blindly counts the same as one that raises** — a non-dict, or a
+  dict with no `screen` object, is a provider error, because a degraded backend that
+  returns healthy-looking JSON would otherwise record breaker successes forever (§7.1).
+  `extract=None`
   (`SCREEN_BACKEND=none`) is **not** a provider error — there is no provider, the
   deterministic gates run alone, and those rows score normally as documented.
   (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
@@ -1919,6 +1931,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
+| A **blind** live backend (non-dict, or no `screen` object) is a `provider_error`, not a verdict — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`) |
 | The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
 | `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
 | `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
