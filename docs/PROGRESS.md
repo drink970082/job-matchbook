@@ -44,8 +44,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Cut paid fit calls with a FREE seniority extraction, not a model swap — investigated
-  2026-07-30, nothing implemented yet** `[SCORE · M · measured]`.
+- **Cut paid fit calls with a FREE seniority extraction, not a model swap — MEASURED AND
+  IT HOLDS, 2026-07-30; the build is the remaining work** `[SCORE · M · measured]`.
   **The finding is the verdict matrix.** Over the 396 rows scored in the 7 days to
   2026-07-30: `domain` came back **mismatch 298 (75%) / adjacent 72 (18%) / match 24
   (6%)**, and `seniority` came back **too_junior on 214 (54%)**; 175 (44%) are both.
@@ -66,9 +66,54 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   audit sample. **This framing is load-bearing:** the 396 labels are *Sol's verdicts, not
   human labels*, so the training/validation set inherits Sol's errors. Good enough for a
   prioritizer; **not** good enough for a terminal discard.
-  **Next step is free** (no quota, no DB writes): run the local screen over those 396
-  rows, extract the two fields, apply the code rule, and score precision/recall against
-  Sol's 214 `too_junior`. Only if that fails is a model swap back on the table.
+  **THE FREE STEP RAN 2026-07-30 AND IT PASSED — `qwen3.5:4b`, zero quota, zero DB
+  writes.** Over 446 rows (same corpus, ~50 larger by then; **251** `too_junior` / 195
+  `match`), the model emitting only `{stated_min_years, stated_rank}` and CODE applying
+  `>= 2 years OR rank in {senior,lead,staff,principal}` scored **P 0.921 / R 0.924**
+  (TP 232, FP 20, FN 19, TN 175), 0 provider errors, 11 blind responses all kept.
+  **252 of 446 rows (56.5%) demote, so ~52% of paid fit calls are deferrable.** Ordering
+  the whole 9,314-row backlog costs **4h05m of GPU and $0.00** (1.58 s/row, single worker
+  — the GPU serialises, so concurrency buys nothing).
+  **The number that decides it is not the P/R — it is WHICH rows the false positives are.**
+  Of the 20 wrongly demoted, Sol scored 15 `domain=mismatch` and 5 `adjacent`; **zero are
+  `domain=match` and zero were notified.** Every row Sol called `seniority=match` AND
+  `domain=match` — the whole §6 notify payoff set — survives undemoted. A false demotion
+  costs a delay on a posting the notify gate was going to drop anyway, which is the
+  weakest possible failure and exactly what the prioritizer framing above requires.
+  **The dominant error is §8.1 repeating verbatim, and the fix is a veto, not a prompt.**
+  13 of the 20 FPs are degree-conditional ladders (*"Master's and no experience; or
+  Bachelor's and 3 years"*) where the model reports one rung instead of the minimum across
+  rungs; 4 are numbers lifted from a **Preferred** block, 3 are caps read as minima.
+  Clamping the model's number down to the smallest years-figure the JD literally states —
+  a keep-direction veto, SCORING §9.2 lever 4, deterministic, can only ever lower a bar —
+  measures **FP 20 → 7, P .921 → .967, R .924 → .825**. The 7 survivors are the
+  preferred-vs-required and cap cases, i.e. the §9.1 4B ceiling; do not spend a prompt
+  rewrite on them.
+  **Determinism is real; it is NOT confidence.** At production settings (`temperature=0,
+  seed=0`) the extraction is bit-reproducible — 0 flips in 79 re-draws — so unlike the
+  paid backend (SCORING §8.6) one run *is* the trend. The corollary is the trap: the 20
+  FPs are **systematic and will never average out**. Under sampling perturbation
+  (`seed=7, temp=0.3`) flips concentrate on exactly the disagreement rows and 4 of 6
+  re-drawn FPs flip to Sol's answer, so these are low-confidence boundary cases. **Do not
+  quote the 0/79 as robustness.**
+  **Two rows where SOL drifted from its own rubric and the free layer was right:** ids
+  65540 and 58344, Amazon SDE2 postings Sol called `too_junior` reasoning from
+  "autonomous contributor" — SCORING §4.2 says verbatim that implied ownership or autonomy
+  is NOT seniority, and `SDE2` is not one of the four ranks. Corroborates the standing
+  warning that these are Sol's labels, not truth.
+  **Invention was not the failure mode.** `stated_rank` was fabricated **0 times in 62**;
+  `stated_min_years` 3 times in 272 (1.1%), only 1 of which created a bar, and Sol agreed
+  on all 12 invention-driven demotions. The model also correctly declined *"work closely
+  with more senior developers"* and *"seek guidance from senior engineers"* as rank bars.
+  Mis-selection from a stated ladder is the problem, not hallucination.
+  **Free money left on the table:** 6 of the 19 FNs are the model returning an empty
+  object on postings whose TITLE reads "Senior …" / "Sr …". A title-token floor would
+  collect them, but that is a *discard*-direction floor, so SCORING §9.3 applies and it
+  needs its own measurement.
+  **One shape decision left for the build.** Folding the clause into the existing screen
+  prompt makes it cost literally zero extra calls, but that prompt's degree/authorization/
+  clearance extractions are gated by `make eval-screen` — treat it as a separate change
+  with its own eval run, and do NOT assume these numbers survive the merge.
   **Measured this session** (`db/applications.db`, `db/scorer_usage.json`): backlog 9,218
   `new` (9,131 with `description` ≥ 200), oldest 2026-07-22; 7-day flow 5,326 new /
   451 discarded / 382 scored / 14 notified, **380 paid fit calls**; quota snapshot
@@ -250,7 +295,7 @@ matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects. 2026-07-30 closed two by measurement (the workday feed collapse is dead reqs; the workday prose-date age gate is a structural no-op) and opened one that matters more — 50 bodyless Microsoft postings, the largest `empty_description` source, surfaced by the #46 reason split |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect** (`capture_usage` stopped writing the quota snapshot, silently, 2026-07-30) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
@@ -603,8 +648,29 @@ answer is routing, not a regex.
   **Still open:** a free Ollama fallback for the 3.1% of rows the gazetteer cannot
   resolve, and the fit scorer as a second net.
 
-- **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
-  needs a COUNT, not a run]`. `parse_stub` now dates `"Posted N+ Days Ago"`
+- **Workday prose-date age-gating — COUNTED 2026-07-30: the reduction is ZERO and the
+  gate structurally cannot fire. Dead lever, do not re-open it** — `[FETCH · closed]`.
+  **Workday's prose ladder tops out at the terminal bucket `"Posted 30+ Days Ago"`** — a
+  400-day-old posting and a 30-day-old one emit the identical string. `_stub_age_days`
+  reads `30`, `parse_stub` sets `posted_at = now - 30`, and `_too_old`
+  (`fetch/__init__.py:83`) tests `(today - posted).days > max_age_days`, i.e. `30 > 30` →
+  False → kept. **30 is the largest age this parser can ever emit, so a strictly-greater
+  test against `max_age_days: 30` never fires.** `max_age_days: 29` would switch the whole
+  `30+` bucket on with no code change — but it tightens every other board too, which is a
+  far larger blast radius than the calls it buys here.
+  **And it buys almost nothing, because the two workday boards carry 4 postings total.**
+  Millennium (`mlp`) lists **zero** — not a broken slug (`200 {"total":0}`, while a bogus
+  site id under the same tenant returns `404 S21`); the site is live and publishing
+  nothing, so it is a zero-yield watchlist row and joins the msci/citadel deletion
+  decision below. Arrowstreet is a 4-posting campus board, 2 of which the title gate
+  already drops as `Intern, Summer 2027`.
+  **So the framing below was wrong and is corrected here:** the ~6,703 figure is the
+  **28-board** post-stub-gate total, and workday's share of it is 4 — about 0.06%. The
+  prose-date parser cannot move that number however it is tuned; the remaining detail-call
+  cost lives on the phenom two-step boards. Parse coverage was 100% (14/20/21/30+ days, no
+  "Today"/"Yesterday"/locale strings), so the gate is neutralised by the threshold, not by
+  parse misses.
+  Original entry follows. `parse_stub` dates `"Posted N+ Days Ago"`
   prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
   call (CHANGELOG, SPEC §7.1). Only the confident English `"N[+] Days Ago"` form is
   parsed — a lower bound on age — so "Today"/"Yesterday" and any other locale/wording
@@ -701,8 +767,9 @@ answer is routing, not a regex.
   pass, so no row is ever stored in that state, and a real status would mean new
   `constants.ts` values and UI buckets for something nobody can observe.
 
-- **The feed's workday route reports a detail-fetch collapse on every pass** —
-  `[FETCH · XS · observed 2026-07-29 · cause unknown]`. All three live passes logged
+- **The feed's workday route reports a detail-fetch collapse on every pass — DIAGNOSED
+  2026-07-30, it is DEAD REQS and the entry closes as harmless** —
+  `[FETCH · XS · closed]`. All three live passes logged
   `[feed] workday: detail-fetch collapse — 0/1 resolved (scraper may be broken)` and
   `0/2` (the 08:00 pass logged three such lines). The warning is `run_feed`'s deliberate
   signal that a detail source resolved ids but kept **none** — the case it exists to make
@@ -721,10 +788,25 @@ answer is routing, not a regex.
   as `empty_description` — the same string the watchlist path uses for the same condition,
   so one query over `feed_unresolved` covers both paths — and the collapse warning names
   the split (`N unparseable — scraper may be broken` vs `N dead req(s), none unparseable`).
-  **What that means for this entry: the diagnosis is now a free DB read, no hand-run.**
-  Query `feed_unresolved` for the workday host after the next pass; `empty_description`
-  means the scraper, `detail_fetch_failed` means dead reqs and this entry closes as
-  harmless. Rows recorded before the split carry the old conflated string.
+  **The free DB read ran 2026-07-30 and the answer is DEAD REQS.** `feed_unresolved` has
+  **zero** `empty_description` rows on the `simplify` feed path — all 213 of those are
+  `feed='watchlist'`, i.e. `run_fetch`'s board path, not `_detail_fetch`. The workday host
+  is 36 rows, every one `detail_fetch_failed` (27 post-split, 9 pre-split). If the CXS
+  parser were returning bodies it could not populate, `_detail_fetch` would file them as
+  `empty_description`; it never has. Corroborated three ways: 374 feed-sourced workday
+  postings landed since 07-29 against 36 failures; the *same tenants* (walmart, kla, caci,
+  vumc) succeed and fail in adjacent passes, where a parser break would fail a tenant
+  uniformly; and the failing URLs churn rather than recur (3 of 36 ever seen failing
+  twice), the signature of a delisted req.
+  **The prune-never-matches claim is CONFIRMED in code and data:** 2,598 workday rows,
+  **0** whose `external_id` starts with `/`, so the set difference subtracts nothing and
+  every feed-surfaced workday listing pays one CXS GET per pass forever — absorbed
+  silently by `ON CONFLICT DO NOTHING`. That is why the line repeats; it is not evidence
+  of a fault.
+  **The one residual, and it is a labelling limit not a defect:** `detail_fetch_failed`
+  still conflates a genuine 404 with a transient timeout or 429, because `_detail_fetch`
+  catches bare `Exception` without inspecting status. Neither is a scraper break, so the
+  verdict stands.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
@@ -780,6 +862,23 @@ answer is routing, not a regex.
   `config.yaml` never re-reads. There is no per-feed override. Left as-is: a second
   freshness knob for one feed is more config than the problem justifies, and the
   CHANGELOG carries the change. Revisit if a second feed wants a different window.
+- **`apply.careers.microsoft.com` returns 50 bodyless postings post-split — the largest
+  single `empty_description` source and NOT the known partial-drop story** — `[FETCH · S ·
+  surfaced 2026-07-30 by the #46 reason split · uninvestigated]`. The split that made the
+  feed's collapse diagnosable also made the *watchlist* path's failures countable for the
+  first time, and the counts do not match this file's description of them.
+  `feed_unresolved` post-split, all `feed='watchlist'`: **`apply.careers.microsoft.com`
+  50**, `globalcareers-msci.icims.com` 5, `citadelsecurities` 6, `citadel` 2.
+  (`careers.qualcomm.com`'s 81 are all pre-split.)
+  **Why 50 is the number to look at:** the entry below describes `phenom/microsoft` as a
+  *partial-drop* board losing "4-6 bodyless rows per pass" while serving full descriptions
+  for the rest — that is a documented no-op. 50 post-split rows is an order of magnitude
+  more than that reading predicts, so either the drop rate has changed or the entry below
+  under-counts it. Nobody has looked.
+  **The diagnosis is free** (read-only): count `empty_description` rows per host per pass
+  against that host's successful ingests in the same pass, exactly as the workday
+  collapse was settled. Microsoft is a *yielding* board, so unlike msci/citadel this is
+  not a deletion candidate — a real fix would be worth actual postings.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
