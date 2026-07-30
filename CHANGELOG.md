@@ -9,6 +9,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The blind-response check from #44 discarded a good verdict, and broke
+  `make eval-screen`.** The local qwen3.5:4b drops the `screen` wrapper on roughly **1 call
+  in 100** and returns the requirement keys at the top level — a complete, correct verdict
+  in a flat shape. `#44` read "no `screen` object" as no answer, so that response became a
+  `provider_error`: in production the row was deferred a pass, and in the eval it aborted
+  the whole run on the first occurrence (the gate stops on a provider error by design,
+  since a run against a dead backend proves nothing). Caught by re-running the gate, which
+  is the only thing that could have caught it — no unit test knew the shape existed.
+  `verdict_block` now accepts both shapes and supplies **both** the blind check and
+  `_screen_verdict`'s reader, so the two cannot drift apart about what "usable" means. A
+  response is blind only when it is not a dict, or carries neither a `screen` object nor any
+  requirement key; `{"nonsense": 1}`, `{"screen": "pass"}` and `{"screen": null}` all still
+  are. The flat and nested shapes are pinned byte-identical.
+
 - **A live screen backend that answered BLINDLY looked healthy and quietly discarded real
   jobs.** A backend returning valid JSON with no usable verdict — a non-dict, or a dict
   with no `screen` object — was not flagged `provider_error`. Degree and clearance both
@@ -44,9 +58,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
   The four excerpts were rebuilt locally around the refusal sentence, so the labels are now
   supportable. That repair is **data, not a commit** — `apps/worker/eval/` is gitignored.
-  `make eval-screen`'s recall figures need a free re-run as a result; the
-  false-disqualification gate is unaffected, since golden `refuses` rows are excluded from
-  `false_disq` by construction.
+  **The re-run confirms it paid off:** 3 of the 4 (456/534/538) now come back as hits on all
+  3 draws, where before no model or prompt could reach them; 529 still misses. Recall
+  **31/37 (84%)** against a comparable pre-repair 28/37 (76%). The false-disqualification
+  gate was unaffected, as predicted — golden `refuses` rows are excluded from `false_disq`
+  by construction.
 - **The feed's detail-fetch failure reason now names WHICH failure it was.**
   `_detail_fetch` filed a raise/`None` and a posting that came back but failed
   `_valid_posting` under the same `detail_fetch_failed` string, so neither the
