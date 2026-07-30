@@ -576,12 +576,19 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   through an existing descriptor. So `chmod` is not a valid proxy, and any failure mode
   that spares open fds would slip past the probe; the observed real symptom is
   `SQLITE_CANTOPEN` (an *open* failure), which would trip it.
-  **Two corrections, 2026-07-29.** (1) **FIXED** (`fix/health-probe-page-read`; SPEC §6 +
-  §7.2, CHANGELOG): `SELECT 1` is a constant expression SQLite answers without reading a
-  page, so the probe could pass with the file gone. It now reads `sqlite_master`, which
-  forces a page read and, under WAL, the `-wal`/`-shm` sidecars. The regression is
-  invisible to the two existing tests — they mock `$queryRaw` and never look at the SQL —
-  so a third test pins that the probe reads a table rather than a constant.
+  **DRILLED 2026-07-29, and the drill overturned the reasoning behind PR #47**
+  (`fix/health-probe-real-table`; the matrix is in SPEC §6). Three candidate probes x four
+  filesystem failures, against a throwaway copy: **`SELECT 1` and a `sqlite_master` read
+  are indistinguishable in every mode**, so #47 was inert — once the connection is open both
+  read through the same already-open fd, which is the same fact that made `chmod` a bad
+  proxy. Nothing detects a break that happens *after* connect, and that is accepted rather
+  than fixable. The mode that discriminates is a **missing DB file**, where SQLite silently
+  creates an empty database and both weaker probes report healthy forever against a tracker
+  with no data; the probe now names a real table (`SELECT 1 FROM job_postings LIMIT 1`), so
+  that becomes `no such table` → 503 → autoheal restarts.
+  **What is still unobserved is narrower than this entry used to claim:** not "detection",
+  but detection of a *real WSL2 stale mount specifically*. The lesson worth keeping is that
+  the probe's strength was argued for two rounds and only measurement settled it.
   (2) Detection **is** simulable, just not by `chmod`: rename the *directory*
   holding the DB, so a fresh `open()` fails while the existing fd survives — the shape of a
   stale mount. Throwaway copy, throwaway container, same rig as the recovery drill.

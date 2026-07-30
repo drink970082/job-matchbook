@@ -11,14 +11,29 @@ export const dynamic = 'force-dynamic' // never cache; every probe hits the DB
 
 export async function GET() {
     try {
-        // Reads sqlite_master, NOT `SELECT 1`. `SELECT 1` is a constant expression SQLite
-        // answers from the query planner without touching a page, so it returns 200 with
-        // the database file gone — the exact failure this probe exists to catch. Reading a
-        // table forces a real page read and, under WAL, the -wal/-shm sidecars too.
+        // Reads an APPLICATION table, and the table is the load-bearing part — measured,
+        // not reasoned (drill 2026-07-29, docs/SPEC.md §6):
+        //
+        //   failure mode               | SELECT 1 | sqlite_master | job_postings
+        //   rename dir  AFTER connect  |   200    |      200      |     200
+        //   delete file AFTER connect  |   200    |      200      |     200
+        //   rename dir  BEFORE connect |   503    |      503      |     503
+        //   delete file BEFORE connect |   200    |      200      |     503   <-- only this
+        //
+        // The last row is the one that matters: with the file absent SQLite silently
+        // CREATES an empty database, so both weaker probes report healthy forever against
+        // a tracker with no data in it. Naming a real table turns that into
+        // `no such table: job_postings` -> 503 -> autoheal restarts the container.
+        //
+        // `SELECT 1` vs `sqlite_master` makes NO difference in any mode: once the
+        // connection is open, reads go through the existing fd, so nothing on the
+        // filesystem can invalidate them. The AFTER-connect column is not fixable by a
+        // probe for the same reason, and is accepted (a restart re-opens).
+        //
         // A row rather than `count(*)`: the SQLite connector returns counts as BigInt,
         // which throws on JSON.stringify. Nothing serializes this result today, and this
         // way nothing can start to.
-        await prisma.$queryRaw`SELECT name FROM sqlite_master LIMIT 1`
+        await prisma.$queryRaw`SELECT 1 FROM job_postings LIMIT 1`
         return NextResponse.json({ status: 'ok' }, { status: 200 })
     } catch (err) {
         // Detail stays server-side only; the 503 body must not leak internals (paths,
