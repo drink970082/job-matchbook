@@ -9,6 +9,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The pass lock was keyed on the temp dir, so a daemon and a hand run could both score
+  the same rows and pay twice.** `run.pass_lock` resolved `tempfile.gettempdir()`, which
+  two processes on one host do not agree on: a systemd unit with `PrivateTmp=yes`, a cron
+  job with a sanitized env, and an interactive shell that exports `TMPDIR` each get a
+  different file, so each acquires its own lock and the paid fit scorer is charged twice
+  for one set of postings — the exact failure the lock exists to prevent. It is now keyed
+  on the `resolve()`d `--db` (`<db>.pass.lock`, beside the DB), which is the resource
+  being protected: that database plus the one scorer account. `resolve()` is
+  load-bearing — `apps/web/prisma/applications.db` is a symlink to `db/applications.db`,
+  and a relative `--db`, an absolute one and the symlink must not be three locks. This
+  also drops the false serialization in the other direction: two checkouts pointed at two
+  DBs no longer block each other. `deploy/ats-worker.service.example` loses its
+  `Environment=TMPDIR=/tmp` pin and its "do not set `PrivateTmp=yes`" warning, both of
+  which only existed to work around the old keying. Found in passing and fixed with it:
+  tests reaching `main()` without a `--db` resolved the operator's real database and left
+  a lock file in the live `db/` directory, so the autouse fixture now redirects `DB_PATH`
+  as well as the no-db fallback path.
 - **The blind-response check from #44 discarded a good verdict, and broke
   `make eval-screen`.** The local qwen3.5:4b drops the `screen` wrapper on roughly **1 call
   in 100** and returns the requirement keys at the top level — a complete, correct verdict
@@ -119,6 +136,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **The shipped `--score-limit` is `40`, down from `60`, because the weekly scorer quota
+  cannot pay for `60`.** Measured over 8 live passes: **23% of the window in 1.4 days**
+  (~2.9%/pass), so `60` projected to **~121%/week** and the quota would have died around
+  day 6 of 7. `40` projects to ~81%, leaving headroom for hand runs. Intake over the same
+  period was ~205 rows/pass (median ~85), so the cap binds and every pass saturates it:
+  `40` parks ~20 more rows/pass than `60` did, and the backlog grows either way. The
+  choice is *keeping up* with fresh intake rather than *catching up* on the backlog; the
+  budget funds only one. Earlier arithmetic quoting ~140%/week came from a 3-pass sample —
+  use the 8-pass number. Cadence is not a lever: fewer passes each ingest proportionally
+  more, so paid calls per week do not move.
 - **A degree/clearance-only screen fail is now confirmed by the strong model instead of
   deleting the posting.** The selection rule is **measured false-disqualification rate**,
   not "a model produced the verdict" — `authorization` is also a 4B labelling retrieved

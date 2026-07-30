@@ -84,12 +84,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   | 04:00 | 86 | 60 | 52 | 55 min |
   | 08:00 | 84 | 60 | 47 | 60 min |
 
-  **QUOTA IS THE BINDING CONSTRAINT AND `--score-limit 60` EXCEEDS IT** `[SCORE · XS ·
-  operator's call, not made]`. Three passes consumed **10% of the weekly Codex window**
-  (`db/scorer_usage.json`, window resets 2026-08-05). 42 passes/week projects to **~140%**
-  — the quota runs out around day 5 of 7. **~40 would land near ~90%**, but that only
-  covers fresh intake (~38 rows/pass reach `new`), so nothing would drain. Deciding this
-  is an operator action; it is one number in `ExecStart`.
+  **QUOTA IS THE BINDING CONSTRAINT — CAP SET TO `40` ON 2026-07-30** `[SCORE · XS ·
+  operator's call, MADE]`. Three passes consumed **10% of the weekly Codex window**
+  (`db/scorer_usage.json`, window resets 2026-08-05); re-measured at 8 passes it is
+  **23% in 1.4 days**, ~2.9%/pass, so `60` projected to **~121%/week** — quote the 8-pass
+  number, not the 3-pass ~140%. `40` projects to ~81% and leaves room for hand runs. It
+  covers fresh intake only, so nothing drains: the choice made is *keeping up*. Queue
+  item 6 carries the arithmetic.
   **Lowering the CADENCE does not help, and this is the counter-intuitive part.** Half
   the passes ingest twice as much each, so paid calls/week are unchanged — quota is a
   function of newly discovered postings, not of pass count (already stated below, now
@@ -130,15 +131,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (a non-blocking `flock`, stale-safe by construction) now refuses the second one
   outright. The claim/lease shapes stay rejected (see
   [Architecture / maintainability](#architecture--maintainability)).
-  **Two residuals, and the second one is the direction that costs money** (`[ORCH · XS]`).
-  (a) The lock is one fixed path per `TMPDIR`, so two checkouts pointed at two different
-  DBs would block each other — harmless, and `TMPDIR` is the escape hatch.
-  (b) **The same keying breaks the guard in the expensive direction.** A daemon started
-  from cron (sanitized env, no `TMPDIR`) or from a systemd unit with `PrivateTmp=yes`
-  resolves a different temp dir than an interactive shell that exports one, so both
-  acquire and both score the same DB. Keying the lock filename on the resolved `--db`
-  path would make the guard match the resource it actually protects — the DB plus the one
-  Codex account. Note the queued systemd unit is exactly how (b) gets reached.
+  **Residuals (a) and (b) — BOTH FIXED 2026-07-30** by keying the lock on the resolved
+  `--db` (`<db>.pass.lock`, beside the DB; SPEC §7.1/§9 + CHANGELOG). (a) two checkouts on
+  two DBs no longer block each other; (b) the expensive direction — a daemon whose temp
+  dir differs from an operator's shell (cron's sanitized env, `PrivateTmp=yes`, an
+  exported `TMPDIR`) acquired a *second* lock and double-spent paid quota on the same
+  rows — is closed by construction, since both sides now name the DB. The unit's
+  `Environment=TMPDIR=/tmp` pin and its "do not set PrivateTmp" warning are gone with it.
+  `resolve()` is the load-bearing detail (`apps/web/prisma/applications.db` is a symlink
+  to `db/applications.db`). Caught in passing: the suite reached `main()` on the DEFAULT
+  `--db` and left a lock file in the live `db/`; the autouse fixture now redirects
+  `DB_PATH` too.
   **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
   (PR #29; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
   accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
@@ -205,12 +208,10 @@ and waiting on an operator decision.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **NEXT STEP, and it is now the ONLY one left here: set `--score-limit` to something the
-> weekly quota can pay for.** That is item 6, it is one number in the systemd unit, and
-> the daemon is spending against a budget right now — at `60` the quota runs out around
-> day 5 of 7. **Item 3 is DONE** (2026-07-29) and **item 2's code is DONE**, leaving only
-> its run, which spends ~46 messages and is the operator's call — so item 6 no longer
-> blocks a build, it gates two *runs*, and both should wait for the cap to be settled.
+> **NEXT STEP: run item 2.** Item 6 is DONE (2026-07-30, `--score-limit 40`), so the cap
+> that gated it is settled and the recovery run has budget. **Item 3 is DONE**
+> (2026-07-29) and **item 2's code is DONE**, leaving only its run, which spends ~46
+> messages and is the operator's call.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -282,12 +283,21 @@ take first and why. Each numbered item is independently pickable.
 >    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
 >    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
 >    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
-> 6. **Set `--score-limit` to fit the weekly quota — `[SCORE · XS]`, OPERATOR'S CALL, and
->    it blocks 2 and 3.** Measured over the first three live passes: 10% of the weekly
->    Codex window for three passes, so 42 passes/week projects to **~140%** and the quota
->    dies around day 5. **~40 lands near ~90%** but only covers fresh intake (~38 rows/pass
->    reach `new`), so nothing drains — the honest choice is between *keeping up* and
->    *catching up*, and the budget does not fund both. It is one number in
+> 6. **DONE 2026-07-30 — `--score-limit` is `40`** (`~/.config/systemd/user/ats-worker.service`
+>    and `deploy/ats-worker.service.example`; restarted 11:07 EDT, between slots).
+>    Re-measured at the decision, over 8 passes rather than 3: **23% of the weekly window
+>    in 1.4 days**, i.e. ~2.9% per pass, so 42 passes/week projects to **~121%** (not the
+>    ~140% the 3-pass sample said — quote the 8-pass number). `40` projects to **~81%**,
+>    which leaves ~19% for hand runs including item 2's ~2.3%. Intake over the last 24h
+>    was **~205 rows/pass** (median ~85 — it is spiky), so the cap, not intake, binds:
+>    every pass saturated it. The cost is that `40` parks ~20 more rows/pass than `60`
+>    (~120/day), and the backlog grows either way. The **choice made is *keeping up*, not
+>    *catching up***; draining is a deliberate operator run.
+>    **Found while checking the restart window:** the daemon had been running pre-#48 code
+>    since 21:12 on 07-29, so every `blind response, no 'screen' object` line was a
+>    posting kept unscreened and handed to the *paid* scorer. The restart picked the fix
+>    up — after any screen-path merge, restart between slots or keep paying for it.
+>    It was one number in
 >    `ExecStart` (`~/.config/systemd/user/ats-worker.service`), then
 >    `systemctl --user daemon-reload && systemctl --user restart ats-worker` **between
 >    slots** — a restart mid-pass kills an in-flight `codex exec` and spends the quota for

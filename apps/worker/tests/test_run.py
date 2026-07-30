@@ -990,7 +990,7 @@ def test_an_unopenable_lock_is_not_reported_as_contention(tmp_path):
             pytest.fail("opened a lock under a directory that does not exist")
     assert not isinstance(exc.value, run.PassInProgress)
     assert str(lock) in str(exc.value)              # names the path to fix
-    assert "TMPDIR" in str(exc.value)
+    assert "--db" in str(exc.value)
 
 
 def test_an_unwritable_lock_still_guards_the_pass(tmp_path, capsys):
@@ -1032,7 +1032,7 @@ def test_an_unreadable_lock_fails_loud_instead_of_degrading(tmp_path, monkeypatc
             pytest.fail("held a lock that could not be opened in either mode")
     assert not isinstance(exc.value, run.PassInProgress)
     assert str(lock) in str(exc.value)
-    assert "TMPDIR" in str(exc.value)
+    assert "--db" in str(exc.value)
 
 
 def test_a_contender_never_names_a_dead_pid_as_the_holder(tmp_path):
@@ -1078,13 +1078,35 @@ def test_a_filesystem_without_flock_is_not_reported_as_contention(monkeypatch, t
     assert "not contention" in str(exc.value)
 
 
-def test_the_default_lock_path_is_not_under_the_shared_db_dir():
-    # db/ is bind-mounted into the web container; the lock is a property of this host's
-    # processes, not of the data. The autouse fixture redirects _LOCK_PATH for the rest
-    # of the suite, so without this nothing would notice it moving.
-    from tests.conftest import SHIPPED_LOCK_PATH
-    assert SHIPPED_LOCK_PATH == run.Path(run.tempfile.gettempdir()) / "ats-worker-pass.lock"
-    assert "db" not in SHIPPED_LOCK_PATH.parts
+def test_the_lock_is_keyed_on_the_db_not_on_the_temp_dir(tmp_path, monkeypatch):
+    # THE MONEY CASE. A systemd unit with PrivateTmp=yes, or a cron job with a sanitized
+    # env, resolves a different temp dir than an interactive shell that exports TMPDIR.
+    # Keyed on the temp dir, both passes acquired and both fit-scored the same rows on
+    # the paid backend. Keyed on the db, the second one is refused however TMPDIR moves.
+    db = tmp_path / "applications.db"
+    db.touch()
+    with run.pass_lock(db_path=db):
+        monkeypatch.setattr(run, "_LOCK_PATH", tmp_path / "some-other-tmp" / "pass.lock")
+        with pytest.raises(run.PassInProgress):
+            with run.pass_lock(db_path=str(db)):   # str vs Path, and a moved TMPDIR
+                pytest.fail("two passes acquired the same db — quota spent twice")
+
+    # ...and a relative path naming the same file is still the same lock.
+    monkeypatch.chdir(tmp_path)
+    with run.pass_lock(db_path=db):
+        with pytest.raises(run.PassInProgress):
+            with run.pass_lock(db_path="applications.db"):
+                pytest.fail("a relative --db dodged the guard")
+
+    # Two checkouts pointed at two DBs are genuinely independent and must NOT block.
+    other = tmp_path / "other" / "applications.db"
+    other.parent.mkdir()
+    other.touch()
+    with run.pass_lock(db_path=db):
+        with run.pass_lock(db_path=other):
+            pass
+
+    assert run._lock_path_for(db) == tmp_path / "applications.db.pass.lock"
 
 
 def test_the_lock_is_released_when_the_pass_raises(tmp_path):
@@ -1106,9 +1128,12 @@ def test_main_once_refuses_to_start_inside_another_pass(monkeypatch, tmp_path):
                         lambda path: real_load_config("companies: []\n"))
     monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
-    with run.pass_lock():                          # conftest points _LOCK_PATH at tmp
+    # Hold the lock for the SAME db main() will resolve — that is what the lock is keyed
+    # on, so a test naming a different db would contend with nothing and pass vacuously.
+    db = str(tmp_path / "applications.db")
+    with run.pass_lock(db_path=db):
         with pytest.raises(SystemExit) as exc:
-            run.main(["--once", "--env", str(tmp_path / "none.env")])
+            run.main(["--once", "--db", db, "--env", str(tmp_path / "none.env")])
     assert "already running" in str(exc.value)
     assert calls == []
 
@@ -1135,8 +1160,9 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
                         lambda path: real_load_config("companies: []\n"))
     monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
-    with run.pass_lock():
-        run.main(["--env", str(tmp_path / "none.env")])
+    db = str(tmp_path / "applications.db")
+    with run.pass_lock(db_path=db):
+        run.main(["--db", db, "--env", str(tmp_path / "none.env")])
 
     assert calls == []                                   # the pass did not run
     # WARNING on the logging stream, not stdout: "a pass did not run" is the same signal
@@ -1157,9 +1183,10 @@ def test_main_once_takes_the_lock_and_gives_it_back(monkeypatch, tmp_path):
                         lambda path: real_load_config("companies: []\n"))
     monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
-    run.main(["--once", "--env", str(tmp_path / "none.env")])
+    db = str(tmp_path / "applications.db")
+    run.main(["--once", "--db", db, "--env", str(tmp_path / "none.env")])
     assert len(calls) == 1
-    with run.pass_lock():                          # free again
+    with run.pass_lock(db_path=db):                # free again
         pass
 
 
@@ -1282,8 +1309,9 @@ def test_a_contended_run_now_logs_and_still_starts_the_scheduler(monkeypatch, tm
     # an operator's `--once` is running — and wall-clock slots make that collision MORE
     # likely, since hand runs cluster on the hour. Only a foreground `--once` exits.
     started, passes, order = _daemon_harness(monkeypatch)
-    with run.pass_lock():
-        run.main(["--run-now", "--env", str(tmp_path / "none.env")])
+    db = str(tmp_path / "applications.db")
+    with run.pass_lock(db_path=db):
+        run.main(["--run-now", "--db", db, "--env", str(tmp_path / "none.env")])
     assert passes == []                 # the startup pass was refused...
     assert started == [4]               # ...and the daemon came up anyway
     assert "skipping this pass" in caplog.text
