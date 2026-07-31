@@ -428,38 +428,56 @@
   | ByteDance | 155 | 75 | 48% |
   | Amazon | 987 | 357 | 36% |
   | Google | 759 | 13 | **2%** |
-  | Susquehanna | 151 | 0 | **0%** |
+  | Qualcomm | 150 | 0 | **0%** |
+  | AMD | 103 | 0 | **0%** |
 
-  Google and Susquehanna are the control: a board CAN be nearly all-relevant, so a 57-71%
-  waste rate is a property of that board's geography mix, not of the gate. The cheapest
+  Google, Qualcomm and AMD are the control: a board CAN be nearly all-relevant, so a
+  57-71% waste rate is a property of that board's geography mix, not of the gate.
+  **Susquehanna looks like a 0% control and is NOT one — read this before using the
+  table.** All 151 of its queued rows carry a **NULL location**, and
+  `resolve_location(None, ...)` errs toward keep, so the gate cannot evaluate that board
+  at all. Its 0% means "unjudgeable", not "all relevant" — and the consequence runs the
+  other way: those rows sail past the free gate and go on to pay full model cost, which
+  makes SIG one of the more expensive boards per row rather than an exemplary one. Every
+  other board in the table has ~0% nulls. Check the null-location share before reading any
+  0% as a good sign. The cheapest
   intake cut is a per-board location constraint or dropping the worst offenders — but
   note this is *fetch* cost only, since the gate is free and (as of 2026-07-31) no longer
   spends a budget slot either.
-  **2. Nineteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
+  **2. Eighteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
   `ashby/uniswap`, `browser/citadel.com`, `greenhouse/aurosglobal`, `b2c2`, `crabel`,
-  `davinciderivatives`, `exoduspoint`, `genevatrading`, `headlandstechnologiesllc`,
-  `mwinternshipprogram`, `radixexperienced`, `simplextrading`,
-  `walleyecapital-external-students`, `weissassetmanagement`, `lever/tgsmc`,
-  `lever/voleon`, `workday/mlp`, `workday/wellington/Campus`. Zero is not proof of a
+  `davinciderivatives`, `exoduspoint`, `genevatrading`, `mwinternshipprogram`,
+  `radixexperienced`, `simplextrading`, `walleyecapital-external-students`,
+  `weissassetmanagement`, `lever/tgsmc`, `lever/voleon`,
+  `workday/mlp/wd5/mlpcareers`, `workday/wellington/wd5/Campus`.
+  **It read as nineteen first, and the extra one is a lesson about the query, not the
+  board:** matching postings to watchlist rows by `company_name` wrongly included
+  `greenhouse/headlandstechnologiesllc`, whose watchlist name is *"Headlands
+  Technologies"* while its one ingested posting says *"Headlands Tech Holdings"*. Match
+  on `(source, slug)` — the watchlist's actual key — not on the display name. Zero is not proof of a
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
   decision below: it is nineteen, not three.
   **3. The current filters would refuse 775 of the queued rows that survive the free
-  gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both. At the measured ~0.8
+  gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
+  title-only). At the measured ~0.8
   paid messages/row that is ~620 messages, over 30% of a weekly window, spent on postings
   the operator's own config refuses today. A pre-screen re-apply of `prefilter_postings`
   collects all 775 for free.
-  **A first pass at this measurement said "438, of which only 3 on age", and it was an
-  artifact — the lesson is worth more than the number.** `_too_old(posted_at, now,
+  **A first pass at this measurement said "438, and essentially none on age", and it was
+  an artifact — the lesson is worth more than the number.** `_too_old(posted_at, now,
   max_age_days)` parses `now` with `date.fromisoformat(str(now)[:10])` and returns
   **False on ValueError** ("unparseable -> keep"), so calling `prefilter_postings`
   without an explicit `now` — its own default — silently disables the age rule entirely
   and reports only title refusals. The err-toward-keep default is right for production
   and quietly wrong for measurement. Any offline use of this helper must pass `now`.
-  **Yield, for scale:** 18 rows notified in the system's entire history, of which exactly
-  one came from a watchlist board that is not also on the feed. Per-board *notify* yield
-  is not measurable yet — 9,400 rows have never been scored — so any board-drop decision
-  rests on intake cost and waste share, not on realized yield.
+  **Yield, for scale:** 18 rows notified in the system's entire history, **5** of them on
+  a watchlist `(source, slug)` — Optiver x2, Tower Research, WorldQuant and Goldman Sachs.
+  Whether any of those came via the *watchlist* rather than the *feed* is **not
+  recoverable from the DB**: nothing records the ingestion path, and both paths write the
+  same `(source, external_id)`. Do not let a board-drop decision rest on it. Per-board
+  *notify* yield is not measurable yet either — 9,381 rows have never been scored — so
+  the decision rests on intake cost and waste share.
 
 - **Boards deliberately held off the watchlist** — `[FETCH · XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
