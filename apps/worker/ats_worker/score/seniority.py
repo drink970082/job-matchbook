@@ -29,9 +29,11 @@ from .prompts import _job_block
 RANKS = ("senior", "lead", "staff", "principal")
 
 # Years above the candidate's own experience at which a stated bar reads as a real one.
-# 2 is what the 2026-07-31 run measured (P .964 / R .757 with both vetoes below, over 446
-# rows), for a candidate at 0 years. It is also the layer's dominant residual error: 5 of
-# the 7 false demotions are rows whose JD states exactly 2.
+# 2 was fitted for a candidate at 0 years. Latest measurement over the same 446 rows
+# (2026-07-31, after the cap/evidence/magnitude rules below): P .975 / R .793 / demote
+# share .457, superseding the P .964 / R .757 / .442 this comment used to quote. It is
+# still the layer's dominant residual error: 4 of the 5 false demotions are rows whose JD
+# states exactly 2.
 YEARS_MARGIN = 2
 # Experience at which a JD naming one of the four ranks stops being a bar for this
 # candidate. ponytail: a constant, not a config key — it only matters for a candidate
@@ -56,10 +58,26 @@ _YEARS_RE = re.compile(
 # experience"* read as a 2-year FLOOR and demoted a T-Mobile `Assoc Engineer` posting
 # written for exactly this candidate. Nor is an AGE a bar: *"At least 18 years of age"*
 # was being collected as eighteen years of experience.
-_CAP_BEFORE = re.compile(
-    r"(?:less\s+than|fewer\s+than|no\s+more\s+than|not\s+more\s+than|at\s+most|"
-    r"up\s+to|under|below|maximum\s+of|max\s+of)\s*$", re.I)
+_CAP_PHRASES = ("less than", "fewer than", "no more than", "not more than", "at most",
+                "up to", "under", "below", "maximum of", "max of")
+# "no less than 5 years" is a MINIMUM that happens to contain the word "less" — negating a
+# cap phrase inverts it, and swallowing those would erase real bars.
+_NEGATED_CAP = re.compile(r"\b(?:no|not)\s+$", re.I)
 _AGE_AFTER = re.compile(r"^\s*(?:of\s+age|old)\b", re.I)
+
+
+def _capped(prefix: str) -> bool:
+    """Does `prefix` — the text immediately before a years figure — cap it?
+
+    The leading `\\b` is load-bearing: without it *"Co-founder 5 years"* ends in "under"
+    and the figure vanishes. Any word ending in a cap phrase would silently delete the
+    bar that follows it.
+    """
+    for phrase in _CAP_PHRASES:
+        match = re.search(r"\b" + re.escape(phrase) + r"\s*$", prefix, re.I)
+        if match and not _NEGATED_CAP.search(prefix[:match.start()]):
+            return True
+    return False
 
 
 def build_prompt(posting: dict, max_desc_chars: int) -> str:
@@ -115,10 +133,17 @@ def stated_years(text: str) -> set[int]:
 
     Figures under a cap ("less than 2 years", "up to 5 years") and ages ("18 years of
     age") are excluded: neither is a floor, and reading them as one is what demoted a
-    posting that said outright it wanted someone with under two years."""
+    posting that said outright it wanted someone with under two years.
+
+    NOTE the direction is not purely keep. Dropping a capped figure REMOVES it from the
+    set `clamp_years` takes its minimum over, so a JD carrying both a low cap and a real
+    bar ("internships up to 1 year considered ... 5 years required") now clamps to 5
+    instead of 1 and demotes where it did not before. That is the correct reading — an
+    internship aside should never have cancelled the role's own requirement — but it means
+    this rule can create a demotion as well as remove one, and it is gated accordingly."""
     out: set[int] = set()
     for match in _YEARS_RE.finditer(text):
-        if (_CAP_BEFORE.search(text[max(0, match.start() - 24):match.start()])
+        if (_capped(text[max(0, match.start() - 32):match.start()])
                 or _AGE_AFTER.match(text[match.end():match.end() + 12])):
             continue
         for group in match.groups():
@@ -209,6 +234,10 @@ def assess(posting: dict, extract, *, years_experience: int = 0,
     years, rank = normalize(entry)
     job_text = f"{posting.get('job_title', '')}\n{posting.get('description', '')}"
     clamped = clamp_years(years, job_text)
+    # `clamped_min_years` is diagnostic, NOT the value the decision used — the rank-cancel
+    # branch reads the raw figure (see `verdict`). It is also None for two different
+    # reasons now: the model gave no figure, or the JD evidences none. Read it beside
+    # `stated_min_years` and `stated_rank`, never alone.
     detail = {"stated_min_years": years, "stated_rank": rank, "clamped_min_years": clamped}
     if entry is None:
         detail["blind"] = True

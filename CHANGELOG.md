@@ -49,7 +49,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   *"Less than 2 years Technical engineering experience"* read as a 2-year **minimum** and
   demoted a T-Mobile `Assoc Engineer` posting written for exactly this candidate — the
   rubric had said in prose since §4.2 that a cap is entry-level and NOT a bar. The same JD
-  contributed *"At least 18 years of age"* as eighteen years of experience.
+  contributed *"At least 18 years of age"* as eighteen years of experience — which on its
+  own changed nothing, since `clamp_years` minimises and `min(2, 18) = 2`; the age rule
+  only becomes load-bearing once the cap rule removes the 2.
+  **Two traps in this one, both handled:** a *negated* cap phrase is a minimum — "no less
+  than 5 years" contains the word "less" and keeps its figure — and the rule is **not**
+  purely keep-direction. `clamp_years` minimises over the stated set, so removing a low
+  capped figure RAISES the clamped bar: *"internships up to 1 year considered ... 5 years
+  required"* now clamps to 5 rather than 1 and demotes where it did not. That is the right
+  reading of the JD and it is still a demotion the rule created, so it carries §9.3's
+  demote-direction bar.
   (2) *An unevidenced years bar is dropped.* `clamp_years` passed the model's number
   through untouched when the JD stated no figure at all, so an invented bar survived —
   while the rank path had refused exactly that since the vetoes landed. This is the years
@@ -59,7 +68,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   clamp was the same as testing before it: a clamped-down bar silently cancelled a rank
   the JD does state. A Microsoft *"Senior Fabric Design Verification Engineer"* stating
   5+ years was clamped to 1 by a stray *"1 year of experience with ..."* in the preferred
-  qualifications and kept as if open to a new grad. **34 of the 61 misses.**
+  qualifications and kept as if open to a new grad. **34 of the 61 misses share this
+  mechanism; the shipped fix recovers the 9 of them where the model also reported a rank
+  the JD states** — for the other 25 the model returned no rank, so the rank branch has
+  nothing to fire on and the row is still kept.
   Behavior is SPEC §7.1, the contract and the full measurement SCORING §5.7. A 32-row
   held-out slice (every row scored since the golden corpus was frozen) behaves identically
   to the old code — 0 false demotions either way — which is a false-demotion check, not a

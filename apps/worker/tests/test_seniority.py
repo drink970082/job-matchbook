@@ -82,6 +82,63 @@ def test_a_capped_or_age_figure_is_not_a_bar():
                              job_text="Less than 2 years technical experience") == "match"
 
 
+@pytest.mark.parametrize("text", [
+    "less than 2 years", "fewer than 2 years", "no more than 2 years",
+    "not more than 2 years", "at most 2 years", "up to 2 years", "under 2 years",
+    "below 2 years", "maximum of 2 years", "max of 2 years",
+    "up to two years",                       # word-number form
+    "must be 21 years old", "at least 18 years of age",   # both age forms
+])
+def test_every_cap_and_age_phrase_drops_the_figure(text):
+    # One case per alternation: an implementation matching only the three phrases the
+    # first test happened to use would pass that test and still ship the other nine.
+    assert seniority.stated_years(text) == set()
+
+
+def test_a_negated_cap_phrase_is_a_minimum_not_a_cap():
+    # "no less than 5 years" contains the word "less" and is a FLOOR. Matching the cap
+    # phrase without checking for the negation in front of it would erase real bars —
+    # silently, and in the direction that costs recall.
+    assert seniority.stated_years("no less than 5 years of experience") == {5}
+    assert seniority.stated_years("not less than 3 years") == {3}
+    assert seniority.stated_years("no fewer than 4 years") == {4}
+    # and on the degree-conditional ladder the clamp exists for
+    ladder = "Master's and no less than 1 year, or Bachelor's and 5 years of experience."
+    assert seniority.stated_years(ladder) == {1, 5}
+    assert seniority.clamp_years(5, ladder) == 1
+    assert seniority.verdict({"stated_min_years": 5}, job_text=ladder) == "match"
+
+
+def test_a_cap_phrase_must_be_a_whole_word():
+    # Without a leading \b, "Co-founder 5 years" ends in "under" and the bar vanishes —
+    # any word ending in a cap phrase would silently delete the figure after it.
+    assert seniority.stated_years("Co-founder 5 years of experience required") == {5}
+    assert seniority.stated_years("a thunder 3 years") == {3}
+    assert seniority.stated_years("under 2 years") == set()   # the real phrase still caps
+
+
+def test_an_unevidenced_years_bar_does_not_demote():
+    # Rule (2) end-to-end, not just at clamp_years: the model invents a bar the JD never
+    # states, and the row is kept. This is the years path's half of rank_stated_in.
+    jd = "We are hiring an engineer to work on distributed systems."
+    assert seniority.verdict({"stated_min_years": 5}, job_text=jd) == "match"
+    # ...but a rank the posting DOES name still decides it
+    assert seniority.verdict({"stated_min_years": 5, "stated_rank": "staff"},
+                             job_text="Staff Engineer\n" + jd) == "too_junior"
+
+
+def test_dropping_a_capped_figure_can_RAISE_the_clamped_bar():
+    # The cap rule is NOT purely keep-direction, and this is the case that proves it.
+    # `clamp_years` takes the minimum over the stated figures, so removing a low capped
+    # figure raises that minimum: an internship aside no longer cancels the role's own
+    # requirement. Correct, but it means the rule can create a demotion, not only remove
+    # one — which is why it carries the demote-direction evidence bar.
+    jd = "Internships up to 1 year considered. 5 years of experience required."
+    assert seniority.stated_years(jd) == {5}          # the capped 1 is gone
+    assert seniority.clamp_years(5, jd) == 5          # so nothing clamps it down
+    assert seniority.verdict({"stated_min_years": 5}, job_text=jd) == "too_junior"
+
+
 def test_a_clamped_bar_does_not_cancel_a_rank_the_posting_states():
     # The compounding bug: the model reads a real 5-year bar on a "Senior ..." posting, a
     # stray "1 year of experience with X" in the preferred qualifications clamps it to 1,
@@ -97,6 +154,29 @@ def test_a_clamped_bar_does_not_cancel_a_rank_the_posting_states():
     open_jd = "Senior Engineer\nWe welcome candidates with 0-2 years of experience."
     assert seniority.verdict({"stated_min_years": 0, "stated_rank": "senior"},
                              job_text=open_jd) == "match"
+
+
+def test_the_cost_of_rule_3_a_ladder_rung_no_longer_cancels_a_rank():
+    # THE TRADE-OFF, pinned deliberately rather than left to be discovered. Rule (3) is
+    # not pure restoration: on a rank-titled posting whose ladder carries a rung this
+    # candidate clears, the clamp used to cancel the rank and now does not.
+    #
+    #   "Senior Engineer. Master's and 1 year, or Bachelor's and 4 years."
+    #
+    # The rung is real evidence the role will take a new grad with a Master's, and the
+    # rank is real evidence it wants a senior. The code cannot tell that rung apart from
+    # a "nice to have: 1 year of Rust", so this resolves toward DEMOTE for every
+    # rank-titled row — reversible, and measured net-positive in-sample (P .964 -> .975,
+    # R .757 -> .793). If a future run wants the other resolution, this is the test to
+    # flip, and SCORING §5.7 carries the numbers.
+    ladder_jd = "Senior Engineer. Master's and 1 year of experience, or Bachelor's and 4 years."
+    assert seniority.clamp_years(4, ladder_jd) == 1        # the clamp still sees the rung
+    assert seniority.verdict({"stated_min_years": 4, "stated_rank": "senior"},
+                             job_text=ladder_jd) == "too_junior"
+    # with no rank in play the rung still keeps the row — rule (3) only reaches the
+    # rank branch, it does not raise the years bar itself
+    assert seniority.verdict({"stated_min_years": 4},
+                             job_text=ladder_jd.replace("Senior Engineer. ", "")) == "match"
 
 
 @pytest.mark.parametrize("text,expected", [
