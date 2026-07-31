@@ -480,8 +480,15 @@
   &start=1060` (also seen at `start=990`, `start=1220`). A **403 deep into pagination**,
   at a varying offset, reads as a block rather than a rate limit, and the bounded-retry
   path only handles 429. So qualcomm is lost on every pass and the salvage never runs.
-  Whether the right answer is treating 403-mid-pagination as retryable, or dropping the
-  board, needs one look at what the endpoint actually returns — not yet done.
+  **FIXED 2026-07-31** (`fix/phenom-403`; SPEC §7.1/§9 + CHANGELOG). The look happened:
+  the failing offsets return **200** when probed cold from a fresh session, so the 403 is
+  not about the offset or a missing page — it is a WAF tripping on the pass's cumulative
+  request volume, i.e. a throttle with a different status code. It now takes the same
+  bounded-retry-then-salvage path as a 429; a 403 on the FIRST page still raises, since
+  there is nothing to salvage and a board refusing from the start is a block. What is NOT
+  measured is whether the retry actually succeeds against a live WAF trip — reproducing
+  one needs ~1,000 requests at a third party, which was not run. The next live pass is
+  the measurement.
 - **Recipe validation happens a full pass late** — `[FETCH · S]`. `config.py` checks only
   that a `custom`/`browser` row *carries* a recipe mapping, and `get_watchlist` skips
   one whose JSON is malformed. Everything else — a bad `mode`, an `item_path` that
