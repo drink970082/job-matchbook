@@ -284,6 +284,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   good posting one time in three is not a passing check"), so a ~1-in-3 per-draw fault is
   caught by K=3 only ~70% of the time: **run 1's zero was a 30% miss, not evidence of
   absence.** Run 2 is the trustworthy one. Never promote a screen backend off a single run.
+  **A SIBLING BRANCH SAYS THE OPPOSITE — reconcile before merging it.** Another session's
+  unmerged `docs/luna-screen-result` (commit `8b25e97`, 14:10 EDT) is titled *"luna passes
+  the screen gate and beats the local 4B"* and records *"PASS with ZERO false
+  disqualifications"*. That is **run 1**, and it is the same 249-call run this session
+  found already on disk — not an independent confirmation. Run 2 reversed it. Whoever
+  merges that branch must fold in this entry rather than land both, or `main` will carry a
+  PASS claim the replication refutes.
   **What it actually shows, against the 4B's own documented RED set (67/68/672/738):**
   the 4B fails all four on **3/3 draws each — 12 bad draws of 12**. Luna, over both runs,
   produced **1 bad draw of 24** (id 672 only, `X..`), clearing 67/68/738 outright. That is
