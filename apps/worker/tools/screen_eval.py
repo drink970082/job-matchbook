@@ -46,7 +46,11 @@ from ats_worker import run, score  # noqa: E402  (needs apps/worker on the path)
 
 K = 3
 GOLDEN = ROOT / "apps/worker/eval/screen_golden.jsonl"
-OUT = ROOT / "apps/worker/eval/last_screen_run.md"
+# Overridable so two backends can be A/B'd CONCURRENTLY. They otherwise race on one file:
+# on 2026-07-31 two runs of this tool overwrote each other's report, and a third process
+# read the survivor as its own result. A backend comparison is the normal use of this
+# tool, so the shared default path is a footgun rather than a convenience.
+OUT = Path(os.environ.get("SCREEN_EVAL_OUT") or ROOT / "apps/worker/eval/last_screen_run.md")
 
 # The eval candidate. FIXED here rather than read from config.yaml: the golden labels are
 # JD facts, and turning a fact into a verdict needs a stable constraint to compare against
