@@ -59,6 +59,25 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Quota levers: prefix caching, harness trim, seniority vetoes — RUNNING UNATTENDED
+  from 2026-07-31 11:47 EDT** `[SCORE · M · operator away, 60-call budget authorized]`.
+  Plan and full sequence:
+  [`superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md`](./superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md);
+  spend is logged per call in
+  [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
+  **The finding that motivates it: `run.py:61-71` and `backends_codex.py:48` are wrong.**
+  The ChatGPT-subscription quota has been **per-token credits since April 2026**, not
+  message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
+  Two consequences, both measured this session: only ~36% of each paid call's input is
+  our prompt (mean 16,775 tok/call over 212 rollouts; the rest is codex CLI harness), and
+  **prefix caching is broken by one line** — `backends_codex.py:113` passes a fresh
+  `TemporaryDirectory()` as `-C`, whose random path is echoed into the prompt at
+  `<environment_context><cwd>` ~2,730 tokens in, *ahead of* the entire stable scoring
+  prefix, so ~5,500 tokens are re-billed fresh on every call.
+  **Work happens in a separate worktree** (`/home/halcyon/root/ats-work`) so the daemon
+  never imports experimental code; `main` stays checked out and running here.
+  Branches land one per phase. Removed when the run finishes.
+
 - **The seniority pre-ordering is built and gated, but NOTHING has measured it live**
   `[SCORE · M · shipped 2026-07-31, unmeasured in production]`. The layer, its eval gate
   (`make eval-seniority`), the `deprioritized_at` ordering column, the
