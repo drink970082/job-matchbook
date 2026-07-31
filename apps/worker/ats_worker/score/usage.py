@@ -92,7 +92,9 @@ def _epoch(value):
 
 def _snapshot(backend: str, plan_type, limits: list) -> dict:
     """The persisted shape the web reads: {backend, plan_type, limits:[...]}. `limits`
-    entries are already normalised `{key, used_percent, window_minutes, resets_at}`."""
+    entries are already normalised `{key, used_percent, window_minutes, resets_at}`.
+    `as_of` is stamped at write time by `capture_usage`, not here — the fetchers stay
+    pure so a test can compare their output verbatim."""
     return {"backend": backend, "plan_type": plan_type, "limits": limits}
 
 
@@ -235,7 +237,11 @@ def capture_usage(path: str, backend: str) -> bool:
 
     A failed fetch leaves the PREVIOUS snapshot in place rather than truncating it: a
     transient 429 or an expired token should dim the bar's freshness (the web reads
-    the file mtime as `as_of`), not blank it.
+    the file mtime as `as_of`), not blank it. That is exactly why the write stamps
+    `as_of` INTO the snapshot as well: a stale reading and a fresh one are otherwise
+    indistinguishable to anyone reading the file (a `cat`, a CLI, an agent), and a
+    silently stale reading has already made one `--score-limit` decision come out ~17
+    points optimistic. The caller announces a `False` return; see run.run_once.
 
     The web reads `path` across the container boundary, so the write is atomic
     (tmp + os.replace); the tmp filename is per-call-unique (pid + thread id) so two
@@ -247,6 +253,7 @@ def capture_usage(path: str, backend: str) -> bool:
         snapshot = fetch()
         if not snapshot:
             return False
+        snapshot["as_of"] = datetime.now().astimezone().isoformat(timespec="seconds")
         tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(snapshot, fh)

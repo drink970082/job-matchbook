@@ -119,7 +119,9 @@ Jest + Playwright + pytest · Docker Compose. Details in
 |-----|------|
 | [`docs/SETUP.md`](./docs/SETUP.md) | Setup front door — prerequisites, gotchas, tracker-only vs. full-pipeline paths, and where each setting lives |
 | [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec + capability map** — architecture, components, data model, behaviors, setup, testing |
-| [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — what's in flight and open (capabilities → SPEC, history → CHANGELOG) |
+| [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — in flight, the pick order, open defects (capabilities → SPEC, history → CHANGELOG) |
+| [`docs/BACKLOG.md`](./docs/BACKLOG.md) | The open catalogue — unverified/deferred behavior and optional enhancements |
+| [`docs/REJECTED.md`](./docs/REJECTED.md) | Proposals evaluated and turned down, with the measurement that killed each |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Release history |
 | [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) | Community expectations (Contributor Covenant) |

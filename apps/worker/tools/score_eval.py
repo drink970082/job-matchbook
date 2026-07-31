@@ -70,8 +70,14 @@ PROBE_IDS = (111, 125, 132, 184)
 # tracks run.py's default (codex / ChatGPT subscription). Override to A/B a backend:
 #   SCORE_BACKEND=claude apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
 BACKEND = os.environ.get("SCORE_BACKEND", run.DEFAULT_SCORE_BACKEND)
-MODEL = (run.DEFAULT_CODEX_SCORE_MODEL if BACKEND == "codex"
-         else run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+# ...and the MODEL follows the same env vars run.main reads (run.py's --codex-score-model
+# / --anthropic-score-model default out of them), so a model A/B is runnable:
+#   CODEX_SCORE_MODEL=... apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
+# Pinning the defaults here made the tool silently ignore the override and re-measure
+# the production model under an A/B's name.
+MODEL = (os.environ.get("CODEX_SCORE_MODEL") or run.DEFAULT_CODEX_SCORE_MODEL) \
+    if BACKEND == "codex" \
+    else (os.environ.get("ANTHROPIC_SCORE_MODEL") or run.DEFAULT_ANTHROPIC_SCORE_MODEL)
 GOLDEN = ROOT / "apps/worker/eval/golden.jsonl"
 OUT = ROOT / "apps/worker/eval/last_run.md"
 OUT_BATCHED = ROOT / "apps/worker/eval/last_batched_run.md"

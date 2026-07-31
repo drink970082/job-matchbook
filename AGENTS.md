@@ -18,8 +18,11 @@ the task needs:
 
 - **`docs/SPEC.md`** — what the system *is*: capability map, data model, behaviors and
   invariants. Source of truth.
-- **`docs/PROGRESS.md`** — the *delta* only: in flight and open. Completed work lives in
-  SPEC, history in `CHANGELOG.md`.
+- **`docs/PROGRESS.md`** — the *delta* only: in flight, the pick order, quota, open
+  defects. Completed work lives in SPEC, history in `CHANGELOG.md`. Two files hang off
+  it and are loaded on demand, not by default: **`docs/BACKLOG.md`** (the open catalogue
+  — unverified/deferred and enhancements) and **`docs/REJECTED.md`** (proposals
+  evaluated and turned down — read your block's entry before proposing a redesign).
 - **`docs/PRINCIPLES.md`** — the design DNA, for design forks. The four-way uncertainty
   policy (keep / fail loud / circuit break / retry) is the part most often misread:
   "err toward keep" is one row of four.

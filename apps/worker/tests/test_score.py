@@ -1786,6 +1786,18 @@ def test_capture_usage_writes_atomically_and_leaves_no_tmp(codex_login, tmp_path
     assert not list(tmp_path.glob("scorer_usage.json*.tmp"))
 
 
+def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, tmp_path,
+                                                                  monkeypatch):
+    # The instrument the quota decisions read. Without this field a stale snapshot and a
+    # fresh one look identical to anything but `ls -la` — which is how one --score-limit
+    # decision came out ~17 points optimistic.
+    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    path = tmp_path / "scorer_usage.json"
+    assert score.capture_usage(str(path), "codex") is True
+    stamped = json.loads(path.read_text())["as_of"]
+    assert datetime.fromisoformat(stamped).tzinfo is not None   # local time, offset-aware
+
+
 def test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails(
         codex_login, tmp_path, monkeypatch):
     # A transient 429 / expired token must dim the bar's freshness, not blank it.

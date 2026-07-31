@@ -446,7 +446,7 @@ def test_run_once_stamps_the_active_fit_backend_and_model(monkeypatch):
     assert claude["model"] == "claude-sonnet-5"
 
 
-def _run_once_capturing_usage(monkeypatch, *, scored: bool, **kw):
+def _run_once_capturing_usage(monkeypatch, *, scored: bool, usage_ok: bool = True, **kw):
     """Run one pass whose run_score optionally exercises `fit_fn` once, returning the
     `(path, backend)` capture_usage was called with — or None if it wasn't."""
     seen: list = []
@@ -460,7 +460,10 @@ def _run_once_capturing_usage(monkeypatch, *, scored: bool, **kw):
     monkeypatch.setattr(run.pipeline, "run_score", run_score)
     # The scorer itself must never be built for real (no codex subprocess in tests).
     monkeypatch.setattr(run, "make_scorer", lambda *a, **k: lambda postings, resumes: [])
-    monkeypatch.setattr(run, "capture_usage", lambda path, backend: seen.append((path, backend)))
+    # Returns True: the real one reports whether a snapshot was written, and run_once
+    # warns on False (see the test below).
+    monkeypatch.setattr(run, "capture_usage",
+                        lambda path, backend: seen.append((path, backend)) or usage_ok)
 
     class FakeConn:
         def close(self):
@@ -485,6 +488,18 @@ def test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored(monkeypat
 
     _, backend = _run_once_capturing_usage(monkeypatch, scored=True, score_backend="claude")
     assert backend == "claude"
+
+
+def test_a_failed_quota_capture_is_announced_not_swallowed(monkeypatch, capsys):
+    # capture_usage is best-effort by contract and swallows every exception, so a pass
+    # that fails to refresh the snapshot used to look identical to one that refreshed it
+    # — and the stale file is what the --score-limit decisions are made on.
+    _run_once_capturing_usage(monkeypatch, scored=True, usage_ok=False)
+    out = capsys.readouterr().out
+    assert "[quota] WARNING" in out and "scorer_usage.json" in out
+
+    _run_once_capturing_usage(monkeypatch, scored=True, usage_ok=True)
+    assert "[quota] WARNING" not in capsys.readouterr().out
 
 
 def test_run_once_skips_the_quota_fetch_when_nothing_was_scored(monkeypatch):

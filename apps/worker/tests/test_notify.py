@@ -72,3 +72,34 @@ def test_message_omits_resume_line_when_absent_or_malformed():
         posting = dict(POSTING, score_detail=detail)
         notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
         assert "Resume:" not in _sent_text(http)
+
+
+def test_message_carries_the_persisted_fit_summary():
+    http = FakeHttp()
+    posting = dict(POSTING, score_detail=json.dumps(
+        {"assessment": {"summary": "Strong  systems\nmatch, light on kdb."}}))
+    notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
+    text = _sent_text(http)
+    # whitespace collapsed so a multi-line summary stays one line in the alert
+    assert "Fit: Strong systems match, light on kdb." in text
+    assert text.index("Fit:") < text.index("https://example.com/jobs/1")
+
+
+def test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit():
+    http = FakeHttp()
+    posting = dict(POSTING, score_detail=json.dumps(
+        {"assessment": {"summary": "x" * 5000}}))
+    notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
+    text = _sent_text(http)
+    assert len(text) < 4096          # Telegram's sendMessage cap
+    assert "Fit: " + "x" * (notify._SUMMARY_MAX - 3) + "..." in text
+
+
+def test_message_omits_fit_line_when_absent_or_malformed():
+    for detail in (None, "", "not json", json.dumps({"assessment": "not a dict"}),
+                   json.dumps({"assessment": {"summary": ""}}),
+                   json.dumps({"assessment": {}}), json.dumps(["a", "list"]), 123,):
+        http = FakeHttp()
+        posting = dict(POSTING, score_detail=detail)
+        notify.notify_posting(posting, token=TOKEN, chat_id=CHAT, http=http)
+        assert "Fit:" not in _sent_text(http)
