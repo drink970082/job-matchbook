@@ -1,9 +1,38 @@
 # Handoff - 2026-07-31
 
-Session note, not a spec. Four items, in the order they should be worked. Every number
-below was measured on this date against the live DB (`db/applications.db`, read-only) and
-the live `apps/worker/config.yaml`; re-measure before quoting any of them, because three
-of the four move on their own.
+Session note, not a spec. Every number below was measured on this date against the live
+DB (`db/applications.db`, read-only) and the live `apps/worker/config.yaml`; re-measure
+before quoting any of them.
+
+> **SUPERSEDED IN PART, later the same day — read this box before the four items.**
+> The session that wrote the items below went on to measure them, and three of the four
+> premises moved. Authoritative record is `PROGRESS.md` (In flight + Defects) and
+> `BACKLOG.md`; this note is kept for the reasoning, not the numbers.
+>
+> 1. **Item 1 (terra re-measurement) is BLOCKED, and worse than blocked.** 22 of the 23
+>    rows in `eval/golden.jsonl` name postings no longer in the DB, so `make eval-score`
+>    was scoring **one row** and reporting *PASS at 100%*. Pre-existing (the 02:10 backup
+>    already had 1/23) and not an application delete — there is no
+>    `DELETE FROM job_postings` anywhere. The labels are unrecoverable: remapping by title
+>    was tried and two different golden rows fuzzy-matched the same candidates. **So the
+>    standing terra rejection rests on a corpus that no longer exists.**
+> 2. **Item 2 (title sweep) is DONE** — 1,298 free-gate discards, queue 5,729 -> 4,430,
+>    **zero** paid calls, and the web now has a `prefilter` discard cause so those rows are
+>    selectable.
+> 3. **Item 3 (stale companies) inverted: delete nothing.** The measurement used the wrong
+>    join key *and* the wrong population — the watchlist is 172 DB rows, not the 39 in
+>    `config.yaml`. Probed live, every slug resolved and no adapter failed. Voleon turned
+>    out to be on the **wrong platform**: `ashby/voleon` serves 54 postings where
+>    `lever/voleon` serves 0, and it is the only company in that set that has ever produced
+>    a notification — deleting it, which is what the item proposed, would have destroyed it.
+> 4. **Item 4's corpus was regenerated** at the full negative class (499 rows, not 162) and
+>    now writes into `eval/` rather than tracked `tools/`, because those rows carry real
+>    company names and titles and this repo is public.
+>
+> **What the session actually shipped instead:** a same-day screen A/B
+> (`ollama` 4 false disqualifications vs `codex`/luna 1, on 12/12 vs 1/24 bad draws), the
+> screen corpus expanded 83 -> 103 so both of its blind halves can now fail, and
+> `golden.jsonl` made self-contained so it cannot rot the same way twice.
 
 Standing context: **quota is the priority** (PROGRESS.md). Items 2 and 3 are free levers
 on intake. Item 1 is the paid lever. Item 4 is the instrument item 1 needs.
