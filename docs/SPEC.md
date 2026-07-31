@@ -517,9 +517,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   HTML cards (bs4), paginate `pr` (plain HTTP, no browser); phenom
   `{host}/api/pcsx/search?domain={domain}&start={n}` (`data.positions[]`, `data.count`) + per-job
   `…/position_details?…&position_id={id}` for the description, slug packs `{host}/{domain}`.
-  `phenom` is also the one adapter with **429 handling** — it is the only board that has
-  ever rate-limited (`careers.qualcomm.com` at `start=930`, 2026-07-22). Its search GET
-  retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
+  `phenom` is also the one adapter with **throttle handling** — it is the only board that
+  has ever rate-limited (`careers.qualcomm.com` at `start=930`, 2026-07-22). **A 403 is
+  treated as a throttle too, from 2026-07-31**: that board fails every live pass with a
+  403 deep in pagination at a *varying* offset (`start=990`/`1060`/`1220`), and those
+  exact offsets return **200** when probed cold from a fresh session — so it is a WAF
+  tripping on the pass's cumulative request volume, not a missing page. A 403 on the
+  FIRST page still raises (nothing to salvage; a board refusing from the start is a
+  block, not a throttle). The salvage **announces the truncation** — it was silent, and a
+  board cut short at 990 of 1,896 positions otherwise reads as a complete one. Its search
+  GET retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
   `Retry-After` clamped to 30s); still throttled at `start > 0` it returns an empty page,
   which the paginator reads as the end of the board, so **the pages already walked are
   kept** instead of the whole board being lost. At `start == 0` it raises, because a
@@ -2036,6 +2043,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
+| A phenom search **403** mid-pagination is a throttle: retried like a 429, and on a persistent one the pages already walked are kept rather than the board being lost, with the truncation announced; a 403 on the FIRST page still raises, on a bounded budget | `test_phenom.py` (`test_search_403_mid_pagination_is_retried_like_a_429`, `test_persistent_403_mid_pagination_keeps_the_pages_already_collected`, `test_a_403_on_the_first_page_still_raises`, `test_a_salvaged_board_says_so`) |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
 | A stub-rejected workday posting costs no detail GET | `test_fetch_new.py::test_workday_stub_gate_skips_the_dropped_detail_call` |
 | A workday `discard` HYDRATES rather than storing a GUID-less stub row | `test_fetch_new.py::test_workday_stub_gate_hydrates_a_discard_instead_of_storing_it` |
