@@ -606,8 +606,14 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
     **The breaker.** A per-row `except` around a failure every row shares is the policy
     error PRINCIPLES names: an unknown-column `ValueError` or a `json.dumps` `TypeError`
     is a bug, not contention, and would otherwise be re-tried silently every pass
-    forever. `_BREAKER_LIMIT` consecutive failures with zero successes re-raises, the
-    same signature the screen and fit phases watch for.
+    forever. So `_BREAKER_LIMIT` **consecutive** failed writes re-raise; a successful
+    write resets the run to zero. One `SQLITE_BUSY` does not abort the pass — five in a
+    row, each already past the 5s `busy_timeout`, is >= 25s of unbroken contention and
+    is systemic by then.
+    This is deliberately NOT `_BackendBreaker`'s signature (`successes == 0 and
+    failures >= limit`, where any success disarms it for good). That shape is right for
+    a PROVIDER, which is either up or down for the whole pass; a write failure has no
+    provider, so the signal is consecutiveness rather than a total absence of successes.
     """
     survivors, write_errors, streak = [], 0, 0
     for row in rows:
@@ -625,9 +631,9 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
         except Exception:  # noqa: BLE001 — one unwritable row must not abort the pass
             write_errors += 1
             streak += 1
-            if streak >= _BREAKER_LIMIT and write_errors == streak:
-                # Nothing has ever written: systemic, so fail loud instead of retrying
-                # it row by row for the rest of the queue and every pass after.
+            if streak >= _BREAKER_LIMIT:
+                # Systemic: fail loud instead of retrying it row by row for the rest of
+                # the queue and every pass after.
                 raise
             try:
                 conn.rollback()   # or the next row's commit writes this one too

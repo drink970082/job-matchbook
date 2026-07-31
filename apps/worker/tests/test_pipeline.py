@@ -670,7 +670,10 @@ def test_an_unwritable_free_gate_discard_stays_new_and_says_so(db_path, capsys):
     ], now=NOW)
     ids = sorted(r["id"] for r in db.get_by_status(conn, "new"))
     tally = {"free": 0}
-    wrapped = _FlakyWriteConn(conn, fail_ids=[ids[0]])
+    # Fail the row the sweep visits FIRST (it walks newest-first, so that is the higher
+    # id), so a real row follows it and the durable bug is in play: without the
+    # rollback, the NEXT row's commit adopts this row's pending UPDATE.
+    wrapped = _FlakyWriteConn(conn, fail_ids=[ids[1]])
 
     survivors = pipeline._sweep_free_gates(
         wrapped, db.get_by_status(conn, "new", newest_first=True),
@@ -678,10 +681,14 @@ def test_an_unwritable_free_gate_discard_stays_new_and_says_so(db_path, capsys):
 
     assert survivors == []                    # neither row survives the gate
     assert tally["free"] == 1                 # only the row that actually wrote is counted
+    # Read COMMITTED state through a second connection: the sweep's own connection can
+    # see its uncommitted UPDATE, which is exactly how the first version of this passed
+    # while writing the row anyway.
+    fresh = db.connect(db_path)
     states = {r["id"]: r["pipeline_status"]
-              for r in conn.execute("SELECT id, pipeline_status FROM job_postings")}
-    assert states[ids[0]] == "new"            # the failed one really did stay 'new'
-    assert states[ids[1]] == "discarded"
+              for r in fresh.execute("SELECT id, pipeline_status FROM job_postings")}
+    assert states[ids[1]] == "new"            # the failed one really did stay 'new'
+    assert states[ids[0]] == "discarded"
     assert "1 free-gate discard(s) could not be written" in capsys.readouterr().out
 
 
