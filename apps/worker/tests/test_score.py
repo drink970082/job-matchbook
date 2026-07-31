@@ -1983,14 +1983,51 @@ def test_get_json_names_the_exception_when_the_connection_fails(capsys):
     assert "URLError" in capsys.readouterr().out
 
 
-def test_an_unanticipated_failure_still_cannot_colour_the_pass(tmp_path):
-    # The no-raise guarantee the pass depends on lives in capture_usage, not in
-    # _get_json -- that catch is deliberately narrow so a genuinely unexpected failure
-    # surfaces in a test run rather than reading as just another 403. Assert the
-    # guarantee where it actually is.
+def test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why(
+        codex_login, tmp_path, capsys):
+    # The no-raise guarantee lives in capture_usage, not in _get_json -- that catch is
+    # narrow on purpose. But narrow is only defensible if the blanket catch SPEAKS:
+    # otherwise an exception type the fetchers do not anticipate produces silence, which
+    # is worse than one more 403. (The codex_login fixture is load-bearing: without it
+    # _codex_auth returns None and urlopen is never reached, so the test would pass
+    # while asserting nothing.)
     def raising(req, timeout=None):
         raise RuntimeError("something nobody anticipated")
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(score.usage.urllib.request, "urlopen", raising)
         assert score.usage.capture_usage(str(tmp_path / "u.json"), "codex") is False
+    assert "RuntimeError" in capsys.readouterr().out
+
+
+def test_a_200_with_no_usable_window_says_so_instead_of_going_quiet(codex_login, capsys):
+    # The prime-suspect shape MINUS the status code: the endpoint answers 200 and the
+    # window carries a null used_percent. Nothing named this before, so the instrument
+    # could have missed the very failure it was built for.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage, "_get_json",
+                   lambda url, headers: {"rate_limit": {"primary_window":
+                                                        {"used_percent": None}}})
+        assert score.usage.fetch_codex_usage() is None
+    assert "no usable window" in capsys.readouterr().out
+
+
+def test_a_200_that_is_not_the_expected_shape_says_so(codex_login, capsys):
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage, "_get_json", lambda url, headers: {"unexpected": 1})
+        assert score.usage.fetch_codex_usage() is None
+    assert "no rate_limit object" in capsys.readouterr().out
+
+
+def test_a_truncated_body_is_caught_and_named(capsys):
+    # IncompleteRead/BadStatusLine subclass neither OSError nor ValueError, so before
+    # this they escaped _get_json entirely and capture_usage swallowed them in silence.
+    import http.client
+
+    def raising(req, timeout=None):
+        raise http.client.IncompleteRead(b"partial")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage.urllib.request, "urlopen", raising)
+        assert score.usage._get_json("https://x/usage", {}) is None
+    assert "IncompleteRead" in capsys.readouterr().out

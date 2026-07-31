@@ -23,6 +23,7 @@ the bar with it, so the two are never silently conflated.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import threading
@@ -86,6 +87,8 @@ def _get_json(url: str, headers: dict):
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             if resp.status != 200:
+                # NOT dead code: urlopen raises for 4xx/5xx, but a 201/202/204/206 is a
+                # success to urllib and a failure to us, and lands here.
                 print(f"[quota] {url} returned HTTP {resp.status}")
                 return None
             return json.loads(resp.read().decode("utf-8"))
@@ -94,9 +97,13 @@ def _get_json(url: str, headers: dict):
         # plausible immediately after a burst of paid calls on the same account, which
         # is exactly when this runs — and 5xx is theirs. `urlopen` RAISES for these
         # rather than returning them, so the `resp.status` check above never sees one.
-        print(f"[quota] {url} returned HTTP {exc.code}")
+        print(f"[quota] {url} returned HTTP {exc.code} ({exc.reason})")
         return None
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
+        # http.client.HTTPException is in the tuple deliberately: IncompleteRead and
+        # BadStatusLine subclass NEITHER OSError nor ValueError, and a truncated body
+        # behind a CDN is exactly the intermittent shape being hunted here. Without it
+        # they escape to `capture_usage`'s blanket catch and print nothing at all.
         print(f"[quota] {url} failed: {type(exc).__name__}: {exc}")
         return None
 
@@ -146,6 +153,7 @@ def fetch_codex_usage() -> dict | None:
     carrying `used_percent`, `limit_window_seconds` and `reset_at` (epoch)."""
     auth = _codex_auth()
     if not auth:
+        print("[quota] codex: not logged in (no readable ~/.codex/auth.json tokens)")
         return None
     token, account = auth
     data = _get_json(CODEX_USAGE_URL, {
@@ -155,9 +163,10 @@ def fetch_codex_usage() -> dict | None:
         "User-Agent": _USER_AGENT,
     })
     if not isinstance(data, dict):
-        return None
+        return None                     # _get_json already said why
     rate = data.get("rate_limit")
     if not isinstance(rate, dict):
+        print(f"[quota] codex: 200 but no rate_limit object: {str(data)[:160]}")
         return None
     limits = []
     for key in ("primary", "secondary"):
@@ -172,6 +181,9 @@ def fetch_codex_usage() -> dict | None:
             "resets_at": _epoch(window.get("reset_at")),
         })
     if not limits:
+        # The suspect path with no status code to show for it: a 200 whose windows carry
+        # a null used_percent. Print the payload or the next hunt starts from zero again.
+        print(f"[quota] codex: 200 but no usable window: {str(rate)[:160]}")
         return None
     return _snapshot("codex", data.get("plan_type"), limits)
 
@@ -273,15 +285,21 @@ def capture_usage(path: str, backend: str) -> bool:
     try:
         fetch = _FETCHERS.get(backend)
         if fetch is None:
+            print(f"[quota] no usage fetcher for backend {backend!r}")
             return False
         snapshot = fetch()
         if not snapshot:
-            return False
+            return False                 # the fetcher already said why
         snapshot["as_of"] = datetime.now().astimezone().isoformat(timespec="seconds")
         tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(snapshot, fh)
         os.replace(tmp, path)
         return True
-    except Exception:  # noqa: BLE001 — telemetry is best-effort; a pass must not fail on it
+    except Exception as exc:  # noqa: BLE001 — best-effort; a pass must not fail on it
+        # This catch is the reason `_get_json` may stay narrow, and it must therefore
+        # SPEAK. Silence here is what made the 2026-07-30/31 hunt cost two days: the
+        # write half (permissions, a full disk, a bad path) and any exception type the
+        # fetchers do not anticipate both landed here and produced nothing at all.
+        print(f"[quota] capture failed: {type(exc).__name__}: {exc}")
         return False
