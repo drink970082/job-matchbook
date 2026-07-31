@@ -6,6 +6,7 @@ The critical invariant: one bad row must never abort a batch — it is marked
 from __future__ import annotations
 
 import json as _json
+import sqlite3
 import time
 
 import pytest
@@ -345,7 +346,7 @@ def test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice(db_
                        fit_fn=lambda ps: [{"score": 90, "assessment": _assessment()}
                                           for _ in ps])
     out = capsys.readouterr().out
-    assert "[score] 2 row(s):" in out       # the cap is what the pass touched
+    assert "then 2 row(s):" in out           # the cap is what the pass PAID for
     assert "0 unreached" in out             # nothing in the slice was skipped
     assert "3 left 'new'" in out            # and the rest of the queue is visible
 
@@ -634,6 +635,114 @@ def test_run_score_thin_jd_skips_paid_fit(db_path):
     assert db.get_notifiable(conn) == []
 
 
+class _FlakyWriteConn:
+    """Wraps a real connection and fails the COMMIT for chosen posting ids -- the
+    SQLITE_BUSY-past-busy_timeout shape, where the UPDATE has already executed."""
+
+    def __init__(self, conn, fail_ids):
+        self._conn = conn
+        self._fail_ids = set(fail_ids)
+        self._pending = None
+
+    def execute(self, sql, *args, **kw):
+        params = args[0] if args else {}
+        self._pending = params.get("id") if isinstance(params, dict) else None
+        return self._conn.execute(sql, *args, **kw)
+
+    def commit(self):
+        if self._pending in self._fail_ids:
+            raise sqlite3.OperationalError("database is locked")
+        return self._conn.commit()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_an_unwritable_free_gate_discard_stays_new_and_says_so(db_path, capsys):
+    # Containment: one row the sweep cannot write must not abort the pass, must not
+    # consume a budget slot, and must genuinely stay 'new' -- db._update commits after
+    # executing, so without a rollback the failed UPDATE rides along on the NEXT row's
+    # commit and the row would be discarded while the warning claimed otherwise.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("dead1", job_title="dead1", location="Bengaluru, India"),
+        _posting("dead2", job_title="dead2", location="Shanghai, China"),
+    ], now=NOW)
+    ids = sorted(r["id"] for r in db.get_by_status(conn, "new"))
+    tally = {"free": 0}
+    # Fail the row the sweep visits FIRST (it walks newest-first, so that is the higher
+    # id), so a real row follows it and the durable bug is in play: without the
+    # rollback, the NEXT row's commit adopts this row's pending UPDATE.
+    wrapped = _FlakyWriteConn(conn, fail_ids=[ids[1]])
+
+    survivors = pipeline._sweep_free_gates(
+        wrapped, db.get_by_status(conn, "new", newest_first=True),
+        candidate={"locations": ["remote", "USA"]}, now=NOW, tally=tally)
+
+    assert survivors == []                    # neither row survives the gate
+    assert tally["free"] == 1                 # only the row that actually wrote is counted
+    # Read COMMITTED state through a second connection: the sweep's own connection can
+    # see its uncommitted UPDATE, which is exactly how the first version of this passed
+    # while writing the row anyway.
+    fresh = db.connect(db_path)
+    states = {r["id"]: r["pipeline_status"]
+              for r in fresh.execute("SELECT id, pipeline_status FROM job_postings")}
+    assert states[ids[1]] == "new"            # the failed one really did stay 'new'
+    assert states[ids[0]] == "discarded"
+    assert "1 free-gate discard(s) could not be written" in capsys.readouterr().out
+
+
+def test_a_systemic_sweep_write_failure_fails_loud_instead_of_retrying_forever(db_path):
+    # A failure every row shares is not a per-item verdict: an unknown-column ValueError
+    # or a json.dumps TypeError would otherwise be swallowed once per row, every pass,
+    # forever. Same breaker signature the screen and fit phases watch for.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(f"d{i}", job_title=f"d{i}", location="Shanghai, China")
+                              for i in range(pipeline._BREAKER_LIMIT + 2)], now=NOW)
+    ids = [r["id"] for r in db.get_by_status(conn, "new")]
+    wrapped = _FlakyWriteConn(conn, fail_ids=ids)
+
+    with pytest.raises(sqlite3.OperationalError):
+        pipeline._sweep_free_gates(
+            wrapped, db.get_by_status(conn, "new", newest_first=True),
+            candidate={"locations": ["remote", "USA"]}, now=NOW, tally={"free": 0})
+
+
+def test_the_free_gates_do_not_consume_the_score_limit(db_path, capsys):
+    # `--score-limit` is a QUOTA budget, and a location/intern discard spends no quota:
+    # no model call, no paid call. Charging it a budget slot stalled the live pipeline
+    # on 2026-07-31 — `requeue_discarded` had put 3,800 location discards back in `new`,
+    # where they sort AHEAD of fresh intake, so every pass spent its whole cap
+    # re-killing them for free, fit-scored nothing, and had ~16 days to go before it
+    # would reach a posting discovered that day.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("dead1", job_title="dead1", location="Bengaluru, India"),
+        _posting("dead2", job_title="dead2", location="Shanghai, China"),
+        _posting("live", job_title="live", location="Remote"),
+    ], now=NOW)
+    screened, fit_calls = [], []
+
+    def screen_fn(posting):
+        screened.append(posting["job_title"])
+        return {"disqualified": False, "screen": {}, "disqualification_reason": ""}
+
+    def fit_fn(postings):
+        fit_calls.append([p["job_title"] for p in postings])
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, limit=1,
+                       candidate={"locations": ["remote", "USA"]})
+
+    # The two dead rows never reached the screen, and the ONE budget slot bought the
+    # live row instead of being eaten by a free discard.
+    assert screened == ["live"]
+    assert fit_calls == [["live"]]
+    assert {r["external_id"] for r in db.get_by_status(conn, "discarded")} == {"dead1", "dead2"}
+    assert [r["external_id"] for r in db.get_by_status(conn, "scored")] == ["live"]
+    assert "2 free-gate discarded (unbudgeted)" in capsys.readouterr().out
+
+
 def test_run_score_always_prints_a_summary(db_path, capsys):
     # run_score used to print NOTHING on success, so a pass that did work and a pass
     # with nothing to do were indistinguishable at the terminal — a working run read as
@@ -659,7 +768,7 @@ def test_run_score_always_prints_a_summary(db_path, capsys):
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
 
     out = capsys.readouterr().out
-    assert "[score] 3 row(s):" in out
+    assert "then 3 row(s):" in out
     assert "1 screen-discarded" in out
     assert "1 thin-JD (no fit call)" in out
     assert "1 fit-scored" in out
@@ -683,7 +792,7 @@ def test_run_score_summary_counts_rows_a_breaker_never_reached(tmp_path, capsys)
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, batch_size=1)
 
     out = capsys.readouterr().out
-    assert "[score] 6 row(s):" in out
+    assert "then 6 row(s):" in out
     unreached = int(out.split("failed, ")[1].split(" unreached")[0])
     failed = int(out.split("confirmation, ")[1].split(" failed")[0])
     assert failed + unreached == 6  # every row accounted for, none double-counted
