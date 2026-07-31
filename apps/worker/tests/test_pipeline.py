@@ -1947,3 +1947,59 @@ def test_requeue_discarded_leaves_every_other_status_alone(db_path):
     status = {r["external_id"]: r["pipeline_status"]
               for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert status == {"new": "new", "scored": "scored", "failed": "failed"}
+
+
+def test_a_row_the_current_filters_would_refuse_is_swept_free(db_path, capsys):
+    # prefilter_postings runs at INGEST only, so a row that entered before its filter
+    # existed -- or that aged past max_age_days while it waited -- keeps its place in the
+    # queue and buys a PAID fit call on a posting the operator's own config refuses.
+    # Measured 2026-07-31 over the live queue: 438 of 9,400 rows, 435 of them on title.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("stale", job_title="Sales Representative"),
+        _posting("ok", job_title="Software Engineer"),
+    ], now=NOW)
+    fit_calls = []
+
+    def stale_fn(posting):
+        return ("prefilter: refused by the current title/age filters"
+                if "Sales" in posting["job_title"] else None)
+
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: fit_calls.append(ps) or
+                       [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       stale_fn=stale_fn, limit=5)
+
+    assert [p["job_title"] for p in fit_calls[0]] == ["Software Engineer"]
+    rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings")}
+    assert rows["stale"]["pipeline_status"] == "discarded"
+    assert "refused by the current title/age filters" in rows["stale"]["score_detail"]
+    assert "1 free-gate discarded (unbudgeted)" in capsys.readouterr().out
+
+
+def test_the_stale_check_never_runs_on_a_row_a_gate_already_killed(db_path):
+    # Ordering matters for the recorded reason: a location kill is the real one, and
+    # re-labelling it "prefilter" would lose why the row actually went.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("x", job_title="Sales Rep",
+                                       location="Shanghai, China")], now=NOW)
+    seen = []
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       candidate={"locations": ["remote", "USA"]},
+                       stale_fn=lambda p: seen.append(p) or "prefilter: refused",
+                       limit=5)
+    assert seen == []
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert "location:" in row["score_detail"] and "prefilter" not in row["score_detail"]
+
+
+def test_no_stale_predicate_leaves_every_row_alone(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("a", job_title="Sales Rep")], now=NOW)
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""}, limit=5)
+    assert db.get_by_status(conn, "scored")

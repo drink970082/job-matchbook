@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Rows that the operator's own intake filters would refuse were still buying paid fit
+  calls.** `prefilter_postings` runs at INGEST only, and `screen_posting` re-checks
+  location and intern but never title or age — so a row that entered before its filter
+  existed, or that simply aged past `max_age_days` while it waited in the queue, kept its
+  place and reached the paid scorer. Measured 2026-07-31 against the live queue: **775 of
+  the 5,941 rows that survive the free gates**, 587 of them on AGE, 206 on title, 18 on
+  both — roughly 620 paid messages, over 30% of a weekly window. `run_score`'s phase-0
+  sweep now re-applies those filters (free, deterministic, outside `--score-limit`),
+  discarding with the same `prefilter:` reason string the operator's 2026-07-29 manual
+  sweep used, and only after the location/intern gates so a row they killed keeps its own
+  reason. Driven against a copy of the live DB: `4215 free-gate discarded (unbudgeted)`
+  where the same copy swept 3,440 before.
+  **The first measurement of this was wrong in a way worth recording:** it reported "438
+  refused, only 3 on age". `_too_old` parses `now` and returns False on a ValueError
+  ("unparseable -> keep"), so calling `prefilter_postings` without an explicit `now` —
+  its own default — silently disables the age rule. Err-toward-keep is right in
+  production and quietly wrong in a measurement. (SPEC §7.1/§9.)
+
+
 - **`careers.qualcomm.com` is no longer lost on every pass.** It failed all six daily
   passes with `403 Client Error: Forbidden` deep in pagination, and the bounded-retry
   path only knew about 429 — so the search raised, the page loop unwound, and the
