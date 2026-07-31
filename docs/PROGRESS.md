@@ -59,59 +59,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Re-apply the operator's TITLE filters before paying to score — landed, unmerged**
-  `[branch fix/prescore-prefilter · SCORE · S]`. `prefilter_postings` runs at ingest
-  only, so a row that entered before its filter existed kept its place and bought a paid
-  fit call; the free phase-0 sweep now re-applies it. 206 of the 5,941 rows that survive
-  the deterministic gates, measured 2026-07-31. Suite 860 green.
-  **The AGE half was built, then refused on review, and the reasoning is in
-  [`BACKLOG.md`](./BACKLOG.md)** — it is a queue TTL rather than a filter, it is not
-  recoverable the way a title refusal is, and it would make `--rescreen-discarded`
-  destroy the verdicts it exists to rescue. If it is wanted, it wants the 2026-07-29
-  sweep's shape: a deliberate run with a revert artifact.
-
-- **THE PIPELINE WAS STALLED, AND THE FIX IS THAT FREE WORK NO LONGER SPENDS THE QUOTA
-  BUDGET** `[branch fix/score-budget · SCORE+SCREEN · S · found and fixed 2026-07-31]`.
-  **What was observed:** the 16:00 EDT pass on 07-30 fit-scored **4** rows, the 20:00
-  pass **0**, and the 00:00 pass on 07-31 **0** — every one of their 40 budgeted rows
-  was a location re-discard. Cause: queue item 2's recovery requeued **4,644** hydrated
-  discards, `requeue_discarded` stamps `updated_at`, and the queue orders on
-  `COALESCE(updated_at,'') DESC` — so those rows sort **ahead of fresh intake, whose
-  `updated_at` is NULL**. At `--score-limit 40` the daemon would have spent ~16 days
-  re-killing them for free, six passes a day, before reaching a posting discovered
-  today. 3,800 were still queued; 5,590 fresh rows waited behind them.
-  **The fix: `--score-limit` is a QUOTA budget and these gates spend no quota.**
-  `run_score` now opens with a phase-0 sweep of `deterministic_screen` over the whole
-  queue, outside the limit (0.26 ms/row to scan, ~4.5s including the 3,480 writes), and `screen_posting`
-  runs the code-side gates BEFORE the model call and returns on a disqualification, so
-  a doomed row no longer buys a ~1.5s GPU round trip either. **37% of the live queue
-  dies on those gates.**
-  **Driven end to end against a copy of the live DB:** `3480 free-gate discarded
-  (unbudgeted), then 2 row(s): ... 2 fit-scored`. Suite 850 green, worker coverage
-  94.78%. `make eval-screen` reproduces the documented RED baseline **exactly** (ids
-  67/68/672/738, recall 31/37, 0 flips), so the screen gate did not move.
-  **The residual the pre-merge review measured, so nobody re-discovers it:** `limit` is
-  still not a pure quota budget — an LLM screen-discard and a thin-JD row consume a slot
-  while spending nothing (~18% of screened rows over the 07-29 live passes, 8.2% over DB
-  history — see SPEC §7.1), and ~320-720 requeued rows survive the free
-  sweep. Catch-up is ~1.3 days rather than ~16, not zero. Screening until `limit`
-  *survivors* are found would close it and make per-pass model work unbounded; the bound
-  was judged worth more.
-  **This makes the standing quota framing temporarily false, so do not re-quote it
-  as-is:** the last three passes spent nothing, so "quota is the binding constraint"
-  describes the pre-07-30 system rather than this week's. Re-measure after the first
-  normal pass on the fixed code.
-
-- **Five XS items + the PROGRESS split — landed, unmerged**
-  `[branch chore/small-fixes-and-progress-split]`. Worker suite green (848 tests).
-  Cut on top of `docs/scoring-rebuild-spec` because both the SCORING §2.4/§6 fix and the
-  split need that branch's files; that work is now on `main` (#52) and this branch is
-  rebased onto it, so the stack is gone. Contents: the `capture_usage` visibility half (Q1, defect below), the
-  `Fit:` line in the Telegram alert, `OLLAMA_NUM_CTX` + the real model name in
-  `screen_eval`, `CODEX_SCORE_MODEL` honoured in `score_eval`, SCORING's missing
-  `notified` status, and the PROGRESS → `BACKLOG.md` + `REJECTED.md` split. Only the
-  first is a quota lever; the rest are the cheap end of the catalogue, taken on the
-  operator's call.
+- **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
+  passes of 2026-07-30/31 spent nothing at all (4 rows fit-scored, then 0, then 0),
+  because free work was consuming the paid budget. That is fixed and merged (#54, #58)
+  and the daemon is running it, but every "quota is the binding constraint" figure below
+  describes the pre-07-30 system. **Re-measure after the first normal pass on the fixed
+  code.** The residual the pre-merge review measured, so nobody re-discovers it:
+  `--score-limit` is still not a pure quota budget — an LLM screen-discard and a thin-JD
+  row each consume a slot while spending nothing (~18% of screened rows over the 07-29
+  live passes, 8.2% over DB history) — so catch-up is ~1.3 days rather than ~16, not
+  zero.
 
 - **Cut paid fit calls with a FREE seniority extraction, not a model swap — MEASURED AND
   IT HOLDS, 2026-07-30; the build is the remaining work** `[SCORE · M · measured]`.
