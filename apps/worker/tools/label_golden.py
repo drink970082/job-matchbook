@@ -109,6 +109,15 @@ def main() -> int:
                 "note": note or f"{row['company_name']} {(row['job_title'] or '')[:60]}",
                 "seniority": sen,
                 "domain": dom,
+                # SELF-CONTAINED by construction. Storing only the id is what killed the
+                # previous corpus: on 2026-07-31, 22 of its 23 rows named postings no
+                # longer in the DB, the gate fell to ONE row, and it kept reporting PASS.
+                # A hand-written label cannot be re-derived, so the posting has to travel
+                # with it. `eval/` is gitignored, which is what makes this safe to store.
+                "posting": {
+                    "job_title": row["job_title"], "company_name": row["company_name"],
+                    "description": row["description"], "location": row["location"],
+                },
             }) + "\n")
             fh.flush()   # crash-safe: every answer is on disk before the next row renders
             written += 1

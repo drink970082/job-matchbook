@@ -509,6 +509,40 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
+- **`make eval-score` has been measuring ONE row and reporting PASS — the authoritative
+  fit gate cannot fail** — `[SCORE · M · found 2026-07-31 · PRE-EXISTING, partially fixed]`.
+  `eval/golden.jsonl` holds 23 hand-labelled rows keyed by `job_postings.id`, and **22 of
+  the 23 name postings that are no longer in the DB.** `score_row` prints one line to
+  stderr per missing id and returns `None`; the run then gates on whatever is left. The
+  2026-07-31 run reported *"gate rows: 1 · agreement 1/1 (100%) · PASS"*, which is the
+  same failure shape as the clearance tautology in `eval-screen`: a green gate that no
+  behavior can turn red.
+  **Not caused by the 07-31 sweep** — the pre-session backup
+  (`applications.db.backup-20260731-0210-pre-deprioritized-column`) already had 1/23. Nor
+  by application code: there is **no `DELETE FROM job_postings` anywhere** in the worker
+  or the web. The golden ids span 26-1159 and ids 2000-5000 are 99.97% present, so this is
+  not the ~40% background gap in that id range — the set was curated against a DB state
+  that no longer exists (the terra measurement dates to 2026-07-16).
+  **The labels are NOT recoverable by remapping, and this was tried.** Matching each
+  row's `note` back to a live posting by title is ambiguous: *"Maven Trading Analyst
+  (Python)"* and *"Point72 Fund Flow Analyst"* both fuzzy-match the same candidates
+  (on "Analyst"). Binding a hand-written verdict to the wrong posting is worse than an
+  empty gate, so the 23 labels are written off.
+  **Consequence, and it is the load-bearing one: the standing `gpt-5.6-terra` rejection
+  (76% gate vs sol's 86%) rests on a corpus that no longer exists and cannot be
+  re-measured against it.** Any claim sourced to that comparison is now unfalsifiable.
+  **Fixed on this branch, in the direction that prevents recurrence:** `golden.jsonl` rows
+  may now carry an inline `posting` payload and `score_row` falls back to it, making the
+  corpus **self-contained the way `screen_golden.jsonl` already is** — that asymmetry is
+  exactly why the screen corpus survived and this one decayed. `tools/label_golden.py`
+  writes the payload for every new row. `eval/` is gitignored, which is what makes storing
+  it safe. **Still open: the rebuild itself**, which needs human labelling; the gate stays
+  vacuous until then, so do not read a PASS from it.
+  **Also added:** `GOLDEN_SET`/`SCORE_EVAL_OUT` env overrides, so an A/B can run against a
+  substitute corpus while the authoritative one is empty. A substituted corpus is not the
+  gate — anything built from the strong scorer's own verdicts measures agreement, not
+  correctness.
+
 - **`capture_usage` silently stopped writing the quota snapshot, and the quota is the
   binding constraint** — `[SCORE · XS · found 2026-07-30]`. `db/scorer_usage.json` was
   last written **04:50 on 07-30** despite two later passes that both fit-scored (the

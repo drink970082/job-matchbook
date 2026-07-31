@@ -78,8 +78,15 @@ BACKEND = os.environ.get("SCORE_BACKEND", run.DEFAULT_SCORE_BACKEND)
 MODEL = (os.environ.get("CODEX_SCORE_MODEL") or run.DEFAULT_CODEX_SCORE_MODEL) \
     if BACKEND == "codex" \
     else (os.environ.get("ANTHROPIC_SCORE_MODEL") or run.DEFAULT_ANTHROPIC_SCORE_MODEL)
-GOLDEN = ROOT / "apps/worker/eval/golden.jsonl"
-OUT = ROOT / "apps/worker/eval/last_run.md"
+# The corpus, overridable the same way BACKEND/MODEL are. An A/B needs a swappable
+# corpus: as of 2026-07-31 **22 of the 23 rows in golden.jsonl name postings that are no
+# longer in the DB**, so the default corpus scores 1 row and reports PASS at 100% — a gate
+# that cannot fail. Point GOLDEN_SET at another file to measure something real meanwhile.
+# A substituted corpus is NOT the authoritative gate: golden.jsonl carries HUMAN labels,
+# and anything built from the strong scorer's own verdicts measures AGREEMENT, not
+# correctness (a challenger that is genuinely better scores as a regression).
+GOLDEN = Path(os.environ.get("GOLDEN_SET") or ROOT / "apps/worker/eval/golden.jsonl")
+OUT = Path(os.environ.get("SCORE_EVAL_OUT") or ROOT / "apps/worker/eval/last_run.md")
 OUT_BATCHED = ROOT / "apps/worker/eval/last_batched_run.md"
 # One report per --drift-probe setting ({b} = batch size) — the settings are compared
 # against each other, so a shared path would clobber the very baseline being compared to.
@@ -408,8 +415,20 @@ def score_row(conn, score_fit, resumes, row) -> dict | None:
         f"SELECT {', '.join(COLS)} FROM job_postings WHERE id=?", (row["id"],)
     ).fetchone()
     if got is None:
-        print(f"! id={row['id']} not in DB — skipped", file=sys.stderr)
-        return None
+        # A row may carry its own posting payload, which makes the corpus SELF-CONTAINED
+        # the way screen_golden.jsonl already is. That asymmetry is why this corpus
+        # decayed and that one did not: on 2026-07-31, 22 of 23 golden rows named
+        # postings no longer in the DB, so the gate silently fell to ONE row and kept
+        # reporting PASS. Labels here are hand-written and cannot be re-derived, so
+        # losing the posting loses the label. Remapping by title was tried and rejected —
+        # two different golden rows fuzzy-matched the same candidates.
+        inline = row.get("posting")
+        if inline and all(inline.get(c) for c in COLS):
+            got = tuple(inline[c] for c in COLS)
+        else:
+            print(f"! id={row['id']} not in DB and no inline posting — skipped",
+                  file=sys.stderr)
+            return None
     # `id` is required: the codex fit batches by posting["id"] (job_ref); COLS has no
     # id column, so add it explicitly (B1/B4 batch-first migration).
     posting = {**dict(zip(COLS, got)), "id": row["id"]}
