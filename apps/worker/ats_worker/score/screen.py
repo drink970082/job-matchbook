@@ -197,8 +197,9 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
 
     # Deterministic CODE gates (intern title + location string), hoisted into a
     # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.
-    # They cost nothing and ran fine even on a provider failure, so their verdict
-    # stands either way — a location-disqualified row stays disqualified.
+    # This second call can no longer CHANGE `disqualified`: anything these gates kill
+    # returned at the top. It runs to record the PASSING `location`/`internships`
+    # entries into the model's screen dict, which the UI and the fallback merge read.
     out = deterministic_screen(screen, posting, candidate)
     # `authorization` must ALWAYS record a verdict when the candidate configured it —
     # even when nothing was retrieved, so no clause was asked and no LLM call was made

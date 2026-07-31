@@ -18,8 +18,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   0, then 0**, with ~16 days of that to go before it would have reached a posting
   discovered that day. Two changes, the first load-bearing: `run_score` opens with a
   **phase-0 sweep** (`_sweep_free_gates`) running `deterministic_screen` over the whole
-  queue **outside `--score-limit`** — 0.26 ms/row over 9,390 live rows, no model, no
-  quota — and applies the budget only to what survives; and `screen_posting` runs the
+  queue **outside `--score-limit`** — 0.26 ms/row to scan, ~0.5 ms/row including the
+  committed write (~4.5s for 3,480 discards over 9,390 live rows), no model, no quota —
+  and applies the budget only to what survives; and `screen_posting` runs the
   code-side gates **before** the model call, returning on a disqualification, so a doomed
   row no longer buys a ~1.5s GPU round trip (**37% of the live `new` queue dies on those
   gates**). Verdicts are unchanged — those gates were already terminal whatever the model
@@ -29,7 +30,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   one. Driven end to end on a copy of the live DB: `3480 free-gate discarded
   (unbudgeted), then 2 row(s): ... 2 fit-scored`. `make eval-screen` reproduces its
   documented RED baseline exactly (ids 67/68/672/738, recall 31/37, 0 flips).
-  (SPEC §7.1/§9.)
+  `--score-limit` is **not** thereby a pure quota budget: an LLM screen-discard and a
+  thin-JD row still consume a slot while spending nothing (~18% of screened rows).
+  Closing that would make the per-pass model work unbounded, so it stands — on the live
+  data the difference is ~1.3 days of catch-up rather than ~16. (SPEC §7.1/§9.)
 - **`capture_usage` was never broken.** The 2026-07-30 defect — the quota snapshot
   silently not being written — root-caused on 07-31 to the documented `if _scorer_cell:`
   guard: the passes after 12:41 fit-scored nothing, so no scorer was built and the call

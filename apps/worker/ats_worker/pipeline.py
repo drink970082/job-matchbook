@@ -589,9 +589,16 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
     Free by construction: `deterministic_screen` is intern-title + location-string, no
     model and no provider. It is the same verdict `screen_posting` would reach, so a row
     swept here would have been discarded anyway — the difference is that it costs no
-    model call and, crucially, no slot in the pass's `limit` budget.
+    model call and no slot in the pass's `limit` budget.
+
+    This is the only loop in `run_score` that can write across the WHOLE queue rather
+    than a bounded slice, so a per-row write failure is contained the way every other
+    per-row failure here is: `db.save_score` commits per row, so an interrupted sweep
+    leaves partial progress the next pass simply resumes, and one `SQLITE_BUSY` past the
+    busy_timeout must not take `run_notify` down with it. Failures are counted and said
+    out loud rather than swallowed.
     """
-    survivors = []
+    survivors, write_errors = [], 0
     for row in rows:
         posting = dict(row)
         gate = score.deterministic_screen(
@@ -600,10 +607,17 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
         if not gate["disqualified"]:
             survivors.append(row)
             continue
-        db.save_score(conn, row["id"], score=0,
-                      score_detail=_score_detail(gate, disqualified=True),
-                      now=now, status="discarded")
+        try:
+            db.save_score(conn, row["id"], score=0,
+                          score_detail=_score_detail(gate, disqualified=True),
+                          now=now, status="discarded")
+        except Exception:  # noqa: BLE001 — one unwritable row must not abort the pass
+            write_errors += 1
+            continue       # stays 'new'; the next pass sweeps it again, same verdict
         tally["free"] += 1
+    if write_errors:
+        print(f"[score] WARNING: {write_errors} free-gate discard(s) could not be "
+              "written — they stay 'new' and are swept again next pass")
     return survivors
 
 
@@ -614,15 +628,22 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
 
-    `limit` > 0 caps how many 'new' rows this pass may SPEND on (operator quota
-    control): only the paid fit scorer costs quota, so a bounded first pass over a huge
-    fresh intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
-    'new' for the next pass.
+    `limit` > 0 caps how many 'new' rows this pass carries into the SCREEN phase
+    (operator quota control): only the paid fit scorer costs quota, so a bounded first
+    pass over a huge fresh intake avoids firing the whole backlog blind. 0 = no cap. The
+    remainder stays 'new' for the next pass.
 
     It does NOT cap the free deterministic gates (phase 0 below), which run over the
     whole queue: charging a quota budget for work that spends no quota is what let a
     pile of requeued location discards own the head of the queue and starve the paid
     stage entirely (2026-07-31).
+
+    **It is still not a pure quota budget, and the residual is deliberate.** A row the
+    LLM screen discards, and a thin-JD row, each consume a slot while spending no quota
+    — measured ~18% of screened rows. Closing that would mean screening until `limit`
+    SURVIVORS are found, which makes the model work per pass unbounded; the bound is
+    worth more than the last 18%. Sized from the live data the difference is ~1.3 days
+    of catch-up rather than ~16.
 
     `max_id` > 0 restricts the pass to rows with `id <= max_id` — the SELECTOR to
     `limit`'s BUDGET, applied BEFORE it. The queue is newest-first, so `limit` can only

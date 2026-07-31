@@ -71,7 +71,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   today. 3,800 were still queued; 5,590 fresh rows waited behind them.
   **The fix: `--score-limit` is a QUOTA budget and these gates spend no quota.**
   `run_score` now opens with a phase-0 sweep of `deterministic_screen` over the whole
-  queue, outside the limit (0.26 ms/row over 9,390 live rows), and `screen_posting`
+  queue, outside the limit (0.26 ms/row to scan, ~4.5s including the 3,480 writes), and `screen_posting`
   runs the code-side gates BEFORE the model call and returns on a disqualification, so
   a doomed row no longer buys a ~1.5s GPU round trip either. **37% of the live queue
   dies on those gates.**
@@ -79,6 +79,12 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (unbudgeted), then 2 row(s): ... 2 fit-scored`. Suite 850 green, worker coverage
   94.78%. `make eval-screen` reproduces the documented RED baseline **exactly** (ids
   67/68/672/738, recall 31/37, 0 flips), so the screen gate did not move.
+  **The residual the pre-merge review measured, so nobody re-discovers it:** `limit` is
+  still not a pure quota budget — an LLM screen-discard and a thin-JD row consume a slot
+  while spending nothing (~18% of screened rows), and ~320 requeued rows survive the free
+  sweep. Catch-up is ~1.3 days rather than ~16, not zero. Screening until `limit`
+  *survivors* are found would close it and make per-pass model work unbounded; the bound
+  was judged worth more.
   **This makes the standing quota framing temporarily false, so do not re-quote it
   as-is:** the last three passes spent nothing, so "quota is the binding constraint"
   describes the pre-07-30 system rather than this week's. Re-measure after the first

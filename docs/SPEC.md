@@ -685,7 +685,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   makes when it drops bodyless rows before any call. Two consequences worth naming: a
   deterministically-killed row no longer carries `provider_error` (nothing was
   attempted), and a reason string no longer joins a model-derived reason to a
-  deterministic one.
+  deterministic one — which the web's Discarded-bucket cause facet reads
+  (`DISQUALIFY_CAUSE_PATTERNS` in `apps/web/src/lib/actions.ts` matches
+  `disqualification_reason LIKE '%degree:%'` and friends), so a row failing location
+  *and* degree now appears under `location` only.
 
   `--screen-model`/`SCREEN_MODEL` overrides whichever backend's default model.
   **Auto-detection never selects a paid backend** — the default is always `ollama`
@@ -1216,12 +1219,19 @@ worker modules are pure and dependency-injected; real services are wired only in
   row `failed`. `batch_size` is harmless on the `claude` backend (which loops
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
-  pass may SPEND on (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`. It does **not** cap the free
-  deterministic gates: `run_score` opens with a **phase 0 sweep**
-  (`_sweep_free_gates`) that runs `deterministic_screen` over the whole queue and
-  discards what it kills — 0.26 ms/row, no model call, no quota — before `limit` is
-  applied to what survives. Charging a quota budget for work that spends no quota is
+  pass carries into the SCREEN phase (the `--score-limit` operator flag), bounding the
+  paid scorer over a large fresh intake; the remainder stays `new`. It does **not** cap
+  the free deterministic gates: `run_score` opens with a **phase 0 sweep**
+  (`_sweep_free_gates`) that runs `deterministic_screen` and discards what it kills —
+  0.26 ms/row to scan, ~0.5 ms/row including the committed write (~4.5s for 3,480
+  discards over 9,390 rows), no model call, no quota — before `limit` is applied to what
+  survives. The sweep runs INSIDE the `max_id` window (`max_id` filters first), so an
+  operator's `--score-max-id` selection still bounds what it may touch.
+  **`limit` is still not a pure quota budget, and the residual is deliberate:** an LLM
+  screen-discard and a thin-JD row each consume a slot while spending no quota (~18% of
+  screened rows). Closing that would mean screening until `limit` *survivors* are found,
+  which makes the model work per pass unbounded — the bound is worth more than the last
+  18%, and on the live data the difference is ~1.3 days of catch-up rather than ~16. Charging a quota budget for work that spends no quota is
   what stalled the live pipeline on 2026-07-31: `requeue_discarded` had returned 4,644
   rows to `new`, where they sort AHEAD of fresh intake, and the daemon then spent every
   pass re-killing location discards for free while fit-scoring nothing. An optional `max_id` (the
@@ -2009,8 +2019,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars, which bounds the only unbounded field against Telegram's 4096 cap — title/company/URL are not capped); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
-| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_a_deterministically_disqualified_row_never_reaches_the_provider`) |
-| The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone. `run_score` sweeps them over the WHOLE queue in phase 0, outside `--score-limit`, so a free discard never consumes a quota budget slot | `test_score.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py` (`test_the_free_gates_do_not_consume_the_score_limit`) |
+| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`). The old "unless a deterministic gate disqualified it" case is **no longer producible through `screen_posting`** (2026-07-31: those gates return before the model call, so the two flags cannot co-occur) — `run_score`'s branch for it and `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, which hand-builds that verdict, are kept as defence in depth for any other caller; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_a_deterministically_disqualified_row_never_reaches_the_provider`) |
+| The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone. `run_score` sweeps them over the whole `max_id` window in phase 0, outside `--score-limit`, so a **deterministic** discard consumes no budget slot — an LLM screen-discard and a thin-JD row still do | `test_score.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`), `test_pipeline.py` (`test_the_free_gates_do_not_consume_the_score_limit`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
