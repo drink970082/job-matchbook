@@ -1241,10 +1241,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   over the rows in DB history that would enter the screen phase under this code (40 of
   486). Closing it would mean screening until `limit` *survivors* are found, which makes
   the model work per pass unbounded; the bound is worth more than the last 8-18%, and on
-  the live data the difference is ~1.3 days of catch-up rather than ~16. Charging a quota budget for work that spends no quota is
-  what stalled the live pipeline on 2026-07-31: `requeue_discarded` had returned 4,644
-  rows to `new`, where they sort AHEAD of fresh intake, and the daemon then spent every
-  pass re-killing location discards for free while fit-scoring nothing.   **A free seniority PRE-ORDERING runs on what phase 0 leaves** (`score/seniority.py`,
+  the live data the difference is ~1.3 days of catch-up rather than ~16.
+  Charging a quota budget for work that spends no quota is what stalled the live pipeline
+  on 2026-07-31: `requeue_discarded` had returned 4,644 rows to `new`, where they sort
+  AHEAD of fresh intake, and the daemon then spent every pass re-killing location
+  discards for free while fit-scoring nothing.   **A free seniority PRE-ORDERING runs on what phase 0 leaves** (`score/seniority.py`,
   wired only on the `ollama` screen backend and only when a candidate is configured — it
   must cost no quota). It examines at most `2 x limit` rows: the model extracts
   `stated_min_years` / `stated_rank` as the JD literally states them, CODE compares
@@ -1258,8 +1259,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   reverses it row for row. The rationale, the measurement (P 0.964, 44% demoted, **0
   false demotions on `domain=match` and 0 on notified rows**) and the two keep-direction
   vetoes are docs/SCORING.md §5.7, along with what a green eval does NOT prove; the gate
-  is `make eval-seniority`.
-  An optional `max_id` (the
+  is `make eval-seniority`. An optional `max_id` (the
 `--score-max-id` flag) restricts the pass to rows with `id <= N` and is applied
 **before** `limit` — the SELECTOR to `limit`'s BUDGET. The two are not
 interchangeable: the queue below is newest-first, so `limit` can only name rows from
