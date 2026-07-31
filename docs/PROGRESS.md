@@ -240,6 +240,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   strictly better than what GPU-owning users run today. Caveat that does not go away: this
   measures the degree and sponsorship halves only, because the clearance half still cannot
   fail.
+  **And it is nearly free, which was the open cost question.** 249 luna screen calls
+  (83 rows x K=3) moved the reported window from **41% to 41%** — under the endpoint's
+  1-point resolution, so <1%, against ~12% had they billed like fit messages (~0.8
+  msg/row). Screening on `codex`/luna therefore costs a GPU-less user almost nothing
+  against the weekly budget; it is the *fit* call that is expensive. Do not read the 0 as
+  exactly zero — integer percent hides anything under a point — but the order of magnitude
+  is settled.
   **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
   paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
   measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
