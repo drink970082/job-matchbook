@@ -1293,10 +1293,23 @@ worker modules are pure and dependency-injected; real services are wired only in
   still reaches it. Never a discard: the layer is measured against the strong scorer's
   own verdicts rather than human labels, so it may decide which row gets the next paid
   call and may not delete a posting. `UPDATE job_postings SET deprioritized_at=NULL`
-  reverses it row for row. The rationale, the measurement (P 0.964, 44% demoted, **0
-  false demotions on `domain=match` and 0 on notified rows**) and the two keep-direction
-  vetoes are docs/SCORING.md §5.7, along with what a green eval does NOT prove; the gate
-  is `make eval-seniority`. An optional `max_id` (the
+  reverses it row for row. The rationale, the measurement (P **0.975**, recall 0.793,
+  **46%** demoted, **0 false demotions on `domain=match` and 0 on notified rows**) and the
+  keep-direction vetoes are docs/SCORING.md §5.7, along with what a green eval does NOT
+  prove; the gate is `make eval-seniority`.
+  **Three code-side rules decide whether a stated figure is a bar, and each exists because
+  its absence produced a wrong verdict (2026-07-31).** (1) A years figure counts only when
+  stated **as a requirement**: figures under a cap ("less than 2 years", "up to 5") and
+  ages ("18 years of age") are excluded, because reading a cap as a floor demoted postings
+  written *for* an early-career candidate. (2) A years bar the JD states **nowhere** is
+  dropped entirely — the mirror of the rank path's evidence check, which has refused
+  unevidenced ranks since the vetoes landed while the years path silently accepted them.
+  (3) The rank-cancelling veto tests the model's **raw** figure against the margin rather
+  than the clamped one: `clamp_years` returns `None` only when its input was `None`, so
+  testing mere existence let a clamped-down bar cancel a rank the JD does state, keeping
+  "Senior ..." postings as if they were open to a new grad. (1) and (2) can only remove a
+  demotion; (3) restores demotions the double-counted veto was suppressing.
+  An optional `max_id` (the
 `--score-max-id` flag) restricts the pass to rows with `id <= N` and is applied
 **before** `limit` — the SELECTOR to `limit`'s BUDGET. The two are not
 interchangeable: the queue below is newest-first, so `limit` can only name rows from

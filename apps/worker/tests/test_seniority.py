@@ -55,11 +55,48 @@ def test_the_veto_clamps_down_to_the_smallest_years_figure_the_jd_states():
     assert seniority.clamp_years(5, both) == 0        # the minimum across rungs
 
 
-def test_the_veto_can_only_ever_lower_a_bar():
+def test_the_veto_can_only_ever_lower_or_remove_a_bar():
     assert seniority.clamp_years(5, "at least 2 years") == 2
     assert seniority.clamp_years(1, "at least 4 years") == 1   # already lower, untouched
-    assert seniority.clamp_years(7, "no years mentioned") == 7  # nothing to clamp to
     assert seniority.clamp_years(None, "3 years") is None
+    # CHANGED 2026-07-31, and the old assertion was `== 7`. A years bar the posting never
+    # states is a bar with no evidence behind it — exactly what `rank_stated_in` has
+    # refused on the rank path since the vetoes landed, while this path silently accepted
+    # it. Still keep-direction: it can only ever remove a demotion.
+    assert seniority.clamp_years(7, "no years mentioned") is None
+
+
+def test_a_capped_or_age_figure_is_not_a_bar():
+    # SCORING §4.2 says a cap is entry/early-career and NOT a stated bar; the regex was
+    # collecting it anyway, so *"Less than 2 years"* read as a 2-year FLOOR and demoted a
+    # posting written for exactly this candidate (T-Mobile `Assoc Engineer, Software`).
+    assert seniority.stated_years("Less than 2 years technical experience") == set()
+    assert seniority.stated_years("up to 5 years of experience") == set()
+    assert seniority.stated_years("no more than 3 years") == set()
+    # an AGE is not experience — the same posting also said "At least 18 years of age"
+    assert seniority.stated_years("must be at least 18 years of age") == set()
+    # a real floor in the same text still counts
+    assert seniority.stated_years("Less than 2 years preferred; 4 years required") == {4}
+    # and the verdict follows: a capped figure no longer manufactures a demotion
+    assert seniority.verdict({"stated_min_years": 2},
+                             job_text="Less than 2 years technical experience") == "match"
+
+
+def test_a_clamped_bar_does_not_cancel_a_rank_the_posting_states():
+    # The compounding bug: the model reads a real 5-year bar on a "Senior ..." posting, a
+    # stray "1 year of experience with X" in the preferred qualifications clamps it to 1,
+    # and the clamped value then cancels the rank — keeping the row as if it were open to
+    # a new grad. A keep-direction correction applied twice. 34 of 61 misses.
+    jd = ("Senior Fabric Design Verification Engineer\n"
+          "5+ years of design verification experience required.\n"
+          "Preferred: 1 year of experience with formal methods.")
+    assert seniority.clamp_years(5, jd) == 1          # the clamp itself is unchanged
+    assert seniority.verdict({"stated_min_years": 5, "stated_rank": "senior"},
+                             job_text=jd) == "too_junior"
+    # a figure the candidate genuinely clears still beats the rank word (veto (b) intact)
+    open_jd = "Senior Engineer\nWe welcome candidates with 0-2 years of experience."
+    assert seniority.verdict({"stated_min_years": 0, "stated_rank": "senior"},
+                             job_text=open_jd) == "match"
 
 
 @pytest.mark.parametrize("text,expected", [

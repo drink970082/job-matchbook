@@ -39,6 +39,38 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The free seniority pre-ordering was throwing away evidence the model got right —
+  70% of its misses were code's fault, not the 4B's.** Classifying the 61 misses by cause
+  instead of counting them found three defects, all in `score/seniority.py`, and fixing
+  them moved **every** gate axis at once: precision 0.964 -> **0.975**, recall 0.757 ->
+  **0.793**, demote share 0.442 -> **0.457**, still **0** false demotions on a
+  `domain=match` or notified row (`make eval-seniority`, 446 rows, zero quota).
+  (1) *A cap is not a floor.* `stated_years` collected any number before a years token, so
+  *"Less than 2 years Technical engineering experience"* read as a 2-year **minimum** and
+  demoted a T-Mobile `Assoc Engineer` posting written for exactly this candidate — the
+  rubric had said in prose since §4.2 that a cap is entry-level and NOT a bar. The same JD
+  contributed *"At least 18 years of age"* as eighteen years of experience.
+  (2) *An unevidenced years bar is dropped.* `clamp_years` passed the model's number
+  through untouched when the JD stated no figure at all, so an invented bar survived —
+  while the rank path had refused exactly that since the vetoes landed. This is the years
+  path's missing half of `rank_stated_in`.
+  (3) *The rank-cancelling veto now compares magnitude, not existence.* `clamp_years`
+  returns `None` **iff** its input is `None`, so testing `years is not None` after the
+  clamp was the same as testing before it: a clamped-down bar silently cancelled a rank
+  the JD does state. A Microsoft *"Senior Fabric Design Verification Engineer"* stating
+  5+ years was clamped to 1 by a stray *"1 year of experience with ..."* in the preferred
+  qualifications and kept as if open to a new grad. **34 of the 61 misses.**
+  Behavior is SPEC §7.1, the contract and the full measurement SCORING §5.7. A 32-row
+  held-out slice (every row scored since the golden corpus was frozen) behaves identically
+  to the old code — 0 false demotions either way — which is a false-demotion check, not a
+  confirmation of the recall gain: it carries only 3 positives.
+  **A fourth candidate, a title-token rank floor, is measured and deliberately NOT
+  shipped.** It is the largest in-sample win available (recall -> 0.900) and it owns the
+  only held-out false demotion any candidate produced; SCORING §5.7 carries both numbers
+  and the decision is the operator's. A fifth, widening `rank_stated_in`'s vocabulary, is
+  rejected outright as provably redundant *and* a re-opening of the false-discard
+  direction §9.3 warns about.
+
 - **`capture_usage` failures now name their cause, and the "never broken" verdict is
   withdrawn.** The 2026-07-31 root cause — the passes had stopped fit-scoring, so the
   guarded call correctly never ran — was true of that window and not the whole story: the

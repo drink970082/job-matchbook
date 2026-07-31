@@ -1206,12 +1206,45 @@ degree-conditional ladder ("Master's and no experience; or Bachelor's and 3 year
 model reports one rung instead of the minimum across rungs. Measured 2026-07-30: false
 demotions 20 -> 7.
 
+**Three more code-side rules landed 2026-07-31**, after the 61 misses were classified by
+cause rather than counted. 70% of them were CODE throwing away evidence the model had
+returned correctly, not the model failing:
+
+- **A capped or age figure is not a bar.** 4.2 says so in prose - a cap ("up to N", "no
+  more than N") is entry/early-career and NOT a bar - but `stated_years` collected any
+  number sitting before a years token, so *"Less than 2 years Technical engineering
+  experience"* read as a 2-year FLOOR and demoted a T-Mobile `Assoc Engineer` posting
+  written for exactly this candidate. The same JD's *"At least 18 years of age"* was being
+  collected as eighteen years of experience.
+- **A years bar the JD states NOWHERE is dropped.** `clamp_years` passed the model's
+  number through untouched when the text stated no figure at all, so an invented bar with
+  zero textual evidence survived - while the rank path had refused precisely that since
+  the vetoes landed. This is the years path's missing half of `rank_stated_in`.
+- **The rank-cancelling veto must compare MAGNITUDE, not existence.** `clamp_years`
+  returns `None` **iff** its input is `None`, so `if years is not None` *after* the clamp
+  was equivalent to testing the raw value: the clamp lowered a real bar below the margin,
+  and the lowered value then cancelled a rank the JD does state. On a Microsoft *"Senior
+  Fabric Design Verification Engineer"* the model read 5 years, a stray *"1 year of
+  experience with ..."* in the preferred qualifications clamped it to 1, and the row was
+  kept as though open to a new grad. A keep-direction correction applied twice - once to
+  lower the bar, again to void the rank. **34 of the 61 misses.**
+
 **Measured, 446 rows, `qwen3.5:4b`, zero quota** (`make eval-seniority`): precision
-**0.964**, recall 0.757, 44% of rows demoted, 0 provider errors. But the number that
-decides this layer is not the P/R - it is WHICH rows the false demotions are: **0 of them
-are `domain=match` and 0 were ever notified.** The whole notify payoff set survives
-undemoted, so a false demotion costs a delay on a row the notify gate was going to drop
-anyway. That, not the precision, is the gate.
+**0.975**, recall **0.793**, **46%** of rows demoted, 0 provider errors - up from
+0.964 / 0.757 / 44% before those three rules, i.e. better on every gate axis at once. But
+the number that decides this layer is not the P/R - it is WHICH rows the false demotions
+are: **0 of them are `domain=match` and 0 were ever notified.** The whole notify payoff
+set survives undemoted, so a false demotion costs a delay on a row the notify gate was
+going to drop anyway. That, not the precision, is the gate.
+
+**A held-out slice exists now, and it is small.** The 32 rows scored since the golden
+corpus was frozen are the only data no threshold here was fitted on. The three rules above
+behave **identically to the pre-change code** on it - 0 false demotions either way. Its
+label mix is 29 `match` / 3 `too_junior`, so it has essentially no power to confirm a
+recall gain; read it as a false-demotion check and nothing more. Build it by reading the
+DB into a **separate** file. Do **not** use `--build-corpus`: it overwrites
+`seniority_golden.jsonl` in place, selects all 478 labelled rows rather than the new ones,
+and the file is gitignored, so one run destroys the frozen baseline unrecoverably.
 
 **What a green eval does NOT prove, and this belongs next to the numbers.** The gate is
 **in-sample** — `YEARS_MARGIN`, `SENIOR_YEARS`, both vetoes and the thresholds were all
@@ -1264,9 +1297,36 @@ re-order.
 on postings whose TITLE reads "Senior ..." / "Sr ...". A title-token floor would collect
 them — see the paragraph below for why it is not built.
 
-**Not built, deliberately:** a title-token floor for the "Senior ..." titles the model
-returns an empty object on (6 of 19 misses). That is a DISCARD-direction floor, so 9.3
-applies and it needs its own measurement first.
+**Not built, deliberately - and now MEASURED, which is why it is still not built.** A
+title-token floor for the "Senior ..." titles the model returns an empty object on. 9.3
+asked for its own measurement before building it; the measurement ran 2026-07-31 and came
+back **ambiguous**, so it stays out and the decision is the operator's:
+
+| | in-sample (446) | held-out (32) |
+|---|---|---|
+| the three rules above | P 0.975, R 0.793 | 0 false demotions |
+| + title floor | P 0.970, **R 0.900** | **1 false demotion, 0 recovered** |
+
+In-sample it is the single largest recall win available - +27 correct demotions, 35 of the
+61 misses carry a rank word in their title. Out-of-sample it produced the **only** false
+demotion any candidate produced across every combination tried (Onto Innovation, `Senior
+Software Engineer`, `domain=mismatch`, model returned nothing and the title floor fired
+alone). Both corpora still pass the gate, and 32 rows with 3 positives cannot settle it -
+which is the point: a floor that fires on a title *without* a model verdict behind it is
+exactly the unevidenced-demotion shape the vetoes exist to prevent, and the one dataset
+that could contradict it does.
+
+One narrowing is already measured and worth carrying if it is ever built: a title naming
+**both** levels ("Jr/Sr Engineer") states no single bar, and guarding on a junior token
+removed a false demotion at zero recall cost (Micron `Jr/Sr Engineer, STPG PE System`).
+
+Two candidates were measured and **rejected outright**. Widening `rank_stated_in` to
+accept any of the four ranks anywhere in the text deletes veto (a) - "lead" is a common
+verb, so an invented `principal` would be validated by prose stating no rank - and,
+narrowed to the observed `senior`->`staff`/`lead` normalisation, it turned out to be
+**provably redundant**: identical confusion matrix with and without it, because the title
+floor already covers those rows. It buys nothing and re-opens the false-discard direction
+9.3's first bullet warns about, so it is not carried.
 
 ### 5.6 Concurrency shape
 
