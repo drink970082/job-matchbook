@@ -127,8 +127,10 @@ same unit. When your work lands, the entry leaves.
 
 ### Branch and PR rules
 
-`main` is the only long-lived branch and is always releasable. Small doc fixes may go
-straight to `main`; everything substantive goes through a PR. Never force-push `main`.
+`main` is the only long-lived branch and is always releasable. **Everything goes through
+a PR, including a one-line doc fix** — a repository rule rejects a direct push to `main`
+outright (`push declined due to repository rule violations`), so the older "small doc
+fixes may go straight to main" line was advice the remote does not accept. Never force-push `main`.
 Releasing is an explicit, separate act — [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 "Branching and releases".
 
