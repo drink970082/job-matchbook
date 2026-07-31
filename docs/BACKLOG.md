@@ -357,16 +357,18 @@
     config refuses this posting". At the measured ~200-250 rows/day of drain it would
     terminally delete on the order of 5,300 rows over 30 days.
   - it would fight the one escape hatch. `--rescreen-discarded` requeues 919 hydrated
-    discards, and under the age-inclusive version the next phase-0 sweep re-kills a large
-    share of them on age alone, overwriting whatever `score_detail` they carried. **Get
-    the shape of this right before re-using it as an argument:** measured 2026-07-31,
-    881 of the 919 die at the location/intern gates *before* the stale check is
-    consulted, so the population at risk is the 38 that survive them — of which the
-    shipped title-only check re-kills **4**. The evidence that would be lost is NOT the
-    `location:` verdicts (`deterministic_screen` regenerates those byte-identically every
-    pass, so nothing is lost there) but the LLM-derived `degree:` and `authorization:`
-    ones, which nothing recomputes. Smaller in count than a first pass suggested, and
-    worse in kind.
+    discards, and under the age-inclusive version the next phase-0 sweep re-kills **26**
+    of them (22 on age alone, 2.4% of the requeued set), overwriting the `score_detail`
+    they carried. **Get the shape of this right before re-using it as an argument, because
+    two earlier versions of this bullet had it wrong:** measured 2026-07-31, 881 of the
+    919 die at the location/intern gates *before* the stale check is consulted, so the
+    population at risk is only the 38 that survive them. Of those, the age-inclusive
+    version re-kills 26 — **12 carrying `degree:` and 14 `authorization:`** — while the
+    shipped title-only check re-kills 4 (all `authorization:`). The evidence lost is NOT
+    the `location:` verdicts: `deterministic_screen` regenerates those byte-identically
+    every pass, so nothing goes missing there. It is the LLM-derived `degree:` and
+    `authorization:` ones, which nothing recomputes. Far smaller in count than the first
+    estimate of 591, and worse in kind.
   **One variant was NOT considered when this was refused, and it may be the right
   answer — it is queued, not declined.** Judge age against the row's **own
   `created_at`** rather than `now`:
@@ -379,8 +381,9 @@
   precisely the population the title half exists for, rows that entered under a looser
   knob — and after that only genuinely-stale arrivals. The refusal above treats "age" as
   indivisible; it splits cleanly along the line its own measurement draws. A second
-  unconsidered option: demote stale rows (the `deprioritized_at` column) instead of
-  discarding them, which is non-destructive by construction.
+  unconsidered option: sort stale rows last in phase 0's queue order instead of
+  discarding them — non-destructive by construction. (No column for that exists on this
+  branch; it would need one, or an ordering key.)
   If the operator does want a queue TTL, it wants the shape the 2026-07-29 sweep had — a
   deliberate run with a saved id list and a pre-run DB copy, revertible row for row — not
   a silent six-times-a-day deletion.
