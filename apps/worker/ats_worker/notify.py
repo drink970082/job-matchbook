@@ -16,23 +16,43 @@ import requests
 _API = "https://api.telegram.org/bot{token}/{method}"
 
 
-def _recommended_resume(posting: dict) -> str:
-    """The recommended resume label from the row's score_detail JSON, or ''.
+# The fit summary is model prose. It is already persisted and already sanitised, and
+# notify.py must never call a model — but a paragraph would still push the message past
+# Telegram's 4096-char limit and turn a match into a raise against the retry budget.
+_SUMMARY_MAX = 300
+
+
+def _detail(posting: dict) -> dict:
+    """The row's score_detail JSON as a dict, or {}.
 
     Defensive by design: score_detail is a DB string column that may be NULL,
-    empty, malformed, or predate this feature — every bad shape means 'no line',
+    empty, malformed, or predate any given feature — every bad shape means 'no line',
     never a crash that would count against the notify retry budget.
     """
     raw = posting.get("score_detail")
     if not isinstance(raw, str) or not raw.strip():
-        return ""
+        return {}
     try:
         detail = json.loads(raw)
     except json.JSONDecodeError:
+        return {}
+    return detail if isinstance(detail, dict) else {}
+
+
+def _recommended_resume(posting: dict) -> str:
+    """The recommended resume label from the row's score_detail JSON, or ''."""
+    return str(_detail(posting).get("recommended_resume") or "").strip()
+
+
+def _fit_summary(posting: dict) -> str:
+    """The scorer's one-line bottom-line fit, or ''. This is the part of the scorecard
+    with decision value — the routing turns on the verdicts, and the summary is what
+    says why — so it rides the alert next to the raw score."""
+    assessment = _detail(posting).get("assessment")
+    if not isinstance(assessment, dict):
         return ""
-    if not isinstance(detail, dict):
-        return ""
-    return str(detail.get("recommended_resume") or "").strip()
+    summary = " ".join(str(assessment.get("summary") or "").split())
+    return summary[:_SUMMARY_MAX - 3] + "..." if len(summary) > _SUMMARY_MAX else summary
 
 
 def notify_posting(
@@ -49,10 +69,12 @@ def notify_posting(
     nothing, so the caller's failure handling can't leave a half-sent alert.
     """
     recommended = _recommended_resume(posting)
+    summary = _fit_summary(posting)
     text = (
         f"New match: {posting.get('company_name', '')}\n"
         f"Role: {posting.get('job_title', '')}\n"
         f"Score: {posting.get('score', '')}\n"
+        + (f"Fit: {summary}\n" if summary else "")
         + (f"Resume: {recommended}\n" if recommended else "")
         + f"{posting.get('job_url', '')}"
     )

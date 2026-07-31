@@ -15,8 +15,12 @@ walks the order):
 
 - **[`docs/SPEC.md`](./docs/SPEC.md)** — what the system *is*: the capability map,
   data model, behaviors & invariants. Source of truth.
-- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — the *delta* only: in flight and open.
-  Completed work lives in `SPEC.md`, history in `CHANGELOG.md`.
+- **[`docs/PROGRESS.md`](./docs/PROGRESS.md)** — the *delta* only: in flight, the pick
+  order, quota, open defects. Completed work lives in `SPEC.md`, history in
+  `CHANGELOG.md`. Two files hang off it and are loaded on demand, not by default:
+  **[`docs/BACKLOG.md`](./docs/BACKLOG.md)** (the open catalogue — unverified/deferred
+  and enhancements) and **[`docs/REJECTED.md`](./docs/REJECTED.md)** (proposals
+  evaluated and turned down — read your block's entry before proposing a redesign).
 - **[`docs/PRINCIPLES.md`](./docs/PRINCIPLES.md)** — the design DNA, for design forks.
   Includes the four-way uncertainty policy (keep · fail loud · circuit break · retry)
   — "err toward keep" is only one row.

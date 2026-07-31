@@ -5,7 +5,9 @@
 > code. When code and this spec disagree, that is a bug in one of them — fix it,
 > don't let them drift. New work should update this file in the same change.
 >
-> Companion documents: [`PROGRESS.md`](./PROGRESS.md) (live status + open work),
+> Companion documents: [`PROGRESS.md`](./PROGRESS.md) (live delta: in flight, the pick
+> order, open defects) and its two on-demand halves [`BACKLOG.md`](./BACKLOG.md) (the
+> open catalogue) + [`REJECTED.md`](./REJECTED.md) (turned-down proposals),
 > [`../CHANGELOG.md`](../CHANGELOG.md) (release history),
 > [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (conventions).
 
@@ -1003,11 +1005,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   **Quota telemetry (`score/usage.py`, free).** After a scoring pass that actually
   built a scorer, `run_once` makes **one** HTTP GET against the active backend's own
   usage endpoint and writes a snapshot to `scorer_usage.json` in the shared db dir
-  (`{backend, plan_type, limits:[{key, used_percent, window_minutes, resets_at}]}`).
+  (`{backend, plan_type, as_of, limits:[{key, used_percent, window_minutes, resets_at}]}`).
   Best-effort by contract: `capture_usage` never raises, and a failed fetch leaves the
   PREVIOUS snapshot in place rather than truncating it — a transient 429 should dim the
   bar's freshness (the web reads file mtime as `as_of`), not blank it. The write is
-  atomic (tmp + `os.replace`, tmp name keyed by pid+thread). Endpoints:
+  atomic (tmp + `os.replace`, tmp name keyed by pid+thread). **A failed capture is
+  announced**: `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`,
+  and the write stamps an offset-aware `as_of` into the snapshot itself — a stale
+  reading and a fresh one are otherwise indistinguishable to anything but `ls -la`, and
+  this file is the instrument the `--score-limit` decisions are made on. Endpoints:
   - **codex** — `GET https://chatgpt.com/backend-api/codex/usage`, bearer token +
     `chatgpt-account-id` from `$CODEX_HOME/auth.json`. Yields `plan_type` and
     `rate_limit.primary_window`/`secondary_window` (`used_percent`,
@@ -1091,8 +1097,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   **There is no local experience/years gate** — seniority is judged by the Claude
   scorecard's verdict + floor, not a deterministic code check.
 - **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
-  score / JD link, plus an optional `Resume: <label>` line when `score_detail`
-  carries `recommended_resume`) — a single atomic message per match; the human
+  score / JD link, plus an optional `Fit: <summary>` line from
+  `score_detail.assessment.summary` and an optional `Resume: <label>` line when
+  `score_detail` carries `recommended_resume`) — a single atomic message per match; the
+  human
   applies by hand. **Telegram is optional:** if `TELEGRAM_BOT_TOKEN` /
   `TELEGRAM_CHAT_ID` are absent from `.env`, `run_once` skips `run_notify` and matched
   rows stay `scored` — still visible in the web Discovered Jobs Matched bucket
@@ -1981,6 +1989,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
+| Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars, which bounds the only unbounded field against Telegram's 4096 cap — title/company/URL are not capped); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
@@ -2041,6 +2050,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_score.py` (`test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`, `test_codex_scorer_always_stays_ephemeral`), `test_run.py` (`test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored`, `test_run_once_skips_the_quota_fetch_when_nothing_was_scored`) |
+| A failed quota capture is announced, not swallowed (`[quota] WARNING` on a `False` return), and every written snapshot carries an offset-aware `as_of` so a stale reading is legible without an mtime check | `test_score.py` (`test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py` (`test_a_failed_quota_capture_is_announced_not_swallowed`) |
 | `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
@@ -2320,8 +2330,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
-| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
-| `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — the gate `screen.txt` never had. **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants — including that a row labeled as a **bar** carries that requirement's vocabulary in its own excerpt+title (`unsupportable_bars`). That is a check on the CORPUS, not the model: an excerpt truncated before the sentence its label rests on is a guaranteed miss for any model or prompt, so recall computed over it is meaningless. Only the bar direction is asserted — for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
+| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path, and `CODEX_SCORE_MODEL` / `ANTHROPIC_SCORE_MODEL` A/B the model — the same vars `run.py` reads, so eval-model == production-model by default and an override is honoured rather than silently ignored). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
+| `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — the gate `screen.txt` never had. **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend, and the run mirrors production's model resolution exactly — `OLLAMA_MODEL` / `SCREEN_MODEL` **and** `OLLAMA_NUM_CTX`, which feeds both the screener and `screen_posting`'s `num_ctx*2` JD cap; the report header names the model actually used (the real `DEFAULT_*_SCREEN_MODEL`, not "backend default"), since that is what an A/B is diffed on. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants — including that a row labeled as a **bar** carries that requirement's vocabulary in its own excerpt+title (`unsupportable_bars`). That is a check on the CORPUS, not the model: an excerpt truncated before the sentence its label rests on is a guaranteed miss for any model or prompt, so recall computed over it is meaningless. Only the bar direction is asserted — for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 
@@ -2370,7 +2380,9 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 
 ## 14. References
 
-- **Status & open work:** [`PROGRESS.md`](./PROGRESS.md)
+- **Status (in flight, pick order, defects):** [`PROGRESS.md`](./PROGRESS.md); the open
+  catalogue is [`BACKLOG.md`](./BACKLOG.md), turned-down proposals
+  [`REJECTED.md`](./REJECTED.md)
 - **Release history:** [`../CHANGELOG.md`](../CHANGELOG.md)
 - **Contributor conventions:** [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Design principles (decision DNA):** [`PRINCIPLES.md`](./PRINCIPLES.md)

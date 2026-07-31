@@ -236,6 +236,15 @@ def load_golden() -> list[dict]:
     return rows
 
 
+# `claude-code` is absent on purpose: make_claude_code_extract(None) lets the CLI pick,
+# so there is no constant here to name.
+_BACKEND_DEFAULT_MODEL = {
+    "codex": run.DEFAULT_CODEX_SCREEN_MODEL,
+    "claude-api": run.DEFAULT_CLAUDE_SCREEN_MODEL,
+    "openai-api": run.DEFAULT_OPENAI_SCREEN_MODEL,
+}
+
+
 def run_live() -> int:
     backend = os.environ.get("SCREEN_BACKEND", run.DEFAULT_SCREEN_BACKEND)
     if backend == "none":
@@ -252,10 +261,17 @@ def run_live() -> int:
     # production-model, and mislabels any A/B.
     ollama_model = os.environ.get("OLLAMA_MODEL") or run.DEFAULT_OLLAMA_MODEL
     screen_model = os.environ.get("SCREEN_MODEL") or None
+    # Same reason, same premise: run.main threads OLLAMA_NUM_CTX into BOTH the screener
+    # and screen_posting (the JD truncation cap is num_ctx*2), so an eval that ignored it
+    # would run a different context window than production wherever it is set.
+    num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
     extract = run.make_screener(backend, env=dict(os.environ), http=requests,
-                                model=ollama_model, screen_model=screen_model)
-    model = ollama_model if backend == "ollama" else (screen_model
-                                                      or f"{backend} default")
+                                model=ollama_model, screen_model=screen_model,
+                                num_ctx=num_ctx)
+    # Name the model the run will ACTUALLY use. "{backend} default" is what a reader
+    # diffs across A/B runs, and it names nothing.
+    model = ollama_model if backend == "ollama" else (
+        screen_model or _BACKEND_DEFAULT_MODEL.get(backend) or f"{backend} default")
 
     rows = load_golden()
     results = []
@@ -263,7 +279,8 @@ def run_live() -> int:
         posting = posting_of(row)
         draws = []
         for _ in range(K):
-            out = score.screen_posting(posting, extract=extract, candidate=CANDIDATE)
+            out = score.screen_posting(posting, extract=extract, candidate=CANDIDATE,
+                                       num_ctx=num_ctx)
             if out.get("provider_error"):
                 print(f"\nprovider error on row {row['id']} — the backend is down; "
                       f"a run against a dead provider proves nothing.", file=sys.stderr)

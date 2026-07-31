@@ -397,8 +397,12 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # the pass just spent. Only when the scorer was actually built: a pass that
         # scored nothing spent nothing, and re-fetching would just move `as_of` forward
         # on an unchanged reading. Best-effort by contract (never raises).
-        if _scorer_cell:
-            capture_usage(usage_path, score_backend)
+        # A failed capture is announced rather than swallowed: quota is the binding
+        # constraint and this file is the instrument the spend decisions read, so a
+        # silently stale snapshot costs a wrong `--score-limit`, not just a dim bar.
+        if _scorer_cell and not capture_usage(usage_path, score_backend):
+            print(f"[quota] WARNING: no {score_backend} usage snapshot written — "
+                  f"{usage_path} still holds the PREVIOUS reading (check its as_of)")
 
         # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
         # rows show there at 'scored', not just 'notified') can run with no bot creds.
