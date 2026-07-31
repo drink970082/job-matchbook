@@ -59,6 +59,36 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED from
+  2026-07-31 11:47 EDT** `[SCORE · M · operator away, 60-call budget authorized]`.
+  Branches, one per phase: **`docs/quota-levers-plan`** (this claim, the plan, the
+  ledger), **`fix/seniority-veto-evidence`** (Phase 3), and a Phase 1 branch for the
+  caching fix. Plan and full sequence:
+  [`superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md`](./superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md);
+  spend is logged per call in
+  [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
+  **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
+  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.** The
+  ChatGPT-subscription quota has been **per-token credits since April 2026**, not
+  message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
+  `SCORING.md:986-991` already flagged message-bound as an unmeasured working assumption
+  and named the missing instrument; the instrument turns out to be the codex **rollout
+  files**, which carry exact per-call `input_tokens` / `cached_input_tokens`.
+  Two consequences, both measured over 158 production calls: our prompt is only **~39%**
+  of what a call bills (6,512 of 16,775 tok; 7,332 is itemised codex CLI harness and
+  ~2,931 is unattributed), and **prefix caching is capped by one line** —
+  `backends_codex.py:113` opens a fresh `TemporaryDirectory()` passed as `-C` at `:133`,
+  and that random path is echoed into the prompt at `<environment_context><cwd>` ahead of
+  the whole scoring prefix. Every cache hit stops at **exactly 11,008 tokens** (86 x 128),
+  42 times out of 42, so the ~5,500-token rubric+profile+résumé prefix is re-billed fresh
+  on every call — and only **27%** of calls cache anything at all (positions 0-5 of every
+  burst miss 100% of the time under `score_workers=4`).
+  **Work happens in separate worktrees** so the daemon never imports experimental code;
+  `main` stays checked out and running in the primary tree. Worktrees and branches are
+  removed when the run finishes.
+
+- **The seniority pre-ordering is live and now MEASURED in production**
+  `[SCORE · M · shipped 2026-07-31, first live passes same day]`. The layer, its eval gate
 - **`capture_usage` 403 mitigation — branch `fix/capture-usage-403-retry`, landed,
   awaiting merge** `[SCORE · XS · PR #63]`. The cause is named (HTTP 403); the mechanism
   is not, and the retry is a mitigation with a measured residual rather than a closure.
@@ -83,10 +113,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Behavior is SPEC §7.1, the contract and the measurement are SCORING §5.7, and the shape
   decisions are in
   `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.
-  **What is left is one measurement, not code:** no live pass has run with the layer on,
-  so the demote rate, the GPU cost per pass and the effect on paid-call yield are all
-  projections from the 446-row eval. Read the first `[seniority] pre-ordering ON` pass in
-  the journal before quoting any of them.
+  **First two live passes, 2026-07-31** (the entry previously said none had run):
+
+  | pass (EDT) | deprioritized | rows scored | fit-scored | sent for confirmation |
+  |---|---|---|---|---|
+  | 04:42 | 16 | 40 | 7 | 4 |
+  | 08:44 | 9 | 40 | **34** | 6 |
+
+  25 rows carry `deprioritized_at`. The 04:42 pass also cleared 3,646 rows through the
+  free gates unbudgeted. **What is still unmeasured is the GPU cost per pass and the
+  effect on paid-call yield** — two passes with very different fit-scored counts is not a
+  rate. `candidate.years_experience` is absent from `config.yaml`, so the layer runs at
+  the 0-year default; the operator confirmed 0 is correct on 2026-07-31.
 
 - **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
   passes of 2026-07-30/31 were effectively stalled — 4 rows fit-scored, then 0, then 0 —
