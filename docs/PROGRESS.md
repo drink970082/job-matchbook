@@ -59,6 +59,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **`capture_usage` 403 mitigation — branch `fix/capture-usage-403-retry`, landed,
+  awaiting merge** `[SCORE · XS · PR #63]`. The cause is named (HTTP 403); the mechanism
+  is not, and the retry is a mitigation with a measured residual rather than a closure.
+  Details under Defects. Also hardens the test suite: it was reaching the operator's real
+  `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
+  rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
+  runs in 15.9s instead of 20s.
+
 - **The seniority pre-ordering is built and gated, but NOTHING has measured it live**
   `[SCORE · M · shipped 2026-07-31, unmeasured in production]`. The layer, its eval gate
   (`make eval-seniority`), the `deprioritized_at` ordering column, the
@@ -482,17 +490,27 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
   CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
   on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) DIAGNOSED AND FIXED 2026-07-31 12:48 — the cause is an intermittent Cloudflare
-  403, not the account.** The instrumentation shipped that morning named it on the FIRST
+  time. **(1) The cause is NAMED as of 2026-07-31 12:48 — HTTP 403. What produces it is still
+  open, and the retry shipped for it is a mitigation, not a closure.** The instrumentation shipped that morning named it on the FIRST
   failing pass after it landed: the 12:00 pass fit-scored 26 rows and printed
   `[quota] https://chatgpt.com/backend-api/codex/usage returned HTTP 403 (Forbidden)`.
-  That is candidate (a) below, and the follow-up rules out the rate-limit reading of it:
-  called by hand seconds later the same endpoint gave **403, then 200, then 403 again
-  inside forty seconds**. A 200 between two 403s is not a burst limit — and this endpoint
-  is already known to 403 on the client name alone (`_USER_AGENT`, verified 2026-07-29),
-  so it is the WAF. Remedy is two short retries rather than a backoff (`fix/capture-usage-403-retry`):
-  live, the bare fetch failed roughly 2 calls in 3 and the retrying one succeeded 3 for 3.
-  Candidates (b) and (c) below were never needed. The historical framing follows.
+  That is candidate (a) below by status — but **the follow-up does NOT rule out the
+  rate-limit reading, and an earlier version of this entry wrongly said it did.** Called by
+  hand seconds later the endpoint gave 403, then 200, then 403 inside forty seconds; that
+  alternation is exactly what a limiter sitting near its threshold produces, and Cloudflare
+  rate-limit rules commonly answer 403 rather than 429. The hand calls also came from a
+  different client than the in-pass failure, so they may not sample the same thing at all
+  — the same "measure by driving, not reimplementing" trap as the `now=None` incident.
+  Candidates (b) and (c) are **unobserved, not excluded**; (c) is in fact now retried by
+  the same change.
+  **Mitigation shipped** (`fix/capture-usage-403-retry`): 4 attempts on a growing 2/8/20s
+  schedule, agnostic between the two hypotheses because the evidence cannot separate them.
+  **It does not end the staleness** — at the ~2-in-3 per-call failure rate observed, four
+  attempts still leave roughly 20% of passes without a snapshot, and three consecutive
+  hand-call successes cannot tell 70% from 100%. **The measurement that would settle it is
+  the WARNING rate across passes over days**, not more hand calls. The remedy that
+  sidesteps the question — capture usage at pass START, before the account is hot — is in
+  `BACKLOG.md`. The historical framing follows.
   **(1) was REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
   NOT the whole story.** The 08:00 pass fit-scored **34** rows and still wrote no
   snapshot, and the shipped WARNING is what said so — the first time this failure has

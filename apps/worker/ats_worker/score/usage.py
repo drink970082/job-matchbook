@@ -1,7 +1,8 @@
 """Fit-backend quota telemetry: read the operator's remaining budget from the
 provider's own usage endpoint and persist a small snapshot for the web UI's bar.
 
-One HTTP GET per score pass, against whichever backend actually scored. Both
+One HTTP GET per score pass against whichever backend actually scored, retried
+on a retryable failure (see `_ATTEMPTS`). Both
 providers answer with the same three facts — a plan name, a percent used, and when
 the window resets — so `_snapshot` folds them into one shape and the web bar renders
 either without branching.
@@ -33,14 +34,27 @@ import urllib.request
 from datetime import datetime
 
 _TIMEOUT = 10
-# Two retries, seconds apart — NOT a backoff. MEASURED 2026-07-31: the 12:00 pass
-# fit-scored 26 rows and the usage fetch returned 403; called by hand straight after, the
-# same endpoint gave 403, then 200, then 403 again inside forty seconds. A 200 sitting
-# between two 403s is a Cloudflare WAF blip (see `_USER_AGENT` — this endpoint 403s on the
-# client name alone), not a sustained block after a burst of paid calls, so a long backoff
-# would be the wrong remedy and a couple of quick retries is the right one.
-_RETRIES = 3
-_RETRY_SLEEP = 2.0
+# WHAT IS MEASURED: the 12:00 pass on 2026-07-31 fit-scored 26 rows and the usage fetch
+# returned HTTP 403 (named by the diagnostics #60 shipped that morning). Hand-calling the
+# same endpoint straight after gave 403, then 200, then 403 inside forty seconds.
+#
+# WHAT IS NOT ESTABLISHED, and the distinction picks these numbers: that this is a WAF
+# blip rather than a rate limit. Cloudflare rate-limiting rules commonly answer **403**,
+# not 429, and a limiter sitting near its threshold produces exactly the alternation
+# above — so the observation is equally consistent with the hypothesis it first appeared
+# to rule out. The hand calls also came from a different client than the in-pass failure,
+# so they may not even be sampling the same phenomenon.
+#
+# So the schedule is deliberately AGNOSTIC: spacing that grows past the only interval at
+# which the state was ever observed to change (20s), which covers a transient blip on the
+# early attempt and a short-lived limiter on the late one. A flat 2s schedule would fit
+# three attempts inside four seconds — shorter than the single sampling interval any
+# transition was seen at, so its attempts would be far more correlated than the
+# alternation that motivated them.
+#
+# Read at CALL time, not bound as a default, so a test can shorten them (see `_get_json`).
+_ATTEMPTS = 4
+_RETRY_SLEEPS = (2.0, 8.0, 20.0)
 
 CODEX_USAGE_URL = "https://chatgpt.com/backend-api/codex/usage"
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -73,19 +87,31 @@ def _read_json(path: str):
         return None
 
 
-def _get_json(url: str, headers: dict, *, attempts: int = _RETRIES, sleep=time.sleep):
-    """GET with a couple of quick retries — diagnostics live in `_get_json_once`.
+def _get_json(url: str, headers: dict, *, attempts: int | None = None, sleep=None):
+    """GET with bounded retries — the diagnostics live in `_get_json_once`.
 
     Only *transport-ish* failures are retried. A 401 (not logged in) and a 404 are
     verdicts rather than blips, and retrying them only delays the same answer.
+
+    `attempts`/`sleep` default to the module constants **read at call time**, so a test
+    can shorten the schedule by passing them. Do not re-bind them as parameter defaults:
+    a default is evaluated at def time, which silently ignores both a monkeypatched
+    `time.sleep` and a monkeypatched `_ATTEMPTS`.
+
+    Worst case this costs `attempts * _TIMEOUT + sum(_RETRY_SLEEPS)` = **70s**, once per
+    pass, inside `pass_lock`. That bound is hit by a hanging endpoint, not by the 403
+    this targets, and a pass runs ~55 minutes.
     """
+    attempts = _ATTEMPTS if attempts is None else attempts
+    sleep = time.sleep if sleep is None else sleep
     for attempt in range(1, attempts + 1):
         data, retryable = _get_json_once(url, headers)
         if data is not None or not retryable:
             return data
         if attempt < attempts:
-            print(f"[quota] retrying {url} ({attempt + 1}/{attempts})")
-            sleep(_RETRY_SLEEP)
+            delay = _RETRY_SLEEPS[min(attempt - 1, len(_RETRY_SLEEPS) - 1)]
+            print(f"[quota] retrying {url} in {delay:.0f}s ({attempt + 1}/{attempts})")
+            sleep(delay)
     return None
 
 
@@ -111,9 +137,9 @@ def _get_json_once(url: str, headers: dict):
     200 — real, intermittent, undiagnosed. One line naming the cause is what closed it,
     and a diagnostic on the failure path costs nothing on the happy one.
 
-    **DIAGNOSED 2026-07-31 12:48, by that line, on the first failing pass after it
-    shipped:** `HTTP 403 (Forbidden)`, from Cloudflare rather than from the account —
-    see `_RETRY_SLEEP` for the measurement that rules out a rate limit.
+    **The cause was NAMED 2026-07-31 12:48 by that line, on the first failing pass after
+    it shipped:** `HTTP 403 (Forbidden)`. What produces the 403 is still open — see
+    `_ATTEMPTS` for what the follow-up does and does not establish.
     """
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
@@ -130,8 +156,10 @@ def _get_json_once(url: str, headers: dict):
         # is exactly when this runs — and 5xx is theirs. `urlopen` RAISES for these
         # rather than returning them, so the `resp.status` check above never sees one.
         print(f"[quota] {url} returned HTTP {exc.code} ({exc.reason})")
-        # 401/404 are verdicts; 403 (Cloudflare, measured intermittent), 429 and 5xx are
-        # worth another go a couple of seconds later.
+        # 401/404 are verdicts, not blips — retrying "not logged in" only delays the same
+        # answer while a pass waits. Everything else (403, 429, 5xx) gets another go on
+        # the growing schedule above, which is sized for a short-lived limiter as much as
+        # for a transient blip precisely because the two are not distinguishable here.
         return None, exc.code not in (401, 404)
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         # http.client.HTTPException is in the tuple deliberately: IncompleteRead and

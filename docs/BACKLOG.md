@@ -17,6 +17,17 @@
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Capture the quota snapshot at pass START, not after the fit phase** —
+  `[SCORE · XS · would sidestep the 403 entirely]`. `capture_usage` runs at the end of a
+  pass, i.e. immediately after a burst of paid calls on the same account. That is exactly
+  the moment a rate limiter would refuse, and the 403 this system keeps hitting is
+  consistent with (though not proven to be) one. Capturing before the fit phase costs the
+  same single call and lands it when the account is cold.
+  **The trade is what the bar shows:** a pre-pass snapshot omits the pass's own spend, so
+  the web bar would lag by one pass. Capturing at both ends doubles the call but is still
+  free of quota. **Decide only after the WARNING rate has been measured across days** — if
+  the retry (PR #63) drops it near zero, this is unnecessary complexity.
+
 - **The blind-backend residual: `sponsorship_labels: null` and `[]` still reach the phrase
   floor** — `[SCREEN · open by decision, the operator's call]`. The defect this came from
   shipped a fix 2026-07-29 (SPEC §7.1 + §9, CHANGELOG); the fork it left open is stated as
