@@ -163,6 +163,26 @@
   `_score_detail:369` owns the `assessment` wrapper, so every key `get_notifiable` reads
   is produced by code that test exercises. Proven by mutation: renaming the `seniority`
   output key flips `hi` from `notified` to `scored` and reds the test. No new test needed.
+- **Five ways to cut paid fit spend, all evaluated 2026-07-30/31 and all rejected
+  (scoring).** Recorded so the obvious moves are not re-derived when quota is next the
+  binding constraint; the one that survived is the free seniority pre-ordering (SCORING
+  §5.7).
+  - **Swap the fit model to a cheaper tier.** SCORING §8.7 measured it losing on real JDs
+    on both gate axes (agreement 76% vs 86%, flip-rate 38% vs 29%) after winning a
+    synthetic probe, and §9.1 puts calibrated numbers and domain judgment on the
+    strong-model-only side. Even at 2x the calls it does not reach steady state.
+  - **A compressed "candidate card" replacing the résumés.** The quota premise was never
+    demonstrated, and SCORING §8.4 makes candidate evidence the most destabilising input
+    to `domain` — the one axis the notify gate turns on.
+  - **A cheap-model -> strong-model cascade.** SCORING §9.3's second-vote hazard: the
+    cheap model's verdict becomes evidence the strong one is asked to confirm.
+  - **A stronger local screen.** Only one confirmation route existed in the sampled week,
+    and it cannot touch `domain` at all.
+  - **Shadow-running the existing prefilters for the reduction.** `fetch.prefilter_postings`
+    is title keep/exclude + `posted_at` age and `feed/prefilter.py` is
+    active/category/sponsorship metadata — the rows in question are **already their
+    output**, so there is nothing left to shadow.
+
 - **Score shape changes — evaluated 2026-07-23 · four already shipped, two rejected ·
   do not re-derive.** A review proposed nine reshapes of the fit scorer. The genuinely
   open ones are filed above (provenance, domain/seniority structuring behind the screen

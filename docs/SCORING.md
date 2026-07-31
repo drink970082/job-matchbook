@@ -982,6 +982,14 @@ fit(postings: list[dict], resumes: dict) -> list[dict]   # one card per posting,
 Batch-first, one process invocation per call. The subscription quota is **message-bound,
 not token-bound**, so batching N postings into a single call is the actual quota win.
 
+**That premise is UNVERIFIED, and the cheap experiment that would settle it cannot be
+run.** The obvious test — two calls of very different token counts, watch the meter —
+needs resolution the meter does not have: `used_percent` is an **integer** and the
+provider's `limits[]` carries no credits/units field (`score/usage.py` passes the value
+through unmodified), so a single call moves it by roughly 0.05% and reads as zero. Every
+batching argument below rests on message-bound being true; treat it as a working
+assumption with no measurement behind it, not as a finding. Measured 2026-07-30.
+
 - Each JD gets a `=== JOB job_ref=<id> ===` block, and the schema demands the same
   `job_ref` come back on every element in a `{"results": [...]}` envelope.
 - Results are realigned to input order **by that tag, never positionally** - a model is
@@ -1221,15 +1229,40 @@ harm".
 unlike the paid backend (8.6). The corollary is the trap: the errors are systematic and
 will never average out. Do not quote a clean run as robustness.
 
-**It is free only where it is local.** The layer is wired on the `ollama` screen backend
-and nowhere else: on a paid screen backend it would spend money to save money, which is
-not the trade it was measured for. It is also off when no candidate is configured.
+**It is free only where it is local, and free means no QUOTA rather than no TIME.** The
+layer is wired on the `ollama` screen backend and nowhere else: on a paid screen backend
+it would spend money to save money, which is not the trade it was measured for. It is
+also off when no candidate is configured. The time is real and worth knowing before
+scheduling a bulk run: **1.58 s/row measured, single worker** — the GPU serialises, so
+concurrency buys nothing — which puts ordering a whole ~9,300-row backlog at about
+**4h05m of GPU for $0.00**. In a normal pass the cap keeps it near two minutes.
 
 **Its prompt is its own file** (`prompts/seniority.txt`), gated by its own
 `make eval-seniority`. Folding the clause into `screen.txt` would cost zero extra calls -
 the screen already runs on every row - but it would put the degree / authorization /
 clearance extractions behind this layer's gate too. Worth revisiting once both gates have
 been green across a few changes; the merge is a pure cost win and nothing else.
+
+**Three findings from the 2026-07-30/31 runs that are easy to re-derive expensively, so
+they are recorded here rather than left in a PROGRESS entry that rotates out.**
+
+*Invention was not the failure mode.* `stated_rank` was fabricated **0 times in 62**, and
+`stated_min_years` 3 times in 272 (1.1%) — only one of which created a bar, and the strong
+scorer agreed on all 12 invention-driven demotions. The model also correctly declined
+*"work closely with more senior developers"* and *"seek guidance from senior engineers"*
+as rank bars. **Mis-selection from a stated ladder is the problem, not hallucination**,
+which is why the veto clamps rather than the prompt scolding.
+
+*Two rows where the STRONG scorer drifted from its own rubric and the free layer was
+right:* ids 65540 and 58344, Amazon SDE2 postings it called `too_junior` reasoning from
+"autonomous contributor" — 4.2 says verbatim that implied ownership or autonomy is not
+seniority, and `SDE2` is not one of the four ranks. Concrete corroboration that these are
+the strong scorer's labels, not truth, which is the whole reason this layer may only
+re-order.
+
+*Free money left on the table:* 6 of the 19 misses are the model returning an empty object
+on postings whose TITLE reads "Senior ..." / "Sr ...". A title-token floor would collect
+them — see the paragraph below for why it is not built.
 
 **Not built, deliberately:** a title-token floor for the "Senior ..." titles the model
 returns an empty object on (6 of 19 misses). That is a DISCARD-direction floor, so 9.3

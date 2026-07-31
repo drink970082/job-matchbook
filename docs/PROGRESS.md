@@ -42,7 +42,7 @@ therefore about spend and intake, not about whether the pipeline works — see I
 **Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
 paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
 of them buy a "no". Seniority is the half a *free* local extraction can reach, and it was
-measured on 07-30 and passed — see the first In-flight entry.
+measured on 07-30 and passed — see the seniority entry under In flight.
 
 **QUOTA IS THE STANDING PRIORITY as of 2026-07-31 (operator's call).** Work that is not a
 quota lever waits. The gap, the three levers that move it, and the two measured dead ends
@@ -72,120 +72,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   the journal before quoting any of them.
 
 - **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
-  passes of 2026-07-30/31 spent nothing at all (4 rows fit-scored, then 0, then 0)
-  because free work was consuming the paid budget; that is fixed and merged (#54), but
-  every "quota is the binding constraint" number below describes the pre-07-30 system.
-  **Re-measure after the first normal pass on the fixed code.** The residual the review
-  measured, so nobody re-discovers it: `--score-limit` is still not a pure quota budget
-  — an LLM screen-discard and a thin-JD row each consume a slot while spending nothing
-  (~18% of screened rows over the 07-29 live passes, 8.2% over DB history) — so catch-up
-  is ~1.3 days rather than ~16, not zero.
-
-  **The finding is the verdict matrix.** Over the 396 rows scored in the 7 days to
-  2026-07-30: `domain` came back **mismatch 298 (75%) / adjacent 72 (18%) / match 24
-  (6%)**, and `seniority` came back **too_junior on 214 (54%)**; 175 (44%) are both.
-  All 14 notified rows are `domain=match`; the other 10 match rows split 7 `too_junior`
-  + 3 `insufficient_context`, exactly as the §6 predicate implies. **96% of paid calls
-  buy a "no".**
-  **The lever this points at is seniority, not domain.** SCORING §4.2 measures seniority
-  ONLY against a bar the JD states explicitly (a years number or a senior/lead/staff/
-  principal rank; no bar stated → `match`). That is the closed-vocabulary bounded
-  extraction SCORING §9.1 lists as *weak-model-capable*, and the same shape change that
-  fixed degree in §8.1 — model lists `stated_min_years` / `stated_rank`, **code**
-  compares against the candidate's STAGE. `domain` cannot move here: it needs the profile
-  and the résumé, and §9.1 puts it strong-model-only.
-  **It must be a re-ordering, not a new filter.** The queue is most-recently-touched-first
-  (below); sending free-layer `too_junior` rows to the BACK leaves them in `new` alongside
-  the existing 9,218 — observable, searchable, reversible — so a false negative costs a
-  delay, not a deleted posting. No new `pipeline_status`, no skip-reason column, no paid
-  audit sample. **This framing is load-bearing:** the 396 labels are *Sol's verdicts, not
-  human labels*, so the training/validation set inherits Sol's errors. Good enough for a
-  prioritizer; **not** good enough for a terminal discard.
-  **THE FREE STEP RAN 2026-07-30 AND IT PASSED — `qwen3.5:4b`, zero quota, zero DB
-  writes.** Over 446 rows (same corpus, ~50 larger by then; **251** `too_junior` / 195
-  `match`), the model emitting only `{stated_min_years, stated_rank}` and CODE applying
-  `>= 2 years OR rank in {senior,lead,staff,principal}` scored **P 0.921 / R 0.924**
-  (TP 232, FP 20, FN 19, TN 175), 0 provider errors, 11 blind responses all kept.
-  **252 of 446 rows (56.5%) demote, so ~52% of paid fit calls are deferrable.** Ordering
-  the whole 9,314-row backlog costs **4h05m of GPU and $0.00** (1.58 s/row, single worker
-  — the GPU serialises, so concurrency buys nothing).
-  **The number that decides it is not the P/R — it is WHICH rows the false positives are.**
-  Of the 20 wrongly demoted, Sol scored 15 `domain=mismatch` and 5 `adjacent`; **zero are
-  `domain=match` and zero were notified.** Every row Sol called `seniority=match` AND
-  `domain=match` — the whole §6 notify payoff set — survives undemoted. A false demotion
-  costs a delay on a posting the notify gate was going to drop anyway, which is the
-  weakest possible failure and exactly what the prioritizer framing above requires.
-  **The dominant error is §8.1 repeating verbatim, and the fix is a veto, not a prompt.**
-  13 of the 20 FPs are degree-conditional ladders (*"Master's and no experience; or
-  Bachelor's and 3 years"*) where the model reports one rung instead of the minimum across
-  rungs; 4 are numbers lifted from a **Preferred** block, 3 are caps read as minima.
-  Clamping the model's number down to the smallest years-figure the JD literally states —
-  a keep-direction veto, SCORING §9.2 lever 4, deterministic, can only ever lower a bar —
-  measures **FP 20 → 7, P .921 → .967, R .924 → .825**. The 7 survivors are the
-  preferred-vs-required and cap cases, i.e. the §9.1 4B ceiling; do not spend a prompt
-  rewrite on them.
-  **Determinism is real; it is NOT confidence.** At production settings (`temperature=0,
-  seed=0`) the extraction is bit-reproducible — 0 flips in 79 re-draws — so unlike the
-  paid backend (SCORING §8.6) one run *is* the trend. The corollary is the trap: the 20
-  FPs are **systematic and will never average out**. Under sampling perturbation
-  (`seed=7, temp=0.3`) flips concentrate on exactly the disagreement rows and 4 of 6
-  re-drawn FPs flip to Sol's answer, so these are low-confidence boundary cases. **Do not
-  quote the 0/79 as robustness.**
-  **Two rows where SOL drifted from its own rubric and the free layer was right:** ids
-  65540 and 58344, Amazon SDE2 postings Sol called `too_junior` reasoning from
-  "autonomous contributor" — SCORING §4.2 says verbatim that implied ownership or autonomy
-  is NOT seniority, and `SDE2` is not one of the four ranks. Corroborates the standing
-  warning that these are Sol's labels, not truth.
-  **Invention was not the failure mode.** `stated_rank` was fabricated **0 times in 62**;
-  `stated_min_years` 3 times in 272 (1.1%), only 1 of which created a bar, and Sol agreed
-  on all 12 invention-driven demotions. The model also correctly declined *"work closely
-  with more senior developers"* and *"seek guidance from senior engineers"* as rank bars.
-  Mis-selection from a stated ladder is the problem, not hallucination.
-  **Free money left on the table:** 6 of the 19 FNs are the model returning an empty
-  object on postings whose TITLE reads "Senior …" / "Sr …". A title-token floor would
-  collect them, but that is a *discard*-direction floor, so SCORING §9.3 applies and it
-  needs its own measurement.
-  **One shape decision left for the build.** Folding the clause into the existing screen
-  prompt makes it cost literally zero extra calls, but that prompt's degree/authorization/
-  clearance extractions are gated by `make eval-screen` — treat it as a separate change
-  with its own eval run, and do NOT assume these numbers survive the merge.
-  **Measured this session** (`db/applications.db`, `db/scorer_usage.json`): backlog 9,218
-  `new` (9,131 with `description` ≥ 200), oldest 2026-07-22; 7-day flow 5,326 new /
-  451 discarded / 382 scored / 14 notified, **380 paid fit calls**; quota snapshot
-  `used_percent 32`, weekly window, resets 2026-08-05; all 434 scored rows are
-  `gpt-5.6-sol`.
-  **Unreconciled, and do not average the two:** 383 of those 451 discards are the
-  deterministic **location** gazetteer (India 207, Mexico 47, China 43, Taiwan 33, …), not
-  the model screen. So the 54% "discard rate" over rows that left `new` and the ~18%
-  per-pass model-screen rate in the entry below are different denominators. Steady-state
-  demand is somewhere in **~2,800–4,900 fit calls/week** until they are reconciled.
-  **Also unverified, and the gap estimate rests on it:** how much of that 32% is the
-  pipeline versus evals and interactive use. 380 calls → 32% puts the weekly ceiling at
-  ~1,190 only if *all* of it were scoring; the real figure is higher. Until that is
-  split, the shortfall is 1.4×–2.4× and no tighter.
-  **`used_percent` is an integer** and `limits[]` carries no credits/units field
-  (`score/usage.py:144` passes the provider value through unmodified), so a single call
-  moves it ~0.05% — **the two-call token-bound-vs-message-bound experiment is not
-  runnable.** Whether the quota is token- or message-bound remains open.
-  **Ruled out this session, with reasons, so they are not re-proposed:** swapping the fit
-  model to a cheaper tier (at the low end of the capacity range a 2× model still does not
-  reach steady state, let alone the ~4,200-call backlog — and SCORING §8.7 requires a full
-  real-JD eval anyway); a compressed "candidate card" replacing the résumés (unproven
-  quota premise, and SCORING §8.4 makes candidate evidence the most destabilising input to
-  `domain`); a cheap-model → strong-model cascade (SCORING §9.3's second-vote hazard); a
-  stronger local screen (only 1 confirmation route in the 7 days, and it cannot touch
-  `domain`); and shadow-running the existing prefilters for the reduction — `fetch.
-  prefilter_postings` is title keep/exclude + `posted_at` age and `feed/prefilter.py` is
-  active/category/sponsorship metadata, so **those 396 rows are already their output**.
-  **Was blocked on this path — UNBLOCKED 2026-07-30.** `score_eval.py` pinned the model
-  to `run.DEFAULT_CODEX_SCORE_MODEL` and ignored `CODEX_SCORE_MODEL` (which `run.py` does
-  read), so no model A/B was runnable; it now reads `CODEX_SCORE_MODEL` /
-  `ANTHROPIC_SCORE_MODEL` the same way (CHANGELOG). Needed only if step 1 fails.
-  One unrelated defect surfaced and is NOT part of this work: `config.yaml`'s
-  four-value `work_authorization` cannot express F-1 OPT (authorised now, sponsorship
-  later — `authorized-no-sponsorship` skips the check entirely, `needs visa sponsorship`
-  discards jobs workable today). (The second — SCORING §2.4/§6 omitting the `notified`
-  status the DB actually uses — was corrected 2026-07-30.)
+  passes of 2026-07-30/31 were effectively stalled — 4 rows fit-scored, then 0, then 0 —
+  because free work was consuming the paid budget. That is fixed and merged (#54, #58)
+  and the daemon is running it, but every "quota is the binding constraint" figure below
+  describes the pre-07-30 system. **Re-measure after the first normal pass on the fixed
+  code.** Two residuals the pre-merge reviews measured, so nobody re-discovers them:
+  `--score-limit` is still not a pure quota budget — an LLM screen-discard and a thin-JD
+  row each consume a slot while spending nothing (~18% of screened rows over the 07-29
+  live passes, 8.2% over DB history — SPEC §7.1) — **and** ~320-720 requeued rows survive
+  the free sweep. Together those put catch-up at ~1.3 days rather than ~16, not zero (and
+  slightly conservative now that #58 sweeps 206 more).
 
 - **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
   `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
@@ -248,8 +144,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
   **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
   the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate. **The first In-flight
-  entry measures a different 54% over a different denominator — 383 of those discards are
+  quota arithmetic should use the measured rate, not the estimate. **SCORING §5.7 measures a
+  different 54% over a different denominator — 383 of those discards are
   the deterministic location gazetteer, not the model screen — and the two are NOT
   reconciled.** Do not average them.
   **Four things had to land first, and three of them were not the schedule.** (0)
@@ -334,7 +230,7 @@ queue. Eight blocks, matching the pipeline walkthrough — the counts below span
 |---|---|---|
 | `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects. 2026-07-30 closed two by measurement (the workday feed collapse is dead reqs; the workday prose-date age gate is a structural no-op) and opened one that matters more — 50 bodyless Microsoft postings, the largest `empty_description` source, surfaced by the #46 reason split |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect** (`capture_usage` stopped writing the quota snapshot, silently, 2026-07-30) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — **no defects** (the `capture_usage` one closed 2026-07-31: it was never broken, the passes had stopped fit-scoring) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
 | `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
@@ -364,7 +260,10 @@ The buckets below are a *catalogue* sorted by severity. This is the **queue**: w
 take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
-> 1, 4, 5 on 07-28). **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
+> 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
+> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed but not
+> decided:** the numbers an operator needs are in
+> [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
 > Anything in the catalogue below that is not a quota lever waits. The order is fixed and
 > the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
 > immediately after this queue; read it before picking, because two of the obvious moves
@@ -372,8 +271,8 @@ take first and why. Each numbered item is independently pickable.
 >
 > **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`. DONE — visibility shipped
 > 2026-07-30, root cause found 2026-07-31 and it was not a defect: the passes had
-> stopped fit-scoring, so the guarded call correctly never ran (see the stall entry in
-> In flight). The historical framing follows.** The quota snapshot stopped being written
+> stopped fit-scoring, so the guarded call correctly never ran (the CHANGELOG's
+> "the scoring pass had stalled" entry, and SPEC §7.1). The historical framing follows.** The quota snapshot stopped being written
 > and nothing said so; it has already made one `--score-limit` decision come out ~17
 > points optimistic. Every number in the quota analysis rests on this file, so it went
 > first even though the other two levers are worth more. Shipped: a WARNING on a `False`
@@ -382,10 +281,11 @@ take first and why. Each numbered item is independently pickable.
 > rather than on someone thinking to check an mtime. Entry under
 > [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
 >
-> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`.** Measured 2026-07-30 and it
-> passed (In flight, first entry). It adds no capacity; it makes the capacity you have land
-> on rows worth spending it on, which is worth roughly 2x. Ship it as a re-ordering with the
-> keep-direction veto included, as a standalone call first.
+> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`. SHIPPED 2026-07-31 (#57)**,
+> as a re-ordering with BOTH keep-direction vetoes, as its own call with its own eval gate.
+> It adds no capacity; it makes the capacity you have land on rows worth spending it on.
+> What remains is not a build but a measurement — no live pass has run with it on, so the
+> demote rate and the paid-call yield are projections. Contract and numbers: SCORING §5.7.
 >
 > **Q3. Cut intake — `[FETCH · S]`.** The only lever that reduces *demand* rather than
 > re-ordering it: `title_filter`, `max_age_days`, and dropping low-yield boards. The feed is
@@ -531,7 +431,7 @@ processor and it does not owe every row a verdict. A posting that is never score
 nothing unless it was one worth applying to. Read the gap that way and it is not a 3x
 shortfall in throughput — it is that the ~250 rows/day the budget *can* buy are currently
 drawn nearly at random with respect to whether they deserve the call. **96% of paid calls
-buy a "no" and 54% are `too_junior`** (In flight, first entry): the budget is being spent
+buy a "no" and 54% are `too_junior`** (SCORING §5.7): the budget is being spent
 proving that jobs that were never viable are not viable.
 
 **The three levers, and only these three.**
@@ -585,7 +485,7 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   time. **(1) IS NOT A DEFECT — ROOT-CAUSED 2026-07-31, and the fetch was never
   failing.** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
   scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
-  (4 rows, then 0, then 0 — see the stall entry under In flight), so the call was
+  (4 rows, then 0, then 0 — CHANGELOG, "the scoring pass had stalled"), so the call was
   correctly never made. Verified three ways: the fetch returns `True` both from an
   interactive shell and from a replica of the daemon's own environment (`env -i` with
   the unit's `HOME`/`PATH`/`TMPDIR`); `~/.codex/auth.json` has not been rewritten since
