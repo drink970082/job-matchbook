@@ -43,20 +43,29 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   withdrawn.** The 2026-07-31 root cause — the passes had stopped fit-scoring, so the
   guarded call correctly never ran — was true of that window and not the whole story: the
   08:00 pass on 07-31 fit-scored **34** rows and still wrote no snapshot. The WARNING
-  shipped 8h40m earlier (#53, 00:10 EDT the same day) is what caught it, the first time this failure has announced
-  itself instead of being found by an `ls -la` days later. Called by hand 20 seconds
-  later the same fetch returned 200 (35% stale on disk against 37% live), and
-  `~/.codex/auth.json` has not been rewritten since 07-26, so the concurrent-`codex exec`
-  theory is dead a second time. The reason it stayed undiagnosed is that `_get_json`
-  swallowed every failure into a bare `None`, making a 403, an expired token, a DNS blip
-  and a malformed body indistinguishable. Each now prints what happened — including the
-  `HTTPError` path, which `urlopen` **raises** rather than returns, so the existing
-  `resp.status` check never saw a 4xx at all. Prime suspect, untested: a 429/403 on the
-  usage endpoint right after a burst of paid calls on the same account (34 failed where 7
-  succeeded four hours earlier). The catch stays narrow on purpose — the no-raise
-  guarantee lives in `capture_usage`, so an unanticipated failure should surface in a test
-  run rather than read as one more 403. (SPEC §7.1.)
-
+  shipped 8h40m earlier (#53, 00:10 EDT the same day) is what caught it, the first time
+  this failure has announced itself instead of being found by an `ls -la` days later.
+  Called by hand 20 seconds later the same fetch returned 200 (35% stale on disk against
+  37% live), and `~/.codex/auth.json` has not been rewritten since 07-26, so the
+  concurrent-`codex exec` theory is dead a second time.
+  It stayed undiagnosed because **every** route to a `False` return was a bare `None` or
+  `False`, making a 403, an expired token, a DNS blip and a malformed body
+  indistinguishable. All of them now say what happened: a non-200 with status and reason,
+  an `HTTPError` (which `urlopen` **raises** rather than returns, so the status check
+  never saw a 4xx at all), a connection or truncated-body failure with its exception
+  type, "not logged in" with the resolved `CODEX_HOME`, a 200 whose body is not an
+  object, a 200 with no `rate_limit`, a 200 whose window carries a null `used_percent`,
+  an unknown backend, and the blanket catch that also covers the file write. That last
+  one is what lets the fetch keep a NARROW catch: an unanticipated failure surfaces in
+  the log rather than as silence. `http.client.HTTPException` is named in that tuple
+  because `IncompleteRead` and `BadStatusLine` subclass neither `OSError` nor
+  `ValueError` — a truncated body behind a CDN is textbook intermittent and previously
+  escaped the fetch to die silently.
+  **Three untested candidates**, in the order worth checking: a 429/403 right after a
+  burst of paid calls (note the endpoint is called ONCE per pass, so the evidence is
+  **n=1 against n=1** — one usage call failed after 34 fit calls where one succeeded
+  after 7); a 200 with a null `used_percent` under the same load, which has no status
+  code to show for it; or a truncated body. (SPEC §7.1/§9.)
 - **Rows the operator's own TITLE filters would refuse were still buying paid fit
   calls.** `prefilter_postings` runs at INGEST only, and `screen_posting` re-checks
   location and intern but never title or age — so a row that entered before its filter

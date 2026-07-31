@@ -2031,3 +2031,14 @@ def test_a_truncated_body_is_caught_and_named(capsys):
         mp.setattr(score.usage.urllib.request, "urlopen", raising)
         assert score.usage._get_json("https://x/usage", {}) is None
     assert "IncompleteRead" in capsys.readouterr().out
+
+
+def test_a_200_whose_body_is_not_an_object_says_so(codex_login, capsys):
+    # The last silent path the pre-merge review found empirically: valid JSON that is
+    # not a dict parsed fine, so _get_json said nothing and the shape check returned
+    # None with zero output -- making SPEC's "every route names itself" literally untrue.
+    for body in ([], "nonsense", 3):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(score.usage, "_get_json", lambda url, headers, b=body: b)
+            assert score.usage.fetch_codex_usage() is None
+        assert "not an object" in capsys.readouterr().out

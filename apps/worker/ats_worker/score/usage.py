@@ -153,7 +153,8 @@ def fetch_codex_usage() -> dict | None:
     carrying `used_percent`, `limit_window_seconds` and `reset_at` (epoch)."""
     auth = _codex_auth()
     if not auth:
-        print("[quota] codex: not logged in (no readable ~/.codex/auth.json tokens)")
+        home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+        print(f"[quota] codex: not logged in (no readable tokens in {home}/auth.json)")
         return None
     token, account = auth
     data = _get_json(CODEX_USAGE_URL, {
@@ -163,7 +164,9 @@ def fetch_codex_usage() -> dict | None:
         "User-Agent": _USER_AGENT,
     })
     if not isinstance(data, dict):
-        return None                     # _get_json already said why
+        if data is not None:            # _get_json already spoke for a None
+            print(f"[quota] codex: 200 but body is {type(data).__name__}, not an object")
+        return None
     rate = data.get("rate_limit")
     if not isinstance(rate, dict):
         print(f"[quota] codex: 200 but no rate_limit object: {str(data)[:160]}")
@@ -245,6 +248,7 @@ def fetch_claude_usage() -> dict | None:
     **subscription** budget, while `make_claude_scorer` bills `ANTHROPIC_API_KEY`."""
     token = _claude_token()
     if not token:
+        print("[quota] claude: not logged in (no readable credentials)")
         return None
     data = _get_json(CLAUDE_USAGE_URL, {
         "Authorization": f"Bearer {token}",
@@ -253,9 +257,12 @@ def fetch_claude_usage() -> dict | None:
         "User-Agent": _USER_AGENT,
     })
     if not isinstance(data, dict):
+        if data is not None:
+            print(f"[quota] claude: 200 but body is {type(data).__name__}, not an object")
         return None
     limits = _claude_limits(data)
     if not limits:
+        print(f"[quota] claude: 200 but no usable limit rows: {str(data)[:160]}")
         return None
     return _snapshot("claude", data.get("plan_type") or data.get("subscription_type"),
                      limits)
