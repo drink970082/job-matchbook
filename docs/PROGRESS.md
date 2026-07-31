@@ -60,7 +60,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 ## In flight
 
 - **Five XS items + the PROGRESS split — landed, unmerged**
-  `[branch chore/small-fixes-and-progress-split]`. Worker suite green (851 tests).
+  `[branch chore/small-fixes-and-progress-split]`. Worker suite green (848 tests).
   Cut on top of `docs/scoring-rebuild-spec` because both the SCORING §2.4/§6 fix and the
   split need that branch's files; that work is now on `main` (#52) and this branch is
   rebased onto it, so the stack is gone. Contents: the `capture_usage` visibility half (Q1, defect below), the

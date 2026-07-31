@@ -61,6 +61,12 @@ PR to get a run.
 - **Commits**: short imperative subject, optional `type(scope):` prefix
   (e.g. `feat(worker): ...`, `fix(web): ...`). Keep each commit self-consistent
   and green.
+- **Worker dependencies**: any new module-load or test-exercised runtime import
+  MUST be mirrored into `apps/worker/requirements-dev.txt` in the same commit
+  that adds it to `requirements.txt` — the two files duplicate their pins (no
+  include mechanism exists without adding tooling), and that duplication has
+  broken CI once already (the `geonamescache` fix in the
+  [CHANGELOG](./CHANGELOG.md)).
 
 ## Branching and releases
 

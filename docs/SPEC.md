@@ -5,7 +5,9 @@
 > code. When code and this spec disagree, that is a bug in one of them — fix it,
 > don't let them drift. New work should update this file in the same change.
 >
-> Companion documents: [`PROGRESS.md`](./PROGRESS.md) (live status + open work),
+> Companion documents: [`PROGRESS.md`](./PROGRESS.md) (live delta: in flight, the pick
+> order, open defects) and its two on-demand halves [`BACKLOG.md`](./BACKLOG.md) (the
+> open catalogue) + [`REJECTED.md`](./REJECTED.md) (turned-down proposals),
 > [`../CHANGELOG.md`](../CHANGELOG.md) (release history),
 > [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (conventions).
 
@@ -1987,7 +1989,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
 | Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
 | `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
-| Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars so the message cannot exceed Telegram's 4096 cap); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
+| Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars, which bounds the only unbounded field against Telegram's 4096 cap — title/company/URL are not capped); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`) unless a deterministic gate disqualified it; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_provider_error_still_honours_the_deterministic_gates`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
@@ -2378,7 +2380,9 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 
 ## 14. References
 
-- **Status & open work:** [`PROGRESS.md`](./PROGRESS.md)
+- **Status (in flight, pick order, defects):** [`PROGRESS.md`](./PROGRESS.md); the open
+  catalogue is [`BACKLOG.md`](./BACKLOG.md), turned-down proposals
+  [`REJECTED.md`](./REJECTED.md)
 - **Release history:** [`../CHANGELOG.md`](../CHANGELOG.md)
 - **Contributor conventions:** [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 - **Design principles (decision DNA):** [`PRINCIPLES.md`](./PRINCIPLES.md)

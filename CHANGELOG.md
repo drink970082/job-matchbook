@@ -22,7 +22,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
-- **`docs/PROGRESS.md` split into three files.** It had grown to ~43k tokens and every
+- **`docs/PROGRESS.md` split into three files.** It had grown to ~28k tokens and every
   session reloads it, while most of it was reference material rather than state. What
   stays is the live delta a session needs now — in flight, the pick order, the quota gap,
   open defects. The catalogue moved to **`docs/BACKLOG.md`** (unverified/deferred +

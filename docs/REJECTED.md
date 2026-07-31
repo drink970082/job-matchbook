@@ -239,7 +239,7 @@
   config change, and
   recording the matched sentence when `NO_SPONSOR_PHRASES` fires (that last one is
   small enough to ride along with the quote work rather than carry its own entry).
-- **Cross-service drift — partially guarded** — `[ORCH · M]`. `test_source_enums_sync.py`
+- **Cross-service drift — guarding the rest was declined (orchestration)**. `test_source_enums_sync.py`
   guards the cheaply-comparable duplicated items (source enums + the low-context
   length literal). **Still unguarded (deliberate scope call — fragile, low value):**
   the `pipeline_status` string literals (scattered across worker + web) and the full
@@ -247,7 +247,7 @@
   documented-not-guarded, hand-duplicated with "must match" comments only.
 - **`requirements-dev.txt` duplicates base pins** — accepted (no include mechanism
   exists without adding tooling), but the duplication bit once — see the
-  [CHANGELOG](../CHANGELOG.md) geonamescache CI fix. **Standing rule:** any new
-  module-load or test-exercised runtime import MUST be mirrored into
-  `requirements-dev.txt` in the same commit that adds it to `requirements.txt`.
+  [CHANGELOG](../CHANGELOG.md) geonamescache CI fix. The standing rule it produced is
+  a *convention*, so it lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md) where it is
+  read at the moment it applies — adding a dependency — not here.
 
