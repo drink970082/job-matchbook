@@ -595,10 +595,21 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
     than a bounded slice, so a per-row write failure is contained the way every other
     per-row failure here is: `db.save_score` commits per row, so an interrupted sweep
     leaves partial progress the next pass simply resumes, and one `SQLITE_BUSY` past the
-    busy_timeout must not take `run_notify` down with it. Failures are counted and said
-    out loud rather than swallowed.
+    busy_timeout must not take `run_notify` down with it.
+
+    Two details that make that containment honest rather than decorative.
+    **The rollback.** `db._update` executes then commits; when the COMMIT is what fails —
+    the contention case this exists for — the UPDATE is still pending in the implicit
+    transaction and the NEXT row's commit would write it anyway. The row would then be
+    `discarded` while this function reported it untouched. `conn.rollback()` discards it,
+    so "stays 'new'" is true.
+    **The breaker.** A per-row `except` around a failure every row shares is the policy
+    error PRINCIPLES names: an unknown-column `ValueError` or a `json.dumps` `TypeError`
+    is a bug, not contention, and would otherwise be re-tried silently every pass
+    forever. `_BREAKER_LIMIT` consecutive failures with zero successes re-raises, the
+    same signature the screen and fit phases watch for.
     """
-    survivors, write_errors = [], 0
+    survivors, write_errors, streak = [], 0, 0
     for row in rows:
         posting = dict(row)
         gate = score.deterministic_screen(
@@ -613,7 +624,17 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
                           now=now, status="discarded")
         except Exception:  # noqa: BLE001 — one unwritable row must not abort the pass
             write_errors += 1
+            streak += 1
+            if streak >= _BREAKER_LIMIT and write_errors == streak:
+                # Nothing has ever written: systemic, so fail loud instead of retrying
+                # it row by row for the rest of the queue and every pass after.
+                raise
+            try:
+                conn.rollback()   # or the next row's commit writes this one too
+            except Exception:     # noqa: BLE001 — a dead connection is the outer raise's
+                pass
             continue       # stays 'new'; the next pass sweeps it again, same verdict
+        streak = 0
         tally["free"] += 1
     if write_errors:
         print(f"[score] WARNING: {write_errors} free-gate discard(s) could not be "

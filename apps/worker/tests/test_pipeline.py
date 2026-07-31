@@ -6,6 +6,7 @@ The critical invariant: one bad row must never abort a batch — it is marked
 from __future__ import annotations
 
 import json as _json
+import sqlite3
 import time
 
 import pytest
@@ -632,6 +633,72 @@ def test_run_score_thin_jd_skips_paid_fit(db_path):
     assert _json.loads(row["score_detail"])["insufficient_context"] is True
     # and it is held back from notify (below the low-context length bar)
     assert db.get_notifiable(conn) == []
+
+
+class _FlakyWriteConn:
+    """Wraps a real connection and fails the COMMIT for chosen posting ids -- the
+    SQLITE_BUSY-past-busy_timeout shape, where the UPDATE has already executed."""
+
+    def __init__(self, conn, fail_ids):
+        self._conn = conn
+        self._fail_ids = set(fail_ids)
+        self._pending = None
+
+    def execute(self, sql, *args, **kw):
+        params = args[0] if args else {}
+        self._pending = params.get("id") if isinstance(params, dict) else None
+        return self._conn.execute(sql, *args, **kw)
+
+    def commit(self):
+        if self._pending in self._fail_ids:
+            raise sqlite3.OperationalError("database is locked")
+        return self._conn.commit()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_an_unwritable_free_gate_discard_stays_new_and_says_so(db_path, capsys):
+    # Containment: one row the sweep cannot write must not abort the pass, must not
+    # consume a budget slot, and must genuinely stay 'new' -- db._update commits after
+    # executing, so without a rollback the failed UPDATE rides along on the NEXT row's
+    # commit and the row would be discarded while the warning claimed otherwise.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("dead1", job_title="dead1", location="Bengaluru, India"),
+        _posting("dead2", job_title="dead2", location="Shanghai, China"),
+    ], now=NOW)
+    ids = sorted(r["id"] for r in db.get_by_status(conn, "new"))
+    tally = {"free": 0}
+    wrapped = _FlakyWriteConn(conn, fail_ids=[ids[0]])
+
+    survivors = pipeline._sweep_free_gates(
+        wrapped, db.get_by_status(conn, "new", newest_first=True),
+        candidate={"locations": ["remote", "USA"]}, now=NOW, tally=tally)
+
+    assert survivors == []                    # neither row survives the gate
+    assert tally["free"] == 1                 # only the row that actually wrote is counted
+    states = {r["id"]: r["pipeline_status"]
+              for r in conn.execute("SELECT id, pipeline_status FROM job_postings")}
+    assert states[ids[0]] == "new"            # the failed one really did stay 'new'
+    assert states[ids[1]] == "discarded"
+    assert "1 free-gate discard(s) could not be written" in capsys.readouterr().out
+
+
+def test_a_systemic_sweep_write_failure_fails_loud_instead_of_retrying_forever(db_path):
+    # A failure every row shares is not a per-item verdict: an unknown-column ValueError
+    # or a json.dumps TypeError would otherwise be swallowed once per row, every pass,
+    # forever. Same breaker signature the screen and fit phases watch for.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(f"d{i}", job_title=f"d{i}", location="Shanghai, China")
+                              for i in range(pipeline._BREAKER_LIMIT + 2)], now=NOW)
+    ids = [r["id"] for r in db.get_by_status(conn, "new")]
+    wrapped = _FlakyWriteConn(conn, fail_ids=ids)
+
+    with pytest.raises(sqlite3.OperationalError):
+        pipeline._sweep_free_gates(
+            wrapped, db.get_by_status(conn, "new", newest_first=True),
+            candidate={"locations": ["remote", "USA"]}, now=NOW, tally={"free": 0})
 
 
 def test_the_free_gates_do_not_consume_the_score_limit(db_path, capsys):

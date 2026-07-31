@@ -31,7 +31,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   (unbudgeted), then 2 row(s): ... 2 fit-scored`. `make eval-screen` reproduces its
   documented RED baseline exactly (ids 67/68/672/738, recall 31/37, 0 flips).
   `--score-limit` is **not** thereby a pure quota budget: an LLM screen-discard and a
-  thin-JD row still consume a slot while spending nothing (~18% of screened rows).
+  thin-JD row still consume a slot while spending nothing (~18% of screened rows over
+  the 2026-07-29 live passes; 8.2% over the rows in DB history that would enter the
+  screen phase — different denominators, both stated in SPEC §7.1).
   Closing that would make the per-pass model work unbounded, so it stands — on the live
   data the difference is ~1.3 days of catch-up rather than ~16. (SPEC §7.1/§9.)
 - **`capture_usage` was never broken.** The 2026-07-30 defect — the quota snapshot

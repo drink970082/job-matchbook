@@ -81,7 +81,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   67/68/672/738, recall 31/37, 0 flips), so the screen gate did not move.
   **The residual the pre-merge review measured, so nobody re-discovers it:** `limit` is
   still not a pure quota budget — an LLM screen-discard and a thin-JD row consume a slot
-  while spending nothing (~18% of screened rows), and ~320 requeued rows survive the free
+  while spending nothing (~18% of screened rows over the 07-29 live passes, 8.2% over DB
+  history — see SPEC §7.1), and ~320-720 requeued rows survive the free
   sweep. Catch-up is ~1.3 days rather than ~16, not zero. Screening until `limit`
   *survivors* are found would close it and make per-pass model work unbounded; the bound
   was judged worth more.
