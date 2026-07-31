@@ -470,12 +470,29 @@ def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
     return resumes, profile
 
 
-# One pipeline pass at a time per host. NOT in db/ — that directory is bind-mounted
-# into the web container, and the lock is a property of this host's processes, not of
-# the data. tempfile.gettempdir() honors TMPDIR, which is override enough — this needs
-# no config knob. Two passes resolving TMPDIR differently do NOT see each other, which
-# is why acquisition prints the path it took.
+# One pipeline pass at a time per DB. Keyed on the resolved --db path (see
+# `_lock_path_for`) rather than on the temp dir, because the temp dir is not something
+# two passes on the same host agree on: a systemd unit with PrivateTmp=yes, or a cron
+# job with a sanitized env, resolves a different one than an interactive shell that
+# exports TMPDIR — so both would acquire and both would fit-score the same rows, which
+# is the failure that costs paid quota. The DB path is what they DO agree on, and it
+# is the resource the guard actually protects (that DB plus the one scorer account).
+# Only used when no db path is available (tests); real passes go through
+# `_lock_path_for`.
 _LOCK_PATH = Path(tempfile.gettempdir()) / "ats-worker-pass.lock"
+
+
+def _lock_path_for(db_path) -> Path:
+    """The pass lock for one database: `<db>.pass.lock`, beside the DB itself.
+
+    `resolve()` so a relative `--db`, a symlinked checkout and an absolute path all
+    land on ONE file — the guard is void the moment two passes name it differently.
+    Beside the DB rather than in the temp dir for the reason above, and the sidecar
+    naming matches what SQLite already puts there (`-wal`, `-shm`); the web container
+    bind-mounts that directory but never takes this lock.
+    """
+    db = Path(db_path).resolve()
+    return db.with_name(db.name + ".pass.lock")
 
 
 class PassInProgress(RuntimeError):
@@ -512,13 +529,13 @@ def _lock_open_error(path, exc) -> str:
     """The message for a lock we could not open AT ALL. Opening is not contention and
     must never be reported as it, so it names the path and the fix."""
     return (f"cannot open the pass lock at {path}: {exc}. Nothing is wrong with the "
-            f"pipeline — fix the file (check its owner and mode) or point TMPDIR "
-            f"somewhere this user can write.")
+            f"pipeline — fix the file (check its owner and mode) or point --db at a "
+            f"directory this user can write.")
 
 
 @contextmanager
-def pass_lock(path=None):
-    """Hold the host-wide pass lock for the duration of one whole pass.
+def pass_lock(path=None, db_path=None):
+    """Hold the pass lock for one database for the duration of one whole pass.
 
     `flock` rather than a bare PID file, because staleness then solves itself: the
     kernel drops the lock when the holder dies, so a host killed mid-pass leaves a
@@ -536,11 +553,14 @@ def pass_lock(path=None):
     needs no write access, so refusing there would trade a working guard for a broken
     daemon (see the PermissionError branch).
     """
-    # `is None`, not `or`: a falsy path ("" from an unset env var, say) would
+    # `is None`, not `or`, on both: a falsy path ("" from an unset env var, say) would
     # otherwise silently fall back to the process-wide default and lock the real
     # /tmp file — the one case where a caller asking for an isolated lock must not
-    # quietly get the shared one.
-    path = Path(_LOCK_PATH if path is None else path)
+    # quietly get the shared one. An explicit `path` still wins over `db_path` so a
+    # test can point the lock anywhere.
+    if path is None:
+        path = _LOCK_PATH if db_path is None else _lock_path_for(db_path)
+    path = Path(path)
     _flags = os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
     try:
         # O_NOFOLLOW: the temp dir is world-writable and sticky, so refuse to follow a
@@ -584,7 +604,7 @@ def pass_lock(path=None):
                 raise RuntimeError(
                     f"the pass lock at {path} could not be taken: {exc}. This is not "
                     f"contention — the filesystem holding it does not support flock. "
-                    f"Point TMPDIR at a local filesystem."
+                    f"Put the DB on a local filesystem."
                 ) from exc
             raise PassInProgress(
                 f"another pipeline pass is already running on this host "
@@ -604,8 +624,8 @@ def pass_lock(path=None):
         else:
             os.ftruncate(fd, 0)
             os.write(fd, f"{os.getpid()}\n".encode())
-            # Printed because the guard is void between two passes that resolve TMPDIR
-            # differently, and that is otherwise undetectable from the outside.
+            # Printed because the guard is void between two passes that resolve the
+            # path differently, and that is otherwise undetectable from the outside.
             print(f"[pass] holding {path} (pid {os.getpid()})", flush=True)
         yield path
     finally:
@@ -848,13 +868,13 @@ def main(argv=None) -> None:
         # the refusal. Everything in daemon mode — the `--run-now` startup pass and every
         # scheduled slot — logs and carries on, because a daemon that dies because someone
         # happened to be running a pass by hand is worse than a daemon that skips one.
-        # A whole pass runs under the host lock. APScheduler's max_instances=1 stops
+        # A whole pass runs under the lock for THIS db. APScheduler's max_instances=1 stops
         # the scheduler overlapping ITSELF, but not a hand-run pass landing inside a
         # scheduled one — likelier the higher the cadence, and a duplicated pass
         # re-spends paid fit-scorer quota (a duplicated notify only costs one extra
         # Telegram message).
         try:
-            with pass_lock():
+            with pass_lock(db_path=args.db):
                 run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
                          env=env, ollama_model=args.model,
                          screen_backend=args.screen_backend,

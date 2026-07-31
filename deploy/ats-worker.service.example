@@ -70,11 +70,11 @@ WorkingDirectory=/home/YOU/ats/apps/worker
 # defaults to 0 = no cap, and the daemon closes over your flags for EVERY slot — so the
 # first slot fit-scores the whole `new` table on the paid backend. That is fine on a
 # fresh checkout with nothing pending and expensive on a checkout with a backlog: at the
-# measured ~0.4 paid messages per row, a few thousand pending rows is most of a weekly
-# budget in one pass. Pick a per-pass ceiling: N rows x 6 passes/day x ~0.4 messages.
+# measured ~0.8 paid messages per row, a few thousand pending rows is most of a weekly
+# budget in one pass. Pick a per-pass ceiling: N rows x 6 passes/day x ~0.8 messages.
 # The queue is newest-first (SPEC §7.1), so the cap is spent on the current pass's
 # discoveries and any backlog drains from its tail only when there is headroom.
-ExecStart=/usr/bin/python3 -m ats_worker.run --score-limit 60
+ExecStart=/usr/bin/python3 -m ats_worker.run --score-limit 40
 
 # LOAD-BEARING. The pipeline's progress lines are plain `print()` with no flush=, so under
 # a pipe (which is what journald gives you) stdout is BLOCK-buffered: output would arrive
@@ -96,16 +96,11 @@ RestartSec=30s
 # §7.1 — the no-code override).
 #Environment=TZ=America/New_York
 
-# Pin TMPDIR so this daemon and a hand-run `--once` resolve the SAME pass lock.
-# `run.pass_lock` keys on tempfile.gettempdir(); if you export TMPDIR in your shell rc,
-# your hand run and this unit look at two different files, both acquire, and the paid fit
-# scorer is charged twice.
-Environment=TMPDIR=/tmp
-
-# DO NOT set PrivateTmp=yes here. `run.pass_lock` keys the "one pass at a time" lock on
-# tempfile.gettempdir(), so a private /tmp would make this daemon invisible to an
-# operator's hand-run `--once` — both would acquire, both would score, and the paid fit
-# scorer would be charged twice. See PROGRESS (ORCH) for the standing fix.
+# NOTHING to pin for the pass lock: `run.pass_lock` keys on the resolved `--db`
+# (`<db>.pass.lock`, beside the DB), so this daemon and a hand-run `--once` find the same
+# file whatever TMPDIR says and whether or not PrivateTmp is on. The one requirement is
+# that both name the same database — which `resolve()` handles for a relative path or a
+# symlink, but not for two genuinely different files.
 
 # NO graceful shutdown is configured, and that is a known gap rather than an oversight:
 # the worker installs no SIGTERM handler, so `systemctl --user stop|restart` kills it
