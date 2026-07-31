@@ -1983,6 +1983,32 @@ def test_a_dead_seniority_backend_stops_the_pre_ordering_rather_than_the_pass(db
     assert db.get_by_status(conn, "scored")           # and the PASS still ran
 
 
+def test_a_backend_that_wedges_after_working_still_trips_the_breaker(db_path, capsys):
+    # The realistic shape: Ollama is warm at pass start, answers once, then hangs. A
+    # zero-successes-ever breaker could never arm here -- a failed extraction returns
+    # `match`, so every hung call lands in `kept` and the loop runs until the budget
+    # fills. At --score-limit 40 x a 180s timeout that is TWO HOURS of a four-hour slot.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(12)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    calls = []
+
+    def wedges(posting):
+        calls.append(posting["job_title"])
+        if len(calls) == 1:
+            return "match", {}                 # one good answer, then it hangs
+        return "match", {"error": "read timed out"}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=wedges)
+
+    assert len(calls) == pipeline._BREAKER_LIMIT + 1   # the good one, then 5 failures
+    assert "backend appears down" in capsys.readouterr().out
+
+
 def test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass(db_path):
     # Same per-item contract the screen phase holds.
     conn = db.connect(db_path)

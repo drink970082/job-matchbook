@@ -15,10 +15,11 @@ a RE-ORDERING and never a discard.
    no second corpus, so the precision and the zero-false-demotion result are training-set
    numbers, not estimates of future performance.
 2. **The decisive gate has little statistical power.** Only ~34 of 446 rows are
-   `domain=match` and ~18 were notified. With 8 false demotions placed at random the
-   chance of hitting neither set is roughly 0.53 and 0.72 — so the gate can go green for
-   a layer whose demotions are indifferent to whether a row was a payoff row. Treat a
-   pass as "no evidence of harm", never as "evidence of no harm".
+   `domain=match` and ~18 were notified. With the 7 false demotions the shipped run
+   produces placed at random, the chance of hitting neither set is roughly 0.57 and
+   0.75 — so the gate can go green for a layer whose demotions are indifferent to
+   whether a row was a payoff row. Treat a pass as "no evidence of harm", never as
+   "evidence of no harm".
 3. **The corpus is not the production population.** `build_corpus` selects rows that
    already SURVIVED the screen and bought a paid fit call, so every row has a real
    description (minimum 200 chars). Production runs this layer on every `new` row,

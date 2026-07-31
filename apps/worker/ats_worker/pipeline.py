@@ -617,17 +617,24 @@ def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> li
 
     A provider failure is a KEEP (`seniority.assess` returns `match`), and a row whose
     extraction RAISES is kept too rather than aborting the pass — the same per-item
-    contract the screen phase holds. `_BREAKER_LIMIT` consecutive failures with no
-    success is a dead backend, not a bad row: the pre-ordering stops and the pass
-    proceeds unordered.
+    contract the screen phase holds. `_BREAKER_LIMIT` **consecutive** failures is a dead
+    backend, not a bad row: the pre-ordering stops and the pass proceeds unordered.
+
+    Consecutive, NOT `_BackendBreaker`'s zero-successes-ever — and the review that
+    measured the difference is why. Because a failure returns `match`, every hung call
+    lands in `kept`, so under a zero-successes rule a backend that answered ONCE and then
+    wedged could never arm the breaker: it would run until `kept` filled, which at
+    `--score-limit 40` is 40 x 180s = **2 hours**. Ollama is warm at pass start, so that
+    is the ordinary case rather than the exotic one.
 
     That breaker is what bounds the WALL CLOCK, and it is the reason it exists. These
     calls are sequential (`DEFAULT_SCREEN_WORKERS['ollama']` is 1 — the GPU serialises
     anyway) and `make_ollama_extract` defaults to a 180s timeout, so without it a HUNG
     local model would cost `2 x limit x 180s` — at `--score-limit 40` that is exactly
     4 hours, the whole slot, after which `pass_lock` would refuse the next one too.
-    With it the worst case is `_BREAKER_LIMIT x 180s`, about 15 minutes, and the pass
-    goes on to screen and score normally. Nominal cost is ~1.6s/row, so ~2 minutes.
+    With it the worst case is `_BREAKER_LIMIT x 180s`, about 15 minutes, whether the
+    backend was dead from the start or wedged halfway through. Nominal cost is
+    ~1.6s/row, so ~2 minutes.
     """
     if seniority_fn is None or limit <= 0:
         return rows
@@ -650,13 +657,13 @@ def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> li
             verdict, detail = "match", {"error": str(exc)}
         if detail.get("error"):
             failures += 1
-            if successes == 0 and failures >= _BREAKER_LIMIT:
+            if failures >= _BREAKER_LIMIT:
                 print(f"[seniority] backend appears down ({failures} consecutive "
-                      "failures, no successes) — skipping the pre-ordering for this "
-                      "pass; the queue keeps its plain newest-first order")
+                      "failures) — skipping the pre-ordering for this pass; the queue "
+                      "keeps its plain newest-first order")
                 return kept + demoted_tail + list(rows[i:])
         else:
-            successes += 1
+            failures = 0
         if verdict == "too_junior":
             db.mark_deprioritized(conn, row["id"], now=now)
             tally["demoted"] += 1
