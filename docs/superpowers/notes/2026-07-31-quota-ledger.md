@@ -1,7 +1,8 @@
 # Quota ledger — 2026-07-31 unattended run
 
-Budget authorized by the operator before the run: **60 paid Codex calls (~5% of the
-weekly window)**. Hard cap. At 60, stop and report — do not spend a 61st for any reason.
+Budget authorized by the operator before the run: **60 paid Codex calls**. **RAISED to
+300 on 2026-07-31 ~13:30**, to fund the luna-as-screen gate (249 calls) for users with no
+local LLM. Hard cap at 300. At 60, stop and report — do not spend a 61st for any reason.
 
 Plan: [`../plans/2026-07-31-quota-levers-caching-and-vetoes.md`](../plans/2026-07-31-quota-levers-caching-and-vetoes.md)
 
@@ -44,6 +45,8 @@ verbatim; the window percentage moves in the operator's favour as the run procee
 - If the daemon trips a circuit breaker or logs a traceback, stop spending and report.
 
 ---
+| 2 | 13:20 | 1b-bis | 2 | **8** | prompt-diff probe: two consecutive calls, byte-compared. All 54,542 chars IDENTICAL, and still `cached_input_tokens: 0` AND `cache_write_input_tokens: 0` — the cache is not even written. Settles it: the prompt is perfectly cacheable and the platform is not caching this traffic. Rollouts deleted. |
+| 3 | 13:35 | luna-screen | 249 | **257** | full `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna make eval-screen` — gates the no-local-LLM path against the same 249-row golden set the 4B is gated on. |
 
 ## Phase 1b outcome — the caching lever does not exist on the current CLI
 
