@@ -14,11 +14,26 @@ picks this run up mid-way reads the total from this table, not from a guess.
 
 ## Window state at the start of the run
 
-`db/scorer_usage.json`, read live at 11:30 EDT: **37%** of the weekly primary window
-used, window resets 2026-08-05 (epoch 1785905532). Measured separately from 212
-historical rollouts: **12.2 calls per 1% of the window**, i.e. a full window is roughly
-**1,225 calls** of this prompt shape. So the 60-call budget is about **4.9%** — the
-authorization and the arithmetic agree.
+**37%** of the weekly primary window used; it resets 2026-08-05 (epoch 1785905532).
+
+**Where that number came from matters, because the repo has a standing warning about it.**
+PROGRESS's Defects section says "do not read `db/scorer_usage.json` without checking its
+mtime" — a 07-30 reading of "23%" was 8 hours stale and made a `--score-limit` decision
+~17 points optimistic. This 37% is **not** from that file: it is a direct read of
+`GET /backend-api/codex/usage` at 11:30 EDT, the endpoint `capture_usage` itself calls,
+bypassing the snapshot. The on-disk snapshot at that moment said 35% with an `as_of` of
+04:46 — stale, exactly as the warning predicts. That gap is a live instance of the
+still-open `capture_usage` defect, not a number to quote.
+
+Measured separately from 212 historical rollouts: **12.2 calls per 1% of the window**, so
+a full window is roughly **1,225 calls of this prompt shape**, and 60 calls is about
+**4.9%**.
+
+**Read that conversion as an estimate with a moving denominator.** Billing is per token,
+not per call — that is this run's whole thesis — so "calls per 1%" only holds while the
+prompt shape does. Phase 1 exists to cut credits per call by up to 57%, and a Luna call
+costs roughly a fifth of a Sol call. The 60-call cap is the operator's authorization taken
+verbatim; the window percentage moves in the operator's favour as the run proceeds.
 
 ## Rules for spending
 
