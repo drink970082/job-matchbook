@@ -329,18 +329,25 @@ def test_screen_backend_none_is_not_a_provider_error():
     assert "provider_error" not in out
 
 
-def test_provider_error_still_honours_the_deterministic_gates():
-    # The location/intern gates are CODE, cost nothing, and ran fine. A provider
-    # outage must not resurrect a posting they correctly disqualified.
+def test_a_deterministically_disqualified_row_never_reaches_the_provider():
+    # The location/intern gates are CODE, cost nothing, and their verdict is terminal —
+    # so they run FIRST and the model is never called. A provider outage cannot
+    # resurrect a posting they disqualified, because the provider is not consulted.
+    # This is also the cost fix: 37% of the live `new` queue died on these gates, and
+    # each one first bought a ~1.5s GPU call for nothing (2026-07-31).
+    calls = []
+
     def extract(prompt, schema):
+        calls.append(prompt)
         raise score.ScoreError("provider down")
 
     out = score.screen_posting({**POSTING, "location": "Shanghai, China"},
                                extract=extract,
                                candidate={"highest_degree": "Master's",
                                           "locations": ["remote", "USA"]})
-    assert out["provider_error"] is True
+    assert calls == []                          # the whole point: no model call
     assert out["disqualified"] is True          # deterministic gate still wins
+    assert "provider_error" not in out          # nothing was attempted, nothing failed
 
 
 def test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor():
@@ -1210,14 +1217,32 @@ def test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up():
 
 
 def test_multiple_failing_gates_join_reasons():
+    # Both of these are deterministic, so both run before any model call and both
+    # reasons are recorded. (A model-derived reason can no longer JOIN a deterministic
+    # one: the deterministic gate short-circuits the call — see the test below.)
+    posting = {**POSTING, "location": "Singapore",
+               "job_title": "Software Engineering Intern"}
+    out = score.screen_posting(posting, extract=None,
+                               candidate={"locations": ["USA"],
+                                          "exclude_internships": True})
+    assert out["disqualified"] is True
+    reason = out["disqualification_reason"]
+    assert "internship" in reason and "location" in reason
+    assert "; " in reason  # joined, not a single failure
+
+
+def test_a_deterministic_gate_short_circuits_the_model_reason():
+    # A row failing BOTH a deterministic gate and a model-derived one now reports only
+    # the deterministic reason, because the model was never asked. The outcome for the
+    # row is identical (discarded); what is given up is extra detail on a dead row.
     posting = {**POSTING, "location": "Singapore"}
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
     out = score.screen_posting(posting, extract=_ollama(http),
-                               candidate={"highest_degree": "Master's", "locations": ["USA"]})
+                               candidate={"highest_degree": "Master's",
+                                          "locations": ["USA"]})
     assert out["disqualified"] is True
-    reason = out["disqualification_reason"]
-    assert "degree" in reason and "location" in reason
-    assert "; " in reason  # joined, not a single failure
+    assert out["disqualification_reason"] == "location: on-site in Singapore"
+    assert http.calls == []          # no GPU call bought for an already-dead row
 
 
 # --- pure-function units (precise coercion coverage) ---------------------

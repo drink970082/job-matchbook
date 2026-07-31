@@ -77,6 +77,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   migration history), and a daemon restart between slots to pick the code up. The
   measurement that motivated it follows, unchanged.
   **The original entry:** `[SCORE · M · measured]`.
+
+- **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
+  passes of 2026-07-30/31 spent nothing at all (4 rows fit-scored, then 0, then 0)
+  because free work was consuming the paid budget; that is fixed and merged (#54), but
+  every "quota is the binding constraint" number below describes the pre-07-30 system.
+  **Re-measure after the first normal pass on the fixed code.** The residual the review
+  measured, so nobody re-discovers it: `--score-limit` is still not a pure quota budget
+  — an LLM screen-discard and a thin-JD row each consume a slot while spending nothing
+  (~18% of screened rows over the 07-29 live passes, 8.2% over DB history) — so catch-up
+  is ~1.3 days rather than ~16, not zero.
+
   **The finding is the verdict matrix.** Over the 396 rows scored in the 7 days to
   2026-07-30: `domain` came back **mismatch 298 (75%) / adjacent 72 (18%) / match 24
   (6%)**, and `seniority` came back **too_junior on 214 (54%)**; 175 (44%) are both.
@@ -343,10 +354,10 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: two.** One is a model ceiling rather than a coding error — 3 rows where
-the 4B reads a soft degree bar as hard. The other is new on 2026-07-30 and is a real
-coding defect: `capture_usage` silently stopped writing the quota snapshot, which is the
-instrument the spend decisions are made on. Everything else found in the 2026-07-23 →
+**Open defects: one.** It is a model ceiling rather than a coding error — 3 rows where
+the 4B reads a soft degree bar as hard. The `capture_usage` entry below is **closed**:
+root-caused 2026-07-31 as the documented `if _scorer_cell:` guard on passes that scored
+nothing, not a failing fetch. Everything else found in the 2026-07-23 →
 07-28 sweep has shipped a fix (thirteen in total, counting the 2026-07-29 `.env.<suffix>`
 privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
 
@@ -366,8 +377,10 @@ take first and why. Each numbered item is independently pickable.
 > immediately after this queue; read it before picking, because two of the obvious moves
 > (a cheaper fit model, a slower cadence) are measured dead ends.
 >
-> **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`. VISIBILITY HALF DONE
-> 2026-07-30; the root cause is what is left.** The quota snapshot stopped being written
+> **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`. DONE — visibility shipped
+> 2026-07-30, root cause found 2026-07-31 and it was not a defect: the passes had
+> stopped fit-scoring, so the guarded call correctly never ran (see the stall entry in
+> In flight). The historical framing follows.** The quota snapshot stopped being written
 > and nothing said so; it has already made one `--score-limit` decision come out ~17
 > points optimistic. Every number in the quota analysis rests on this file, so it went
 > first even though the other two levers are worth more. Shipped: a WARNING on a `False`
@@ -576,9 +589,19 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
   CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
   on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) is still open and is now the whole of this defect** — the next failing
-  pass announces itself, so the diagnosis has a trigger instead of needing an mtime
-  check. The web route still derives its own `as_of` from the file mtime (same instant,
+  time. **(1) IS NOT A DEFECT — ROOT-CAUSED 2026-07-31, and the fetch was never
+  failing.** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
+  scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
+  (4 rows, then 0, then 0 — see the stall entry under In flight), so the call was
+  correctly never made. Verified three ways: the fetch returns `True` both from an
+  interactive shell and from a replica of the daemon's own environment (`env -i` with
+  the unit's `HOME`/`PATH`/`TMPDIR`); `~/.codex/auth.json` has not been rewritten since
+  07-26 and its token is valid to 08-05, so the concurrent-`codex exec` suspicion is
+  dead; and the DB shows the scored-row count going to zero exactly when the file
+  stopped updating. **The instrument was reporting correctly on a pipeline that had
+  stopped spending.** What made it read as a defect is that a stale snapshot and a
+  no-spend pass look identical from the outside — which the shipped `as_of` stamp and
+  WARNING now distinguish. The web route still derives its own `as_of` from the file mtime (same instant,
   and it must keep working for pre-stamp snapshots), so the two agree; a reader of the
   raw file no longer has to.
 
