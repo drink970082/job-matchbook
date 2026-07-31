@@ -357,18 +357,29 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             return screen_posting(posting, extract=screen_extract,
                                   candidate=candidate, num_ctx=num_ctx)
 
-        # The operator's own intake filters, re-applied to rows already queued. They run
-        # at INGEST only, so a row that entered before its filter existed, or that aged
-        # past `max_age_days` while it waited, would otherwise buy a paid fit call on a
-        # posting this very config refuses. Deterministic and free, so `run_score` applies
-        # it in the same unbudgeted phase as the location/intern gates.
+        # The operator's own TITLE filters, re-applied to rows already queued. They run at
+        # INGEST only, so a row that entered before its filter existed keeps its place and
+        # buys a paid fit call on a posting this very config refuses. Deterministic and
+        # free, so `run_score` applies it in the same unbudgeted phase as the
+        # location/intern gates.
+        #
+        # `max_age_days` is deliberately NOT re-applied here, and the asymmetry is the
+        # whole reason: a title refusal is RECOVERABLE (widen `title_filter`, run
+        # `--rescreen-discarded`, the row survives phase 0 and comes back), while an age
+        # refusal is not — the row only gets older, so raising the knob never catches up
+        # with it. And 474 of the 587 age-refusals measured on 2026-07-31 were INSIDE the
+        # window when they were ingested; they aged out waiting in the queue. Discarding
+        # those is a queue TTL policy, not "the config refuses this posting", and it would
+        # terminally delete ~5,300 rows over 30 days. That is the operator's call to make
+        # deliberately, with a revert artifact, the way the 2026-07-29 sweep was run —
+        # not something a pass does silently six times a day. See docs/BACKLOG.md.
         def stale_fn(posting):
             kept = prefilter_postings([posting], title_filter=cfg.title_filter,
                                       title_exclude=cfg.title_exclude,
-                                      max_age_days=cfg.max_age_days, now=now)
+                                      max_age_days=0, now=now)
             if kept:
                 return None
-            return "prefilter: refused by the current title/age filters"
+            return "prefilter: title refused by the current filters"
 
         # Build the fit scorer lazily on first use (both twins are import-safe: the
         # anthropic SDK import / the codex subprocess are deferred to the first call,

@@ -622,18 +622,23 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> li
             {"screen": {}, "disqualified": False, "disqualification_reason": ""},
             posting, candidate)
         if not gate["disqualified"] and stale_fn is not None:
-            # ... and the operator's OWN intake filters, re-applied. They run at INGEST
-            # only, so any row that entered before its filter existed — or that aged past
-            # `max_age_days` while it waited — keeps its place in the queue and buys a
-            # paid fit call on a posting the config would refuse today. Measured
-            # 2026-07-31 over the live queue: 438 of 9,400 rows (435 on title, 3 on age).
-            # Free and deterministic, so it belongs in this phase rather than costing a
-            # budget slot; the reason string matches the operator's own 2026-07-29 sweep
-            # so both populations query the same way.
+            # ... and the operator's OWN title filters, re-applied. They run at INGEST
+            # only, so any row that entered before its filter existed keeps its place in
+            # the queue and buys a paid fit call on a posting the config refuses today.
+            # Measured 2026-07-31 over the live queue: 206 of the 5,941 rows that survive
+            # the gates above. Free and deterministic, so it belongs in this phase rather
+            # than costing a budget slot. (`max_age_days` is NOT re-applied — see the
+            # asymmetry argument where `stale_fn` is built, in run.py.)
             reason = stale_fn(posting)
             if reason:
-                gate = {"screen": {}, "disqualified": True,
-                        "disqualification_reason": reason}
+                # MERGE, never replace: `gate` already carries the PASSING location and
+                # intern verdicts this row earned, and a row discarded here is the first
+                # one that would otherwise persist with no `screen` object at all. It also
+                # matters for `--rescreen-discarded`, which requeues real discards through
+                # this same phase — their evidence must survive the trip.
+                gate["disqualified"] = True
+                prior = gate.get("disqualification_reason") or ""
+                gate["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
         if not gate["disqualified"]:
             survivors.append(row)
             continue

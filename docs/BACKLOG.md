@@ -334,9 +334,25 @@
   `max_age_days` and becomes a paid call on a posting the config refuses. The queue
   regrows this on its own, roughly a day's worth at a time; at `--score-limit 60` against
   ~38 fresh rows/pass the daemon dips ~22 rows/pass into exactly that stale region.
-  A pre-screen age re-check in `run_score` is the real fix and is **NOT queued** — the
-  operator's plan as of 2026-07-29 is to keep test-running, adjust, and re-run the system
-  wholesale, which resets these populations anyway.
+  **The TITLE half of this shipped 2026-07-31** (`fix/prescore-prefilter`; SPEC §7.1/§9 +
+  CHANGELOG): `run_score`'s free phase-0 sweep re-applies `title_filter`/`title_exclude`
+  to already-queued rows, 206 of the 5,941 that survive the deterministic gates.
+  **The AGE half is REFUSED, and this is the reasoning so it is not re-proposed as an
+  obvious symmetry.** It looks like the same fix and is a different thing:
+  - a title refusal is **recoverable** — widen `title_filter`, run `--rescreen-discarded`,
+    the row survives phase 0 and comes back. An age refusal is **not**: the row only gets
+    older, so raising `max_age_days` never catches up with it.
+  - **474 of the 587 age-refusals were INSIDE the window when they were ingested.** They
+    aged out *waiting in the queue*, so discarding them is a queue-TTL policy, not "the
+    config refuses this posting". At the measured ~200-250 rows/day of drain it would
+    terminally delete on the order of 5,300 rows over 30 days.
+  - it would fight the one escape hatch: `--rescreen-discarded` requeues 919 rows, and
+    591 of them are now past 30 days, so the very next phase-0 sweep re-kills them and
+    `save_score` overwrites their real `location:` / `internship` verdicts with the
+    prefilter reason. The evidence is gone and only gets less recoverable.
+  If the operator does want a queue TTL, it wants the shape the 2026-07-29 sweep had — a
+  deliberate run with a saved id list and a pre-run DB copy, revertible row for row — not
+  a silent six-times-a-day deletion.
 - **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
   `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
   live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
