@@ -222,6 +222,24 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   standing rejection is for *fit scoring*, which §10 argues does not transfer. Bar is the
   gate's own: zero false disqualifications. Plan:
   `~/.claude/plans/what-are-small-dev-vectorized-elephant.md`.
+  **LUNA MEASURED 2026-07-31, twice — and one run would have told you the wrong thing.**
+  `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna`, K=3, 83 rows. Run 1 **PASS** (0 false
+  disqualifications, recall 29/37); run 2 **FAIL** (1, recall 28/37). The gate is
+  **any-draw, not majority** by design (`screen_eval.py:149` — "a check that discards a
+  good posting one time in three is not a passing check"), so a ~1-in-3 per-draw fault is
+  caught by K=3 only ~70% of the time: **run 1's zero was a 30% miss, not evidence of
+  absence.** Run 2 is the trustworthy one. Never promote a screen backend off a single run.
+  **What it actually shows, against the 4B's own documented RED set (67/68/672/738):**
+  the 4B fails all four on **3/3 draws each — 12 bad draws of 12**. Luna, over both runs,
+  produced **1 bad draw of 24** (id 672 only, `X..`), clearing 67/68/738 outright. That is
+  ~25x fewer, so "model ceiling" survives as a description — but the residual is not purely
+  size, since a frontier model still trips 672 (*"advanced degree … preferably a Ph.D."*).
+  **The shipping read is better than the FAIL headline.** A degree false-disqualification
+  no longer deletes a row — the 2026-07-29 `needs_confirmation` routing sends it to the
+  paid scorer — so luna's residual costs **one paid fit call**, not a lost job, while being
+  strictly better than what GPU-owning users run today. Caveat that does not go away: this
+  measures the degree and sponsorship halves only, because the clearance half still cannot
+  fail.
   **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
   paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
   measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
