@@ -1197,7 +1197,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass touches (the `--score-limit` operator flag), bounding the paid scorer over a
-  large fresh intake; the remainder stays `new`. An optional `max_id` (the
+  large fresh intake; the remainder stays `new`.
+  **A free seniority PRE-ORDERING runs first** (`score/seniority.py`, wired only on the
+  `ollama` screen backend and only when a candidate is configured — it must cost no
+  quota). It walks the queue examining at most `2 x limit` rows: the model extracts
+  `stated_min_years` / `stated_rank` as the JD literally states them, CODE compares
+  against `candidate.years_experience`, and a row stating a bar the candidate does not
+  clear is stamped `deprioritized_at` — it **stays `new`**, keeps its place among its
+  peers, and sorts behind every undemoted row (`db.get_by_status`'s newest-first order
+  leads on `deprioritized_at IS NOT NULL`). Never a discard: the layer is measured
+  against the strong scorer's own verdicts rather than human labels, so it may decide
+  which row gets the next paid call and may not delete a posting. `UPDATE job_postings
+  SET deprioritized_at=NULL` reverses it row for row. The rationale, the measurement
+  (P 0.963, 48% demoted, **0 false demotions on `domain=match` and 0 on notified rows**)
+  and the keep-direction veto are docs/SCORING.md §5.7; the gate is `make eval-seniority`. An optional `max_id` (the
 `--score-max-id` flag) restricts the pass to rows with `id <= N` and is applied
 **before** `limit` — the SELECTOR to `limit`'s BUDGET. The two are not
 interchangeable: the queue below is newest-first, so `limit` can only name rows from
@@ -2026,6 +2039,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `feeds:` config parsing + defaults | `test_feed_config.py` |
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
+| The free seniority pre-ordering RE-ORDERS and never discards: a demoted row keeps `pipeline_status='new'` and its score/detail, is stamped `deprioritized_at`, sorts behind every undemoted row, and clearing the column restores the original order. A blind response, an empty answer or a provider failure is a KEEP. It examines at most `2 x limit` rows per pass, skips rows already demoted, and is off entirely without a local backend or a configured candidate | `test_seniority.py` (whole file), `test_pipeline.py` (`test_a_demoted_row_leaves_the_paid_slice_but_stays_queued`, `test_a_demoted_row_sorts_behind_the_queue_it_left`, `test_the_pre_ordering_examines_a_bounded_number_of_rows`, `test_an_already_demoted_row_is_not_re_examined`, `test_no_seniority_backend_leaves_the_queue_exactly_as_it_was`), `test_db.py::test_a_deprioritized_row_sorts_behind_every_undemoted_one` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
 | A stub-rejected workday posting costs no detail GET | `test_fetch_new.py::test_workday_stub_gate_skips_the_dropped_detail_call` |

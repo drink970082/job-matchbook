@@ -32,6 +32,7 @@ from .feed import embedded_gh, simplify
 from .notify import notify_posting
 from .score import (capture_usage, make_claude_scorer, make_codex_scorer,
                     make_ollama_extract, screen_posting)
+from .score import seniority
 from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
                                     DEFAULT_CODEX_SCREEN_MODEL,
                                     DEFAULT_OPENAI_SCREEN_MODEL,
@@ -357,6 +358,21 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             return screen_posting(posting, extract=screen_extract,
                                   candidate=candidate, num_ctx=num_ctx)
 
+        # The FREE seniority pre-ordering, and it is free ONLY on the local backend —
+        # so it is wired on `ollama` and nowhere else. On a paid screen backend the
+        # layer would spend money to SAVE money, which is not the trade it was measured
+        # for; it stays off and the queue keeps its plain newest-first order.
+        # It also stays off when nothing is configured, matching the screen's own rule
+        # (everything empty => no gate): an operator who has configured no candidate has
+        # not asked for their queue to be re-ordered around a seniority bar.
+        seniority_fn = None
+        if screen_backend == "ollama" and screen_extract is not None and candidate:
+            def seniority_fn(posting):          # noqa: F811 — deliberate rebind
+                return seniority.assess(
+                    posting, screen_extract,
+                    years_experience=cfg.candidate.years_experience,
+                    max_desc_chars=num_ctx * 2)
+
         # Build the fit scorer lazily on first use (both twins are import-safe: the
         # anthropic SDK import / the codex subprocess are deferred to the first call,
         # so this closure is cheap and the hermetic tests touch neither).
@@ -384,6 +400,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
         workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
         pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
+                           seniority_fn=seniority_fn,
                            batch_size=batch_size, limit=score_limit,
                            max_id=score_max_id,
                            screen_workers=workers, score_workers=score_workers,

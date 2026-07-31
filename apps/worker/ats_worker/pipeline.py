@@ -583,9 +583,53 @@ class _BackendBreaker:
         return self.successes == 0 and self.failures >= self.limit
 
 
+
+# How many rows the free seniority pre-ordering may examine to fill one pass's budget.
+# At the measured 48% demote rate, 2x fills `limit` with room to spare; the cap exists so
+# a pathological queue (everything demoted) cannot turn a bounded pass into an unbounded
+# GPU run. 40 x 2 x ~1.6s is about two minutes of a 4-hour slot.
+_SENIORITY_EXAMINE_FACTOR = 2
+
+
+def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> list:
+    """Demote rows whose JD states a seniority bar this candidate does not clear, until
+    `limit` undemoted rows are held. Returns the rows the pass should consider, in order.
+
+    FREE: one local extraction per row examined, no paid call, no quota. A demotion is a
+    QUEUE MOVE, not a discard — the row stays `new`, keeps its `score`/`score_detail`,
+    and `UPDATE job_postings SET deprioritized_at=NULL` restores it. That distinction is
+    load-bearing: the layer was measured against the strong scorer's own verdicts, not
+    human labels, so it is good enough to decide which row gets the next paid call and
+    NOT good enough to delete a posting (docs/SCORING.md §9.3).
+
+    Rows already carrying `deprioritized_at` are left alone: they sort at the back
+    already, and re-extracting them would spend GPU to reach the same deterministic
+    answer.
+    """
+    if seniority_fn is None or limit <= 0:
+        return rows
+    kept: list = []
+    examined = 0
+    budget = limit * _SENIORITY_EXAMINE_FACTOR
+    for i, row in enumerate(rows):
+        if len(kept) >= limit or examined >= budget:
+            return kept + list(rows[i:])
+        if row["deprioritized_at"]:
+            continue                      # already at the back; nothing to decide
+        examined += 1
+        verdict, _detail = seniority_fn(dict(row))
+        if verdict == "too_junior":
+            db.mark_deprioritized(conn, row["id"], now=now)
+            tally["demoted"] += 1
+            continue
+        kept.append(row)
+    return kept
+
+
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, max_id: int = 0, screen_workers: int = 1,
-              score_workers: int = 4, candidate=None, scorer_meta=None) -> None:
+              score_workers: int = 4, candidate=None, scorer_meta=None,
+              seniority_fn=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -637,15 +681,24 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # predicate into db.get_by_status would buy nothing but a wider signature.
     if max_id > 0:
         rows = [row for row in rows if row["id"] <= max_id]
-    if limit > 0:
-        rows = rows[:limit]
-    postings = [dict(row) for row in rows]
-
     # ponytail: a plain dict, not a dataclass — it exists only to build the one summary
     # line below. A pass that did work used to print NOTHING on success, so a working
     # run and a no-op run were indistinguishable at the terminal (cost real debugging
     # time 2026-07-26); the breakers below already speak up, so silence read as "fine".
-    tally = {"discarded": 0, "confirming": 0, "thin": 0, "fit": 0, "failed": 0}
+    tally = {"demoted": 0, "discarded": 0, "confirming": 0, "thin": 0, "fit": 0,
+             "failed": 0}
+
+    # The FREE seniority pre-ordering runs on exactly the rows the budget would have
+    # bought, and demotes the ones stating a bar this candidate does not clear — so the
+    # paid call lands on a row worth spending it on instead. 96% of paid calls came back
+    # "no" and 54% of those were `too_junior` (docs/PROGRESS.md), which is the half a
+    # free local extraction can reach. Ordering, never filtering: a demoted row stays
+    # `new`.
+    rows = _preorder_by_seniority(conn, rows, seniority_fn=seniority_fn, now=now,
+                                  limit=limit, tally=tally)
+    if limit > 0:
+        rows = rows[:limit]
+    postings = [dict(row) for row in rows]
 
     # Screen calls are I/O-bound (an HTTP round trip, or a subprocess spawn on the CLI
     # backends), so they run CONCURRENTLY while every DB call stays on this thread —
@@ -845,7 +898,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # that moved a free outcome to a paid one, and the bucket it left (`screen-discarded`)
     # is what an operator would otherwise be watching. It is NOT in `done` for the same
     # reason: every row already increments exactly one of the four terms there.
-    print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
+    print(f"[score] {tally['demoted']} deprioritized (free, still queued), then "
+          f"{len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
           f"{tally['confirming']} sent for confirmation, "
           f"{tally['failed']} failed, {unreached} unreached, "

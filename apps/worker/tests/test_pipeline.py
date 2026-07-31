@@ -345,7 +345,7 @@ def test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice(db_
                        fit_fn=lambda ps: [{"score": 90, "assessment": _assessment()}
                                           for _ in ps])
     out = capsys.readouterr().out
-    assert "[score] 2 row(s):" in out       # the cap is what the pass touched
+    assert "then 2 row(s):" in out       # the cap is what the pass touched
     assert "0 unreached" in out             # nothing in the slice was skipped
     assert "3 left 'new'" in out            # and the rest of the queue is visible
 
@@ -659,7 +659,7 @@ def test_run_score_always_prints_a_summary(db_path, capsys):
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
 
     out = capsys.readouterr().out
-    assert "[score] 3 row(s):" in out
+    assert "then 3 row(s):" in out
     assert "1 screen-discarded" in out
     assert "1 thin-JD (no fit call)" in out
     assert "1 fit-scored" in out
@@ -683,7 +683,7 @@ def test_run_score_summary_counts_rows_a_breaker_never_reached(tmp_path, capsys)
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, batch_size=1)
 
     out = capsys.readouterr().out
-    assert "[score] 6 row(s):" in out
+    assert "then 6 row(s):" in out
     unreached = int(out.split("failed, ")[1].split(" unreached")[0])
     failed = int(out.split("confirmation, ")[1].split(" failed")[0])
     assert failed + unreached == 6  # every row accounted for, none double-counted
@@ -1838,3 +1838,96 @@ def test_requeue_discarded_leaves_every_other_status_alone(db_path):
     status = {r["external_id"]: r["pipeline_status"]
               for r in conn.execute("SELECT * FROM job_postings").fetchall()}
     assert status == {"new": "new", "scored": "scored", "failed": "failed"}
+
+
+# --- the FREE seniority pre-ordering ---------------------------------------
+# It re-orders the queue so the paid budget lands on rows worth spending it on. It must
+# never DISCARD: the layer was measured against the strong scorer's own verdicts, not
+# human labels, so a false demotion may cost a delay and must not cost a posting.
+
+def _seniority(*junior_titles):
+    """A fake free extraction: 'too_junior' for the named titles, 'match' otherwise."""
+    seen = []
+
+    def fn(posting):
+        seen.append(posting["job_title"])
+        verdict = "too_junior" if posting["job_title"] in junior_titles else "match"
+        return verdict, {"stated_min_years": 5 if verdict == "too_junior" else None}
+
+    fn.seen = seen
+    return fn
+
+
+def test_a_demoted_row_leaves_the_paid_slice_but_stays_queued(db_path, capsys):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    fit_calls = []
+
+    def fit_fn(postings):
+        fit_calls.append([p["job_title"] for p in postings])
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, fit_fn=fit_fn, limit=1,
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=_seniority("c", "b"))   # c and b are newest-first
+
+    assert fit_calls == [["a"]]      # the budget bought the one row with no stated bar
+    rows = {r["job_title"]: r for r in conn.execute("SELECT * FROM job_postings")}
+    for title in ("b", "c"):
+        assert rows[title]["pipeline_status"] == "new"        # queued, NOT discarded
+        assert rows[title]["deprioritized_at"] == NOW
+        assert rows[title]["score"] is None                   # nothing was spent on it
+    assert "2 deprioritized (free, still queued)" in capsys.readouterr().out
+
+
+def test_a_demoted_row_sorts_behind_the_queue_it_left(db_path):
+    # The demotion is only useful if the queue then reads it last -- and reversible.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    pipeline._preorder_by_seniority(conn, db.get_by_status(conn, "new", newest_first=True),
+                                    seniority_fn=_seniority("c"), now=NOW, limit=2,
+                                    tally={"demoted": 0})
+
+    queue = [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)]
+    assert queue[-1] == ids["c"]
+    conn.execute("UPDATE job_postings SET deprioritized_at=NULL")
+    assert [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)] != queue
+
+
+def test_the_pre_ordering_examines_a_bounded_number_of_rows(db_path):
+    # Everything demoted is the pathological case: without a cap, one pass would walk
+    # the whole 9k queue at ~1.6s of GPU per row.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(30)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    fn = _seniority(*titles)
+    out = pipeline._preorder_by_seniority(
+        conn, db.get_by_status(conn, "new", newest_first=True),
+        seniority_fn=fn, now=NOW, limit=3, tally={"demoted": 0})
+
+    assert len(fn.seen) == 3 * pipeline._SENIORITY_EXAMINE_FACTOR
+    assert len(out) == len(titles) - len(fn.seen)   # the unexamined tail is handed back
+
+
+def test_an_already_demoted_row_is_not_re_examined(db_path):
+    # It is at the back already and the extraction is deterministic, so re-running it
+    # would spend GPU to reach the same answer.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    db.mark_deprioritized(conn, ids["b"], now=NOW)
+    fn = _seniority()
+    pipeline._preorder_by_seniority(conn, db.get_by_status(conn, "new", newest_first=True),
+                                    seniority_fn=fn, now=NOW, limit=5,
+                                    tally={"demoted": 0})
+    assert fn.seen == ["a"]
+
+
+def test_no_seniority_backend_leaves_the_queue_exactly_as_it_was(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+    rows = db.get_by_status(conn, "new", newest_first=True)
+    assert pipeline._preorder_by_seniority(conn, rows, seniority_fn=None, now=NOW,
+                                           limit=5, tally={"demoted": 0}) == rows
