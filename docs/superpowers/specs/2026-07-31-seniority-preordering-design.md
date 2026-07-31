@@ -5,7 +5,7 @@
 This records the *shape* calls only. The measurement that justifies the layer — the
 verdict matrix, the P/R, the veto, the false-demotion analysis — is the first In-flight
 entry in [`PROGRESS.md`](../../PROGRESS.md), and the behavior contract is
-[`SCORING.md`](../../SCORING.md) §9.4. Neither is repeated here.
+[`SCORING.md`](../../SCORING.md) §5.7. Neither is repeated here.
 
 ## Fork 1 — how a demoted row sorts to the back
 

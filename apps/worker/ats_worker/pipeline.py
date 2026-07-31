@@ -585,9 +585,13 @@ class _BackendBreaker:
 
 
 # How many rows the free seniority pre-ordering may examine to fill one pass's budget.
-# At the measured 48% demote rate, 2x fills `limit` with room to spare; the cap exists so
-# a pathological queue (everything demoted) cannot turn a bounded pass into an unbounded
-# GPU run. 40 x 2 x ~1.6s is about two minutes of a 4-hour slot.
+# The cap exists so a pathological queue (everything demoted) cannot turn a bounded pass
+# into an unbounded GPU run: 40 x 2 x ~1.6s is about two minutes of a 4-hour slot.
+# 2x does NOT leave comfortable headroom, and the review that measured it is worth
+# recording: at a ~48% demote rate, filling 40 keeps needs ~77.5 examinations in
+# expectation against a budget of 80, so the cap fires on roughly 4 passes in 10. That is
+# benign — the unexamined tail is handed back and the pass still fills to `limit` — but
+# it is a cap that is routinely reached, not a safety margin that rarely is.
 _SENIORITY_EXAMINE_FACTOR = 2
 
 
@@ -602,28 +606,63 @@ def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> li
     human labels, so it is good enough to decide which row gets the next paid call and
     NOT good enough to delete a posting (docs/SCORING.md §9.3).
 
-    Rows already carrying `deprioritized_at` are left alone: they sort at the back
-    already, and re-extracting them would spend GPU to reach the same deterministic
-    answer.
+    Rows already carrying `deprioritized_at` are not re-examined — they sort at the back
+    already and the extraction is deterministic, so a second run reaches the same answer
+    — but they are **kept in the returned list, behind the undemoted ones**. That is the
+    difference between a delay and a deletion: when the undemoted head is smaller than
+    the budget (a drained queue, or a `--score-max-id` window), the spare budget flows
+    to demoted rows and they get scored. Dropping them here instead made them
+    permanently unreachable by any bounded pass, including the documented
+    `--score-max-id` recovery recipe.
+
+    A provider failure is a KEEP (`seniority.assess` returns `match`), and a row whose
+    extraction RAISES is kept too rather than aborting the pass — the same per-item
+    contract the screen phase holds. `_BREAKER_LIMIT` consecutive failures with no
+    success is a dead backend, not a bad row: the pre-ordering stops and the pass
+    proceeds unordered.
+
+    That breaker is what bounds the WALL CLOCK, and it is the reason it exists. These
+    calls are sequential (`DEFAULT_SCREEN_WORKERS['ollama']` is 1 — the GPU serialises
+    anyway) and `make_ollama_extract` defaults to a 180s timeout, so without it a HUNG
+    local model would cost `2 x limit x 180s` — at `--score-limit 40` that is exactly
+    4 hours, the whole slot, after which `pass_lock` would refuse the next one too.
+    With it the worst case is `_BREAKER_LIMIT x 180s`, about 15 minutes, and the pass
+    goes on to screen and score normally. Nominal cost is ~1.6s/row, so ~2 minutes.
     """
     if seniority_fn is None or limit <= 0:
         return rows
     kept: list = []
+    demoted_tail: list = []          # already-demoted rows, kept BEHIND the keepers
     examined = 0
+    failures = successes = 0
     budget = limit * _SENIORITY_EXAMINE_FACTOR
     for i, row in enumerate(rows):
         if len(kept) >= limit or examined >= budget:
-            return kept + list(rows[i:])
+            return kept + demoted_tail + list(rows[i:])
         if row["deprioritized_at"]:
-            continue                      # already at the back; nothing to decide
+            demoted_tail.append(row)
+            continue
         examined += 1
-        verdict, _detail = seniority_fn(dict(row))
+        try:
+            verdict, detail = seniority_fn(dict(row))
+        except Exception as exc:  # noqa: BLE001 — one bad row never aborts the pass
+            print(f"[seniority] extraction failed on row {row['id']}, keeping it: {exc}")
+            verdict, detail = "match", {"error": str(exc)}
+        if detail.get("error"):
+            failures += 1
+            if successes == 0 and failures >= _BREAKER_LIMIT:
+                print(f"[seniority] backend appears down ({failures} consecutive "
+                      "failures, no successes) — skipping the pre-ordering for this "
+                      "pass; the queue keeps its plain newest-first order")
+                return kept + demoted_tail + list(rows[i:])
+        else:
+            successes += 1
         if verdict == "too_junior":
             db.mark_deprioritized(conn, row["id"], now=now)
             tally["demoted"] += 1
             continue
         kept.append(row)
-    return kept
+    return kept + demoted_tail
 
 
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
@@ -672,7 +711,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     survivors: list[tuple] = []  # (row, posting, screen)
     # Most-recently-touched then newest, so `limit` takes today's discoveries — and the
     # rows run_retry just requeued, which keep their OLD ids — rather than the back of
-    # the backlog (see get_by_status). The backlog then drains from its tail only when a
+    # the backlog (see get_by_status). One exception since the seniority pre-ordering:
+    # a requeued row that was demoted on an earlier pass sorts behind the undemoted ones
+    # regardless of its fresh `updated_at`, because `deprioritized_at` leads the ORDER BY.
+    # It is still reached whenever the budget has room — that is what makes a demotion a
+    # delay rather than a deletion. The backlog then drains from its tail only when a
     # pass has headroom under the cap, which keeps clearing it an operator decision
     # instead of something the schedule does silently and expensively.
     rows = db.get_by_status(conn, "new", newest_first=True)

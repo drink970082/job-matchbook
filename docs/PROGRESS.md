@@ -64,8 +64,11 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   (`make eval-seniority`), the `deprioritized_at` ordering column, the
   `candidate.years_experience` key and the in-pass wiring are all on that branch; suite
   870 green, `seniority.py` at 98%, total coverage 95.04%. **Re-measured on this build,
-  446 rows: P 0.963 / R 0.829, 48% demoted, 0 provider errors, and 0 false demotions on
-  either `domain=match` or notified rows** — the gate that decides the layer.
+  446 rows: P 0.964 / R 0.757, 44% demoted, 0 provider errors, and 0 false demotions on
+  either `domain=match` or notified rows** — the gate that decides the layer. The
+  pre-merge review's fixes (a rank veto, and a stated years figure beating a rank word)
+  cost recall 0.829 -> 0.757 and demote share 0.484 -> 0.442; both can only ever REMOVE
+  a demotion, and the eval's in-sample limits are stated in SCORING §5.7.
   Behavior lives in SPEC §7.1 and SCORING §5.7; the shape decisions (the operator chose
   a real column over a backdated `updated_at` or a `score_detail` sniff) are in
   `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.

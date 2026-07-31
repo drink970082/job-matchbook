@@ -8,6 +8,23 @@ verdicts, not human labels**. The corpus therefore inherits Sol's errors (two kn
 ones are recorded in docs/PROGRESS.md), which is why this gate is allowed to authorize
 a RE-ORDERING and never a discard.
 
+**THREE LIMITS ON WHAT A GREEN RUN PROVES. Read them before quoting a number.**
+
+1. **It is IN-SAMPLE.** `YEARS_MARGIN`, `SENIOR_YEARS`, the keep-direction veto and the
+   thresholds below were all fitted on this same corpus. There is no held-out split and
+   no second corpus, so the precision and the zero-false-demotion result are training-set
+   numbers, not estimates of future performance.
+2. **The decisive gate has little statistical power.** Only ~34 of 446 rows are
+   `domain=match` and ~18 were notified. With 8 false demotions placed at random the
+   chance of hitting neither set is roughly 0.53 and 0.72 — so the gate can go green for
+   a layer whose demotions are indifferent to whether a row was a payoff row. Treat a
+   pass as "no evidence of harm", never as "evidence of no harm".
+3. **The corpus is not the production population.** `build_corpus` selects rows that
+   already SURVIVED the screen and bought a paid fit call, so every row has a real
+   description (minimum 200 chars). Production runs this layer on every `new` row,
+   before the screen and before the thin-JD gate — including short postings where a bare
+   "Senior ..." title is nearly all the model sees. That population is 0% of this eval.
+
 Positive class = `too_junior` = "send this row to the back of the score queue".
 A false positive is a real job delayed; a false negative is one paid call spent.
 
@@ -50,8 +67,12 @@ K = 1
 # demotions are. Every row the strong scorer called `domain=match` is the notify payoff
 # set; demoting one of those delays a job the human would have seen. Measured 0.
 MAX_FALSE_DEMOTES_ON_MATCH_DOMAIN = 0
-MIN_PRECISION = 0.95            # measured 0.967 with the keep-direction veto
-MIN_DEMOTE_SHARE = 0.40         # measured 0.565; below this the layer buys too little
+MIN_PRECISION = 0.95            # measured 0.964 with both keep-direction vetoes
+# Measured 0.442 — a THIN margin over this gate, not a comfortable one, and it moved
+# 0.484 -> 0.442 when the rank veto landed. Any further keep-direction change should
+# expect to trip this, which is the point: below it the layer stops buying enough to
+# justify the GPU time.
+MIN_DEMOTE_SHARE = 0.40
 
 
 def build_corpus(db_path: Path) -> int:
@@ -109,8 +130,11 @@ def selftest(rows: list[dict]) -> int:
     # the code-side rule
     assert seniority.verdict({"stated_min_years": 5}, job_text="5 years") == "too_junior"
     assert seniority.verdict({"stated_min_years": 1}, job_text="1 year") == "match"
-    assert seniority.verdict({"stated_rank": "staff"}, job_text="") == "too_junior"
-    assert seniority.verdict({"stated_rank": "manager"}, job_text="") == "match"
+    assert seniority.verdict({"stated_rank": "staff"},
+                             job_text="Staff Engineer") == "too_junior"
+    assert seniority.verdict({"stated_rank": "manager"}, job_text="Manager") == "match"
+    # the rank path's keep-direction veto: a rank the posting never names is not a bar
+    assert seniority.verdict({"stated_rank": "staff"}, job_text="Junior role") == "match"
     # a blind or empty response is a KEEP
     assert seniority.verdict(None, job_text="") == "match"
     assert seniority.verdict({}, job_text="") == "match"
@@ -118,7 +142,7 @@ def selftest(rows: list[dict]) -> int:
     assert seniority.read_entry({"seniority": {"stated_rank": "lead"}}) is not None
     assert seniority.read_entry({"screen": {"seniority": {"stated_rank": "lead"}}}) is not None
     # a senior candidate is not demoted by a rank the JD names
-    assert seniority.verdict({"stated_rank": "staff"}, job_text="",
+    assert seniority.verdict({"stated_rank": "staff"}, job_text="Staff Engineer",
                              years_experience=8) == "match"
     if rows:
         missing = [r["id"] for r in rows if not (r.get("description") or "").strip()]

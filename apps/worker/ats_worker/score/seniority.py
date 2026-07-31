@@ -29,8 +29,9 @@ from .prompts import _job_block
 RANKS = ("senior", "lead", "staff", "principal")
 
 # Years above the candidate's own experience at which a stated bar reads as a real one.
-# 2 is what the 2026-07-30 run measured (P .967 / R .825 with the veto below, over 446
-# rows), for a candidate at 0 years.
+# 2 is what the 2026-07-31 run measured (P .964 / R .757 with both vetoes below, over 446
+# rows), for a candidate at 0 years. It is also the layer's dominant residual error: 5 of
+# the 7 false demotions are rows whose JD states exactly 2.
 YEARS_MARGIN = 2
 # Experience at which a JD naming one of the four ranks stops being a bar for this
 # candidate. ponytail: a constant, not a config key — it only matters for a candidate
@@ -88,7 +89,9 @@ def normalize(entry) -> tuple[int | None, str | None]:
         match = re.search(r"\d{1,2}", years)
         years = int(match.group()) if match else None
     elif isinstance(years, (int, float)):
-        years = int(years)
+        # json.loads accepts NaN/Infinity, and int() raises on both — a malformed
+        # extraction must not take the pass down with it.
+        years = int(years) if -1000 < years < 1000 else None
     else:
         years = None
     rank = entry.get("stated_rank")
@@ -122,6 +125,17 @@ def clamp_years(years: int | None, job_text: str) -> int | None:
     return min(years, min(floor)) if floor else years
 
 
+def rank_stated_in(job_text: str, rank: str) -> bool:
+    """Does the posting literally contain that rank word? The rank path's half of the
+    keep-direction veto — the mirror of `clamp_years`, and it can only ever REMOVE a
+    bar. Without it a rank the model supplied from nowhere demotes a row with no
+    evidence at all, while the years path is vetoed. (It cannot fix mis-ATTRIBUTION —
+    "you will work with senior engineers" does contain the word — only invention.)"""
+    if rank == "senior":
+        return bool(re.search(r"\bsenior\b|\bsr\.?\b", job_text, re.I))
+    return bool(re.search(r"\b" + re.escape(rank) + r"\b", job_text, re.I))
+
+
 def verdict(entry, *, job_text: str, years_experience: int = 0) -> str:
     """`"too_junior"` or `"match"`, decided in CODE. A blind or empty entry is a
     `match` — the keep direction, per PRINCIPLES' uncertainty policy."""
@@ -129,7 +143,12 @@ def verdict(entry, *, job_text: str, years_experience: int = 0) -> str:
     years = clamp_years(years, job_text)
     if years is not None and years >= years_experience + YEARS_MARGIN:
         return "too_junior"
-    if rank and years_experience < SENIOR_YEARS:
+    # A stated NUMBER the candidate clears beats a rank word. "Senior Engineer ... 0-2
+    # years of experience" is a posting that says outright it will take this candidate,
+    # and the years figure is the vetoed, evidence-grounded signal while the rank is not.
+    if years is not None:
+        return "match"
+    if rank and years_experience < SENIOR_YEARS and rank_stated_in(job_text, rank):
         return "too_junior"
     # ponytail: no title-token floor for the "Senior ..." titles the model returns an
     # empty object on (6 of 19 misses). That is a DISCARD-direction floor, so SCORING

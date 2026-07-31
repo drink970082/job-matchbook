@@ -61,7 +61,7 @@ SCREEN_FOOTER: str = _screen["screen_footer"]
 # pre-ordering extraction (score/seniority.py). Its own file, because it is gated by
 # its own eval (`make eval-seniority`) and folding it into screen.txt would put the
 # degree/authorization/clearance extractions behind that gate too — see
-# docs/SCORING.md §9.4. The wording is byte-identical to the 2026-07-30 measurement.
+# docs/SCORING.md §5.7. The wording is byte-identical to the 2026-07-30 measurement.
 SENIORITY_HEADER: str = _seniority["seniority_header"] + "\n"
 SENIORITY_LIST_HEADER: str = _seniority["seniority_list_header"]
 SENIORITY_C_SENIORITY: str = _seniority["c_seniority"]

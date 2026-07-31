@@ -82,9 +82,12 @@ def test_a_stated_bar_above_the_candidates_experience_demotes():
 
 
 def test_a_named_rank_demotes_unless_the_candidate_is_themselves_senior():
+    # job_text must CONTAIN the rank word -- the veto below is what makes that
+    # necessary, and an empty JD is exactly the invented-rank case it refuses.
     for rank in seniority.RANKS:
-        assert seniority.verdict({"stated_rank": rank}, job_text="") == "too_junior"
-        assert seniority.verdict({"stated_rank": rank}, job_text="",
+        jd = f"We are hiring a {rank.title()} Engineer."
+        assert seniority.verdict({"stated_rank": rank}, job_text=jd) == "too_junior"
+        assert seniority.verdict({"stated_rank": rank}, job_text=jd,
                                  years_experience=seniority.SENIOR_YEARS) == "match"
 
 
@@ -132,3 +135,38 @@ def test_a_blind_response_is_flagged_and_still_kept():
     got, detail = seniority.assess(JOB, lambda prompt, schema: {"screen": {}})
     assert got == "match"
     assert detail["blind"] is True
+
+
+def test_an_invented_rank_the_posting_never_names_is_vetoed():
+    # The rank path's half of the keep-direction veto. Without it a rank the model
+    # supplied from nowhere demotes a row with no evidence at all, while the years path
+    # is vetoed -- an asymmetry the pre-merge review found.
+    assert seniority.verdict({"stated_rank": "principal"},
+                             job_text="Junior Analyst, no experience needed.") == "match"
+    assert seniority.verdict({"stated_rank": "staff"},
+                             job_text="We are hiring a Staff Engineer.") == "too_junior"
+    # It cannot fix mis-ATTRIBUTION, and the docstring says so: the word is present here.
+    assert seniority.verdict({"stated_rank": "senior"},
+                             job_text="New Grad Engineer. You will work with senior "
+                                      "engineers.") == "too_junior"
+
+
+def test_a_stated_years_figure_the_candidate_clears_beats_a_rank_word():
+    # "Senior Engineer ... 0-2 years of experience" says outright it will take this
+    # candidate. The years figure is the vetoed, evidence-grounded signal; the rank
+    # is not, so the number wins.
+    assert seniority.verdict({"stated_min_years": 0, "stated_rank": "senior"},
+                             job_text="Senior Engineer. 0 years required.") == "match"
+    assert seniority.verdict({"stated_min_years": 1, "stated_rank": "lead"},
+                             job_text="Lead Engineer, 1 year of experience.") == "match"
+    # but a number ABOVE the bar still demotes, rank or no rank
+    assert seniority.verdict({"stated_min_years": 6, "stated_rank": "senior"},
+                             job_text="Senior Engineer, 6 years.") == "too_junior"
+
+
+def test_a_non_finite_years_value_cannot_take_the_pass_down():
+    # json.loads accepts NaN/Infinity and int() raises on both. assess()'s try covers
+    # only the extract call, so an unguarded int() here aborted the whole pass.
+    assert seniority.normalize({"stated_min_years": float("nan")}) == (None, None)
+    assert seniority.normalize({"stated_min_years": float("inf")}) == (None, None)
+    assert seniority.normalize({"stated_min_years": 10**9}) == (None, None)

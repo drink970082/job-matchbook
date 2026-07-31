@@ -367,6 +367,17 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # not asked for their queue to be re-ordered around a seniority bar.
         seniority_fn = None
         if screen_backend == "ollama" and screen_extract is not None and candidate:
+            # SAY WHAT BAR IS BEING APPLIED. `years_experience` defaults to 0, and no
+            # existing config.yaml carries the key — so without this line a ten-year
+            # engineer's entire senior queue would be demoted on a new-grad assumption
+            # with nothing on screen but a count.
+            _bar = cfg.candidate.years_experience + seniority.YEARS_MARGIN
+            _rank = (" or naming a senior/lead/staff/principal rank"
+                     if cfg.candidate.years_experience < seniority.SENIOR_YEARS else "")
+            print(f"[seniority] pre-ordering ON (candidate at "
+                  f"{cfg.candidate.years_experience} years): postings stating >= {_bar} "
+                  f"years{_rank} sort to the back of the score queue")
+
             def seniority_fn(posting):          # noqa: F811 — deliberate rebind
                 return seniority.assess(
                     posting, screen_extract,

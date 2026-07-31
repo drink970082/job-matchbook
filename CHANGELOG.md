@@ -24,7 +24,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   verdicts rather than human labels, so it may decide which row gets the next paid call
   and may not delete a posting (SCORING §9.3).
   **Measured over 446 rows on `qwen3.5:4b` with zero quota** (`make eval-seniority`,
-  new): precision **0.963**, recall 0.829, 48% demoted, 0 provider errors — and the
+  new): precision **0.964**, recall 0.757, 44% demoted, 0 provider errors — and the
   number that actually decides it, **0 false demotions on rows the strong scorer called
   `domain=match` and 0 on rows that were notified**. The whole notify payoff set survives
   undemoted, so a false demotion costs a delay on a row the notify gate would have

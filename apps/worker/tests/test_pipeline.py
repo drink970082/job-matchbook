@@ -1931,3 +1931,71 @@ def test_no_seniority_backend_leaves_the_queue_exactly_as_it_was(db_path):
     rows = db.get_by_status(conn, "new", newest_first=True)
     assert pipeline._preorder_by_seniority(conn, rows, seniority_fn=None, now=NOW,
                                            limit=5, tally={"demoted": 0}) == rows
+
+
+def test_a_demoted_row_is_still_reachable_when_the_budget_has_room(db_path):
+    # THE constraint: a demotion is a delay, not a deletion. When the undemoted head is
+    # smaller than the budget -- a drained queue, or a --score-max-id window -- the spare
+    # budget must flow to the demoted rows. Dropping them from the returned list instead
+    # made them permanently unreachable by ANY bounded pass, including the documented
+    # --score-max-id recovery recipe.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    for t in ("b", "c"):
+        db.mark_deprioritized(conn, ids[t], now=NOW)
+
+    fit_calls = []
+    pipeline.run_score(conn, now=NOW, limit=40,
+                       fit_fn=lambda ps: fit_calls.append([p["job_title"] for p in ps])
+                       or [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=_seniority())      # nothing demoted this pass
+
+    # all three scored, with the undemoted one FIRST
+    assert fit_calls and fit_calls[0][0] == "a"
+    assert sorted(sum(fit_calls, [])) == ["a", "b", "c"]
+    assert {r["pipeline_status"] for r in conn.execute("SELECT * FROM job_postings")} == {"scored"}
+
+
+def test_a_dead_seniority_backend_stops_the_pre_ordering_rather_than_the_pass(db_path, capsys):
+    # A hung local model would otherwise burn the whole slot: the calls are sequential
+    # and make_ollama_extract's default timeout is 180s, so 2 x limit of them is hours.
+    # The screen phase has this breaker; the pre-ordering did not.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(12)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    calls = []
+
+    def dead(posting):
+        calls.append(posting["job_title"])
+        return "match", {"error": "ollama is down"}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=dead)
+
+    assert len(calls) == pipeline._BREAKER_LIMIT      # stopped, did not walk the budget
+    assert "backend appears down" in capsys.readouterr().out
+    assert db.get_by_status(conn, "scored")           # and the PASS still ran
+
+
+def test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass(db_path):
+    # Same per-item contract the screen phase holds.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+
+    def flaky(posting):
+        if posting["job_title"] == "a":
+            raise ValueError("cannot convert float NaN to integer")
+        return "match", {}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=flaky)
+    assert len(db.get_by_status(conn, "scored")) == 2

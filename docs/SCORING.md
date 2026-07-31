@@ -1181,7 +1181,17 @@ verdicts, not human labels**, so it inherits that scorer's errors - two rows are
 record where Sol contradicted its own rubric and the free layer was right. Good enough to
 decide which row gets the next paid call; not good enough to delete a posting (9.3).
 
-**The keep-direction veto is what makes it safe.** The model's number is clamped down to
+**TWO keep-direction vetoes are what make it safe, and the second was added on review.**
+(a) A rank only counts if the posting literally contains that rank word — without it a
+rank the model supplied from nowhere demoted a row with no evidence at all, while the
+years path was vetoed. (b) A stated years figure the candidate CLEARS beats a rank word
+outright: "Senior Engineer ... 0-2 years" says it will take this candidate, and the
+number is the grounded signal. Together they cost recall (0.829 -> 0.757) and demote
+share (0.484 -> 0.442) and bought precision 0.963 -> 0.964 with one fewer false demotion.
+That trade is the right direction here: both changes can only ever REMOVE a demotion.
+Neither fixes mis-ATTRIBUTION — "you will work with senior engineers" does contain the
+word — only invention.
+**The original veto:** the model's number is clamped down to
 the smallest years-figure the JD literally states - deterministic, and it can only ever
 LOWER a bar. It exists because 8.1's dominant error repeats here verbatim: on a
 degree-conditional ladder ("Master's and no experience; or Bachelor's and 3 years") the
@@ -1189,11 +1199,22 @@ model reports one rung instead of the minimum across rungs. Measured 2026-07-30:
 demotions 20 -> 7.
 
 **Measured, 446 rows, `qwen3.5:4b`, zero quota** (`make eval-seniority`): precision
-**0.963**, recall 0.829, 48% of rows demoted, 0 provider errors. But the number that
+**0.964**, recall 0.757, 44% of rows demoted, 0 provider errors. But the number that
 decides this layer is not the P/R - it is WHICH rows the false demotions are: **0 of them
 are `domain=match` and 0 were ever notified.** The whole notify payoff set survives
 undemoted, so a false demotion costs a delay on a row the notify gate was going to drop
 anyway. That, not the precision, is the gate.
+
+**What a green eval does NOT prove, and this belongs next to the numbers.** The gate is
+**in-sample** — `YEARS_MARGIN`, `SENIOR_YEARS`, both vetoes and the thresholds were all
+fitted on this same 446-row corpus, with no held-out split. The decisive
+`domain=match` gate has **little statistical power**: only ~34 rows carry that label, so
+7 randomly-placed false demotions would miss all of them about half the time. And the
+corpus is **not the production population** — it is rows that already survived the screen
+and bought a paid fit call, so every one has a real description, while production runs
+this layer on every `new` row including thin JDs where a bare "Senior ..." title is
+nearly all the model sees. Read a pass as "no evidence of harm", never "evidence of no
+harm".
 
 **Determinism is real and it is NOT confidence.** At production settings
 (`temperature=0, seed=0`) the extraction is bit-reproducible, so one run is the trend -
