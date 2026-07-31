@@ -982,6 +982,14 @@ fit(postings: list[dict], resumes: dict) -> list[dict]   # one card per posting,
 Batch-first, one process invocation per call. The subscription quota is **message-bound,
 not token-bound**, so batching N postings into a single call is the actual quota win.
 
+**That premise is UNVERIFIED, and the cheap experiment that would settle it cannot be
+run.** The obvious test — two calls of very different token counts, watch the meter —
+needs resolution the meter does not have: `used_percent` is an **integer** and the
+provider's `limits[]` carries no credits/units field (`score/usage.py` passes the value
+through unmodified), so a single call moves it by roughly 0.05% and reads as zero. Every
+batching argument below rests on message-bound being true; treat it as a working
+assumption with no measurement behind it, not as a finding. Measured 2026-07-30.
+
 - Each JD gets a `=== JOB job_ref=<id> ===` block, and the schema demands the same
   `job_ref` come back on every element in a `{"results": [...]}` envelope.
 - Results are realigned to input order **by that tag, never positionally** - a model is
@@ -1221,9 +1229,13 @@ harm".
 unlike the paid backend (8.6). The corollary is the trap: the errors are systematic and
 will never average out. Do not quote a clean run as robustness.
 
-**It is free only where it is local.** The layer is wired on the `ollama` screen backend
-and nowhere else: on a paid screen backend it would spend money to save money, which is
-not the trade it was measured for. It is also off when no candidate is configured.
+**It is free only where it is local, and free means no QUOTA rather than no TIME.** The
+layer is wired on the `ollama` screen backend and nowhere else: on a paid screen backend
+it would spend money to save money, which is not the trade it was measured for. It is
+also off when no candidate is configured. The time is real and worth knowing before
+scheduling a bulk run: **1.58 s/row measured, single worker** — the GPU serialises, so
+concurrency buys nothing — which puts ordering a whole ~9,300-row backlog at about
+**4h05m of GPU for $0.00**. In a normal pass the cap keeps it near two minutes.
 
 **Its prompt is its own file** (`prompts/seniority.txt`), gated by its own
 `make eval-seniority`. Folding the clause into `screen.txt` would cost zero extra calls -

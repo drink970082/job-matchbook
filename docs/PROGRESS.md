@@ -144,8 +144,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
   **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
   the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate. **The seniority entry under
-  In flight measures a different 54% over a different denominator — 383 of those discards are
+  quota arithmetic should use the measured rate, not the estimate. **SCORING §5.7 measures a
+  different 54% over a different denominator — 383 of those discards are
   the deterministic location gazetteer, not the model screen — and the two are NOT
   reconciled.** Do not average them.
   **Four things had to land first, and three of them were not the schedule.** (0)
@@ -260,7 +260,10 @@ The buckets below are a *catalogue* sorted by severity. This is the **queue**: w
 take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
-> 1, 4, 5 on 07-28). **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
+> 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
+> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed but not
+> decided:** the numbers an operator needs are in
+> [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
 > Anything in the catalogue below that is not a quota lever waits. The order is fixed and
 > the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
 > immediately after this queue; read it before picking, because two of the obvious moves
@@ -278,10 +281,11 @@ take first and why. Each numbered item is independently pickable.
 > rather than on someone thinking to check an mtime. Entry under
 > [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
 >
-> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`.** Measured 2026-07-30 and it
-> passed (the seniority entry under In flight). It adds no capacity; it makes the capacity you have land
-> on rows worth spending it on, which is worth roughly 2x. Ship it as a re-ordering with the
-> keep-direction veto included, as a standalone call first.
+> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`. SHIPPED 2026-07-31 (#57)**,
+> as a re-ordering with BOTH keep-direction vetoes, as its own call with its own eval gate.
+> It adds no capacity; it makes the capacity you have land on rows worth spending it on.
+> What remains is not a build but a measurement — no live pass has run with it on, so the
+> demote rate and the paid-call yield are projections. Contract and numbers: SCORING §5.7.
 >
 > **Q3. Cut intake — `[FETCH · S]`.** The only lever that reduces *demand* rather than
 > re-ordering it: `title_filter`, `max_age_days`, and dropping low-yield boards. The feed is
@@ -427,7 +431,7 @@ processor and it does not owe every row a verdict. A posting that is never score
 nothing unless it was one worth applying to. Read the gap that way and it is not a 3x
 shortfall in throughput — it is that the ~250 rows/day the budget *can* buy are currently
 drawn nearly at random with respect to whether they deserve the call. **96% of paid calls
-buy a "no" and 54% are `too_junior`** (the seniority entry under In flight): the budget is being spent
+buy a "no" and 54% are `too_junior`** (SCORING §5.7): the budget is being spent
 proving that jobs that were never viable are not viable.
 
 **The three levers, and only these three.**
