@@ -1822,11 +1822,19 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`, default
   `score desc`; `posted` orders by `posted_at desc, id desc`). Optional filters: a
   `minScore` floor (any bucket) and, within discarded, a disqualification-`cause` ∈
-  {authorization, location, degree, clearance, internship} sub-filter — a *derived* id set
+  {authorization, location, degree, clearance, internship, **prefilter**} sub-filter — a
+  *derived* id set
   (mirroring low-context) from a raw query matching the worker's keyed
   `disqualification_reason` via `json_extract(score_detail,'$.disqualification_reason') LIKE`
   the cause pattern (`%authorization:%`, `%location:%`, `%degree:%`, `%clearance:%`,
-  `%internship/co-op%`), layered as `id IN` on the discarded query. `getJobPostings`
+  `%internship/co-op%`, `%prefilter:%`), layered as `id IN` on the discarded query.
+  **`prefilter` is the one cause that is not a hard constraint**: the others name a
+  requirement the candidate fails, it names the *operator's own* `title_filter`/
+  `title_exclude` refusing the posting in `run_score`'s free phase-0 sweep. It exists
+  because that sweep is the bulk producer of discards (1,504 rows as of 2026-07-31) and
+  without a cause they are visible in the bucket but not selectable, so they cannot be
+  bulk-removed. The worker writes two `prefilter:` spellings; only the first is ever
+  `discarded`, so the wildcard is deliberately not narrowed to it. `getJobPostings`
   returns every row's `created_at` + `posted_at` (the table shows both dates).
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the

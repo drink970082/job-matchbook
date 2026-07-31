@@ -84,9 +84,52 @@
      clearance token anywhere; 'security' is the engineering domain"* — the same 20.
      **Fix this one first.** The clearance check that ran 83% wrong for four days is the
      reason this eval exists, and it is the half the eval cannot see.
+     **FIXED 2026-07-31 — the corpus now has 14 golden-`false` rows that carry a
+     clearance token, so this half can finally fail.** `eval/` is gitignored, so this
+     entry is the only record of what was added: 83 → 103 rows. The 14 come from the one
+     class that exists in the data — a clearance token in a NON-security sense: customs
+     clearance (Optiver 727), import clearance (TikTok 2992), construction permits/
+     clearances (Micron 10203), compliance pre-clearance for personal trading (Goldman
+     11907), university "BACKGROUND CHECKS/CLEARANCES" (Penn State 24853-24857),
+     background-check clearance (Motorola 24978), and — the strongest adversarial rows —
+     **CACI 25018/25019/57108, a defense contractor whose JD carries an explicit
+     `Minimum Clearance Required to Start: None`**, plus BlackRock 88648 whose JOB TITLE
+     is *"Trade Clearance & Settlement"*.
+     **What does NOT exist in this data, which is why the fix took this shape:** a
+     genuinely *optional* security clearance. Searched the whole DB — **zero** rows say
+     "clearance preferred / a plus / not required". Earlier attempts to find them matched
+     only section-boundary artifacts (`"…verified US government Clearance"` ending one
+     block, `"Preferred Qualifications:"` opening the next), which is the bullet-JD defect
+     below biting the *search* rather than the snippet window.
+     **Operator convention, set 2026-07-31 and load-bearing for every future row:**
+     *"must be able to obtain and maintain a TS/SCI clearance"* is `requires_clearance:
+     **true**`. TS is Top Secret; for a candidate with no clearance who needs sponsorship
+     it is a hard bar, not a soft one. The ~38 "ability to obtain" rows in the DB are
+     therefore golden `true` — they improve **recall** measurement and do nothing for this
+     tautology, since only golden-`false` rows can produce a false disqualification.
+     Deliberately excluded as genuinely-true or ambiguous: mthree 25411 (BPSS + SC
+     required), ASSYSTEM 25388 (BPSS eligibility + UK sole nationality), CACI 25021
+     (`DOJ MBI` — a background investigation, not clearly a clearance).
   2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
      non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
      does can move them.
+     **RAISED 5 → 11 on 2026-07-31** by adding 6 golden `offers` rows that *do* carry the
+     `sponsor` token, so the classifier can actually move them: Bridgewater 34/35
+     (*"we do provide immigration sponsorship for this position"* — the exact phrase
+     `_OFFERS_SPONSORSHIP` never matched), Jump Trading 548/558/567 (*"we sponsor work
+     visas for full-time positions"*), and Optiver 721 (*"supportive of US immigration
+     sponsorship for this role"* — the row the 07-30 discard recovery was named for).
+     `offers` is already in the schema enum and `fact_is_a_bar` returns `label ==
+     "refuses"`, so these are gate-eligible golden-`false` rows; no code change needed.
+     **Only 3 of Jump's 8 identical rows were taken** — the other 5 repeat one JD shape
+     verbatim and would inflate the count without adding signal, the same way ids 67/68
+     are flagged above as "one JD shape, counted twice".
+     **Candidate selection had to be done by hand, and that is the durable lesson.**
+     A regex sweep for offer-language returned 91 rows and was wrong on two whole
+     companies: Qualcomm (31 rows) matched on *"will provide reasonable
+     **accommodations**"* while its JDs actually say *"not eligible for Qualcomm
+     immigration sponsorship"*, and Microsoft matched despite *"unable to sponsor a work
+     visa"*. Every row above was read individually before it entered the corpus.
   3. **4 corpus rows are labeled on evidence the corpus does not contain.** Ids
      456/529/534/538 (all IMC, golden `refuses`) have excerpts of exactly 1606 chars —
      the `_readme` truncation cap — with no `sponsor`/`visa`/`citizen`/`authoriz`/
@@ -148,6 +191,32 @@
   capped at `num_ctx*2`, so the snippet payload is uncapped budget. The fix is splitting
   on line breaks as well as `[.!?]`, which changes what every snippet contains and so
   needs a gate re-run — hence recorded rather than done.
+  **MEASURED ON LIVE DESCRIPTIONS 2026-07-31, as this entry asked — and the rate is far
+  lower than "degenerates to the whole JD" implies.** Over a **random 3,000** of the 9,584
+  live `description` values >=800 chars, through the real `_sentences`: the **median**
+  longest-"sentence" share of a JD is **13%**; **140 (5%)** have one "sentence" covering
+  more than half the description; **1 (0.03%)** is genuinely a single sentence. So the
+  catastrophic shape is very rare and the too-wide shape is uncommon — and both were
+  previously quoted off 2-3 sentence *excerpts*, where a +/-1 window trivially covers
+  everything.
+  **A first version of this bullet published 27% / 14% / 0.2%, and it was sampling bias —
+  in the entry that exists to stop exactly that.** Those figures came from
+  `ORDER BY id LIMIT 600`, i.e. the **oldest** 600 rows, 6% of the population and the
+  boards ingested first. Re-measured across the id range: oldest-600 gives 27% / 14%,
+  random-3000 gives 13% / 5%, newest-600 gives 13% / 2%. **Age of the sample, not the
+  splitter, drove the headline.** The "0.2% single sentence" was also mislabelled: it
+  counted rows whose longest sentence exceeded 95% of the JD, and the true
+  `len(_sentences(d)) == 1` count in that same sample is **zero**. Any future measurement
+  here must randomize over the id range and say which sample it used.
+  **Still not fixed, and the reason is measurement hygiene rather than effort.** The screen
+  corpus changed the same day (83 → 103 rows; both blind halves opened up). Shipping the
+  splitter now would move two variables at once and no gate result could be attributed to
+  either. It wants its own branch, a settled corpus, and a before/after — not a bundle.
+  **Independent evidence it is real:** two separate candidate-search heuristics written on
+  2026-07-31 were both defeated by these missing boundaries — one ranked Microsoft
+  `CTJ - Poly` roles as *soft* clearance because `"…verified US government Clearance"`
+  closes one block and `"Preferred Qualifications:"` opens the next. The defect bites
+  anything that reasons about JD structure, not only `sponsorship_snippets`.
 
 - **Sponsorship recall is a DELIBERATE, pinned trade** — `[SCREEN · open by design]`.
   Retrieve-then-classify shipped 2026-07-28 (false disqualifications 2 → 0; behavior in
@@ -542,6 +611,20 @@
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
   decision below: it is eighteen, not three.
+  **The mechanism is now MEASURED, and it is age, not `title_filter` — 2026-07-31.**
+  Fifteen of these boards were probed live through the production `fetch_company`: every
+  slug resolved, every adapter returned cleanly, **not one was broken**. Three serve
+  genuinely nothing (`lever/voleon`, `lever/tgsmc`, `workday/mlp/wd5/mlpcareers`). The rest
+  serve postings that **pass** `title_filter` and then die on `max_age_days` — Virtu 48
+  served / 31 title-ok / 0 surviving, Geneva Trading 14 / 10 / 0, Radix experienced 7 / 6 /
+  0, Maven 36 / 18 / 1. So the zero is a freshness effect on a slow-moving board, not a
+  title-vocabulary one, and a board can sit at zero for weeks while being entirely healthy.
+  Counts as of that date: **5 of 39 `config.yaml` rows and 16 of 172 `watched_companies`
+  rows** at zero lifetime ingest.
+  **Do not measure this with "rows ingested in the last N days".** `upsert_postings` is
+  `ON CONFLICT DO NOTHING`, so a board with stable inventory inserts nothing while serving
+  normally — that metric reports healthy boards as dead. It read as "15 of 39 stale" before
+  being re-run on `(source, slug)` and on lifetime counts.
   **3. The current filters would refuse 775 of the queued rows that survive the free
   gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
   title-only). At the measured ~0.8
@@ -587,9 +670,22 @@
   it); only the cleanup degrades. **Decision:** leave it (documented-safe, litter only)
   or default the codex/`claude-code` fit path to 1 worker. Screen concurrency already
   defaults to 1 for `ollama` for an unrelated reason (a single GPU serialises anyway).
-  **Still open 2026-07-29:** `run.py` line 231 still defaults `score_workers=4`, and
-  nothing in SPEC/CHANGELOG records a decision — the 2026-07-29 audit dropped this entry
-  by mistake and it is restored here.
+  **CLOSED 2026-07-31 — the premise died with the quota-capture rewrite, and no code
+  change was needed.** The decision above was framed around a rollout cleanup that no
+  longer exists: the pre-2026-07-29 capture scraped `rate_limits` out of the session
+  rollout, which forced dropping `--ephemeral` and left the résumé+profile+JD prompt on
+  disk to be reaped. `GET /backend-api/codex/usage` replaced that (`score/usage.py:9-15`),
+  so **`--ephemeral` is unconditional again** (`backends_codex.py:132`) and the fit call
+  writes no rollout to clean up. Verified by observation, not by reading: the newest file
+  in `~/.codex/sessions` is dated **2026-07-29 09:00**, unchanged across every scoring
+  call since. `score_workers=4` is therefore correct as it stands, and the "leave it or
+  default to 1" fork is moot.
+  **One residual, and it is privacy rather than litter.** The 215 rollouts written
+  *before* the fix are still there — 17 MB, 2026-07-16 to 07-29, and **158 of them match
+  résumé/profile markers**. The fix stopped new writes but never reaped the old ones, and
+  they sit in `~/.codex/`, outside the repo, so `.gitignore` and `make check-privacy` have
+  never covered them. Deleting them is the operator's call (they are also that session
+  history's only record); nothing in this repo depends on them.
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
