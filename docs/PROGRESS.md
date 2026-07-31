@@ -240,8 +240,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
   **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
   the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate. **The first In-flight
-  entry measures a different 54% over a different denominator — 383 of those discards are
+  quota arithmetic should use the measured rate, not the estimate. **The seniority entry under
+  In flight measures a different 54% over a different denominator — 383 of those discards are
   the deterministic location gazetteer, not the model screen — and the two are NOT
   reconciled.** Do not average them.
   **Four things had to land first, and three of them were not the schedule.** (0)
