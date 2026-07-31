@@ -32,12 +32,132 @@ is that the constraint is no longer correctness, it is QUOTA:** three passes spe
 the weekly Codex window, which projects to ~140% at 6 passes/day. The open decisions are
 therefore about spend and intake, not about whether the pipeline works — see In flight.
 
+**Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
+paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
+of them buy a "no". Seniority is the half a *free* local extraction can reach, and it was
+measured on 07-30 and passed — see the first In-flight entry.
+
+**QUOTA IS THE STANDING PRIORITY as of 2026-07-31 (operator's call).** Work that is not a
+quota lever waits. The gap, the three levers that move it, and the two measured dead ends
+are in [Quota — the gap and the three levers](#quota--the-gap-and-the-three-levers); the
+pick order is Q1-Q3 at the top of the queue. **The reframe that section turns on: the
+backlog is not a debt to repay** — this system surfaces ~15 postings a week to a human, it
+does not owe every row a verdict, so the problem is *which* rows get the paid call, not how
+many.
+
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
 
 ---
 
 ## In flight
+
+- **Cut paid fit calls with a FREE seniority extraction, not a model swap — MEASURED AND
+  IT HOLDS, 2026-07-30; the build is the remaining work** `[SCORE · M · measured]`.
+  **The finding is the verdict matrix.** Over the 396 rows scored in the 7 days to
+  2026-07-30: `domain` came back **mismatch 298 (75%) / adjacent 72 (18%) / match 24
+  (6%)**, and `seniority` came back **too_junior on 214 (54%)**; 175 (44%) are both.
+  All 14 notified rows are `domain=match`; the other 10 match rows split 7 `too_junior`
+  + 3 `insufficient_context`, exactly as the §6 predicate implies. **96% of paid calls
+  buy a "no".**
+  **The lever this points at is seniority, not domain.** SCORING §4.2 measures seniority
+  ONLY against a bar the JD states explicitly (a years number or a senior/lead/staff/
+  principal rank; no bar stated → `match`). That is the closed-vocabulary bounded
+  extraction SCORING §9.1 lists as *weak-model-capable*, and the same shape change that
+  fixed degree in §8.1 — model lists `stated_min_years` / `stated_rank`, **code**
+  compares against the candidate's STAGE. `domain` cannot move here: it needs the profile
+  and the résumé, and §9.1 puts it strong-model-only.
+  **It must be a re-ordering, not a new filter.** The queue is most-recently-touched-first
+  (below); sending free-layer `too_junior` rows to the BACK leaves them in `new` alongside
+  the existing 9,218 — observable, searchable, reversible — so a false negative costs a
+  delay, not a deleted posting. No new `pipeline_status`, no skip-reason column, no paid
+  audit sample. **This framing is load-bearing:** the 396 labels are *Sol's verdicts, not
+  human labels*, so the training/validation set inherits Sol's errors. Good enough for a
+  prioritizer; **not** good enough for a terminal discard.
+  **THE FREE STEP RAN 2026-07-30 AND IT PASSED — `qwen3.5:4b`, zero quota, zero DB
+  writes.** Over 446 rows (same corpus, ~50 larger by then; **251** `too_junior` / 195
+  `match`), the model emitting only `{stated_min_years, stated_rank}` and CODE applying
+  `>= 2 years OR rank in {senior,lead,staff,principal}` scored **P 0.921 / R 0.924**
+  (TP 232, FP 20, FN 19, TN 175), 0 provider errors, 11 blind responses all kept.
+  **252 of 446 rows (56.5%) demote, so ~52% of paid fit calls are deferrable.** Ordering
+  the whole 9,314-row backlog costs **4h05m of GPU and $0.00** (1.58 s/row, single worker
+  — the GPU serialises, so concurrency buys nothing).
+  **The number that decides it is not the P/R — it is WHICH rows the false positives are.**
+  Of the 20 wrongly demoted, Sol scored 15 `domain=mismatch` and 5 `adjacent`; **zero are
+  `domain=match` and zero were notified.** Every row Sol called `seniority=match` AND
+  `domain=match` — the whole §6 notify payoff set — survives undemoted. A false demotion
+  costs a delay on a posting the notify gate was going to drop anyway, which is the
+  weakest possible failure and exactly what the prioritizer framing above requires.
+  **The dominant error is §8.1 repeating verbatim, and the fix is a veto, not a prompt.**
+  13 of the 20 FPs are degree-conditional ladders (*"Master's and no experience; or
+  Bachelor's and 3 years"*) where the model reports one rung instead of the minimum across
+  rungs; 4 are numbers lifted from a **Preferred** block, 3 are caps read as minima.
+  Clamping the model's number down to the smallest years-figure the JD literally states —
+  a keep-direction veto, SCORING §9.2 lever 4, deterministic, can only ever lower a bar —
+  measures **FP 20 → 7, P .921 → .967, R .924 → .825**. The 7 survivors are the
+  preferred-vs-required and cap cases, i.e. the §9.1 4B ceiling; do not spend a prompt
+  rewrite on them.
+  **Determinism is real; it is NOT confidence.** At production settings (`temperature=0,
+  seed=0`) the extraction is bit-reproducible — 0 flips in 79 re-draws — so unlike the
+  paid backend (SCORING §8.6) one run *is* the trend. The corollary is the trap: the 20
+  FPs are **systematic and will never average out**. Under sampling perturbation
+  (`seed=7, temp=0.3`) flips concentrate on exactly the disagreement rows and 4 of 6
+  re-drawn FPs flip to Sol's answer, so these are low-confidence boundary cases. **Do not
+  quote the 0/79 as robustness.**
+  **Two rows where SOL drifted from its own rubric and the free layer was right:** ids
+  65540 and 58344, Amazon SDE2 postings Sol called `too_junior` reasoning from
+  "autonomous contributor" — SCORING §4.2 says verbatim that implied ownership or autonomy
+  is NOT seniority, and `SDE2` is not one of the four ranks. Corroborates the standing
+  warning that these are Sol's labels, not truth.
+  **Invention was not the failure mode.** `stated_rank` was fabricated **0 times in 62**;
+  `stated_min_years` 3 times in 272 (1.1%), only 1 of which created a bar, and Sol agreed
+  on all 12 invention-driven demotions. The model also correctly declined *"work closely
+  with more senior developers"* and *"seek guidance from senior engineers"* as rank bars.
+  Mis-selection from a stated ladder is the problem, not hallucination.
+  **Free money left on the table:** 6 of the 19 FNs are the model returning an empty
+  object on postings whose TITLE reads "Senior …" / "Sr …". A title-token floor would
+  collect them, but that is a *discard*-direction floor, so SCORING §9.3 applies and it
+  needs its own measurement.
+  **One shape decision left for the build.** Folding the clause into the existing screen
+  prompt makes it cost literally zero extra calls, but that prompt's degree/authorization/
+  clearance extractions are gated by `make eval-screen` — treat it as a separate change
+  with its own eval run, and do NOT assume these numbers survive the merge.
+  **Measured this session** (`db/applications.db`, `db/scorer_usage.json`): backlog 9,218
+  `new` (9,131 with `description` ≥ 200), oldest 2026-07-22; 7-day flow 5,326 new /
+  451 discarded / 382 scored / 14 notified, **380 paid fit calls**; quota snapshot
+  `used_percent 32`, weekly window, resets 2026-08-05; all 434 scored rows are
+  `gpt-5.6-sol`.
+  **Unreconciled, and do not average the two:** 383 of those 451 discards are the
+  deterministic **location** gazetteer (India 207, Mexico 47, China 43, Taiwan 33, …), not
+  the model screen. So the 54% "discard rate" over rows that left `new` and the ~18%
+  per-pass model-screen rate in the entry below are different denominators. Steady-state
+  demand is somewhere in **~2,800–4,900 fit calls/week** until they are reconciled.
+  **Also unverified, and the gap estimate rests on it:** how much of that 32% is the
+  pipeline versus evals and interactive use. 380 calls → 32% puts the weekly ceiling at
+  ~1,190 only if *all* of it were scoring; the real figure is higher. Until that is
+  split, the shortfall is 1.4×–2.4× and no tighter.
+  **`used_percent` is an integer** and `limits[]` carries no credits/units field
+  (`score/usage.py:144` passes the provider value through unmodified), so a single call
+  moves it ~0.05% — **the two-call token-bound-vs-message-bound experiment is not
+  runnable.** Whether the quota is token- or message-bound remains open.
+  **Ruled out this session, with reasons, so they are not re-proposed:** swapping the fit
+  model to a cheaper tier (at the low end of the capacity range a 2× model still does not
+  reach steady state, let alone the ~4,200-call backlog — and SCORING §8.7 requires a full
+  real-JD eval anyway); a compressed "candidate card" replacing the résumés (unproven
+  quota premise, and SCORING §8.4 makes candidate evidence the most destabilising input to
+  `domain`); a cheap-model → strong-model cascade (SCORING §9.3's second-vote hazard); a
+  stronger local screen (only 1 confirmation route in the 7 days, and it cannot touch
+  `domain`); and shadow-running the existing prefilters for the reduction — `fetch.
+  prefilter_postings` is title keep/exclude + `posted_at` age and `feed/prefilter.py` is
+  active/category/sponsorship metadata, so **those 396 rows are already their output**.
+  **Blocked on this path, tracked separately:** `score_eval.py:73` pins the model to
+  `run.DEFAULT_CODEX_SCORE_MODEL` and ignores `CODEX_SCORE_MODEL` (which `run.py:759` does
+  read), so no model A/B is runnable without that one-line patch — needed only if step 1
+  fails. Two unrelated defects surfaced and are NOT part of this work: `config.yaml`'s
+  four-value `work_authorization` cannot express F-1 OPT (authorised now, sponsorship
+  later — `authorized-no-sponsorship` skips the check entirely, `needs visa sponsorship`
+  discards jobs workable today), and SCORING §2.4/§6 omit the `notified` status the DB
+  actually uses.
 
 - **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
   `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
@@ -100,7 +220,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
   **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
   the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate.
+  quota arithmetic should use the measured rate, not the estimate. **The first In-flight
+  entry measures a different 54% over a different denominator — 383 of those discards are
+  the deterministic location gazetteer, not the model screen — and the two are NOT
+  reconciled.** Do not average them.
   **Four things had to land first, and three of them were not the schedule.** (0)
   `apscheduler` was missing from the system python3, so the daemon would have
   crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
@@ -153,16 +276,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   stayed up, reported a healthy schedule and never completed a pass. It now falls back to
   `O_RDONLY` — `flock` needs no write access — which keeps the guard exclusive and costs
   only the pid diagnostic, announced on both the holding and the contending side.
-  **Residual (a)/(b) above are unchanged**, and (b) is the one that costs money.
+  **Residuals (a) and (b) are FIXED above** (2026-07-30, the db-keyed lock); (c) is the
+  2026-07-28 `O_RDONLY` fallback and stands.
 
-- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (configurable job
-  categories, persona-neutral `personal_profile.txt.example`, the `onboard-me` skill —
-  CHANGELOG). **Stage 3, non-tech discovery feeds:** the watchlist already covers any
-  company, so decide the need before building (brittle, anti-bot handling, dilutes the
-  moat).
+- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (CHANGELOG). **Stage 3,
+  non-tech discovery feeds:** the watchlist already covers any company, so decide the need
+  before building (brittle, anti-bot handling, dilutes the moat).
   **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
-  fit-scoring prompt. Scorer-prompt edits have destabilized verdicts before, which is why
-  every `score.txt` change is gated behind `score_eval` (SPEC §7.1).
+  fit-scoring prompt — every `score.txt` change is gated behind `score_eval` (SPEC §7.1,
+  SCORING §8.4).
 
 ---
 
@@ -181,7 +303,7 @@ matching the pipeline walkthrough:
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 16 — the long tail lives here; no defects. The feed pre-filter closed 2026-07-28; the first live day added the qualcomm 403 and the workday feed collapse, and confirmed the empty-JD drops recur every pass |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects. 2026-07-30 closed two by measurement (the workday feed collapse is dead reqs; the workday prose-date age gate is a structural no-op) and opened one that matters more — 50 bodyless Microsoft postings, the largest `empty_description` source, surfaced by the #46 reason split |
 | `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
 | `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 5 — **1 defect** (`capture_usage` stopped writing the quota snapshot, silently, 2026-07-30) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
@@ -213,10 +335,30 @@ The buckets below are a *catalogue* sorted by severity. This is the **queue**: w
 take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
-> 1, 4, 5 on 07-28). **The next thing to take is the `capture_usage` defect** under
-> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix): the quota bar stopped
-> updating silently, and quota is the binding constraint, so the instrument matters more
-> than anything left in the catalogue below.
+> 1, 4, 5 on 07-28). **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
+> Anything in the catalogue below that is not a quota lever waits. The order is fixed and
+> the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
+> immediately after this queue; read it before picking, because two of the obvious moves
+> (a cheaper fit model, a slower cadence) are measured dead ends.
+>
+> **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`.** The quota snapshot stopped
+> being written and nothing said so; it has already made one `--score-limit` decision come
+> out ~17 points optimistic. Every number in the quota analysis rests on this file, so it
+> goes first even though the other two levers are worth more. The visibility half (WARNING
+> on a `False` return, `as_of` stamped into the snapshot) is the part that matters; the
+> root cause can follow. Entry under
+> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
+>
+> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`.** Measured 2026-07-30 and it
+> passed (In flight, first entry). It adds no capacity; it makes the capacity you have land
+> on rows worth spending it on, which is worth roughly 2x. Ship it as a re-ordering with the
+> keep-direction veto included, as a standalone call first.
+>
+> **Q3. Cut intake — `[FETCH · S]`.** The only lever that reduces *demand* rather than
+> re-ordering it: `title_filter`, `max_age_days`, and dropping low-yield boards. The feed is
+> the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
+> watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
+> the trivial end of it and are one decision, recorded below.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -337,6 +479,43 @@ take first and why. Each numbered item is independently pickable.
 > (bounded fetch + scoring at scale) remain unrun — read them before any large paid pass
 > for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
 
+### Quota — the gap and the three levers
+
+**Measured live 2026-07-31** (`db/applications.db`, read-only): backlog **9,381** `new`;
+intake **728 rows on 07-30** (07-29 was 3,212 — a feed spike, not the norm); scored **251
+on 07-30, 197 on 07-29**. Capacity at `--score-limit 40` x 6 passes is **240 rows/day =
+~1,680/week**, about 92% of the weekly window at the measured ~0.8 paid messages/row.
+
+**So it is roughly 730 in, 250 out per day, and the backlog grows ~480/day.** Steady-state
+demand is ~2,800–4,900 fit calls/week against capacity near ~1,344 — behind by ~2–3x. No
+cap setting fixes that: `60` blew the budget at ~138%, `40` fits at ~92% but covers fresh
+intake only. **Every figure here rests on `db/scorer_usage.json`, which is the file that
+silently stopped updating — see Q1.**
+
+**THE REFRAME, AND IT IS THE POINT: the backlog is not a debt to repay.** This system's job
+is to surface ~15 postings a week to a human who applies by hand. It is not a queue
+processor and it does not owe every row a verdict. A posting that is never scored costs
+nothing unless it was one worth applying to. Read the gap that way and it is not a 3x
+shortfall in throughput — it is that the ~250 rows/day the budget *can* buy are currently
+drawn nearly at random with respect to whether they deserve the call. **96% of paid calls
+buy a "no" and 54% are `too_junior`** (In flight, first entry): the budget is being spent
+proving that jobs that were never viable are not viable.
+
+**The three levers, and only these three.**
+1. **Prioritize** (Q2). Adds no capacity; roughly doubles the yield of the capacity there
+   is. Measured and ready.
+2. **Cut intake** (Q3). The only lever that reduces demand rather than re-ordering it.
+3. **Accept the parked backlog.** The 2026-07-22/23 rows are already unreachable by
+   construction — the queue is most-recently-touched-first, so only a deliberate operator
+   run reaches them. Treating them as owed is what makes the arithmetic look hopeless.
+
+**Two moves that are NOT levers, both measured, do not re-propose them.** A *cheaper fit
+model*: SCORING §8.7 — it lost on real JDs on both gate axes (agreement 76% vs 86%,
+flip-rate 38% vs 29%) after winning a synthetic probe, and §9.1 puts calibrated numbers and
+domain judgment on the strong-model-only side; even at 2x the calls it does not reach steady
+state. A *slower cadence*: halving the passes doubles each one's intake, so paid calls/week
+do not move — quota is a function of newly discovered postings, not of pass count.
+
 **P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
 workday prose-date parser shipped but its *reduction* is not banked — it age-gates the
@@ -394,79 +573,34 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   not touch degree rows, so 4 is a draw from the same distribution rather than a
   regression.
 
-**Previously here, and closed.**
+**Thirteen others found in the 2026-07-23 → 07-29 sweep have shipped fixes** and their
+records are in CHANGELOG + SPEC (§7.1, §9 traceability, §11); they are not repeated here.
+**One consequence outlives them:** the ~20 rows the clearance defect already killed are
+still `discarded` — queue item 2 recovers them.
 
-- **Both privacy guards matched `.env` EXACTLY, so any `.env.<suffix>` variant was
-  unguarded** — **FIXED 2026-07-29** (`fix/env-suffix-privacy-guard`). `.gitignore` now
-  matches `.env*` with a `!.env.example` re-include, and `check_privacy.mjs` RULES reads
-  `/(^|\/)\.env($|\.)/`; `--self-test` pins `.env.bak-tsserve` and `.env.production` as
-  denied and `apps/web/src/environment.ts` as allowed, so the "`.env` followed by end or a
-  dot" boundary cannot silently widen back. Found via a real `.env.bak-tsserve` in the root
-  (a pre-Tailscale-serve backup holding only `WEB_BIND`, so nothing leaked — the pattern
-  was the defect, not that file). SPEC §11, CHANGELOG.
-- **The clearance check fired on the word "security"** — 20 of 24 live discards false.
-  **FIXED 2026-07-28** (`fix/clearance-evidence-floor`): `_check_clearance` requires a
-  `CLEARANCE_TOKENS` match in the description **or** title before honouring
-  `requires_clearance: true`. Contract in SPEC §7.1, numbers and reasoning in CHANGELOG.
-  The ~20 rows it already killed are **still discarded** — queue item 2 recovers them.
-- **A dead SCREEN provider was silent, and every unscreened row went to the PAID scorer**
-  — **FIXED 2026-07-24**: the verdict carries `provider_error`, `run_score` leaves such a
-  row `new`, and a `_BackendBreaker` aborts the screen phase on the outage signature
-  (SPEC §9 + traceability, CHANGELOG).
-- **The seven found 2026-07-23** (probing `pipeline.run_score` / `run_notify`,
-  `score/screen.py`, `score/location.py`) all shipped fixes by 2026-07-24: the
-  blind-screen-check-as-pass, `London, ON`, `work_authorization`, the dead-fit-backend
-  breaker + singles-fallback guard, the wrong-token / consecutive-failure notify breaker,
-  the interruptible `as_completed` score run, and `notify_attempts` split from `attempts`.
-
-**The pattern across all of them, and the reason PRINCIPLES exists.** Nine of the twelve
-were the same policy error — a *systemic* condition handled as a per-item verdict — now
-named in [`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed
-by every pipeline stage (SPEC §9 + traceability rows). The 2026-07-27/28 pair is a
-*different* class: a per-item verdict acted on **without checking what the JD says**.
-They part company on the remedy — clearance is lexical, so code can floor it on a token;
-degree is semantic, so no floor exists and the answer is routing, not a regex.
+**The pattern, and the reason PRINCIPLES exists.** Nine of the thirteen were the same
+policy error — a *systemic* condition handled as a per-item verdict — now named in
+[`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed by every
+pipeline stage. The 2026-07-27/28 pair is a *different* class: a per-item verdict acted on
+**without checking what the JD says**. They part company on the remedy — clearance is
+lexical, so code can floor it on a token; degree is semantic, so no floor exists and the
+answer is routing, not a regex.
 
 ### Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
-- **A live-but-BLIND screen backend discards on the sponsorship phrase floor, and looks
-  healthy while doing it — FIXED 2026-07-29** (`fix/blind-screen-backend`; SPEC §7.1 + §9
-  traceability, CHANGELOG) — `[SCREEN · found by the PR #24 pre-merge review 2026-07-28,
-  reproduced]`. Kept here for the reasoning trail. A response carrying no usable verdict
-  raises into the existing dead-provider path, so no new policy and no quota.
-  `sponsorship_labels: null` and `[]` stay on the floor — the deliberate residual.
-  **AMENDED SAME DAY, and the amendment is the lesson** (`fix/flat-screen-response`): the
-  first cut defined blind as "no `screen` object", and the local 4B drops that wrapper on
-  ~1 call in 100 while returning a complete, correct verdict flat. So the check discarded
-  good answers, and because the eval aborts on a provider error by design, it also made
-  `make eval-screen` unrunnable — most 249-call runs would hit it. `verdict_block` now
-  accepts both shapes and feeds both the blind check and the verdict reader.
-  **Nothing but running the gate could have caught this.** No unit test knew the flat shape
-  existed; four tests pinned the floor and all of them hand back a well-formed `screen`
-  dict. A shape assumption is only as good as the live run that contradicts it.
-  A backend that returns valid JSON carrying no usable verdict — `{"nonsense": 1}`,
-  `screen` not a dict, an empty `authorization` entry, or `sponsorship_labels: null`
-  (the schema-legal decline: the key is `["array", "null"]` and *required*, so `null` is
-  how a strict backend says nothing) — is **not** flagged `provider_error`. Degree and
-  clearance both suppress themselves on absent data, so `NO_SPONSOR_PHRASES` is the only
-  surviving check, and it discards on a substring of a JD the model never condemned.
-  `run_score` then records a circuit-breaker **success**, so the degraded mode never
-  trips the breaker and walks the whole backlog. Realistic trigger: a wrong `--model`
-  tag or a non-instruct model — `_post` only checks that a dict came back, and none of
-  the hosted backends validate shape either.
-  **Recorded as a two-sided fork; reading the code 2026-07-29 collapsed it.** Flagging a
-  blind response `provider_error` needs no new policy and **costs no quota**:
-  `screen_posting` already suppresses the floor on that flag ("NOT on a provider error"),
-  `run_score` already leaves such a row `new` rather than fit-scoring it, and the breaker
-  already aborts the phase after 5 with no successes. So the "one paid fit call per row"
-  price this entry quoted was wrong (it is zero), and "keep the floor independent" vs
-  "make silence mean KEEP" are the same code path, not opposed options.
-  **Scope it NARROWLY: response is not a dict, or carries no `screen` dict.** All four
-  tests that pin the floor hand back a well-formed `screen` dict, so a narrow check leaves
-  them green; a broad one (absent labels while snippets are pending) contradicts them and
-  must not be written. `sponsorship_labels: null` and `[]` therefore stay on the floor —
-  the deliberate residual, so a JD that literally says *"we do not sponsor work visas"*
-  is still caught with no model data.
+- **The blind-backend residual: `sponsorship_labels: null` and `[]` still reach the phrase
+  floor** — `[SCREEN · open by decision, the operator's call]`. The defect this came from
+  shipped a fix 2026-07-29 (SPEC §7.1 + §9, CHANGELOG); the fork it left open is stated as
+  one in SCORING §3.7. A live-but-blind response is deliberately **not** flagged
+  `provider_error`, so the floor stays an independent deterministic signal and a JD that
+  literally says *"we do not sponsor work visas"* is still caught with no model data. The
+  counter-argument — a blind backend then discards on a substring the model never
+  condemned, and scores as a breaker *success* while doing it — is real and unresolved.
+  **The lesson worth keeping:** the first cut defined "blind" as "no `screen` object", and
+  the 4B drops that wrapper on ~1 call in 100 while returning a complete correct verdict
+  flat — so it threw away good answers and made `make eval-screen` unrunnable. No unit test
+  knew the flat shape existed. **A shape assumption is only as good as the live run that
+  contradicts it**, and the blind check and the verdict reader must share one predicate.
 
 - **`make eval-screen` measures far less than its headline numbers imply — 19 of the
   "81 gate-eligible rows" can actually fail it** — `[SCREEN · S · found by the PR #24
@@ -573,22 +707,35 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   answer from falling through to `NO_SPONSOR_PHRASES`. A design argued from first
   principles still needs the measurement.
 
-- **The location gate: rebuilt, and the residual leak is now priced rather than
-  unpriced** — `[SCREEN · DONE 2026-07-29, see CHANGELOG]`. This entry used to argue that
-  clause (F)'s corroboration rule kept 16% of what it once discarded and that "the narrow
-  fix, if it is ever wanted" was to exempt tokens naming a country outright. That fix
-  shipped in PR #32, and a fuller survey then showed corroboration was only one of nine
-  failure classes: informal country names (`UK`/`England`/`LDN`, 116 rows), the remote
-  hint firing before any country resolved (`Remote - India`, 85 rows), `Ontario` resolving
-  to Ontario **California** (53 rows), ASCII-vs-diacritic city misses (32 rows), unknown
-  foreign subdivisions (25 rows), and region acronyms resolving to same-named villages
-  (`APAC` -> Uganda). The gate is now evidence-tiered (SPEC §7.1) and the trade is
-  **pinned in CI**: 0 false discards over 1,611 live strings, residual leak exactly 6
-  strings / 14 rows. **Still open:** tiers 2 and 3 of the plan — a free Ollama fallback
-  for the 3.1% of rows the gazetteer cannot resolve, and the fit scorer as a second net.
+- **The location gate's tiers 2 and 3 — not built** — `[SCREEN · M]`. Tier 1 shipped
+  2026-07-29 (evidence-tiered gate, SPEC §7.1 + CHANGELOG; the trade is pinned in CI at 0
+  false discards over 1,611 live strings, residual leak exactly 6 strings / 14 rows).
+  **Still open:** a free Ollama fallback for the 3.1% of rows the gazetteer cannot
+  resolve, and the fit scorer as a second net.
 
-- **Workday prose-date age-gating — shipped, live reduction unmeasured** — `[FETCH · S ·
-  needs a COUNT, not a run]`. `parse_stub` now dates `"Posted N+ Days Ago"`
+- **Workday prose-date age-gating — COUNTED 2026-07-30: the reduction is ZERO and the
+  gate structurally cannot fire. Dead lever, do not re-open it** — `[FETCH · closed]`.
+  **Workday's prose ladder tops out at the terminal bucket `"Posted 30+ Days Ago"`** — a
+  400-day-old posting and a 30-day-old one emit the identical string. `_stub_age_days`
+  reads `30`, `parse_stub` sets `posted_at = now - 30`, and `_too_old`
+  (`fetch/__init__.py:83`) tests `(today - posted).days > max_age_days`, i.e. `30 > 30` →
+  False → kept. **30 is the largest age this parser can ever emit, so a strictly-greater
+  test against `max_age_days: 30` never fires.** `max_age_days: 29` would switch the whole
+  `30+` bucket on with no code change — but it tightens every other board too, which is a
+  far larger blast radius than the calls it buys here.
+  **And it buys almost nothing, because the two workday boards carry 4 postings total.**
+  Millennium (`mlp`) lists **zero** — not a broken slug (`200 {"total":0}`, while a bogus
+  site id under the same tenant returns `404 S21`); the site is live and publishing
+  nothing, so it is a zero-yield watchlist row and joins the msci/citadel deletion
+  decision below. Arrowstreet is a 4-posting campus board, 2 of which the title gate
+  already drops as `Intern, Summer 2027`.
+  **So the framing below was wrong and is corrected here:** the ~6,703 figure is the
+  **28-board** post-stub-gate total, and workday's share of it is 4 — about 0.06%. The
+  prose-date parser cannot move that number however it is tuned; the remaining detail-call
+  cost lives on the phenom two-step boards. Parse coverage was 100% (14/20/21/30+ days, no
+  "Today"/"Yesterday"/locale strings), so the gate is neutralised by the threshold, not by
+  parse misses.
+  Original entry follows. `parse_stub` dates `"Posted N+ Days Ago"`
   prose (given `now`), so the max-age gate can drop stale workday stubs before the detail
   call (CHANGELOG, SPEC §7.1). Only the confident English `"N[+] Days Ago"` form is
   parsed — a lower bound on age — so "Today"/"Yesterday" and any other locale/wording
@@ -672,46 +819,22 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   score run that reaches `custom`/`browser` ids — a larger `--score-limit`, or a
   source-filtered slice.
 - **Route a local `degree`/`clearance` fail to the strong model as `needs_confirmation`**
-  — `[SCREEN · DONE 2026-07-29, see SPEC §7.1 + CHANGELOG]`. Kept here for the reasoning
-  trail; the behavior itself is now in SPEC. **One shape change from what this entry
-  proposed:** it is a routing decision inside one pass plus a `score_detail` marker, not a
-  new `pipeline_status` — screen and fit run in the same pass, so nothing is ever stored
-  in the intermediate state, and a real status would mean new `constants.ts` values and UI
-  buckets for a row nobody can ever observe. **Still open, deliberately:** a
-  degree/clearance-only fail on a JD thinner than the low-context threshold is kept
-  without confirmation (it takes the thin-JD path, which spends no fit call) — a thin JD
-  cannot support a degree-bar reading either way, and those rows are held back from notify
-  and shown for human review.
-  **The rates below are PRE-FIX and must not be re-quoted as current.** 83%/24% are why
-  the routing was decided; the clearance evidence floor (#24) already catches all 20 of
-  those clearance rows for free, and the degree residual is the 2-3 rows in Defects. The
-  build insures the residual, it does not re-fix the measured rate.
-  **The `authorization` exclusion is NOT "no model produced that verdict"** — that
-  rationale was written into the first draft and is false; authorization is a 4B labelling
-  retrieved snippets. It is excluded because its measured false-disqualification count is
-  **0** and it already carries retrieve-then-classify plus the offers/preference vetoes,
-  so a second look is the wrong trade on the check where a false positive is worst.
-  Instead of a terminal `discarded`, a degree/clearance fail becomes `needs_confirmation`
-  and goes to SCORE for the strong model to confirm.
-  **Decided, do not re-litigate the fork.** The 2026-07-24 volume query resolved it: of
-  3,262 discarded rows, degree/clearance-*only* discards were 30 (0.9%), and this entry's
-  own rule was "a couple of percent → just route them". ~30 paid fit calls against a
-  ~2,000-message weekly budget.
-  **What was unmeasured then is measured now, and it strengthens the case:** the 4B's
-  false-discard *rate* is **83% for clearance** (20 of 24 live discards carried no
-  clearance token — the 2026-07-27 audit, **not** `make eval-screen`, which as shown above
-  cannot measure clearance at all) and **24% for degree** (`make eval-screen`). Volume was
-  the wrong ranking function — that is the same lesson the clearance defect taught.
-  **The architecture already exists**, so this is a state, not a redesign: the fit
-  scorer's optional `screen` block + `merge_fallback_screen` is already "strong model
-  supplies extraction, CODE arbitrates on verifiable JD evidence, not a second vote". The
-  `pass`-vs-`unknown` conflation was fixed 2026-07-23, so "blind" is already
-  distinguishable from "passed" and only the third state is new.
-  **The cost it moves:** a posting the screen discards today pays nothing — that is the
-  economic point of screening first. Routing buys each one a paid fit call.
+  — `[SCREEN · shipped 2026-07-29 · one residual open by decision]`.
+  **The behavior, the pre-fix 83%/24% rates and why `authorization` is excluded are
+  now in SCORING §5.3** — read it there; those rates are pre-fix and must not be re-quoted
+  as current.
+  **What stays here is one deliberate hole:** a degree/clearance-only fail on a JD thinner
+  than the low-context threshold is kept *without* confirmation, because it takes the
+  thin-JD path and spends no fit call. A thin JD cannot support a degree-bar reading either
+  way, and those rows are already held back from notify and shown for human review.
+  **And one shape decision, so it is not re-proposed:** routing is an in-pass decision plus
+  a `score_detail` marker, **not** a new `pipeline_status` — screen and fit run in the same
+  pass, so no row is ever stored in that state, and a real status would mean new
+  `constants.ts` values and UI buckets for something nobody can observe.
 
-- **The feed's workday route reports a detail-fetch collapse on every pass** —
-  `[FETCH · XS · observed 2026-07-29 · cause unknown]`. All three live passes logged
+- **The feed's workday route reports a detail-fetch collapse on every pass — DIAGNOSED
+  2026-07-30, it is DEAD REQS and the entry closes as harmless** —
+  `[FETCH · XS · closed]`. All three live passes logged
   `[feed] workday: detail-fetch collapse — 0/1 resolved (scraper may be broken)` and
   `0/2` (the 08:00 pass logged three such lines). The warning is `run_feed`'s deliberate
   signal that a detail source resolved ids but kept **none** — the case it exists to make
@@ -730,10 +853,25 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   as `empty_description` — the same string the watchlist path uses for the same condition,
   so one query over `feed_unresolved` covers both paths — and the collapse warning names
   the split (`N unparseable — scraper may be broken` vs `N dead req(s), none unparseable`).
-  **What that means for this entry: the diagnosis is now a free DB read, no hand-run.**
-  Query `feed_unresolved` for the workday host after the next pass; `empty_description`
-  means the scraper, `detail_fetch_failed` means dead reqs and this entry closes as
-  harmless. Rows recorded before the split carry the old conflated string.
+  **The free DB read ran 2026-07-30 and the answer is DEAD REQS.** `feed_unresolved` has
+  **zero** `empty_description` rows on the `simplify` feed path — all 213 of those are
+  `feed='watchlist'`, i.e. `run_fetch`'s board path, not `_detail_fetch`. The workday host
+  is 36 rows, every one `detail_fetch_failed` (27 post-split, 9 pre-split). If the CXS
+  parser were returning bodies it could not populate, `_detail_fetch` would file them as
+  `empty_description`; it never has. Corroborated three ways: 374 feed-sourced workday
+  postings landed since 07-29 against 36 failures; the *same tenants* (walmart, kla, caci,
+  vumc) succeed and fail in adjacent passes, where a parser break would fail a tenant
+  uniformly; and the failing URLs churn rather than recur (3 of 36 ever seen failing
+  twice), the signature of a delisted req.
+  **The prune-never-matches claim is CONFIRMED in code and data:** 2,598 workday rows,
+  **0** whose `external_id` starts with `/`, so the set difference subtracts nothing and
+  every feed-surfaced workday listing pays one CXS GET per pass forever — absorbed
+  silently by `ON CONFLICT DO NOTHING`. That is why the line repeats; it is not evidence
+  of a fault.
+  **The one residual, and it is a labelling limit not a defect:** `detail_fetch_failed`
+  still conflates a genuine 404 with a transient timeout or 429, because `_detail_fetch`
+  catches bare `Exception` without inspecting status. Neither is a scraper break, so the
+  verdict stands.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
@@ -789,6 +927,23 @@ degree is semantic, so no floor exists and the answer is routing, not a regex.
   `config.yaml` never re-reads. There is no per-feed override. Left as-is: a second
   freshness knob for one feed is more config than the problem justifies, and the
   CHANGELOG carries the change. Revisit if a second feed wants a different window.
+- **`apply.careers.microsoft.com` returns 50 bodyless postings post-split — the largest
+  single `empty_description` source and NOT the known partial-drop story** — `[FETCH · S ·
+  surfaced 2026-07-30 by the #46 reason split · uninvestigated]`. The split that made the
+  feed's collapse diagnosable also made the *watchlist* path's failures countable for the
+  first time, and the counts do not match this file's description of them.
+  `feed_unresolved` post-split, all `feed='watchlist'`: **`apply.careers.microsoft.com`
+  50**, `globalcareers-msci.icims.com` 5, `citadelsecurities` 6, `citadel` 2.
+  (`careers.qualcomm.com`'s 81 are all pre-split.)
+  **Why 50 is the number to look at:** the entry below describes `phenom/microsoft` as a
+  *partial-drop* board losing "4-6 bodyless rows per pass" while serving full descriptions
+  for the rest — that is a documented no-op. 50 post-split rows is an order of magnitude
+  more than that reading predicts, so either the drop rate has changed or the entry below
+  under-counts it. Nobody has looked.
+  **The diagnosis is free** (read-only): count `empty_description` rows per host per pass
+  against that host's successful ingests in the same pass, exactly as the workday
+  collapse was settled. Microsoft is a *yielding* board, so unlike msci/citadel this is
+  not a deletion candidate — a real fix would be worth actual postings.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
