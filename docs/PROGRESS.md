@@ -42,7 +42,7 @@ therefore about spend and intake, not about whether the pipeline works — see I
 **Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
 paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
 of them buy a "no". Seniority is the half a *free* local extraction can reach, and it was
-measured on 07-30 and passed — see the first In-flight entry.
+measured on 07-30 and passed — see the seniority entry under In flight.
 
 **QUOTA IS THE STANDING PRIORITY as of 2026-07-31 (operator's call).** Work that is not a
 quota lever waits. The gap, the three levers that move it, and the two measured dead ends
@@ -60,15 +60,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 ## In flight
 
 - **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
-  passes of 2026-07-30/31 spent nothing at all (4 rows fit-scored, then 0, then 0),
+  passes of 2026-07-30/31 were effectively stalled — 4 rows fit-scored, then 0, then 0 —
   because free work was consuming the paid budget. That is fixed and merged (#54, #58)
   and the daemon is running it, but every "quota is the binding constraint" figure below
   describes the pre-07-30 system. **Re-measure after the first normal pass on the fixed
-  code.** The residual the pre-merge review measured, so nobody re-discovers it:
+  code.** Two residuals the pre-merge reviews measured, so nobody re-discovers them:
   `--score-limit` is still not a pure quota budget — an LLM screen-discard and a thin-JD
   row each consume a slot while spending nothing (~18% of screened rows over the 07-29
-  live passes, 8.2% over DB history) — so catch-up is ~1.3 days rather than ~16, not
-  zero.
+  live passes, 8.2% over DB history — SPEC §7.1) — **and** ~320-720 requeued rows survive
+  the free sweep. Together those put catch-up at ~1.3 days rather than ~16, not zero (and
+  slightly conservative now that #58 sweeps 206 more).
 
 - **Cut paid fit calls with a FREE seniority extraction, not a model swap — MEASURED AND
   IT HOLDS, 2026-07-30; the build is the remaining work** `[SCORE · M · measured]`.
@@ -363,8 +364,8 @@ take first and why. Each numbered item is independently pickable.
 >
 > **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`. DONE — visibility shipped
 > 2026-07-30, root cause found 2026-07-31 and it was not a defect: the passes had
-> stopped fit-scoring, so the guarded call correctly never ran (see the stall entry in
-> In flight). The historical framing follows.** The quota snapshot stopped being written
+> stopped fit-scoring, so the guarded call correctly never ran (the CHANGELOG's
+> "the scoring pass had stalled" entry, and SPEC §7.1). The historical framing follows.** The quota snapshot stopped being written
 > and nothing said so; it has already made one `--score-limit` decision come out ~17
 > points optimistic. Every number in the quota analysis rests on this file, so it went
 > first even though the other two levers are worth more. Shipped: a WARNING on a `False`
@@ -374,7 +375,7 @@ take first and why. Each numbered item is independently pickable.
 > [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
 >
 > **Q2. Build the free seniority pre-ordering — `[SCORE · M]`.** Measured 2026-07-30 and it
-> passed (In flight, first entry). It adds no capacity; it makes the capacity you have land
+> passed (the seniority entry under In flight). It adds no capacity; it makes the capacity you have land
 > on rows worth spending it on, which is worth roughly 2x. Ship it as a re-ordering with the
 > keep-direction veto included, as a standalone call first.
 >
@@ -522,7 +523,7 @@ processor and it does not owe every row a verdict. A posting that is never score
 nothing unless it was one worth applying to. Read the gap that way and it is not a 3x
 shortfall in throughput — it is that the ~250 rows/day the budget *can* buy are currently
 drawn nearly at random with respect to whether they deserve the call. **96% of paid calls
-buy a "no" and 54% are `too_junior`** (In flight, first entry): the budget is being spent
+buy a "no" and 54% are `too_junior`** (the seniority entry under In flight): the budget is being spent
 proving that jobs that were never viable are not viable.
 
 **The three levers, and only these three.**
@@ -576,7 +577,7 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   time. **(1) IS NOT A DEFECT — ROOT-CAUSED 2026-07-31, and the fetch was never
   failing.** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
   scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
-  (4 rows, then 0, then 0 — see the stall entry under In flight), so the call was
+  (4 rows, then 0, then 0 — CHANGELOG, "the scoring pass had stalled"), so the call was
   correctly never made. Verified three ways: the fetch returns `True` both from an
   interactive shell and from a replica of the daemon's own environment (`env -i` with
   the unit's `HOME`/`PATH`/`TMPDIR`); `~/.codex/auth.json` has not been rewritten since
