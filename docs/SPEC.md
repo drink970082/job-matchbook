@@ -1229,11 +1229,34 @@ worker modules are pure and dependency-injected; real services are wired only in
   pass carries into the SCREEN phase (the `--score-limit` operator flag), bounding the
   paid scorer over a large fresh intake; the remainder stays `new`. It does **not** cap
   the free deterministic gates: `run_score` opens with a **phase 0 sweep**
-  (`_sweep_free_gates`) that runs `deterministic_screen` and discards what it kills —
+  (`_sweep_free_gates`) that runs `deterministic_screen` **and re-applies the operator's
+  own intake filters** (`stale_fn`, built in `run.py` from `prefilter_postings`) and
+  discards what they kill —
   0.26 ms/row to scan, ~0.5 ms/row including the committed write (~4.5s for 3,480
   discards over 9,390 rows), no model call, no quota — before `limit` is applied to what
   survives. The sweep runs INSIDE the `max_id` window (`max_id` filters first), so an
   operator's `--score-max-id` selection still bounds what it may touch.
+  **Why the TITLE filters are re-applied here, and the age one is not.**
+  `prefilter_postings` runs at INGEST only, so a row that entered before its filter
+  existed keeps its place and buys a PAID fit call on a posting this config refuses
+  today — **206 of the 5,941 rows that survive the deterministic gates**, measured
+  2026-07-31. `max_age_days` is deliberately excluded, and the asymmetry is the reason:
+  a title refusal is RECOVERABLE (widen `title_filter`, `--rescreen-discarded`, the row
+  survives phase 0 and returns), while an age refusal is not — the row only gets older,
+  so raising the knob never catches up with it. **474 of the 587 age-refusals were inside
+  the window when they were ingested**; they aged out *waiting in the queue*, and
+  discarding them is a queue-TTL policy that would terminally delete ~5,300 rows over 30
+  days. That is an operator decision to take deliberately, with a revert artifact — the
+  way the 2026-07-29 manual sweep was run — not something a pass does silently six times
+  a day. The verdict MERGES into the gate's screen dict rather than replacing it, so the
+  passing location evidence a row already earned survives (a passing intern check writes
+  no key, so there is none to keep), which matters because
+  `--rescreen-discarded` requeues real discards back through this same phase. It runs
+  only AFTER those gates, so a row they killed keeps their reason.
+  **A trap this measurement fell into first:** `_too_old` returns False when it cannot
+  parse `now` (err toward keep), so calling `prefilter_postings` without an explicit
+  `now` silently disables the age rule. Right for production, wrong for measurement —
+  pass `now` in any offline count.
   **`limit` is still not a pure quota budget, and the residual is deliberate:** an LLM
   screen-discard and a thin-JD row each consume a slot while spending no quota. Two
   measurements of how big that is disagree on their denominators and neither is wrong —
@@ -2046,6 +2069,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars, which bounds the only unbounded field against Telegram's 4096 cap — title/company/URL are not capped); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
 | A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`). The old "unless a deterministic gate disqualified it" case is **no longer producible through `screen_posting`** (2026-07-31: those gates return before the model call, so the two flags cannot co-occur) — `run_score`'s branch for it and `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, which hand-builds that verdict, are kept as defence in depth for any other caller; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_a_deterministically_disqualified_row_never_reaches_the_provider`) |
 | The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone. `run_score` sweeps them over the whole `max_id` window in phase 0, outside `--score-limit`, so a **deterministic** discard consumes no budget slot — an LLM screen-discard and a thin-JD row still do | `test_score.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py` (`test_the_free_gates_do_not_consume_the_score_limit`) |
+| Phase 0 also re-applies the operator's CURRENT `title_filter`/`title_exclude` (NOT `max_age_days` — an age refusal is unrecoverable) to already-queued rows, discarding them free with a `prefilter: title refused` reason MERGED into the gate's screen dict; only after the location/intern gates, so a row they killed keeps its own reason; with no `stale_fn` the pass behaves exactly as before | `test_pipeline.py` (`test_a_row_the_current_filters_would_refuse_is_swept_free`, `test_the_stale_check_never_runs_on_a_row_a_gate_already_killed`, `test_no_stale_predicate_leaves_every_row_alone`), `test_run.py::test_run_once_wires_a_title_stale_predicate_built_from_the_operators_config` |
 | A row the phase-0 sweep cannot WRITE stays `new` (the pending UPDATE is rolled back, so the next row's commit cannot adopt it), is not counted, and is announced; but `_BREAKER_LIMIT` **consecutive** write failures re-raise (a successful write resets the run) rather than retrying a systemic fault row by row, pass after pass. Deliberately not `_BackendBreaker`'s zero-successes signature: a write failure has no provider that is up or down, so consecutiveness is the signal | `test_pipeline.py` (`test_an_unwritable_free_gate_discard_stays_new_and_says_so`, `test_a_systemic_sweep_write_failure_fails_loud_instead_of_retrying_forever`) |
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |

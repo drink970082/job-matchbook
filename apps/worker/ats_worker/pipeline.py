@@ -671,7 +671,8 @@ def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> li
         kept.append(row)
     return kept + demoted_tail
 
-def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
+
+def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> list:
     """Discard every row the CODE-only gates already kill, and return the rest.
 
     Free by construction: `deterministic_screen` is intern-title + location-string, no
@@ -709,6 +710,28 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
         gate = score.deterministic_screen(
             {"screen": {}, "disqualified": False, "disqualification_reason": ""},
             posting, candidate)
+        if not gate["disqualified"] and stale_fn is not None:
+            # ... and the operator's OWN title filters, re-applied. They run at INGEST
+            # only, so any row that entered before its filter existed keeps its place in
+            # the queue and buys a paid fit call on a posting the config refuses today.
+            # Measured 2026-07-31 over the live queue: 206 of the 5,941 rows that survive
+            # the gates above. Free and deterministic, so it belongs in this phase rather
+            # than costing a budget slot. (`max_age_days` is NOT re-applied — see the
+            # asymmetry argument where `stale_fn` is built, in run.py.)
+            reason = stale_fn(posting)
+            if reason:
+                # MERGE, never replace: `gate` already carries the PASSING location
+                # verdict this row earned (a passing intern check writes no key), and a
+                # row discarded here would otherwise be the first to persist with no
+                # `screen` object at all. It also matters for `--rescreen-discarded`,
+                # which requeues real discards through this same phase — their evidence
+                # must survive the trip.
+                gate["disqualified"] = True
+                # `prior` is defensive symmetry with `deterministic_screen` rather than a
+                # reachable branch: this runs only when that helper did NOT disqualify,
+                # and it writes a reason only when it does.
+                prior = gate.get("disqualification_reason") or ""
+                gate["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
         if not gate["disqualified"]:
             survivors.append(row)
             continue
@@ -739,7 +762,7 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, max_id: int = 0, screen_workers: int = 1,
               score_workers: int = 4, candidate=None, scorer_meta=None,
-              seniority_fn=None) -> None:
+              seniority_fn=None, stale_fn=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -825,7 +848,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # for free while fit-scoring nothing, with ~16 days to go before it reached a
     # posting found today. Sweeping them here costs ~2.4s and clears the head of the
     # queue in one pass.
-    rows = _sweep_free_gates(conn, rows, candidate=candidate, now=now, tally=tally)
+    rows = _sweep_free_gates(conn, rows, candidate=candidate, now=now, tally=tally,
+                             stale_fn=stale_fn)
 
     # Phase 0.5 — the FREE seniority pre-ordering, on what phase 0 left. It runs on
     # exactly the rows the budget would have bought and demotes the ones stating a bar

@@ -2134,3 +2134,63 @@ def test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass(db_pa
                                             "disqualification_reason": ""},
                        seniority_fn=flaky)
     assert len(db.get_by_status(conn, "scored")) == 2
+
+def test_a_row_the_current_filters_would_refuse_is_swept_free(db_path, capsys):
+    # prefilter_postings runs at INGEST only, so a row that entered before its filter
+    # existed keeps its place in the queue and buys a PAID fit call on a posting the
+    # operator's own config refuses. Measured 2026-07-31 over the live queue: 206 of the
+    # 5,941 rows that survive the deterministic gates. (max_age_days is deliberately NOT
+    # re-applied -- an age refusal is unrecoverable; see run.py and docs/BACKLOG.md.)
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("stale", job_title="Sales Representative"),
+        _posting("ok", job_title="Software Engineer"),
+    ], now=NOW)
+    fit_calls = []
+
+    def stale_fn(posting):        # the string run.py actually produces
+        return ("prefilter: title refused by the current filters"
+                if "Sales" in posting["job_title"] else None)
+
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: fit_calls.append(ps) or
+                       [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       candidate={"locations": ["remote", "USA"]},
+                       stale_fn=stale_fn, limit=5)
+
+    assert [p["job_title"] for p in fit_calls[0]] == ["Software Engineer"]
+    rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings")}
+    assert rows["stale"]["pipeline_status"] == "discarded"
+    assert "title refused by the current filters" in rows["stale"]["score_detail"]
+    # the verdict MERGES: the passing location evidence this row already earned survives,
+    # which is what --rescreen-discarded needs when it sends real discards back through.
+    assert '"location"' in rows["stale"]["score_detail"]
+    assert "1 free-gate discarded (unbudgeted)" in capsys.readouterr().out
+
+
+def test_the_stale_check_never_runs_on_a_row_a_gate_already_killed(db_path):
+    # Ordering matters for the recorded reason: a location kill is the real one, and
+    # re-labelling it "prefilter" would lose why the row actually went.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("x", job_title="Sales Rep",
+                                       location="Shanghai, China")], now=NOW)
+    seen = []
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       candidate={"locations": ["remote", "USA"]},
+                       stale_fn=lambda p: seen.append(p) or "prefilter: refused",
+                       limit=5)
+    assert seen == []
+    row = conn.execute("SELECT * FROM job_postings").fetchone()
+    assert "location:" in row["score_detail"] and "prefilter" not in row["score_detail"]
+
+
+def test_no_stale_predicate_leaves_every_row_alone(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("a", job_title="Sales Rep")], now=NOW)
+    pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""}, limit=5)
+    assert db.get_by_status(conn, "scored")

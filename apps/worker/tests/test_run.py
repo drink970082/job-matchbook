@@ -1409,3 +1409,46 @@ def test_the_daemon_installs_a_timestamped_logging_handler(monkeypatch):
         assert "%(asctime)s" in root.handlers[0].formatter._fmt
     finally:
         root.handlers = saved
+
+
+def test_run_once_wires_a_title_stale_predicate_built_from_the_operators_config(monkeypatch):
+    # Nothing else pins this wiring: run_score's stale_fn defaults to None, so a
+    # regression that stopped passing it would leave every test green while the check
+    # silently became a no-op. Assert the predicate exists AND that it reads the
+    # operator's own title_filter/title_exclude.
+    captured = {}
+
+    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_expire", lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_retry", lambda *a, **k: 0)
+    monkeypatch.setattr(run.pipeline, "run_score",
+                        lambda *a, **k: captured.update(k))
+    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
+
+    class FakeConn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
+    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
+    monkeypatch.setattr(run.db, "get_watchlist",
+                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
+
+    from ats_worker import config as cfgmod
+    cfg = cfgmod.load_config(
+        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
+        "title_filter: [engineer]\ntitle_exclude: [intern]\nmax_age_days: 30\n"
+    )
+    run.run_once(cfg, db_path=":memory:", resumes={"r": "r"},
+                 env={"ANTHROPIC_API_KEY": "k", "OLLAMA_HOST": "h"})
+
+    stale_fn = captured.get("stale_fn")
+    assert stale_fn is not None
+    assert stale_fn({"job_title": "Software Engineer", "posted_at": "2026-07-30"}) is None
+    assert "title refused" in stale_fn({"job_title": "Sales Rep",
+                                        "posted_at": "2026-07-30"})
+    assert "title refused" in stale_fn({"job_title": "Engineer Intern",
+                                        "posted_at": "2026-07-30"})
+    # max_age_days is deliberately NOT re-applied: an age refusal is unrecoverable
+    # (the row only gets older), unlike a title one. A 2020 posting stays.
+    assert stale_fn({"job_title": "Software Engineer", "posted_at": "2020-01-01"}) is None

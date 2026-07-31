@@ -334,9 +334,59 @@
   `max_age_days` and becomes a paid call on a posting the config refuses. The queue
   regrows this on its own, roughly a day's worth at a time; at `--score-limit 60` against
   ~38 fresh rows/pass the daemon dips ~22 rows/pass into exactly that stale region.
-  A pre-screen age re-check in `run_score` is the real fix and is **NOT queued** — the
-  operator's plan as of 2026-07-29 is to keep test-running, adjust, and re-run the system
-  wholesale, which resets these populations anyway.
+  **Follow-up the review recommended and this branch did NOT take:** the web has no
+  `prefilter` discard cause (`DISQUALIFY_CAUSE_PATTERNS` in `apps/web/src/lib/actions.ts`,
+  the type above it, and `CAUSES` in `DiscoveredJobsTable.tsx`). The rows stay *visible*
+  in the Discarded bucket — that filter keys on `disqualified`, not on cause — but they
+  cannot be selected, so an operator cannot bulk-remove them. That is ~206 now, plus the
+  275 rows still carrying the operator's own 2026-07-29 sweep string once they
+  re-discard, against a 1,556-row bucket. One pattern `%prefilter:%` covers both
+  populations, since the strings differ (`prefilter: title refused by the current
+  filters` vs `prefilter: refused by the current title/age filters`). Six lines of web
+  code, left out here only because this branch carries no web change and no web tooling.
+  **The TITLE half of this shipped 2026-07-31** (`fix/prescore-prefilter`; SPEC §7.1/§9 +
+  CHANGELOG): `run_score`'s free phase-0 sweep re-applies `title_filter`/`title_exclude`
+  to already-queued rows, 206 of the 5,941 that survive the deterministic gates.
+  **The AGE half is REFUSED, and this is the reasoning so it is not re-proposed as an
+  obvious symmetry.** It looks like the same fix and is a different thing:
+  - a title refusal is **recoverable** — widen `title_filter`, run `--rescreen-discarded`,
+    the row survives phase 0 and comes back. An age refusal is **not**: the row only gets
+    older, so raising `max_age_days` never catches up with it.
+  - **474 of the 587 age-refusals were INSIDE the window when they were ingested.** They
+    aged out *waiting in the queue*, so discarding them is a queue-TTL policy, not "the
+    config refuses this posting". At the measured ~200-250 rows/day of drain it would
+    terminally delete on the order of 5,300 rows over 30 days.
+  - it would fight the one escape hatch. `--rescreen-discarded` requeues 919 hydrated
+    discards, and under the age-inclusive version the next phase-0 sweep re-kills **26**
+    of them (22 on age alone, 2.4% of the requeued set), overwriting the `score_detail`
+    they carried. **Get the shape of this right before re-using it as an argument, because
+    two earlier versions of this bullet had it wrong:** measured 2026-07-31, 881 of the
+    919 die at the location/intern gates *before* the stale check is consulted, so the
+    population at risk is only the 38 that survive them. Of those, the age-inclusive
+    version re-kills 26 — **12 carrying `degree:` and 14 `authorization:`** — while the
+    shipped title-only check re-kills 4 (all `authorization:`). The evidence lost is NOT
+    the `location:` verdicts: `deterministic_screen` regenerates those byte-identically
+    every pass, so nothing goes missing there. It is the LLM-derived `degree:` and
+    `authorization:` ones, which nothing recomputes. Far smaller in count than the first
+    estimate of 591, and worse in kind.
+  **One variant was NOT considered when this was refused, and it may be the right
+  answer — it is queued, not declined.** Judge age against the row's **own
+  `created_at`** rather than `now`:
+  `max_age_days=cfg.max_age_days, now=(posting.get("created_at") or "")[:10]`. That is
+  recoverable in exactly the sense the refusal demands — the verdict for a given row is
+  computed against a fixed timestamp, so it never changes with elapsed time, and widening
+  `max_age_days` plus `--rescreen-discarded` brings the row back. It cannot delete ~5,300
+  rows over 30 days because it is not a function of elapsed time at all. It refuses the
+  **112 rows that were ALREADY past `max_age_days` when they were ingested** — which is
+  precisely the population the title half exists for, rows that entered under a looser
+  knob — and after that only genuinely-stale arrivals. The refusal above treats "age" as
+  indivisible; it splits cleanly along the line its own measurement draws. A second
+  unconsidered option: sort stale rows last in phase 0's queue order instead of
+  discarding them — non-destructive by construction. (No column for that exists on this
+  branch; it would need one, or an ordering key.)
+  If the operator does want a queue TTL, it wants the shape the 2026-07-29 sweep had — a
+  deliberate run with a saved id list and a pre-run DB copy, revertible row for row — not
+  a silent six-times-a-day deletion.
 - **The feed's age gate judges Simplify's `date_posted`, not the board's `date_updated`** —
   `[FETCH · XS · found by the pre-merge review 2026-07-28 · accepted]`. **Measured on the
   live feed:** of the 1,044 listings refused as stale, **108 carry a `date_updated` inside
