@@ -508,6 +508,20 @@
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
   decision below: it is eighteen, not three.
+  **The mechanism is now MEASURED, and it is age, not `title_filter` — 2026-07-31.**
+  Fifteen of these boards were probed live through the production `fetch_company`: every
+  slug resolved, every adapter returned cleanly, **not one was broken**. Three serve
+  genuinely nothing (`lever/voleon`, `lever/tgsmc`, `workday/mlp/wd5/mlpcareers`). The rest
+  serve postings that **pass** `title_filter` and then die on `max_age_days` — Virtu 48
+  served / 31 title-ok / 0 surviving, Geneva Trading 14 / 10 / 0, Radix experienced 7 / 6 /
+  0, Maven 36 / 18 / 1. So the zero is a freshness effect on a slow-moving board, not a
+  title-vocabulary one, and a board can sit at zero for weeks while being entirely healthy.
+  Counts as of that date: **5 of 39 `config.yaml` rows and 16 of 172 `watched_companies`
+  rows** at zero lifetime ingest.
+  **Do not measure this with "rows ingested in the last N days".** `upsert_postings` is
+  `ON CONFLICT DO NOTHING`, so a board with stable inventory inserts nothing while serving
+  normally — that metric reports healthy boards as dead. It read as "15 of 39 stale" before
+  being re-run on `(source, slug)` and on lifetime counts.
   **3. The current filters would refuse 775 of the queued rows that survive the free
   gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
   title-only). At the measured ~0.8

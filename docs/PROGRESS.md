@@ -203,6 +203,29 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Residuals (a) and (b) are FIXED above** (2026-07-30, the db-keyed lock); (c) is the
   2026-07-28 `O_RDONLY` fallback and stands.
 
+- **Both eval corpora are too small to answer the questions being asked of them — expansion
+  in flight** `[SCORE + SCREEN · M · branch `docs/corpus-expansion-groundwork`, 2026-07-31]`.
+  Neither eval is code-bound; both are corpus-bound.
+  **Score:** `eval/golden.jsonl` is 23 rows, and the standing `gpt-5.6-terra` rejection
+  (76% gate vs sol's 86%) is a **two-row** gap on it. Re-running that A/B cannot separate the
+  models. Target ~120 rows, drawn from the `keep`/`adjacent` bands where models actually
+  diverge; `tools/expand_golden.py` builds the 499-row Sol-labelled sampling frame (machine
+  labels — a frame, never a gate).
+  **Screen — the sharper one, because it is a portability requirement.** Of the 24 clearance
+  rows in `screen_golden.jsonl`, 20 are golden `false` and **none carries a clearance
+  token**, so `_check_clearance` short-circuits on the evidence floor for every one and
+  **no row can produce a clearance false disqualification, for any model.** The sponsorship
+  half likewise rests on 5 effective rows of 21. That blocks the real question: the
+  GPU-less path (`SCREEN_BACKEND=codex`) shipped on the call that "no new gate needed"
+  (screen-backends design §327), so users without a GPU run an **unmeasured** screen today.
+  `gpt-5.6-luna` is the cheapest model on that path and has never been measured — its
+  standing rejection is for *fit scoring*, which §10 argues does not transfer. Bar is the
+  gate's own: zero false disqualifications. Plan:
+  `~/.claude/plans/what-are-small-dev-vectorized-elephant.md`.
+  **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
+  paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
+  measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
+
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (CHANGELOG). **Stage 3,
   non-tech discovery feeds:** the watchlist already covers any company, so decide the need
   before building (brittle, anti-bot handling, dilutes the moat).
