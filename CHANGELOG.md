@@ -58,6 +58,72 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The `capture_usage` failure has a NAME — HTTP 403 — and is now retried. What
+  produces the 403 is still open.** #60's cause-naming earned its keep immediately: the
+  first failing pass after it shipped (12:00 on 2026-07-31, 26 rows fit-scored) printed
+  `returned HTTP 403 (Forbidden)`, ending a week of a bare `False`.
+  **The interpretation is NOT established, and an earlier draft of this entry overclaimed
+  it.** Hand-calling the endpoint afterwards gave 403 / 200 / 403 within forty seconds,
+  which was read as "a blip, not a rate limit" — but Cloudflare rate-limiting rules
+  commonly answer **403** rather than 429, and a limiter near its threshold produces
+  exactly that alternation. The hand calls also came from a different client than the
+  in-pass failure, so they may not sample the same phenomenon at all. Both hypotheses
+  remain live.
+  So the retry is deliberately agnostic rather than tuned to one of them: 4 attempts on a
+  growing schedule (2s, 8s, 20s) that reaches past the only interval at which the endpoint
+  was ever *observed* to change state. `_get_json` splits into a retrying wrapper and
+  `_get_json_once` returning `(data, retryable)`; 401 and 404 are verdicts, not blips, and
+  are not retried, so "not logged in" still answers immediately.
+  **What this does not do is end the staleness.** At the roughly 2-in-3 per-call failure
+  rate observed, four attempts still leave ~20% of passes without a snapshot, and "three
+  hand calls in a row succeeded" cannot distinguish a 70% success rate from a 100% one.
+  The measurement to take is the WARNING rate across passes, over days, not more hand
+  calls. The remedy that would sidestep the question entirely — capturing usage at pass
+  START, before the account is hot — is recorded in `docs/BACKLOG.md`.
+- **The free seniority pre-ordering was throwing away evidence the model got right —
+  70% of its misses were code's fault, not the 4B's.** Classifying the 61 misses by cause
+  instead of counting them found three defects, all in `score/seniority.py`, and fixing
+  them moved **every** gate axis at once: precision 0.964 -> **0.975**, recall 0.757 ->
+  **0.793**, demote share 0.442 -> **0.457**, still **0** false demotions on a
+  `domain=match` or notified row (`make eval-seniority`, 446 rows, zero quota).
+  (1) *A cap is not a floor.* `stated_years` collected any number before a years token, so
+  *"Less than 2 years Technical engineering experience"* read as a 2-year **minimum** and
+  demoted a T-Mobile `Assoc Engineer` posting written for exactly this candidate — the
+  rubric had said in prose since §4.2 that a cap is entry-level and NOT a bar. The same JD
+  contributed *"At least 18 years of age"* as eighteen years of experience — which on its
+  own changed nothing, since `clamp_years` minimises and `min(2, 18) = 2`; the age rule
+  only becomes load-bearing once the cap rule removes the 2.
+  **Two traps in this one, both handled:** a *negated* cap phrase is a minimum — "no less
+  than 5 years" contains the word "less" and keeps its figure — and the rule is **not**
+  purely keep-direction. `clamp_years` minimises over the stated set, so removing a low
+  capped figure RAISES the clamped bar: *"internships up to 1 year considered ... 5 years
+  required"* now clamps to 5 rather than 1 and demotes where it did not. That is the right
+  reading of the JD and it is still a demotion the rule created, so it carries §9.3's
+  demote-direction bar.
+  (2) *An unevidenced years bar is dropped.* `clamp_years` passed the model's number
+  through untouched when the JD stated no figure at all, so an invented bar survived —
+  while the rank path had refused exactly that since the vetoes landed. This is the years
+  path's missing half of `rank_stated_in`.
+  (3) *The rank-cancelling veto now compares magnitude, not existence.* `clamp_years`
+  returns `None` **iff** its input is `None`, so testing `years is not None` after the
+  clamp was the same as testing before it: a clamped-down bar silently cancelled a rank
+  the JD does state. A Microsoft *"Senior Fabric Design Verification Engineer"* stating
+  5+ years was clamped to 1 by a stray *"1 year of experience with ..."* in the preferred
+  qualifications and kept as if open to a new grad. **34 of the 61 misses share this
+  mechanism; the shipped fix recovers the 9 of them where the model also reported a rank
+  the JD states** — for the other 25 the model returned no rank, so the rank branch has
+  nothing to fire on and the row is still kept.
+  Behavior is SPEC §7.1, the contract and the full measurement SCORING §5.7. A 32-row
+  held-out slice (every row scored since the golden corpus was frozen) behaves identically
+  to the old code — 0 false demotions either way — which is a false-demotion check, not a
+  confirmation of the recall gain: it carries only 3 positives.
+  **A fourth candidate, a title-token rank floor, is measured and deliberately NOT
+  shipped.** It is the largest in-sample win available (recall -> 0.900) and it owns the
+  only held-out false demotion any candidate produced; SCORING §5.7 carries both numbers
+  and the decision is the operator's. A fifth, widening `rank_stated_in`'s vocabulary, is
+  rejected outright as provably redundant *and* a re-opening of the false-discard
+  direction §9.3 warns about.
+
 - **`capture_usage` failures now name their cause, and the "never broken" verdict is
   withdrawn.** The 2026-07-31 root cause — the passes had stopped fit-scoring, so the
   guarded call correctly never ran — was true of that window and not the whole story: the

@@ -29,9 +29,11 @@ from .prompts import _job_block
 RANKS = ("senior", "lead", "staff", "principal")
 
 # Years above the candidate's own experience at which a stated bar reads as a real one.
-# 2 is what the 2026-07-31 run measured (P .964 / R .757 with both vetoes below, over 446
-# rows), for a candidate at 0 years. It is also the layer's dominant residual error: 5 of
-# the 7 false demotions are rows whose JD states exactly 2.
+# 2 was fitted for a candidate at 0 years. Latest measurement over the same 446 rows
+# (2026-07-31, after the cap/evidence/magnitude rules below): P .975 / R .793 / demote
+# share .457, superseding the P .964 / R .757 / .442 this comment used to quote. It is
+# still the layer's dominant residual error: 4 of the 5 false demotions are rows whose JD
+# states exactly 2.
 YEARS_MARGIN = 2
 # Experience at which a JD naming one of the four ranks stops being a bar for this
 # candidate. ponytail: a constant, not a config key — it only matters for a candidate
@@ -49,6 +51,33 @@ _ONE = r"(" + _NUM + r")(?:\s*\(\s*(\d{1,2})\s*\))?"
 _YEARS_RE = re.compile(
     _ONE + r"\s*(?:\+|plus)?\s*(?:(?:-|–|—|to)\s*" + _ONE + r"\s*(?:\+)?\s*)?"
     r"(?:\+\s*)?(?:years?|yrs?|yoe)\b", re.I)
+
+# A years figure under a CAP is not a bar, and SCORING §4.2 already said so in prose —
+# "a cap ('up to N', 'no more than N') is entry/early-career and is NOT [a bar]".
+# `stated_years` never implemented it, so *"Less than 2 years Technical engineering
+# experience"* read as a 2-year FLOOR and demoted a T-Mobile `Assoc Engineer` posting
+# written for exactly this candidate. Nor is an AGE a bar: *"At least 18 years of age"*
+# was being collected as eighteen years of experience.
+_CAP_PHRASES = ("less than", "fewer than", "no more than", "not more than", "at most",
+                "up to", "under", "below", "maximum of", "max of")
+# "no less than 5 years" is a MINIMUM that happens to contain the word "less" — negating a
+# cap phrase inverts it, and swallowing those would erase real bars.
+_NEGATED_CAP = re.compile(r"\b(?:no|not)\s+$", re.I)
+_AGE_AFTER = re.compile(r"^\s*(?:of\s+age|old)\b", re.I)
+
+
+def _capped(prefix: str) -> bool:
+    """Does `prefix` — the text immediately before a years figure — cap it?
+
+    The leading `\\b` is load-bearing: without it *"Co-founder 5 years"* ends in "under"
+    and the figure vanishes. Any word ending in a cap phrase would silently delete the
+    bar that follows it.
+    """
+    for phrase in _CAP_PHRASES:
+        match = re.search(r"\b" + re.escape(phrase) + r"\s*$", prefix, re.I)
+        if match and not _NEGATED_CAP.search(prefix[:match.start()]):
+            return True
+    return False
 
 
 def build_prompt(posting: dict, max_desc_chars: int) -> str:
@@ -100,9 +129,23 @@ def normalize(entry) -> tuple[int | None, str | None]:
 
 
 def stated_years(text: str) -> set[int]:
-    """Every years-figure the text literally states."""
+    """Every years-figure the text literally states **as a requirement**.
+
+    Figures under a cap ("less than 2 years", "up to 5 years") and ages ("18 years of
+    age") are excluded: neither is a floor, and reading them as one is what demoted a
+    posting that said outright it wanted someone with under two years.
+
+    NOTE the direction is not purely keep. Dropping a capped figure REMOVES it from the
+    set `clamp_years` takes its minimum over, so a JD carrying both a low cap and a real
+    bar ("internships up to 1 year considered ... 5 years required") now clamps to 5
+    instead of 1 and demotes where it did not before. That is the correct reading — an
+    internship aside should never have cancelled the role's own requirement — but it means
+    this rule can create a demotion as well as remove one, and it is gated accordingly."""
     out: set[int] = set()
     for match in _YEARS_RE.finditer(text):
+        if (_capped(text[max(0, match.start() - 32):match.start()])
+                or _AGE_AFTER.match(text[match.end():match.end() + 12])):
+            continue
         for group in match.groups():
             if group:
                 group = group.lower()
@@ -112,17 +155,22 @@ def stated_years(text: str) -> set[int]:
 
 def clamp_years(years: int | None, job_text: str) -> int | None:
     """The keep-direction veto (SCORING §9.2, lever 4): clamp the model's number down
-    to the smallest years-figure the JD literally states. Deterministic, and it can
-    only ever LOWER a bar, so it cannot manufacture a demotion.
+    to the smallest years-figure the JD literally states, and **drop it entirely when
+    the JD states none**. Deterministic, and it can only ever LOWER or REMOVE a bar.
 
     It exists because §8.1's dominant error repeats verbatim here: on a degree-
     conditional ladder ("Master's and no experience; or Bachelor's and 3 years") the
     model reports one rung instead of the minimum across rungs. Measured 2026-07-30:
-    false demotions 20 -> 7, P .921 -> .967."""
+    false demotions 20 -> 7, P .921 -> .967.
+
+    The empty-floor case is the mirror of `rank_stated_in`: a years bar the posting
+    never states is a bar with no evidence behind it, and the rank path has refused
+    those since the vetoes landed while this path silently accepted them.
+    """
     if years is None:
         return None
     floor = stated_years(job_text)
-    return min(years, min(floor)) if floor else years
+    return min(years, min(floor)) if floor else None
 
 
 def rank_stated_in(job_text: str, rank: str) -> bool:
@@ -139,20 +187,33 @@ def rank_stated_in(job_text: str, rank: str) -> bool:
 def verdict(entry, *, job_text: str, years_experience: int = 0) -> str:
     """`"too_junior"` or `"match"`, decided in CODE. A blind or empty entry is a
     `match` — the keep direction, per PRINCIPLES' uncertainty policy."""
-    years, rank = normalize(entry)
-    years = clamp_years(years, job_text)
+    years_raw, rank = normalize(entry)
+    years = clamp_years(years_raw, job_text)
     if years is not None and years >= years_experience + YEARS_MARGIN:
         return "too_junior"
     # A stated NUMBER the candidate clears beats a rank word. "Senior Engineer ... 0-2
     # years of experience" is a posting that says outright it will take this candidate,
     # and the years figure is the vetoed, evidence-grounded signal while the rank is not.
-    if years is not None:
+    #
+    # It has to test the RAW figure's magnitude, not merely that one exists. `clamp_years`
+    # returns None only when its input was None, so `if years is not None` was equivalent
+    # to `if years_raw is not None` — the clamp fired, lowered a real bar below the
+    # margin, and the lowered value then cancelled a rank the JD does state. On a
+    # Microsoft "Senior Fabric Design Verification Engineer" the model read 5 years, a
+    # stray "1 year of experience with ..." in the preferred qualifications clamped it to
+    # 1, and the posting was kept as if it were open to a new grad. That double-counted a
+    # keep-direction correction: once to lower the bar, again to void the rank.
+    if years_raw is not None and years_raw < years_experience + YEARS_MARGIN:
         return "match"
     if rank and years_experience < SENIOR_YEARS and rank_stated_in(job_text, rank):
         return "too_junior"
-    # ponytail: no title-token floor for the "Senior ..." titles the model returns an
-    # empty object on (6 of 19 misses). That is a DISCARD-direction floor, so SCORING
-    # §9.3 applies and it needs its own measurement first.
+    # ponytail: still no title-token floor for the "Senior ..." titles the model returns
+    # an empty object on. SCORING §5.7 asked for a measurement before building it; the
+    # measurement ran 2026-07-31 and came back AMBIGUOUS, which is why this stays out.
+    # In-sample it is the single biggest recall win available (+27 correct demotions,
+    # recall .793 -> .900), but on the 32-row held-out slice it produced the ONLY false
+    # demotion any candidate produced, and recovered nothing. Both corpora still pass the
+    # gate — the decision is the operator's, and the numbers are in docs/BACKLOG.md.
     return "match"
 
 
@@ -173,6 +234,10 @@ def assess(posting: dict, extract, *, years_experience: int = 0,
     years, rank = normalize(entry)
     job_text = f"{posting.get('job_title', '')}\n{posting.get('description', '')}"
     clamped = clamp_years(years, job_text)
+    # `clamped_min_years` is diagnostic, NOT the value the decision used — the rank-cancel
+    # branch reads the raw figure (see `verdict`). It is also None for two different
+    # reasons now: the model gave no figure, or the JD evidences none. Read it beside
+    # `stated_min_years` and `stated_rank`, never alone.
     detail = {"stated_min_years": years, "stated_rank": rank, "clamped_min_years": clamped}
     if entry is None:
         detail["blind"] = True
