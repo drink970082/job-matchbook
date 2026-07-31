@@ -59,24 +59,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Cut paid fit calls with a FREE seniority extraction — BUILT 2026-07-31, landed and
-  unmerged** `[branch feat/seniority-preorder · SCORE · M]`. The layer, its eval gate
+- **The seniority pre-ordering is built and gated, but NOTHING has measured it live**
+  `[SCORE · M · shipped 2026-07-31, unmeasured in production]`. The layer, its eval gate
   (`make eval-seniority`), the `deprioritized_at` ordering column, the
-  `candidate.years_experience` key and the in-pass wiring are all on that branch; suite
-  870 green, `seniority.py` at 98%, total coverage 95.04%. **Re-measured on this build,
-  446 rows: P 0.964 / R 0.757, 44% demoted, 0 provider errors, and 0 false demotions on
-  either `domain=match` or notified rows** — the gate that decides the layer. The
-  pre-merge review's fixes (a rank veto, and a stated years figure beating a rank word)
-  cost recall 0.829 -> 0.757 and demote share 0.484 -> 0.442; both can only ever REMOVE
-  a demotion, and the eval's in-sample limits are stated in SCORING §5.7.
-  Behavior lives in SPEC §7.1 and SCORING §5.7; the shape decisions (the operator chose
-  a real column over a backdated `updated_at` or a `score_detail` sniff) are in
+  `candidate.years_experience` key and the in-pass wiring all ship with this entry.
+  Behavior is SPEC §7.1, the contract and the measurement are SCORING §5.7, and the shape
+  decisions are in
   `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.
-  **Two deploy steps are NOT done and the feature is inert until they are:** `make
-  db-push` to add the column to the live DB (back it up first — Prisma keeps no
-  migration history), and a daemon restart between slots to pick the code up. The
-  measurement that motivated it follows, unchanged.
-  **The original entry:** `[SCORE · M · measured]`.
+  **What is left is one measurement, not code:** no live pass has run with the layer on,
+  so the demote rate, the GPU cost per pass and the effect on paid-call yield are all
+  projections from the 446-row eval. Read the first `[seniority] pre-ordering ON` pass in
+  the journal before quoting any of them.
 
 - **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
   passes of 2026-07-30/31 spent nothing at all (4 rows fit-scored, then 0, then 0)
