@@ -50,9 +50,52 @@
      clearance token anywhere; 'security' is the engineering domain"* — the same 20.
      **Fix this one first.** The clearance check that ran 83% wrong for four days is the
      reason this eval exists, and it is the half the eval cannot see.
+     **FIXED 2026-07-31 — the corpus now has 14 golden-`false` rows that carry a
+     clearance token, so this half can finally fail.** `eval/` is gitignored, so this
+     entry is the only record of what was added: 83 → 103 rows. The 14 come from the one
+     class that exists in the data — a clearance token in a NON-security sense: customs
+     clearance (Optiver 727), import clearance (TikTok 2992), construction permits/
+     clearances (Micron 10203), compliance pre-clearance for personal trading (Goldman
+     11907), university "BACKGROUND CHECKS/CLEARANCES" (Penn State 24853-24857),
+     background-check clearance (Motorola 24978), and — the strongest adversarial rows —
+     **CACI 25018/25019/57108, a defense contractor whose JD carries an explicit
+     `Minimum Clearance Required to Start: None`**, plus BlackRock 88648 whose JOB TITLE
+     is *"Trade Clearance & Settlement"*.
+     **What does NOT exist in this data, which is why the fix took this shape:** a
+     genuinely *optional* security clearance. Searched the whole DB — **zero** rows say
+     "clearance preferred / a plus / not required". Earlier attempts to find them matched
+     only section-boundary artifacts (`"…verified US government Clearance"` ending one
+     block, `"Preferred Qualifications:"` opening the next), which is the bullet-JD defect
+     below biting the *search* rather than the snippet window.
+     **Operator convention, set 2026-07-31 and load-bearing for every future row:**
+     *"must be able to obtain and maintain a TS/SCI clearance"* is `requires_clearance:
+     **true**`. TS is Top Secret; for a candidate with no clearance who needs sponsorship
+     it is a hard bar, not a soft one. The ~38 "ability to obtain" rows in the DB are
+     therefore golden `true` — they improve **recall** measurement and do nothing for this
+     tautology, since only golden-`false` rows can produce a false disqualification.
+     Deliberately excluded as genuinely-true or ambiguous: mthree 25411 (BPSS + SC
+     required), ASSYSTEM 25388 (BPSS eligibility + UK sole nationality), CACI 25021
+     (`DOJ MBI` — a background investigation, not clearly a clearance).
   2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
      non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
      does can move them.
+     **RAISED 5 → 11 on 2026-07-31** by adding 6 golden `offers` rows that *do* carry the
+     `sponsor` token, so the classifier can actually move them: Bridgewater 34/35
+     (*"we do provide immigration sponsorship for this position"* — the exact phrase
+     `_OFFERS_SPONSORSHIP` never matched), Jump Trading 548/558/567 (*"we sponsor work
+     visas for full-time positions"*), and Optiver 721 (*"supportive of US immigration
+     sponsorship for this role"* — the row the 07-30 discard recovery was named for).
+     `offers` is already in the schema enum and `fact_is_a_bar` returns `label ==
+     "refuses"`, so these are gate-eligible golden-`false` rows; no code change needed.
+     **Only 3 of Jump's 8 identical rows were taken** — the other 5 repeat one JD shape
+     verbatim and would inflate the count without adding signal, the same way ids 67/68
+     are flagged above as "one JD shape, counted twice".
+     **Candidate selection had to be done by hand, and that is the durable lesson.**
+     A regex sweep for offer-language returned 91 rows and was wrong on two whole
+     companies: Qualcomm (31 rows) matched on *"will provide reasonable
+     **accommodations**"* while its JDs actually say *"not eligible for Qualcomm
+     immigration sponsorship"*, and Microsoft matched despite *"unable to sponsor a work
+     visa"*. Every row above was read individually before it entered the corpus.
   3. **4 corpus rows are labeled on evidence the corpus does not contain.** Ids
      456/529/534/538 (all IMC, golden `refuses`) have excerpts of exactly 1606 chars —
      the `_readme` truncation cap — with no `sponsor`/`visa`/`citizen`/`authoriz`/
