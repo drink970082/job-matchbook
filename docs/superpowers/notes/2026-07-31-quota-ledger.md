@@ -46,7 +46,7 @@ verbatim; the window percentage moves in the operator's favour as the run procee
 
 ---
 | 2 | 13:20 | 1b-bis | 2 | **8** | prompt-diff probe: two consecutive calls, byte-compared. All 54,542 chars IDENTICAL, and still `cached_input_tokens: 0` AND `cache_write_input_tokens: 0` — the cache is not even written. Settles it: the prompt is perfectly cacheable and the platform is not caching this traffic. Rollouts deleted. |
-| 3 | 13:35 | luna-screen | 249 | **257** | full `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna make eval-screen` — gates the no-local-LLM path against the same 249-row golden set the 4B is gated on. |
+| 3 | 13:35 | luna-screen | 249 | **257** | `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna make eval-screen`, 83 rows x K=3. **PASS: 0 false disqualifications** (the local 4B is RED at 2-3), recall 29/37. Window moved **40% -> 41%**, so ~250 luna calls per point. |
 
 ## Phase 1b outcome — the caching lever does not exist on the current CLI
 
