@@ -9,6 +9,34 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **Rows the operator's own TITLE filters would refuse were still buying paid fit
+  calls.** `prefilter_postings` runs at INGEST only, and `screen_posting` re-checks
+  location and intern but never title or age — so a row that entered before its filter
+  existed kept its place and reached the paid scorer. `run_score`'s phase-0 sweep now
+  re-applies the title filters (free, deterministic, outside `--score-limit`), merging a
+  `prefilter: title refused` verdict into the gate's screen dict so the passing evidence
+  a row already earned survives, and only after the location/intern gates so a row they
+  killed keeps its own reason. **206 of the 5,941 rows** that survive the gates,
+  measured 2026-07-31.
+  **`max_age_days` is deliberately NOT re-applied, and the pre-merge review is why.** A
+  title refusal is recoverable — widen the filter, `--rescreen-discarded`, the row comes
+  back — while an age refusal is not, because the row only gets older. 474 of the 587
+  age-refusals were *inside* the window when they were ingested; they aged out waiting in
+  the queue, so discarding them is a queue-TTL policy that would terminally delete ~5,300
+  rows over 30 days. That is an operator decision to take deliberately with a revert
+  artifact, not something a pass does six times a day. Recorded in `docs/BACKLOG.md`
+  along with a variant that WOULD be recoverable — judging age against the row's own
+  `created_at` rather than `now` — queued there rather than declined; not shipped.
+  Driven against a copy of the live DB: **`3646 free-gate discarded (unbudgeted)`**,
+  where the same copy swept 3,440 before this change — the 3,440 deterministic kills
+  plus the 206 title refusals.
+  **The first measurement of this was wrong in a way worth recording:** it reported "438
+  refused, only 3 on age". `_too_old` parses `now` and returns False on a ValueError
+  ("unparseable -> keep"), so calling `prefilter_postings` without an explicit `now` —
+  its own default — silently disables the age rule. Err-toward-keep is right in
+  production and quietly wrong in a measurement. (SPEC §7.1/§9.)
+
+
 - **`careers.qualcomm.com` is no longer lost on every pass.** It failed all six daily
   passes with `403 Client Error: Forbidden` deep in pagination, and the bounded-retry
   path only knew about 429 — so the search raised, the page loop unwound, and the

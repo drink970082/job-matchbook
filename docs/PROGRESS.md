@@ -59,6 +59,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Re-apply the operator's TITLE filters before paying to score — landed, unmerged**
+  `[branch fix/prescore-prefilter · SCORE · S]`. `prefilter_postings` runs at ingest
+  only, so a row that entered before its filter existed kept its place and bought a paid
+  fit call; the free phase-0 sweep now re-applies it. 206 of the 5,941 rows that survive
+  the deterministic gates, measured 2026-07-31. Suite 860 green.
+  **The AGE half was built, then refused on review, and the reasoning is in
+  [`BACKLOG.md`](./BACKLOG.md)** — it is a queue TTL rather than a filter, it is not
+  recoverable the way a title refusal is, and it would make `--rescreen-discarded`
+  destroy the verdicts it exists to rescue. If it is wanted, it wants the 2026-07-29
+  sweep's shape: a deliberate run with a revert artifact.
+
 - **THE PIPELINE WAS STALLED, AND THE FIX IS THAT FREE WORK NO LONGER SPENDS THE QUOTA
   BUDGET** `[branch fix/score-budget · SCORE+SCREEN · S · found and fixed 2026-07-31]`.
   **What was observed:** the 16:00 EDT pass on 07-30 fit-scored **4** rows, the 20:00
