@@ -1962,20 +1962,24 @@ def test_a_row_the_current_filters_would_refuse_is_swept_free(db_path, capsys):
     ], now=NOW)
     fit_calls = []
 
-    def stale_fn(posting):
-        return ("prefilter: refused by the current title/age filters"
+    def stale_fn(posting):        # the string run.py actually produces
+        return ("prefilter: title refused by the current filters"
                 if "Sales" in posting["job_title"] else None)
 
     pipeline.run_score(conn, now=NOW, fit_fn=lambda ps: fit_calls.append(ps) or
                        [_card() for _ in ps],
                        screen_fn=lambda p: {"disqualified": False, "screen": {},
                                             "disqualification_reason": ""},
+                       candidate={"locations": ["remote", "USA"]},
                        stale_fn=stale_fn, limit=5)
 
     assert [p["job_title"] for p in fit_calls[0]] == ["Software Engineer"]
     rows = {r["external_id"]: r for r in conn.execute("SELECT * FROM job_postings")}
     assert rows["stale"]["pipeline_status"] == "discarded"
-    assert "refused by the current title/age filters" in rows["stale"]["score_detail"]
+    assert "title refused by the current filters" in rows["stale"]["score_detail"]
+    # the verdict MERGES: the passing location evidence this row already earned survives,
+    # which is what --rescreen-discarded needs when it sends real discards back through.
+    assert '"location"' in rows["stale"]["score_detail"]
     assert "1 free-gate discarded (unbudgeted)" in capsys.readouterr().out
 
 

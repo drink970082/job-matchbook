@@ -1249,7 +1249,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   days. That is an operator decision to take deliberately, with a revert artifact — the
   way the 2026-07-29 manual sweep was run — not something a pass does silently six times
   a day. The verdict MERGES into the gate's screen dict rather than replacing it, so the
-  passing location/intern evidence a row already earned survives, which matters because
+  passing location evidence a row already earned survives (a passing intern check writes
+  no key, so there is none to keep), which matters because
   `--rescreen-discarded` requeues real discards back through this same phase. It runs
   only AFTER those gates, so a row they killed keeps their reason.
   **A trap this measurement fell into first:** `_too_old` returns False when it cannot

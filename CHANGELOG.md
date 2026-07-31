@@ -23,11 +23,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   back — while an age refusal is not, because the row only gets older. 474 of the 587
   age-refusals were *inside* the window when they were ingested; they aged out waiting in
   the queue, so discarding them is a queue-TTL policy that would terminally delete ~5,300
-  rows over 30 days, and `--rescreen-discarded` would re-kill 591 of the 919 rows it
-  requeues while overwriting their real `location:` verdicts. That is an operator
-  decision to take deliberately with a revert artifact, not something a pass does six
-  times a day. Recorded in `docs/BACKLOG.md`; not shipped. Driven against a copy of the live DB: `4215 free-gate discarded (unbudgeted)`
-  where the same copy swept 3,440 before.
+  rows over 30 days. That is an operator decision to take deliberately with a revert
+  artifact, not something a pass does six times a day. Recorded in `docs/BACKLOG.md`
+  along with a variant that WOULD be recoverable — judging age against the row's own
+  `created_at` rather than `now` — queued there rather than declined; not shipped.
+  Driven against a copy of the live DB: **`3646 free-gate discarded (unbudgeted)`**,
+  where the same copy swept 3,440 before this change — the 3,440 deterministic kills
+  plus the 206 title refusals.
   **The first measurement of this was wrong in a way worth recording:** it reported "438
   refused, only 3 on age". `_too_old` parses `now` and returns False on a ValueError
   ("unparseable -> keep"), so calling `prefilter_postings` without an explicit `now` —

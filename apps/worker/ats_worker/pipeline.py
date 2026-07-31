@@ -631,12 +631,16 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> li
             # asymmetry argument where `stale_fn` is built, in run.py.)
             reason = stale_fn(posting)
             if reason:
-                # MERGE, never replace: `gate` already carries the PASSING location and
-                # intern verdicts this row earned, and a row discarded here is the first
-                # one that would otherwise persist with no `screen` object at all. It also
-                # matters for `--rescreen-discarded`, which requeues real discards through
-                # this same phase — their evidence must survive the trip.
+                # MERGE, never replace: `gate` already carries the PASSING location
+                # verdict this row earned (a passing intern check writes no key), and a
+                # row discarded here would otherwise be the first to persist with no
+                # `screen` object at all. It also matters for `--rescreen-discarded`,
+                # which requeues real discards through this same phase — their evidence
+                # must survive the trip.
                 gate["disqualified"] = True
+                # `prior` is defensive symmetry with `deterministic_screen` rather than a
+                # reachable branch: this runs only when that helper did NOT disqualify,
+                # and it writes a reason only when it does.
                 prior = gate.get("disqualification_reason") or ""
                 gate["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
         if not gate["disqualified"]:

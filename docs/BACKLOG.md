@@ -334,6 +334,16 @@
   `max_age_days` and becomes a paid call on a posting the config refuses. The queue
   regrows this on its own, roughly a day's worth at a time; at `--score-limit 60` against
   ~38 fresh rows/pass the daemon dips ~22 rows/pass into exactly that stale region.
+  **Follow-up the review recommended and this branch did NOT take:** the web has no
+  `prefilter` discard cause (`DISQUALIFY_CAUSE_PATTERNS` in `apps/web/src/lib/actions.ts`,
+  the type above it, and `CAUSES` in `DiscoveredJobsTable.tsx`). The rows stay *visible*
+  in the Discarded bucket — that filter keys on `disqualified`, not on cause — but they
+  cannot be selected, so an operator cannot bulk-remove them. That is ~206 now, plus the
+  275 rows still carrying the operator's own 2026-07-29 sweep string once they
+  re-discard, against a 1,556-row bucket. One pattern `%prefilter:%` covers both
+  populations, since the strings differ (`prefilter: title refused by the current
+  filters` vs `prefilter: refused by the current title/age filters`). Six lines of web
+  code, left out here only because this branch carries no web change and no web tooling.
   **The TITLE half of this shipped 2026-07-31** (`fix/prescore-prefilter`; SPEC §7.1/§9 +
   CHANGELOG): `run_score`'s free phase-0 sweep re-applies `title_filter`/`title_exclude`
   to already-queued rows, 206 of the 5,941 that survive the deterministic gates.
@@ -346,10 +356,31 @@
     aged out *waiting in the queue*, so discarding them is a queue-TTL policy, not "the
     config refuses this posting". At the measured ~200-250 rows/day of drain it would
     terminally delete on the order of 5,300 rows over 30 days.
-  - it would fight the one escape hatch: `--rescreen-discarded` requeues 919 rows, and
-    591 of them are now past 30 days, so the very next phase-0 sweep re-kills them and
-    `save_score` overwrites their real `location:` / `internship` verdicts with the
-    prefilter reason. The evidence is gone and only gets less recoverable.
+  - it would fight the one escape hatch. `--rescreen-discarded` requeues 919 hydrated
+    discards, and under the age-inclusive version the next phase-0 sweep re-kills a large
+    share of them on age alone, overwriting whatever `score_detail` they carried. **Get
+    the shape of this right before re-using it as an argument:** measured 2026-07-31,
+    881 of the 919 die at the location/intern gates *before* the stale check is
+    consulted, so the population at risk is the 38 that survive them — of which the
+    shipped title-only check re-kills **4**. The evidence that would be lost is NOT the
+    `location:` verdicts (`deterministic_screen` regenerates those byte-identically every
+    pass, so nothing is lost there) but the LLM-derived `degree:` and `authorization:`
+    ones, which nothing recomputes. Smaller in count than a first pass suggested, and
+    worse in kind.
+  **One variant was NOT considered when this was refused, and it may be the right
+  answer — it is queued, not declined.** Judge age against the row's **own
+  `created_at`** rather than `now`:
+  `max_age_days=cfg.max_age_days, now=(posting.get("created_at") or "")[:10]`. That is
+  recoverable in exactly the sense the refusal demands — the verdict for a given row is
+  computed against a fixed timestamp, so it never changes with elapsed time, and widening
+  `max_age_days` plus `--rescreen-discarded` brings the row back. It cannot delete ~5,300
+  rows over 30 days because it is not a function of elapsed time at all. It refuses the
+  **112 rows that were ALREADY past `max_age_days` when they were ingested** — which is
+  precisely the population the title half exists for, rows that entered under a looser
+  knob — and after that only genuinely-stale arrivals. The refusal above treats "age" as
+  indivisible; it splits cleanly along the line its own measurement draws. A second
+  unconsidered option: demote stale rows (the `deprioritized_at` column) instead of
+  discarding them, which is non-destructive by construction.
   If the operator does want a queue TTL, it wants the shape the 2026-07-29 sweep had — a
   deliberate run with a saved id list and a pre-run DB copy, revertible row for row — not
   a silent six-times-a-day deletion.
