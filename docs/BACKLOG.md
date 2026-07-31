@@ -444,10 +444,18 @@
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
   decision below: it is nineteen, not three.
-  **3. The current filters would refuse 438 of the 9,400 queued rows (5%)** — 435 on
-  TITLE, only 3 on age. So the "rows age out while queued" leak is currently ~0 and the
-  real leak is rows ingested before `title_filter` covered them. A pre-screen re-apply of
-  `prefilter_postings` would collect all 438 for free.
+  **3. The current filters would refuse 775 of the queued rows that survive the free
+  gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both. At the measured ~0.8
+  paid messages/row that is ~620 messages, over 30% of a weekly window, spent on postings
+  the operator's own config refuses today. A pre-screen re-apply of `prefilter_postings`
+  collects all 775 for free.
+  **A first pass at this measurement said "438, of which only 3 on age", and it was an
+  artifact — the lesson is worth more than the number.** `_too_old(posted_at, now,
+  max_age_days)` parses `now` with `date.fromisoformat(str(now)[:10])` and returns
+  **False on ValueError** ("unparseable -> keep"), so calling `prefilter_postings`
+  without an explicit `now` — its own default — silently disables the age rule entirely
+  and reports only title refusals. The err-toward-keep default is right for production
+  and quietly wrong for measurement. Any offline use of this helper must pass `now`.
   **Yield, for scale:** 18 rows notified in the system's entire history, of which exactly
   one came from a watchlist board that is not also on the feed. Per-board *notify* yield
   is not measurable yet — 9,400 rows have never been scored — so any board-drop decision
