@@ -368,10 +368,27 @@
   for the rest — that is a documented no-op. 50 post-split rows is an order of magnitude
   more than that reading predicts, so either the drop rate has changed or the entry below
   under-counts it. Nobody has looked.
-  **The diagnosis is free** (read-only): count `empty_description` rows per host per pass
-  against that host's successful ingests in the same pass, exactly as the workday
-  collapse was settled. Microsoft is a *yielding* board, so unlike msci/citadel this is
-  not a deletion candidate — a real fix would be worth actual postings.
+  **MEASURED 2026-07-31, and the premise of this entry is WRONG: nothing is being lost.**
+  Twelve of those rows were re-requested against the live detail endpoint — **eleven
+  returned a full 5,029-8,376 char `jobDescription`** and one returned `404 Position not
+  found`. Then the decisive check: **all twelve are ALREADY in `job_postings`,
+  `pipeline_status='new'`, with full descriptions** (ingested 07-22 or 07-29). So an
+  `empty_description` row on this host is a *log of one failed detail call on a
+  re-fetch*, not a lost posting: `upsert_postings` is `ON CONFLICT DO NOTHING`, so a
+  later bodyless re-fetch cannot overwrite the good stored row, and `run_fetch` drops the
+  bodyless duplicate and files it here. Same class as the workday
+  prune-never-matches finding above — a recurring log line, not a defect. What it does
+  cost is one wasted detail GET per already-stored position per pass.
+  **A detail-leg retry was built for this on 2026-07-31 and REVERTED, so it is not
+  re-proposed.** It rescued nothing (the postings were never lost), and the pre-merge
+  review priced it: the retry is a *per-position* budget for a *board-wide* failure —
+  exactly the smell PRINCIPLES names — so a board whose detail endpoint throttles or
+  permanently 403s costs 14s (up to 90s) and 4 requests per position with no circuit
+  breaker: **3h53m to 25h for a 1,000-position board**, against a serial `run_fetch`
+  with no deadline and a `pass_lock` that REFUSES rather than queues, so an overrun would
+  suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
+  breaker first (stop hydrating this board after K consecutive throttled details), and
+  404 must stay terminal.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix
@@ -480,8 +497,15 @@
   &start=1060` (also seen at `start=990`, `start=1220`). A **403 deep into pagination**,
   at a varying offset, reads as a block rather than a rate limit, and the bounded-retry
   path only handles 429. So qualcomm is lost on every pass and the salvage never runs.
-  Whether the right answer is treating 403-mid-pagination as retryable, or dropping the
-  board, needs one look at what the endpoint actually returns — not yet done.
+  **FIXED 2026-07-31** (`fix/phenom-403`; SPEC §7.1/§9 + CHANGELOG). The look happened:
+  the failing offsets return **200** when probed cold from a fresh session, so the 403 is
+  not about the offset or a missing page — it is a WAF tripping on the pass's cumulative
+  request volume, i.e. a throttle with a different status code. It now takes the same
+  bounded-retry-then-salvage path as a 429; a 403 on the FIRST page still raises, since
+  there is nothing to salvage and a board refusing from the start is a block. What is NOT
+  measured is whether the retry actually succeeds against a live WAF trip — reproducing
+  one needs ~1,000 requests at a third party, which was not run. The next live pass is
+  the measurement.
 - **Recipe validation happens a full pass late** — `[FETCH · S]`. `config.py` checks only
   that a `custom`/`browser` row *carries* a recipe mapping, and `get_watchlist` skips
   one whose JSON is malformed. Everything else — a bad `mode`, an `item_path` that

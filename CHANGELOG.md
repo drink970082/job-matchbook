@@ -9,6 +9,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`careers.qualcomm.com` is no longer lost on every pass.** It failed all six daily
+  passes with `403 Client Error: Forbidden` deep in pagination, and the bounded-retry
+  path only knew about 429 — so the search raised, the page loop unwound, and the
+  salvage that exists for exactly this never ran. Probed cold on 2026-07-31, the failing
+  offsets (`start=990`/`1060`/`1220`, which vary pass to pass) all return **200** from a
+  fresh session, so it is not the offset and not a missing page: it is a WAF tripping on
+  the pass's cumulative request volume — a throttle wearing a different status code. 403
+  now takes the throttle path (bounded retry, then salvage the pages already walked). A
+  403 on the FIRST page still raises: nothing to salvage, and a board that refuses from
+  the start is a block, not a throttle. **The salvage now says so out loud** — it was
+  silent, so a truncated board (990 of the 1,896 positions qualcomm reports) was
+  indistinguishable from a complete one in the logs, which would have turned a loud
+  failure every pass into a quiet one. (SPEC §7.1/§9.)
 - **The scoring pass had stalled: free work was spending the paid budget.** The
   2026-07-30 recovery requeued 4,644 hydrated discards, `requeue_discarded` stamps
   `updated_at`, and the `new` queue orders on `COALESCE(updated_at,'') DESC` — so those

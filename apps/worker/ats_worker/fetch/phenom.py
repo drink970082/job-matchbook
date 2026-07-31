@@ -32,13 +32,24 @@ SOURCE = "phenom"
 # or up to 3 x 30s if the board asks for more via Retry-After. Bounded on purpose -
 # a board that keeps throttling must terminate, not stall the serial loop.
 RATE_LIMIT_STATUS = 429
+# 403 joins it, measured 2026-07-31. `careers.qualcomm.com` fails EVERY live pass with a
+# 403 deep in pagination at a VARYING offset (start=990 / 1060 / 1220), so the board is
+# lost six times a day and the salvage this block exists for never runs. Probed cold
+# from one fresh session, those exact offsets return **200** — the offset is not the
+# trigger and the answer is not "this page does not exist"; it is a WAF tripping on the
+# pass's cumulative request volume (the board reports count=1896, so ~190 search pages
+# plus a detail call per hydrated position). That is a throttle wearing a different
+# status code, so it takes the throttle path. A 403 on the FIRST page still raises:
+# nothing to salvage, and a board that refuses from the start is a block, not a
+# throttle.
+THROTTLE_STATUSES = (RATE_LIMIT_STATUS, 403)
 RETRY_ATTEMPTS = 3
 RETRY_BASE_WAIT = 2.0
 RETRY_MAX_WAIT = 30.0
 
 
 def _retry_wait(resp, fallback: float) -> float:
-    """Seconds to wait before retrying a 429: the `Retry-After` header when it is a
+    """Seconds to wait before retrying a throttle: the `Retry-After` header when it is a
     usable delta-seconds value, else `fallback`. An HTTP-date, a missing/garbage
     value or a non-positive one falls back; everything is capped at RETRY_MAX_WAIT
     so no board can stall the serial fetch loop with 'Retry-After: 3600'."""
@@ -121,16 +132,17 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
     wait_fn = sleep or time.sleep
 
     def _search(http, start):
-        """One search page, retrying a 429 up to RETRY_ATTEMPTS times. Returns the
-        LAST response either way - still a 429 once the retries are spent, which
-        the caller decides what to do with. Any other status is returned untouched
-        on the first try (a 500 is not a throttle; it must not spend the budget)."""
+        """One search page, retrying a throttle (429 or 403) up to RETRY_ATTEMPTS
+        times. Returns the LAST response either way - still throttled once the retries
+        are spent, which the caller decides what to do with. Any other status is
+        returned untouched on the first try (a 500 is not a throttle; it must not
+        spend the budget)."""
         wait = RETRY_BASE_WAIT
         resp = None
         for attempt in range(RETRY_ATTEMPTS + 1):
             resp = http.get(search_url, params={"domain": domain, "start": start},
                             timeout=timeout)
-            if getattr(resp, "status_code", None) != RATE_LIMIT_STATUS:
+            if getattr(resp, "status_code", None) not in THROTTLE_STATUSES:
                 return resp
             if attempt == RETRY_ATTEMPTS:
                 break
@@ -140,10 +152,19 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
 
     def _page(http, start):
         resp = _search(http, start)
-        if getattr(resp, "status_code", None) == RATE_LIMIT_STATUS and start > 0:
+        if getattr(resp, "status_code", None) in THROTTLE_STATUSES and start > 0:
             # Still throttled after the bounded retries, but earlier pages are
             # already collected: report an empty page so paged_details ends the
             # board with what it has, instead of raising and losing all of it.
+            # SAY SO. A salvaged board is otherwise indistinguishable from a complete
+            # one — `paged_details` just stops and `run_fetch` only logs on an
+            # exception, so qualcomm would go from a loud failure every pass to a
+            # SILENT truncation every pass (990 of 1,896 reading as the whole board).
+            # PRINCIPLES: fail loud into something visible.
+            print(f"[fetch] {SOURCE}/{slug}: throttled at start={start} "
+                  f"(HTTP {getattr(resp, 'status_code', '?')}) after "
+                  f"{RETRY_ATTEMPTS} retries — keeping the pages already walked; "
+                  "this board is TRUNCATED for this pass")
             return [], None
         # start == 0 falls through: nothing to salvage, so fail loudly (the
         # pipeline's per-company try/except isolates it) rather than report a
