@@ -583,6 +583,30 @@ class _BackendBreaker:
         return self.successes == 0 and self.failures >= self.limit
 
 
+def _sweep_free_gates(conn, rows, *, candidate, now, tally) -> list:
+    """Discard every row the CODE-only gates already kill, and return the rest.
+
+    Free by construction: `deterministic_screen` is intern-title + location-string, no
+    model and no provider. It is the same verdict `screen_posting` would reach, so a row
+    swept here would have been discarded anyway — the difference is that it costs no
+    model call and, crucially, no slot in the pass's `limit` budget.
+    """
+    survivors = []
+    for row in rows:
+        posting = dict(row)
+        gate = score.deterministic_screen(
+            {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+            posting, candidate)
+        if not gate["disqualified"]:
+            survivors.append(row)
+            continue
+        db.save_score(conn, row["id"], score=0,
+                      score_detail=_score_detail(gate, disqualified=True),
+                      now=now, status="discarded")
+        tally["free"] += 1
+    return survivors
+
+
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, max_id: int = 0, screen_workers: int = 1,
               score_workers: int = 4, candidate=None, scorer_meta=None) -> None:
@@ -590,10 +614,15 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
 
-    `limit` > 0 caps how many 'new' rows this pass touches (operator quota control):
-    only the paid fit scorer costs quota, so a bounded first pass over a huge fresh
-    intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
+    `limit` > 0 caps how many 'new' rows this pass may SPEND on (operator quota
+    control): only the paid fit scorer costs quota, so a bounded first pass over a huge
+    fresh intake avoids firing the whole backlog blind. 0 = no cap. The remainder stays
     'new' for the next pass.
+
+    It does NOT cap the free deterministic gates (phase 0 below), which run over the
+    whole queue: charging a quota budget for work that spends no quota is what let a
+    pile of requeued location discards own the head of the queue and starve the paid
+    stage entirely (2026-07-31).
 
     `max_id` > 0 restricts the pass to rows with `id <= max_id` — the SELECTOR to
     `limit`'s BUDGET, applied BEFORE it. The queue is newest-first, so `limit` can only
@@ -637,15 +666,28 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # predicate into db.get_by_status would buy nothing but a wider signature.
     if max_id > 0:
         rows = [row for row in rows if row["id"] <= max_id]
-    if limit > 0:
-        rows = rows[:limit]
-    postings = [dict(row) for row in rows]
 
     # ponytail: a plain dict, not a dataclass — it exists only to build the one summary
     # line below. A pass that did work used to print NOTHING on success, so a working
     # run and a no-op run were indistinguishable at the terminal (cost real debugging
     # time 2026-07-26); the breakers below already speak up, so silence read as "fine".
-    tally = {"discarded": 0, "confirming": 0, "thin": 0, "fit": 0, "failed": 0}
+    tally = {"free": 0, "discarded": 0, "confirming": 0, "thin": 0, "fit": 0, "failed": 0}
+
+    # Phase 0 — the FREE deterministic gates, over the WHOLE queue and deliberately
+    # OUTSIDE `limit`. `limit` is a QUOTA budget and these gates spend no quota: no
+    # model call, no paid call, 0.26 ms/row measured over 9,390 live rows. Letting one
+    # consume a budget slot is what stalled the pipeline on 2026-07-31 —
+    # `requeue_discarded` had moved 4,644 rows back to `new`, they sort AHEAD of fresh
+    # intake (it stamps `updated_at`, which the queue orders on first), and at
+    # `--score-limit 40` the daemon spent six passes a day re-killing location discards
+    # for free while fit-scoring nothing, with ~16 days to go before it reached a
+    # posting found today. Sweeping them here costs ~2.4s and clears the head of the
+    # queue in one pass.
+    rows = _sweep_free_gates(conn, rows, candidate=candidate, now=now, tally=tally)
+
+    if limit > 0:
+        rows = rows[:limit]
+    postings = [dict(row) for row in rows]
 
     # Screen calls are I/O-bound (an HTTP round trip, or a subprocess spawn on the CLI
     # backends), so they run CONCURRENTLY while every DB call stays on this thread —
@@ -845,7 +887,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # that moved a free outcome to a paid one, and the bucket it left (`screen-discarded`)
     # is what an operator would otherwise be watching. It is NOT in `done` for the same
     # reason: every row already increments exactly one of the four terms there.
-    print(f"[score] {len(rows)} row(s): {tally['discarded']} screen-discarded, "
+    print(f"[score] {tally['free']} free-gate discarded (unbudgeted), then "
+          f"{len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
           f"{tally['confirming']} sent for confirmation, "
           f"{tally['failed']} failed, {unreached} unreached, "

@@ -134,6 +134,9 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
       3. A deterministic pycountry LOCATION gate (`resolve_location`), gated by
          `candidate["locations"]`, matched against the board's location string.
 
+    2 and 3 run BEFORE 1 and short-circuit it: they are free and their verdict is
+    terminal, so a row they disqualify never reaches the model.
+
     `extract(prompt, schema) -> dict` is the ENTIRE backend contract — the one step
     that differs between ollama / codex / claude / openai / none. Build it with
     `make_ollama_extract` or `score.backends_screen.make_extract`; run.py wires it.
@@ -141,6 +144,21 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     Returns `{"screen": {...}, "disqualified": bool, "disqualification_reason": str}`.
     Takes no fit-scorer callable — it structurally cannot pay for the fit call.
     """
+    # The two CODE-only gates run FIRST, and a disqualification here returns before the
+    # model call. They cost 0.26 ms, need no provider, and their verdict already stands
+    # whatever the model says (see below), so calling the model first only bought a
+    # ~1.5s GPU round trip for a row that was already dead — 37% of the `new` queue on
+    # 2026-07-31. What is given up is the model's degree/authorization/clearance detail
+    # on a row nobody will look at, which is the same trade `run_fetch`'s pre-filter
+    # already makes by dropping bodyless rows before any call.
+    gated = deterministic_screen(
+        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+        posting, candidate)
+    if gated["disqualified"]:
+        # No `demote_for_confirmation` here on purpose: `_CONFIRMABLE_CHECKS` is
+        # degree/clearance, and neither gate above can produce one of those.
+        return gated
+
     job = _job_block(posting, num_ctx * 2)
     description = str(posting.get("description") or "")
     # CODE retrieves the sponsorship evidence before the call and hands it to the model

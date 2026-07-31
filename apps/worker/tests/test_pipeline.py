@@ -345,7 +345,7 @@ def test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice(db_
                        fit_fn=lambda ps: [{"score": 90, "assessment": _assessment()}
                                           for _ in ps])
     out = capsys.readouterr().out
-    assert "[score] 2 row(s):" in out       # the cap is what the pass touched
+    assert "then 2 row(s):" in out           # the cap is what the pass PAID for
     assert "0 unreached" in out             # nothing in the slice was skipped
     assert "3 left 'new'" in out            # and the rest of the queue is visible
 
@@ -634,6 +634,41 @@ def test_run_score_thin_jd_skips_paid_fit(db_path):
     assert db.get_notifiable(conn) == []
 
 
+def test_the_free_gates_do_not_consume_the_score_limit(db_path, capsys):
+    # `--score-limit` is a QUOTA budget, and a location/intern discard spends no quota:
+    # no model call, no paid call. Charging it a budget slot stalled the live pipeline
+    # on 2026-07-31 — `requeue_discarded` had put 3,800 location discards back in `new`,
+    # where they sort AHEAD of fresh intake, so every pass spent its whole cap
+    # re-killing them for free, fit-scored nothing, and had ~16 days to go before it
+    # would reach a posting discovered that day.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [
+        _posting("dead1", job_title="dead1", location="Bengaluru, India"),
+        _posting("dead2", job_title="dead2", location="Shanghai, China"),
+        _posting("live", job_title="live", location="Remote"),
+    ], now=NOW)
+    screened, fit_calls = [], []
+
+    def screen_fn(posting):
+        screened.append(posting["job_title"])
+        return {"disqualified": False, "screen": {}, "disqualification_reason": ""}
+
+    def fit_fn(postings):
+        fit_calls.append([p["job_title"] for p in postings])
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, limit=1,
+                       candidate={"locations": ["remote", "USA"]})
+
+    # The two dead rows never reached the screen, and the ONE budget slot bought the
+    # live row instead of being eaten by a free discard.
+    assert screened == ["live"]
+    assert fit_calls == [["live"]]
+    assert {r["external_id"] for r in db.get_by_status(conn, "discarded")} == {"dead1", "dead2"}
+    assert [r["external_id"] for r in db.get_by_status(conn, "scored")] == ["live"]
+    assert "2 free-gate discarded (unbudgeted)" in capsys.readouterr().out
+
+
 def test_run_score_always_prints_a_summary(db_path, capsys):
     # run_score used to print NOTHING on success, so a pass that did work and a pass
     # with nothing to do were indistinguishable at the terminal — a working run read as
@@ -659,7 +694,7 @@ def test_run_score_always_prints_a_summary(db_path, capsys):
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn)
 
     out = capsys.readouterr().out
-    assert "[score] 3 row(s):" in out
+    assert "then 3 row(s):" in out
     assert "1 screen-discarded" in out
     assert "1 thin-JD (no fit call)" in out
     assert "1 fit-scored" in out
@@ -683,7 +718,7 @@ def test_run_score_summary_counts_rows_a_breaker_never_reached(tmp_path, capsys)
     pipeline.run_score(conn, now=NOW, screen_fn=screen_fn, fit_fn=fit_fn, batch_size=1)
 
     out = capsys.readouterr().out
-    assert "[score] 6 row(s):" in out
+    assert "then 6 row(s):" in out
     unreached = int(out.split("failed, ")[1].split(" unreached")[0])
     failed = int(out.split("confirmation, ")[1].split(" failed")[0])
     assert failed + unreached == 6  # every row accounted for, none double-counted

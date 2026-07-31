@@ -7,6 +7,37 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The scoring pass had stalled: free work was spending the paid budget.** The
+  2026-07-30 recovery requeued 4,644 hydrated discards, `requeue_discarded` stamps
+  `updated_at`, and the `new` queue orders on `COALESCE(updated_at,'') DESC` — so those
+  rows sort ahead of fresh intake, whose `updated_at` is NULL. `--score-limit` bounded
+  rows *touched*, not quota *spent*, so the daemon burned all 40 slots per pass
+  re-killing location discards for free: **4 rows fit-scored at 16:00 EDT on 07-30, then
+  0, then 0**, with ~16 days of that to go before it would have reached a posting
+  discovered that day. Two changes, the first load-bearing: `run_score` opens with a
+  **phase-0 sweep** (`_sweep_free_gates`) running `deterministic_screen` over the whole
+  queue **outside `--score-limit`** — 0.26 ms/row over 9,390 live rows, no model, no
+  quota — and applies the budget only to what survives; and `screen_posting` runs the
+  code-side gates **before** the model call, returning on a disqualification, so a doomed
+  row no longer buys a ~1.5s GPU round trip (**37% of the live `new` queue dies on those
+  gates**). Verdicts are unchanged — those gates were already terminal whatever the model
+  said. What is given up is model detail on a row being discarded anyway, plus two
+  consequences named in SPEC §7.1: a deterministically-killed row no longer carries
+  `provider_error`, and a reason string no longer joins a model reason to a deterministic
+  one. Driven end to end on a copy of the live DB: `3480 free-gate discarded
+  (unbudgeted), then 2 row(s): ... 2 fit-scored`. `make eval-screen` reproduces its
+  documented RED baseline exactly (ids 67/68/672/738, recall 31/37, 0 flips).
+  (SPEC §7.1/§9.)
+- **`capture_usage` was never broken.** The 2026-07-30 defect — the quota snapshot
+  silently not being written — root-caused on 07-31 to the documented `if _scorer_cell:`
+  guard: the passes after 12:41 fit-scored nothing, so no scorer was built and the call
+  correctly never ran. The fetch returns `True` from both an interactive shell and a
+  replica of the daemon's environment, and `~/.codex/auth.json` has not been rewritten
+  since 07-26, so the concurrent-`codex exec` suspicion is dead. No code change; the
+  entry is closed in `docs/PROGRESS.md`.
+
 ### Added
 
 - **The Telegram alert carries the fit summary.** The routing turns on the verdicts, so
