@@ -1196,7 +1196,9 @@ years path was vetoed. (b) A stated years figure the candidate CLEARS beats a ra
 outright: "Senior Engineer ... 0-2 years" says it will take this candidate, and the
 number is the grounded signal. Together they cost recall (0.829 -> 0.757) and demote
 share (0.484 -> 0.442) and bought precision 0.963 -> 0.964 with one fewer false demotion.
-That trade is the right direction here: both changes can only ever REMOVE a demotion.
+That trade was the right direction for THOSE two changes, which can only ever REMOVE a
+demotion. It does NOT generalise to the three rules added 2026-07-31 below: two of them
+can create demotions, and they carry 9.3's demote-direction bar instead.
 Neither fixes mis-ATTRIBUTION — "you will work with senior engineers" does contain the
 word — only invention.
 **The original veto:** the model's number is clamped down to
@@ -1206,18 +1208,68 @@ degree-conditional ladder ("Master's and no experience; or Bachelor's and 3 year
 model reports one rung instead of the minimum across rungs. Measured 2026-07-30: false
 demotions 20 -> 7.
 
+**Three more code-side rules landed 2026-07-31**, after the 61 misses were classified by
+cause rather than counted. 70% of them were CODE throwing away evidence the model had
+returned correctly, not the model failing:
+
+- **A capped or age figure is not a bar.** 4.2 says so in prose - a cap ("up to N", "no
+  more than N") is entry/early-career and NOT a bar - but `stated_years` collected any
+  number sitting before a years token, so *"Less than 2 years Technical engineering
+  experience"* read as a 2-year FLOOR and demoted a T-Mobile `Assoc Engineer` posting
+  written for exactly this candidate. The same JD's *"At least 18 years of age"* was being
+  collected as eighteen years of experience - which alone changed nothing, because
+  `clamp_years` minimises and `min(2, 18) = 2`. The age rule only bites once the cap rule
+  has removed the 2, and the two together are what keep that row.
+  **Two traps in this one, both live:** a *negated* cap phrase is a minimum - "no less
+  than 5 years" contains the word "less" and must keep its figure - and the rule is **not
+  purely keep-direction**, because `clamp_years` minimises over the stated set. Removing a
+  low capped figure RAISES the clamped bar: *"internships up to 1 year considered ... 5
+  years required"* clamps to 5 rather than 1 and demotes where it did not before. That is
+  the right reading of the JD, and it is still a demotion the rule created, so it carries
+  9.3's demote-direction bar rather than the keep-direction one.
+- **A years bar the JD states NOWHERE is dropped.** `clamp_years` passed the model's
+  number through untouched when the text stated no figure at all, so an invented bar with
+  zero textual evidence survived - while the rank path had refused precisely that since
+  the vetoes landed. This is the years path's missing half of `rank_stated_in`.
+- **The rank-cancelling veto must compare MAGNITUDE, not existence.** `clamp_years`
+  returns `None` **iff** its input is `None`, so `if years is not None` *after* the clamp
+  was equivalent to testing the raw value: the clamp lowered a real bar below the margin,
+  and the lowered value then cancelled a rank the JD does state. On a Microsoft *"Senior
+  Fabric Design Verification Engineer"* the model read 5 years, a stray *"1 year of
+  experience with ..."* in the preferred qualifications clamped it to 1, and the row was
+  kept as though open to a new grad. A keep-direction correction applied twice - once to
+  lower the bar, again to void the rank. **34 of the 61 misses share this mechanism, and
+  the fix recovers the 9 where the model also reported a rank the JD states** - the other
+  25 carry no rank, so the branch it now reaches has nothing to fire on.
+
 **Measured, 446 rows, `qwen3.5:4b`, zero quota** (`make eval-seniority`): precision
-**0.964**, recall 0.757, 44% of rows demoted, 0 provider errors. But the number that
-decides this layer is not the P/R - it is WHICH rows the false demotions are: **0 of them
-are `domain=match` and 0 were ever notified.** The whole notify payoff set survives
-undemoted, so a false demotion costs a delay on a row the notify gate was going to drop
-anyway. That, not the precision, is the gate.
+**0.975**, recall **0.793**, **46%** of rows demoted, 0 provider errors - up from
+0.964 / 0.757 / 44% before those three rules, i.e. better on every gate axis at once. But
+the number that decides this layer is not the P/R - it is WHICH rows the false demotions
+are: **0 of them are `domain=match` and 0 were ever notified.** The whole notify payoff
+set survives undemoted, so a false demotion costs a delay on a row the notify gate was
+going to drop anyway. That, not the precision, is the gate.
+
+**A held-out slice exists now, and it is small.** The 32 rows scored since the golden
+corpus was frozen are the only data no threshold here was fitted on. The three rules above
+behave **identically to the pre-change code** on it - 0 false demotions either way.
+
+**Be honest about what that is worth: it is close to nothing.** Identical behaviour means
+none of the three rules FIRED on those 32 rows, so the slice did not exercise the change;
+it only shows the change did not misfire on unseen text. The label mix is 29 `match` / 3
+`too_junior`, so it also has no power to confirm a recall gain. Where the slice DID earn
+its keep is the candidate that was rejected: the title floor fired there, once, and got it
+wrong - which is the only out-of-sample signal any candidate produced in either direction. Build it by reading the
+DB into a **separate** file. Do **not** use `--build-corpus`: it overwrites
+`seniority_golden.jsonl` in place, selects all 478 labelled rows rather than the new ones,
+and the file is gitignored, so one run destroys the frozen baseline unrecoverably.
 
 **What a green eval does NOT prove, and this belongs next to the numbers.** The gate is
 **in-sample** — `YEARS_MARGIN`, `SENIOR_YEARS`, both vetoes and the thresholds were all
 fitted on this same 446-row corpus, with no held-out split. The decisive
 `domain=match` gate has **little statistical power**: only ~34 rows carry that label, so
-7 randomly-placed false demotions would miss all of them about half the time. And the
+5 randomly-placed false demotions (7 before the 2026-07-31 rules) would miss all of them
+about half the time. And the
 corpus is **not the production population** — it is rows that already survived the screen
 and bought a paid fit call, so every one has a real description, while production runs
 this layer on every `new` row including thin JDs where a bare "Senior ..." title is
@@ -1260,13 +1312,41 @@ seniority, and `SDE2` is not one of the four ranks. Concrete corroboration that 
 the strong scorer's labels, not truth, which is the whole reason this layer may only
 re-order.
 
-*Free money left on the table:* 6 of the 19 misses are the model returning an empty object
+*Free money left on the table (measured on the 19-miss run that preceded the 2026-07-31
+rules; the miss count is 52 now):* 6 of those 19 misses are the model returning an empty object
 on postings whose TITLE reads "Senior ..." / "Sr ...". A title-token floor would collect
 them — see the paragraph below for why it is not built.
 
-**Not built, deliberately:** a title-token floor for the "Senior ..." titles the model
-returns an empty object on (6 of 19 misses). That is a DISCARD-direction floor, so 9.3
-applies and it needs its own measurement first.
+**Not built, deliberately - and now MEASURED, which is why it is still not built.** A
+title-token floor for the "Senior ..." titles the model returns an empty object on. 9.3
+asked for its own measurement before building it; the measurement ran 2026-07-31 and came
+back **ambiguous**, so it stays out and the decision is the operator's:
+
+| | in-sample (446) | held-out (32) |
+|---|---|---|
+| the three rules above | P 0.975, R 0.793 | 0 false demotions |
+| + title floor | P 0.970, **R 0.900** | **1 false demotion, 0 recovered** |
+
+In-sample it is the single largest recall win available - +27 correct demotions, 35 of the
+61 misses carry a rank word in their title. Out-of-sample it produced the **only** false
+demotion any candidate produced across every combination tried (Onto Innovation, `Senior
+Software Engineer`, `domain=mismatch`, model returned nothing and the title floor fired
+alone). Both corpora still pass the gate, and 32 rows with 3 positives cannot settle it -
+which is the point: a floor that fires on a title *without* a model verdict behind it is
+exactly the unevidenced-demotion shape the vetoes exist to prevent, and the one dataset
+that could contradict it does.
+
+One narrowing is already measured and worth carrying if it is ever built: a title naming
+**both** levels ("Jr/Sr Engineer") states no single bar, and guarding on a junior token
+removed a false demotion at zero recall cost (Micron `Jr/Sr Engineer, STPG PE System`).
+
+Two candidates were measured and **rejected outright**. Widening `rank_stated_in` to
+accept any of the four ranks anywhere in the text deletes veto (a) - "lead" is a common
+verb, so an invented `principal` would be validated by prose stating no rank - and,
+narrowed to the observed `senior`->`staff`/`lead` normalisation, it turned out to be
+**provably redundant**: identical confusion matrix with and without it, because the title
+floor already covers those rows. It buys nothing and re-opens the false-discard direction
+9.3's first bullet warns about, so it is not carried.
 
 ### 5.6 Concurrency shape
 

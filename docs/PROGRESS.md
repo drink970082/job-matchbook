@@ -66,6 +66,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
   rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
   runs in 15.9s instead of 20s.
+- **Seniority veto defects — branch `fix/seniority-veto-evidence`, landed, awaiting
+  merge** `[SCORE · S · PR #62]`. 70% of the layer's 61 misses were code discarding a
+  correct extraction: a cap read as a floor, an unevidenced bar trusted, and a clamped bar
+  cancelling a rank the JD states. Fixing all three moved every gate axis at once —
+  precision 0.964 -> **0.975**, recall 0.757 -> **0.793**, demote share 0.442 -> **0.457**,
+  still 0 false demotions on `domain=match` or notified. Two candidates were measured and
+  deliberately **not** shipped: the title-token floor (biggest in-sample win, owns the only
+  held-out false demotion — the operator's call, numbers in `BACKLOG.md`) and a vocabulary
+  widening (provably redundant). Behavior SPEC §7.1 + §9, contract SCORING §5.7.
 
 - **The seniority pre-ordering is built and gated, but NOTHING has measured it live**
   `[SCORE · M · shipped 2026-07-31, unmeasured in production]`. The layer, its eval gate
