@@ -88,6 +88,12 @@ class Candidate:
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
     # this, but the title is a clean signal. See score._is_internship.
     exclude_internships: bool = False
+    # Years of professional experience, read ONLY by the free seniority pre-ordering
+    # (score/seniority.py) to turn a bar the JD states into a verdict about THIS
+    # candidate. It is not a screen check and can never discard a posting: a bar this
+    # candidate does not clear sends the row to the back of the score queue.
+    # 0 = new grad / entry level, which is what the 2026-07-30 measurement calibrated on.
+    years_experience: int = 0
 
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
@@ -221,8 +227,9 @@ def _int_field(data: dict, key: str, default: int) -> int:
 
 def _reject_unknown_keys(data: dict, cls, where: str) -> None:
     """Fail loud on an unrecognised key so a stale or typo'd field can't silently
-    no-op — e.g. the removed top-level `threshold` or candidate `years_experience`,
-    which used to be read and now aren't. Allowed keys are the dataclass fields, so
+    no-op — e.g. the removed top-level `threshold`, which used to be read and now
+    isn't. (Candidate `years_experience` was such a key and came BACK on 2026-07-31:
+    the free seniority pre-ordering reads it.) Allowed keys are the dataclass fields, so
     this can't drift from the schema. Mirrors the `filters` migration guard above."""
     allowed = {f.name for f in fields(cls)}
     unknown = sorted(k for k in data if k not in allowed)
@@ -320,4 +327,5 @@ def _parse_candidate(raw) -> Candidate:
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
         exclude_internships=bool(raw.get("exclude_internships")),
+        years_experience=_int_field(raw, "years_experience", 0),
     )

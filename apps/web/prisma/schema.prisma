@@ -49,6 +49,7 @@ model job_postings {
   created_at      String
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
+  deprioritized_at String? // set by the FREE seniority pre-ordering (score/seniority.py) when the JD states a bar this candidate does not clear: the row stays 'new' and searchable but sorts to the BACK of the score queue. NOT a discard -- the labels behind it are the strong scorer's verdicts, not human ones. Clearing the column un-demotes, row for row.
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])
