@@ -368,16 +368,27 @@
   for the rest — that is a documented no-op. 50 post-split rows is an order of magnitude
   more than that reading predicts, so either the drop rate has changed or the entry below
   under-counts it. Nobody has looked.
-  **DIAGNOSED AND FIXED 2026-07-31** (`fix/phenom-403`; SPEC §7.1/§9 + CHANGELOG), and
-  the premise of this entry was wrong: **those postings are not bodyless.** Six were
-  re-requested by hand against the live detail endpoint — five returned a full
-  5,029-8,376 char `jobDescription` and the sixth returned a **429**. The cause is that
-  `_row`'s detail GET had no retry and swallowed every exception, so a throttled call
-  yielded `description=""`, `_valid_posting` dropped the row as bodyless, and it was
-  filed here and re-dropped on the next pass, forever. The detail leg now retries a
-  throttle on the same bounded budget as the search leg. The rows lost so far are not
-  recovered by this — they were never stored, so they simply re-fetch on a later pass.
-  What is NOT measured is the post-fix rate; the next live pass measures it.
+  **MEASURED 2026-07-31, and the premise of this entry is WRONG: nothing is being lost.**
+  Twelve of those rows were re-requested against the live detail endpoint — **eleven
+  returned a full 5,029-8,376 char `jobDescription`** and one returned `404 Position not
+  found`. Then the decisive check: **all twelve are ALREADY in `job_postings`,
+  `pipeline_status='new'`, with full descriptions** (ingested 07-22 or 07-29). So an
+  `empty_description` row on this host is a *log of one failed detail call on a
+  re-fetch*, not a lost posting: `upsert_postings` is `ON CONFLICT DO NOTHING`, so a
+  later bodyless re-fetch cannot overwrite the good stored row, and `run_fetch` drops the
+  bodyless duplicate and files it here. Same class as the workday
+  prune-never-matches finding above — a recurring log line, not a defect. What it does
+  cost is one wasted detail GET per already-stored position per pass.
+  **A detail-leg retry was built for this on 2026-07-31 and REVERTED, so it is not
+  re-proposed.** It rescued nothing (the postings were never lost), and the pre-merge
+  review priced it: the retry is a *per-position* budget for a *board-wide* failure —
+  exactly the smell PRINCIPLES names — so a board whose detail endpoint throttles or
+  permanently 403s costs 14s (up to 90s) and 4 requests per position with no circuit
+  breaker: **3h53m to 25h for a 1,000-position board**, against a serial `run_fetch`
+  with no deadline and a `pass_lock` that REFUSES rather than queues, so an overrun would
+  suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
+  breaker first (stop hydrating this board after K consecutive throttled details), and
+  404 must stay terminal.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix

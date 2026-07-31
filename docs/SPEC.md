@@ -524,13 +524,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   exact offsets return **200** when probed cold from a fresh session — so it is a WAF
   tripping on the pass's cumulative request volume, not a missing page. A 403 on the
   FIRST page still raises (nothing to salvage; a board refusing from the start is a
-  block, not a throttle). **The DETAIL leg retries on the same budget, from 2026-07-31**
-  — it had none, and it is the leg that loses postings: a throttled detail GET returns an
-  empty description, `_valid_posting` drops the row as bodyless, and it is filed under
-  `empty_description` and re-dropped every pass. `apply.careers.microsoft.com` was the
-  largest such source (77 rows); re-requesting six by hand returned a full 5,029-8,376
-  char description for five and a 429 for the sixth, so they were never bodyless. Its
-  search GET retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
+  block, not a throttle). The salvage **announces the truncation** — it was silent, and a
+  board cut short at 990 of 1,896 positions otherwise reads as a complete one. Its search
+  GET retries the same offset up to 3 times (2s → 4s → 8s, honoring a delta-seconds
   `Retry-After` clamped to 30s); still throttled at `start > 0` it returns an empty page,
   which the paginator reads as the end of the board, so **the pages already walked are
   kept** instead of the whole board being lost. At `start == 0` it raises, because a
@@ -2047,8 +2043,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
-| A throttled phenom **detail** GET is retried on the same bounded budget instead of silently yielding an empty description (which the bodyless guard then drops); a persistent one gives up bounded | `test_phenom.py` (`test_a_throttled_DETAIL_call_is_retried_rather_than_silently_losing_the_body`, `test_a_persistently_throttled_detail_call_gives_up_bounded`) |
-| A phenom search **403** mid-pagination is a throttle: retried like a 429, and on a persistent one the pages already walked are kept rather than the board being lost; a 403 on the FIRST page still raises | `test_phenom.py` (`test_search_403_mid_pagination_is_retried_like_a_429`, `test_persistent_403_mid_pagination_keeps_the_pages_already_collected`, `test_a_403_on_the_first_page_still_raises`) |
+| A phenom search **403** mid-pagination is a throttle: retried like a 429, and on a persistent one the pages already walked are kept rather than the board being lost, with the truncation announced; a 403 on the FIRST page still raises, on a bounded budget | `test_phenom.py` (`test_search_403_mid_pagination_is_retried_like_a_429`, `test_persistent_403_mid_pagination_keeps_the_pages_already_collected`, `test_a_403_on_the_first_page_still_raises`, `test_a_salvaged_board_says_so`) |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
 | A stub-rejected workday posting costs no detail GET | `test_fetch_new.py::test_workday_stub_gate_skips_the_dropped_detail_call` |
 | A workday `discard` HYDRATES rather than storing a GUID-less stub row | `test_fetch_new.py::test_workday_stub_gate_hydrates_a_discard_instead_of_storing_it` |

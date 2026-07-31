@@ -37,7 +37,8 @@ RATE_LIMIT_STATUS = 429
 # lost six times a day and the salvage this block exists for never runs. Probed cold
 # from one fresh session, those exact offsets return **200** — the offset is not the
 # trigger and the answer is not "this page does not exist"; it is a WAF tripping on the
-# pass's cumulative request volume (~10 search pages plus ~1,000 detail calls). That is
+# pass's cumulative request volume (the board reports count=1896, so ~190 search pages
+# plus a detail call per hydrated position). That is
 # a throttle wearing a different status code, so it takes the throttle path. A 403 on
 # the FIRST page still raises: nothing to salvage, and a board that refuses from the
 # start is a block, not a throttle.
@@ -48,7 +49,7 @@ RETRY_MAX_WAIT = 30.0
 
 
 def _retry_wait(resp, fallback: float) -> float:
-    """Seconds to wait before retrying a 429: the `Retry-After` header when it is a
+    """Seconds to wait before retrying a throttle: the `Retry-After` header when it is a
     usable delta-seconds value, else `fallback`. An HTTP-date, a missing/garbage
     value or a non-positive one falls back; everything is capped at RETRY_MAX_WAIT
     so no board can stall the serial fetch loop with 'Retry-After: 3600'."""
@@ -132,10 +133,10 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
 
     def _search(http, start):
         """One search page, retrying a throttle (429 or 403) up to RETRY_ATTEMPTS
-        times. Returns the LAST response either way - still throttled once the
-        retries are spent, which
-        the caller decides what to do with. Any other status is returned untouched
-        on the first try (a 500 is not a throttle; it must not spend the budget)."""
+        times. Returns the LAST response either way - still throttled once the retries
+        are spent, which the caller decides what to do with. Any other status is
+        returned untouched on the first try (a 500 is not a throttle; it must not
+        spend the budget)."""
         wait = RETRY_BASE_WAIT
         resp = None
         for attempt in range(RETRY_ATTEMPTS + 1):
@@ -155,6 +156,15 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
             # Still throttled after the bounded retries, but earlier pages are
             # already collected: report an empty page so paged_details ends the
             # board with what it has, instead of raising and losing all of it.
+            # SAY SO. A salvaged board is otherwise indistinguishable from a complete
+            # one — `paged_details` just stops and `run_fetch` only logs on an
+            # exception, so qualcomm would go from a loud failure every pass to a
+            # SILENT truncation every pass (990 of 1,896 reading as the whole board).
+            # PRINCIPLES: fail loud into something visible.
+            print(f"[fetch] phenom/{host}: throttled at start={start} "
+                  f"(HTTP {getattr(resp, 'status_code', '?')}) after "
+                  f"{RETRY_ATTEMPTS} retries — keeping the pages already walked; "
+                  "this board is TRUNCATED for this pass")
             return [], None
         # start == 0 falls through: nothing to salvage, so fail loudly (the
         # pipeline's per-company try/except isolates it) rather than report a
@@ -176,35 +186,12 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
                 return stub       # stored un-hydrated, no detail call
         description = ""
         try:
-            detail = _detail(http, pid)
+            detail = http.get(detail_url,
+                              params={"domain": domain, "position_id": pid}, timeout=timeout)
             detail.raise_for_status()
             description = _require_ok(detail.json()).get("jobDescription") or ""
         except Exception:
             pass  # one bad detail: keep the posting (search has title/loc/url), no desc
         return parse_position(pos, company_name, description, base_url=base_url)
-
-    def _detail(http, pid):
-        """One detail GET, retrying a throttle on the same bounded budget as `_search`.
-
-        The DETAIL leg had no retry at all, and it is the leg that actually loses
-        postings: a throttled detail call returns an empty description, `_valid_posting`
-        then drops the row as bodyless, and it is filed under `empty_description` — so
-        the posting silently disappears and is re-fetched and re-dropped every pass.
-        Measured 2026-07-31 on `apply.careers.microsoft.com`, the largest such source (77
-        rows): re-requesting six of them by hand returned a **full 5,029-8,376 char
-        description for five, and a 429 for the sixth**. They were never bodyless.
-        """
-        wait = RETRY_BASE_WAIT
-        resp = None
-        for attempt in range(RETRY_ATTEMPTS + 1):
-            resp = http.get(detail_url,
-                            params={"domain": domain, "position_id": pid}, timeout=timeout)
-            if getattr(resp, "status_code", None) not in THROTTLE_STATUSES:
-                return resp
-            if attempt == RETRY_ATTEMPTS:
-                break
-            wait_fn(_retry_wait(resp, wait))
-            wait = min(wait * 2, RETRY_MAX_WAIT)
-        return resp
 
     return paged_details(session, fetch_page=_page, build_row=_row)
