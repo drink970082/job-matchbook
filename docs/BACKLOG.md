@@ -17,6 +17,30 @@
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **The seniority title-token floor: measured 2026-07-31, ambiguous, and the decision is
+  the operator's** — `[SCORE · XS · decision pending]`. SCORING §5.7 declined to build a
+  floor for the *"Senior ..."* titles the model returns an empty object on, asking for its
+  own measurement first. The measurement ran and split:
+
+  | | in-sample (446 rows) | held-out (32 rows) |
+  |---|---|---|
+  | shipped rules only | P 0.975, R 0.793 | 0 false demotions |
+  | + title floor | P 0.970, **R 0.900** | **1 false demotion, 0 recovered** |
+
+  It is **the largest recall win available** — 35 of the 61 misses carry a rank word in
+  their title, and it recovers 27 of them — and it owns the **only** out-of-sample false
+  demotion any candidate produced across every combination tried (Onto Innovation `Senior
+  Software Engineer`, `domain=mismatch`, model returned nothing, floor fired alone). Both
+  corpora still pass the gate; 32 rows carrying 3 positives cannot settle it.
+  **The argument against is not the number, it is the shape:** a floor that fires on a
+  title with no model verdict behind it is the unevidenced-demotion pattern the vetoes
+  exist to prevent, and the one dataset that could contradict it does.
+  **If it is ever built, one narrowing is already measured:** a title naming *both* levels
+  ("Jr/Sr Engineer") states no single bar, and guarding on a junior token removed a false
+  demotion at zero recall cost (Micron `Jr/Sr Engineer, STPG PE System`).
+  Reproduce with `make eval-seniority`; the rejected sibling (widening
+  `rank_stated_in`'s vocabulary) is recorded in SCORING §5.7 as provably redundant.
+
 - **The blind-backend residual: `sponsorship_labels: null` and `[]` still reach the phrase
   floor** — `[SCREEN · open by decision, the operator's call]`. The defect this came from
   shipped a fix 2026-07-29 (SPEC §7.1 + §9, CHANGELOG); the fork it left open is stated as

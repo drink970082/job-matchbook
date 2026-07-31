@@ -15,9 +15,9 @@ a RE-ORDERING and never a discard.
    no second corpus, so the precision and the zero-false-demotion result are training-set
    numbers, not estimates of future performance.
 2. **The decisive gate has little statistical power.** Only ~34 of 446 rows are
-   `domain=match` and ~18 were notified. With the 7 false demotions the shipped run
-   produces placed at random, the chance of hitting neither set is roughly 0.57 and
-   0.75 — so the gate can go green for a layer whose demotions are indifferent to
+   `domain=match` and ~18 were notified. With the 5 false demotions the shipped run
+   produces (7 before the 2026-07-31 cap/evidence/magnitude rules) placed at random, the
+   chance of hitting neither set is roughly 0.66 and 0.80 — so the gate can go green for a layer whose demotions are indifferent to
    whether a row was a payoff row. Treat a pass as "no evidence of harm", never as
    "evidence of no harm".
 3. **The corpus is not the production population.** `build_corpus` selects rows that
@@ -68,9 +68,10 @@ K = 1
 # demotions are. Every row the strong scorer called `domain=match` is the notify payoff
 # set; demoting one of those delays a job the human would have seen. Measured 0.
 MAX_FALSE_DEMOTES_ON_MATCH_DOMAIN = 0
-MIN_PRECISION = 0.95            # measured 0.964 with both keep-direction vetoes
-# Measured 0.442 — a THIN margin over this gate, not a comfortable one, and it moved
-# 0.484 -> 0.442 when the rank veto landed. Any further keep-direction change should
+MIN_PRECISION = 0.95            # measured 0.975 (was 0.964 before the 2026-07-31 rules)
+# Measured 0.457 — a THIN margin over this gate, not a comfortable one. It moved
+# 0.484 -> 0.442 when the rank veto landed, then 0.442 -> 0.457 with the 2026-07-31
+# cap/evidence/magnitude rules. Any further keep-direction change should
 # expect to trip this, which is the point: below it the layer stops buying enough to
 # justify the GPU time.
 MIN_DEMOTE_SHARE = 0.40
