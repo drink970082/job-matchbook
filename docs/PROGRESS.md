@@ -482,8 +482,31 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
   CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
   on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) IS NOT A DEFECT — ROOT-CAUSED 2026-07-31, and the fetch was never
-  failing.** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
+  time. **(1) REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
+  NOT the whole story.** The 08:00 pass fit-scored **34** rows and still wrote no
+  snapshot, and the shipped WARNING is what said so — the first time this failure has
+  announced itself rather than being found by an `ls -la` days later. Called by hand 20
+  seconds after that pass, the same fetch returned 200 (35% stale on disk vs 37% live),
+  and `~/.codex/auth.json` has still not been rewritten since 07-26, so the
+  concurrent-`codex exec` suspicion is dead a second time. What is left is a real,
+  intermittent, in-pass failure with **no cause named** — because `_get_json` swallowed
+  the status. It no longer does
+  (`fix/capture-usage-diagnosis`): **every** route to a `False` return names itself — a
+  non-200 with status and reason, an `HTTPError` (which `urlopen` raises, so the status
+  check never saw a 4xx), a truncated body or connection failure with its exception type,
+  "not logged in", a 200 with no `rate_limit` object, a 200 whose window carries a null
+  `used_percent`, and the blanket catch that covers the file write. A first cut
+  instrumented only the three HTTP paths, which the pre-merge review showed would have
+  missed the suspect below entirely.
+  **Three untested candidates, in the order they are worth checking.** (a) A 429/403 on
+  the usage endpoint right after a burst of paid calls on the same account — note the
+  evidence is **n=1 against n=1**: the endpoint is called ONCE per pass, so one usage call
+  failed after 34 fit calls where one succeeded after 7. (b) A 200 whose `used_percent`
+  comes back null under the same load, which has no status code to show for it. (c) A
+  truncated body (`IncompleteRead`) behind the CDN — it subclasses neither `OSError` nor
+  `ValueError`, so before this branch it escaped the fetch entirely and was swallowed in
+  silence.
+  **The earlier finding, which still holds for its own window:** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
   scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
   (4 rows, then 0, then 0 — CHANGELOG, "the scoring pass had stalled"), so the call was
   correctly never made. Verified three ways: the fetch returns `True` both from an

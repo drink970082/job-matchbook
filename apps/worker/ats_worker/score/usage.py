@@ -23,6 +23,7 @@ the bar with it, so the two are never silently conflated.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import threading
@@ -64,16 +65,46 @@ def _read_json(path: str):
 
 
 def _get_json(url: str, headers: dict):
-    """GET `url` and parse the JSON body, or None on any failure. Quota telemetry is
-    best-effort — a provider outage, an expired token, or a 429 must not colour a
-    scoring pass, so nothing here raises."""
+    """GET `url` and parse the JSON body, or None on the failures a provider actually
+    produces — a timeout, a refused connection, a non-200, a malformed body. Quota
+    telemetry is best-effort: none of those may colour a scoring pass.
+
+    It is deliberately NOT a bare `except Exception`. The no-raise guarantee the pass
+    depends on lives one level up in `capture_usage`, which wraps everything; keeping
+    this catch narrow means a genuinely unanticipated failure still surfaces in a test
+    run instead of being silently indistinguishable from a 403.
+
+    It does SAY WHY, though, and that is the point of the shape. The 2026-07-30
+    investigation had nothing but a `False` to go on, so an HTTP 403, an expired token, a
+    DNS blip and a malformed body were indistinguishable; it was closed as "the passes
+    had stopped fit-scoring, so the guarded call never ran", which was true of that
+    window and NOT the whole story. On 2026-07-31 the 08:00 pass fit-scored 34 rows and
+    still wrote no snapshot, while the same call from a shell 20 seconds later returned
+    200 — real, intermittent, still undiagnosed. One line naming the cause is what closes
+    it, and a diagnostic on the failure path costs nothing on the happy one.
+    """
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             if resp.status != 200:
+                # NOT dead code: urlopen raises for 4xx/5xx, but a 201/202/204/206 is a
+                # success to urllib and a failure to us, and lands here.
+                print(f"[quota] {url} returned HTTP {resp.status}")
                 return None
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError):
+    except urllib.error.HTTPError as exc:
+        # The status IS the diagnosis: 401/403 is auth or a WAF, 429 is throttling —
+        # plausible immediately after a burst of paid calls on the same account, which
+        # is exactly when this runs — and 5xx is theirs. `urlopen` RAISES for these
+        # rather than returning them, so the `resp.status` check above never sees one.
+        print(f"[quota] {url} returned HTTP {exc.code} ({exc.reason})")
+        return None
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
+        # http.client.HTTPException is in the tuple deliberately: IncompleteRead and
+        # BadStatusLine subclass NEITHER OSError nor ValueError, and a truncated body
+        # behind a CDN is exactly the intermittent shape being hunted here. Without it
+        # they escape to `capture_usage`'s blanket catch and print nothing at all.
+        print(f"[quota] {url} failed: {type(exc).__name__}: {exc}")
         return None
 
 
@@ -122,6 +153,8 @@ def fetch_codex_usage() -> dict | None:
     carrying `used_percent`, `limit_window_seconds` and `reset_at` (epoch)."""
     auth = _codex_auth()
     if not auth:
+        home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
+        print(f"[quota] codex: not logged in (no readable tokens in {home}/auth.json)")
         return None
     token, account = auth
     data = _get_json(CODEX_USAGE_URL, {
@@ -131,9 +164,12 @@ def fetch_codex_usage() -> dict | None:
         "User-Agent": _USER_AGENT,
     })
     if not isinstance(data, dict):
+        if data is not None:            # _get_json already spoke for a None
+            print(f"[quota] codex: 200 but body is {type(data).__name__}, not an object")
         return None
     rate = data.get("rate_limit")
     if not isinstance(rate, dict):
+        print(f"[quota] codex: 200 but no rate_limit object: {str(data)[:160]}")
         return None
     limits = []
     for key in ("primary", "secondary"):
@@ -148,6 +184,9 @@ def fetch_codex_usage() -> dict | None:
             "resets_at": _epoch(window.get("reset_at")),
         })
     if not limits:
+        # The suspect path with no status code to show for it: a 200 whose windows carry
+        # a null used_percent. Print the payload or the next hunt starts from zero again.
+        print(f"[quota] codex: 200 but no usable window: {str(rate)[:160]}")
         return None
     return _snapshot("codex", data.get("plan_type"), limits)
 
@@ -209,6 +248,7 @@ def fetch_claude_usage() -> dict | None:
     **subscription** budget, while `make_claude_scorer` bills `ANTHROPIC_API_KEY`."""
     token = _claude_token()
     if not token:
+        print("[quota] claude: not logged in (no readable credentials)")
         return None
     data = _get_json(CLAUDE_USAGE_URL, {
         "Authorization": f"Bearer {token}",
@@ -217,9 +257,12 @@ def fetch_claude_usage() -> dict | None:
         "User-Agent": _USER_AGENT,
     })
     if not isinstance(data, dict):
+        if data is not None:
+            print(f"[quota] claude: 200 but body is {type(data).__name__}, not an object")
         return None
     limits = _claude_limits(data)
     if not limits:
+        print(f"[quota] claude: 200 but no usable limit rows: {str(data)[:160]}")
         return None
     return _snapshot("claude", data.get("plan_type") or data.get("subscription_type"),
                      limits)
@@ -249,15 +292,21 @@ def capture_usage(path: str, backend: str) -> bool:
     try:
         fetch = _FETCHERS.get(backend)
         if fetch is None:
+            print(f"[quota] no usage fetcher for backend {backend!r}")
             return False
         snapshot = fetch()
         if not snapshot:
-            return False
+            return False                 # the fetcher already said why
         snapshot["as_of"] = datetime.now().astimezone().isoformat(timespec="seconds")
         tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(snapshot, fh)
         os.replace(tmp, path)
         return True
-    except Exception:  # noqa: BLE001 — telemetry is best-effort; a pass must not fail on it
+    except Exception as exc:  # noqa: BLE001 — best-effort; a pass must not fail on it
+        # This catch is the reason `_get_json` may stay narrow, and it must therefore
+        # SPEAK. Silence here is what made the 2026-07-30/31 hunt cost two days: the
+        # write half (permissions, a full disk, a bad path) and any exception type the
+        # fetchers do not anticipate both landed here and produced nothing at all.
+        print(f"[quota] capture failed: {type(exc).__name__}: {exc}")
         return False
