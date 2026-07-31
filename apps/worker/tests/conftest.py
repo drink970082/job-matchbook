@@ -18,6 +18,16 @@ def _isolated_pass_lock(tmp_path, monkeypatch):
     # ../web/prisma/applications.db and leave a lock file in the live db/ directory —
     # observed, not hypothetical. Isolating it here covers every such test at once.
     monkeypatch.setenv("DB_PATH", str(tmp_path / "default-applications.db"))
+    # And redirect the credential homes the quota telemetry reads. Without this a test
+    # that reaches main() finds the OPERATOR'S REAL `~/.codex/auth.json`, authenticates,
+    # and makes a live HTTPS call to chatgpt.com — which CLAUDE.md forbids outright
+    # ("tests mock everything, no network/keys") and which was costing a real round trip
+    # per test unnoticed, because a fast failure looks like a fast pass. It surfaced the
+    # moment `_get_json` grew retries and one test went from 0.1s to 30s of real sleeping.
+    # Pointing these at an empty temp dir makes `_codex_auth()`/`_claude_token()` return
+    # None, so the fetch short-circuits before any socket is opened.
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "no-claude-home"))
 
 
 @pytest.fixture

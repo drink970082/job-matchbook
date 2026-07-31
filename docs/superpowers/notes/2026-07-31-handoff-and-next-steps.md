@@ -58,14 +58,22 @@ run-to-run flip, which only matters for the model you intend to ship.
 
 The operator's standing priority is **score quota first**.
 
-1. **The fit-model A/B (sol vs terra vs luna).** The one lever with real headroom left.
-   Terra was rejected before on real JDs (SCORING §8.7: agreement 76% vs 86%, flip-rate 38%
-   vs 29%) — the operator has asked to revisit it, and §8.7's own rule is that a re-pick
-   needs a full `make eval-score` run, which is what this is.
-   `SCORE_BACKEND=codex CODEX_SCORE_MODEL=gpt-5.6-terra make eval-score`.
-   **The gate that decides it:** rows where the candidate says do-not-notify but Sol says
-   `seniority=match AND domain=match`. A missed alert is the failure this system cannot
-   absorb; a few points of score drift is not.
+1. **RE-MEASURE TERRA. Operator's explicit instruction, 2026-07-31 — do not skip it and do
+   not treat the old result as settled.** Terra's rejection (SCORING §8.7: agreement 76% vs
+   86%, flip-rate 38% vs 29%) was recorded against a 23-row human golden set and an older
+   model revision; §8.7's own rule is that a re-pick needs a full `make eval-score` run,
+   and that is what this is. Run all three so the baseline is fresh rather than quoted:
+
+   ```
+   SCORE_BACKEND=codex CODEX_SCORE_MODEL=gpt-5.6-terra make eval-score
+   SCORE_BACKEND=codex CODEX_SCORE_MODEL=gpt-5.6-luna  make eval-score
+   SCORE_BACKEND=codex CODEX_SCORE_MODEL=gpt-5.6-sol   make eval-score
+   ```
+
+   Terra is the operator's preferred candidate (half sol's credit rate, twice luna's
+   capability). **Report terra on its own merits** — the gate is whether it reproduces
+   Sol's *verdicts*, specifically rows where it says do-not-notify while Sol says
+   `seniority=match AND domain=match`. Score drift is noise; a missed alert is not.
 2. **Finish the luna screen eval and read it against the NO-LOCAL-LLM use case**, not
    against quota saving. Those are different goals and the run answers the first.
    A paid screen inverts the economics: today the screen is free and discards ~18% of rows
@@ -94,3 +102,46 @@ The operator's standing priority is **score quota first**.
 - **Measure by driving the real call, not a reimplementation.** The 403 hand-probe used a
   different client than the in-pass failure, so it may not have sampled the same thing.
   Same shape as the earlier `now=None` incident.
+
+## Zero-cost title filter — measured 2026-07-31, and there is a free win sitting in the queue
+
+Against the live 5,729-row `new` queue and the current config (26 `title_filter` terms,
+9 `title_exclude`):
+
+| | rows | share |
+|---|---|---|
+| would be EXCLUDED by `title_exclude` | **1,298** | **23%** |
+| kept by `title_filter` | 4,431 | 77% |
+| matching NEITHER list | 0 | 0% |
+
+**Every one of the 1,298 is matched by a single term: `senior`.** The other eight exclude
+terms (`intern`, `co-op`, `sales`, `principal`, `staff`, `director`, `vice president`,
+`head of`) never fire on the queue — not because they are useless but because they are
+doing their job at INGEST, so nothing carrying them ever lands. `senior` is the exception
+because it was added AFTER those rows were ingested.
+
+**So the highest-value zero-cost action is not a new term — it is sweeping the queue with
+the terms already configured.** ~23% of everything waiting is already excludable for free.
+#58 re-applies title filters before paying to score, but it only reaches the rows a pass
+examines, so the backlog keeps them.
+
+**And a corollary worth stating:** 0 rows match neither list, so the queue offers no
+evidence for adding new terms. Any further intake cut has to come from `max_age_days`,
+the watchlist, or per-board location rules — not from more title terms. Do not tune
+`title_filter` blind; there is nothing in the data asking for it.
+
+## The `companies:` block in config.yaml is STALE — the watchlist moved to the DB
+
+`db.py:88` states it outright: "The watchlist is DB-owned (table `watched_companies`), so
+the web UI manages it." The DB holds **172** rows; `config.yaml` holds **39**, used only
+as an idempotent seed via `seed_watchlist`. Nothing in `run.py` fetches from
+`cfg.companies`.
+
+So the operator's recollection is right, and the practical consequences are:
+
+- **Editing `companies:` in `config.yaml` does not change what gets fetched.** Anyone
+  dropping the 18 zero-yield boards must do it in the DB (or the web UI), not the config.
+- The 39 in config are a stale subset of the 172 and will mislead the next reader.
+- **Decision for the operator:** either prune `companies:` to a documented minimal seed
+  (or empty) so it stops reading as the source of truth, or delete it and point
+  `seed_watchlist` at a fixture. Not done here — it touches operator data.

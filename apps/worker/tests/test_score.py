@@ -4,12 +4,32 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+import urllib.error
 from unittest.mock import Mock
 
 import pytest
 import requests
 
 from ats_worker import score
+
+
+class _FakeResp:
+    """Minimal stand-in for urlopen's context-managed response."""
+
+    status = 200
+
+    def __init__(self, body: str):
+        self._body = body.encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
 from ats_worker.score import screen as screen_mod  # a few checks are not re-exported
 
 
@@ -1746,6 +1766,74 @@ def test_fetch_codex_usage_normalizes_the_window(codex_login, monkeypatch):
     assert seen["headers"]["chatgpt-account-id"] == "acct"
 
 
+def _http_error(code):
+    return urllib.error.HTTPError("https://x/usage", code, "reason", {}, None)
+
+
+@pytest.mark.parametrize("code,retryable", [
+    (403, True),    # the measured failure — whatever produces it, another attempt may differ
+    (429, True),
+    (500, True),
+    (401, False),   # not logged in is a VERDICT: retrying only delays the same answer
+    (404, False),
+])
+def test_which_statuses_are_worth_retrying(code, retryable, monkeypatch):
+    # Drives the real status -> retryable mapping through urlopen. The earlier version of
+    # these tests monkeypatched `_get_json_once` and hand-wrote the flag, so they would
+    # have passed against an implementation that retried 401 too — i.e. they pinned the
+    # test's own opinion rather than the code's.
+    def boom(req, timeout=None):
+        raise _http_error(code)
+    monkeypatch.setattr(score.usage.urllib.request, "urlopen", boom)
+    assert score.usage._get_json_once("https://x/usage", {}) == (None, retryable)
+
+
+def test_a_retryable_failure_is_retried_and_the_recovery_is_kept(monkeypatch):
+    # MEASURED 2026-07-31: the 12:00 pass fit-scored 26 rows and the usage fetch returned
+    # 403; hand-calling straight after gave 403 / 200 / 403 within forty seconds. Without
+    # a retry the snapshot silently goes stale and every downstream quota decision reads
+    # an old number.
+    calls = []
+
+    def flaky(req, timeout=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _http_error(403)
+        return _FakeResp(json.dumps({"ok": True}))
+
+    monkeypatch.setattr(score.usage.urllib.request, "urlopen", flaky)
+    assert score.usage._get_json("https://x/usage", {}, sleep=lambda _s: None) == {"ok": True}
+    assert len(calls) == 2
+
+
+def test_a_verdict_status_is_not_retried(monkeypatch):
+    calls = []
+
+    def denied(req, timeout=None):
+        calls.append(1)
+        raise _http_error(401)
+
+    monkeypatch.setattr(score.usage.urllib.request, "urlopen", denied)
+    assert score.usage._get_json("https://x/usage", {}, sleep=lambda _s: None) is None
+    assert len(calls) == 1
+
+
+def test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults(monkeypatch):
+    # Pins the DEFAULTS, not an argument the test supplies: the previous version passed
+    # attempts=3 explicitly, so raising _ATTEMPTS to 50 kept it green.
+    calls, slept = [], []
+    monkeypatch.setattr(score.usage.urllib.request,
+                        "urlopen", lambda req, timeout=None: calls.append(1) or
+                        (_ for _ in ()).throw(_http_error(403)))
+    monkeypatch.setattr(score.usage.time, "sleep", slept.append)
+    assert score.usage._get_json("https://x/usage", {}) is None
+    assert len(calls) == score.usage._ATTEMPTS
+    # one sleep BETWEEN attempts, never after the last, and growing past the only
+    # interval at which the endpoint was ever observed to change state
+    assert slept == list(score.usage._RETRY_SLEEPS)[:score.usage._ATTEMPTS - 1]
+    assert slept == sorted(slept) and slept[-1] >= 20.0
+
+
 def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
     # chatgpt.com is behind Cloudflare, which 403s urllib's default Python-urllib/3.x.
     # Without an explicit UA the bar silently never updates (verified 2026-07-29).
@@ -1966,7 +2054,7 @@ def test_get_json_names_the_http_status_when_the_provider_raises(capsys):
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}) is None
+        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
     out = capsys.readouterr().out
     assert "429" in out and "https://x/usage" in out
 
@@ -1979,7 +2067,7 @@ def test_get_json_names_the_exception_when_the_connection_fails(capsys):
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}) is None
+        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
     assert "URLError" in capsys.readouterr().out
 
 
@@ -2029,7 +2117,7 @@ def test_a_truncated_body_is_caught_and_named(capsys):
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}) is None
+        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
     assert "IncompleteRead" in capsys.readouterr().out
 
 
