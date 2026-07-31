@@ -39,6 +39,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The `capture_usage` failure has a NAME — HTTP 403 — and is now retried. What
+  produces the 403 is still open.** #60's cause-naming earned its keep immediately: the
+  first failing pass after it shipped (12:00 on 2026-07-31, 26 rows fit-scored) printed
+  `returned HTTP 403 (Forbidden)`, ending a week of a bare `False`.
+  **The interpretation is NOT established, and an earlier draft of this entry overclaimed
+  it.** Hand-calling the endpoint afterwards gave 403 / 200 / 403 within forty seconds,
+  which was read as "a blip, not a rate limit" — but Cloudflare rate-limiting rules
+  commonly answer **403** rather than 429, and a limiter near its threshold produces
+  exactly that alternation. The hand calls also came from a different client than the
+  in-pass failure, so they may not sample the same phenomenon at all. Both hypotheses
+  remain live.
+  So the retry is deliberately agnostic rather than tuned to one of them: 4 attempts on a
+  growing schedule (2s, 8s, 20s) that reaches past the only interval at which the endpoint
+  was ever *observed* to change state. `_get_json` splits into a retrying wrapper and
+  `_get_json_once` returning `(data, retryable)`; 401 and 404 are verdicts, not blips, and
+  are not retried, so "not logged in" still answers immediately.
+  **What this does not do is end the staleness.** At the roughly 2-in-3 per-call failure
+  rate observed, four attempts still leave ~20% of passes without a snapshot, and "three
+  hand calls in a row succeeded" cannot distinguish a 70% success rate from a 100% one.
+  The measurement to take is the WARNING rate across passes, over days, not more hand
+  calls. The remedy that would sidestep the question entirely — capturing usage at pass
+  START, before the account is hot — is recorded in `docs/BACKLOG.md`.
 - **The free seniority pre-ordering was throwing away evidence the model got right —
   70% of its misses were code's fault, not the 4B's.** Classifying the 61 misses by cause
   instead of counting them found three defects, all in `score/seniority.py`, and fixing
