@@ -157,6 +157,22 @@
   capped at `num_ctx*2`, so the snippet payload is uncapped budget. The fix is splitting
   on line breaks as well as `[.!?]`, which changes what every snippet contains and so
   needs a gate re-run — hence recorded rather than done.
+  **MEASURED ON LIVE DESCRIPTIONS 2026-07-31, as this entry asked — and the rate is far
+  lower than "degenerates to the whole JD" implies.** 600 live `description` values of
+  >=800 chars through the real `_sentences`: the **median** longest-"sentence" share of a
+  JD is **27%**; **81 of 600 (14%)** have one "sentence" covering more than half the
+  description; exactly **1 of 600 (0.2%)** is a single sentence. So the catastrophic shape
+  is rare and the merely-too-wide shape is common — and both were previously quoted off
+  2-3 sentence *excerpts*, where a +/-1 window trivially covers everything.
+  **Still not fixed, and the reason is measurement hygiene rather than effort.** The screen
+  corpus changed the same day (83 → 103 rows; both blind halves opened up). Shipping the
+  splitter now would move two variables at once and no gate result could be attributed to
+  either. It wants its own branch, a settled corpus, and a before/after — not a bundle.
+  **Independent evidence it is real:** two separate candidate-search heuristics written on
+  2026-07-31 were both defeated by these missing boundaries — one ranked Microsoft
+  `CTJ - Poly` roles as *soft* clearance because `"…verified US government Clearance"`
+  closes one block and `"Preferred Qualifications:"` opens the next. The defect bites
+  anything that reasons about JD structure, not only `sponsorship_snippets`.
 
 - **Sponsorship recall is a DELIBERATE, pinned trade** — `[SCREEN · open by design]`.
   Retrieve-then-classify shipped 2026-07-28 (false disqualifications 2 → 0; behavior in
