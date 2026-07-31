@@ -27,11 +27,20 @@ import http.client
 import json
 import os
 import threading
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 
 _TIMEOUT = 10
+# Two retries, seconds apart — NOT a backoff. MEASURED 2026-07-31: the 12:00 pass
+# fit-scored 26 rows and the usage fetch returned 403; called by hand straight after, the
+# same endpoint gave 403, then 200, then 403 again inside forty seconds. A 200 sitting
+# between two 403s is a Cloudflare WAF blip (see `_USER_AGENT` — this endpoint 403s on the
+# client name alone), not a sustained block after a burst of paid calls, so a long backoff
+# would be the wrong remedy and a couple of quick retries is the right one.
+_RETRIES = 3
+_RETRY_SLEEP = 2.0
 
 CODEX_USAGE_URL = "https://chatgpt.com/backend-api/codex/usage"
 CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -64,10 +73,29 @@ def _read_json(path: str):
         return None
 
 
-def _get_json(url: str, headers: dict):
-    """GET `url` and parse the JSON body, or None on the failures a provider actually
-    produces — a timeout, a refused connection, a non-200, a malformed body. Quota
-    telemetry is best-effort: none of those may colour a scoring pass.
+def _get_json(url: str, headers: dict, *, attempts: int = _RETRIES, sleep=time.sleep):
+    """GET with a couple of quick retries — diagnostics live in `_get_json_once`.
+
+    Only *transport-ish* failures are retried. A 401 (not logged in) and a 404 are
+    verdicts rather than blips, and retrying them only delays the same answer.
+    """
+    for attempt in range(1, attempts + 1):
+        data, retryable = _get_json_once(url, headers)
+        if data is not None or not retryable:
+            return data
+        if attempt < attempts:
+            print(f"[quota] retrying {url} ({attempt + 1}/{attempts})")
+            sleep(_RETRY_SLEEP)
+    return None
+
+
+def _get_json_once(url: str, headers: dict):
+    """GET `url` and parse the JSON body -> `(data, retryable)`.
+
+    `data` is None on the failures a provider actually produces — a timeout, a refused
+    connection, a non-200, a malformed body. Quota telemetry is best-effort: none of
+    those may colour a scoring pass. `retryable` says whether another attempt could
+    plausibly answer differently.
 
     It is deliberately NOT a bare `except Exception`. The no-raise guarantee the pass
     depends on lives one level up in `capture_usage`, which wraps everything; keeping
@@ -80,8 +108,12 @@ def _get_json(url: str, headers: dict):
     had stopped fit-scoring, so the guarded call never ran", which was true of that
     window and NOT the whole story. On 2026-07-31 the 08:00 pass fit-scored 34 rows and
     still wrote no snapshot, while the same call from a shell 20 seconds later returned
-    200 — real, intermittent, still undiagnosed. One line naming the cause is what closes
-    it, and a diagnostic on the failure path costs nothing on the happy one.
+    200 — real, intermittent, undiagnosed. One line naming the cause is what closed it,
+    and a diagnostic on the failure path costs nothing on the happy one.
+
+    **DIAGNOSED 2026-07-31 12:48, by that line, on the first failing pass after it
+    shipped:** `HTTP 403 (Forbidden)`, from Cloudflare rather than from the account —
+    see `_RETRY_SLEEP` for the measurement that rules out a rate limit.
     """
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
@@ -90,22 +122,24 @@ def _get_json(url: str, headers: dict):
                 # NOT dead code: urlopen raises for 4xx/5xx, but a 201/202/204/206 is a
                 # success to urllib and a failure to us, and lands here.
                 print(f"[quota] {url} returned HTTP {resp.status}")
-                return None
-            return json.loads(resp.read().decode("utf-8"))
+                return None, False
+            return json.loads(resp.read().decode("utf-8")), False
     except urllib.error.HTTPError as exc:
         # The status IS the diagnosis: 401/403 is auth or a WAF, 429 is throttling —
         # plausible immediately after a burst of paid calls on the same account, which
         # is exactly when this runs — and 5xx is theirs. `urlopen` RAISES for these
         # rather than returning them, so the `resp.status` check above never sees one.
         print(f"[quota] {url} returned HTTP {exc.code} ({exc.reason})")
-        return None
+        # 401/404 are verdicts; 403 (Cloudflare, measured intermittent), 429 and 5xx are
+        # worth another go a couple of seconds later.
+        return None, exc.code not in (401, 404)
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         # http.client.HTTPException is in the tuple deliberately: IncompleteRead and
         # BadStatusLine subclass NEITHER OSError nor ValueError, and a truncated body
         # behind a CDN is exactly the intermittent shape being hunted here. Without it
         # they escape to `capture_usage`'s blanket catch and print nothing at all.
         print(f"[quota] {url} failed: {type(exc).__name__}: {exc}")
-        return None
+        return None, True
 
 
 def _epoch(value):

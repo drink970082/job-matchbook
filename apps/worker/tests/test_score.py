@@ -1746,6 +1746,41 @@ def test_fetch_codex_usage_normalizes_the_window(codex_login, monkeypatch):
     assert seen["headers"]["chatgpt-account-id"] == "acct"
 
 
+def test_a_403_is_retried_and_the_second_attempt_is_kept(monkeypatch):
+    # MEASURED 2026-07-31: the 12:00 pass fit-scored 26 rows, the usage fetch returned
+    # 403, and calling the same endpoint by hand straight after gave 403 / 200 / 403
+    # within forty seconds. A 200 between two 403s is a Cloudflare blip, so one retry is
+    # the whole fix — without it the snapshot silently goes stale and every downstream
+    # quota decision reads an old number.
+    calls = []
+
+    def once(url, headers):
+        calls.append(url)
+        return (None, True) if len(calls) == 1 else ({"ok": True}, False)
+
+    monkeypatch.setattr(score.usage, "_get_json_once", once)
+    assert score.usage._get_json("u", {}, sleep=lambda _s: None) == {"ok": True}
+    assert len(calls) == 2
+
+
+def test_a_401_is_not_retried(monkeypatch):
+    # "Not logged in" is a verdict, not a blip: retrying only delays the same answer
+    # while a pass waits on it.
+    calls = []
+    monkeypatch.setattr(score.usage, "_get_json_once",
+                        lambda url, headers: (calls.append(url), (None, False))[1])
+    assert score.usage._get_json("u", {}, sleep=lambda _s: None) is None
+    assert len(calls) == 1
+
+
+def test_retries_are_bounded(monkeypatch):
+    calls = []
+    monkeypatch.setattr(score.usage, "_get_json_once",
+                        lambda url, headers: (calls.append(url), (None, True))[1])
+    assert score.usage._get_json("u", {}, attempts=3, sleep=lambda _s: None) is None
+    assert len(calls) == 3
+
+
 def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
     # chatgpt.com is behind Cloudflare, which 403s urllib's default Python-urllib/3.x.
     # Without an explicit UA the bar silently never updates (verified 2026-07-29).

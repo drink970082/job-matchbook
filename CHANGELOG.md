@@ -39,6 +39,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **The `capture_usage` 403 is diagnosed and retried — the quota snapshot stops going
+  silently stale.** #60's cause-naming earned its keep immediately: the first failing pass
+  after it shipped (12:00 on 2026-07-31, 26 rows fit-scored) printed
+  `returned HTTP 403 (Forbidden)`. Hand-calling the endpoint straight afterwards gave
+  **403, then 200, then 403 inside forty seconds**, which rules out the burst-rate-limit
+  reading that had been the leading suspect since 07-30 — a 200 between two 403s is a
+  Cloudflare blip, and this endpoint already 403s on the client name alone
+  (`_USER_AGENT`, 2026-07-29). So the remedy is two short retries, not a backoff:
+  `_get_json` now splits into a retrying wrapper and `_get_json_once` returning
+  `(data, retryable)`, with 401/404 treated as verdicts rather than blips. Measured live:
+  the bare fetch failed about two calls in three, the retrying one succeeded three for
+  three. Closes the half of the defect that had no cause named.
+
 - **`capture_usage` failures now name their cause, and the "never broken" verdict is
   withdrawn.** The 2026-07-31 root cause — the passes had stopped fit-scoring, so the
   guarded call correctly never ran — was true of that window and not the whole story: the

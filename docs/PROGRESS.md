@@ -482,7 +482,18 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
   CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
   on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
+  time. **(1) DIAGNOSED AND FIXED 2026-07-31 12:48 — the cause is an intermittent Cloudflare
+  403, not the account.** The instrumentation shipped that morning named it on the FIRST
+  failing pass after it landed: the 12:00 pass fit-scored 26 rows and printed
+  `[quota] https://chatgpt.com/backend-api/codex/usage returned HTTP 403 (Forbidden)`.
+  That is candidate (a) below, and the follow-up rules out the rate-limit reading of it:
+  called by hand seconds later the same endpoint gave **403, then 200, then 403 again
+  inside forty seconds**. A 200 between two 403s is not a burst limit — and this endpoint
+  is already known to 403 on the client name alone (`_USER_AGENT`, verified 2026-07-29),
+  so it is the WAF. Remedy is two short retries rather than a backoff (`fix/capture-usage-403-retry`):
+  live, the bare fetch failed roughly 2 calls in 3 and the retrying one succeeded 3 for 3.
+  Candidates (b) and (c) below were never needed. The historical framing follows.
+  **(1) was REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
   NOT the whole story.** The 08:00 pass fit-scored **34** rows and still wrote no
   snapshot, and the shipped WARNING is what said so — the first time this failure has
   announced itself rather than being found by an `ls -la` days later. Called by hand 20
