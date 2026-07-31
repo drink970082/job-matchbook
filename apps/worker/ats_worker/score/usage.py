@@ -38,12 +38,20 @@ _TIMEOUT = 10
 # returned HTTP 403 (named by the diagnostics #60 shipped that morning). Hand-calling the
 # same endpoint straight after gave 403, then 200, then 403 inside forty seconds.
 #
-# WHAT IS NOT ESTABLISHED, and the distinction picks these numbers: that this is a WAF
-# blip rather than a rate limit. Cloudflare rate-limiting rules commonly answer **403**,
-# not 429, and a limiter sitting near its threshold produces exactly the alternation
-# above — so the observation is equally consistent with the hypothesis it first appeared
-# to rule out. The hand calls also came from a different client than the in-pass failure,
-# so they may not even be sampling the same phenomenon.
+# WHAT THE LOCAL EVIDENCE DOES NOT SETTLE: whether this is a WAF blip or a rate limit.
+# Cloudflare rate-limiting rules commonly answer **403** rather than 429, and a limiter
+# near its threshold produces exactly the alternation above, so the observation alone is
+# consistent with both. The hand calls also came from a different client than the in-pass
+# failure and may not sample the same thing.
+#
+# WHAT UPSTREAM SAYS, which is stronger evidence than either: openai/codex#18688 is an
+# open report of **Cloudflare 403ing the CLI while a browser works on the same account
+# and network**, attributed to the rustls TLS fingerprint reading as non-browser traffic;
+# #18686, #18681, #9271 and #8516 are the same 403 on `/responses` and
+# `/responses/compact`. So a 403 here is a known, account-independent, intermittent
+# edge behaviour rather than a quota signal — which is what a retry is for. Note our
+# client is Python `urllib`, a different fingerprint again, so treat the upstream reports
+# as corroborating the MECHANISM, not as measurements of this exact caller.
 #
 # So the schedule is deliberately AGNOSTIC: spacing that grows past the only interval at
 # which the state was ever observed to change (20s), which covers a transient blip on the
