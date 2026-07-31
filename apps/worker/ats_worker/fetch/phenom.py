@@ -38,10 +38,10 @@ RATE_LIMIT_STATUS = 429
 # from one fresh session, those exact offsets return **200** — the offset is not the
 # trigger and the answer is not "this page does not exist"; it is a WAF tripping on the
 # pass's cumulative request volume (the board reports count=1896, so ~190 search pages
-# plus a detail call per hydrated position). That is
-# a throttle wearing a different status code, so it takes the throttle path. A 403 on
-# the FIRST page still raises: nothing to salvage, and a board that refuses from the
-# start is a block, not a throttle.
+# plus a detail call per hydrated position). That is a throttle wearing a different
+# status code, so it takes the throttle path. A 403 on the FIRST page still raises:
+# nothing to salvage, and a board that refuses from the start is a block, not a
+# throttle.
 THROTTLE_STATUSES = (RATE_LIMIT_STATUS, 403)
 RETRY_ATTEMPTS = 3
 RETRY_BASE_WAIT = 2.0
@@ -161,7 +161,7 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
             # exception, so qualcomm would go from a loud failure every pass to a
             # SILENT truncation every pass (990 of 1,896 reading as the whole board).
             # PRINCIPLES: fail loud into something visible.
-            print(f"[fetch] phenom/{host}: throttled at start={start} "
+            print(f"[fetch] {SOURCE}/{slug}: throttled at start={start} "
                   f"(HTTP {getattr(resp, 'status_code', '?')}) after "
                   f"{RETRY_ATTEMPTS} retries — keeping the pages already walked; "
                   "this board is TRUNCATED for this pass")

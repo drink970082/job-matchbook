@@ -397,7 +397,9 @@ def test_a_salvaged_board_says_so(capsys):
     phenom.fetch(SLUG, "Microsoft", session=sess, sleep=lambda _s: None)
 
     out = capsys.readouterr().out
-    assert "TRUNCATED" in out and "start=2" in out
+    assert out.count("TRUNCATED") == 1        # once per board per pass, never per page
+    assert f"phenom/{SLUG}" in out            # same {source}/{slug} shape run_fetch logs
+    assert "start=2" in out and "HTTP 403" in out
 
 
 def test_non_429_search_error_is_not_retried():
