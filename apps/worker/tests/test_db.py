@@ -328,3 +328,24 @@ def test_upsert_defaults_status_new_and_null_detail(db_path):
     row = db.get_by_status(conn, "new")[0]
     assert row["external_id"] == "2"
     assert row["score_detail"] is None
+
+
+def test_a_deprioritized_row_sorts_behind_every_undemoted_one(db_path):
+    # The free seniority pre-ordering's whole mechanism: the row stays 'new' and keeps
+    # its place among its peers, it just stops competing for the paid budget. It is NOT
+    # a discard -- the labels behind it are the strong scorer's verdicts, not human ones.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [posting(str(i), job_title=f"row-{i}") for i in
+                              (1, 2, 3)], now=NOW)
+    ids = [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)]
+    assert ids == sorted(ids, reverse=True)          # newest-first to start
+
+    db.mark_deprioritized(conn, ids[0], now=LATER)   # demote the one at the front
+    after = db.get_by_status(conn, "new", newest_first=True)
+    assert [r["id"] for r in after] == ids[1:] + [ids[0]]
+    assert all(r["pipeline_status"] == "new" for r in after)   # still queued, not dropped
+    # and it did NOT masquerade as recent work, which the queue reads as HIGHER priority
+    assert after[-1]["updated_at"] is None
+
+    conn.execute("UPDATE job_postings SET deprioritized_at=NULL")   # the un-demote
+    assert [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)] == ids

@@ -7,6 +7,36 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **A free seniority pre-ordering decides which rows deserve the paid fit call.** 96% of
+  paid calls came back a "no" and 54% of those were `seniority=too_junior` — the budget
+  was being spent proving that jobs that were never viable are not viable. That half is
+  reachable for free: SCORING §4.2 measures seniority only against a bar the JD states
+  explicitly, which is the closed-vocabulary bounded extraction §9.1 calls
+  weak-model-capable. Same shape as the degree fix — the local model reports
+  `stated_min_years` / `stated_rank` as literally stated, **code** compares them against
+  the new `candidate.years_experience`, and the model never decides.
+  **It re-orders and never filters.** A demoted row is stamped `deprioritized_at`, keeps
+  `pipeline_status='new'` and its place among its peers, and sorts behind every undemoted
+  row; `UPDATE job_postings SET deprioritized_at=NULL` reverses it row for row. That is
+  not caution for its own sake: the layer was measured against the strong scorer's own
+  verdicts rather than human labels, so it may decide which row gets the next paid call
+  and may not delete a posting (SCORING §9.3).
+  **Measured over 446 rows on `qwen3.5:4b` with zero quota** (`make eval-seniority`,
+  new): precision **0.964**, recall 0.757, 44% demoted, 0 provider errors — and the
+  number that actually decides it, **0 false demotions on rows the strong scorer called
+  `domain=match` and 0 on rows that were notified**. The whole notify payoff set survives
+  undemoted, so a false demotion costs a delay on a row the notify gate would have
+  dropped anyway. A keep-direction veto clamps the model's number down to the smallest
+  years-figure the JD literally states, which cut false demotions 20 -> 7 by catching the
+  degree-conditional ladders the model mis-reads.
+  Free only where it is local: wired on the `ollama` screen backend and nowhere else, and
+  off entirely when no candidate is configured. Its prompt is its own file with its own
+  eval gate, so the screen's degree/authorization/clearance extractions do not end up
+  behind it. (SPEC §7.1/§9, SCORING §5.7, design record in
+  `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.)
+
 ### Fixed
 
 - **Rows the operator's own TITLE filters would refuse were still buying paid fit
