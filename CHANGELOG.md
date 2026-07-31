@@ -19,6 +19,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   now takes the throttle path (bounded retry, then salvage the pages already walked). A
   403 on the FIRST page still raises: nothing to salvage, and a board that refuses from
   the start is a block, not a throttle. (SPEC §7.1/§9.)
+- **Phenom's DETAIL call had no retry at all, and that is the leg that was losing real
+  postings.** A throttled detail GET returns an empty description, `_valid_posting` drops
+  the row as bodyless, and it lands in `feed_unresolved` as `empty_description` — so the
+  posting vanishes and is re-fetched and re-dropped every pass.
+  `apply.careers.microsoft.com` was the largest single source of those (77 rows, and the
+  BACKLOG entry read them as a board that serves no bodies). Re-requesting six of them by
+  hand on 2026-07-31 returned a **full 5,029-8,376 character description for five, and a
+  429 for the sixth** — they were never bodyless. The detail GET now retries a throttle on
+  the same bounded budget as the search leg. (SPEC §7.1/§9.)
 
 ### Added
 

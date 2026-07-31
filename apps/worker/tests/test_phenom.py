@@ -383,6 +383,65 @@ def test_a_403_on_the_first_page_still_raises():
         phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
 
 
+def test_a_throttled_DETAIL_call_is_retried_rather_than_silently_losing_the_body():
+    # The detail leg is the one that actually loses postings: a throttled detail GET
+    # returns an empty description, _valid_posting drops the row as bodyless, and it is
+    # filed as `empty_description` and re-dropped every pass. Measured 2026-07-31 on
+    # apply.careers.microsoft.com: 5 of 6 such "bodyless" rows returned a full 5-8k char
+    # description when re-requested by hand, and the 6th returned a 429.
+    class _ThrottledDetailSession:
+        def __init__(self, throttles):
+            self.left = throttles
+            self.detail_calls = 0
+
+        def get(self, url, params=None, timeout=None):
+            if url.endswith("/search"):
+                start = (params or {}).get("start", 0)
+                if start == 0:
+                    return _Resp(SEARCH)
+                return _Resp({"status": 200,
+                              "data": {"count": SEARCH["data"]["count"], "positions": []}})
+            self.detail_calls += 1
+            if self.left > 0:
+                self.left -= 1
+                return _Resp(None, status_code=429, headers={})
+            return _Resp(DETAIL)
+
+    waits: list[float] = []
+    sess = _ThrottledDetailSession(throttles=1)
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert all(o["description"] for o in out)      # the body survived the throttle
+    assert sess.detail_calls == len(out) + 1       # exactly one retry was spent
+    assert waits == [phenom.RETRY_BASE_WAIT]
+
+
+def test_a_persistently_throttled_detail_call_gives_up_bounded():
+    # Bounded, so one hostile board cannot stall the serial fetch loop. The posting is
+    # still returned (title/location/url are real) and the caller's bodyless guard
+    # decides its fate, exactly as before.
+    class _AlwaysThrottled:
+        def __init__(self):
+            self.detail_calls = 0
+
+        def get(self, url, params=None, timeout=None):
+            if url.endswith("/search"):
+                start = (params or {}).get("start", 0)
+                return _Resp(SEARCH if start == 0 else
+                             {"status": 200, "data": {"count": SEARCH["data"]["count"],
+                                                      "positions": []}})
+            self.detail_calls += 1
+            return _Resp(None, status_code=429, headers={})
+
+    waits: list[float] = []
+    sess = _AlwaysThrottled()
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert [o["description"] for o in out] == ["", ""]
+    assert sess.detail_calls == len(out) * (phenom.RETRY_ATTEMPTS + 1)
+    assert len(waits) == len(out) * phenom.RETRY_ATTEMPTS
+
+
 def test_non_429_search_error_is_not_retried():
     class _ServerErrorSession:
         def __init__(self):

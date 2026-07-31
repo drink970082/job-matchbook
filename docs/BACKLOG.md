@@ -368,10 +368,16 @@
   for the rest — that is a documented no-op. 50 post-split rows is an order of magnitude
   more than that reading predicts, so either the drop rate has changed or the entry below
   under-counts it. Nobody has looked.
-  **The diagnosis is free** (read-only): count `empty_description` rows per host per pass
-  against that host's successful ingests in the same pass, exactly as the workday
-  collapse was settled. Microsoft is a *yielding* board, so unlike msci/citadel this is
-  not a deletion candidate — a real fix would be worth actual postings.
+  **DIAGNOSED AND FIXED 2026-07-31** (`fix/phenom-403`; SPEC §7.1/§9 + CHANGELOG), and
+  the premise of this entry was wrong: **those postings are not bodyless.** Six were
+  re-requested by hand against the live detail endpoint — five returned a full
+  5,029-8,376 char `jobDescription` and the sixth returned a **429**. The cause is that
+  `_row`'s detail GET had no retry and swallowed every exception, so a throttled call
+  yielded `description=""`, `_valid_posting` dropped the row as bodyless, and it was
+  filed here and re-dropped on the next pass, forever. The detail leg now retries a
+  throttle on the same bounded budget as the search leg. The rows lost so far are not
+  recovered by this — they were never stored, so they simply re-fetch on a later pass.
+  What is NOT measured is the post-fix rate; the next live pass measures it.
 - **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS · found 2026-07-22]`. The
   full fetch pass dropped **43 bodyless postings** from `icims/globalcareers-msci`: its
   iCIMS list endpoint carries titles but no description. Same property as the Uber/Netflix

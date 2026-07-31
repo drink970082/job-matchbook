@@ -176,12 +176,35 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
                 return stub       # stored un-hydrated, no detail call
         description = ""
         try:
-            detail = http.get(detail_url,
-                              params={"domain": domain, "position_id": pid}, timeout=timeout)
+            detail = _detail(http, pid)
             detail.raise_for_status()
             description = _require_ok(detail.json()).get("jobDescription") or ""
         except Exception:
             pass  # one bad detail: keep the posting (search has title/loc/url), no desc
         return parse_position(pos, company_name, description, base_url=base_url)
+
+    def _detail(http, pid):
+        """One detail GET, retrying a throttle on the same bounded budget as `_search`.
+
+        The DETAIL leg had no retry at all, and it is the leg that actually loses
+        postings: a throttled detail call returns an empty description, `_valid_posting`
+        then drops the row as bodyless, and it is filed under `empty_description` — so
+        the posting silently disappears and is re-fetched and re-dropped every pass.
+        Measured 2026-07-31 on `apply.careers.microsoft.com`, the largest such source (77
+        rows): re-requesting six of them by hand returned a **full 5,029-8,376 char
+        description for five, and a 429 for the sixth**. They were never bodyless.
+        """
+        wait = RETRY_BASE_WAIT
+        resp = None
+        for attempt in range(RETRY_ATTEMPTS + 1):
+            resp = http.get(detail_url,
+                            params={"domain": domain, "position_id": pid}, timeout=timeout)
+            if getattr(resp, "status_code", None) not in THROTTLE_STATUSES:
+                return resp
+            if attempt == RETRY_ATTEMPTS:
+                break
+            wait_fn(_retry_wait(resp, wait))
+            wait = min(wait * 2, RETRY_MAX_WAIT)
+        return resp
 
     return paged_details(session, fetch_page=_page, build_row=_row)
