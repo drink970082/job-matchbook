@@ -86,12 +86,18 @@ const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
     clearance: '%clearance:%',
     internship: '%internship/co-op%',
     // Not a hard-constraint cause: the operator's own title/age filters, re-applied to
-    // already-queued rows by run_score's free phase-0 sweep. One pattern covers both
-    // strings the worker writes ("prefilter: title refused by the current filters" and
-    // "prefilter: refused by the current title/age filters") since only the tail differs.
-    // These are the bulk population — 1,298 rows in a single 2026-07-31 sweep — and
-    // without a cause they are visible in the Discarded bucket but not selectable, so an
-    // operator cannot bulk-remove them.
+    // already-queued rows by run_score's free phase-0 sweep. Without a cause these rows
+    // are visible in the Discarded bucket (that filter keys on `disqualified`, not on
+    // cause) but not selectable, so an operator cannot bulk-remove them — 1,504 rows as
+    // of 2026-07-31.
+    //
+    // The worker writes two spellings and they do NOT both reach this filter, which is
+    // worth stating because the prefix suggests otherwise. Measured 2026-07-31:
+    //   "prefilter: title refused by the current filters"        1,504 rows, all discarded
+    //   "prefilter: refused by the current title/age filters"        56 rows, all `new`
+    // `disqualifyCauseIds` scopes to pipeline_status='discarded', so the second spelling
+    // contributes zero here. The wildcard covers it only if those rows are ever
+    // discarded; it is deliberately not narrowed to the first spelling so that stays true.
     prefilter: '%prefilter:%',
 }
 

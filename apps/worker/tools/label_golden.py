@@ -40,17 +40,28 @@ DOMAIN = {"m": "match", "a": "adjacent", "x": "mismatch"}
 BAND_ORDER = ["near", "keep", "skip"]
 
 
+# Control keys must not collide with any verdict key, or the prompt teaches the labeller
+# to write a wrong label. They did: the skip key was `s`, which is also SENIORITY's
+# `too_senior`, so following the prompt silently appended `too_senior` — flushed at once,
+# never re-offered (labelled ids are skipped on the next run), and a wrong human label is
+# worse than no label at all. Non-alphabetic by construction so no future verdict can
+# reach them; the assert makes a collision a startup error rather than bad data.
+SKIP_KEY, QUIT_KEY = "-", "/"
+assert not (set(SENIORITY) | set(DOMAIN)) & {SKIP_KEY, QUIT_KEY}, "control key collides"
+
+
 def ask(prompt: str, options: dict) -> str | None:
     menu = "  ".join(f"[{k}] {v}" for k, v in options.items())
     while True:
-        raw = input(f"{prompt}\n  {menu}\n  (s=skip row, q=save & quit) > ").strip().lower()
-        if raw in ("q", "quit"):
+        raw = input(f"{prompt}\n  {menu}\n"
+                    f"  [{SKIP_KEY}] skip this row   [{QUIT_KEY}] save & quit > ").strip().lower()
+        if raw == QUIT_KEY:
             return None
-        if raw == "skip":
+        if raw == SKIP_KEY:
             return "SKIP"
         if raw in options:
             return options[raw]
-        print("  ? pick one of the letters above.")
+        print(f"  ? pick one of: {' '.join(list(options) + [SKIP_KEY, QUIT_KEY])}")
 
 
 def main() -> int:

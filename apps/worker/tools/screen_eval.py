@@ -296,9 +296,18 @@ def run_live() -> int:
 
     summary = summarize(results)
     report = render(results, summary, {"backend": backend, "model": model})
-    OUT.write_text(report)
     print(report)
-    print(f"(report written to {OUT.relative_to(ROOT)})")
+    # Write AFTER printing and tolerate an out-of-repo / missing-parent OUT: the path is
+    # operator-supplied now, and relative_to() raises ValueError outside ROOT while
+    # write_text() raises FileNotFoundError for a missing dir. Either would replace the
+    # PASS/FAIL exit code with a traceback after the whole run had completed.
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(report)
+    try:
+        shown = OUT.relative_to(ROOT)
+    except ValueError:
+        shown = OUT
+    print(f"(report written to {shown})")
     return 0 if summary["passed"] else 1
 
 

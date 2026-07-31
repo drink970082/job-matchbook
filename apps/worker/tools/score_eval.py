@@ -215,17 +215,38 @@ def verdicts_match(single_map: dict, batched_map: dict,
     return not [d for d in drift if not d["marked"]], drift
 
 
+def _cols_for(conn, row) -> tuple | None:
+    """The COLS tuple for a golden row: the DB first, then the row's own inline
+    `posting` payload. ONE helper because both callers need identical behavior — the
+    first version fixed only `score_row` and left `_build_postings` skipping the same
+    rows, so `--batched`/`--drift-probe` would still have reported PASS over zero rows.
+
+    DB wins over inline when both exist: `job_postings.id` is AUTOINCREMENT so an id is
+    never recycled, and the live row is the fresher copy of the same posting.
+    """
+    got = conn.execute(
+        f"SELECT {', '.join(COLS)} FROM job_postings WHERE id=?", (row["id"],)
+    ).fetchone()
+    if got is not None:
+        return tuple(got)
+    inline = row.get("posting")
+    # PRESENCE, not truthiness: `location` is NULL/empty on 174 of 11,675 live rows and
+    # the DB path tolerates that, so requiring truthiness would reject a good row.
+    if isinstance(inline, dict) and all(c in inline for c in COLS):
+        return tuple(inline[c] for c in COLS)
+    return None
+
+
 def _build_postings(rows, conn) -> list[dict]:
     """Golden rows -> posting dicts carrying `id` (required: the codex fit batches by
     `posting["id"]` as `job_ref`, so every posting handed to it MUST carry one; COLS
     has no id column, so it's added explicitly)."""
     postings = []
     for row in rows:
-        got = conn.execute(
-            f"SELECT {', '.join(COLS)} FROM job_postings WHERE id=?", (row["id"],)
-        ).fetchone()
+        got = _cols_for(conn, row)
         if got is None:
-            print(f"! id={row['id']} not in DB — skipped", file=sys.stderr)
+            print(f"! id={row['id']} not in DB and no inline posting — skipped",
+                  file=sys.stderr)
             continue
         postings.append({**dict(zip(COLS, got)), "id": row["id"]})
     return postings
@@ -410,25 +431,36 @@ def render_drift_probe(draws, rows, meta, batch_size: int) -> str:
     return "\n".join(lines)
 
 
+def _write_report(path, doc: str) -> None:
+    """Write a report to `path`, tolerating an out-of-repo or not-yet-existing directory.
+
+    Both matter because the OUT path is now operator-supplied: `relative_to(ROOT)` raises
+    ValueError for anything outside the repo (`/tmp/luna.md` is the natural choice when
+    A/B-ing two backends concurrently), and `write_text` raises FileNotFoundError for a
+    missing parent. Either would abort AFTER a quota-spending run had already finished.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(doc)
+    try:
+        shown = path.relative_to(ROOT)
+    except ValueError:
+        shown = path
+    print(f"→ {shown}")
+
+
 def score_row(conn, score_fit, resumes, row) -> dict | None:
-    got = conn.execute(
-        f"SELECT {', '.join(COLS)} FROM job_postings WHERE id=?", (row["id"],)
-    ).fetchone()
+    # A row may carry its own posting payload, which makes the corpus SELF-CONTAINED the
+    # way screen_golden.jsonl already is. That asymmetry is why this corpus decayed and
+    # that one did not: on 2026-07-31, 22 of 23 golden rows named postings no longer in
+    # the DB, so the gate silently fell to ONE row and kept reporting PASS. Labels here
+    # are hand-written and cannot be re-derived, so losing the posting loses the label.
+    # Remapping by title was tried and rejected — two different golden rows fuzzy-matched
+    # the same candidates.
+    got = _cols_for(conn, row)
     if got is None:
-        # A row may carry its own posting payload, which makes the corpus SELF-CONTAINED
-        # the way screen_golden.jsonl already is. That asymmetry is why this corpus
-        # decayed and that one did not: on 2026-07-31, 22 of 23 golden rows named
-        # postings no longer in the DB, so the gate silently fell to ONE row and kept
-        # reporting PASS. Labels here are hand-written and cannot be re-derived, so
-        # losing the posting loses the label. Remapping by title was tried and rejected —
-        # two different golden rows fuzzy-matched the same candidates.
-        inline = row.get("posting")
-        if inline and all(inline.get(c) for c in COLS):
-            got = tuple(inline[c] for c in COLS)
-        else:
-            print(f"! id={row['id']} not in DB and no inline posting — skipped",
-                  file=sys.stderr)
-            return None
+        print(f"! id={row['id']} not in DB and no inline posting — skipped",
+              file=sys.stderr)
+        return None
     # `id` is required: the codex fit batches by posting["id"] (job_ref); COLS has no
     # id column, so add it explicitly (B1/B4 batch-first migration).
     posting = {**dict(zip(COLS, got)), "id": row["id"]}
@@ -595,12 +627,17 @@ def main() -> int:
         conn.close()
 
     meta = {"ts": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL,
-            "labels": list(resumes), "profile": len(profile)}
+            "labels": list(resumes), "profile": len(profile),
+            # Which corpus produced this. Without it, a shell that still exports
+            # GOLDEN_SET emits a report indistinguishable from the authoritative gate's
+            # while measuring a substitute (machine-labelled) corpus.
+            "golden": GOLDEN}
     doc = render([r for r in scored if not r.get("marked")],
                  [r for r in scored if r.get("marked")], meta)
-    OUT.write_text(doc)
+    # print BEFORE writing: the write can fail (missing parent dir) and this run cost
+    # real quota, so the report must reach the terminal either way.
     print(doc)
-    print(f"→ {OUT.relative_to(ROOT)}")
+    _write_report(OUT, doc)
     return 0
 
 

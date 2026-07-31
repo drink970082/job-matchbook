@@ -158,12 +158,22 @@
   on line breaks as well as `[.!?]`, which changes what every snippet contains and so
   needs a gate re-run — hence recorded rather than done.
   **MEASURED ON LIVE DESCRIPTIONS 2026-07-31, as this entry asked — and the rate is far
-  lower than "degenerates to the whole JD" implies.** 600 live `description` values of
-  >=800 chars through the real `_sentences`: the **median** longest-"sentence" share of a
-  JD is **27%**; **81 of 600 (14%)** have one "sentence" covering more than half the
-  description; exactly **1 of 600 (0.2%)** is a single sentence. So the catastrophic shape
-  is rare and the merely-too-wide shape is common — and both were previously quoted off
-  2-3 sentence *excerpts*, where a +/-1 window trivially covers everything.
+  lower than "degenerates to the whole JD" implies.** Over a **random 3,000** of the 9,584
+  live `description` values >=800 chars, through the real `_sentences`: the **median**
+  longest-"sentence" share of a JD is **13%**; **140 (5%)** have one "sentence" covering
+  more than half the description; **1 (0.03%)** is genuinely a single sentence. So the
+  catastrophic shape is very rare and the too-wide shape is uncommon — and both were
+  previously quoted off 2-3 sentence *excerpts*, where a +/-1 window trivially covers
+  everything.
+  **A first version of this bullet published 27% / 14% / 0.2%, and it was sampling bias —
+  in the entry that exists to stop exactly that.** Those figures came from
+  `ORDER BY id LIMIT 600`, i.e. the **oldest** 600 rows, 6% of the population and the
+  boards ingested first. Re-measured across the id range: oldest-600 gives 27% / 14%,
+  random-3000 gives 13% / 5%, newest-600 gives 13% / 2%. **Age of the sample, not the
+  splitter, drove the headline.** The "0.2% single sentence" was also mislabelled: it
+  counted rows whose longest sentence exceeded 95% of the JD, and the true
+  `len(_sentences(d)) == 1` count in that same sample is **zero**. Any future measurement
+  here must randomize over the id range and say which sample it used.
   **Still not fixed, and the reason is measurement hygiene rather than effort.** The screen
   corpus changed the same day (83 → 103 rows; both blind halves opened up). Shipping the
   splitter now would move two variables at once and no gate result could be attributed to

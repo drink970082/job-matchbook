@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
+  bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own
+  `title_filter`/`title_exclude` to already-queued rows, and it is the bulk producer of
+  discards — 1,504 rows carry that reason as of 2026-07-31, against a bucket the operator
+  reviews by hand. They were already *visible* (the bucket filter keys on `disqualified`,
+  not on cause) but not *selectable*, so there was no way to clear them. Adds the value to
+  `DisqualifyCause`, one `%prefilter:%` pattern, and one entry in the UI's `CAUSES`;
+  `disqualifyCauseIds` is reused unchanged (SPEC §7.3).
+  **It is deliberately not a hard-constraint cause.** Every other cause names a
+  requirement the *candidate* fails; this one names the operator's own config refusing the
+  posting, which is why the label reads "Pre-filter (title/age)" rather than naming a
+  requirement.
+  **The worker writes two `prefilter:` spellings and only one of them ever reaches this
+  filter** — measured 2026-07-31: `"prefilter: title refused by the current filters"` is
+  1,504 rows, all `discarded`; `"prefilter: refused by the current title/age filters"` is
+  56 rows, all still `new`. `disqualifyCauseIds` scopes to `discarded`, so the second
+  contributes nothing today; the pattern is left as a wildcard so it does once those rows
+  discard.
+
 - **A free seniority pre-ordering decides which rows deserve the paid fit call.** 96% of
   paid calls came back a "no" and 54% of those were `seniority=too_junior` — the budget
   was being spent proving that jobs that were never viable are not viable. That half is
