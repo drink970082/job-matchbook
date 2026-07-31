@@ -411,7 +411,7 @@
 - **Intake-cut evidence — MEASURED 2026-07-31, the decision is the operator's**
   — `[FETCH · S · Q3 · numbers ready, nothing changed]`. Q3 is the only lever that
   reduces *demand* rather than re-ordering it, and it was never costed. Three findings.
-  **1. 37% of the live `new` queue (3,480 of 9,400) dies on the free deterministic
+  **1. 37% of the live `new` queue (3,440 of 9,381) dies on the free deterministic
   gates** — it was fetched, stored, and will be discarded without a model ever reading
   it. Per board, the share of its queued rows that die there:
 
@@ -428,8 +428,8 @@
   | ByteDance | 155 | 75 | 48% |
   | Amazon | 987 | 357 | 36% |
   | Google | 759 | 13 | **2%** |
-  | Qualcomm | 150 | 0 | **0%** |
-  | AMD | 103 | 0 | **0%** |
+  | Qualcomm | 150 | 0 | **0%** (0% null locations) |
+  | AMD | 103 | 0 | **0%** (0% null locations) |
 
   Google, Qualcomm and AMD are the control: a board CAN be nearly all-relevant, so a
   57-71% waste rate is a property of that board's geography mix, not of the gate.
@@ -457,7 +457,7 @@
   on `(source, slug)` — the watchlist's actual key — not on the display name. Zero is not proof of a
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
-  decision below: it is nineteen, not three.
+  decision below: it is eighteen, not three.
   **3. The current filters would refuse 775 of the queued rows that survive the free
   gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
   title-only). At the measured ~0.8
