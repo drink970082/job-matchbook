@@ -64,16 +64,40 @@ def _read_json(path: str):
 
 
 def _get_json(url: str, headers: dict):
-    """GET `url` and parse the JSON body, or None on any failure. Quota telemetry is
-    best-effort — a provider outage, an expired token, or a 429 must not colour a
-    scoring pass, so nothing here raises."""
+    """GET `url` and parse the JSON body, or None on the failures a provider actually
+    produces — a timeout, a refused connection, a non-200, a malformed body. Quota
+    telemetry is best-effort: none of those may colour a scoring pass.
+
+    It is deliberately NOT a bare `except Exception`. The no-raise guarantee the pass
+    depends on lives one level up in `capture_usage`, which wraps everything; keeping
+    this catch narrow means a genuinely unanticipated failure still surfaces in a test
+    run instead of being silently indistinguishable from a 403.
+
+    It does SAY WHY, though, and that is the point of the shape. The 2026-07-30
+    investigation had nothing but a `False` to go on, so an HTTP 403, an expired token, a
+    DNS blip and a malformed body were indistinguishable; it was closed as "the passes
+    had stopped fit-scoring, so the guarded call never ran", which was true of that
+    window and NOT the whole story. On 2026-07-31 the 08:00 pass fit-scored 34 rows and
+    still wrote no snapshot, while the same call from a shell 20 seconds later returned
+    200 — real, intermittent, still undiagnosed. One line naming the cause is what closes
+    it, and a diagnostic on the failure path costs nothing on the happy one.
+    """
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             if resp.status != 200:
+                print(f"[quota] {url} returned HTTP {resp.status}")
                 return None
             return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError):
+    except urllib.error.HTTPError as exc:
+        # The status IS the diagnosis: 401/403 is auth or a WAF, 429 is throttling —
+        # plausible immediately after a burst of paid calls on the same account, which
+        # is exactly when this runs — and 5xx is theirs. `urlopen` RAISES for these
+        # rather than returning them, so the `resp.status` check above never sees one.
+        print(f"[quota] {url} returned HTTP {exc.code}")
+        return None
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"[quota] {url} failed: {type(exc).__name__}: {exc}")
         return None
 
 

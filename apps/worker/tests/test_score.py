@@ -1949,3 +1949,48 @@ def test_fallback_screen_preserves_already_ruled_nongap_check():
     assert out["screen"]["clearance"] == {"pass": True, "note": "MARKER-not-recomputed"}
     assert "degree" in out["screen"]   # the real gap was filled
     assert out["screen"]["degree"]["pass"] is False   # PhD required, candidate holds Bachelor's
+
+
+# --- _get_json says WHY it failed -------------------------------------------
+# Every test above mocks `_get_json`; these are the only ones that exercise it. The
+# 2026-07-30 investigation had nothing but a False to go on and closed on a root cause
+# that was true of that window but not the whole story -- the 2026-07-31 08:00 pass
+# fit-scored 34 rows and still wrote no snapshot. A cause named in the log is what ends
+# that class of hunt.
+
+def test_get_json_names_the_http_status_when_the_provider_raises(capsys):
+    import urllib.error
+
+    def raising(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage.urllib.request, "urlopen", raising)
+        assert score.usage._get_json("https://x/usage", {}) is None
+    out = capsys.readouterr().out
+    assert "429" in out and "https://x/usage" in out
+
+
+def test_get_json_names_the_exception_when_the_connection_fails(capsys):
+    import urllib.error
+
+    def raising(req, timeout=None):
+        raise urllib.error.URLError("name resolution failed")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage.urllib.request, "urlopen", raising)
+        assert score.usage._get_json("https://x/usage", {}) is None
+    assert "URLError" in capsys.readouterr().out
+
+
+def test_an_unanticipated_failure_still_cannot_colour_the_pass(tmp_path):
+    # The no-raise guarantee the pass depends on lives in capture_usage, not in
+    # _get_json -- that catch is deliberately narrow so a genuinely unexpected failure
+    # surfaces in a test run rather than reading as just another 403. Assert the
+    # guarantee where it actually is.
+    def raising(req, timeout=None):
+        raise RuntimeError("something nobody anticipated")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(score.usage.urllib.request, "urlopen", raising)
+        assert score.usage.capture_usage(str(tmp_path / "u.json"), "codex") is False

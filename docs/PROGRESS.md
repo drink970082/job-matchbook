@@ -482,8 +482,20 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
   CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
   on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) IS NOT A DEFECT — ROOT-CAUSED 2026-07-31, and the fetch was never
-  failing.** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
+  time. **(1) REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
+  NOT the whole story.** The 08:00 pass fit-scored **34** rows and still wrote no
+  snapshot, and the shipped WARNING is what said so — the first time this failure has
+  announced itself rather than being found by an `ls -la` days later. Called by hand 20
+  seconds after that pass, the same fetch returned 200 (35% stale on disk vs 37% live),
+  and `~/.codex/auth.json` has still not been rewritten since 07-26, so the
+  concurrent-`codex exec` suspicion is dead a second time. What is left is a real,
+  intermittent, in-pass failure with **no cause named** — because `_get_json` swallowed
+  the status. It no longer does (`fix/capture-usage-diagnosis`): a non-200, an
+  `HTTPError` and a connection failure each print what happened, so the next occurrence
+  identifies itself. **Prime suspect, untested:** a 429/403 on the usage endpoint
+  immediately after a burst of paid calls on the same account — 34 calls failed where 7
+  succeeded four hours earlier.
+  **The earlier finding, which still holds for its own window:** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
   scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
   (4 rows, then 0, then 0 — CHANGELOG, "the scoring pass had stalled"), so the call was
   correctly never made. Verified three ways: the fetch returns `True` both from an
