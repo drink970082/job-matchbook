@@ -34,8 +34,16 @@ therefore about spend and intake, not about whether the pipeline works — see I
 
 **Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
 paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
-of them buy a "no". Seniority is the half a *free* local extraction can reach — see the
-first In-flight entry.
+of them buy a "no". Seniority is the half a *free* local extraction can reach, and it was
+measured on 07-30 and passed — see the first In-flight entry.
+
+**QUOTA IS THE STANDING PRIORITY as of 2026-07-31 (operator's call).** Work that is not a
+quota lever waits. The gap, the three levers that move it, and the two measured dead ends
+are in [Quota — the gap and the three levers](#quota--the-gap-and-the-three-levers); the
+pick order is Q1-Q3 at the top of the queue. **The reframe that section turns on: the
+backlog is not a debt to repay** — this system surfaces ~15 postings a week to a human, it
+does not owe every row a verdict, so the problem is *which* rows get the paid call, not how
+many.
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -327,10 +335,30 @@ The buckets below are a *catalogue* sorted by severity. This is the **queue**: w
 take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
-> 1, 4, 5 on 07-28). **The next thing to take is the `capture_usage` defect** under
-> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix): the quota bar stopped
-> updating silently, and quota is the binding constraint, so the instrument matters more
-> than anything left in the catalogue below.
+> 1, 4, 5 on 07-28). **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
+> Anything in the catalogue below that is not a quota lever waits. The order is fixed and
+> the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
+> immediately after this queue; read it before picking, because two of the obvious moves
+> (a cheaper fit model, a slower cadence) are measured dead ends.
+>
+> **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`.** The quota snapshot stopped
+> being written and nothing said so; it has already made one `--score-limit` decision come
+> out ~17 points optimistic. Every number in the quota analysis rests on this file, so it
+> goes first even though the other two levers are worth more. The visibility half (WARNING
+> on a `False` return, `as_of` stamped into the snapshot) is the part that matters; the
+> root cause can follow. Entry under
+> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
+>
+> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`.** Measured 2026-07-30 and it
+> passed (In flight, first entry). It adds no capacity; it makes the capacity you have land
+> on rows worth spending it on, which is worth roughly 2x. Ship it as a re-ordering with the
+> keep-direction veto included, as a standalone call first.
+>
+> **Q3. Cut intake — `[FETCH · S]`.** The only lever that reduces *demand* rather than
+> re-ordering it: `title_filter`, `max_age_days`, and dropping low-yield boards. The feed is
+> the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
+> watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
+> the trivial end of it and are one decision, recorded below.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -450,6 +478,43 @@ take first and why. Each numbered item is independently pickable.
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
 > (bounded fetch + scoring at scale) remain unrun — read them before any large paid pass
 > for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
+
+### Quota — the gap and the three levers
+
+**Measured live 2026-07-31** (`db/applications.db`, read-only): backlog **9,381** `new`;
+intake **728 rows on 07-30** (07-29 was 3,212 — a feed spike, not the norm); scored **251
+on 07-30, 197 on 07-29**. Capacity at `--score-limit 40` x 6 passes is **240 rows/day =
+~1,680/week**, about 92% of the weekly window at the measured ~0.8 paid messages/row.
+
+**So it is roughly 730 in, 250 out per day, and the backlog grows ~480/day.** Steady-state
+demand is ~2,800–4,900 fit calls/week against capacity near ~1,344 — behind by ~2–3x. No
+cap setting fixes that: `60` blew the budget at ~138%, `40` fits at ~92% but covers fresh
+intake only. **Every figure here rests on `db/scorer_usage.json`, which is the file that
+silently stopped updating — see Q1.**
+
+**THE REFRAME, AND IT IS THE POINT: the backlog is not a debt to repay.** This system's job
+is to surface ~15 postings a week to a human who applies by hand. It is not a queue
+processor and it does not owe every row a verdict. A posting that is never scored costs
+nothing unless it was one worth applying to. Read the gap that way and it is not a 3x
+shortfall in throughput — it is that the ~250 rows/day the budget *can* buy are currently
+drawn nearly at random with respect to whether they deserve the call. **96% of paid calls
+buy a "no" and 54% are `too_junior`** (In flight, first entry): the budget is being spent
+proving that jobs that were never viable are not viable.
+
+**The three levers, and only these three.**
+1. **Prioritize** (Q2). Adds no capacity; roughly doubles the yield of the capacity there
+   is. Measured and ready.
+2. **Cut intake** (Q3). The only lever that reduces demand rather than re-ordering it.
+3. **Accept the parked backlog.** The 2026-07-22/23 rows are already unreachable by
+   construction — the queue is most-recently-touched-first, so only a deliberate operator
+   run reaches them. Treating them as owed is what makes the arithmetic look hopeless.
+
+**Two moves that are NOT levers, both measured, do not re-propose them.** A *cheaper fit
+model*: SCORING §8.7 — it lost on real JDs on both gate axes (agreement 76% vs 86%,
+flip-rate 38% vs 29%) after winning a synthetic probe, and §9.1 puts calibrated numbers and
+domain judgment on the strong-model-only side; even at 2x the calls it does not reach steady
+state. A *slower cadence*: halving the passes doubles each one's intake, so paid calls/week
+do not move — quota is a function of newly discovered postings, not of pass count.
 
 **P3 — coverage and cost, in value-per-effort order.** `custom` HTML mode (`[M]`, drops
 6 boards off Chromium and unblocks Citi/Barclays) → bulk watchlist skill (`[M]`). The
