@@ -408,6 +408,51 @@
   to avoid. **`phenom/microsoft` is NOT in this set:** it drops 4-6 bodyless rows per pass
   but serves full descriptions for the rest, so it is a partial-drop board, not an
   empty-JD one.
+- **Intake-cut evidence — MEASURED 2026-07-31, the decision is the operator's**
+  — `[FETCH · S · Q3 · numbers ready, nothing changed]`. Q3 is the only lever that
+  reduces *demand* rather than re-ordering it, and it was never costed. Three findings.
+  **1. 37% of the live `new` queue (3,480 of 9,400) dies on the free deterministic
+  gates** — it was fetched, stored, and will be discarded without a model ever reading
+  it. Per board, the share of its queued rows that die there:
+
+  | board | queued | free-killed | waste |
+  |---|---|---|---|
+  | Micron | 678 | 484 | 71% |
+  | Oracle | 126 | 77 | 61% |
+  | Jane Street | 162 | 94 | 58% |
+  | TikTok | 1,367 | 782 | 57% |
+  | BlackRock | 148 | 84 | 57% |
+  | Cisco | 551 | 303 | 55% |
+  | Snowflake | 101 | 52 | 51% |
+  | Goldman Sachs | 281 | 134 | 48% |
+  | ByteDance | 155 | 75 | 48% |
+  | Amazon | 987 | 357 | 36% |
+  | Google | 759 | 13 | **2%** |
+  | Susquehanna | 151 | 0 | **0%** |
+
+  Google and Susquehanna are the control: a board CAN be nearly all-relevant, so a 57-71%
+  waste rate is a property of that board's geography mix, not of the gate. The cheapest
+  intake cut is a per-board location constraint or dropping the worst offenders — but
+  note this is *fetch* cost only, since the gate is free and (as of 2026-07-31) no longer
+  spends a budget slot either.
+  **2. Nineteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
+  `ashby/uniswap`, `browser/citadel.com`, `greenhouse/aurosglobal`, `b2c2`, `crabel`,
+  `davinciderivatives`, `exoduspoint`, `genevatrading`, `headlandstechnologiesllc`,
+  `mwinternshipprogram`, `radixexperienced`, `simplextrading`,
+  `walleyecapital-external-students`, `weissassetmanagement`, `lever/tgsmc`,
+  `lever/voleon`, `workday/mlp`, `workday/wellington/Campus`. Zero is not proof of a
+  broken slug — a small board may genuinely carry nothing past `title_filter` — but each
+  costs a fetch six times a day for nothing. This supersedes the three-row deletion
+  decision below: it is nineteen, not three.
+  **3. The current filters would refuse 438 of the 9,400 queued rows (5%)** — 435 on
+  TITLE, only 3 on age. So the "rows age out while queued" leak is currently ~0 and the
+  real leak is rows ingested before `title_filter` covered them. A pre-screen re-apply of
+  `prefilter_postings` would collect all 438 for free.
+  **Yield, for scale:** 18 rows notified in the system's entire history, of which exactly
+  one came from a watchlist board that is not also on the feed. Per-board *notify* yield
+  is not measurable yet — 9,400 rows have never been scored — so any board-drop decision
+  rests on intake cost and waste share, not on realized yield.
+
 - **Boards deliberately held off the watchlist** — `[FETCH · XS · decision recorded]`. Nine
   boards were validated but NOT added, for two reasons that are properties of the
   board, not bugs. (1) *Empty JD*: Uber (277 postings), Netflix (463), Morgan Stanley
