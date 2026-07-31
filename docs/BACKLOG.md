@@ -567,9 +567,22 @@
   it); only the cleanup degrades. **Decision:** leave it (documented-safe, litter only)
   or default the codex/`claude-code` fit path to 1 worker. Screen concurrency already
   defaults to 1 for `ollama` for an unrelated reason (a single GPU serialises anyway).
-  **Still open 2026-07-29:** `run.py` line 231 still defaults `score_workers=4`, and
-  nothing in SPEC/CHANGELOG records a decision — the 2026-07-29 audit dropped this entry
-  by mistake and it is restored here.
+  **CLOSED 2026-07-31 — the premise died with the quota-capture rewrite, and no code
+  change was needed.** The decision above was framed around a rollout cleanup that no
+  longer exists: the pre-2026-07-29 capture scraped `rate_limits` out of the session
+  rollout, which forced dropping `--ephemeral` and left the résumé+profile+JD prompt on
+  disk to be reaped. `GET /backend-api/codex/usage` replaced that (`score/usage.py:9-15`),
+  so **`--ephemeral` is unconditional again** (`backends_codex.py:132`) and the fit call
+  writes no rollout to clean up. Verified by observation, not by reading: the newest file
+  in `~/.codex/sessions` is dated **2026-07-29 09:00**, unchanged across every scoring
+  call since. `score_workers=4` is therefore correct as it stands, and the "leave it or
+  default to 1" fork is moot.
+  **One residual, and it is privacy rather than litter.** The 215 rollouts written
+  *before* the fix are still there — 17 MB, 2026-07-16 to 07-29, and **158 of them match
+  résumé/profile markers**. The fix stopped new writes but never reaped the old ones, and
+  they sit in `~/.codex/`, outside the repo, so `.gitignore` and `make check-privacy` have
+  never covered them. Deleting them is the operator's call (they are also that session
+  history's only record); nothing in this repo depends on them.
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
