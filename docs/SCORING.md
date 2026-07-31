@@ -1021,6 +1021,13 @@ block so the whole prefix is cached once per run.
 ## 5. Composition - how a pass runs the two stages
 
 ```
+PHASE 0 - PRE-ORDER (free, local, no quota)         # see 5.7
+  walk the 'new' queue newest-first, examining at most 2x the pass's cap:
+    extract {stated_min_years, stated_rank} from the JD
+    CODE decides against the candidate's own experience
+    too_junior -> stamp deprioritized_at: the row stays 'new' and sorts LAST
+    stop once the cap is filled with rows that state no bar
+
 for each posting with status 'new', newest first, bounded by an optional cap:
 
   PHASE 1 - SCREEN (concurrent, free)
@@ -1150,6 +1157,83 @@ The screen breaker is subtle and worth reproducing: a dead screen provider is sy
 but `screen_posting` errs toward keep on any provider failure, so an outage produces
 **no exception and no failed row** - it silently hands the whole backlog to the *paid* fit
 scorer unscreened. The breaker watches the `provider_error` flag for exactly that.
+
+### 5.7 The seniority pre-ordering - which rows deserve the paid call
+
+**The problem it solves is not accuracy, it is allocation.** Over the 396 rows scored in
+the week to 2026-07-30, 96% of paid fit calls came back a "no": `domain` was `mismatch`
+on 75% and `seniority` was `too_junior` on 54%. The budget was being spent proving that
+jobs that were never viable are not viable. `domain` cannot move - it needs the profile
+and the resume, which 9.1 puts strong-model-only. `seniority` can, because 4.2 measures
+it ONLY against a bar the JD states explicitly, which is the closed-vocabulary bounded
+extraction 9.1 calls weak-model-capable.
+
+**Same shape as the degree fix in 8.1**: the model reports `stated_min_years` and
+`stated_rank` as literally stated; CODE compares them to the candidate's own
+`years_experience`. The model never decides.
+
+**It re-orders, it never filters.** A `too_junior` row is stamped `deprioritized_at` and
+sorts behind every undemoted row in the `new` queue. It keeps its status, keeps its
+place among its peers, stays searchable, and `UPDATE job_postings SET
+deprioritized_at=NULL` restores the original order row for row. That constraint is not
+squeamishness: the layer was trained and measured against **the strong scorer's own
+verdicts, not human labels**, so it inherits that scorer's errors - two rows are on
+record where Sol contradicted its own rubric and the free layer was right. Good enough to
+decide which row gets the next paid call; not good enough to delete a posting (9.3).
+
+**TWO keep-direction vetoes are what make it safe, and the second was added on review.**
+(a) A rank only counts if the posting literally contains that rank word — without it a
+rank the model supplied from nowhere demoted a row with no evidence at all, while the
+years path was vetoed. (b) A stated years figure the candidate CLEARS beats a rank word
+outright: "Senior Engineer ... 0-2 years" says it will take this candidate, and the
+number is the grounded signal. Together they cost recall (0.829 -> 0.757) and demote
+share (0.484 -> 0.442) and bought precision 0.963 -> 0.964 with one fewer false demotion.
+That trade is the right direction here: both changes can only ever REMOVE a demotion.
+Neither fixes mis-ATTRIBUTION — "you will work with senior engineers" does contain the
+word — only invention.
+**The original veto:** the model's number is clamped down to
+the smallest years-figure the JD literally states - deterministic, and it can only ever
+LOWER a bar. It exists because 8.1's dominant error repeats here verbatim: on a
+degree-conditional ladder ("Master's and no experience; or Bachelor's and 3 years") the
+model reports one rung instead of the minimum across rungs. Measured 2026-07-30: false
+demotions 20 -> 7.
+
+**Measured, 446 rows, `qwen3.5:4b`, zero quota** (`make eval-seniority`): precision
+**0.964**, recall 0.757, 44% of rows demoted, 0 provider errors. But the number that
+decides this layer is not the P/R - it is WHICH rows the false demotions are: **0 of them
+are `domain=match` and 0 were ever notified.** The whole notify payoff set survives
+undemoted, so a false demotion costs a delay on a row the notify gate was going to drop
+anyway. That, not the precision, is the gate.
+
+**What a green eval does NOT prove, and this belongs next to the numbers.** The gate is
+**in-sample** — `YEARS_MARGIN`, `SENIOR_YEARS`, both vetoes and the thresholds were all
+fitted on this same 446-row corpus, with no held-out split. The decisive
+`domain=match` gate has **little statistical power**: only ~34 rows carry that label, so
+7 randomly-placed false demotions would miss all of them about half the time. And the
+corpus is **not the production population** — it is rows that already survived the screen
+and bought a paid fit call, so every one has a real description, while production runs
+this layer on every `new` row including thin JDs where a bare "Senior ..." title is
+nearly all the model sees. Read a pass as "no evidence of harm", never "evidence of no
+harm".
+
+**Determinism is real and it is NOT confidence.** At production settings
+(`temperature=0, seed=0`) the extraction is bit-reproducible, so one run is the trend -
+unlike the paid backend (8.6). The corollary is the trap: the errors are systematic and
+will never average out. Do not quote a clean run as robustness.
+
+**It is free only where it is local.** The layer is wired on the `ollama` screen backend
+and nowhere else: on a paid screen backend it would spend money to save money, which is
+not the trade it was measured for. It is also off when no candidate is configured.
+
+**Its prompt is its own file** (`prompts/seniority.txt`), gated by its own
+`make eval-seniority`. Folding the clause into `screen.txt` would cost zero extra calls -
+the screen already runs on every row - but it would put the degree / authorization /
+clearance extractions behind this layer's gate too. Worth revisiting once both gates have
+been green across a few changes; the merge is a pure cost win and nothing else.
+
+**Not built, deliberately:** a title-token floor for the "Senior ..." titles the model
+returns an empty object on (6 of 19 misses). That is a DISCARD-direction floor, so 9.3
+applies and it needs its own measurement first.
 
 ### 5.6 Concurrency shape
 

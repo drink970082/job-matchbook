@@ -1264,10 +1264,25 @@ worker modules are pure and dependency-injected; real services are wired only in
   over the rows in DB history that would enter the screen phase under this code (40 of
   486). Closing it would mean screening until `limit` *survivors* are found, which makes
   the model work per pass unbounded; the bound is worth more than the last 8-18%, and on
-  the live data the difference is ~1.3 days of catch-up rather than ~16. Charging a quota budget for work that spends no quota is
-  what stalled the live pipeline on 2026-07-31: `requeue_discarded` had returned 4,644
-  rows to `new`, where they sort AHEAD of fresh intake, and the daemon then spent every
-  pass re-killing location discards for free while fit-scoring nothing. An optional `max_id` (the
+  the live data the difference is ~1.3 days of catch-up rather than ~16.
+  Charging a quota budget for work that spends no quota is what stalled the live pipeline
+  on 2026-07-31: `requeue_discarded` had returned 4,644 rows to `new`, where they sort
+  AHEAD of fresh intake, and the daemon then spent every pass re-killing location
+  discards for free while fit-scoring nothing.   **A free seniority PRE-ORDERING runs on what phase 0 leaves** (`score/seniority.py`,
+  wired only on the `ollama` screen backend and only when a candidate is configured — it
+  must cost no quota). It examines at most `2 x limit` rows: the model extracts
+  `stated_min_years` / `stated_rank` as the JD literally states them, CODE compares
+  against `candidate.years_experience`, and a row stating a bar the candidate does not
+  clear is stamped `deprioritized_at` — it **stays `new`**, keeps its place among its
+  peers, and sorts behind every undemoted row (`db.get_by_status`'s newest-first order
+  leads on `deprioritized_at IS NOT NULL`) while remaining IN the pass, so spare budget
+  still reaches it. Never a discard: the layer is measured against the strong scorer's
+  own verdicts rather than human labels, so it may decide which row gets the next paid
+  call and may not delete a posting. `UPDATE job_postings SET deprioritized_at=NULL`
+  reverses it row for row. The rationale, the measurement (P 0.964, 44% demoted, **0
+  false demotions on `domain=match` and 0 on notified rows**) and the two keep-direction
+  vetoes are docs/SCORING.md §5.7, along with what a green eval does NOT prove; the gate
+  is `make eval-seniority`. An optional `max_id` (the
 `--score-max-id` flag) restricts the pass to rows with `id <= N` and is applied
 **before** `limit` — the SELECTOR to `limit`'s BUDGET. The two are not
 interchangeable: the queue below is newest-first, so `limit` can only name rows from
@@ -2100,6 +2115,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `feeds:` config parsing + defaults | `test_feed_config.py` |
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
+| The free seniority pre-ordering RE-ORDERS and never discards: a demoted row keeps `pipeline_status='new'` and its score/detail, is stamped `deprioritized_at`, sorts behind every undemoted row, and clearing the column restores the original order. **A demoted row stays IN the pass behind the undemoted ones**, so spare budget still reaches it — dropping it made it unreachable by any bounded pass. A blind response, an empty answer, a provider failure or a RAISING extraction is a KEEP; `_BREAKER_LIMIT` consecutive failures stop the pre-ordering and the pass continues unordered, which is what bounds a hung backend to ~15 min instead of 2-4 hours. A rank counts only if the posting names it, and a stated years figure the candidate clears beats a rank word. It examines at most `2 x limit` rows per pass, does not re-examine an already-demoted row, and is off entirely without a local backend or a configured candidate | `test_seniority.py` (whole file), `test_pipeline.py` (`test_a_demoted_row_leaves_the_paid_slice_but_stays_queued`, `test_a_demoted_row_sorts_behind_the_queue_it_left`, `test_the_pre_ordering_examines_a_bounded_number_of_rows`, `test_an_already_demoted_row_is_not_re_examined`, `test_no_seniority_backend_leaves_the_queue_exactly_as_it_was`, `test_a_demoted_row_is_still_reachable_when_the_budget_has_room`, `test_a_dead_seniority_backend_stops_the_pre_ordering_rather_than_the_pass`, `test_a_backend_that_wedges_after_working_still_trips_the_breaker`, `test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass`), `test_db.py::test_a_deprioritized_row_sorts_behind_every_undemoted_one` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
 | A phenom search **403** mid-pagination is a throttle: retried like a 429, and on a persistent one the pages already walked are kept rather than the board being lost, with the truncation announced; a 403 on the FIRST page still raises, on a bounded budget | `test_phenom.py` (`test_search_403_mid_pagination_is_retried_like_a_429`, `test_persistent_403_mid_pagination_keeps_the_pages_already_collected`, `test_a_403_on_the_first_page_still_raises`, `test_a_salvaged_board_says_so`) |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |

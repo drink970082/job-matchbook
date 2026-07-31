@@ -1949,6 +1949,192 @@ def test_requeue_discarded_leaves_every_other_status_alone(db_path):
     assert status == {"new": "new", "scored": "scored", "failed": "failed"}
 
 
+# --- the FREE seniority pre-ordering ---------------------------------------
+# It re-orders the queue so the paid budget lands on rows worth spending it on. It must
+# never DISCARD: the layer was measured against the strong scorer's own verdicts, not
+# human labels, so a false demotion may cost a delay and must not cost a posting.
+
+def _seniority(*junior_titles):
+    """A fake free extraction: 'too_junior' for the named titles, 'match' otherwise."""
+    seen = []
+
+    def fn(posting):
+        seen.append(posting["job_title"])
+        verdict = "too_junior" if posting["job_title"] in junior_titles else "match"
+        return verdict, {"stated_min_years": 5 if verdict == "too_junior" else None}
+
+    fn.seen = seen
+    return fn
+
+
+def test_a_demoted_row_leaves_the_paid_slice_but_stays_queued(db_path, capsys):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    fit_calls = []
+
+    def fit_fn(postings):
+        fit_calls.append([p["job_title"] for p in postings])
+        return [_card() for _ in postings]
+
+    pipeline.run_score(conn, now=NOW, fit_fn=fit_fn, limit=1,
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=_seniority("c", "b"))   # c and b are newest-first
+
+    assert fit_calls == [["a"]]      # the budget bought the one row with no stated bar
+    rows = {r["job_title"]: r for r in conn.execute("SELECT * FROM job_postings")}
+    for title in ("b", "c"):
+        assert rows[title]["pipeline_status"] == "new"        # queued, NOT discarded
+        assert rows[title]["deprioritized_at"] == NOW
+        assert rows[title]["score"] is None                   # nothing was spent on it
+    assert "2 deprioritized (free, still queued)" in capsys.readouterr().out
+
+
+def test_a_demoted_row_sorts_behind_the_queue_it_left(db_path):
+    # The demotion is only useful if the queue then reads it last -- and reversible.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    pipeline._preorder_by_seniority(conn, db.get_by_status(conn, "new", newest_first=True),
+                                    seniority_fn=_seniority("c"), now=NOW, limit=2,
+                                    tally={"demoted": 0})
+
+    queue = [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)]
+    assert queue[-1] == ids["c"]
+    conn.execute("UPDATE job_postings SET deprioritized_at=NULL")
+    assert [r["id"] for r in db.get_by_status(conn, "new", newest_first=True)] != queue
+
+
+def test_the_pre_ordering_examines_a_bounded_number_of_rows(db_path):
+    # Everything demoted is the pathological case: without a cap, one pass would walk
+    # the whole 9k queue at ~1.6s of GPU per row.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(30)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    fn = _seniority(*titles)
+    out = pipeline._preorder_by_seniority(
+        conn, db.get_by_status(conn, "new", newest_first=True),
+        seniority_fn=fn, now=NOW, limit=3, tally={"demoted": 0})
+
+    assert len(fn.seen) == 3 * pipeline._SENIORITY_EXAMINE_FACTOR
+    assert len(out) == len(titles) - len(fn.seen)   # the unexamined tail is handed back
+
+
+def test_an_already_demoted_row_is_not_re_examined(db_path):
+    # It is at the back already and the extraction is deterministic, so re-running it
+    # would spend GPU to reach the same answer.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    db.mark_deprioritized(conn, ids["b"], now=NOW)
+    fn = _seniority()
+    pipeline._preorder_by_seniority(conn, db.get_by_status(conn, "new", newest_first=True),
+                                    seniority_fn=fn, now=NOW, limit=5,
+                                    tally={"demoted": 0})
+    assert fn.seen == ["a"]
+
+
+def test_no_seniority_backend_leaves_the_queue_exactly_as_it_was(db_path):
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+    rows = db.get_by_status(conn, "new", newest_first=True)
+    assert pipeline._preorder_by_seniority(conn, rows, seniority_fn=None, now=NOW,
+                                           limit=5, tally={"demoted": 0}) == rows
+
+
+def test_a_demoted_row_is_still_reachable_when_the_budget_has_room(db_path):
+    # THE constraint: a demotion is a delay, not a deletion. When the undemoted head is
+    # smaller than the budget -- a drained queue, or a --score-max-id window -- the spare
+    # budget must flow to the demoted rows. Dropping them from the returned list instead
+    # made them permanently unreachable by ANY bounded pass, including the documented
+    # --score-max-id recovery recipe.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b", "c")], now=NOW)
+    ids = {r["job_title"]: r["id"] for r in conn.execute("SELECT id, job_title FROM job_postings")}
+    for t in ("b", "c"):
+        db.mark_deprioritized(conn, ids[t], now=NOW)
+
+    fit_calls = []
+    pipeline.run_score(conn, now=NOW, limit=40,
+                       fit_fn=lambda ps: fit_calls.append([p["job_title"] for p in ps])
+                       or [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=_seniority())      # nothing demoted this pass
+
+    # all three scored, with the undemoted one FIRST
+    assert fit_calls and fit_calls[0][0] == "a"
+    assert sorted(sum(fit_calls, [])) == ["a", "b", "c"]
+    assert {r["pipeline_status"] for r in conn.execute("SELECT * FROM job_postings")} == {"scored"}
+
+
+def test_a_dead_seniority_backend_stops_the_pre_ordering_rather_than_the_pass(db_path, capsys):
+    # A hung local model would otherwise burn the whole slot: the calls are sequential
+    # and make_ollama_extract's default timeout is 180s, so 2 x limit of them is hours.
+    # The screen phase has this breaker; the pre-ordering did not.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(12)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    calls = []
+
+    def dead(posting):
+        calls.append(posting["job_title"])
+        return "match", {"error": "ollama is down"}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=dead)
+
+    assert len(calls) == pipeline._BREAKER_LIMIT      # stopped, did not walk the budget
+    assert "backend appears down" in capsys.readouterr().out
+    assert db.get_by_status(conn, "scored")           # and the PASS still ran
+
+
+def test_a_backend_that_wedges_after_working_still_trips_the_breaker(db_path, capsys):
+    # The realistic shape: Ollama is warm at pass start, answers once, then hangs. A
+    # zero-successes-ever breaker could never arm here -- a failed extraction returns
+    # `match`, so every hung call lands in `kept` and the loop runs until the budget
+    # fills. At --score-limit 40 x a 180s timeout that is TWO HOURS of a four-hour slot.
+    conn = db.connect(db_path)
+    titles = [f"j{i}" for i in range(12)]
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in titles], now=NOW)
+    calls = []
+
+    def wedges(posting):
+        calls.append(posting["job_title"])
+        if len(calls) == 1:
+            return "match", {}                 # one good answer, then it hangs
+        return "match", {"error": "read timed out"}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=wedges)
+
+    assert len(calls) == pipeline._BREAKER_LIMIT + 1   # the good one, then 5 failures
+    assert "backend appears down" in capsys.readouterr().out
+
+
+def test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass(db_path):
+    # Same per-item contract the screen phase holds.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting(t, job_title=t) for t in ("a", "b")], now=NOW)
+
+    def flaky(posting):
+        if posting["job_title"] == "a":
+            raise ValueError("cannot convert float NaN to integer")
+        return "match", {}
+
+    pipeline.run_score(conn, now=NOW, limit=10,
+                       fit_fn=lambda ps: [_card() for _ in ps],
+                       screen_fn=lambda p: {"disqualified": False, "screen": {},
+                                            "disqualification_reason": ""},
+                       seniority_fn=flaky)
+    assert len(db.get_by_status(conn, "scored")) == 2
+
 def test_a_row_the_current_filters_would_refuse_is_swept_free(db_path, capsys):
     # prefilter_postings runs at INGEST only, so a row that entered before its filter
     # existed keeps its place in the queue and buys a PAID fit call on a posting the

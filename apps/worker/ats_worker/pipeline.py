@@ -583,6 +583,95 @@ class _BackendBreaker:
         return self.successes == 0 and self.failures >= self.limit
 
 
+
+# How many rows the free seniority pre-ordering may examine to fill one pass's budget.
+# The cap exists so a pathological queue (everything demoted) cannot turn a bounded pass
+# into an unbounded GPU run: 40 x 2 x ~1.6s is about two minutes of a 4-hour slot.
+# 2x does NOT leave comfortable headroom, and the review that measured it is worth
+# recording: at a ~48% demote rate, filling 40 keeps needs ~77.5 examinations in
+# expectation against a budget of 80, so the cap fires on roughly 4 passes in 10. That is
+# benign — the unexamined tail is handed back and the pass still fills to `limit` — but
+# it is a cap that is routinely reached, not a safety margin that rarely is.
+_SENIORITY_EXAMINE_FACTOR = 2
+
+
+def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> list:
+    """Demote rows whose JD states a seniority bar this candidate does not clear, until
+    `limit` undemoted rows are held. Returns the rows the pass should consider, in order.
+
+    FREE: one local extraction per row examined, no paid call, no quota. A demotion is a
+    QUEUE MOVE, not a discard — the row stays `new`, keeps its `score`/`score_detail`,
+    and `UPDATE job_postings SET deprioritized_at=NULL` restores it. That distinction is
+    load-bearing: the layer was measured against the strong scorer's own verdicts, not
+    human labels, so it is good enough to decide which row gets the next paid call and
+    NOT good enough to delete a posting (docs/SCORING.md §9.3).
+
+    Rows already carrying `deprioritized_at` are not re-examined — they sort at the back
+    already and the extraction is deterministic, so a second run reaches the same answer
+    — but they are **kept in the returned list, behind the undemoted ones**. That is the
+    difference between a delay and a deletion: when the undemoted head is smaller than
+    the budget (a drained queue, or a `--score-max-id` window), the spare budget flows
+    to demoted rows and they get scored. Dropping them here instead made them
+    permanently unreachable by any bounded pass, including the documented
+    `--score-max-id` recovery recipe.
+
+    A provider failure is a KEEP (`seniority.assess` returns `match`), and a row whose
+    extraction RAISES is kept too rather than aborting the pass — the same per-item
+    contract the screen phase holds. `_BREAKER_LIMIT` **consecutive** failures is a dead
+    backend, not a bad row: the pre-ordering stops and the pass proceeds unordered.
+
+    Consecutive, NOT `_BackendBreaker`'s zero-successes-ever — and the review that
+    measured the difference is why. Because a failure returns `match`, every hung call
+    lands in `kept`, so under a zero-successes rule a backend that answered ONCE and then
+    wedged could never arm the breaker: it would run until `kept` filled, which at
+    `--score-limit 40` is 40 x 180s = **2 hours**. Ollama is warm at pass start, so that
+    is the ordinary case rather than the exotic one.
+
+    That breaker is what bounds the WALL CLOCK, and it is the reason it exists. These
+    calls are sequential (`DEFAULT_SCREEN_WORKERS['ollama']` is 1 — the GPU serialises
+    anyway) and `make_ollama_extract` defaults to a 180s timeout, so without it a HUNG
+    local model would cost `2 x limit x 180s` — at `--score-limit 40` that is exactly
+    4 hours, the whole slot, after which `pass_lock` would refuse the next one too.
+    With it the worst case is `_BREAKER_LIMIT x 180s`, about 15 minutes, whether the
+    backend was dead from the start or wedged halfway through. Nominal cost is
+    ~1.6s/row, so ~2 minutes.
+    """
+    if seniority_fn is None or limit <= 0:
+        return rows
+    kept: list = []
+    demoted_tail: list = []          # already-demoted rows, kept BEHIND the keepers
+    examined = 0
+    failures = 0          # CONSECUTIVE; a success resets it (see the breaker note)
+    budget = limit * _SENIORITY_EXAMINE_FACTOR
+    for i, row in enumerate(rows):
+        if len(kept) >= limit or examined >= budget:
+            return kept + demoted_tail + list(rows[i:])
+        if row["deprioritized_at"]:
+            demoted_tail.append(row)
+            continue
+        examined += 1
+        try:
+            verdict, detail = seniority_fn(dict(row))
+        except Exception as exc:  # noqa: BLE001 — one bad row never aborts the pass
+            print(f"[seniority] extraction failed on row {row['id']}, keeping it: {exc}")
+            verdict, detail = "match", {"error": str(exc)}
+        if detail.get("error"):
+            failures += 1
+            if failures >= _BREAKER_LIMIT:
+                print(f"[seniority] backend appears down ({failures} consecutive "
+                      "failures) — skipping the pre-ordering for this pass; the queue "
+                      "keeps its plain newest-first order")
+                return kept + demoted_tail + list(rows[i:])
+        else:
+            failures = 0
+        if verdict == "too_junior":
+            db.mark_deprioritized(conn, row["id"], now=now)
+            tally["demoted"] += 1
+            continue
+        kept.append(row)
+    return kept + demoted_tail
+
+
 def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> list:
     """Discard every row the CODE-only gates already kill, and return the rest.
 
@@ -673,7 +762,7 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> li
 def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
               limit: int = 0, max_id: int = 0, screen_workers: int = 1,
               score_workers: int = 4, candidate=None, scorer_meta=None,
-              stale_fn=None) -> None:
+              seniority_fn=None, stale_fn=None) -> None:
     """Score every 'new' posting -> 'scored', or 'discarded' when the screen flags
     it disqualified (conflicts with a candidate hard requirement). Score + reason are
     kept either way so the UI can show why something was dropped.
@@ -728,7 +817,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     survivors: list[tuple] = []  # (row, posting, screen)
     # Most-recently-touched then newest, so `limit` takes today's discoveries — and the
     # rows run_retry just requeued, which keep their OLD ids — rather than the back of
-    # the backlog (see get_by_status). The backlog then drains from its tail only when a
+    # the backlog (see get_by_status). One exception since the seniority pre-ordering:
+    # a requeued row that was demoted on an earlier pass sorts behind the undemoted ones
+    # regardless of its fresh `updated_at`, because `deprioritized_at` leads the ORDER BY.
+    # It is still reached whenever the budget has room — that is what makes a demotion a
+    # delay rather than a deletion. The backlog then drains from its tail only when a
     # pass has headroom under the cap, which keeps clearing it an operator decision
     # instead of something the schedule does silently and expensively.
     rows = db.get_by_status(conn, "new", newest_first=True)
@@ -742,7 +835,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # line below. A pass that did work used to print NOTHING on success, so a working
     # run and a no-op run were indistinguishable at the terminal (cost real debugging
     # time 2026-07-26); the breakers below already speak up, so silence read as "fine".
-    tally = {"free": 0, "discarded": 0, "confirming": 0, "thin": 0, "fit": 0, "failed": 0}
+    tally = {"free": 0, "demoted": 0, "discarded": 0, "confirming": 0, "thin": 0,
+             "fit": 0, "failed": 0}
 
     # Phase 0 — the FREE deterministic gates, over the WHOLE queue and deliberately
     # OUTSIDE `limit`. `limit` is a QUOTA budget and these gates spend no quota: no
@@ -756,6 +850,16 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # queue in one pass.
     rows = _sweep_free_gates(conn, rows, candidate=candidate, now=now, tally=tally,
                              stale_fn=stale_fn)
+
+    # Phase 0.5 — the FREE seniority pre-ordering, on what phase 0 left. It runs on
+    # exactly the rows the budget would have bought and demotes the ones stating a bar
+    # this candidate does not clear, so the paid call lands on a row worth spending it
+    # on. 96% of paid calls came back "no" and 54% of those were `too_junior`
+    # (docs/PROGRESS.md), which is the half a free local extraction can reach. Ordering,
+    # never filtering: a demoted row stays `new`. It runs AFTER the deterministic sweep
+    # so it never spends GPU on a row that was already dead for free.
+    rows = _preorder_by_seniority(conn, rows, seniority_fn=seniority_fn, now=now,
+                                  limit=limit, tally=tally)
 
     if limit > 0:
         rows = rows[:limit]
@@ -959,7 +1063,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     # that moved a free outcome to a paid one, and the bucket it left (`screen-discarded`)
     # is what an operator would otherwise be watching. It is NOT in `done` for the same
     # reason: every row already increments exactly one of the four terms there.
-    print(f"[score] {tally['free']} free-gate discarded (unbudgeted), then "
+    print(f"[score] {tally['free']} free-gate discarded (unbudgeted), "
+          f"{tally['demoted']} deprioritized (free, still queued), then "
           f"{len(rows)} row(s): {tally['discarded']} screen-discarded, "
           f"{tally['thin']} thin-JD (no fit call), {tally['fit']} fit-scored, "
           f"{tally['confirming']} sent for confirmation, "

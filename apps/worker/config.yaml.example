@@ -104,6 +104,11 @@ candidate:
   security_clearance: "none"          # none | confidential | secret | top secret
   locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
+  years_experience: 0                 # years of professional experience. NOT a screen
+                                      # check and it can never discard a posting: it
+                                      # feeds the FREE seniority pre-ordering, which
+                                      # sends a posting stating a bar you don't clear to
+                                      # the BACK of the score queue. 0 = new grad.
 
 schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every N).
                            # Must divide 24: 1, 2, 3, 4, 6, 8, 12, 24. Anything else

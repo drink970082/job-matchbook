@@ -35,6 +35,7 @@ CREATE TABLE "job_postings" (
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,
     "posted_at" TEXT,
+    "deprioritized_at" TEXT,
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 

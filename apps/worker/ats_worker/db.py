@@ -222,7 +222,13 @@ def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool =
     `test_run_score_reaches_a_retried_row_inside_the_cap` is what stops this from
     silently regressing if `updated_at` ever starts being stamped at insert.
     """
-    order = "COALESCE(updated_at,'') DESC, id DESC" if newest_first else "score DESC, id ASC"
+    # `deprioritized_at IS NOT NULL` leads the ORDER BY, so a row the FREE seniority
+    # pre-ordering demoted sorts BEHIND every undemoted one while keeping its place
+    # among its peers. It is the only ordering key that is not about recency: a demotion
+    # says "spend the paid call on something else first", never "drop this". Clearing
+    # the column restores the row's original position exactly.
+    order = ("(deprioritized_at IS NOT NULL) ASC, COALESCE(updated_at,'') DESC, id DESC"
+             if newest_first else "score DESC, id ASC")
     return conn.execute(
         f"SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY {order}",
         [status],
@@ -274,6 +280,10 @@ def get_notifiable(conn: sqlite3.Connection):
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({
     "score", "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+    # Written only by the free seniority pre-ordering (mark_deprioritized). It is a
+    # QUEUE-ORDER field, not a state field: nothing else may set it, and clearing it
+    # restores the row's original position.
+    "deprioritized_at",
 })
 
 
@@ -309,6 +319,18 @@ def mark_notified(conn, posting_id: int, *, now: str) -> None:
     # doesn't carry a stale error string.
     _update(conn, posting_id, {"pipeline_status": "notified", "pipeline_error": None,
                                "updated_at": now})
+
+
+def mark_deprioritized(conn, posting_id: int, *, now: str) -> None:
+    """Send a row to the BACK of the `new` score queue without changing its status.
+
+    The free seniority pre-ordering's only write (score/seniority.py). The row stays
+    `new`, searchable and observable; it just stops competing for the paid budget with
+    rows that state no bar. Deliberately NOT `updated_at`: that column means "recently
+    touched" and the queue reads it as higher priority, which is the exact opposite.
+    `UPDATE job_postings SET deprioritized_at=NULL` un-demotes everything, row for row.
+    """
+    _update(conn, posting_id, {"deprioritized_at": now})
 
 
 def mark_expired(conn, posting_id: int, *, now: str) -> None:

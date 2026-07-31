@@ -31,6 +31,7 @@ def _sections(filename: str) -> dict[str, str]:
 
 _score = _sections("score.txt")
 _screen = _sections("screen.txt")
+_seniority = _sections("seniority.txt")
 
 # Stamped into every fit-scored row's score_detail (pipeline._score_detail) so the
 # operator can select the rows that predate a rubric change and re-score just those.
@@ -55,3 +56,13 @@ SCORE_C_DEGREE: str = _screen["c_degree"]
 SCORE_C_AUTHORIZATION: str = _screen["c_authorization"]
 SCORE_C_CLEARANCE: str = _screen["c_clearance"]
 SCREEN_FOOTER: str = _screen["screen_footer"]
+
+# A THIRD call, and the only free one that spends no paid quota: the seniority
+# pre-ordering extraction (score/seniority.py). Its own file, because it is gated by
+# its own eval (`make eval-seniority`) and folding it into screen.txt would put the
+# degree/authorization/clearance extractions behind that gate too — see
+# docs/SCORING.md §5.7. The wording is byte-identical to the 2026-07-30 measurement.
+SENIORITY_HEADER: str = _seniority["seniority_header"] + "\n"
+SENIORITY_LIST_HEADER: str = _seniority["seniority_list_header"]
+SENIORITY_C_SENIORITY: str = _seniority["c_seniority"]
+SENIORITY_FOOTER: str = _seniority["seniority_footer"]
