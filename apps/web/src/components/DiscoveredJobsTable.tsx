@@ -80,6 +80,7 @@ const CAUSES: { value: 'all' | DisqualifyCause; label: string }[] = [
     { value: 'degree', label: 'Degree' },
     { value: 'clearance', label: 'Clearance' },
     { value: 'internship', label: 'Internship' },
+    { value: 'prefilter', label: 'Pre-filter (title/age)' },
 ]
 
 // Compact, timezone-safe date: "2026-06-01" (yyyy-mm-dd) from a YYYY-MM-DD (or full-ISO)
