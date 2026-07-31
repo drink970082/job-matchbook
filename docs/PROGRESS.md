@@ -302,6 +302,23 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   strictly better than what GPU-owning users run today. Caveat that does not go away: this
   measures the degree and sponsorship halves only, because the clearance half still cannot
   fail.
+  **RE-RUN ON THE EXPANDED 103-ROW CORPUS, and this is the decisive comparison** — same
+  corpus, same day, both backends:
+
+  | backend | false disqualification (the gate) | recall | flip |
+  |---|---|---|---|
+  | `ollama` qwen3.5:4b | **7** — 4 degree + **3 clearance** | 31/37 (84%) | 0 |
+  | `codex` gpt-5.6-luna | **0** | 30/37 (81%) | 3 |
+
+  **The 3 clearance failures are rows the eval could not see until today**, and they are
+  not subtle: the 4B disqualifies on *"BACKGROUND CHECKS/CLEARANCES"* in a university
+  employment boilerplate (Penn State, x2) and on BlackRock's **job title**, *"Associate,
+  Trade Clearance/Settlement"*. All 3/3 draws. It is matching the word, not the meaning.
+  Luna is clean on **all 14** new clearance rows and on 672, every draw.
+  **Luna's full record is 3 runs: PASS / FAIL / PASS**, the single failure being one draw
+  of three on id 672 — so **1 bad draw in 9** against the 4B's 3-of-3 on four separate
+  rows, every run. It is not perfectly stable and should not be described as such; it is
+  roughly an order of magnitude better on exactly the failure this gate exists to catch.
   **And it is nearly free, which was the open cost question.** 249 luna screen calls
   (83 rows x K=3) moved the reported window from **41% to 41%** — under the endpoint's
   1-point resolution, so <1%, against ~12% had they billed like fit messages (~0.8
@@ -309,6 +326,31 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   against the weekly budget; it is the *fit* call that is expensive. Do not read the 0 as
   exactly zero — integer percent hides anything under a point — but the order of magnitude
   is settled.
+  **THE TERRA QUESTION, MEASURED 2026-07-31 — and the original rejection was right about
+  the wrong thing.** The human gate is vacuous (see Defects), so both arms ran against a
+  40-row stratified subset of the Sol-labelled frame (15 `keep`, 25 `near`, fixed seed),
+  via the new `GOLDEN_SET` override. K=3, `codex` backend:
+
+  | arm | agreement with the stored sol verdicts | flip-rate (self-disagreement) |
+  |---|---|---|
+  | `gpt-5.6-sol`, fresh | 34/40 (85%) | **22%** |
+  | `gpt-5.6-terra` | 32/40 (80%) | **35%** |
+
+  **Read the two columns differently, because only one of them is label-independent.**
+  *Agreement* is measured against sol's own stored verdicts, so it structurally favours
+  sol — and even so, **sol re-run agrees with itself only 85% of the time.** That 6-row
+  self-disagreement IS the noise floor the 2026-07-16 comparison never had, and terra's
+  80% sits inside it. **The "76% vs 86%" gap that rejected terra does not reproduce as a
+  meaningful difference.**
+  *Flip-rate* compares each model against itself, needs no labels, and **does** reproduce:
+  terra 35% vs sol 22% today, against terra 38% vs sol 29% on 2026-07-16. Terra is ~1.5x
+  less self-consistent, measured twice, fifteen days apart, on different corpora.
+  **So the rejection stands, on stability rather than on accuracy** — which matters because
+  the notify gate is a verdict predicate, and a model that changes its mind on a third of
+  rows moves rows across it at random. Do not re-run the agreement comparison as the
+  deciding test; run flip-rate, which needs no golden set at all and would have answered
+  this in 2026-07-16 without one.
+
   **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
   paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
   measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
