@@ -1951,9 +1951,10 @@ def test_requeue_discarded_leaves_every_other_status_alone(db_path):
 
 def test_a_row_the_current_filters_would_refuse_is_swept_free(db_path, capsys):
     # prefilter_postings runs at INGEST only, so a row that entered before its filter
-    # existed -- or that aged past max_age_days while it waited -- keeps its place in the
-    # queue and buys a PAID fit call on a posting the operator's own config refuses.
-    # Measured 2026-07-31 over the live queue: 438 of 9,400 rows, 435 of them on title.
+    # existed keeps its place in the queue and buys a PAID fit call on a posting the
+    # operator's own config refuses. Measured 2026-07-31 over the live queue: 206 of the
+    # 5,941 rows that survive the deterministic gates. (max_age_days is deliberately NOT
+    # re-applied -- an age refusal is unrecoverable; see run.py and docs/BACKLOG.md.)
     conn = db.connect(db_path)
     db.upsert_postings(conn, [
         _posting("stale", job_title="Sales Representative"),
