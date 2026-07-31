@@ -153,7 +153,11 @@ Two columns on the posting row:
 
 - `score`: integer 0-100.
 - `score_detail`: JSON.
-- `pipeline_status`: one of `new` | `scored` | `discarded` | `failed`.
+- `pipeline_status`: one of `new` | `scored` | `notified` | `discarded` | `failed`.
+  The scorer itself only ever writes `scored` / `discarded` / `failed`, but `notified`
+  is what a *delivered* alert leaves behind (Section 6), and every consumer query that
+  means "this row has a fit score" must read **both** `scored` and `notified` or it
+  silently loses every row the system already alerted on.
 
 `score_detail` shape (keys are omitted when not applicable):
 
@@ -1249,6 +1253,13 @@ verdicts are used for **routing**. Anything that must be reliable reads a verdic
 Two independent thin-JD guards, deliberately not one: the model's own
 `insufficient_context` flag, and a description-length rule. A short blurb the model may
 still rate confidently is held back by the second even when the first says nothing.
+
+**`pipeline_status = 'scored'` is not redundant with the verdict clauses — it is what
+makes the gate fire once.** A delivered alert moves the row to `notified`, which drops it
+out of this query; nothing else de-duplicates, so a rebuild that widens the status clause
+to `IN ('scored','notified')` re-alerts every match on every pass, forever. The reverse
+holds for the UI and any analytics over scored rows: those must read both statuses
+(Section 2.4), because a notified row still carries its fit score.
 
 ---
 

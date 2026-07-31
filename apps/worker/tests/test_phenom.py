@@ -262,17 +262,19 @@ class _ThrottledSearchSession:
     429 `throttles` times before serving _PAGE1 and then an empty page. Details
     always succeed. Records every search `start` asked for, in order."""
 
-    def __init__(self, *, throttles, retry_after=None, throttle_first_page=False):
+    def __init__(self, *, throttles, retry_after=None, throttle_first_page=False,
+                 status=429):
         self._throttles = throttles
         self._retry_after = retry_after
         self._throttle_first = throttle_first_page
-        self.rate_limited = 0        # 429s served
+        self._status = status
+        self.rate_limited = 0        # throttle responses served
         self.starts: list[int] = []  # every search start requested, in order
 
     def _throttle(self):
         self.rate_limited += 1
         headers = {} if self._retry_after is None else {"Retry-After": self._retry_after}
-        return _Resp(None, status_code=429, headers=headers)
+        return _Resp(None, status_code=self._status, headers=headers)
 
     def get(self, url, params=None, timeout=None):
         params = params or {}
@@ -343,6 +345,61 @@ def test_persistent_429_on_the_very_first_page_raises_and_terminates():
 
     assert sess.rate_limited == phenom.RETRY_ATTEMPTS + 1
     assert len(waits) == phenom.RETRY_ATTEMPTS
+
+
+# --- HTTP 403 mid-pagination: the SAME throttle, wearing a different status code ---
+# `careers.qualcomm.com` fails every live pass with a 403 deep in pagination, at a
+# VARYING offset (start=990 / 1060 / 1220), so the board is lost six times a day.
+# Probed cold on 2026-07-31, those exact offsets return 200 — so it is not the offset
+# and not a missing page; it is a WAF tripping on the pass's cumulative request volume.
+
+def test_search_403_mid_pagination_is_retried_like_a_429():
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=1, status=403)
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert len(out) == 3
+    assert sess.starts == [0, 2, 2, 3]        # re-requested, not skipped
+    assert waits == [phenom.RETRY_BASE_WAIT]
+
+
+def test_persistent_403_mid_pagination_keeps_the_pages_already_collected():
+    # The whole point: before this, a 403 raised and the board yielded NOTHING.
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=99, status=403)
+    out = phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert len(out) == 2                                    # page 0 survives
+    assert sess.rate_limited == phenom.RETRY_ATTEMPTS + 1   # bounded
+    assert len(waits) == phenom.RETRY_ATTEMPTS
+
+
+def test_a_403_on_the_first_page_still_raises():
+    # Nothing to salvage, and a board that refuses from the very first request is a
+    # block, not a throttle — it must not be reported as an empty board. The retry
+    # budget is pinned here too: a permanently-403 board must cost a BOUNDED amount of
+    # the serial fetch loop before it gives up, never an open-ended one.
+    waits: list[float] = []
+    sess = _ThrottledSearchSession(throttles=99, throttle_first_page=True, status=403)
+    with pytest.raises(requests.HTTPError):
+        phenom.fetch(SLUG, "Microsoft", session=sess, sleep=waits.append)
+
+    assert sess.rate_limited == phenom.RETRY_ATTEMPTS + 1
+    assert len(waits) == phenom.RETRY_ATTEMPTS
+    assert all(w <= phenom.RETRY_MAX_WAIT for w in waits)
+
+
+def test_a_salvaged_board_says_so(capsys):
+    # A salvaged board is otherwise indistinguishable from a complete one: the
+    # paginator just stops and run_fetch logs only on an exception. Silence would turn
+    # a loud failure every pass into a silent truncation every pass.
+    sess = _ThrottledSearchSession(throttles=99, status=403)
+    phenom.fetch(SLUG, "Microsoft", session=sess, sleep=lambda _s: None)
+
+    out = capsys.readouterr().out
+    assert out.count("TRUNCATED") == 1        # once per board per pass, never per page
+    assert f"phenom/{SLUG}" in out            # same {source}/{slug} shape run_fetch logs
+    assert "start=2" in out and "HTTP 403" in out
 
 
 def test_non_429_search_error_is_not_retried():

@@ -196,8 +196,8 @@ tests, not about whether the change is right.
 
 ### Issues: deliberately not used as the queue
 
-`PROGRESS.md` is the queue — in-repo, versioned, greppable, and it arrives in context
-with the code. GitHub issues would duplicate it and drift, and a session would have to
+`PROGRESS.md` (with [`BACKLOG.md`](./BACKLOG.md), the catalogue half it hands off to)
+is the queue — in-repo, versioned, greppable, and it arrives in context with the code. GitHub issues would duplicate it and drift, and a session would have to
 fetch them to know what is open. Use issues only for externally-reported bugs that
 arrive that way; the moment one is picked up, it becomes a PROGRESS entry.
 

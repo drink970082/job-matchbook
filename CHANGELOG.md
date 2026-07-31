@@ -39,6 +39,78 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`careers.qualcomm.com` is no longer lost on every pass.** It failed all six daily
+  passes with `403 Client Error: Forbidden` deep in pagination, and the bounded-retry
+  path only knew about 429 — so the search raised, the page loop unwound, and the
+  salvage that exists for exactly this never ran. Probed cold on 2026-07-31, the failing
+  offsets (`start=990`/`1060`/`1220`, which vary pass to pass) all return **200** from a
+  fresh session, so it is not the offset and not a missing page: it is a WAF tripping on
+  the pass's cumulative request volume — a throttle wearing a different status code. 403
+  now takes the throttle path (bounded retry, then salvage the pages already walked). A
+  403 on the FIRST page still raises: nothing to salvage, and a board that refuses from
+  the start is a block, not a throttle. **The salvage now says so out loud** — it was
+  silent, so a truncated board (990 of the 1,896 positions qualcomm reports) was
+  indistinguishable from a complete one in the logs, which would have turned a loud
+  failure every pass into a quiet one. (SPEC §7.1/§9.)
+
+### Added
+
+- **The Telegram alert carries the fit summary.** The routing turns on the verdicts, so
+  the scorecard's one-line `assessment.summary` is the part of the card with decision
+  value — it now rides the message as a `Fit:` line, above the URL so Telegram still
+  previews the link. It reads the **already-persisted, already-sanitised** summary out of
+  `score_detail`; `notify.py` calls no model and gains no dependency. Whitespace is
+  collapsed so a multi-line summary stays one line, and the text is truncated at 300
+  chars: model prose is the one field in that message with no length contract, and
+  `sendMessage` raises past 4096 — which would burn a notify retry on a real match.
+  Absent, malformed or empty `score_detail` omits the line, same as the `Resume:` line
+  it sits next to. (SPEC §7.1/§9.)
+
+### Changed
+
+- **`docs/PROGRESS.md` split into three files.** It had grown to ~28k tokens and every
+  session reloads it, while most of it was reference material rather than state. What
+  stays is the live delta a session needs now — in flight, the pick order, the quota gap,
+  open defects. The catalogue moved to **`docs/BACKLOG.md`** (unverified/deferred +
+  enhancements) and the evaluated-and-rejected records to **`docs/REJECTED.md`**, both
+  loaded on demand. Text is moved verbatim; the conventions (block tag, effort, severity
+  ordering) are unchanged and still stated once, in PROGRESS. `CLAUDE.md`, `AGENTS.md`,
+  `README.md` and the `session-boot` skill point at the new files, and PROGRESS's "How to
+  update" now routes a new gap: defects stay, everything else goes to BACKLOG.
+- **Both eval harnesses now resolve their model the way production does.**
+  `tools/score_eval.py` pinned `MODEL` to `run.DEFAULT_CODEX_SCORE_MODEL` and ignored
+  `CODEX_SCORE_MODEL` / `ANTHROPIC_SCORE_MODEL` — the vars `run.py` itself reads — so a
+  model A/B silently re-measured the production model under the challenger's name; it
+  reads them now. `tools/screen_eval.py` ignored `OLLAMA_NUM_CTX`, which `run.main`
+  threads into **both** the screener and `screen_posting` (whose JD truncation cap is
+  `num_ctx*2`), so with that var set the eval ran a different context window than
+  production; it now passes the same value to both. Latent, not active — the var is
+  commented out in `apps/worker/.env`, so both sides ran 8192. Its report header also
+  printed `"{backend} default"` instead of the model actually used, which is precisely
+  what a reader diffs across A/B runs; it now names the real `DEFAULT_*_SCREEN_MODEL`.
+  (SPEC §12.)
+- **`docs/SCORING.md` records the `notified` status.** §2.4 listed `new` | `scored` |
+  `discarded` | `failed`, omitting the status a *delivered* alert leaves behind — so a
+  rebuild from that spec would write consumer queries that silently lose every row the
+  system already alerted on. §6 now also states why the notify gate reads
+  `pipeline_status = 'scored'` and not `IN ('scored','notified')`: that clause is the only
+  thing that stops the gate re-alerting every match on every pass.
+
+### Fixed
+
+- **A failed quota capture said nothing, and the quota is the binding constraint.**
+  `capture_usage` is best-effort by contract and swallows every exception, `run_once`
+  ignored its return value, and the snapshot carried no timestamp — so a pass that failed
+  to refresh `db/scorer_usage.json` was indistinguishable from one that refreshed it,
+  short of checking the file's mtime. That is how a `--score-limit` decision came out ~17
+  points optimistic against an 8-hour-stale reading. `run_once` now prints `[quota]
+  WARNING: no <backend> usage snapshot written` on a `False` return, and the write stamps
+  an offset-aware `as_of` into the snapshot itself, so a stale reading is legible to
+  anything that opens the file. The web route keeps deriving `as_of` from the mtime (same
+  instant, and pre-stamp snapshots must still render). **The root cause is still open** —
+  the fetch fails inside a pass but succeeds standalone against the same path — but it now
+  announces itself instead of waiting to be noticed. (SPEC §7.1/§9.)
+
 - **The pass lock was keyed on the temp dir, so a daemon and a hand run could both score
   the same rows and pay twice.** `run.pass_lock` resolved `tempfile.gettempdir()`, which
   two processes on one host do not agree on: a systemd unit with `PrivateTmp=yes`, a cron

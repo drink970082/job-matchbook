@@ -12,8 +12,13 @@ description: >-
 
 # Boot a working session
 
-`SPEC.md` (33k tok) and `PROGRESS.md` (17k tok) are too big to read whole, every
-session. Read in this order and stop at the point the task doesn't go past.
+`SPEC.md` (33k tok) and `PROGRESS.md` (~12k tok, down from ~28k before the 2026-07-30
+split) are too big to read whole, every session. Read in this order and stop at the point the task doesn't go past.
+
+`PROGRESS.md` is the live delta only. Its catalogue lives in two files you load on
+demand, never by default: `docs/BACKLOG.md` (open work that is neither in flight nor
+queued) and `docs/REJECTED.md` (proposals already evaluated and turned down — read your
+block's entry before proposing a redesign of that block).
 
 ## 1. Claim first — `PROGRESS.md` "In flight"
 
