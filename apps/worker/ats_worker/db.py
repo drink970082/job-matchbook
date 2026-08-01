@@ -2,7 +2,8 @@
 
 Prisma OWNS the schema — this module never issues DDL. It only opens a
 connection with the right pragmas for safe co-writing with the Next.js app
-(WAL + busy_timeout), and reads/writes rows of the `job_postings` table.
+(WAL + busy_timeout), and reads/writes rows of four tables: `job_postings`
+(the bulk of it), `watched_companies`, `app_settings`, and `feed_unresolved`.
 
 All mutators take an explicit `now` (ISO-8601 string) so timestamps match the
 String columns Prisma uses and so callers/tests stay deterministic.
@@ -200,10 +201,11 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool = False):
     """Rows in `status`, best-scored first by default.
 
-    `newest_first` exists for ONE caller: the 'new' queue `run_score` reads. Every
-    'new' row has score NULL — nothing has scored it yet, that being the point — so
-    `score DESC` is inert there and the default ordering degenerates to
-    oldest-id-first. Under `--score-limit` that means a bounded pass always works the
+    `newest_first` exists for ONE caller: the 'new' queue `run_score` reads. Nearly
+    every 'new' row has score NULL — nothing has scored it yet, that being the point —
+    so `score DESC` is all but inert there and the default ordering degenerates to
+    oldest-id-first. (Not quite every: `requeue_discarded` and `requeue_failed` return
+    rows to 'new' carrying the score an earlier pass already wrote.) Under `--score-limit` that means a bounded pass always works the
     *back* of the backlog and a posting discovered today waits behind every older
     one; at 6 passes/day against a few thousand pending rows, that is weeks, which
     defeats running on a schedule at all. The other queues (scored/discarded) have

@@ -1,4 +1,5 @@
-"""Shared helpers for fetch adapters."""
+"""Shared helpers for the fetch adapters, plus the URL-safety pair
+(`is_safe_public_url`, `get_redirect_safe`) the feed resolver imports."""
 from __future__ import annotations
 
 import html
@@ -32,7 +33,8 @@ def to_iso_date(value) -> str | None:
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
-        # ponytail: epoch-ms is the only numeric date any board sends (lever)
+        # ponytail: every numeric date that reaches here is epoch-ms — lever sends it
+        # that way natively, and phenom scales its epoch-SECONDS before calling.
         return datetime.fromtimestamp(value / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
     s = str(value)
     return s[:10] if len(s) >= 10 else None
