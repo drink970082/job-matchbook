@@ -807,8 +807,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          here too, ALSO skipping the fit scorer: the UI/notify gate hold back any
          scored row that thin, so paying to fit-score it would only buy a verdict
          we then hide.
-      2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call —
-         the codex quota win (message-bound, not token-bound).
+      2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call. This
+         used to be called "the codex quota win (message-bound)"; the quota is
+         per-TOKEN credits, measured 2026-07-31, so a batch saves only the repeated
+         prompt prefix. Chunk size is 1 in production anyway (correctness — see
+         DEFAULT_BATCH_SIZE in run.py), which makes this step a per-posting call.
       3. FALLBACK: a chunk that raises ScoreError (e.g. a batch alignment/parse
          failure) is retried as one `fit_fn` call PER posting in that chunk, so
          a single bad JD in a batch doesn't sink its batch-mates. A single that

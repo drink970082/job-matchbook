@@ -65,16 +65,22 @@ DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
 DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
-# Max postings per fit_fn batch call. Batching WOULD be the codex quota win (the
-# ChatGPT-subscription quota is MESSAGE-bound, not token-bound — see
-# make_codex_scorer), but it is PARKED at 1: the batched==single guard
+# Max postings per fit_fn batch call. Batching was long described as the codex quota
+# win, on the assumption that the ChatGPT-subscription quota is MESSAGE-bound. That
+# assumption is FALSE (measured 2026-07-31 over 158 production calls, from the codex
+# rollout files' per-call token counts): the quota is per-TOKEN credits, so batching N
+# postings saves only the repeated ~5.5k-token rubric+profile+résumé prefix, not N-1
+# messages — a far smaller prize than the docs used to claim. See make_codex_scorer.
+# The parking below never rested on that argument anyway: it is PARKED at 1 for
+# CORRECTNESS. The batched==single guard
 # (score_eval.py --batched, 2026-07-16) FAILED 19/23 — concatenating JDs in one
 # call bled the DOMAIN verdict on borderline rows (adjacent→match on ids 111/125,
 # which would then wrongly notify), so per the design's rollout rule "if batched
 # verdicts drift, batching does not ship". batch_size=1 == the validated per-JD
 # path (one JD per codex exec, no cross-JD context to bleed). The batching code +
-# the guard stay for a future fix (smaller batches / stronger per-JD isolation);
-# opt back in with --batch-size / CODEX_BATCH_SIZE once the drift is resolved.
+# the guard stay so the drift can be re-measured, NOT because a smaller batch is a
+# fix worth taking — SCORING §8.5 measured batching dead at every size above 1, and
+# the token correction above removes the prize that made it tempting.
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 

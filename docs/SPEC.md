@@ -979,9 +979,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
     **ChatGPT subscription** (flat-rate, not metered), and the **only backend with
     batching machinery**: one `codex exec` per call can handle up to `batch_size`
-    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`), because the subscription's
-    quota is MESSAGE-bound, not token-bound — fewer `codex exec` calls would be the
-    saving. **Parked at `DEFAULT_BATCH_SIZE=1` (`run.py`):** the batched==single
+    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`). That machinery was built on
+    the premise that the subscription's quota is MESSAGE-bound, so fewer `codex exec`
+    calls would be the saving; **the premise is false** — it is per-TOKEN credits
+    (measured 2026-07-31, SCORING §4.5), so a batch would only save the repeated prompt
+    prefix. **Parked at `DEFAULT_BATCH_SIZE=1` (`run.py`):** the batched==single
     verdict-drift guard failed on cross-JD bleed (full post-mortem in §13); opt back
     in via `--batch-size`/`CODEX_BATCH_SIZE` only once that guard passes.
     Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
@@ -2201,8 +2203,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
   against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
   is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
-  actually turns on. The codex fit call carries batching machinery for that quota
-  (message-bound, not tokens) but it is **parked at `batch_size=1`** — the
+  actually turns on. The codex fit call carries batching machinery built for that quota
+  on the belief that it was message-bound; it is per-token credits (SCORING §4.5), and
+  the machinery is **parked at `batch_size=1`** anyway — the
   batched==single guard failed (§13). The Claude backend stays wired for a metered
   A/B and deliberately does **not** batch: its cached system prefix already makes
   the marginal posting cheap — the lever batching would have stood in for on codex.

@@ -68,7 +68,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   spend is logged per call in
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
   **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
-  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.** The
+  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.**
+  **CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and docs only, no
+  behavior change — see CHANGELOG); this paragraph is kept because it is why they were
+  wrong, not because they still are. **The line numbers above are the ones this entry was
+  written with and several were already stale** — the real sites were `SCORING.md`
+  §4.5/§5.6/§8.5 and `SPEC.md` §7.1/§10; grep the claim, don't trust the refs. Two
+  paraphrases the original grep could not see were also fixed, and they mattered more than
+  the literal ones: `tools/score_eval.py:351/429` told every drift report that a smaller
+  batch "keeps most of the quota win", and the long-run-day runbook's **Budget** section
+  sizes a real run in messages (annotated, not rewritten — its row counts still hold, its
+  ceiling does not). The
   ChatGPT-subscription quota has been **per-token credits since April 2026**, not
   message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
   `SCORING.md:986-991` already flagged message-bound as an unmeasured working assumption
@@ -77,27 +87,42 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Two consequences, both measured over 158 production calls: our prompt is only **~39%**
   of what a call bills (6,512 of 16,775 tok; 7,332 is itemised codex CLI harness and
   ~2,931 is unattributed), and **prefix caching is capped by one line** —
-  `backends_codex.py:113` opens a fresh `TemporaryDirectory()` passed as `-C` at `:133`,
+  `backends_codex.py:118` opens a fresh `TemporaryDirectory()` passed as `-C` at `:138`,
   and that random path is echoed into the prompt at `<environment_context><cwd>` ahead of
   the whole scoring prefix. Every cache hit stops at **exactly 11,008 tokens** (86 x 128),
   42 times out of 42, so the ~5,500-token rubric+profile+résumé prefix is re-billed fresh
   on every call — and only **27%** of calls cache anything at all (positions 0-5 of every
   burst miss 100% of the time under `score_workers=4`).
+  **THE CACHING FIGURES ARE CORRECT BUT OUT OF DATE — they describe a CLI that is not
+  installed.** 11,008, the 42, and the 27% all re-derive exactly from
+  `db/codex-token-accounting/rollout-token-usage.jsonl` (checked 2026-08-01: 53 of 198
+  `gpt-5.6-sol` rows cached anything = 27%, and 42 of those cached exactly 11,008), so
+  they are not wrong — they are **0.144.x** measurements. The installed CLI is **0.146.0**,
+  where Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe: no
+  cache is operating, so there is nothing for the `-C` change to fix and no headroom to
+  reclaim. Quote them as history, never as current headroom. The stable-`-C`
+  lever was therefore **not shipped**. Full negative in
+  [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
+  The per-token billing finding above is unaffected — that one reproduced.
   **Work happens in separate worktrees** so the daemon never imports experimental code;
   `main` stays checked out and running in the primary tree. Worktrees and branches are
   removed when the run finishes.
 
 - **The seniority pre-ordering is live and now MEASURED in production**
   `[SCORE · M · shipped 2026-07-31, first live passes same day]`. The layer, its eval gate
-- **`capture_usage` 403 mitigation — branch `fix/capture-usage-403-retry`, landed,
-  awaiting merge** `[SCORE · XS · PR #63]`. The cause is named (HTTP 403); the mechanism
+- **`capture_usage` 403 mitigation — MERGED as `d983e13`, 2026-07-31 14:02:44 EDT**
+  `[SCORE · XS · PR #63]`. (This entry read "landed, awaiting merge" until 2026-08-01;
+  it was stale, and a downstream BACKLOG entry repeated it. The retry has still never
+  run in a live pass — the last scoring pass was 12:48, and the daemon stopped at 14:42.) The cause is named (HTTP 403); the mechanism
   is not, and the retry is a mitigation with a measured residual rather than a closure.
   Details under Defects. Also hardens the test suite: it was reaching the operator's real
   `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
   rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
   runs in 15.9s instead of 20s.
-- **Seniority veto defects — branch `fix/seniority-veto-evidence`, landed, awaiting
-  merge** `[SCORE · S · PR #62]`. 70% of the layer's 61 misses were code discarding a
+- **Seniority veto defects — MERGED as `c0a9688`** `[SCORE · S · PR #62]`.
+  (Read "landed, awaiting merge" until 2026-08-01. `DEVELOPMENT.md` §7 makes that
+  phrase load-bearing — it tells another session the work is finished but ungated —
+  so a stale one is worse than no entry.) 70% of the layer's 61 misses were code discarding a
   correct extraction: a cap read as a floor, an unevidenced bar trusted, and a clamped bar
   cancelling a rank the JD states. Fixing all three moved every gate axis at once —
   precision 0.964 -> **0.975**, recall 0.757 -> **0.793**, demote share 0.442 -> **0.457**,
@@ -413,8 +438,11 @@ take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
 > 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
-> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed but not
-> decided:** the numbers an operator needs are in
+> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed and PARTLY APPLIED
+> as of 2026-08-01:** one board-side filter shipped (Amazon fetches US-only —
+> 768 fewer rows/pass, identical survivor set), and the other candidates were probed and
+> declined with the measurements recorded. The rest of Q3 — `title_filter`,
+> `max_age_days`, dropping low-yield boards — is still the operator's call. Numbers in
 > [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
 > Anything in the catalogue below that is not a quota lever waits. The order is fixed and
 > the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
@@ -444,6 +472,10 @@ take first and why. Each numbered item is independently pickable.
 > the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
 > watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
 > the trivial end of it and are one decision, recorded below.
+> **Board-side filtering was tried 2026-08-01 and it is not a general lever.** Amazon
+> takes a country facet and now fetches US-only (768 rows/pass, zero coverage loss);
+> TikTok/ByteDance accept city codes only, Workday silently IGNORES an unrecognised
+> country facet, and greenhouse ignores location params outright. Table in `BACKLOG.md`.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -565,6 +597,15 @@ take first and why. Each numbered item is independently pickable.
 > for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
 
 ### Quota — the gap and the three levers
+
+**READ BEFORE QUOTING ANY "messages" FIGURE BELOW.** Every per-row and per-week number in
+this section is denominated in **messages** (`~0.8 paid messages/row`, `~2,000/week`).
+The quota is **per-TOKEN credits** (measured 2026-07-31; SCORING §4.5). The *ratios* and
+row counts still hold — they came from counting calls — but the ceiling and the
+"% of a weekly window" arithmetic do not, and must be re-derived against credits before
+they size a decision. Not rewritten in place because the credit-side denominator has not
+been measured yet; the rollout instrument that would measure it is no longer available
+(SCORING §4.5).
 
 **Measured live 2026-07-31** (`db/applications.db`, read-only): backlog **9,381** `new`;
 intake **728 rows on 07-30** (07-29 was 3,212 — a feed spike, not the norm); scored **251

@@ -45,10 +45,16 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
     scores stay comparable across backends and the verdict-accuracy harness
     (tools/score_eval.py) can judge one against the other.
 
-    BATCH-FIRST, ONE `codex exec` PER CALL: the ChatGPT-subscription quota is
-    MESSAGE-bound, not token-bound, so batching all N postings into a single exec
-    (rather than one exec per posting) is the actual quota win — see B1 in
-    docs/superpowers/sdd. Each JD gets its own `=== JOB job_ref=<id> ===` block
+    BATCH-FIRST, ONE `codex exec` PER CALL. The original justification — that the
+    ChatGPT-subscription quota is MESSAGE-bound, so collapsing N postings into one exec
+    is the quota win (B1 in the 2026-07-16 batched-scoring design under
+    docs/superpowers/specs/) — is WRONG and should not be repeated.
+    Measured 2026-07-31 from the codex rollout files, which carry exact per-call
+    `input_tokens`/`cached_input_tokens`/`output_tokens`: the quota is per-TOKEN credits
+    (since April 2026), so batching saves only the repeated prompt prefix, and our prompt
+    is just ~39% of what a call bills (6,512 of 16,775 tok; the rest is codex CLI harness
+    overhead). Batching is parked at 1 on correctness grounds regardless — see
+    DEFAULT_BATCH_SIZE in run.py. Each JD gets its own `=== JOB job_ref=<id> ===` block
     (`posting["id"]`), and the schema demands the same `job_ref` tag come back on
     every element (`{"results":[{"job_ref":...,...}, ...]}`). Results are realigned
     to INPUT ORDER by that tag rather than trusted positionally, because an LLM is
