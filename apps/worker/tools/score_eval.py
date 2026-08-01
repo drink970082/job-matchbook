@@ -350,7 +350,7 @@ def run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size: int) -> bo
       b5 drifts less than b10      -> bleed scales with batch size. This used to read
                                       "a middle-ground batch_size keeps most of the
                                       quota win"; there is no such win. The quota is
-                                      per-TOKEN credits (SCORING §8.4), so a batch
+                                      per-TOKEN credits (SCORING §4.5), so a batch
                                       saves the repeated prefix, not N-1 messages —
                                       and SCORING §8.5 measured batching dead at every
                                       size above 1 regardless.
@@ -433,7 +433,7 @@ def render_drift_probe(draws, rows, meta, batch_size: int) -> str:
         "at b=5 than b=10 ⇒ bleed scales with batch size. A smaller batch is NOT a "
         "partial fix worth taking: the quota is per-token credits, so a batch saves the "
         "repeated prefix rather than N-1 messages, and batching measured dead at every "
-        "size above 1 (SCORING §8.4, §8.5).",
+        "size above 1 (SCORING §4.5, §8.5).",
     ]
     return "\n".join(lines)
 

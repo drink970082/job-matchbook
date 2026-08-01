@@ -431,6 +431,9 @@
   verdict stands.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
+  **Its "messages" arithmetic is in the wrong currency** — the quota is per-token credits
+  (SCORING §4.5), so `~0.8 paid messages/row` and the "% of a weekly window" figures below
+  are ratios worth keeping and ceilings worth distrusting. Re-derive before sizing a run.
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
   re-runs only the deterministic intern/location gate, not title or age. So every row
   ingested before its filter existed keeps its place in the queue. Re-running the current
@@ -588,7 +591,7 @@
   but serves full descriptions for the rest, so it is a partial-drop board, not an
   empty-JD one.
 - **Intake-cut evidence — MEASURED 2026-07-31, the decision is the operator's**
-  — `[FETCH · S · Q3 · numbers ready, nothing changed]`. Q3 is the only lever that
+  — `[FETCH · S · Q3 · numbers ready; ONE board-side filter applied 2026-08-01, rest declined]`. Q3 is the only lever that
   reduces *demand* rather than re-ordering it, and it was never costed. Three findings.
   **1. 37% of the live `new` queue (3,440 of 9,381) dies on the free deterministic
   gates** — it was fetched, stored, and will be discarded without a model ever reading
@@ -654,7 +657,15 @@
   whether that id means "United States" or a region that happens to contain 1,544 jobs is
   unknown. Same class as the Workday GUIDs, for the smallest payoff of the five.
   **Amazon is verified rather than assumed:** 300 of 300 rows sampled across offsets 0,
-  100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected. The
+  100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected.
+  **And the null-field trap was checked explicitly, because this file teaches that
+  lesson two findings up.** Walking the **whole unfiltered board** (2,035 rows, offsets
+  0-2,000) and reading `normalized_country_code` on every row: **0 rows carry no country
+  code.** The split is `USA 1267 · IND 371 · CAN 111 · ISR 47 · IRL 41 · GBR 28 · BRA 26 ·
+  AUS 23 · MEX 22 · CHN 20 · DEU 15 · ESP 14 · …`, summing to 2,035 — so the filter is an
+  exact partition, not a heuristic, and there is no unjudgeable bucket to drop silently.
+  That is the difference between this and the Susquehanna 0% above, where a NULL field
+  meant "cannot be evaluated" rather than "matches nothing". The
   38% API-side cut lines up with the 36% free-kill rate this table already measured for
   Amazon. **That agreement is a coincidence, not a check, and an earlier draft of this
   entry called it one** — the 36% is 357/987 over rows that reached the *gate*, the 38% is

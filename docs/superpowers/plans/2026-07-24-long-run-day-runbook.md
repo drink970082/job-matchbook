@@ -175,7 +175,7 @@ construction (`_quote_in`), so it needs no re-litigating.
 ## Budget
 
 > **CORRECTED 2026-08-01 — this section budgets in the wrong currency.** Codex is
-> **per-TOKEN credits**, not message-bound (measured 2026-07-31; SCORING §8.4). The
+> **per-TOKEN credits**, not message-bound (measured 2026-07-31; SCORING §4.5). The
 > conclusion below survives — a bounded slice, not a drain — but every *number* in it is
 > denominated in messages and must be re-derived against credits before it is used to
 > size a run. The row counts and the screen-discard ratio are still good; the

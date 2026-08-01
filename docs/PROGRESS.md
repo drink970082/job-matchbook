@@ -73,7 +73,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   behavior change — see CHANGELOG); this paragraph is kept because it is why they were
   wrong, not because they still are. **The line numbers above are the ones this entry was
   written with and several were already stale** — the real sites were `SCORING.md`
-  §8.4/§5.9/§8.5 and `SPEC.md` §7.1/§13; grep the claim, don't trust the refs. Two
+  §4.5/§5.6/§8.5 and `SPEC.md` §7.1/§10; grep the claim, don't trust the refs. Two
   paraphrases the original grep could not see were also fixed, and they mattered more than
   the literal ones: `tools/score_eval.py:351/429` told every drift report that a smaller
   batch "keeps most of the quota win", and the long-run-day runbook's **Budget** section
@@ -106,8 +106,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 - **The seniority pre-ordering is live and now MEASURED in production**
   `[SCORE · M · shipped 2026-07-31, first live passes same day]`. The layer, its eval gate
-- **`capture_usage` 403 mitigation — branch `fix/capture-usage-403-retry`, landed,
-  awaiting merge** `[SCORE · XS · PR #63]`. The cause is named (HTTP 403); the mechanism
+- **`capture_usage` 403 mitigation — MERGED as `d983e13`, 2026-07-31 14:02:44 EDT**
+  `[SCORE · XS · PR #63]`. (This entry read "landed, awaiting merge" until 2026-08-01;
+  it was stale, and a downstream BACKLOG entry repeated it. The retry has still never
+  run in a live pass — the last scoring pass was 12:48, and the daemon stopped at 14:42.) The cause is named (HTTP 403); the mechanism
   is not, and the retry is a mitigation with a measured residual rather than a closure.
   Details under Defects. Also hardens the test suite: it was reaching the operator's real
   `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
@@ -430,8 +432,11 @@ take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
 > 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
-> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed but not
-> decided:** the numbers an operator needs are in
+> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed and PARTLY APPLIED
+> as of 2026-08-01:** one board-side filter shipped (Amazon fetches US-only —
+> 768 fewer rows/pass, identical survivor set), and the other candidates were probed and
+> declined with the measurements recorded. The rest of Q3 — `title_filter`,
+> `max_age_days`, dropping low-yield boards — is still the operator's call. Numbers in
 > [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
 > Anything in the catalogue below that is not a quota lever waits. The order is fixed and
 > the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
@@ -461,6 +466,10 @@ take first and why. Each numbered item is independently pickable.
 > the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
 > watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
 > the trivial end of it and are one decision, recorded below.
+> **Board-side filtering was tried 2026-08-01 and it is not a general lever.** Amazon
+> takes a country facet and now fetches US-only (768 rows/pass, zero coverage loss);
+> TikTok/ByteDance accept city codes only, Workday silently IGNORES an unrecognised
+> country facet, and greenhouse ignores location params outright. Table in `BACKLOG.md`.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -582,6 +591,15 @@ take first and why. Each numbered item is independently pickable.
 > for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
 
 ### Quota — the gap and the three levers
+
+**READ BEFORE QUOTING ANY "messages" FIGURE BELOW.** Every per-row and per-week number in
+this section is denominated in **messages** (`~0.8 paid messages/row`, `~2,000/week`).
+The quota is **per-TOKEN credits** (measured 2026-07-31; SCORING §4.5). The *ratios* and
+row counts still hold — they came from counting calls — but the ceiling and the
+"% of a weekly window" arithmetic do not, and must be re-derived against credits before
+they size a decision. Not rewritten in place because the credit-side denominator has not
+been measured yet; the rollout instrument that would measure it is no longer available
+(SCORING §4.5).
 
 **Measured live 2026-07-31** (`db/applications.db`, read-only): backlog **9,381** `new`;
 intake **728 rows on 07-30** (07-29 was 3,212 — a feed spike, not the norm); scored **251

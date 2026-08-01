@@ -1606,7 +1606,7 @@ rule was made explicit.
 **The hypothesis:** the subscription quota is message-bound, so batching N postings into
 one call is a large quota win. **The hypothesis was wrong twice over**, and the second
 half was only established on 2026-07-31: the quota is per-TOKEN credits, so even a working
-batch would have saved the repeated prefix rather than N-1 messages (§8.4). Batching was
+batch would have saved the repeated prefix rather than N-1 messages (§4.5). Batching was
 already dead on the correctness measurement below before that landed.
 
 **Measured:** the batched-equals-single guard FAILED 19 of 23, with all 4 drift rows on

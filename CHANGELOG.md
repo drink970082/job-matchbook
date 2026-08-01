@@ -96,10 +96,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - **Three code comments and seven doc lines asserted the codex quota is MESSAGE-bound. It
   is per-TOKEN credits, and the wrong claim was load-bearing.** `run.py:69`,
-  `pipeline.py:811`, `backends_codex.py:49`, `SCORING.md` §8.4/§5.9/§8.5 and `SPEC.md`
+  `pipeline.py:811`, `backends_codex.py:49`, `SCORING.md` §4.5/§5.6/§8.5 and `SPEC.md`
   §7.1/§13 all justified the batching machinery as "the actual quota win" on the strength
   of it. Measured 2026-07-31 over 158 production calls from the codex rollout files'
-  per-call token counts (the instrument `SCORING.md` §8.4 said did not exist): billing has
+  per-call token counts (the instrument `SCORING.md` §4.5 said did not exist): billing has
   been per-token since April 2026, so a batch saves the repeated ~5.5k-token
   rubric+profile+résumé prefix, not N-1 messages. Comments and docs only — no behavior
   changes, and batching stays parked at 1 on the correctness grounds that always held it
@@ -107,7 +107,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Two figures kept alongside the correction because they bound future arithmetic: our
   prompt is **~39%** of what a call bills (6,512 of 16,775 tok; the rest is codex CLI
   harness overhead), and `cached_input_tokens` reads **0** on codex-cli 0.146.0, so prefix
-  caching is not a lever available today. `SCORING.md` §5.9's "concurrency is
+  caching is not a lever available today. `SCORING.md` §5.6's "concurrency is
   quota-neutral" survives the correction — each call bills its own tokens either way — and
   now names caching as the one mechanism that would break it.
 
