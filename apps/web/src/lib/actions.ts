@@ -216,8 +216,9 @@ async function lowContextIds(): Promise<number[]> {
 // the old threshold; the verdicts are stable (see PROGRESS.md). Prisma's typed
 // `where` can't reach into the score_detail JSON, so — mirroring lowContextIds — we
 // fetch the matching ids once with a raw query and layer them onto the matched/
-// belowbar bucket queries (id `in` for matched, `notIn` for belowbar). Scope: only
-// rows that actually received a fit score (scored|notified).
+// belowbar bucket queries — id `in` for BOTH. `notIn` belongs to the discarded
+// bucket, which excludes the union of the two keep sets. Scope: only rows that
+// actually received a fit score (scored|notified).
 async function matchedIds(): Promise<number[]> {
     const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
         SELECT id FROM job_postings
@@ -987,8 +988,8 @@ export async function importApplicationsCSV(csvText: string) {
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB so it can be
-// managed here. A future step adds promotion suggestions (feed -> watchlist);
-// for now this is manual list / add / remove.
+// managed here: manual list / add / remove. Promotion suggestions
+// (feed -> watchlist) shipped since, and live in lib/promotion-actions.ts.
 
 export async function getWatchedCompanies() {
     const [data, total] = await Promise.all([

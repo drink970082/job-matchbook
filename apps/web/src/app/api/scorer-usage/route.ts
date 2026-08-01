@@ -5,8 +5,9 @@ import path from 'node:path'
 // Serves the fit-backend quota snapshot the worker writes after each scoring pass
 // (used_percent / resets_at per window, read from the provider's own usage endpoint —
 // codex's /backend-api/codex/usage or Claude Code's /api/oauth/usage). The snapshot
-// records WHICH backend it describes so the bar can label itself. The
-// DiscoveredJobsTable header renders it as a usage bar. See docs/SPEC.md §7.2.
+// records WHICH backend it describes so the bar can label itself. The Discovered
+// Jobs tab renders it as a usage bar (components/DiscoveredJobsTab.tsx). See
+// docs/SPEC.md §7.2.
 export const dynamic = 'force-dynamic' // never cache; read the file every request
 
 // The snapshot lives next to the shared SQLite file (both in the db/ bind mount,
