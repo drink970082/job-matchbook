@@ -653,9 +653,17 @@
   100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected. The
   38% API-side cut lines up with the 36% free-kill rate this table already measured for
   Amazon, which is the independent check that the filter is selecting the same population
-  the gate was discarding. **The recipe edit itself was NOT applied** — it is a write to
-  the live `watched_companies` table and needs the operator; the one-line update and a
-  pre-change DB backup path are in the session notes.
+  the gate was discarding.
+  **APPLIED 2026-08-01 and verified by DRIVING the production path, not the probe.**
+  `watched_companies.recipe.url` for `custom/amazon` now ends
+  `&normalized_country_code%5B%5D=USA`; pre-change copy at
+  `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`. Run back through
+  the real `fetch_company` with the stored recipe: **1,267 postings, 1,267 of them USA, 0
+  non-US** — the same count the probe predicted, so ~769 rows/pass (38%) are no longer
+  fetched, parsed or stored. Revert by restoring the backup or deleting the parameter.
+  `requests` merges `params=` with a URL that already carries a query string, so the
+  `offset`/`result_limit` pagination the recipe adds is unaffected — confirmed by the row
+  count, which needs every page.
   **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
   ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
   a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
