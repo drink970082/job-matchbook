@@ -351,6 +351,43 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   deciding test; run flip-rate, which needs no golden set at all and would have answered
   this in 2026-07-16 without one.
 
+  **>>> ACTION WAITING ON THE OPERATOR, 2026-08-01: 49 rows need your verdict. <<<**
+  The score corpus was rebuilt by TWO independent labellers and is **93 of ~120 rows**.
+  What is left is a review file, not a labelling session:
+  **`apps/worker/eval/golden_review.md`** — 129 KB, **49 blocks**, each showing both
+  verdicts side by side, both rationales, and the JD, with blank `seniority:` / `domain:`
+  lines to fill. Leaving a block blank drops that row from the corpus. `eval/` is
+  gitignored, so **that file exists only on this host** and is not recoverable from git.
+  **There is no ingest path for it yet** — the operator's format decision was wanted
+  first; `label_golden.py --ingest` reads the *other* sheet (`golden_to_label.md`), not
+  this one.
+  **What the 49 actually are:** 18 rows where the labellers split `adjacent` vs `match`
+  (the residual domain boundary, mostly finance-adjacent rows where score.txt's check (3)
+  BACKGROUND is arguable against an internship-level résumé), 7 `mismatch` vs `adjacent`
+  (anti-target or merely off-target), 9 seniority splits (all JDs whose title and body
+  disagree about level), and 15 rows either labeller marked `low` confidence (mostly JDs
+  that state no requirements at all).
+  **The 70 accepted rows are CONSENSUS, not human labels**, and every one records
+  `label_source: "claude+codex consensus"` plus an inline `posting` payload. So
+  `make eval-score` over this corpus measures agreement with that consensus, not ground
+  truth, and it **cannot catch a row where both labellers were confidently wrong the same
+  way**. The 49 held back are where that risk was highest. Treat a PASS accordingly until
+  the operator's verdicts land.
+  **Two prompt defects were found and fixed while building this, both the same root cause
+  — paraphrasing `prompts/score.txt` instead of quoting it.** Worth keeping because the
+  effect was large and silent:
+  1. The paraphrase dropped domain check **(3) BACKGROUND** ("wanting the role is not
+     having done it"). Result: codex-as-labeller called **37 of 50** rows `match` that the
+     same model family scoring the same postings through `score.txt` called `adjacent`.
+     Domain agreement between labellers was **13%**; quoting the rule verbatim and passing
+     the résumé took it to **76%**.
+  2. The paraphrase dropped `score.txt:12`'s direction gloss, so codex read `too_senior` as
+     "the JOB is senior" and emitted it on **28** rows. The verdict is candidate-relative
+     and production emits `too_senior` **0 times in 499 rows**. Adding one clarifying
+     sentence took seniority agreement from **71% to 92%**.
+  **A corpus label must be calibrated to the rubric the gate actually uses**, or the gate
+  measures the distance between two prompts rather than between two models.
+
   **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
   paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
   measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
