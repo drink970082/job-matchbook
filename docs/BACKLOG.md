@@ -664,6 +664,25 @@
   `requests` merges `params=` with a URL that already carries a query string, so the
   `offset`/`result_limit` pagination the recipe adds is unaffected — confirmed by the row
   count, which needs every page.
+  **A/B'd through the production fetch + gates 2026-08-01, and the filter is LOSSLESS —
+  this is the number that settles it:**
+
+  | arm | fetched | past `title_filter`/age | past the free gate |
+  |---|---|---|---|
+  | unfiltered | 2,035 | 640 | **411** |
+  | filtered | 1,267 | 411 | **411** |
+
+  Identical survivor set. Of the **768** rows the filter removes from the fetch, **0**
+  would have survived every free gate — so nothing is lost, and the 229 rows the location
+  gate used to kill for Amazon (640 → 411) are simply never fetched now. `prefilter_postings`
+  was called with an explicit `now=`; its default silently disables the age rule.
+  **The 37% queue-waste headline in finding 1 above is now HISTORY, not a live figure.**
+  Re-measured 2026-08-01 by driving `deterministic_screen` over the live queue: **4,430
+  `new` rows, 0 free-gate kills, 0%** — because the 07-31 04:46 pass already swept them
+  (`3,646 free-gate discarded (unbudgeted)` in its log line), so what remains is the
+  survivor set by construction. The harness was positive-controlled before that 0 was
+  believed: fed 200 rows already `discarded` with a `location:` reason, it re-killed
+  **200/200**. A 0% here means the waste was harvested, not that the gate stopped working.
   **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
   ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
   a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
