@@ -20,6 +20,7 @@ Read-only on the DB. Appends to `golden.jsonl`, never rewrites it, and skips ids
 present — so a 2-3 hour sitting splits across as many sessions as you like.
 """
 import json
+import re
 import sqlite3
 import sys
 import textwrap
@@ -64,19 +65,127 @@ def ask(prompt: str, options: dict) -> str | None:
         print(f"  ? pick one of: {' '.join(list(options) + [SKIP_KEY, QUIT_KEY])}")
 
 
+SHEET = EVAL / "golden_to_label.md"
+# Enough JD to judge seniority and domain without turning the sheet into a novel. The
+# fit scorer still sees the FULL description at eval time — this cap is for the human.
+SHEET_JD_CHARS = 2200
+
+
+def emit_sheet(conn, todo) -> int:
+    """Write a fill-in sheet: one block per posting, blind, with blank label lines.
+
+    Same corpus and same blindness as the interactive path — the frame is read for ids
+    and bands only, and every displayed field comes from the DB — but it can be filled
+    offline, in any editor, in any order, over several sittings.
+    """
+    out = [
+        "# Score golden set — fill in the labels\n",
+        f"\n{len(todo)} postings, ordered `near` first (the band that actually separates ",
+        "models, so a partial fill is still useful). Fill `seniority:` and `domain:` on ",
+        "each block; leave a block blank to skip it. `note:` is optional.\n",
+        "\nWhen done (or part-done): `PYTHONPATH=. python3 tools/label_golden.py --ingest`\n",
+        f"\n- seniority: {' | '.join(SENIORITY.values())}",
+        f"\n- domain: {' | '.join(DOMAIN.values())}\n",
+        "\n**The Sol verdicts are deliberately absent.** Seeing them would make these ",
+        "labels agree with Sol by construction, which is the circularity the human set ",
+        "exists to escape.\n",
+    ]
+    for n, (pid, band) in enumerate(todo, 1):
+        row = conn.execute(
+            "SELECT job_title, company_name, location, description "
+            "FROM job_postings WHERE id=?", (pid,)).fetchone()
+        if row is None:
+            continue
+        jd = (row["description"] or "").strip()
+        out.append(f"\n\n---\n\n## [{n}/{len(todo)}] id {pid}  ·  band {band}\n")
+        out.append(f"\n**{row['company_name']} — {row['job_title']}**  \n")
+        out.append(f"location: {row['location'] or '—'}\n")
+        out.append(f"\n```\n{jd[:SHEET_JD_CHARS]}")
+        out.append("\n[... truncated for the sheet; the scorer sees the whole JD ...]"
+                   if len(jd) > SHEET_JD_CHARS else "")
+        out.append("\n```\n")
+        out.append(f"\nseniority: \ndomain: \nnote: \n")
+    SHEET.write_text("".join(out))
+    print(f"wrote {len(todo)} blocks -> {SHEET}")
+    return 0
+
+
+def ingest_sheet(conn) -> int:
+    """Read the filled sheet back into golden.jsonl. Blocks left blank are skipped."""
+    if not SHEET.exists():
+        print(f"missing {SHEET} — run --emit first", file=sys.stderr)
+        return 1
+    done = _labelled_ids()
+    text = SHEET.read_text()
+    blocks = re.split(r"^## \[\d+/\d+\] id (\d+)\s+·\s+band (\w+)\s*$", text, flags=re.M)
+    written = bad = 0
+    with GOLDEN.open("a") as fh:
+        for i in range(1, len(blocks) - 2, 3):
+            pid, band, body = int(blocks[i]), blocks[i + 1], blocks[i + 2]
+            sen = (re.search(r"^seniority:[^\S\n]*(\S*)[^\S\n]*$", body, re.M) or [None, ""])[1].strip()
+            dom = (re.search(r"^domain:[^\S\n]*(\S*)[^\S\n]*$", body, re.M) or [None, ""])[1].strip()
+            note = (re.search(r"^note:[^\S\n]*(.*)$", body, re.M) or [None, ""])[1].strip()
+            if not sen and not dom:
+                continue                     # untouched block = skip, not an error
+            if sen not in SENIORITY.values() or dom not in DOMAIN.values():
+                print(f"! id={pid}: bad label {sen!r}/{dom!r} — skipped", file=sys.stderr)
+                bad += 1
+                continue
+            if pid in done:
+                continue                     # already labelled; never double-write
+            row = conn.execute(
+                "SELECT job_title, company_name, location, description "
+                "FROM job_postings WHERE id=?", (pid,)).fetchone()
+            if row is None:
+                print(f"! id={pid}: gone from the DB — skipped", file=sys.stderr)
+                continue
+            fh.write(json.dumps({
+                "id": pid,
+                "band": "keep" if (sen == "match" and dom == "match")
+                        else ("near" if dom == "adjacent" else "skip"),
+                "hard": False,
+                "note": note or f"{row['company_name']} {(row['job_title'] or '')[:60]}",
+                "seniority": sen, "domain": dom,
+                "posting": {"job_title": row["job_title"],
+                            "company_name": row["company_name"],
+                            "description": row["description"],
+                            "location": row["location"]},
+            }) + "\n")
+            written += 1
+    print(f"ingested {written} labelled rows"
+          + (f" ({bad} rejected for a bad label value)" if bad else ""))
+    print(f"golden.jsonl now has {len(_labelled_ids())} rows")
+    return 0
+
+
+def _labelled_ids() -> set:
+    if not GOLDEN.exists():
+        return set()
+    return {json.loads(l)["id"] for l in GOLDEN.read_text().splitlines()
+            if l.strip() and "id" in json.loads(l)}
+
+
 def main() -> int:
     if not FRAME.exists():
         print(f"missing {FRAME} — run tools/expand_golden.py first", file=sys.stderr)
         return 1
-    done = {json.loads(l)["id"] for l in GOLDEN.read_text().splitlines()
-            if l.strip() and "id" in json.loads(l)} if GOLDEN.exists() else set()
+    conn = sqlite3.connect(DB, uri=True)
+    conn.row_factory = sqlite3.Row
+    if "--ingest" in sys.argv:
+        return ingest_sheet(conn)
+    done = _labelled_ids()
     frame = [json.loads(l) for l in FRAME.read_text().splitlines() if l.strip()]
     # Take ids and bands ONLY. Every other field in the frame is a Sol verdict.
     todo = [(r["id"], r["band"]) for r in frame if r["id"] not in done]
     todo.sort(key=lambda t: (BAND_ORDER.index(t[1]) if t[1] in BAND_ORDER else 9, t[0]))
 
-    conn = sqlite3.connect(DB, uri=True)
-    conn.row_factory = sqlite3.Row
+    if "--emit" in sys.argv:
+        # Default to the DISCRIMINATING bands only. `skip` is 74% of the frame and every
+        # model gets those right, so labelling them costs hours and buys no separating
+        # power; `--emit-all` is there if a negative-class check is ever wanted.
+        rows = todo if "--emit-all" in sys.argv else [t for t in todo if t[1] != "skip"]
+        return emit_sheet(conn, rows)
+
     print(f"{len(done)} already labelled · {len(todo)} to go "
           f"(order: {' -> '.join(BAND_ORDER)})\n")
 
