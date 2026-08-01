@@ -683,6 +683,33 @@
   survivor set by construction. The harness was positive-controlled before that 0 was
   believed: fed 200 rows already `discarded` with a `location:` reason, it re-killed
   **200/200**. A 0% here means the waste was harvested, not that the gate stopped working.
+  **EXTENDED BEYOND `custom` 2026-08-01 — `workday` and `greenhouse` are both measured
+  NOs, and they cover 129 of the 172 watchlist rows.** Queue share by source at the time:
+  `custom` 1,599 · `workday` 738 · `greenhouse` 571 · `browser` 529 · `phenom` 239 ·
+  `icims` 148 · `ashby` 128 · rest <30 each.
+  **Workday (28 boards) has no country tier, and fails in the dangerous direction.** The
+  well-known global Workday country GUID for the USA
+  (`bc33aa3152ec42d4995f4791a106ed09`, the reason the "per-tenant GUID" objection looked
+  beatable) was applied as `appliedFacets: {"locationCountry": [...]}` to Micron, Cisco and
+  BlackRock: totals came back **2,725 → 2,725**, **1,018 → 1,018**, **257 → 257**, with
+  Japan and London rows still present. **An unrecognised facet key is silently ignored, not
+  rejected** — so this ships looking like it works. The response's own `facets` array is
+  the authority, and Micron advertises only `timeType`, `workerSubType`, `jobFamilyGroup`
+  and `locationMainGroup`; the last expands to a flat **site-level** list
+  (`Boise, ID - Main Site`, `Bengaluru, India`, `Arzano (NA), Italy`) keyed by per-tenant
+  GUIDs. Filtering Workday therefore means enumerating individual sites per tenant — the
+  TikTok city-enumeration shape, and worse, because the ids are not portable between
+  boards. Read `facets` before believing any Workday filter.
+  **Greenhouse (101 boards) accepts no filter at all**, same silent-ignore shape:
+  `boards-api.greenhouse.io/v1/boards/optiverus/jobs` returns **180** jobs with
+  `?location=United States`, `?country=US` and `?offices=US` alike. Its board genuinely
+  carries the waste (Amsterdam 33, Sydney 31, Shanghai 28 of 180) — there is simply no
+  lever. That is what a board-embed API is *for*: it serves the whole board.
+  **So the generalisation is that this does NOT generalise.** Amazon worked because
+  `amazon.jobs` is a faceted *search* API; the ATS platforms are not. `browser` (529),
+  `phenom` (239), `icims` (148) and `ashby` (128) are unprobed — worth a look only if
+  someone is already in that adapter, since the remaining per-board upside is a fraction
+  of Amazon's 768 rows/pass and every negative so far has cost a live probe to establish.
   **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
   ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
   a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
