@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react'
 
+import type { ChartStatus } from '@/lib/constants'
+
 interface SankeyChartProps {
     data: { from: string; to: string; value: number }[]
 }
@@ -19,6 +21,9 @@ const TONE = {
     stone:    'rgb(168, 160, 150)', // withdrew / ghosted / no-response
 }
 
+// `satisfies` keeps the runtime object exactly as written while making the key set
+// exhaustive over ChartStatus — add a status to STATUSES and this stops compiling
+// until it has a tone, rather than quietly falling back to slate in getColor.
 const STATUS_TONE: Record<string, keyof typeof TONE> = {
     'Applied': 'sky',
     'Online Assessment': 'indigo',
@@ -35,7 +40,7 @@ const STATUS_TONE: Record<string, keyof typeof TONE> = {
     'Withdrew': 'stone',
     'Ghosted': 'stone',
     'No Response': 'stone',
-}
+} satisfies Record<ChartStatus, keyof typeof TONE>
 
 // Order determines column position — earlier stages first
 const STAGE_ORDER: string[] = [
