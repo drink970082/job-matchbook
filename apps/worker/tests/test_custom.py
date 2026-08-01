@@ -314,7 +314,8 @@ def test_a_recipe_urls_own_query_string_survives_pagination():
     carries its own filter keeps it on every page.
 
     The shipped Amazon recipe is
-    `...search.json?base_query=software+engineer&normalized_country_code[]=USA`
+    `...search.json?base_query=software+engineer&normalized_country_code%5B%5D=USA`
+    (`[]` percent-encoded, as the live row and the example both write it)
     (`config.yaml.example`), a US-only filter that removes ~768 rows/pass with zero
     coverage loss (BACKLOG, the intake-cut entry). Rebuild the url by concatenation —
     the obvious "simplification" — and the `?offset=` clobbers the filter, silently

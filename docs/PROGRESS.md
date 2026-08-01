@@ -87,16 +87,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Two consequences, both measured over 158 production calls: our prompt is only **~39%**
   of what a call bills (6,512 of 16,775 tok; 7,332 is itemised codex CLI harness and
   ~2,931 is unattributed), and **prefix caching is capped by one line** —
-  `backends_codex.py:113` opens a fresh `TemporaryDirectory()` passed as `-C` at `:133`,
+  `backends_codex.py:118` opens a fresh `TemporaryDirectory()` passed as `-C` at `:138`,
   and that random path is echoed into the prompt at `<environment_context><cwd>` ahead of
   the whole scoring prefix. Every cache hit stops at **exactly 11,008 tokens** (86 x 128),
   42 times out of 42, so the ~5,500-token rubric+profile+résumé prefix is re-billed fresh
   on every call — and only **27%** of calls cache anything at all (positions 0-5 of every
   burst miss 100% of the time under `score_workers=4`).
-  **EVERY CACHING FIGURE IN THIS PARAGRAPH IS WITHDRAWN — do not re-quote 11,008, 42/42 or
-  27%.** They describe codex-cli **0.144.x**; the installed CLI is **0.146.0**, where
-  Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe, so no
-  cache is operating and there is nothing for the `-C` change to fix. The stable-`-C`
+  **THE CACHING FIGURES ARE CORRECT BUT OUT OF DATE — they describe a CLI that is not
+  installed.** 11,008, the 42, and the 27% all re-derive exactly from
+  `db/codex-token-accounting/rollout-token-usage.jsonl` (checked 2026-08-01: 53 of 198
+  `gpt-5.6-sol` rows cached anything = 27%, and 42 of those cached exactly 11,008), so
+  they are not wrong — they are **0.144.x** measurements. The installed CLI is **0.146.0**,
+  where Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe: no
+  cache is operating, so there is nothing for the `-C` change to fix and no headroom to
+  reclaim. Quote them as history, never as current headroom. The stable-`-C`
   lever was therefore **not shipped**. Full negative in
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
   The per-token billing finding above is unaffected — that one reproduced.
@@ -115,8 +119,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
   rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
   runs in 15.9s instead of 20s.
-- **Seniority veto defects — branch `fix/seniority-veto-evidence`, landed, awaiting
-  merge** `[SCORE · S · PR #62]`. 70% of the layer's 61 misses were code discarding a
+- **Seniority veto defects — MERGED as `c0a9688`** `[SCORE · S · PR #62]`.
+  (Read "landed, awaiting merge" until 2026-08-01. `DEVELOPMENT.md` §7 makes that
+  phrase load-bearing — it tells another session the work is finished but ungated —
+  so a stale one is worse than no entry.) 70% of the layer's 61 misses were code discarding a
   correct extraction: a cap read as a floor, an unevidenced bar trusted, and a clamped bar
   cancelling a rank the JD states. Fixing all three moved every gate axis at once —
   precision 0.964 -> **0.975**, recall 0.757 -> **0.793**, demote share 0.442 -> **0.457**,

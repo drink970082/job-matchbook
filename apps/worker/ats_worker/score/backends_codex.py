@@ -47,7 +47,8 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
 
     BATCH-FIRST, ONE `codex exec` PER CALL. The original justification — that the
     ChatGPT-subscription quota is MESSAGE-bound, so collapsing N postings into one exec
-    is the quota win (B1 in docs/superpowers/sdd) — is WRONG and should not be repeated.
+    is the quota win (B1 in the 2026-07-16 batched-scoring design under
+    docs/superpowers/specs/) — is WRONG and should not be repeated.
     Measured 2026-07-31 from the codex rollout files, which carry exact per-call
     `input_tokens`/`cached_input_tokens`/`output_tokens`: the quota is per-TOKEN credits
     (since April 2026), so batching saves only the repeated prompt prefix, and our prompt

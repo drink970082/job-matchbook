@@ -1000,14 +1000,19 @@ keeping: our prompt is only **~39%** of what a call bills (6,512 of 16,775 tok �
 is codex CLI harness overhead), and `cached_input_tokens` reads **0** on codex-cli
 0.146.0, so prefix caching is not a lever available today (it was, on 0.144.x; see
 `superpowers/notes/2026-07-31-quota-ledger.md`).
-**The instrument is real but is NOT available right now, so treat those figures as a
-record rather than something you can re-derive.** `~/.codex/sessions/` is empty as of
-2026-08-01 and `backends_codex.py` passes `--ephemeral` unconditionally, so no new
-rollout is written and the 158-call sample cannot be re-read. Re-enabling it means
-dropping `--ephemeral`, which puts the résumé + profile + JD back on disk outside the
-repo — the exact exposure `BACKLOG.md`'s codex-rollout entry documents. Weigh that before
-re-running the measurement; do not treat "read the rollout files" as a step available on
-demand.
+**The rollout files themselves are gone, but the measurement survives — read the extract,
+do not re-instrument.** `~/.codex/sessions/` is empty as of 2026-08-01 and
+`backends_codex.py` passes `--ephemeral` unconditionally, so no new rollout is written.
+What was kept is the part that mattered:
+**`db/codex-token-accounting/rollout-token-usage.jsonl`** — 212 records, each carrying the
+per-call `input_tokens` / `cached_input_tokens` / `output_tokens` that the finding rests
+on, with no JD or résumé text in it. Every figure above re-derives from it directly
+(verified 2026-08-01: mean input **16,709** tok over 212 records; of the 198 `gpt-5.6-sol`
+rows, **53 (27%)** cached anything and **42** of those cached exactly **11,008**).
+`db/` is gitignored, so this pointer is the only way anyone finds the file.
+**Do NOT drop `--ephemeral` to re-run this.** That is the one path that puts the résumé +
+profile + JD back on disk outside the repo — the exposure `BACKLOG.md`'s codex-rollout
+entry documents — and it buys nothing the extract does not already hold.
 
 - Each JD gets a `=== JOB job_ref=<id> ===` block, and the schema demands the same
   `job_ref` come back on every element in a `{"results": [...]}` envelope.

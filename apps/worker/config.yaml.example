@@ -32,8 +32,8 @@ companies:
   #     # The trailing `normalized_country_code[]` is a board-SIDE filter: amazon.jobs is
   #     # a faceted search API, so the non-matching rows are never fetched at all. Drop it
   #     # if you want postings outside the US. Measured 2026-08-01: 2,035 -> 1,267 rows
-  #     # fetched, with an IDENTICAL set surviving the screen (411 either way), i.e. it
-  #     # removes only rows the location gate would have discarded for free anyway.
+  #     # fetched, with an IDENTICAL set surviving the free deterministic gate (411
+  #     # either way) -- it removes only rows the location gate discarded for free anyway.
   #     # Most boards cannot do this -- greenhouse and workday ignore location params
   #     # silently rather than rejecting them (docs/BACKLOG.md, the intake-cut entry).
   #     url: "https://www.amazon.jobs/en/search.json?base_query=software+engineer&normalized_country_code%5B%5D=USA"

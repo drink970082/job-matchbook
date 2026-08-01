@@ -78,8 +78,9 @@ DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
 # which would then wrongly notify), so per the design's rollout rule "if batched
 # verdicts drift, batching does not ship". batch_size=1 == the validated per-JD
 # path (one JD per codex exec, no cross-JD context to bleed). The batching code +
-# the guard stay for a future fix (smaller batches / stronger per-JD isolation);
-# opt back in with --batch-size / CODEX_BATCH_SIZE once the drift is resolved.
+# the guard stay so the drift can be re-measured, NOT because a smaller batch is a
+# fix worth taking — SCORING §8.5 measured batching dead at every size above 1, and
+# the token correction above removes the prize that made it tempting.
 # (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
 DEFAULT_BATCH_SIZE = 1
 

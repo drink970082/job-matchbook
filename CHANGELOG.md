@@ -68,8 +68,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   country code (0 nulls), so this is a clean partition rather than a heuristic, and there
   is no unjudgeable bucket to drop silently.
   **The live change is a `watched_companies` row, not a file in this repo** (the watchlist
-  is DB-owned), so it does not appear in the diff; `config.yaml.example` carries the
-  filtered URL for fresh installs, and the pre-change DB copy is at
+  is DB-owned), so it does not appear in the diff; `config.yaml.example` documents the
+  filtered URL (its whole watchlist block is commented out, so it is a reference for a
+  fresh install rather than something that ships), and the pre-change DB copy is at
   `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`.
   **It does not generalise, and the negatives cost more to establish than the win.** TikTok
   and ByteDance accept city codes only (`CN_6` and `ST_*` both return 0); Workday silently
@@ -97,7 +98,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - **Three code comments and seven doc lines asserted the codex quota is MESSAGE-bound. It
   is per-TOKEN credits, and the wrong claim was load-bearing.** `run.py:69`,
   `pipeline.py:811`, `backends_codex.py:49`, `SCORING.md` §4.5/§5.6/§8.5 and `SPEC.md`
-  §7.1/§13 all justified the batching machinery as "the actual quota win" on the strength
+  §7.1/§10 all justified the batching machinery as "the actual quota win" on the strength
   of it. Measured 2026-07-31 over 158 production calls from the codex rollout files'
   per-call token counts (the instrument `SCORING.md` §4.5 said did not exist): billing has
   been per-token since April 2026, so a batch saves the repeated ~5.5k-token
