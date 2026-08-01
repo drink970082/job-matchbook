@@ -313,13 +313,19 @@ def test_a_recipe_urls_own_query_string_survives_pagination():
     """Pagination goes in `params`, never spliced into the url — so a recipe that
     carries its own filter keeps it on every page.
 
-    The live Amazon row is
-    `...search.json?base_query=software+engineer&normalized_country_code[]=USA`, a
-    US-only filter that removes ~768 rows/pass with zero coverage loss (BACKLOG, the
-    intake-cut entry). It only holds because `requests` MERGES `params=` onto a url
-    that already has a query string. Rebuild the url by concatenation here — the
-    obvious "simplification" — and the `?offset=` clobbers the filter, silently
-    restoring the non-US rows on every page but the first."""
+    The shipped Amazon recipe is
+    `...search.json?base_query=software+engineer&normalized_country_code[]=USA`
+    (`config.yaml.example`), a US-only filter that removes ~768 rows/pass with zero
+    coverage loss (BACKLOG, the intake-cut entry). Rebuild the url by concatenation —
+    the obvious "simplification" — and the `?offset=` clobbers the filter, silently
+    restoring the non-US rows on every page but the first.
+
+    SCOPE, so nobody reads more assurance into this than it gives: the session here is
+    injected, so what is pinned is *this executor's* contract — url passed through
+    byte-identical, pagination confined to `params`. The other half of the guarantee is
+    `requests` merging `params=` onto an existing query string, which no unit test
+    covers because no real client is involved. A session object that REPLACED the query
+    string instead of merging would keep this test green and still kill the filter."""
     recipe = dict(AMAZON_RECIPE,
                   url=AMAZON_RECIPE["url"] + "&normalized_country_code%5B%5D=USA")
     sess = _PagedJson(AMAZON, {"hits": 1986, "jobs": []})

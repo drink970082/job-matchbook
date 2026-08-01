@@ -44,11 +44,15 @@
   suggested — at n=3 that is a coincidence worth nothing. Corroborated independently:
   `db/scorer_usage.json` carries `as_of: 2026-07-31T04:46:44-04:00`, i.e. the last pass
   that wrote, three passes back.
-  **The decisive fact is that this measures the PRE-retry rate.** PR #63 is landed but
-  unmerged, and the daemon has been **stopped since 2026-07-31 15:26** to preserve the
-  quota window, so the retry has never run inside a live pass. The question this entry
-  gates on — "does the retry drop it near zero" — has no data behind it and cannot get any
-  until the daemon runs again on merged code. **Do not decide this entry off the 2/3.**
+  **The decisive fact is that this measures the PRE-retry rate.** PR #63 **is merged** —
+  `d983e13`, 2026-07-31 14:02:44 EDT (an earlier draft of this entry said "landed but
+  unmerged", repeating a stale PROGRESS line without checking `main`; the conclusion
+  survives, the reason did not). The retry has still never executed in a live pass, for
+  two independent reasons: the last scoring pass was **12:48**, 74 minutes before the
+  merge, and the daemon — last restarted 09:17, so running pre-merge code — was stopped at
+  14:42 and again at 15:26 and has not run since. The question this entry gates on ("does
+  the retry drop it near zero") therefore has no data behind it and cannot get any until
+  the daemon runs again. **Do not decide this entry off the 2/3.**
 - **The seniority title-token floor: measured 2026-07-31, ambiguous, and the decision is
   the operator's** — `[SCORE · XS · decision pending]`. SCORING §5.7 declined to build a
   floor for the *"Senior ..."* titles the model returns an empty object on, asking for its
@@ -652,15 +656,21 @@
   **Amazon is verified rather than assumed:** 300 of 300 rows sampled across offsets 0,
   100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected. The
   38% API-side cut lines up with the 36% free-kill rate this table already measured for
-  Amazon, which is the independent check that the filter is selecting the same population
-  the gate was discarding.
+  Amazon. **That agreement is a coincidence, not a check, and an earlier draft of this
+  entry called it one** — the 36% is 357/987 over rows that reached the *gate*, the 38% is
+  768/2,035 over rows *fetched*; different numerators over different denominators. The
+  real corroboration is the A/B immediately below, which compares the two survivor sets
+  directly.
   **APPLIED 2026-08-01 and verified by DRIVING the production path, not the probe.**
   `watched_companies.recipe.url` for `custom/amazon` now ends
   `&normalized_country_code%5B%5D=USA`; pre-change copy at
   `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`. Run back through
   the real `fetch_company` with the stored recipe: **1,267 postings, 1,267 of them USA, 0
-  non-US** — the same count the probe predicted, so ~769 rows/pass (38%) are no longer
+  non-US** — the same count the probe predicted, so ~768 rows/pass (38%) are no longer
   fetched, parsed or stored. Revert by restoring the backup or deleting the parameter.
+  (The unfiltered baseline reads 2,036 in the probe and 2,035 in the A/B twenty minutes
+  later. That is one posting closing on a live board, not a discrepancy to reconcile — any
+  figure here is a snapshot of a board that moves.)
   `requests` merges `params=` with a URL that already carries a query string, so the
   `offset`/`result_limit` pagination the recipe adds is unaffected — confirmed by the row
   count, which needs every page.

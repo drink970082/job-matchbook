@@ -56,6 +56,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   behind it. (SPEC §7.1/§9, SCORING §5.7, design record in
   `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.)
 
+### Changed
+
+- **Amazon is fetched US-only, cutting 768 rows per pass with zero coverage loss.** The
+  `custom/amazon` recipe URL gains `normalized_country_code[]=USA`, a board-side facet, so
+  the non-US rows are never fetched, parsed or stored. A/B'd through the production
+  `fetch_company` and the real gates: **unfiltered 2,035 fetched → 640 past title/age →
+  411 past the free gate; filtered 1,267 → 411 → 411.** Identical survivor set, and 0 of
+  the 768 removed rows would have survived — the filter removes exactly what the location
+  gate was already discarding for free, just earlier. Every row on that board carries a
+  country code (0 nulls), so this is a clean partition rather than a heuristic, and there
+  is no unjudgeable bucket to drop silently.
+  **The live change is a `watched_companies` row, not a file in this repo** (the watchlist
+  is DB-owned), so it does not appear in the diff; `config.yaml.example` carries the
+  filtered URL for fresh installs, and the pre-change DB copy is at
+  `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`.
+  **It does not generalise, and the negatives cost more to establish than the win.** TikTok
+  and ByteDance accept city codes only (`CN_6` and `ST_*` both return 0); Workday silently
+  *ignores* an unrecognised `locationCountry` facet (Micron 2,725 → 2,725, Cisco
+  1,018 → 1,018, BlackRock 257 → 257, Japan and London rows intact); greenhouse ignores
+  `?location`/`?country`/`?offices` alike. Amazon worked because `amazon.jobs` is a faceted
+  *search* API; ATS board embeds serve the whole board by design. Full table in
+  `BACKLOG.md`'s intake-cut entry.
+  Pinned by `test_a_recipe_urls_own_query_string_survives_pagination`: pagination goes in
+  `params` and is never spliced into the recipe URL, so a recipe carrying its own filter
+  keeps it on every page.
+
 ### Fixed
 
 - **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was

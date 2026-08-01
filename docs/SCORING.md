@@ -1000,6 +1000,14 @@ keeping: our prompt is only **~39%** of what a call bills (6,512 of 16,775 tok �
 is codex CLI harness overhead), and `cached_input_tokens` reads **0** on codex-cli
 0.146.0, so prefix caching is not a lever available today (it was, on 0.144.x; see
 `superpowers/notes/2026-07-31-quota-ledger.md`).
+**The instrument is real but is NOT available right now, so treat those figures as a
+record rather than something you can re-derive.** `~/.codex/sessions/` is empty as of
+2026-08-01 and `backends_codex.py` passes `--ephemeral` unconditionally, so no new
+rollout is written and the 158-call sample cannot be re-read. Re-enabling it means
+dropping `--ephemeral`, which puts the résumé + profile + JD back on disk outside the
+repo — the exact exposure `BACKLOG.md`'s codex-rollout entry documents. Weigh that before
+re-running the measurement; do not treat "read the rollout files" as a step available on
+demand.
 
 - Each JD gets a `=== JOB job_ref=<id> ===` block, and the schema demands the same
   `job_ref` come back on every element in a `{"results": [...]}` envelope.

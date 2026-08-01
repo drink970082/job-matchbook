@@ -347,8 +347,13 @@ def run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size: int) -> bo
       flips at b1                  -> JD/draw noise; batching may be innocent and those
                                       golden labels are just genuinely borderline.
       stable b1 + drift at b10     -> real context bleed.
-      b5 drifts less than b10      -> bleed scales with batch size; a middle-ground
-                                      batch_size keeps most of the quota win.
+      b5 drifts less than b10      -> bleed scales with batch size. This used to read
+                                      "a middle-ground batch_size keeps most of the
+                                      quota win"; there is no such win. The quota is
+                                      per-TOKEN credits (SCORING §8.4), so a batch
+                                      saves the repeated prefix, not N-1 messages —
+                                      and SCORING §8.5 measured batching dead at every
+                                      size above 1 regardless.
     LIVE, quota-spending — never call from --selftest. READ-ONLY on the DB.
     """
     postings = _build_postings(rows, conn)
@@ -425,8 +430,10 @@ def render_drift_probe(draws, rows, meta, batch_size: int) -> str:
         f"at {setting}.**", "",
         "Compare settings to answer it: flips at b=1 ⇒ JD/draw noise (batching may be "
         "innocent); stable at b=1 but drifting at b=10 ⇒ real context bleed; less drift "
-        "at b=5 than b=10 ⇒ bleed scales with batch size, so a smaller batch is a "
-        "partial fix that keeps most of the quota win.",
+        "at b=5 than b=10 ⇒ bleed scales with batch size. A smaller batch is NOT a "
+        "partial fix worth taking: the quota is per-token credits, so a batch saves the "
+        "repeated prefix rather than N-1 messages, and batching measured dead at every "
+        "size above 1 (SCORING §8.4, §8.5).",
     ]
     return "\n".join(lines)
 

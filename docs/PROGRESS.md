@@ -69,9 +69,16 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
   **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
   `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.**
-  **All ten sites were CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and
-  docs only, no behavior change — see CHANGELOG); this paragraph is kept because it is why
-  they were wrong, not because they still are. The
+  **CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and docs only, no
+  behavior change — see CHANGELOG); this paragraph is kept because it is why they were
+  wrong, not because they still are. **The line numbers above are the ones this entry was
+  written with and several were already stale** — the real sites were `SCORING.md`
+  §8.4/§5.9/§8.5 and `SPEC.md` §7.1/§13; grep the claim, don't trust the refs. Two
+  paraphrases the original grep could not see were also fixed, and they mattered more than
+  the literal ones: `tools/score_eval.py:351/429` told every drift report that a smaller
+  batch "keeps most of the quota win", and the long-run-day runbook's **Budget** section
+  sizes a real run in messages (annotated, not rewritten — its row counts still hold, its
+  ceiling does not). The
   ChatGPT-subscription quota has been **per-token credits since April 2026**, not
   message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
   `SCORING.md:986-991` already flagged message-bound as an unmeasured working assumption
@@ -86,6 +93,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   42 times out of 42, so the ~5,500-token rubric+profile+résumé prefix is re-billed fresh
   on every call — and only **27%** of calls cache anything at all (positions 0-5 of every
   burst miss 100% of the time under `score_workers=4`).
+  **EVERY CACHING FIGURE IN THIS PARAGRAPH IS WITHDRAWN — do not re-quote 11,008, 42/42 or
+  27%.** They describe codex-cli **0.144.x**; the installed CLI is **0.146.0**, where
+  Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe, so no
+  cache is operating and there is nothing for the `-C` change to fix. The stable-`-C`
+  lever was therefore **not shipped**. Full negative in
+  [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
+  The per-token billing finding above is unaffected — that one reproduced.
   **Work happens in separate worktrees** so the daemon never imports experimental code;
   `main` stays checked out and running in the primary tree. Worktrees and branches are
   removed when the run finishes.
