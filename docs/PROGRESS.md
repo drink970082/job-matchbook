@@ -68,7 +68,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   spend is logged per call in
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
   **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
-  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.** The
+  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.**
+  **All ten sites were CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and
+  docs only, no behavior change — see CHANGELOG); this paragraph is kept because it is why
+  they were wrong, not because they still are. The
   ChatGPT-subscription quota has been **per-token credits since April 2026**, not
   message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
   `SCORING.md:986-991` already flagged message-bound as an unmeasured working assumption

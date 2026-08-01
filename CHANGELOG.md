@@ -58,6 +58,33 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was
+  `>=0.40`, while `score/backends_claude.py:47/49` and `score/backends_screen.py:62` pass
+  `thinking={"type": "adaptive"}` and `output_config={"format": ...}` — kwargs an 0.40
+  client rejects with `TypeError`, so `--score-backend claude` would have died on its
+  first call rather than on anything about the backend. Floored at **0.107.1**, the
+  version in `apps/worker/.venv`, checked directly for both kwargs in `Messages.create`'s
+  signature. The true minimum is probably lower; a verified floor beats a guessed one.
+  Related: BACKLOG's "the claude scoring backend has never run in this deployment" already
+  said to check the SDK floor before the first live run — this is that check.
+
+- **Three code comments and seven doc lines asserted the codex quota is MESSAGE-bound. It
+  is per-TOKEN credits, and the wrong claim was load-bearing.** `run.py:69`,
+  `pipeline.py:811`, `backends_codex.py:49`, `SCORING.md` §8.4/§5.9/§8.5 and `SPEC.md`
+  §7.1/§13 all justified the batching machinery as "the actual quota win" on the strength
+  of it. Measured 2026-07-31 over 158 production calls from the codex rollout files'
+  per-call token counts (the instrument `SCORING.md` §8.4 said did not exist): billing has
+  been per-token since April 2026, so a batch saves the repeated ~5.5k-token
+  rubric+profile+résumé prefix, not N-1 messages. Comments and docs only — no behavior
+  changes, and batching stays parked at 1 on the correctness grounds that always held it
+  there (cross-JD domain bleed), which never depended on the quota model.
+  Two figures kept alongside the correction because they bound future arithmetic: our
+  prompt is **~39%** of what a call bills (6,512 of 16,775 tok; the rest is codex CLI
+  harness overhead), and `cached_input_tokens` reads **0** on codex-cli 0.146.0, so prefix
+  caching is not a lever available today. `SCORING.md` §5.9's "concurrency is
+  quota-neutral" survives the correction — each call bills its own tokens either way — and
+  now names caching as the one mechanism that would break it.
+
 - **The `capture_usage` failure has a NAME — HTTP 403 — and is now retried. What
   produces the 403 is still open.** #60's cause-naming earned its keep immediately: the
   first failing pass after it shipped (12:00 on 2026-07-31, 26 rows fit-scored) printed

@@ -27,6 +27,28 @@
   the web bar would lag by one pass. Capturing at both ends doubles the call but is still
   free of quota. **Decide only after the WARNING rate has been measured across days** — if
   the retry (PR #63) drops it near zero, this is unnecessary complexity.
+  **MEASURED 2026-08-01 from journald, and the answer is "not yet decidable" — read the
+  denominator before quoting the rate.** Over the whole journal
+  (`journalctl --user -u ats-worker`, 2026-07-28 21:17 → 2026-07-31 15:26) only **three**
+  passes both fit-scored and ran with the WARNING live, because the passes of 07-30
+  16:00/20:00 and 07-31 00:00 fit-scored **0** rows — the guarded call correctly never
+  fired, so they are not in the denominator either way:
+
+  | pass (EDT) | fit-scored | snapshot |
+  |---|---|---|
+  | 07-31 04:46 | 7 | written |
+  | 07-31 08:50 | 34 | **WARNING**, no cause named (the 403 diagnosis was not live yet) |
+  | 07-31 12:48 | 26 | **WARNING** + `HTTP 403 (Forbidden)` |
+
+  So **2 of 3**, which happens to match the ~2-in-3 per-call failure rate the hand probes
+  suggested — at n=3 that is a coincidence worth nothing. Corroborated independently:
+  `db/scorer_usage.json` carries `as_of: 2026-07-31T04:46:44-04:00`, i.e. the last pass
+  that wrote, three passes back.
+  **The decisive fact is that this measures the PRE-retry rate.** PR #63 is landed but
+  unmerged, and the daemon has been **stopped since 2026-07-31 15:26** to preserve the
+  quota window, so the retry has never run inside a live pass. The question this entry
+  gates on — "does the retry drop it near zero" — has no data behind it and cannot get any
+  until the daemon runs again on merged code. **Do not decide this entry off the 2/3.**
 - **The seniority title-token floor: measured 2026-07-31, ambiguous, and the decision is
   the operator's** — `[SCORE · XS · decision pending]`. SCORING §5.7 declined to build a
   floor for the *"Senior ..."* titles the model returns an empty object on, asking for its
@@ -597,6 +619,47 @@
   intake cut is a per-board location constraint or dropping the worst offenders — but
   note this is *fetch* cost only, since the gate is free and (as of 2026-07-31) no longer
   spends a budget slot either.
+  **PROBED 2026-08-01: only ONE of the five `custom` boards can be filtered board-side,
+  and the four negatives are the useful part.** The idea was to push the location
+  constraint upstream into each board's own query so the wasted rows are never fetched.
+  Scope was `custom` boards only — the three `workday` offenders (Micron 484, Cisco 303,
+  BlackRock 84) need `appliedFacets` with opaque per-tenant GUIDs and were ruled out
+  without probing. Live results:
+
+  | board | free-killed | board-side country filter? |
+  |---|---|---|
+  | Amazon | 357 | **yes** — `normalized_country_code[]=USA`, 2,036 → 1,267 hits (38%) |
+  | TikTok | 782 | no — `location_code_list` takes **city** codes only |
+  | ByteDance | 75 | no — same API as TikTok |
+  | Jane Street | 94 | no — static `main.json`, no query params at all |
+  | Oracle | 77 | no — opaque `GeographyId`, level unverifiable |
+
+  **The TikTok negative is the load-bearing one, because it is the biggest board.** Its
+  `city_info` exposes a clean city → state → country hierarchy (`CT_` → `ST_` → `CN_`), so
+  a country filter looks available: US is `CN_6`. It is not. Measured against the live
+  endpoint, `location_code_list: ["CN_6"]` returns **0**, `["ST_1002078"]` returns **0**,
+  and only city codes work — `["CT_114"]` (New York) 181, `["CT_114","CT_157"]` (+Seattle)
+  491, against a 3,651 baseline. Filtering TikTok therefore means enumerating US city
+  codes, which silently drops every US city not on the list and rots the moment
+  `candidate.locations` changes — the failure being indistinguishable from a quiet board.
+  Declined on that basis, not on effort.
+  **Oracle looked possible and could not be confirmed.** `selectedLocationsFacet` and
+  `locationId` both narrow 2,314 → 1,544 with a clean 25/25 US sample, but the value is a
+  15-digit `GeographyId` scraped off one requisition, the facet list is not requestable
+  (`expand=filters.facets.items` → HTTP 400), and 50 rows carry 24 distinct ids — so
+  whether that id means "United States" or a region that happens to contain 1,544 jobs is
+  unknown. Same class as the Workday GUIDs, for the smallest payoff of the five.
+  **Amazon is verified rather than assumed:** 300 of 300 rows sampled across offsets 0,
+  100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected. The
+  38% API-side cut lines up with the 36% free-kill rate this table already measured for
+  Amazon, which is the independent check that the filter is selecting the same population
+  the gate was discarding. **The recipe edit itself was NOT applied** — it is a write to
+  the live `watched_companies` table and needs the operator; the one-line update and a
+  pre-change DB backup path are in the session notes.
+  **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
+  ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
+  a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
+  caused once.
   **2. Eighteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
   `ashby/uniswap`, `browser/citadel.com`, `greenhouse/aurosglobal`, `b2c2`, `crabel`,
   `davinciderivatives`, `exoduspoint`, `genevatrading`, `mwinternshipprogram`,
@@ -686,6 +749,22 @@
   they sit in `~/.codex/`, outside the repo, so `.gitignore` and `make check-privacy` have
   never covered them. Deleting them is the operator's call (they are also that session
   history's only record); nothing in this repo depends on them.
+  **RE-CHECKED 2026-08-01 — the rollout files are GONE, and the exposure moved rather than
+  closed. Two of the three claims above are now wrong.** `~/.codex/sessions/` holds **zero**
+  files (the directory is empty, 4 KB), so there is nothing left to reap there. But the
+  same prompts persist in **`~/.codex/state_5.sqlite`** (16 MB): of 318 rows in its
+  `threads` table, **208 carry the `=== RESUME` block inline** — and not in one column but
+  in **three**: `first_user_message`, `preview`, and `title`. `preview` and `title` are the
+  columns a session picker renders, so this store is *more* exposed than the rollouts were,
+  not less. 1,877 `=== RESUME` and 623 `=== JOB job_ref` occurrences in the file overall.
+  **"The fix stopped new writes" is false for this store.** Those rows run
+  **2026-07-17 20:10 → 2026-07-31 13:30** — the latest is the 12:48 scoring pass on 07-31,
+  well after the 07-29 `--ephemeral` restoration that stopped rollout writes. Every paid fit
+  call still deposits the résumé here.
+  **Deleting is a different risk than it was**, which is why nothing was deleted here: this
+  is the codex CLI's own live state database, not an inert log, so a row delete wants the
+  CLI stopped and a file copy taken first. Verify with a read-only connection before acting
+  — `select count(*) from threads where first_user_message like '%=== RESUME%'`.
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
