@@ -309,6 +309,27 @@ def test_fetch_amazon_offset_get_pagination():
     assert all(m == "GET" for m, *_ in sess.calls)
 
 
+def test_a_recipe_urls_own_query_string_survives_pagination():
+    """Pagination goes in `params`, never spliced into the url — so a recipe that
+    carries its own filter keeps it on every page.
+
+    The live Amazon row is
+    `...search.json?base_query=software+engineer&normalized_country_code[]=USA`, a
+    US-only filter that removes ~768 rows/pass with zero coverage loss (BACKLOG, the
+    intake-cut entry). It only holds because `requests` MERGES `params=` onto a url
+    that already has a query string. Rebuild the url by concatenation here — the
+    obvious "simplification" — and the `?offset=` clobbers the filter, silently
+    restoring the non-US rows on every page but the first."""
+    recipe = dict(AMAZON_RECIPE,
+                  url=AMAZON_RECIPE["url"] + "&normalized_country_code%5B%5D=USA")
+    sess = _PagedJson(AMAZON, {"hits": 1986, "jobs": []})
+    custom.fetch("amazon", "Amazon", recipe, session=sess, timeout=20)
+
+    assert [url for _, url, *_ in sess.calls] == [recipe["url"]] * len(sess.calls)
+    assert all("offset" not in url for _, url, *_ in sess.calls)
+    assert [(p or {}).get("offset") for _, _, p, _, _ in sess.calls] == [0, 2]
+
+
 def test_fetch_tiktok_post_headers_and_body_offset():
     sess = _PagedJson(TIKTOK, {"data": {"count": 3701, "job_post_list": []}})
     out = custom.fetch("tiktok", "TikTok", TIKTOK_RECIPE, session=sess, timeout=20)
