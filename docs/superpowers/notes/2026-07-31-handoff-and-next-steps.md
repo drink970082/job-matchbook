@@ -165,6 +165,32 @@ ceiling that survived four prompt rewrites. So on the one axis that matters (nev
 a job the candidate could have got) luna is not a fallback for people without a GPU, it is
 **strictly better than what this repo ships as the default**.
 
+> **REPLICATED LATER THE SAME DAY BY ANOTHER SESSION — the conclusion holds, the word
+> "zero" does not.** This section is **run 1 of three**. Full record, all `codex`/luna,
+> K=3:
+>
+> | run | corpus | false disqualification | recall |
+> |---|---|---|---|
+> | 1 (this section) | 83 rows | 0 — **PASS** | 29/37 (78%) |
+> | 2 | 83 rows | **1** — id 672, 1 draw of 3 — **FAIL** | 28/37 (76%) |
+> | 3 | 103 rows (expanded) | 0 — **PASS** | 30/37 (81%) |
+>
+> The gate is **any-draw** by construction (`screen_eval.py:149` — "a check that discards
+> a good posting one time in three is not a passing check"), so K=3 catches a ~1-in-3
+> per-draw fault only ~70% of the time. A single clean run is weak evidence; a single
+> failure is proof. **Luna is ~1 bad draw in 9 on one row, not zero.**
+>
+> **The comparison it draws gets STRONGER, though.** On the expanded 103-row corpus, run
+> the same day on the same corpus: **`ollama` 7 false disqualifications, luna 0.** Three
+> of the 4B's seven are clearance rows that no eval could see before that corpus grew —
+> it disqualifies on *"BACKGROUND CHECKS/CLEARANCES"* in university boilerplate and on
+> BlackRock's **job title**, *"Associate, Trade Clearance/Settlement"*, all 3/3 draws. It
+> matches the word, not the meaning; luna is clean on all 14 of those rows, every draw.
+>
+> So "strictly better than what this repo ships as the default" stands and is
+> underquoted. What must not be quoted is "PASS" from a single run. Details and the
+> corpus work are in `PROGRESS.md` (In flight) and `BACKLOG.md`, merged in #65.
+
 **Cost: 249 calls moved the weekly window 40% -> 41%.** Roughly 1% for a full screen eval,
 i.e. ~250 luna calls per point against ~12 sol calls per point — the 5:1 credit ratio
 showing up in practice, and cheaper still because screen prompts are much shorter than fit
