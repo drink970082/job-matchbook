@@ -93,3 +93,19 @@ def test_reachable_drops_what_the_shipped_filters_refuse(tmp_path):
     cfg = tmp_path / "config.yaml"
     cfg.write_text('title_filter: ["engineer"]\ntitle_exclude: ["senior"]\n')
     assert label_run.reachable(conn, [1, 2, 3], cfg) == [1]
+
+
+def test_resume_retries_error_rows_but_not_successes(tmp_path):
+    """The failure that produces most error rows is a quota window closing mid-run.
+    Counting those ids as done would permanently skip exactly the rows the resume path
+    exists to pick up."""
+    out = tmp_path / "labels.jsonl"
+    out.write_text(json.dumps({"id": 1, "domain": "match"}) + "\n"
+                   + json.dumps({"id": 2, "error": "ScoreError: rate limited"}) + "\n")
+    done, failed = label_run.resume_done(out)
+    assert done == {1}          # 2 is retried
+    assert failed == 1
+
+
+def test_resume_on_a_fresh_run_is_empty(tmp_path):
+    assert label_run.resume_done(tmp_path / "nope.jsonl") == (set(), 0)

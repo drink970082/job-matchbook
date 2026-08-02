@@ -78,6 +78,22 @@ def reachable(conn, ids: list[int], cfg_path: Path) -> list[int]:
     return [p["id"] for p in kept]
 
 
+def resume_done(out: Path) -> tuple[set, int]:
+    """`(ids to skip, count of errored rows that will be retried)`.
+
+    SUCCESSES only count as done. An `error` row must not: the failure that produces
+    most of them is a quota window closing mid-run, and treating those ids as finished
+    would permanently skip exactly the rows the resume path exists to pick up.
+    Re-labeling appends a second row for the id; readers key by id and take the last,
+    so the good row wins.
+    """
+    if not out.exists():
+        return set(), 0
+    rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
+    done = {r["id"] for r in rows if not r.get("error")}
+    return done, len(rows) - len(done)
+
+
 def label_one(score_fit, resumes, posting) -> dict:
     """One draw. Returns the flattened label row, or an `error` row — a backend failure
     must be visible in the output, not a silently missing id."""
@@ -128,10 +144,11 @@ def main() -> int:
               f"({before - len(ids)} refused by the shipped title filters)",
               file=sys.stderr)
 
-    done: set = set()
-    if args.out.exists():  # resume rather than re-spend
-        done = {json.loads(l)["id"] for l in args.out.read_text().splitlines() if l.strip()}
-        print(f"resuming: {len(done)} already labeled", file=sys.stderr)
+    done, failed = resume_done(args.out)
+    if done or failed:
+        print(f"resuming: {len(done)} labeled"
+              + (f", {failed} errored rows will be retried" if failed else ""),
+              file=sys.stderr)
     todo = [i for i in ids if i not in done]
     if args.limit:
         todo = todo[:args.limit]
