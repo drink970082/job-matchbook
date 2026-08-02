@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from ats_worker.util import get_redirect_safe, html_to_text, is_safe_public_url, to_iso_date
+from ats_worker.util import (get_redirect_safe, html_to_text, is_safe_public_url,
+                             join_present, to_iso_date)
 from tests._helpers import FakeResponse, FakeSession
 
 
@@ -142,3 +143,43 @@ def test_get_redirect_safe_raises_after_too_many_redirects():
         get_redirect_safe(sess, "https://example.com/start", timeout=5)
 
     assert len(sess.calls) == 6
+
+
+# --- join_present -----------------------------------------------------------
+# Shared by three adapters that each spell a location as flat sibling fields
+# (workable city/state/country, smartrecruiters city/region/country, jobvite's
+# JSON-LD addressLocality/addressRegion/addressCountry). Each had its own copy of
+# the comprehension; these pin the behavior all three depended on.
+
+def test_join_present_joins_in_key_order_not_dict_order():
+    obj = {"country": "US", "city": "Boulder", "state": "CO"}
+    assert join_present(obj, ("city", "state", "country")) == "Boulder, CO, US"
+
+
+def test_join_present_returns_none_when_nothing_is_set():
+    assert join_present({}, ("city", "state")) is None
+    assert join_present({"city": None, "state": ""}, ("city", "state")) is None
+
+
+def test_join_present_drops_blank_values_rather_than_joining_them():
+    # The bug this guards: a present-but-empty city yielding ", CO, US".
+    obj = {"city": "   ", "state": "CO", "country": "US"}
+    assert join_present(obj, ("city", "state", "country")) == "CO, US"
+
+
+def test_join_present_strips_and_coerces_non_strings():
+    # Board JSON is untyped: a region can arrive as a number.
+    obj = {"city": "  Austin  ", "state": 78701}
+    assert join_present(obj, ("city", "state")) == "Austin, 78701"
+
+
+def test_join_present_treats_falsy_scalars_as_absent():
+    # 0 and False are falsy, so the original comprehension skipped them; keeping
+    # that means a numeric-zero region never becomes the string "0".
+    assert join_present({"city": 0, "state": False}, ("city", "state")) is None
+    # ...but a "0" STRING is real data and survives.
+    assert join_present({"city": "0"}, ("city",)) == "0"
+
+
+def test_join_present_ignores_keys_absent_from_the_object():
+    assert join_present({"city": "Boulder"}, ("city", "state", "country")) == "Boulder"

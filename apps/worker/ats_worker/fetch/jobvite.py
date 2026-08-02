@@ -14,7 +14,7 @@ import re
 
 import requests
 
-from ats_worker.util import html_to_text, to_iso_date
+from ats_worker.util import html_to_text, join_present, to_iso_date
 
 SOURCE = "jobvite"
 PAGE = "https://jobs.jobvite.com/{slug}/job/{id}"
@@ -43,11 +43,10 @@ def _location(ld: dict) -> str | None:
     for loc in (locs if isinstance(locs, list) else [locs]):
         addr = (loc or {}).get("address") if isinstance(loc, dict) else None
         if isinstance(addr, dict):
-            parts = [str(addr.get(k)).strip() for k in
-                     ("addressLocality", "addressRegion", "addressCountry")
-                     if addr.get(k) and str(addr.get(k)).strip()]
-            if parts:
-                return ", ".join(parts)
+            joined = join_present(
+                addr, ("addressLocality", "addressRegion", "addressCountry"))
+            if joined:
+                return joined
     return None
 
 
