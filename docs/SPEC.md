@@ -443,7 +443,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   URL host/path (`ConfigError` on a bad slug). Exposes `companies` (each with an optional
   `recipe: dict | None`), `enable_browser_sources` (opt-in gate for `browser` rows, default off),
   `title_filter`, `title_exclude` (negative title list — drop a posting whose title
-  contains any listed keyword, the complement of `title_filter`), `max_age_days`
+  carries any listed keyword **as a whole word**, the complement of `title_filter`;
+  note the deliberate asymmetry — the keep-list is substring, this is not), `max_age_days`
   (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
   `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
   `is_empty()`), `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
@@ -471,9 +472,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   - `prefilter_postings(postings, *, title_filter, title_exclude, max_age_days, now)`
     — the fetch-time coarse pre-filter **both** ingestion paths run (deterministic, no
     LLM): the positive `title_filter` keep-list above, a negative `title_exclude`
-    drop (title contains any listed keyword), and a `max_age_days` freshness drop (a
+    drop, and a `max_age_days` freshness drop (a
     parsed `posted_at` older than N days is dropped; `0`/omitted `max_age_days` and a
     null/unparseable `posted_at` both keep the posting — err toward keep).
+  - `exclude_matcher(title_exclude)` — the compiled **whole-word** matcher
+    `prefilter_postings` applies to `title_exclude`, or `None` for an empty list. The
+    asymmetry against `filter_postings`' substring rule is measured, not stylistic
+    (11,675 titles, 2026-08-02): the keep-list *needs* substring as a stemmer — `quant`
+    reaches 436 titles where a word match reaches 40, and the 396 "Quantitative …" rows
+    it would lose are the product — while the exclude list needs precision, since a
+    substring `intern` also drops "Internal Compute Frameworks (Python)" and an
+    over-reaching exclude is invisible (the posting it ate never surfaces). Word
+    matching is also what makes short keys usable at all: `sr` as a substring hits SRAM
+    and SRE, `ios` hits BIOS and Biosciences. Consequence for operators: keys no longer
+    stem, so `intern` and `internship` are both required. Uses lookarounds rather than
+    `\b` so a key ending in punctuation (`co-op`, `ai/ml`) still matches.
 
   **Source coverage matrix** (the at-a-glance support map — keep it current when a
   source is added). *Adapter* = can fetch a JD; *feed router* = `resolve_url` maps the

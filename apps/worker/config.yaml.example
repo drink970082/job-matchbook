@@ -90,9 +90,17 @@ feeds:
 # candidate.locations below (the LLM understands a New York role satisfies "USA").
 title_filter: []              # e.g. ["engineer", "developer"]
 
-# Optional negative title pre-filter: DROP a posting whose title contains any of
-# these (case-insensitive), the complement of title_filter. Empty/omitted = drop none.
-title_exclude: [intern, "co-op", sales, principal, staff, director]
+# Optional negative title pre-filter: DROP a posting whose title carries any of these
+# (case-insensitive), the complement of title_filter. Empty/omitted = drop none.
+#
+# NOTE the asymmetry with title_filter above: these match as WHOLE WORDS, not
+# substrings. So they do not stem — "intern" will not reach "internship" (list both),
+# and "robot" will not reach "robotics". In exchange, an exclude cannot over-reach:
+# "intern" as a substring also ate "Internal Compute Frameworks" and "International
+# Analyst", and an exclude that over-reaches is invisible, because the posting it
+# wrongly dropped never appears anywhere for you to notice. Word matching is also what
+# makes short tokens safe here — "sr" as a substring hits SRAM and SRE, "ios" hits BIOS.
+title_exclude: [intern, internship, "co-op", sales, principal, staff, director]
 
 # Optional fetch-time freshness gate: drop a posting whose posted_at is older than
 # this many days before it is ever screened/scored. 0 or omitted = off. Boards that
