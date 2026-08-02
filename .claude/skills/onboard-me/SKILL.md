@@ -75,7 +75,8 @@ pick this user's path; never demand all of them go green.
 | worker python deps · database | **Blocking** — re-run `make setup`; nothing runs without these |
 | ollama | The screen has no backend. Start Ollama, **or** point `OLLAMA_HOST` at a remote/cloud instance — a local GPU is *not* required |
 | codex CLI | Default fit backend unavailable — either `codex login`, or switch to `SCORE_BACKEND=claude` + `ANTHROPIC_API_KEY` |
-| claude CLI · anthropic api key | Only needed for the `claude` fit backend |
+| claude CLI | Needed for the `claude-code` fit backend (subscription, no key) |
+| anthropic api key | Only needed for the `claude-api` fit backend (metered) |
 | telegram | **Fine — alerts are optional.** Matches still land in the Discovered Jobs tab |
 | node · docker | Only for the web app, not the pipeline |
 
@@ -204,7 +205,8 @@ is left is filling in values **only the user can give you**. Fill them into
 - `OLLAMA_HOST` — `http://localhost:11434` locally, or the URL of a remote/cloud
   Ollama. Set it whenever the `ollama` row was `[no]` but they have one elsewhere.
 - **Fit-score backend** — default `codex` uses a ChatGPT subscription, *not* a key
-  (`codex login`). No subscription? Set `SCORE_BACKEND=claude` and supply
+  (`codex login`). Have a Claude subscription instead? Set
+`SCORE_BACKEND=claude-code` (no key needed). Neither? Set `SCORE_BACKEND=claude-api` and supply
   `ANTHROPIC_API_KEY` (metered).
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — **optional.** Push alerts from BotFather.
   Without them the worker runs fine and matches appear in the Discovered Jobs tab, so

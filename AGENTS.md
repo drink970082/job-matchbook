@@ -89,4 +89,5 @@ database:
   via `jest.all.config.ts`. CI also runs the schema-drift guard.
 - Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on the
   Codex CLI by default (`gpt-5.6-sol`), or Claude `claude-sonnet-5` when
-  `SCORE_BACKEND=claude` — see SPEC §7.1.
+  `SCORE_BACKEND=claude-code` (Claude Code CLI, subscription) or `claude-api`
+(metered Anthropic API) — see SPEC §7.1.

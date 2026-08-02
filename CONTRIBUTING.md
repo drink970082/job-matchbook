@@ -18,7 +18,7 @@ the product overview.
 - Python 3.11+
 - (Optional, for the full pipeline) Docker + Docker Compose, Ollama, and either
   the Codex CLI (`codex login` — the default fit-score backend) or an
-  Anthropic API key (`SCORE_BACKEND=claude`, metered alternate)
+  Anthropic API key (`SCORE_BACKEND=claude-api`, the metered alternate)
 
 ## Getting started
 

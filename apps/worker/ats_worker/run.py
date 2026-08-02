@@ -30,7 +30,8 @@ from . import prompts as prompts_mod
 from .fetch import fetch_company, fetch_one_company, prefilter_postings
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import (capture_usage, make_claude_scorer, make_codex_scorer,
+from .score import (capture_usage, make_claude_cli_scorer, make_claude_scorer,
+                    make_codex_scorer,
                     make_ollama_extract, screen_posting)
 from .score import seniority
 from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
@@ -49,9 +50,19 @@ DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
 # Fit scoring runs on the ChatGPT-subscription Codex CLI by default: flat-rate instead
 # of metered Claude, over a queue where a full re-score is ~640 paid calls. Auth is the
 # operator's `codex login` state (auth_mode=chatgpt), NOT an env key — a logged-out host
-# fails the pass loudly rather than scoring 0s. Claude remains available for a
-# reproducible A/B (--score-backend claude). Override with --score-backend / SCORE_BACKEND.
+# fails the pass loudly rather than scoring 0s.
+#
+# Three backends, and the names mirror SCREEN_BACKEND's (see DEFAULT_SCREEN_WORKERS):
+#   codex       — Codex CLI, ChatGPT subscription (default)
+#   claude-code — Claude Code CLI, Claude subscription. The A/B twin; also flat-rate.
+#   claude-api  — Anthropic SDK, METERED. The only backend that spends money per call,
+#                 and named so that is visible at the config line.
+# RENAMED 2026-08-02 (operator's call): `claude` used to mean the metered SDK, while
+# `score.usage` read the Claude Code SUBSCRIPTION for that same name — the quota bar
+# described a budget nothing spent. A stale `SCORE_BACKEND=claude` is now rejected
+# outright rather than silently selecting a different backend than it used to.
 DEFAULT_SCORE_BACKEND = "codex"
+SCORE_BACKENDS = ("codex", "claude-code", "claude-api")
 # gpt-5.6-sol — chosen on the GOLDEN SET, which is the only measurement that counts here.
 # A synthetic single-prompt probe said gpt-5.6-terra had a tighter spread at half the
 # credit rate; on real JDs terra was WORSE on both gate axes (agreement 76% vs 86%,
@@ -65,6 +76,10 @@ DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
 # Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
 # be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
 DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
+# Same model over the Claude Code CLI (SCORE_BACKEND=claude-code), where it is billed
+# against the subscription rather than metered. Separate constant because the two paths
+# can legitimately diverge — the CLI takes model aliases the SDK does not.
+DEFAULT_CLAUDE_CODE_SCORE_MODEL = "claude-sonnet-5"
 # Max postings per fit_fn batch call. Batching was long described as the codex quota
 # win, on the assumption that the ChatGPT-subscription quota is MESSAGE-bound. That
 # assumption is FALSE (measured 2026-07-31 over 158 production calls, from the codex
@@ -92,7 +107,7 @@ DEFAULT_BATCH_SIZE = 1
 DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
                           "claude-api": 4, "openai-api": 4}
 
-# The ONLY ten .env keys argparse defaults read from os.environ (grepped across
+# The ONLY eleven .env keys argparse defaults read from os.environ (grepped across
 # the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
 # TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every
 # consumer reads them from the in-process `env` dict (run_once(..., env=env) /
@@ -101,14 +116,15 @@ DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
 # score/backends_codex.py).
 _ENV_ARGPARSE_KEYS = frozenset({
     "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
-    "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CODEX_BATCH_SIZE",
-    "SCREEN_WORKERS", "SCORE_WORKERS",
+    "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CLAUDE_CODE_SCORE_MODEL",
+    "CODEX_BATCH_SIZE", "SCREEN_WORKERS", "SCORE_WORKERS",
 })
 
 
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL):
+                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
+                claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL):
     """Pick the fit-score backend. Both twins expose the same batch-first
     `fit(postings, resumes) -> list[dict]` contract (one scorecard per input
     posting, in order; a single posting is `fit([posting], resumes)[0]`), so
@@ -117,15 +133,18 @@ def make_scorer(backend: str, *, env, profile="",
     independent of the scoring call."""
     if backend == "codex":
         return make_codex_scorer(codex_score_model, profile=profile)
-    if backend == "claude":
+    if backend == "claude-code":
+        return make_claude_cli_scorer(claude_code_score_model, profile=profile)
+    if backend == "claude-api":
         return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
                                   profile=profile)
-    raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+    raise ValueError(f"unknown score backend: {backend!r} (want one of {SCORE_BACKENDS})")
 
 
 def _scorer_meta(backend: str, *,
                  codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL) -> dict:
+                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
+                 claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL) -> dict:
     """Who scored it: the three provenance fields persisted into every fit-scored
     row's score_detail. Branches on `backend` alongside make_scorer above so the
     stamp can't claim a model the scorer wasn't built with.
@@ -136,9 +155,10 @@ def _scorer_meta(backend: str, *,
     tell you later which model produced a verdict. `--score-backend` has `choices=`, but
     argparse does not validate an env-supplied `default`, so SCORE_BACKEND=openai in a
     .env reaches this function unchecked."""
-    models = {"codex": codex_score_model, "claude": anthropic_score_model}
+    models = {"codex": codex_score_model, "claude-code": claude_code_score_model,
+              "claude-api": anthropic_score_model}
     if backend not in models:
-        raise ValueError(f"unknown score backend: {backend!r} (want 'codex' or 'claude')")
+        raise ValueError(f"unknown score backend: {backend!r} (want one of {SCORE_BACKENDS})")
     return {
         "backend": backend,
         "model": models[backend],
@@ -232,6 +252,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
+             claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL,
              batch_size: int = DEFAULT_BATCH_SIZE,
              fetch_only: bool = False, score_only: bool = False,
              score_limit: int = 0, score_max_id: int = 0, screen_workers: int = 0,
@@ -435,7 +456,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                         _scorer_cell.append(
                             make_scorer(score_backend, env=env, profile=profile,
                                         codex_score_model=codex_score_model,
-                                        anthropic_score_model=anthropic_score_model)
+                                        anthropic_score_model=anthropic_score_model,
+                                        claude_code_score_model=claude_code_score_model)
                         )
             return _scorer_cell[0](postings, resumes)
 
@@ -449,7 +471,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                            scorer_meta=_scorer_meta(
                                score_backend,
                                codex_score_model=codex_score_model,
-                               anthropic_score_model=anthropic_score_model))
+                               anthropic_score_model=anthropic_score_model,
+                               claude_code_score_model=claude_code_score_model))
         # Refresh the quota bar for whichever backend just scored — ONE free HTTP GET
         # against the provider's own usage endpoint, after the pass so it reflects what
         # the pass just spent. Only when the scorer was actually built: a pass that
@@ -822,10 +845,12 @@ def main(argv=None) -> None:
     parser.add_argument("--model",
                         default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
                         help="Ollama model tag used for scoring")
-    parser.add_argument("--score-backend", choices=("codex", "claude"),
+    parser.add_argument("--score-backend", choices=SCORE_BACKENDS,
                         default=os.environ.get("SCORE_BACKEND", DEFAULT_SCORE_BACKEND),
-                        help="fit-score backend: codex (ChatGPT subscription, flat-rate) "
-                             "or claude (metered API)")
+                        help="fit-score backend: codex (ChatGPT subscription), "
+                             "claude-code (Claude subscription), or claude-api "
+                             "(METERED Anthropic API — the only one that costs money "
+                             "per call)")
     parser.add_argument("--screen-backend", choices=SCREEN_BACKENDS,
                         default=os.environ.get("SCREEN_BACKEND",
                                                DEFAULT_SCREEN_BACKEND),
@@ -844,7 +869,13 @@ def main(argv=None) -> None:
     parser.add_argument("--anthropic-score-model",
                         default=os.environ.get("ANTHROPIC_SCORE_MODEL",
                                                DEFAULT_ANTHROPIC_SCORE_MODEL),
-                        help="Anthropic model used for fit scoring")
+                        help="Anthropic model used for fit scoring on claude-api "
+                             "(METERED)")
+    parser.add_argument("--claude-code-score-model",
+                        default=os.environ.get("CLAUDE_CODE_SCORE_MODEL",
+                                               DEFAULT_CLAUDE_CODE_SCORE_MODEL),
+                        help="model used for fit scoring on the claude-code CLI "
+                             "backend (subscription)")
     parser.add_argument("--batch-size", type=int,
                         default=int(os.environ.get("CODEX_BATCH_SIZE",
                                                    str(DEFAULT_BATCH_SIZE))),
@@ -866,9 +897,18 @@ def main(argv=None) -> None:
     # `default` — so SCORE_BACKEND=openai in a .env reaches the pipeline unchecked and
     # dies deep inside the pass, after the fetch, after the one-shot --rescreen-discarded
     # has already been consumed. Fail here, before anything irreversible runs.
-    if args.score_backend not in ("codex", "claude"):
-        parser.error(f"unknown score backend {args.score_backend!r} (want 'codex' or "
-                     "'claude') — check SCORE_BACKEND in your .env")
+    #
+    # `claude` is deliberately NOT accepted as a legacy alias. It used to mean the
+    # metered SDK backend and now would mean the subscription CLI, so silently accepting
+    # it would run a DIFFERENT backend than a pre-2026-08-02 .env intended. A stale value
+    # must fail here and be re-chosen by hand.
+    if args.score_backend not in SCORE_BACKENDS:
+        hint = ("`claude` was split on 2026-08-02 into 'claude-code' (subscription) "
+                "and 'claude-api' (metered) — pick one"
+                if args.score_backend == "claude"
+                else "check SCORE_BACKEND in your .env")
+        parser.error(f"unknown score backend {args.score_backend!r} (want one of "
+                     f"{SCORE_BACKENDS}) — {hint}")
 
     # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
     # for both is asking for two different programs, and the likely intent (just run one
@@ -944,6 +984,7 @@ def main(argv=None) -> None:
                          score_backend=args.score_backend,
                          codex_score_model=args.codex_score_model,
                          anthropic_score_model=args.anthropic_score_model,
+        claude_code_score_model=args.claude_code_score_model,
                          batch_size=args.batch_size,
                          fetch_only=args.fetch_only, score_only=args.score_only,
                          score_limit=args.score_limit,

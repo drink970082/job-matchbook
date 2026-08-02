@@ -9,30 +9,16 @@ import os
 import subprocess
 import tempfile
 
+from ._batch import align_results, batch_schema as _batch_schema
 from .errors import ScoreError
-from .prompts import _job_block, _scorer_system_sections, _score_schema
+from .prompts import _job_block, _scorer_system_sections
 
 
 # --- real adapter (exercised only in Docker; never imported at module load) ---
-
-def _batch_schema(labels: list) -> dict:
-    """The schema actually handed to `codex exec --output-schema` — the bare
-    _score_schema never is. Module level so the strict-mode guard can check the real
-    payload; it captures nothing from make_codex_scorer.
-
-    Deep-copy _score_schema's output so its module-level cache (_SCORE_SCHEMA) is never
-    mutated, then wrap N per-posting elements in a {"results":[...]} envelope tagged
-    with the job_ref that makes realignment possible.
-    """
-    element = json.loads(json.dumps(_score_schema(labels)))
-    element["properties"]["job_ref"] = {"type": "integer"}
-    element["required"].append("job_ref")
-    return {
-        "type": "object",
-        "properties": {"results": {"type": "array", "items": element}},
-        "required": ["results"],
-        "additionalProperties": False,
-    }
+#
+# `_batch_schema` and the job_ref realignment guard moved to `score/_batch.py` on
+# 2026-08-02 so `backends_claude_cli` shares them verbatim. The alias is kept because
+# the strict-mode guard and tests/test_score.py both reference this name.
 
 
 def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = "low",
@@ -152,27 +138,8 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                     data = json.load(fh)
             except (OSError, json.JSONDecodeError) as exc:
                 raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
-        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-            raise ScoreError(f"codex batch response missing 'results' array: {data!r}")
-
-        # Alignment guard: realign by job_ref rather than trusting list position, and
-        # fail the WHOLE batch loudly on any missing/duplicate/unknown ref rather than
-        # risk silently pairing a score with the wrong job.
-        ids = [posting["id"] for posting in postings]
-        id_set = set(ids)
-        by_ref: dict = {}
-        for result in data["results"]:
-            if not isinstance(result, dict):
-                raise ScoreError(f"codex batch result was not a JSON object: {result!r}")
-            ref = result.get("job_ref")
-            if ref not in id_set:
-                raise ScoreError(f"codex returned unknown job_ref {ref!r}")
-            if ref in by_ref:
-                raise ScoreError(f"codex returned duplicate job_ref {ref!r}")
-            by_ref[ref] = result
-        missing = [i for i in ids if i not in by_ref]
-        if missing:
-            raise ScoreError(f"codex omitted job_ref {missing[0]}")
-        return [by_ref[i] for i in ids]
+        # Realign by job_ref rather than trusting list position, failing the WHOLE batch
+        # on any missing/duplicate/unknown ref — see `_batch.align_results`.
+        return align_results(data, postings, backend="codex")
 
     return fit

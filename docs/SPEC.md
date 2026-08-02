@@ -391,7 +391,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--resume-dir` (directory of resume versions, default `resume/`),
   `--model` (`OLLAMA_MODEL`, the Ollama model tag — only consulted when
   `--screen-backend ollama`),
-  `--score-backend` (`SCORE_BACKEND`, `codex`|`claude`),
+  `--score-backend` (`SCORE_BACKEND`, `codex`|`claude-code`|`claude-api`),
   `--screen-backend` (`SCREEN_BACKEND`, one of six values — documented under
   `score/` below), `--screen-model` (`SCREEN_MODEL`, overrides the chosen screen
   backend's default model; unset lets each backend fall back to its own default,
@@ -1012,12 +1012,29 @@ worker modules are pure and dependency-injected; real services are wired only in
     **No determinism:** codex exposes no `seed`/`temperature`, so score noise can't
     be turned off — but routing turns on the verdicts, not the noisy number (§9),
     and `make eval-score` gates verdict accuracy. If that gate ever fails, the
-    escape hatch is majority-of-K draws or A/B-ing `--score-backend claude`; the
+    escape hatch is majority-of-K draws or A/B-ing `--score-backend claude-code`; the
     residual ±10–15 score noise affects only display/ranking, never routing.
     Scoring calls are unconditionally `--ephemeral`: nothing is written to
     `~/.codex/sessions`, so the résumé+profile+JD prompt never reaches disk. (Before
     2026-07-29 the quota bar forced `--ephemeral` off — see **Quota telemetry** below.)
-  - **`claude`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
+  - **`claude-code`** — `make_claude_cli_scorer` (Claude Code CLI on the operator's
+    **Claude subscription**, `claude-sonnet-5` by default, overridable via
+    `CLAUDE_CODE_SCORE_MODEL`/`--claude-code-score-model`); no API key. The
+    subscription twin of `codex` and the intended A/B partner: same prompt sections and
+    the same `{"results":[{"job_ref":...}]}` schema (both call `score._batch`), so a
+    disagreement between the two means the *models* disagree rather than the adapters.
+    Structured output is **enforced** by `--json-schema`, Claude Code's equivalent of
+    `codex exec --output-schema`; the validated object arrives pre-parsed on the
+    terminal result event's `structured_output`.
+    **Tool-less via `--tools ""`, not `--allowedTools ""`** — measured 2026-08-02: the
+    latter is a permission allowlist over a tool set that is still loaded, and left
+    Bash/Read/Write/WebFetch live in `permissionMode: "auto"`. Same security boundary as
+    codex's `--disable shell_tool`: a JD is untrusted scraped text. Combined with
+    `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands` and a
+    tmpdir cwd, harness overhead measured **38,643 → 9,193** cached input tokens/call.
+    **Never `--bare`** — it forces `ANTHROPIC_API_KEY` auth and would silently move this
+    backend onto metered billing.
+  - **`claude-api`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
     structured outputs require it; `claude-sonnet-4-6` doesn't support
     `output_config.format` — overridable via
     `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`); needs `ANTHROPIC_API_KEY`. Does
@@ -1077,9 +1094,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   so all of that is gone. A live "now" reading still isn't attempted per scoring call —
   the snapshot reflects the last pass, a budget indicator rather than a live meter.
 
-  Either backend raises `ScoreError` on a failed call. On `claude` (single-call) that
+  Every backend raises `ScoreError` on a failed call. On `claude-api` (single-call) that
   fails **one** posting, same as before. On `codex` (batched) a raised `ScoreError` — or
-  any other exception, e.g. a transient API error from the `claude` backend surfacing
+  any other exception, e.g. a transient API error from the `claude-api` backend surfacing
   through the same `run_score` call site — fails the **whole batch call**; `run_score`'s
   safety net (§9) catches that and retries the batch's postings **singly**, so one
   malformed batch costs latency, not correctness, and only a single that still fails
@@ -1239,7 +1256,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   is **one** `fit_fn` call; (3) a chunk whose call raises — `ScoreError` or any other
   exception — falls back to scoring that chunk's postings **singly**, so one malformed
   batch costs latency, not correctness, and a single that still fails marks only that
-  row `failed`. `batch_size` is harmless on the `claude` backend (which loops
+  row `failed`. `batch_size` is harmless on the `claude-api` backend (which loops
   internally regardless) and is the parked codex quota lever — default 1 until the
   batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
   pass carries into the SCREEN phase (the `--score-limit` operator flag), bounding the
@@ -2285,7 +2302,7 @@ automated coverage — those rely on code review or the human in the loop, not a
   pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
   were disabled) to emit ~80 tokens of JSON, and gets **no prompt-cache credit**
   (`cached_input_tokens` stayed 0 on back-to-back identical prompts) — the opposite
-  of the `claude` backend's cached prefix, and the strongest standing argument for
+  of the `claude-api` backend's cached prefix, and the strongest standing argument for
   the metered API if the flat rate ever stops paying for itself.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
@@ -2392,7 +2409,7 @@ absent file (which fails loudly) is safer. Longhand:
    about-the-candidate context (`apps/worker/resume/README.md`).
 3. `cp apps/worker/.env.example apps/worker/.env` — fill `TELEGRAM_BOT_TOKEN`,
    `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://localhost:11434`), plus
-   `ANTHROPIC_API_KEY` for `--score-backend claude` and/or
+   `ANTHROPIC_API_KEY` for `--score-backend claude-api` and/or
    `--screen-backend claude-api`, or `OPENAI_API_KEY` for
    `--screen-backend openai-api`. Optional overrides: `OLLAMA_MODEL`,
    `SCORE_BACKEND`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `CODEX_SCORE_MODEL`,

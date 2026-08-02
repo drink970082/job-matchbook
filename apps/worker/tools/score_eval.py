@@ -68,16 +68,28 @@ BATCH_SIZE = int(os.environ.get("CODEX_BATCH_SIZE", "10"))
 PROBE_IDS = (111, 125, 132, 184)
 # The gate is only meaningful when eval-model == production-model, so the backend
 # tracks run.py's default (codex / ChatGPT subscription). Override to A/B a backend:
-#   SCORE_BACKEND=claude apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
+#   SCORE_BACKEND=claude-code apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
+# Values: codex | claude-code (both subscription) | claude-api (METERED — real dollars
+# per call, so it is never reached by accident; see the explicit branch below).
 BACKEND = os.environ.get("SCORE_BACKEND", run.DEFAULT_SCORE_BACKEND)
 # ...and the MODEL follows the same env vars run.main reads (run.py's --codex-score-model
 # / --anthropic-score-model default out of them), so a model A/B is runnable:
 #   CODEX_SCORE_MODEL=... apps/worker/.venv/bin/python apps/worker/tools/score_eval.py
 # Pinning the defaults here made the tool silently ignore the override and re-measure
 # the production model under an A/B's name.
-MODEL = (os.environ.get("CODEX_SCORE_MODEL") or run.DEFAULT_CODEX_SCORE_MODEL) \
-    if BACKEND == "codex" \
-    else (os.environ.get("ANTHROPIC_SCORE_MODEL") or run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+_MODELS = {
+    "codex": lambda: (os.environ.get("CODEX_SCORE_MODEL")
+                      or run.DEFAULT_CODEX_SCORE_MODEL),
+    "claude-code": lambda: (os.environ.get("CLAUDE_CODE_SCORE_MODEL")
+                            or run.DEFAULT_CLAUDE_CODE_SCORE_MODEL),
+    "claude-api": lambda: (os.environ.get("ANTHROPIC_SCORE_MODEL")
+                           or run.DEFAULT_ANTHROPIC_SCORE_MODEL),
+}
+if BACKEND not in _MODELS:
+    raise SystemExit(f"unknown SCORE_BACKEND {BACKEND!r} (want one of "
+                     f"{tuple(_MODELS)}) — `claude` was split into 'claude-code' and "
+                     "'claude-api' on 2026-08-02")
+MODEL = _MODELS[BACKEND]()
 # The corpus, overridable the same way BACKEND/MODEL are. An A/B needs a swappable
 # corpus: as of 2026-07-31 **22 of the 23 rows in golden.jsonl name postings that are no
 # longer in the DB**, so the default corpus scores 1 row and reports PASS at 100% — a gate
@@ -609,6 +621,8 @@ def main() -> int:
     resumes, profile = run.load_resumes(str(ROOT / "apps/worker/resume"))
     if BACKEND == "codex":
         score_fit = score.make_codex_scorer(MODEL, profile=profile)
+    elif BACKEND == "claude-code":
+        score_fit = score.make_claude_cli_scorer(MODEL, profile=profile)
     else:
         # max_tokens 8192 (prod is 4096): adaptive thinking + the verbose assessment
         # notes truncate the JSON at 4096 on some rows -> ScoreError. The cap doesn't

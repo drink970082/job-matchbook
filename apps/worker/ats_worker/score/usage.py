@@ -340,7 +340,11 @@ def fetch_claude_usage() -> dict | None:
 
 # --- persistence ----------------------------------------------------------
 
-_FETCHERS = {"codex": fetch_codex_usage, "claude": fetch_claude_usage}
+# `claude-api` is deliberately absent: it bills a metered API key, so there is no
+# subscription window to read and `capture_usage` correctly writes no snapshot for it.
+# Before the 2026-08-02 rename this map keyed on "claude" and pointed the SUBSCRIPTION
+# fetcher at the METERED backend — the bar described a budget nothing spent.
+_FETCHERS = {"codex": fetch_codex_usage, "claude-code": fetch_claude_usage}
 
 
 def capture_usage(path: str, backend: str) -> bool:

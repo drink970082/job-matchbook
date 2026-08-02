@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 import urllib.error
@@ -2130,3 +2131,148 @@ def test_a_200_whose_body_is_not_an_object_says_so(codex_login, capsys):
             mp.setattr(score.usage, "_get_json", lambda url, headers, b=body: b)
             assert score.usage.fetch_codex_usage() is None
         assert "not an object" in capsys.readouterr().out
+
+
+# --- claude-code scorer: the Claude-subscription twin (no network; subprocess mocked) --
+
+def _claude_events(structured, *, is_error=False, subtype="success", result=None):
+    """The `--output-format json` payload: an ARRAY of session events terminated by a
+    `type: "result"` event. Shape measured against Claude Code 2.1.220 on 2026-08-02 —
+    the CLI does NOT return a bare object, and the validated schema output arrives
+    pre-parsed on `structured_output` (with a JSON string on `result` as well)."""
+    event = {"type": "result", "subtype": subtype, "is_error": is_error,
+             "session_id": "s", "result": result if result is not None
+             else json.dumps(structured)}
+    if structured is not None:
+        event["structured_output"] = structured
+    return [{"type": "system", "subtype": "init", "tools": ["StructuredOutput"]},
+            {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed"}},
+            event]
+
+
+def _fake_claude(payload=CODEX_PAYLOAD, job_ref=1, returncode=0, capture=None,
+                 events=None):
+    """Stand in for `claude -p`: prints the event array on stdout (unlike codex, which
+    writes a file)."""
+    def run(cmd, **kwargs):
+        if capture is not None:
+            capture["cmd"] = cmd
+            capture["prompt"] = kwargs.get("input", "")
+            capture["cwd"] = kwargs.get("cwd")
+            capture["schema"] = json.loads(cmd[cmd.index("--json-schema") + 1])
+        body = events if events is not None else _claude_events(
+            {"results": [{"job_ref": job_ref, **payload}]})
+        return Mock(returncode=returncode, stdout=json.dumps(body), stderr="boom")
+    return run
+
+
+def test_claude_cli_scorer_parses_the_result_event(monkeypatch):
+    # Reads structured_output off the terminal result event and realigns by job_ref,
+    # returning the element verbatim — the same contract as the codex twin.
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude())
+    fit = score.make_claude_cli_scorer("claude-sonnet-5")
+    assert fit([{**POSTING, "id": 1}], {"swe": "resume text"}) == [
+        {"job_ref": 1, **CODEX_PAYLOAD}]
+
+
+def test_claude_cli_scorer_sends_the_same_schema_as_codex(monkeypatch):
+    # The whole point of running both backends is that a disagreement means the MODELS
+    # disagree. That only holds if they are asked for identical structure.
+    seen: dict = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(capture=seen))
+    score.make_claude_cli_scorer("claude-sonnet-5", profile="prefers quant")(
+        [{**POSTING, "location": "Chicago, IL", "id": 1}],
+        {"swe": "resume text", "quant_dev": "q"})
+
+    assert seen["schema"] == _batch_schema(["swe", "quant_dev"])
+    assert "prefers quant" in seen["prompt"]
+    assert "resume text" in seen["prompt"]
+    assert "Location: Chicago, IL" not in seen["prompt"]  # D5: geography must not score
+    assert "job_ref=1" in seen["prompt"]
+
+
+def test_claude_cli_scorer_removes_the_tools_not_just_the_permissions(monkeypatch):
+    # SECURITY, and the exact flag matters: `--allowedTools ""` was MEASURED on
+    # 2026-08-02 to leave Bash/Read/Write/WebFetch loaded in permissionMode "auto",
+    # because it is a permission allowlist over a tool set that is still present.
+    # `--tools ""` removes the built-in set. A JD is untrusted scraped text, so the
+    # capability must be gone, not merely denied.
+    seen: dict = {}
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(capture=seen))
+    score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"swe": "r"})
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--strict-mcp-config" in cmd           # no MCP servers
+    assert cmd[cmd.index("--setting-sources") + 1] == ""  # no CLAUDE.md/plugins/hooks
+    assert "--disable-slash-commands" in cmd      # no skills
+    # `--bare` would force ANTHROPIC_API_KEY auth and silently move this onto METERED
+    # billing, which is the whole thing this backend exists to avoid.
+    assert "--bare" not in cmd
+    assert seen["cwd"] is not None                # tmpdir: no repo context in a score
+
+
+def test_claude_cli_scorer_raises_on_nonzero_exit(monkeypatch):
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(returncode=1))
+    with pytest.raises(score.ScoreError, match="exit 1"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_raises_on_error_result_despite_exit_zero(monkeypatch):
+    # An API error mid-session still exits 0; `is_error` is the CLI's own flag. Scoring
+    # 0 on a dead backend is unacceptable, so this must raise.
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
+        events=_claude_events(None, is_error=True, subtype="error_during_execution")))
+    with pytest.raises(score.ScoreError, match="error result"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_raises_when_no_result_event(monkeypatch):
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
+        events=[{"type": "system", "subtype": "init"}]))
+    with pytest.raises(score.ScoreError, match="no result event"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_falls_back_to_the_result_string(monkeypatch):
+    # structured_output is the documented field, but the schema is also satisfied by the
+    # JSON string on `result`; accept it rather than failing a well-formed score.
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
+        events=_claude_events(None, result=json.dumps(
+            {"results": [{"job_ref": 1, **CODEX_PAYLOAD}]}))))
+    assert score.make_claude_cli_scorer("claude-sonnet-5")(
+        [{**POSTING, "id": 1}], {"s": "r"}) == [{"job_ref": 1, **CODEX_PAYLOAD}]
+
+
+@pytest.mark.parametrize("job_ref,match", [
+    (99, "unknown job_ref"),     # a ref that was never sent
+    (None, "unknown job_ref"),   # missing tag
+])
+def test_claude_cli_scorer_refuses_to_misattribute(monkeypatch, job_ref, match):
+    # Shared with codex via _batch.align_results: pairing a score with the wrong job is
+    # worse than failing the batch.
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(job_ref=job_ref))
+    with pytest.raises(score.ScoreError, match=match):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_rejects_a_bare_object(monkeypatch):
+    # `--output-format json` returns an ARRAY of events. A bare object means the CLI's
+    # output contract changed under us; fail loudly rather than mis-read it.
+    monkeypatch.setattr(score.subprocess, "run", _fake_claude(events={"type": "result"}))
+    with pytest.raises(score.ScoreError, match="expected an event array"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_raises_on_non_json_stdout(monkeypatch):
+    monkeypatch.setattr(score.subprocess, "run",
+                        lambda cmd, **kw: Mock(returncode=0, stdout="not json", stderr=""))
+    with pytest.raises(score.ScoreError, match="non-JSON output"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
+
+
+def test_claude_cli_scorer_raises_on_timeout(monkeypatch):
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 600)
+    monkeypatch.setattr(score.subprocess, "run", boom)
+    with pytest.raises(score.ScoreError, match="timed out"):
+        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})

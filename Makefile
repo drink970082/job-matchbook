@@ -65,7 +65,7 @@ test-coverage: ## Run both suites with coverage (gated by thresholds)
 	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
 
-eval-score: ## Verdict-accuracy eval vs the frozen golden set (~70 calls on the default codex backend: free, ~50min; SCORE_BACKEND=claude is PAID)
+eval-score: ## Verdict-accuracy eval vs the frozen golden set (~70 calls on the default codex backend: free, ~50min; SCORE_BACKEND=claude-code is also free, claude-api is PAID)
 	cd $(WORKER) && $(PY) tools/score_eval.py
 
 eval-screen: ## Hard-requirement accuracy eval vs the screen golden set (249 local Ollama calls: free, ~10min). Gate = zero false disqualification
