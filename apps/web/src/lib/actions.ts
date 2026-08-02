@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { todayISO } from '@/lib/utils'
 
 export async function getApplications(params: {
     page?: number
@@ -418,7 +419,7 @@ export async function markJobApplied(id: number, category?: string) {
         // Category is a free-form user label chosen at apply time; keep whatever's
         // given, falling back to 'Others' only when blank (or old callers pass nothing).
         const cat = category?.trim() || 'Others'
-        const today = new Date().toISOString().split('T')[0]
+        const today = todayISO()
 
         // Create the application and backfill the job_postings link atomically so we
         // can never end up with an application that has no back-link (or vice versa).

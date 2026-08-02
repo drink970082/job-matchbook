@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Plus } from 'lucide-react'
+import { todayISO } from '@/lib/utils'
 
 const formSchema = z.object({
   company_name: z.string().min(1, 'Company name is required'),
@@ -38,7 +39,7 @@ export function AddApplicationForm({ categories, onSubmit }: AddApplicationFormP
       job_title: '',
       application_url: '',
       category: defaultCategory,
-      date_applied: new Date().toISOString().split('T')[0],
+      date_applied: todayISO(),
       notes: '',
     },
   })
@@ -50,7 +51,7 @@ export function AddApplicationForm({ categories, onSubmit }: AddApplicationFormP
       job_title: '',
       application_url: '',
       category: defaultCategory,
-      date_applied: new Date().toISOString().split('T')[0],
+      date_applied: todayISO(),
       notes: '',
     })
   }
