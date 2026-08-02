@@ -25,14 +25,7 @@ export async function getApplications(params: {
             status ? { status } : {},
             historicalStatus ? { status_history: { some: { status: historicalStatus } } } : {},
             category ? { category } : {},
-            search
-                ? {
-                    OR: [
-                        { company_name: { contains: search } },
-                        { job_title: { contains: search } },
-                    ],
-                }
-                : {},
+            searchClause(search),
         ],
     }
 
@@ -52,6 +45,22 @@ export async function getApplications(params: {
 // Pipeline statuses still "live" in the discovered queue (scored, not yet applied
 // or discarded). Score then sorts them into the Matched vs Discarded buckets.
 const ACTIVE_PIPELINE_STATUSES = ['scored', 'notified'] as const
+
+// The company/title text filter. Returns {} for an empty search so it can sit
+// unconditionally in an AND array — the shape all three call sites already used when
+// each spelled it out. Structurally valid for both `applications` and `job_postings`,
+// which is why it is not typed to either.
+function searchClause(search: string) {
+    return search
+        ? { OR: [{ company_name: { contains: search } }, { job_title: { contains: search } }] }
+        : {}
+}
+
+// Category label for a posting/application whose category is blank or absent. A fixed
+// sentinel, deliberately NOT read from DEFAULT_CATEGORIES: that list is the seed for a
+// user-editable vocabulary and can legitimately stop containing 'Others', while this
+// fallback must not move with it.
+const CATEGORY_FALLBACK = 'Others'
 
 // Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
 // non-lowcontext bucket is mutually exclusive of the derived low-context id set.
@@ -163,9 +172,42 @@ function buildJobWhere(params: {
         AND: [
             bucketFilter,
             minScore != null ? { score: { gte: minScore } } : {},
-            search
-                ? { OR: [{ company_name: { contains: search } }, { job_title: { contains: search } }] }
-                : {},
+            searchClause(search),
+        ],
+    }
+}
+
+// The `where` for every bucket EXCEPT lowcontext: buildJobWhere's clauses, then the
+// discarded-only cause sub-filter, then the low-context exclusion that keeps the tabs
+// mutually exclusive (a thin-JD scored row shows only under Low-context). Appended as
+// peer clauses so buildJobWhere's flat AND shape survives, and the exclusion is guarded
+// because an empty set must NOT emit `NOT IN ()` — SQLite reads that as excluding
+// nothing rather than everything.
+//
+// Shared by getJobPostings and removeAllInView, which had built it separately: a bulk
+// remove must sweep exactly the rows the view is showing, and that only holds while
+// the two agree by construction.
+//
+// NOTE it has no lowcontext case, because buildJobWhere has none — that bucket falls
+// through to `matched`. getJobPostings branches before reaching here; removeAllInView
+// does not, which is latent today (its button renders only on the discarded bucket)
+// and is recorded in the deep-clean decision register rather than changed here.
+async function jobWhereExcludingLowContext(
+    filter: { bucket?: JobBucket; search?: string; minScore?: number; cause?: DisqualifyCause },
+    matchIds: number[],
+    belowIds: number[],
+    lowIds: number[],
+): Promise<Prisma.job_postingsWhereInput> {
+    const base = buildJobWhere(filter, matchIds, belowIds)
+    const causeClause =
+        filter.bucket === 'discarded' && filter.cause
+            ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
+            : []
+    return {
+        AND: [
+            ...(base.AND as Prisma.job_postingsWhereInput[]),
+            ...causeClause,
+            ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
         ],
     }
 }
@@ -272,29 +314,11 @@ export async function getJobPostings(params: {
             AND: [
                 { id: { in: lowIds } },
                 minScore != null ? { score: { gte: minScore } } : {},
-                search
-                    ? { OR: [{ company_name: { contains: search } }, { job_title: { contains: search } }] }
-                    : {},
+                searchClause(search),
             ],
         }
     } else {
-        // Every other bucket EXCLUDES the low-context rows so the tabs stay mutually
-        // exclusive (a thin-JD scored row shows only under Low-context). Append the
-        // exclusion as a peer clause (keeping buildJobWhere's flat AND shape); guarded
-        // so an empty set doesn't emit a `NOT IN ()`.
-        const base = buildJobWhere(params, matchIds, belowIds)
-        // Discarded-only cause sub-filter: layer the raw-query id set as `id IN`.
-        const causeClause =
-            params.bucket === 'discarded' && params.cause
-                ? [{ id: { in: await disqualifyCauseIds(params.cause) } }]
-                : []
-        where = {
-            AND: [
-                ...(base.AND as Prisma.job_postingsWhereInput[]),
-                ...causeClause,
-                ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
-            ],
-        }
+        where = await jobWhereExcludingLowContext(params, matchIds, belowIds, lowIds)
     }
 
     const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
@@ -310,62 +334,58 @@ export async function getJobPostings(params: {
     return { data, total }
 }
 
-// Per-row dismiss. Writes 'removed' (hidden from every bucket, like bulk Remove) — NOT
-// 'discarded'. The Discarded bucket is reserved for the screen's auto-disqualifications,
-// so a hand-dismissed row must not masquerade as one (it would also be unreopenable,
-// matching no bucket). Reopen a genuine disqualification from the Discarded view instead.
-export async function discardJobPosting(id: number) {
+// The one place a posting's pipeline_status is moved by hand, single-row and bulk.
+// Both stamp updated_at alongside the status; keeping that pairing in one place is the
+// point, since a status moved without a fresh timestamp reorders the 'new' queue
+// wrongly (db.get_by_status sorts on updated_at DESC — see the worker).
+async function setPipelineStatus(id: number, status: string) {
     try {
         await prisma.job_postings.update({
             where: { id },
-            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
+            data: { pipeline_status: status, updated_at: new Date().toISOString() },
         })
         return { success: true }
     } catch (error: any) {
         return { success: false, error: error.message }
     }
+}
+
+async function setPipelineStatusMany(ids: number[], status: string) {
+    try {
+        const res = await prisma.job_postings.updateMany({
+            where: { id: { in: ids } },
+            data: { pipeline_status: status, updated_at: new Date().toISOString() },
+        })
+        return { success: true, count: res.count }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+// Per-row dismiss. Writes 'removed' (hidden from every bucket, like bulk Remove) — NOT
+// 'discarded'. The Discarded bucket is reserved for the screen's auto-disqualifications,
+// so a hand-dismissed row must not masquerade as one (it would also be unreopenable,
+// matching no bucket). Reopen a genuine disqualification from the Discarded view instead.
+export async function discardJobPosting(id: number) {
+    return setPipelineStatus(id, 'removed')
 }
 
 // Reverse a discard (whether user-initiated or an LLM disqualification): send the
 // posting back into the actionable queue. The stored score_detail — including any
 // disqualification_reason — is kept, so the override stays explainable.
 export async function reopenJobPosting(id: number) {
-    try {
-        await prisma.job_postings.update({
-            where: { id },
-            data: { pipeline_status: 'scored', updated_at: new Date().toISOString() },
-        })
-        return { success: true }
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
+    return setPipelineStatus(id, 'scored')
 }
 
 // Terminal hide: a 'removed' posting is invisible to every bucket query and inert
 // to the worker (ingest is ON CONFLICT DO NOTHING; the pipeline only selects by
 // explicit status), so it never re-scores/re-notifies. See the design spec.
 export async function bulkRemove(ids: number[]) {
-    try {
-        const res = await prisma.job_postings.updateMany({
-            where: { id: { in: ids } },
-            data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
-        })
-        return { success: true, count: res.count }
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
+    return setPipelineStatusMany(ids, 'removed')
 }
 
 export async function bulkReopen(ids: number[]) {
-    try {
-        const res = await prisma.job_postings.updateMany({
-            where: { id: { in: ids } },
-            data: { pipeline_status: 'scored', updated_at: new Date().toISOString() },
-        })
-        return { success: true, count: res.count }
-    } catch (error: any) {
-        return { success: false, error: error.message }
-    }
+    return setPipelineStatusMany(ids, 'scored')
 }
 
 // Clear the whole current Discarded view in one click (respects bucket + cause
@@ -380,25 +400,12 @@ export async function removeAllInView(filter: {
         const [lowIds, matchIds, belowIds] = await Promise.all([
             lowContextIds(), matchedIds(), belowBarIds(),
         ])
-        const base = buildJobWhere(filter, matchIds, belowIds)
-        const causeClause =
-            filter.bucket === 'discarded' && filter.cause
-                ? [{ id: { in: await disqualifyCauseIds(filter.cause) } }]
-                : []
-        // Mirror getJobPostings' "every other bucket" exclusion (buildJobWhere has no
-        // lowcontext case of its own — see getJobPostings) so a bulk-remove can never
-        // sweep up a row that's actually showing under the Low-context tab. Same guard:
-        // an empty lowIds must not emit `NOT IN ()`. This is load-bearing now that the
-        // Discarded bucket also holds LIVE fit-verdict rejects (scored|notified), which
-        // DO overlap lowContextIds' scope — a thin-JD row must not be swept from a view
-        // it isn't showing in.
-        const where: Prisma.job_postingsWhereInput = {
-            AND: [
-                ...(base.AND as Prisma.job_postingsWhereInput[]),
-                ...causeClause,
-                ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
-            ],
-        }
+        // Exactly the where getJobPostings uses, by construction rather than by
+        // agreement, so a bulk-remove can never sweep up a row that is actually
+        // showing under the Low-context tab. Load-bearing now that the Discarded
+        // bucket also holds LIVE fit-verdict rejects (scored|notified), which DO
+        // overlap lowContextIds' scope.
+        const where = await jobWhereExcludingLowContext(filter, matchIds, belowIds, lowIds)
         const res = await prisma.job_postings.updateMany({
             where,
             data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
@@ -418,7 +425,7 @@ export async function markJobApplied(id: number, category?: string) {
 
         // Category is a free-form user label chosen at apply time; keep whatever's
         // given, falling back to 'Others' only when blank (or old callers pass nothing).
-        const cat = category?.trim() || 'Others'
+        const cat = category?.trim() || CATEGORY_FALLBACK
         const today = todayISO()
 
         // Create the application and backfill the job_postings link atomically so we
@@ -483,7 +490,7 @@ export async function addApplication(data: {
         }
 
         const status = (STATUSES as readonly string[]).includes(data.status ?? '') ? data.status! : 'Applied'
-        const category = data.category?.trim() || 'Others'
+        const category = data.category?.trim() || CATEGORY_FALLBACK
 
         const newApp = await prisma.$transaction(async (tx) => {
             const existing = await tx.applications.findFirst({
@@ -531,7 +538,7 @@ export async function updateApplicationDetails(
     }
 ) {
     try {
-        const category = data.category?.trim() || 'Others'
+        const category = data.category?.trim() || CATEGORY_FALLBACK
 
         await prisma.applications.update({
             where: { id },
@@ -768,7 +775,7 @@ export async function getCategoryData() {
 
         const counts = new Map<string, number>()
         for (const app of apps) {
-            const cat = app.category || 'Others'
+            const cat = app.category || CATEGORY_FALLBACK
             counts.set(cat, (counts.get(cat) || 0) + 1)
         }
 
@@ -956,7 +963,7 @@ export async function importApplicationsCSV(csvText: string) {
                     const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
                     // Category is free-form (the user's own vocabulary) — keep whatever
                     // the CSV supplies, defaulting only when blank.
-                    const category = (get('category') || '').trim() || 'Others'
+                    const category = (get('category') || '').trim() || CATEGORY_FALLBACK
 
                     await tx.applications.create({
                         data: {
