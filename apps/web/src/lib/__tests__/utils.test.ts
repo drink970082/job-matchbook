@@ -12,6 +12,9 @@ test('neutralizes dangerous or empty hrefs to #', () => {
     expect(safeHref(null)).toBe('#')
 })
 
+// Runs under the TZ pinned in jest.config.ts (America/New_York) — these assertions are
+// only meaningful in a zone whose offset is negative, and an unpinned TZ would make
+// them tautological on a UTC CI runner.
 describe('todayISO', () => {
     afterEach(() => {
         jest.useRealTimers()
@@ -21,17 +24,21 @@ describe('todayISO', () => {
         expect(todayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     })
 
-    // The property that matters, and the one that would break if someone "helpfully"
-    // switched this to a local-time getFullYear/getMonth/getDate build: the boundary
-    // is UTC midnight, not the viewer's. At 20:30 US Eastern on the 1st it is already
-    // the 2nd in UTC, and this must say so — five call sites behaved that way before
-    // the helper existed. TimelineHeatmap is the deliberate exception and computes its
-    // own LOCAL reference; see the comment on todayISO.
-    test('rolls over at UTC midnight, not local midnight', () => {
+    // The property that matters: the boundary is the VIEWER'S midnight, not UTC's.
+    // At 20:30 US Eastern on the 1st it is already the 2nd in UTC, and a form
+    // pre-filled from here must still offer the 1st.
+    test('rolls over at local midnight, not UTC midnight', () => {
         jest.useFakeTimers().setSystemTime(new Date('2026-06-02T00:30:00Z'))
-        expect(todayISO()).toBe('2026-06-02')
-
-        jest.useFakeTimers().setSystemTime(new Date('2026-06-01T23:30:00Z'))
         expect(todayISO()).toBe('2026-06-01')
+
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-02T05:30:00Z'))
+        expect(todayISO()).toBe('2026-06-02')
+    })
+
+    // Zero-padded on both fields — a bare `${d.getMonth() + 1}` build emits '2026-6-2',
+    // which every consumer here (a date input, a CSV filename, date_applied) reads wrong.
+    test('zero-pads single-digit months and days', () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-02T12:00:00Z'))
+        expect(todayISO()).toBe('2026-06-02')
     })
 })

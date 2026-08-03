@@ -20,6 +20,42 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   so they stay, written as present-tense constraints in `SCORING.md`/`REJECTED.md` rather
   than dated log entries.
 
+### Fixed
+
+- **The date defaults were UTC, so after ~19:00 US Eastern the app offered TOMORROW.**
+  `lib/utils.ts todayISO` — the "date applied" pre-fill on the add form and on the status
+  history modal, and the exported CSV's filename stamp — built its day from
+  `toISOString()`. West of UTC that is the next day for the last few hours of every
+  evening, which is exactly when someone records the application they just sent. It is
+  now built from the LOCAL getters, so it agrees with `TimelineHeatmap`, which already
+  computed a local reference of its own; the two rules were divergent by accident, not by
+  design. Built from `getFullYear`/`getMonth`/`getDate` with zero-padding rather than
+  `toLocaleDateString('en-CA')` — the locale route is shorter but degrades to `M/D/YYYY`
+  on a small-ICU runtime, and a wrong FORMAT is worse than the wrong day it replaces.
+  **One call site is server-side and does NOT follow the viewer** — `markJobApplied`
+  stamps `date_applied` from the container clock, which is UTC unless told otherwise. The
+  web service now passes `TZ: ${TZ:-UTC}`, so setting `TZ` in the gitignored root `.env`
+  makes the two agree; unset, the server keeps its previous behavior. (Web tier only, no
+  schema change; `docs/BACKLOG.md`'s deep-clean register entry closes.)
+  **Jest now pins `TZ=America/New_York` for every test worker** (`jest.config.ts`, set at
+  config module scope because workers inherit env at fork time and ICU caches the zone
+  before `setupFilesAfterEach` runs). Several things under test are local-time by design,
+  so an unpinned TZ meant the dev host (EDT) and CI (UTC) exercised different branches —
+  a local-vs-UTC bug passed on one and failed on the other. A negative-offset zone is the
+  deliberate choice: it is where "UTC has already rolled over" bites. Verified by
+  reverting the fix under a forced `TZ=UTC` parent and confirming the new assertion goes
+  red.
+
+- **A bulk "Remove all in view" on the Low-context bucket would have swept the MATCHED
+  rows.** `getJobPostings` peeled that bucket off before building its `where`;
+  `removeAllInView` did not, so `buildJobWhere` fell through to its `matched` default and
+  the two callers disagreed on exactly one bucket. Unreachable today — the button renders
+  only when `bucket === 'discarded'` (`DiscoveredJobsTable.tsx`) — but one prop away from
+  destroying the bucket the operator actually acts on. Both callers now go through a
+  shared `jobWhereForBucket`, which handles every bucket including `lowcontext`, so "the
+  sweep matches the view" holds by construction rather than by that button never moving.
+  `job-query-shape.test.ts` flips from pinning the asymmetry to pinning its absence.
+
 ### Added
 
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be

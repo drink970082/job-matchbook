@@ -645,17 +645,10 @@
 ### Found by the deep-clean pass, deferred as behavior changes
 
 The cleanup pass (CLEAN-01..09) was scoped to change no observable behavior. These
-seven findings each WOULD change behavior, so none was touched; they are recorded here
-rather than left in a PR description. Each cites the evidence that found it.
-
-- **`removeAllInView` has no `lowcontext` branch** — `[WEB · XS · latent, unreachable
-  today]`. `getJobPostings` special-cases the low-context bucket before building its
-  where; `removeAllInView` does not, so `buildJobWhere` falls through to its `matched`
-  default. A bulk remove on that bucket would sweep MATCHED rows. Unreachable today:
-  the "Remove all in view" button renders only when `bucket === 'discarded'`
-  (`DiscoveredJobsTable.tsx:347`). `src/__tests__/job-query-shape.test.ts` pins the
-  current behavior so a refactor cannot silently change it in either direction. Fixing
-  it is a one-line branch; decide whether the button will ever be shown elsewhere first.
+findings each WOULD change behavior, so none was touched; they are recorded here
+rather than left in a PR description. Each cites the evidence that found it. Two of the
+original seven — the `todayISO` UTC rollover and `removeAllInView`'s missing `lowcontext`
+branch — shipped 2026-08-03 and left for CHANGELOG.
 
 - **`util.to_iso_date` returns a 10-char slice where its docstring promises `None`** —
   `[FETCH · S · filter change, governed by err-toward-keep]`. `to_iso_date("not a real
@@ -685,13 +678,6 @@ rather than left in a PR description. Each cites the evidence that found it.
   reads the field. Removing either changes prompt BYTES, hence model output
   distribution, hence the Claude cache prefix — so it needs `make eval-screen`, not a
   cleanup patch. Overlaps `fix/sponsorship-positive-evidence`.
-
-- **`todayISO()` is UTC, so a form opened late in the US evening defaults to tomorrow**
-  — `[WEB · XS]`. `lib/utils.ts todayISO` is the five inlined
-  `new Date().toISOString().split('T')[0]` copies, named. Past ~19:00 US Eastern, UTC has
-  rolled over and "date applied" pre-fills with tomorrow. Pre-existing and unchanged by
-  CLEAN-04. `TimelineHeatmap` deliberately uses a LOCAL reference instead, so the two
-  rules already differ; unifying on local would move real dates and is the decision.
 
 - **The modal and the table coerce `recommended_resume` differently** — `[WEB · XS]`.
   For a non-string value the modal yields `''` (`typeof === 'string'` guard) and the

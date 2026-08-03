@@ -5,21 +5,27 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Today as 'YYYY-MM-DD', in UTC — the default date for a newly recorded application
-// and the stamp on an exported CSV filename.
+// Today as 'YYYY-MM-DD', in LOCAL time — the default date for a newly recorded
+// application and the stamp on an exported CSV filename.
 //
-// UTC is what the five call sites this replaced already did (`new
-// Date().toISOString().split('T')[0]`), so this is their exact behavior, named once.
-// It is NOT the only date rule in the app and deliberately does not become one:
-// TimelineHeatmap builds its own reference from getFullYear/getMonth/getDate, which
-// is LOCAL, because the heatmap grid has to line up with the user's own calendar.
-// Folding the two together would move real dates for anyone west of UTC.
+// It was UTC (`new Date().toISOString().split('T')[0]`, the five call sites this
+// replaced), which meant that past ~19:00 US Eastern the date had already rolled over
+// and a form pre-filled with TOMORROW. Local is now the one rule: TimelineHeatmap
+// already built its own LOCAL reference from getFullYear/getMonth/getDate so the grid
+// lines up with the user's calendar, and the two agree by construction rather than by
+// coincidence.
 //
-// Consequence worth knowing: past ~19:00 US Eastern, UTC has already rolled over, so
-// a form defaulted from here offers tomorrow. Changing that is a behavior change, not
-// a cleanup — see the deep-clean decision register.
+// Built from the local getters rather than `toLocaleDateString('en-CA')` on purpose —
+// the locale route is one line shorter but silently emits M/D/YYYY on a small-ICU
+// runtime, and a wrong FORMAT is worse than the wrong day it replaces.
+//
+// The three browser call sites get the viewer's own today. The one SERVER call site
+// (markJobApplied) gets the container's, which is UTC unless `TZ` is set — see the
+// `TZ` env var on the web service in docker-compose.yml.
 export function todayISO(): string {
-  return new Date().toISOString().split('T')[0]
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 // Scraped job_url is untrusted; an <a href> with a javascript:/data: scheme executes
