@@ -469,7 +469,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
   `fit_profile` is optional and **read by nothing in the running pipeline** — it is the
   concept vocabulary the shadow extraction experiment uses (§13), parsed and validated by
-  `score/fit_profile.py`, which raises the same `ConfigError` at startup on a structural
+  `fit_profile.py`, which raises the same `ConfigError` at startup on a structural
   mistake (unknown priority, an `anti_target` carrying a priority, a duplicate id, an
   over-long description, no target concept, or a concept count over the ceiling).
 - **`fetch/` — board adapters.** One thin module per source, registered in

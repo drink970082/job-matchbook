@@ -212,12 +212,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   inline posting text so it cannot rot the way 22 rows of `golden.jsonl` did, stamps the
   four hashes on every row, and carries a deliberate 10-row thin-JD cell so
   `insufficient_context` is a field that *can* fail.
+  **A quote must be at least three words**, stated in the prompt and enforced in code.
+  Requiring only that it be *found* is not a check: `"a"` is in every posting and every
+  résumé, and the prompt tells the model an unmatched quote is discarded — which is a
+  direct incentive to emit the shortest string that survives. A too-short quote is
+  recorded distinctly from a missing one, because gaming the floor and inventing a
+  requirement are different failures and only one is about honesty. Verification also
+  reads the title and company, not just the description: `_job_block` shows the model all
+  three, so searching less would record a faithful quote of a title-stated duty as an
+  invention.
   **Not verified, and named rather than glossed:** there is no accuracy gate for this
   schema. `tools/score_eval.py`'s PASS is defined over `seniority`/`domain` agreement and
   flip-rate, and this design deletes both, so the harness rewrite belongs to the cutover
-  step. What is measured so far is a 2-posting live probe on `codex`/`gpt-5.6-sol`: both
-  returned schema-valid records, 35 of 35 job-side quotes verified against their postings,
-  ~60s per posting.
+  step. What is measured is two live probes on `codex`/`gpt-5.6-sol` — one by id, one
+  through the frame file — 4 postings, all schema-valid, **69 of 69 job-side quotes
+  verified**, 44-67s per posting.
+  **Two open decisions are recorded at the top of the plan rather than settled here.**
+  The frame cannot resolve the tier boundary at any budget (the whole DB holds 2
+  priority-1 and 6 priority-2 rows, and the frame already takes every `match/*` row that
+  exists), and the profile's résumé-side CAVEATS have no home now that the extractor
+  deliberately never reads the profile — a quote check catches invention, not over-claim.
 
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
   bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own

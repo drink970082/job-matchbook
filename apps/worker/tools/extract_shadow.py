@@ -43,7 +43,7 @@ from ats_worker.prompts import EXTRACTOR_VERSION  # noqa: E402
 from ats_worker.run import load_resumes  # noqa: E402
 from ats_worker.score.errors import ScoreError  # noqa: E402
 from ats_worker.score.extract import make_extractor  # noqa: E402
-from ats_worker.score.fit_profile import provenance  # noqa: E402
+from ats_worker.fit_profile import provenance  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 DB = f"file:{ROOT}/db/applications.db?mode=ro"
@@ -76,6 +76,8 @@ def _rows_from_frame(path: Path) -> list[dict]:
         if not line.strip():
             continue
         row = json.loads(line)
+        if "id" not in row:
+            continue  # the frame's `kind: frame_header` line, and any future metadata
         posting = row.get("posting")
         if isinstance(posting, dict) and posting.get("description"):
             inline.append({"id": row["id"], **posting})
@@ -95,8 +97,10 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="jsonl artifact (appended, resumable)")
     ap.add_argument("--limit", type=int, default=0, help="stop after N new postings")
     ap.add_argument("--run-token", default="",
-                    help="seeds the ephemeral concept refs; defaults to the out filename "
-                         "so a resumed run reuses the same mapping")
+                    help="seeds the ephemeral concept refs; defaults to the concept "
+                         "vocabulary hash, so every run of one vocabulary — including "
+                         "the K draws of a self-consistency measurement — shares a "
+                         "mapping and a cached prefix")
     ap.add_argument("--config", default=str(WORKER / "config.yaml"))
     ap.add_argument("--resume-dir", default=str(WORKER / "resume"))
     args = ap.parse_args()
@@ -112,21 +116,36 @@ def main() -> int:
     resumes, profile_text = load_resumes(args.resume_dir)
     stamp = provenance(profile, profile_text=profile_text, resumes=resumes)
     out_path = Path(args.out)
-    # The refs are seeded off the OUT FILE, not the clock: a resumed run has to mint the
-    # same mapping as the sitting it continues, or half the artifact refers to a
-    # vocabulary the other half never saw.
-    run_token = args.run_token or out_path.name
+    # Seeded off the VOCABULARY, not the clock and not the filename. A resumed run must
+    # mint the mapping of the sitting it continues, or half the artifact refers to a list
+    # the other half never saw — and, less obviously, a K=3 self-consistency run writes
+    # to three different `--out` files, so a filename seed would shuffle the concept list
+    # differently in each draw and confound model flip with list order. That flip rate is
+    # the measurement `SCORING 8.7` calls the deciding one, so it must not be confounded.
+    run_token = args.run_token or stamp["concept_vocab_hash"]
 
     rows = (_rows_from_frame(Path(args.frame)) if args.frame
             else _rows_from_db([int(x) for x in args.ids.split(",") if x.strip()]))
 
     done: set[int] = set()
+    have_header = False
     if out_path.exists():
         for line in out_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = json.loads(line)
-                if "id" in row:
-                    done.add(int(row["id"]))
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if row.get("kind") == "run_header":
+                have_header = True
+                # Appending a second backend's rows under the first's header would make
+                # the artifact describe a run that never happened. The per-row stamps
+                # would still be right, but nobody reads 250 rows to discover that.
+                if (row.get("backend"), row.get("model")) != (args.backend, args.model):
+                    raise SystemExit(
+                        f"{out_path} was started on {row.get('backend')}/{row.get('model')}"
+                        f" and you asked for {args.backend}/{args.model}. Use a separate "
+                        "--out per arm; comparing arms is the point of running two.")
+            elif "id" in row:
+                done.add(int(row["id"]))
     pending = [r for r in rows if r["id"] not in done]
     if args.limit:
         pending = pending[:args.limit]
@@ -146,7 +165,9 @@ def main() -> int:
     }
     failures = 0
     with out_path.open("a", encoding="utf-8") as fh:
-        if not done:
+        # Keyed on the header itself, not on `done`: a sitting that wrote the header and
+        # then died before its first record would otherwise write a second one.
+        if not have_header:
             fh.write(json.dumps(header, ensure_ascii=False) + "\n")
             fh.flush()
         for n, posting in enumerate(pending, 1):

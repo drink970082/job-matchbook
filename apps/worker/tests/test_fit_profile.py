@@ -5,10 +5,13 @@ inputs it was labelled under, and the whole reason there is more than one hash i
 cheap edit must not invalidate expensive human work — so what each hash IGNORES is as
 much a behavior as what it covers.
 """
+import unicodedata
+
 import pytest
 
 from ats_worker.config import ConfigError, load_config
-from ats_worker.score.fit_profile import (
+from ats_worker.fit_profile import (
+    INVALIDATED_BY,
     MAX_DESCRIPTION_CHARS,
     FitProfile,
     concept_vocab_hash,
@@ -92,6 +95,25 @@ def test_concept_count_warns_then_fails():
         parse_fit_profile({**BASE, "concepts": many, "max_concepts": 3})
 
 
+def test_the_warning_fires_ON_the_threshold_not_only_past_it():
+    """`warn_concepts` is documented as "warn at ~20". With a strict `>` the warning is
+    unreachable for anyone who read the default as a target and wrote exactly 20."""
+    six = [{"id": f"c{i}", "priority": "one", "description": "x"} for i in range(6)]
+    assert parse_fit_profile({**BASE, "concepts": six, "warn_concepts": 6}).warnings
+    assert not parse_fit_profile({**BASE, "concepts": six, "warn_concepts": 7}).warnings
+
+
+@pytest.mark.parametrize("key", ["max_concepts", "warn_concepts"])
+def test_the_ceilings_raise_configerror_rather_than_coercing(key):
+    """`config._int_field` exists so a typo is a startup error naming the key, not a bare
+    ValueError. And `0` has to be a real value: read through `or`, `max_concepts: 0` would
+    silently mean 40."""
+    with pytest.raises(ConfigError, match=f"{key} must be an integer"):
+        _profile(**{key: "lots"})
+    with pytest.raises(ConfigError, match=f"{key} must be >= 1"):
+        _profile(**{key: 0})
+
+
 def test_load_config_carries_the_block():
     cfg = load_config("""
 fit_profile:
@@ -163,6 +185,31 @@ def test_profile_and_resume_hashes_are_content_addressed():
     assert profile_hash("a b") != profile_hash("a c")
     assert resume_hash({"swe": "x"}) != resume_hash({"swe": "y"})
     assert resume_hash({"swe": "x"}) != resume_hash({"ml": "x"})  # the label is content
+
+
+def test_a_unicode_reencoding_does_not_expire_a_corpus():
+    """NFKC as well as whitespace: a copy-paste that swaps a composed accent for a
+    decomposed one is not a content change, and a corpus that dies on it dies silently."""
+    composed = _profile(concepts=[
+        {"id": "ml_platform", "priority": "one", "description": "Café systems."},
+        {"id": "frontend", "kind": "anti_target", "description": "Client UI work."}])
+    decomposed = _profile(concepts=[
+        {"id": "ml_platform", "priority": "one", "description": "Café systems."},
+        {"id": "frontend", "kind": "anti_target", "description": "Client UI work."}])
+    assert concept_vocab_hash(composed) == concept_vocab_hash(decomposed)
+
+
+def test_each_layer_names_the_hashes_that_invalidate_it():
+    """Stamping all four on a row is right; comparing all four is not. A currency check
+    demanding every hash match would expire the expensive model-extraction layer the
+    moment the operator edits their preference document — the over-coarse invalidation
+    the split exists to prevent."""
+    assert "profile_hash" not in INVALIDATED_BY["extraction"]
+    assert "preference_policy_hash" not in INVALIDATED_BY["extraction"]
+    assert set(INVALIDATED_BY["extraction"]) == {"concept_vocab_hash", "resume_hash"}
+    stamp = provenance(_profile(), profile_text="p", resumes={"swe": "r"})
+    for names in INVALIDATED_BY.values():
+        assert set(names) <= set(stamp)
 
 
 def test_provenance_carries_four_named_hashes():

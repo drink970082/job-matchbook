@@ -7,6 +7,35 @@
 > each of two backends against the standing quota directive, and step 4 is human
 > labelling. Nothing in steps 0-2 touches production state.
 >
+> **TWO OPEN DECISIONS FOUND BY THE STEP 0-2 AUDIT. Both are the operator's, and the
+> first one prices step 3.**
+>
+> **A. The frame cannot settle the tier boundary, and no re-pick fixes it.** Parsing
+> `TARGET: Priority N` out of every stored domain note: the whole DB holds **2 priority-1
+> and 6 priority-2 rows**, and the frame already takes *all 30* `match/match` and *all 13*
+> `match/too_junior` rows available. So the corpus that step 4 labels will carry ~5 rows of
+> the class the t1/t2 concepts exist to find. Consequences: macro-F1 over concept ids is
+> uncomputable for the target classes (the plan's own "do not report macro-F1 on 11 rows
+> per class" is breached by 5x), NDCG@K rests on ~5 graded-3 rows, and step 7's held-out
+> split leaves 2-3 of them. **Step 6's relation-weight sensitivity test is the one this
+> kills outright**; the dominance threshold survives, because with importance weights
+> 4/2/0 over <=5 duties the winner share only takes 5 distinct values in (0.50, 0.70] —
+> that is "pick one of five", which 250 rows can do. The tier question needs a different
+> source of priority-1/2 rows — fetch-side, not DB-side — or a different method.
+>
+> **B. The profile's CAVEATS have no home, and quote verification cannot replace them.**
+> `personal_profile.txt` lines 33-41 are downward correctors on the *résumé* side ("C++ is
+> coursework-depth", "I have not built streaming systems", "trading results are simulated,
+> not live P&L"). The extractor deliberately never sees the profile — correct for the
+> preference half — but the résumés carry the uncaveated claims, so a "3+ years C++ in
+> low-latency systems" requirement can come back `adjacent_match` with a quote that
+> *verifies*. Quote checking catches invention, not over-claim. And `SCORING 8.4`'s one
+> converged lever, *edit the profile not the prompt*, is structurally unavailable here.
+> The candidate fix is to append CAVEATS to the résumé material as its own labelled
+> section — they are facts about the evidence, not preferences, so this does not breach
+> the design rule — but it changes what is on the wire and it is not a session's call.
+> **Decide it before step 4 buys labels against uncorrected relations.**
+>
 > **Status 2026-08-03.** Converged after two adversarial audits, then re-sequenced.
 > The rebuild proceeds, but **extraction ships before the arithmetic** and the rubric's
 > open rules are settled with measurements rather than argument. Sections 1-5 are the

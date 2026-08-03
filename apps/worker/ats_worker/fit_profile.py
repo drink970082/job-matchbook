@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 # Reuse the loader's error type so a bad `fit_profile` block fails at startup like every
@@ -103,8 +104,34 @@ def _text(value, where: str) -> str:
 
 
 def _canon(value: str) -> str:
-    """Whitespace-canonical form, so a YAML reflow is not a content change."""
-    return _WS.sub(" ", value).strip()
+    """Canonical form for hashing: NFKC, then whitespace-collapsed.
+
+    Both halves earn their place. Whitespace means a YAML reflow is not a content change
+    — a corpus that expires on a line break is one nobody dares reformat. NFKC means a
+    copy-paste that swaps a composed accent for a decomposed one, or a full-width
+    character for its ASCII twin, does not silently expire it either; it also keeps this
+    agreeing with `extract.normalize_quote`, which folds the same way.
+    """
+    return _WS.sub(" ", unicodedata.normalize("NFKC", value)).strip()
+
+
+def _positive_int(raw: dict, key: str, default: int) -> int:
+    """Read an optional positive int, raising ConfigError rather than a bare ValueError.
+
+    Mirrors `config._int_field`, and for the same reason: a typo must be caught at startup
+    with a message naming the key. `0` is read as a real value, not as absence — `or`
+    would silently restore the default and make `max_concepts: 0` mean 40.
+    """
+    if raw.get(key) is None:
+        return default
+    try:
+        value = int(raw[key])
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"fit_profile.{key} must be an integer, got {raw[key]!r}") from exc
+    if value < 1:
+        raise ConfigError(f"fit_profile.{key} must be >= 1 (got {value}); a 0 or negative "
+                          "ceiling would reject every vocabulary.")
+    return value
 
 
 def parse_fit_profile(raw) -> FitProfile:
@@ -133,8 +160,8 @@ def parse_fit_profile(raw) -> FitProfile:
             f"({', '.join(sorted(levels))}). It is the tier a duty matching NO target "
             "concept votes for, so it has to exist.")
 
-    max_concepts = int(raw.get("max_concepts") or DEFAULT_MAX_CONCEPTS)
-    warn_concepts = int(raw.get("warn_concepts") or DEFAULT_WARN_CONCEPTS)
+    max_concepts = _positive_int(raw, "max_concepts", DEFAULT_MAX_CONCEPTS)
+    warn_concepts = _positive_int(raw, "warn_concepts", DEFAULT_WARN_CONCEPTS)
     concepts = _parse_concepts(raw.get("concepts"), levels)
 
     if len(concepts) > max_concepts:
@@ -143,7 +170,10 @@ def parse_fit_profile(raw) -> FitProfile:
             "Every concept is sent on every call and competes for the same three ref "
             "slots; merge the overlapping ones or raise the ceiling deliberately.")
     warnings = []
-    if len(concepts) > warn_concepts:
+    # `>=`, not `>`: the documented advice is "warn at ~20", and a vocabulary sitting
+    # exactly ON the ceiling is the case most worth saying something about — with `>` the
+    # warning is unreachable for anyone who took the default as a target.
+    if len(concepts) >= warn_concepts:
         warnings.append(
             f"fit_profile has {len(concepts)} concepts (warn_concepts={warn_concepts}): "
             "overlapping concepts raise mapping flip and prompt cost.")
@@ -280,11 +310,27 @@ def resume_hash(resumes: dict) -> str:
     return _digest({str(k): _canon(str(v or "")) for k, v in (resumes or {}).items()})
 
 
+# WHICH HASHES ACTUALLY INVALIDATE WHICH LAYER. Stamping all four on a record is right —
+# an artifact is also the file a human grades relevance in — but a currency check that
+# demands ALL FOUR match would expire the expensive model-extraction layer the moment the
+# operator edits their preference document, which is precisely the over-coarse
+# invalidation the split exists to prevent. Consumers check the row for their layer.
+INVALIDATED_BY = {
+    # What the model saw, and what its answer is a function of.
+    "extraction": ("concept_vocab_hash", "resume_hash"),
+    # The arithmetic over an extraction: kind, priority, bonuses.
+    "policy": ("preference_policy_hash",),
+    # A human's graded relevance, judged by reading the preference document.
+    "graded_relevance": ("profile_hash", "concept_vocab_hash"),
+}
+
+
 def provenance(profile: FitProfile, *, profile_text: str = "", resumes: dict | None = None) -> dict:
     """The stamp every extraction record and every corpus row carries.
 
     Stored as a flat dict rather than a single string so a consumer can say WHICH input
-    moved — the whole reason there is more than one hash.
+    moved — the whole reason there is more than one hash. Which subset a given layer must
+    check is `INVALIDATED_BY` above; do not compare the whole dict.
     """
     return {
         "concept_vocab_hash": concept_vocab_hash(profile),

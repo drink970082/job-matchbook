@@ -65,6 +65,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   scored 52-58 that opened it are a *labelling* problem and are out of scope (none
   survives as `match/match` under either relabel arm), and `feat/golden-relabel` is not in
   this order — its `domain` output depreciates under a schema that deletes the enum.
+  **TWO OPEN DECISIONS the step 0-2 audit surfaced, both written up at the top of the
+  plan, and the first one prices step 3.** (1) **The frame cannot settle the tier
+  boundary at any budget** — the whole DB holds 2 priority-1 and 6 priority-2 rows, and
+  the frame already takes every `match/*` row that exists, so the class the top two tiers
+  exist to find lands at ~5 rows. Step 6's relation-weight sensitivity test dies on that;
+  the dominance threshold survives (it is a choice among 5 lattice values, not a
+  continuous estimate). (2) **The profile's CAVEATS have no home** — the extractor
+  correctly never reads `personal_profile.txt`, but its lines 33-41 are downward
+  correctors on the *résumé* side, and a quote check catches invention, not over-claim.
 
 
 - **Generalized detail hydration — the fetch layer's teaser problem — IN PROGRESS

@@ -22,11 +22,12 @@ from ats_worker.score.extract import (
     extractor_system_sections,
     make_extractor,
     mint_refs,
+    job_source_text,
     normalize_extraction,
     normalize_quote,
     verify_evidence,
 )
-from ats_worker.score.fit_profile import parse_fit_profile
+from ats_worker.fit_profile import parse_fit_profile
 
 PROFILE = parse_fit_profile({
     "priority_levels": {"one": {"rank": 1, "bonus": 10}, "none": {"rank": 99, "bonus": -12}},
@@ -198,6 +199,32 @@ def test_a_claimed_match_owes_a_quote_and_a_miss_owes_none():
     assert out["duties"][0]["resume_relations"]["swe"]["resume_evidence"] is None
 
 
+def test_a_missing_relation_may_not_carry_evidence():
+    """`missing` asserts the résumé shows NOTHING. A quote attached to it is a
+    self-contradictory record, and no rule would ever read it."""
+    _, ref_to_id = _refs()
+    ref = next(iter(ref_to_id))
+    with pytest.raises(ScoreError, match="must carry null"):
+        normalize_extraction(
+            _record(_duty(ref, resume_relations={"swe": {
+                "relation": "missing",
+                "resume_evidence": {"quote": "Built an Airflow DAG", "source": "swe"}}})),
+            ref_to_id=ref_to_id, resume_labels=LABELS)
+
+
+def test_absent_groups_and_non_bool_flags_raise():
+    """The schema marks all three groups and the flag required, so an absent group is a
+    backend ignoring the schema — not a posting with no requirements. And `bool("false")`
+    is True, on a field that routes a row out of delivery."""
+    _, ref_to_id = _refs()
+    with pytest.raises(ScoreError, match="duties is absent"):
+        normalize_extraction({"summary": "s", "insufficient_context": False},
+                             ref_to_id=ref_to_id, resume_labels=LABELS)
+    with pytest.raises(ScoreError, match="must be a JSON boolean"):
+        normalize_extraction({**_record(), "insufficient_context": "false"},
+                             ref_to_id=ref_to_id, resume_labels=LABELS)
+
+
 def test_requirements_carry_a_type_and_no_concept_mapping():
     _, ref_to_id = _refs()
     qual = {"requirement": "Bachelor's degree", "requirement_type": "credential",
@@ -235,7 +262,7 @@ def test_an_invented_job_requirement_is_dropped_never_charged():
         ref_to_id=ref_to_id, resume_labels=LABELS)
     out = verify_evidence(record, JOB, {"swe": RESUME})
     assert out["duties"] == []
-    assert out["dropped_items"][0]["reason"] == "job_evidence_not_in_posting"
+    assert out["dropped_items"][0]["reason"] == "job_evidence_not_found"
     # Core duty / required qualification: material, because a record built on invention
     # should be re-derived rather than quietly scored.
     assert out["dropped_items"][0]["material"] is True
@@ -258,6 +285,45 @@ def test_an_invented_resume_claim_is_kept_and_marked():
     assert relation["relation"] == "direct_match"        # untouched: the arithmetic decides
     assert relation["resume_evidence_verified"] is False
     assert out["evidence"]["resume_quote_failures"] == 1
+
+
+def test_a_one_word_quote_does_not_pass_verification():
+    """Being FOUND in the source is not enough. "a" is in every posting and every résumé,
+    and the prompt tells the model an unmatched quote is discarded — so the cheapest way
+    to survive the check would be the shortest string that survives it. The quote has to
+    localize the item, which is what the word floor buys."""
+    _, ref_to_id = _refs()
+    ref = next(iter(ref_to_id))
+    record = normalize_extraction(
+        _record(_duty(ref,
+                      job_evidence={"quote": "a", "source": "description"},
+                      resume_relations={"swe": {
+                          "relation": "direct_match",
+                          "resume_evidence": {"quote": "at", "source": "swe"}}})),
+        ref_to_id=ref_to_id, resume_labels=LABELS)
+    out = verify_evidence(record, JOB, {"swe": RESUME})
+    assert out["duties"] == []
+    # `too_short` is recorded distinctly from `not_found`: gaming the floor and inventing
+    # a requirement are different failures and only one of them is about honesty.
+    assert out["dropped_items"][0]["reason"] == "job_evidence_too_short"
+
+
+def test_a_quote_from_the_title_verifies():
+    """`_job_block` renders the title and company into the JOB section, so the model is
+    SHOWN them. Searching only the description would record a faithful quote of a duty
+    stated in the title as an invention — manufacturing the material-failure signal that
+    is supposed to mean "re-derive this record"."""
+    _, ref_to_id = _refs()
+    ref = next(iter(ref_to_id))
+    posting = {"id": 1, "job_title": "Machine Learning Platform Engineer",
+               "company_name": "Acme", "description": JOB}
+    record = normalize_extraction(
+        _record(_duty(ref, job_evidence={"quote": "Machine Learning Platform Engineer",
+                                         "source": "title"})),
+        ref_to_id=ref_to_id, resume_labels=LABELS)
+    out = verify_evidence(record, job_source_text(posting), {"swe": RESUME})
+    assert len(out["duties"]) == 1
+    assert out["evidence"]["material_job_quote_failure"] is False
 
 
 def test_a_verified_record_reports_clean_counters():

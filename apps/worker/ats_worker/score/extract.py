@@ -45,7 +45,7 @@ from ._batch import align_results
 from .backends_claude_cli import claude_json
 from .backends_codex import codex_json
 from .errors import ScoreError
-from .fit_profile import FitProfile
+from ats_worker.fit_profile import FitProfile
 from .prompts import _job_block
 
 # The closed vocabularies. Out-of-enum raises: see the module docstring, point 2.
@@ -71,6 +71,16 @@ _WS = re.compile(r"\s+")
 _DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
 _QUOTES = {**dict.fromkeys(map(ord, "‘’‛′"), "'"),
            **dict.fromkeys(map(ord, "“”‟″"), '"')}
+
+
+# A quote has to LOCALIZE the item, and a one-word quote does not. Requiring the quote to
+# be found in the source is not enough on its own: `"a"` is in every posting and every
+# résumé, so a model that has understood `extract.txt`'s "an item whose quote is not found
+# is DISCARDED" has an incentive to emit the shortest string that survives. Three words is
+# the cheapest rule that kills that strategy while still passing a real short clause
+# ("PhD or equivalent", "5+ years of Python"), and the prompt states it so the model is
+# not blindsided by it.
+MIN_QUOTE_WORDS = 3
 
 
 def normalize_quote(text: str) -> str:
@@ -272,8 +282,15 @@ def _relations(value, resume_labels: list, where: str) -> dict:
             raise ScoreError(f"{where}.{label} missing — every résumé version needs its "
                              "own relation, so no version can answer for another")
         relation = _enum(entry.get("relation"), RELATIONS, f"{where}.{label}.relation")
+        owes_evidence = relation in EVIDENCED_RELATIONS
         evidence = _evidence(entry.get("resume_evidence"), f"{where}.{label}.resume_evidence",
-                             required=relation in EVIDENCED_RELATIONS)
+                             required=owes_evidence)
+        if evidence is not None and not owes_evidence:
+            # `missing`/`unknown` assert the résumé shows NOTHING. Carrying a quote
+            # anyway is a self-contradictory record, and keeping it would leave a quote
+            # attached to a relation no rule reads it for.
+            raise ScoreError(f"{where}.{label} is {relation!r} but carries résumé "
+                             "evidence; those relations must carry null")
         out[label] = {"relation": relation, "resume_evidence": evidence}
     return out
 
@@ -333,12 +350,19 @@ def _mapping(raw, ref_to_id: dict, where: str) -> dict:
 def _group(raw, *, kind: str, group: str, cap: int, ref_to_id: dict,
            resume_labels: list) -> list[dict]:
     if raw is None:
-        raw = []
+        # The schema marks all three groups required, so an absent one is a backend that
+        # did not honour the schema — not an empty posting. Defaulting to [] would read
+        # as "this JD lists no requirements", which is a different and load-bearing fact.
+        raise ScoreError(f"{group} is absent; the schema requires it (an empty list is "
+                         "how 'none stated' is spelled)")
     if not isinstance(raw, list):
         raise ScoreError(f"{group} must be a list: {raw!r}")
     if len(raw) > cap:
         # Truncating silently would make the coverage denominator a function of how
-        # verbose the model felt. Fail instead — the cap is in the prompt AND the schema.
+        # verbose the model felt. Fail instead. The cap is stated in the prompt and
+        # enforced HERE — deliberately not as `maxItems` in the schema, which OpenAI's
+        # strict structured-output mode rejects, and a cap only one backend honours is
+        # worse than one both are checked against.
         raise ScoreError(f"{group} holds {len(raw)} items, over the {cap} cap")
     return [_item(entry, i, kind=kind, group=group, ref_to_id=ref_to_id,
                   resume_labels=resume_labels)
@@ -367,13 +391,43 @@ def normalize_extraction(data, *, ref_to_id: dict, resume_labels: list) -> dict:
             cap=MAX_NICE_TO_HAVES, ref_to_id=ref_to_id, resume_labels=labels),
         # Display only — no rule may read it (notify.py's `Fit:` line is its consumer).
         "summary": str(data.get("summary") or "").strip(),
-        "insufficient_context": bool(data.get("insufficient_context")),
+        # Strict, not coerced: `bool("false")` is True, and this flag routes a row out of
+        # delivery. Both backends here enforce the schema, so a non-bool is a broken
+        # backend rather than a quirk to absorb.
+        "insufficient_context": _bool(data.get("insufficient_context"),
+                                      "insufficient_context"),
     }
+
+
+def _bool(value, where: str) -> bool:
+    if not isinstance(value, bool):
+        raise ScoreError(f"{where} must be a JSON boolean, got {value!r}")
+    return value
 
 
 # --- evidence verification --------------------------------------------------------
 
 _GROUPS = ("duties", "required_qualifications", "nice_to_haves")
+
+
+def job_source_text(posting: dict) -> str:
+    """The searchable posting text: exactly the fields `_job_block` puts in front of the
+    model, in the same order. Verification and the prompt must read the same thing, or
+    the check punishes a faithful answer."""
+    return "\n".join(str(posting.get(key) or "")
+                     for key in ("job_title", "company_name", "description"))
+
+
+def _quote_verdict(quote: str, source_norm: str) -> str:
+    """`ok` | `too_short` | `not_found`. Three outcomes, not two, so the artifact can
+    tell a model that invented a requirement from one that gamed the length floor —
+    they are different failures and only one of them is about honesty."""
+    normalized = normalize_quote(quote)
+    if not normalized:
+        return "not_found"
+    if len(normalized.split()) < MIN_QUOTE_WORDS:
+        return "too_short"
+    return "ok" if normalized in source_norm else "not_found"
 
 
 def verify_evidence(record: dict, job_text: str, resumes: dict) -> dict:
@@ -394,6 +448,13 @@ def verify_evidence(record: dict, job_text: str, resumes: dict) -> dict:
       capability" failure the extraction is meant to catch, so it must cost the score
       rather than disappear from it.
 
+    `job_text` must be EVERYTHING the model was shown of the posting, not just the
+    description. `_job_block` renders the title and company into the JOB section, so a
+    model that faithfully quotes a duty stated in the title — common on a terse posting —
+    would otherwise be recorded as having invented it, manufacturing exactly the material
+    failure signal that is supposed to mean "re-derive this record". `make_extractor`
+    builds it from the same fields.
+
     Returns a new record: verified items in place, dropped ones under `dropped_items`,
     and the counters the eval reads under `evidence`.
     """
@@ -409,13 +470,14 @@ def verify_evidence(record: dict, job_text: str, resumes: dict) -> dict:
         kept = []
         for item in record.get(group) or []:
             checked += 1
-            quote = normalize_quote((item.get("job_evidence") or {}).get("quote", ""))
-            if not quote or quote not in job_norm:
+            verdict = _quote_verdict((item.get("job_evidence") or {}).get("quote", ""),
+                                     job_norm)
+            if verdict != "ok":
                 is_material = (group == "required_qualifications"
                                or item.get("importance") == "core")
                 material_failure = material_failure or is_material
                 dropped.append({"group": group, "item": item, "material": is_material,
-                                "reason": "job_evidence_not_in_posting"})
+                                "reason": f"job_evidence_{verdict}"})
                 continue
             item = dict(item)
             item["resume_relations"] = {
@@ -476,7 +538,7 @@ def make_extractor(profile: FitProfile, run_token: str, *, backend: str, model: 
         aligned = align_results(data, postings, backend=backend)
         return [verify_evidence(
             normalize_extraction(raw, ref_to_id=ref_to_id, resume_labels=labels),
-            posting.get("description", ""), resumes)
+            job_source_text(posting), resumes)
             for posting, raw in zip(postings, aligned)]
 
     extract.ref_to_id = dict(ref_to_id)
@@ -493,6 +555,6 @@ def _verify_relation(entry: dict, resume_norm: str) -> dict:
     if evidence is None:
         entry["resume_evidence_verified"] = None  # nothing was claimed
         return entry
-    quote = normalize_quote(evidence.get("quote", ""))
-    entry["resume_evidence_verified"] = bool(quote and resume_norm and quote in resume_norm)
+    entry["resume_evidence_verified"] = _quote_verdict(evidence.get("quote", ""),
+                                                       resume_norm) == "ok"
     return entry

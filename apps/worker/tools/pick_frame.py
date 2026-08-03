@@ -50,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ats_worker.config import load_config  # noqa: E402
 from ats_worker.run import load_resumes  # noqa: E402
-from ats_worker.score.fit_profile import provenance  # noqa: E402
+from ats_worker.fit_profile import provenance  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 DB = f"file:{ROOT}/db/applications.db?mode=ro"
@@ -142,13 +142,19 @@ def _allocate(counts: dict, target: int) -> dict:
     return quota
 
 
-def _draw(rows: list[dict], quota: int, per_company: int, rng: random.Random) -> list[dict]:
+def _draw(rows: list[dict], quota: int, per_company: int, rng: random.Random,
+          seen_company: collections.Counter | None = None) -> list[dict]:
     """Draw `quota` rows spread across JD-length buckets and companies.
 
     Both spreads matter and for different reasons: length correlates with how much there
     is to extract (a 600-char stub and a 9k JD are different tasks), and one company's
     postings share a template, so an unspread draw can measure one employer's house style
     and call it a model comparison.
+
+    `seen_company` is shared ACROSS strata by the caller. Scoping it per stratum instead
+    made the documented "cap 3" mean 3-per-stratum — up to 24 rows for one employer, and
+    measured at 21 Apple / 19 Google on the first pick, i.e. 16% of the frame from two
+    large-template employers.
     """
     by_bucket: dict[str, list[dict]] = collections.defaultdict(list)
     for row in rows:
@@ -157,7 +163,8 @@ def _draw(rows: list[dict], quota: int, per_company: int, rng: random.Random) ->
         rng.shuffle(bucket)
 
     picked: list[dict] = []
-    seen_company: collections.Counter = collections.Counter()
+    if seen_company is None:
+        seen_company = collections.Counter()
     order = sorted(by_bucket)
     deferred: list[dict] = []
     while len(picked) < quota and any(by_bucket[b] for b in order):
@@ -221,9 +228,11 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     picked: list[dict] = []
+    seen_company: collections.Counter = collections.Counter()  # shared across strata
     for name in sorted(quotas):
         if quotas[name]:
-            for row in _draw(by_stratum[name], quotas[name], args.per_company, rng):
+            for row in _draw(by_stratum[name], quotas[name], args.per_company, rng,
+                             seen_company):
                 picked.append({**row, "stratum": name})
 
     notes = {}
@@ -236,7 +245,8 @@ def main() -> int:
               file=sys.stderr)
     companies = collections.Counter((r["company_name"] or "").lower() for r in picked)
     seeded = sum(1 for r in picked if str(r["id"]) in notes)
-    print(f"  {len(companies)} companies, top {companies.most_common(1)[0][1]} rows; "
+    top = companies.most_common(1)[0][1] if companies else 0
+    print(f"  {len(companies)} companies, top {top} rows; "
           f"{seeded} row(s) carry an operator review note", file=sys.stderr)
     if args.dry_run:
         return 0
@@ -244,7 +254,12 @@ def main() -> int:
     header = {"kind": "frame_header", "seed": args.seed, "size": len(picked),
               "per_company_cap": args.per_company, "provenance": stamp,
               "strata": {name: quotas[name] for name in sorted(quotas) if quotas[name]},
-              "population": len(rows)}
+              "population": len(rows),
+              # Every stored verdict in the DB was produced under the pre-2026-08-02
+              # profile and the pre-rewrite `title_exclude`. The `current` block on each
+              # row is therefore a record of a system state that no longer exists —
+              # usable as context, NOT as the regression baseline it looks like.
+              "current_verdicts_stale": True}
     with out_path.open("w", encoding="utf-8") as fh:
         fh.write(json.dumps(header, ensure_ascii=False) + "\n")
         for row in picked:
@@ -256,7 +271,9 @@ def main() -> int:
                             "source": row["source"], "location": row["location"],
                             "description": row["description"]},
                 # Today's verdicts, so a regression against the current system is
-                # visible. Context for the labeller, never the label.
+                # visible. Context for the labeller, never the label — and READ THE
+                # HEADER's `current_verdicts_stale` before treating them as a baseline:
+                # every scored row in the DB predates the 2026-08-02 profile rewrite.
                 "current": {"score": row["score"], "domain": row["domain"],
                             "seniority": row["seniority"], "status": row["pipeline_status"]},
             }

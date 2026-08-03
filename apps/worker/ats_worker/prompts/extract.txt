@@ -23,6 +23,8 @@ You are reading ONE job posting against ONE candidate's résumé material. Your 
 
 Every item carries `job_evidence`: a quote copied VERBATIM from the posting text, the sentence or clause the item comes from. Code searches the posting for that quote; an item whose quote is not found there is DISCARDED. Do not paraphrase, do not stitch two sentences together, do not fix the posting's typos. If you cannot point at a sentence, the item does not belong in the list.
 
+A quote must be at least THREE WORDS and must actually locate the item — quote the clause, not a single word lifted out of it. A one-word quote is rejected exactly like a quote that is not there at all, so a short safe string buys nothing.
+
 For each résumé version you are given, report, per item, in `resume_relations`:
 - `relation`:
   · `direct_match` — the résumé shows this same work or skill.

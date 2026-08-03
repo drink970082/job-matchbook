@@ -133,10 +133,10 @@ class Config:
     # this many days. 0 = off. Dateless/unparseable posted_at is always kept.
     max_age_days: int = 0
     candidate: Candidate = field(default_factory=Candidate)
-    # The fit vocabulary (`score/fit_profile.py`): the operator's concept list and
-    # priority tiers. None = not configured, which is legal — it only makes the
-    # bounded-extraction path unavailable and changes nothing else. Typed loosely here
-    # because the parser lives beside the scorer that consumes it, not beside the loader.
+    # The fit vocabulary (`fit_profile.py`): the operator's concept list and priority
+    # tiers. None = not configured, which is legal — it only makes the bounded-extraction
+    # path unavailable and changes nothing else. Typed loosely here so the annotation
+    # needs no import; the parser is its own module because it is 200 lines of validation.
     fit_profile: object | None = None
     feeds: list[Feed] = field(default_factory=list)
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
@@ -183,9 +183,12 @@ def load_config(source) -> Config:
             "removed — use `candidate.locations` for geography. See config.yaml.example."
         )
     _reject_unknown_keys(data, Config, "top-level config")
-    # Imported here, not at module level: `score.fit_profile` raises this module's
-    # ConfigError, so a top-level import in both directions would be a cycle.
-    from ats_worker.score.fit_profile import parse_fit_profile
+    # Imported here, not at module level: `fit_profile` raises this module's ConfigError,
+    # so a top-level import in both directions would be a cycle. It deliberately lives in
+    # `ats_worker/` rather than `ats_worker/score/` — importing the score package would
+    # execute `score/__init__.py` and pull `location.py` -> `pycountry` into every config
+    # load, which is the same weight problem the VALID_SOURCES comment above avoids.
+    from ats_worker.fit_profile import parse_fit_profile
 
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
