@@ -32,7 +32,8 @@ Two things to internalise before anything else:
    yourself: `cd apps/worker && python -m ats_worker.run`.
 2. **The default fit scorer needs a ChatGPT subscription**, not an API key. Run
    `codex login` once on the worker host (`codex doctor` should show auth ok). No
-   subscription → switch the backend to `claude` and supply `ANTHROPIC_API_KEY`.
+   subscription → switch the backend to `claude-code` (Claude Code CLI, also
+subscription-billed, no key), or `claude-api` and supply `ANTHROPIC_API_KEY`.
 3. **The screen doesn't need Ollama at all, and Ollama doesn't need a local GPU.**
    The worker reaches Ollama at `localhost:11434` by default; set `OLLAMA_HOST` to
    point at a remote or cloud Ollama if the worker host has no GPU, or skip Ollama

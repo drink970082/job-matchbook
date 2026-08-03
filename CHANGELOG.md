@@ -58,6 +58,17 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **BREAKING (config): `SCORE_BACKEND=claude` is retired, split into `claude-code` and
+  `claude-api`.** The old value meant the metered Anthropic SDK — while `score.usage`
+  read the **Claude Code subscription** for that same backend name, so the quota bar
+  described a budget nothing spent (the mismatch was documented in `usage.py`'s own
+  docstring and never fixed). The names now mirror `SCREEN_BACKEND`'s existing
+  `claude-code`/`claude-api` pair, and the metered path is the one that says "api" —
+  visible at the config line, since it is the only backend that costs money per call.
+  **`claude` is rejected rather than aliased**: silently mapping it to either value
+  would run a different backend than a pre-2026-08-02 `.env` intended. `run.main`'s
+  existing env-value check names both replacements in the error; two tests pin that it
+  fails loudly and that `_scorer_meta` refuses to stamp provenance for it.
 - **`title_exclude` now matches WHOLE WORDS, not substrings — and the asymmetry against
   `title_filter` is the point.** Measured over the 11,675 titles in the live DB: the
   positive keep-list *needs* substring matching as a stemmer (`quant` catches 436 titles
@@ -102,6 +113,32 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   worse off by definition. The levers already underway (fewer paid calls, fewer tokens)
   therefore generalize across all four backends and need no replanning.
 
+### Added
+
+- **A Claude Code CLI fit backend (`SCORE_BACKEND=claude-code`) — the subscription twin
+  of the codex scorer, and the second arm of a backend A/B that no longer costs money.**
+  `score/backends_claude_cli.py` shells out to `claude -p` the way `backends_codex.py`
+  shells out to `codex exec`, sharing the prompt sections and the
+  `{"results":[{"job_ref":...}]}` schema envelope (both now call the new `score/_batch.py`,
+  which also holds the job_ref realignment guard that was duplicated).
+  **`--json-schema` is what makes it tractable** — Claude Code enforces structured output
+  the way `codex exec --output-schema` does, so there is no prompt-and-parse path and no
+  partial-JSON failure mode; the validated object arrives pre-parsed on the terminal
+  result event's `structured_output`. Note the CLI returns an **array** of session events,
+  not a bare object.
+  **The tool-stripping flag is `--tools ""`, and this was measured rather than assumed.**
+  With `--allowedTools ""` the session still came up holding Bash, Read, Write, WebFetch
+  and two MCP servers in `permissionMode: "auto"` — it is a permission allowlist over a
+  tool set that is still loaded. That is a security boundary, not a tuning knob: a JD is
+  untrusted scraped text and a scoring agent holding Bash could be asked to read
+  `~/.claude/.credentials.json` and echo it into `summary`, which is persisted and pushed
+  to Telegram. Same reasoning as codex's `--disable shell_tool`; only the flag differs.
+  **Isolation is also the cost lever:** `--strict-mcp-config`, `--setting-sources ""`,
+  `--disable-slash-commands` and a tmpdir cwd took harness overhead from **38,643 to
+  9,193** cached input tokens per call on an identical prompt (the CLI's own cost
+  estimate, $0.233 → $0.057). **`--bare` is deliberately never passed** — it forces
+  `ANTHROPIC_API_KEY` auth and would silently move the backend onto metered billing, the
+  same shape as the `CODEX_API_KEY` trap already documented in `make_codex_scorer`.
 - **Amazon is fetched US-only, cutting 768 rows per pass with zero coverage loss.** The
   `custom/amazon` recipe URL gains `normalized_country_code[]=USA`, a board-side facet, so
   the non-US rows are never fetched, parsed or stored. A/B'd through the production

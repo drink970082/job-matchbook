@@ -59,6 +59,28 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **A Claude Code CLI fit backend, and the `SCORE_BACKEND` rename it forces — IN
+  PROGRESS 2026-08-02** `[SCORE · M · branch `feat/claude-cli-scorer`, cut from `main`]`.
+  Plan: `~/.claude/plans/make-a-plan-tender-aurora.md` (operator-local, not in-repo).
+  **The gap this closes is one `usage.py:19` already documents:** the quota telemetry
+  for backend `claude` reads the **Claude Code subscription**, while the only Claude
+  scorer (`make_claude_scorer`) bills `ANTHROPIC_API_KEY` — so the bar describes a budget
+  nothing spends. This adds `backends_claude_cli.py` (`claude -p --json-schema`, the
+  subscription twin of `make_codex_scorer`) and **repoints the vocabulary: `claude` is
+  now the CLI, `claude-api` is the metered SDK** (operator's call, 2026-08-02). A stale
+  `SCORE_BACKEND=claude` therefore silently changes *which* backend runs — it is caught
+  loudly by the existing env-value check in `run.py`, and that is asserted in tests.
+  `--json-schema` (Claude Code 2.1.220) is the reason this is tractable: it enforces
+  structured output the way codex's `--output-schema` does, so there is no
+  prompt-and-parse path.
+  **It exists to serve a second, gated piece of work:** a blind two-backend re-label of
+  the 287 *reachable* rows of `golden_expanded.jsonl`, because today's profile and
+  `title_exclude` rewrites invalidated the corpora (499 rows are 100% `label_source:
+  "sol"` from the old profile) and the operator's 44 review answers were written
+  mid-edit, so they are fed back blind rather than treated as truth. That run is a
+  separate branch and is gated on measuring the Claude Code burn rate first — do not
+  start it from this entry.
+
 - **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED from
   2026-07-31 11:47 EDT** `[SCORE · M · operator away, 60-call budget authorized]`.
   Branches, one per phase: **`docs/quota-levers-plan`** (this claim, the plan, the

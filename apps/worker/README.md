@@ -55,7 +55,7 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
 3. `.env` — copy `.env.example` → `.env` and fill in `TELEGRAM_BOT_TOKEN`,
    `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`. Fit-scoring auth is `codex login` (Codex
    CLI, the default `SCORE_BACKEND`, no env var needed) or `ANTHROPIC_API_KEY`
-   only when `SCORE_BACKEND=claude`.
+   only when `SCORE_BACKEND=claude-api`.
 
 ## Run
 

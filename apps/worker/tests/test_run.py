@@ -359,12 +359,12 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
 
 
 def _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env, *, score_model,
-                                  score_backend="claude"):
+                                  score_backend="claude-api"):
     """Like _run_once_capturing_screen, but leaves make_claude_scorer/
     make_codex_scorer for the caller to monkeypatch (to capture the model kwarg
     fit_fn's lazy build calls it with). screen_fn is stubbed to a hermetic
     always-survives fake so control reaches fit_fn regardless of candidate
-    config (backend defaults to claude here: the default run backend is codex
+    config (backend defaults to claude-api here: the default run backend is codex
     now)."""
     monkeypatch.setattr(run, "screen_posting", lambda posting, **kw: {"disqualified": False})
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
@@ -402,12 +402,17 @@ def test_make_scorer_picks_the_backend(monkeypatch):
     monkeypatch.setattr(run, "make_codex_scorer",
                         lambda model, **kw: ("codex", model, kw.get("profile")))
     monkeypatch.setattr(run, "make_claude_scorer",
-                        lambda key, model, **kw: ("claude", key, model))
+                        lambda key, model, **kw: ("claude-api", key, model))
+    monkeypatch.setattr(run, "make_claude_cli_scorer",
+                        lambda model, **kw: ("claude-code", model))
     assert run.DEFAULT_SCORE_BACKEND == "codex"
     assert run.make_scorer("codex", env={}, profile="p") == (
         "codex", run.DEFAULT_CODEX_SCORE_MODEL, "p")
-    assert run.make_scorer("claude", env={"ANTHROPIC_API_KEY": "k"}) == (
-        "claude", "k", run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+    assert run.make_scorer("claude-api", env={"ANTHROPIC_API_KEY": "k"}) == (
+        "claude-api", "k", run.DEFAULT_ANTHROPIC_SCORE_MODEL)
+    # claude-code is the SUBSCRIPTION twin and must never touch ANTHROPIC_API_KEY.
+    assert run.make_scorer("claude-code", env={}) == (
+        "claude-code", run.DEFAULT_CLAUDE_CODE_SCORE_MODEL)
 
 
 def _run_once_capturing_run_score(monkeypatch, **kw):
@@ -440,9 +445,9 @@ def test_run_once_stamps_the_active_fit_backend_and_model(monkeypatch):
                      "scorer_version": prompts.SCORER_VERSION}
 
     claude = _run_once_capturing_run_score(
-        monkeypatch, score_backend="claude",
+        monkeypatch, score_backend="claude-api",
         anthropic_score_model="claude-sonnet-5")["scorer_meta"]
-    assert claude["backend"] == "claude"
+    assert claude["backend"] == "claude-api"
     assert claude["model"] == "claude-sonnet-5"
 
 
@@ -486,8 +491,9 @@ def test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored(monkeypat
     assert backend == "codex"
     assert path.endswith("scorer_usage.json")
 
-    _, backend = _run_once_capturing_usage(monkeypatch, scored=True, score_backend="claude")
-    assert backend == "claude"
+    _, backend = _run_once_capturing_usage(monkeypatch, scored=True,
+                                           score_backend="claude-code")
+    assert backend == "claude-code"
 
 
 def test_a_failed_quota_capture_is_announced_not_swallowed(monkeypatch, capsys):
@@ -512,7 +518,8 @@ def test_scorer_meta_model_tracks_the_backend_make_scorer_picks():
     # The two must not drift: whatever model make_scorer hands the backend is the
     # model the provenance stamp claims.
     assert run._scorer_meta("codex", codex_score_model="m")["model"] == "m"
-    assert run._scorer_meta("claude", anthropic_score_model="m")["model"] == "m"
+    assert run._scorer_meta("claude-api", anthropic_score_model="m")["model"] == "m"
+    assert run._scorer_meta("claude-code", claude_code_score_model="m")["model"] == "m"
 
 
 def test_run_once_no_notify_scores_without_alerting(monkeypatch, capsys):
@@ -848,7 +855,7 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
 
     envfile = tmp_path / ".env"
     envfile.write_text(
-        "SCORE_BACKEND=claude\n"
+        "SCORE_BACKEND=claude-api\n"
         "OLLAMA_MODEL=custom:1b\n"
         "DB_PATH=/tmp/from-env.db\n"
         "CODEX_SCORE_MODEL=gpt-from-env\n"
@@ -867,7 +874,7 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
 
     run.main(["--once", "--env", str(envfile)])
 
-    assert captured["score_backend"] == "claude"
+    assert captured["score_backend"] == "claude-api"
     assert captured["ollama_model"] == "custom:1b"
     assert captured["db_path"] == "/tmp/from-env.db"
     assert captured["codex_score_model"] == "gpt-from-env"
@@ -894,7 +901,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
         "OLLAMA_MODEL=custom:1b\n"
         "SCREEN_BACKEND=claude-api\n"
         "SCREEN_MODEL=claude-opus-4-8\n"
-        "SCORE_BACKEND=claude\n"
+        "SCORE_BACKEND=claude-api\n"
         "CODEX_SCORE_MODEL=gpt-from-env\n"
         "ANTHROPIC_SCORE_MODEL=claude-from-env\n"
         "CODEX_BATCH_SIZE=3\n"
@@ -918,7 +925,7 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     assert _os.environ["OLLAMA_MODEL"] == "custom:1b"
     assert _os.environ["SCREEN_BACKEND"] == "claude-api"
     assert _os.environ["SCREEN_MODEL"] == "claude-opus-4-8"
-    assert _os.environ["SCORE_BACKEND"] == "claude"
+    assert _os.environ["SCORE_BACKEND"] == "claude-api"
     assert _os.environ["CODEX_SCORE_MODEL"] == "gpt-from-env"
     assert _os.environ["ANTHROPIC_SCORE_MODEL"] == "claude-from-env"
     assert _os.environ["CODEX_BATCH_SIZE"] == "3"
@@ -1452,3 +1459,26 @@ def test_run_once_wires_a_title_stale_predicate_built_from_the_operators_config(
     # max_age_days is deliberately NOT re-applied: an age refusal is unrecoverable
     # (the row only gets older), unlike a title one. A 2020 posting stays.
     assert stale_fn({"job_title": "Software Engineer", "posted_at": "2020-01-01"}) is None
+
+
+def test_stale_score_backend_claude_fails_loudly(monkeypatch, capsys):
+    """`claude` used to mean the METERED SDK and now names nothing.
+
+    Accepting it as an alias for either new value would run a DIFFERENT backend than a
+    pre-2026-08-02 .env intended — silently onto (or off) metered billing. argparse
+    enforces `choices` only on a value it PARSES, never on an env-supplied default, so
+    this has to be caught by the explicit check in run.main.
+    """
+    monkeypatch.setenv("SCORE_BACKEND", "claude")
+    with pytest.raises(SystemExit):
+        run.main(["--once"])
+    err = capsys.readouterr().err
+    assert "unknown score backend 'claude'" in err
+    assert "claude-code" in err and "claude-api" in err  # names both replacements
+
+
+def test_scorer_meta_rejects_the_retired_backend_name():
+    # The provenance stamp must not fall through to a model the scorer wasn't built
+    # with — a silently wrong `backend`/`model` stamp is worse than no stamp.
+    with pytest.raises(ValueError, match="unknown score backend"):
+        run._scorer_meta("claude")
