@@ -9,6 +9,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
+  bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own
+  `title_filter`/`title_exclude` to already-queued rows, and it is the bulk producer of
+  discards — 1,504 rows carry that reason as of 2026-07-31, against a bucket the operator
+  reviews by hand. They were already *visible* (the bucket filter keys on `disqualified`,
+  not on cause) but not *selectable*, so there was no way to clear them. Adds the value to
+  `DisqualifyCause`, one `%prefilter:%` pattern, and one entry in the UI's `CAUSES`;
+  `disqualifyCauseIds` is reused unchanged (SPEC §7.3).
+  **It is deliberately not a hard-constraint cause.** Every other cause names a
+  requirement the *candidate* fails; this one names the operator's own config refusing the
+  posting, which is why the label reads "Pre-filter (title/age)" rather than naming a
+  requirement.
+  **The worker writes two `prefilter:` spellings and only one of them ever reaches this
+  filter** — measured 2026-07-31: `"prefilter: title refused by the current filters"` is
+  1,504 rows, all `discarded`; `"prefilter: refused by the current title/age filters"` is
+  56 rows, all still `new`. `disqualifyCauseIds` scopes to `discarded`, so the second
+  contributes nothing today; the pattern is left as a wildcard so it does once those rows
+  discard.
+
 - **A free seniority pre-ordering decides which rows deserve the paid fit call.** 96% of
   paid calls came back a "no" and 54% of those were `seniority=too_junior` — the budget
   was being spent proving that jobs that were never viable are not viable. That half is
@@ -37,7 +56,83 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   behind it. (SPEC §7.1/§9, SCORING §5.7, design record in
   `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.)
 
+### Changed
+
+- **PRINCIPLE 4 REWRITTEN: the compute tier is a backend choice, not a hardware
+  assumption.** It read "Local for frequency, a hosted model for judgment... run on the
+  host GPU", which quietly made a GPU a prerequisite for a tool other people are meant to
+  run. It now reads "cheap tier for frequency, judgment tier for judgment", with *local*
+  as one instance of the cheap tier rather than its definition. `PRINCIPLES.md` requires
+  the operator's sign-off to overturn a principle and an edit in the same change
+  (decision procedure item 6); this is that edit — operator's call, 2026-08-01.
+  Docs only, no behavior change: the code already shipped five screen backends.
+- **SPEC §3 and §4 follow, and §4 gains a clause the code does not yet satisfy.** §3 no
+  longer says "local-first compute"; §4's cloud-dependency non-goal now names the whole
+  provider set, and a new goal states that no provider and no hardware is required.
+  That clause is **satisfied for the screen stage (five backends) and NOT for fit scoring
+  (two)** — stated as a contract so the gap is visible rather than implied, with the
+  remaining work and its honest cost in PROGRESS.
+- **README no longer implies a GPU.** "No GPU required" is stated outright, and the
+  not-containerized note no longer says the worker "needs host-side Ollama".
+- **PROGRESS records the goal reframe and why quota is a PRODUCT constraint.** The
+  operator's own plan is the generous end — a flat-rate weekly window of ~2000 messages —
+  and the backlog still does not fit inside it, so anyone on a tighter or metered plan is
+  worse off by definition. The levers already underway (fewer paid calls, fewer tokens)
+  therefore generalize across all four backends and need no replanning.
+
+- **Amazon is fetched US-only, cutting 768 rows per pass with zero coverage loss.** The
+  `custom/amazon` recipe URL gains `normalized_country_code[]=USA`, a board-side facet, so
+  the non-US rows are never fetched, parsed or stored. A/B'd through the production
+  `fetch_company` and the real gates: **unfiltered 2,035 fetched → 640 past title/age →
+  411 past the free gate; filtered 1,267 → 411 → 411.** Identical survivor set, and 0 of
+  the 768 removed rows would have survived — the filter removes exactly what the location
+  gate was already discarding for free, just earlier. Every row on that board carries a
+  country code (0 nulls), so this is a clean partition rather than a heuristic, and there
+  is no unjudgeable bucket to drop silently.
+  **The live change is a `watched_companies` row, not a file in this repo** (the watchlist
+  is DB-owned), so it does not appear in the diff; `config.yaml.example` documents the
+  filtered URL (its whole watchlist block is commented out, so it is a reference for a
+  fresh install rather than something that ships), and the pre-change DB copy is at
+  `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`.
+  **It does not generalise, and the negatives cost more to establish than the win.** TikTok
+  and ByteDance accept city codes only (`CN_6` and `ST_*` both return 0); Workday silently
+  *ignores* an unrecognised `locationCountry` facet (Micron 2,725 → 2,725, Cisco
+  1,018 → 1,018, BlackRock 257 → 257, Japan and London rows intact); greenhouse ignores
+  `?location`/`?country`/`?offices` alike. Amazon worked because `amazon.jobs` is a faceted
+  *search* API; ATS board embeds serve the whole board by design. Full table in
+  `BACKLOG.md`'s intake-cut entry.
+  Pinned by `test_a_recipe_urls_own_query_string_survives_pagination`: pagination goes in
+  `params` and is never spliced into the recipe URL, so a recipe carrying its own filter
+  keeps it on every page.
+
 ### Fixed
+
+- **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was
+  `>=0.40`, while `score/backends_claude.py:47/49` and `score/backends_screen.py:62` pass
+  `thinking={"type": "adaptive"}` and `output_config={"format": ...}` — kwargs an 0.40
+  client rejects with `TypeError`, so `--score-backend claude` would have died on its
+  first call rather than on anything about the backend. Floored at **0.107.1**, the
+  version in `apps/worker/.venv`, checked directly for both kwargs in `Messages.create`'s
+  signature. The true minimum is probably lower; a verified floor beats a guessed one.
+  Related: BACKLOG's "the claude scoring backend has never run in this deployment" already
+  said to check the SDK floor before the first live run — this is that check.
+
+- **Three code comments and seven doc lines asserted the codex quota is MESSAGE-bound. It
+  is per-TOKEN credits, and the wrong claim was load-bearing.** `run.py:69`,
+  `pipeline.py:811`, `backends_codex.py:49`, `SCORING.md` §4.5/§5.6/§8.5 and `SPEC.md`
+  §7.1/§10 all justified the batching machinery as "the actual quota win" on the strength
+  of it. Measured 2026-07-31 over 158 production calls from the codex rollout files'
+  per-call token counts (the instrument `SCORING.md` §4.5 said did not exist): billing has
+  been per-token since April 2026, so a batch saves the repeated ~5.5k-token
+  rubric+profile+résumé prefix, not N-1 messages. Comments and docs only — no behavior
+  changes, and batching stays parked at 1 on the correctness grounds that always held it
+  there (cross-JD domain bleed), which never depended on the quota model.
+  Two figures kept alongside the correction because they bound future arithmetic: our
+  prompt is **~39%** of what a call bills (6,512 of 16,775 tok; the rest is codex CLI
+  harness overhead), and `cached_input_tokens` reads **0** on codex-cli 0.146.0, so prefix
+  caching is not a lever available today. `SCORING.md` §5.6's "concurrency is
+  quota-neutral" survives the correction — each call bills its own tokens either way — and
+  now names caching as the one mechanism that would break it.
 
 - **The `capture_usage` failure has a NAME — HTTP 403 — and is now retried. What
   produces the 403 is still open.** #60's cause-naming earned its keep immediately: the

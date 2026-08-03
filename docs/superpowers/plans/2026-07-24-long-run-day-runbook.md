@@ -174,8 +174,15 @@ construction (`_quote_in`), so it needs no re-litigating.
 
 ## Budget
 
-Codex is **message-bound**, roughly 2,000/week - not token-bound. ~3,985 rows sit
-`new`; at `batch_size=1` that is ~3,985 messages and **does not fit**. This day is a
+> **CORRECTED 2026-08-01 — this section budgets in the wrong currency.** Codex is
+> **per-TOKEN credits**, not message-bound (measured 2026-07-31; SCORING §4.5). The
+> conclusion below survives — a bounded slice, not a drain — but every *number* in it is
+> denominated in messages and must be re-derived against credits before it is used to
+> size a run. The row counts and the screen-discard ratio are still good; the
+> "2,000/week" ceiling and `messages ~= rows * 0.82` are not.
+
+Codex was believed **message-bound**, roughly 2,000/week - not token-bound. ~3,985 rows
+sit `new`; at `batch_size=1` that is ~3,985 messages and **does not fit**. This day is a
 bounded slice, not a drain.
 
 Sizing, from the 2026-07-22 sample (50 rows -> 9 screen-discarded, 41 fit calls):

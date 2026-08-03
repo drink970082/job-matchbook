@@ -979,16 +979,40 @@ fit(postings: list[dict], resumes: dict) -> list[dict]   # one card per posting,
 
 #### Subscription CLI backend (default)
 
-Batch-first, one process invocation per call. The subscription quota is **message-bound,
-not token-bound**, so batching N postings into a single call is the actual quota win.
+Batch-first, one process invocation per call.
 
-**That premise is UNVERIFIED, and the cheap experiment that would settle it cannot be
-run.** The obvious test — two calls of very different token counts, watch the meter —
-needs resolution the meter does not have: `used_percent` is an **integer** and the
-provider's `limits[]` carries no credits/units field (`score/usage.py` passes the value
-through unmodified), so a single call moves it by roughly 0.05% and reads as zero. Every
-batching argument below rests on message-bound being true; treat it as a working
-assumption with no measurement behind it, not as a finding. Measured 2026-07-30.
+**The premise this design was built on is FALSE, measured 2026-07-31.** The subscription
+quota was assumed **message-bound, not token-bound**, which made batching N postings into
+a single call "the actual quota win". It is **per-TOKEN credits** (since April 2026), so a
+batch saves only the repeated prompt prefix — the ~5.5k-token rubric + profile + résumé —
+not N-1 messages. Every batching argument below should be read as a much smaller prize
+than it claims.
+
+**What settled it was a new instrument, and that is the reusable part.** The 2026-07-30
+entry here said the premise was unverifiable, because the obvious test (two calls of very
+different token counts, watch the meter) needs resolution the meter does not have:
+`used_percent` is an **integer** and the provider's `limits[]` carries no credits/units
+field (`score/usage.py` passes the value through unmodified), so a single call moves it by
+roughly 0.05% and reads as zero. The meter was the wrong instrument. The codex **rollout
+files** carry exact per-call `input_tokens` / `cached_input_tokens` / `output_tokens`;
+read over 158 production calls they show per-token billing directly. Two figures worth
+keeping: our prompt is only **~39%** of what a call bills (6,512 of 16,775 tok — the rest
+is codex CLI harness overhead), and `cached_input_tokens` reads **0** on codex-cli
+0.146.0, so prefix caching is not a lever available today (it was, on 0.144.x; see
+`superpowers/notes/2026-07-31-quota-ledger.md`).
+**The rollout files themselves are gone, but the measurement survives — read the extract,
+do not re-instrument.** `~/.codex/sessions/` is empty as of 2026-08-01 and
+`backends_codex.py` passes `--ephemeral` unconditionally, so no new rollout is written.
+What was kept is the part that mattered:
+**`db/codex-token-accounting/rollout-token-usage.jsonl`** — 212 records, each carrying the
+per-call `input_tokens` / `cached_input_tokens` / `output_tokens` that the finding rests
+on, with no JD or résumé text in it. Every figure above re-derives from it directly
+(verified 2026-08-01: mean input **16,709** tok over 212 records; of the 198 `gpt-5.6-sol`
+rows, **53 (27%)** cached anything and **42** of those cached exactly **11,008**).
+`db/` is gitignored, so this pointer is the only way anyone finds the file.
+**Do NOT drop `--ephemeral` to re-run this.** That is the one path that puts the résumé +
+profile + JD back on disk outside the repo — the exposure `BACKLOG.md`'s codex-rollout
+entry documents — and it buys nothing the extract does not already hold.
 
 - Each JD gets a `=== JOB job_ref=<id> ===` block, and the schema demands the same
   `job_ref` come back on every element in a `{"results": [...]}` envelope.
@@ -1355,9 +1379,16 @@ Read-serial, network-parallel, write-serial. All database calls stay on the main
 are consumed in submission order so writes stay deterministic and correctly
 row-associated.
 
-Fit concurrency is **quota-neutral** on a message-bound plan: N parallel calls spend
-exactly the same number of messages as N serial ones. It only changes wall-clock. Pacing
-is a separate per-pass cap.
+Fit concurrency is **quota-neutral**, and it survives the correction that the plan bills
+per token rather than per message: each call bills its own tokens whether it runs beside
+three others or alone, so N parallel calls spend what N serial ones do. It only changes
+wall-clock. Pacing is a separate per-pass cap.
+
+The one mechanism that would break that neutrality is **prefix caching** — a burst of
+parallel calls cannot reuse a prefix none of them has finished writing, and historical
+rollouts show positions 0-5 of every burst missing 100% of the time at `score_workers=4`.
+That is not live: `cached_input_tokens` reads 0 on codex-cli 0.146.0. If caching ever
+returns, re-measure this claim before trusting it.
 
 ---
 
@@ -1578,7 +1609,10 @@ rule was made explicit.
 ### 8.5 Batching: dead at every size above 1
 
 **The hypothesis:** the subscription quota is message-bound, so batching N postings into
-one call is a large quota win.
+one call is a large quota win. **The hypothesis was wrong twice over**, and the second
+half was only established on 2026-07-31: the quota is per-TOKEN credits, so even a working
+batch would have saved the repeated prefix rather than N-1 messages (§4.5). Batching was
+already dead on the correctness measurement below before that landed.
 
 **Measured:** the batched-equals-single guard FAILED 19 of 23, with all 4 drift rows on
 the `domain` verdict. The drift probe then re-drew those rows K=3 at batch sizes 1, 5, and

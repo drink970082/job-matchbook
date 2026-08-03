@@ -109,11 +109,14 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Local-first compute where it's cheap, a frontier LLM where judgment matters.**
-  The high-frequency hard-requirements screen runs on a local GPU (Ollama), not a
-  paid API; fit scoring (every posting, needs real seniority/domain judgment) hits
-  the Codex CLI by default (flat-rate ChatGPT subscription), or Claude as a
-  metered alternate.
+- **Cheap compute for the high-frequency stage, a frontier LLM where judgment
+  matters — and the operator picks both.** The hard-requirements screen runs on
+  whichever of five backends the host can afford: Ollama on a local GPU (free) where
+  one exists, or `codex` / `claude-code` / `claude-api` / `openai-api` where it does
+  not. Fit scoring (every posting, needs real seniority/domain judgment) runs on the
+  Codex CLI by default (flat-rate ChatGPT subscription) or Claude. **No GPU is
+  required**, and no single provider is; which one is a deployment choice. See
+  PRINCIPLES 4.
 
 ---
 
@@ -141,8 +144,14 @@ Two pains, addressed by the two services:
   GitHub data file** (SimplifyJobs `listings.json`) — not a scraped UI — and still
   fetches every JD from the official board the listing's URL resolves to; aggregator
   *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
-- **No cloud dependency** beyond the external services the worker calls (the
-  Codex CLI or Anthropic Claude for fit scoring, the host's Ollama, Telegram).
+- **No cloud dependency** beyond the LLM provider the operator chooses — Codex CLI,
+  Claude Code CLI, the Anthropic API, the OpenAI API, or a local Ollama — plus
+  Telegram.
+- **No required provider and no required hardware.** Which LLM backend runs each
+  stage is a deployment choice, not a product commitment, and a host with no GPU is a
+  supported configuration. *This clause is currently satisfied for the screen stage
+  (five backends) and NOT for fit scoring (two: `codex`, `claude`) — the gap is
+  tracked in PROGRESS.*
 - **The worker issues no schema DDL** — Prisma owns the schema.
 
 ---
@@ -979,9 +988,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
     **ChatGPT subscription** (flat-rate, not metered), and the **only backend with
     batching machinery**: one `codex exec` per call can handle up to `batch_size`
-    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`), because the subscription's
-    quota is MESSAGE-bound, not token-bound — fewer `codex exec` calls would be the
-    saving. **Parked at `DEFAULT_BATCH_SIZE=1` (`run.py`):** the batched==single
+    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`). That machinery was built on
+    the premise that the subscription's quota is MESSAGE-bound, so fewer `codex exec`
+    calls would be the saving; **the premise is false** — it is per-TOKEN credits
+    (measured 2026-07-31, SCORING §4.5), so a batch would only save the repeated prompt
+    prefix. **Parked at `DEFAULT_BATCH_SIZE=1` (`run.py`):** the batched==single
     verdict-drift guard failed on cross-JD bleed (full post-mortem in §13); opt back
     in via `--batch-size`/`CODEX_BATCH_SIZE` only once that guard passes.
     Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
@@ -1822,11 +1833,19 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`, default
   `score desc`; `posted` orders by `posted_at desc, id desc`). Optional filters: a
   `minScore` floor (any bucket) and, within discarded, a disqualification-`cause` ∈
-  {authorization, location, degree, clearance, internship} sub-filter — a *derived* id set
+  {authorization, location, degree, clearance, internship, **prefilter**} sub-filter — a
+  *derived* id set
   (mirroring low-context) from a raw query matching the worker's keyed
   `disqualification_reason` via `json_extract(score_detail,'$.disqualification_reason') LIKE`
   the cause pattern (`%authorization:%`, `%location:%`, `%degree:%`, `%clearance:%`,
-  `%internship/co-op%`), layered as `id IN` on the discarded query. `getJobPostings`
+  `%internship/co-op%`, `%prefilter:%`), layered as `id IN` on the discarded query.
+  **`prefilter` is the one cause that is not a hard constraint**: the others name a
+  requirement the candidate fails, it names the *operator's own* `title_filter`/
+  `title_exclude` refusing the posting in `run_score`'s free phase-0 sweep. It exists
+  because that sweep is the bulk producer of discards (1,504 rows as of 2026-07-31) and
+  without a cause they are visible in the bucket but not selectable, so they cannot be
+  bulk-removed. The worker writes two `prefilter:` spellings; only the first is ever
+  `discarded`, so the wildcard is deliberately not narrowed to it. `getJobPostings`
   returns every row's `created_at` + `posted_at` (the table shows both dates).
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
@@ -2193,8 +2212,9 @@ automated coverage — those rely on code review or the human in the loop, not a
   (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
   against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
   is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
-  actually turns on. The codex fit call carries batching machinery for that quota
-  (message-bound, not tokens) but it is **parked at `batch_size=1`** — the
+  actually turns on. The codex fit call carries batching machinery built for that quota
+  on the belief that it was message-bound; it is per-token credits (SCORING §4.5), and
+  the machinery is **parked at `batch_size=1`** anyway — the
   batched==single guard failed (§13). The Claude backend stays wired for a metered
   A/B and deliberately does **not** batch: its cached system prefix already makes
   the marginal posting cheap — the lever batching would have stood in for on codex.

@@ -68,7 +68,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   spend is logged per call in
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
   **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
-  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.** The
+  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.**
+  **CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and docs only, no
+  behavior change — see CHANGELOG); this paragraph is kept because it is why they were
+  wrong, not because they still are. **The line numbers above are the ones this entry was
+  written with and several were already stale** — the real sites were `SCORING.md`
+  §4.5/§5.6/§8.5 and `SPEC.md` §7.1/§10; grep the claim, don't trust the refs. Two
+  paraphrases the original grep could not see were also fixed, and they mattered more than
+  the literal ones: `tools/score_eval.py:351/429` told every drift report that a smaller
+  batch "keeps most of the quota win", and the long-run-day runbook's **Budget** section
+  sizes a real run in messages (annotated, not rewritten — its row counts still hold, its
+  ceiling does not). The
   ChatGPT-subscription quota has been **per-token credits since April 2026**, not
   message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
   `SCORING.md:986-991` already flagged message-bound as an unmeasured working assumption
@@ -77,27 +87,42 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Two consequences, both measured over 158 production calls: our prompt is only **~39%**
   of what a call bills (6,512 of 16,775 tok; 7,332 is itemised codex CLI harness and
   ~2,931 is unattributed), and **prefix caching is capped by one line** —
-  `backends_codex.py:113` opens a fresh `TemporaryDirectory()` passed as `-C` at `:133`,
+  `backends_codex.py:118` opens a fresh `TemporaryDirectory()` passed as `-C` at `:138`,
   and that random path is echoed into the prompt at `<environment_context><cwd>` ahead of
   the whole scoring prefix. Every cache hit stops at **exactly 11,008 tokens** (86 x 128),
   42 times out of 42, so the ~5,500-token rubric+profile+résumé prefix is re-billed fresh
   on every call — and only **27%** of calls cache anything at all (positions 0-5 of every
   burst miss 100% of the time under `score_workers=4`).
+  **THE CACHING FIGURES ARE CORRECT BUT OUT OF DATE — they describe a CLI that is not
+  installed.** 11,008, the 42, and the 27% all re-derive exactly from
+  `db/codex-token-accounting/rollout-token-usage.jsonl` (checked 2026-08-01: 53 of 198
+  `gpt-5.6-sol` rows cached anything = 27%, and 42 of those cached exactly 11,008), so
+  they are not wrong — they are **0.144.x** measurements. The installed CLI is **0.146.0**,
+  where Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe: no
+  cache is operating, so there is nothing for the `-C` change to fix and no headroom to
+  reclaim. Quote them as history, never as current headroom. The stable-`-C`
+  lever was therefore **not shipped**. Full negative in
+  [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
+  The per-token billing finding above is unaffected — that one reproduced.
   **Work happens in separate worktrees** so the daemon never imports experimental code;
   `main` stays checked out and running in the primary tree. Worktrees and branches are
   removed when the run finishes.
 
 - **The seniority pre-ordering is live and now MEASURED in production**
   `[SCORE · M · shipped 2026-07-31, first live passes same day]`. The layer, its eval gate
-- **`capture_usage` 403 mitigation — branch `fix/capture-usage-403-retry`, landed,
-  awaiting merge** `[SCORE · XS · PR #63]`. The cause is named (HTTP 403); the mechanism
+- **`capture_usage` 403 mitigation — MERGED as `d983e13`, 2026-07-31 14:02:44 EDT**
+  `[SCORE · XS · PR #63]`. (This entry read "landed, awaiting merge" until 2026-08-01;
+  it was stale, and a downstream BACKLOG entry repeated it. The retry has still never
+  run in a live pass — the last scoring pass was 12:48, and the daemon stopped at 14:42.) The cause is named (HTTP 403); the mechanism
   is not, and the retry is a mitigation with a measured residual rather than a closure.
   Details under Defects. Also hardens the test suite: it was reaching the operator's real
   `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
   rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
   runs in 15.9s instead of 20s.
-- **Seniority veto defects — branch `fix/seniority-veto-evidence`, landed, awaiting
-  merge** `[SCORE · S · PR #62]`. 70% of the layer's 61 misses were code discarding a
+- **Seniority veto defects — MERGED as `c0a9688`** `[SCORE · S · PR #62]`.
+  (Read "landed, awaiting merge" until 2026-08-01. `DEVELOPMENT.md` §7 makes that
+  phrase load-bearing — it tells another session the work is finished but ungated —
+  so a stale one is worse than no entry.) 70% of the layer's 61 misses were code discarding a
   correct extraction: a cap read as a floor, an unevidenced bar trusted, and a clamped bar
   cancelling a rank the JD states. Fixing all three moved every gate axis at once —
   precision 0.964 -> **0.975**, recall 0.757 -> **0.793**, demote share 0.442 -> **0.457**,
@@ -258,6 +283,103 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Residuals (a) and (b) are FIXED above** (2026-07-30, the db-keyed lock); (c) is the
   2026-07-28 `O_RDONLY` fallback and stands.
 
+- **Both eval corpora are too small to answer the questions being asked of them — expansion
+  in flight** `[SCORE + SCREEN · M · branch `docs/corpus-expansion-groundwork`, 2026-07-31]`.
+  Neither eval is code-bound; both are corpus-bound.
+  **Score:** `eval/golden.jsonl` is 23 rows, and the standing `gpt-5.6-terra` rejection
+  (76% gate vs sol's 86%) is a **two-row** gap on it. Re-running that A/B cannot separate the
+  models. Target ~120 rows, drawn from the `keep`/`adjacent` bands where models actually
+  diverge; `tools/expand_golden.py` builds the 499-row Sol-labelled sampling frame (machine
+  labels — a frame, never a gate).
+  **Screen — the sharper one, because it is a portability requirement.** Of the 24 clearance
+  rows in `screen_golden.jsonl`, 20 are golden `false` and **none carries a clearance
+  token**, so `_check_clearance` short-circuits on the evidence floor for every one and
+  **no row can produce a clearance false disqualification, for any model.** The sponsorship
+  half likewise rests on 5 effective rows of 21. That blocks the real question: the
+  GPU-less path (`SCREEN_BACKEND=codex`) shipped on the call that "no new gate needed"
+  (screen-backends design §327), so users without a GPU run an **unmeasured** screen today.
+  `gpt-5.6-luna` is the cheapest model on that path and has never been measured — its
+  standing rejection is for *fit scoring*, which §10 argues does not transfer. Bar is the
+  gate's own: zero false disqualifications. Plan:
+  `~/.claude/plans/what-are-small-dev-vectorized-elephant.md`.
+  **LUNA MEASURED 2026-07-31, twice — and one run would have told you the wrong thing.**
+  `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna`, K=3, 83 rows. Run 1 **PASS** (0 false
+  disqualifications, recall 29/37); run 2 **FAIL** (1, recall 28/37). The gate is
+  **any-draw, not majority** by design (`screen_eval.py:149` — "a check that discards a
+  good posting one time in three is not a passing check"), so a ~1-in-3 per-draw fault is
+  caught by K=3 only ~70% of the time: **run 1's zero was a 30% miss, not evidence of
+  absence.** Run 2 is the trustworthy one. Never promote a screen backend off a single run.
+  **A SIBLING BRANCH SAYS THE OPPOSITE — reconcile before merging it.** Another session's
+  unmerged `docs/luna-screen-result` (commit `8b25e97`, 14:10 EDT) is titled *"luna passes
+  the screen gate and beats the local 4B"* and records *"PASS with ZERO false
+  disqualifications"*. That is **run 1**, and it is the same 249-call run this session
+  found already on disk — not an independent confirmation. Run 2 reversed it. Whoever
+  merges that branch must fold in this entry rather than land both, or `main` will carry a
+  PASS claim the replication refutes.
+  **What it actually shows, against the 4B's own documented RED set (67/68/672/738):**
+  the 4B fails all four on **3/3 draws each — 12 bad draws of 12**. Luna, over both runs,
+  produced **1 bad draw of 24** (id 672 only, `X..`), clearing 67/68/738 outright. That is
+  ~25x fewer, so "model ceiling" survives as a description — but the residual is not purely
+  size, since a frontier model still trips 672 (*"advanced degree … preferably a Ph.D."*).
+  **The shipping read is better than the FAIL headline.** A degree false-disqualification
+  no longer deletes a row — the 2026-07-29 `needs_confirmation` routing sends it to the
+  paid scorer — so luna's residual costs **one paid fit call**, not a lost job, while being
+  strictly better than what GPU-owning users run today. Caveat that does not go away: this
+  measures the degree and sponsorship halves only, because the clearance half still cannot
+  fail.
+  **RE-RUN ON THE EXPANDED 103-ROW CORPUS, and this is the decisive comparison** — same
+  corpus, same day, both backends:
+
+  | backend | false disqualification (the gate) | recall | flip |
+  |---|---|---|---|
+  | `ollama` qwen3.5:4b | **7** — 4 degree + **3 clearance** | 31/37 (84%) | 0 |
+  | `codex` gpt-5.6-luna | **0** | 30/37 (81%) | 3 |
+
+  **The 3 clearance failures are rows the eval could not see until today**, and they are
+  not subtle: the 4B disqualifies on *"BACKGROUND CHECKS/CLEARANCES"* in a university
+  employment boilerplate (Penn State, x2) and on BlackRock's **job title**, *"Associate,
+  Trade Clearance/Settlement"*. All 3/3 draws. It is matching the word, not the meaning.
+  Luna is clean on **all 14** new clearance rows and on 672, every draw.
+  **Luna's full record is 3 runs: PASS / FAIL / PASS**, the single failure being one draw
+  of three on id 672 — so **1 bad draw in 9** against the 4B's 3-of-3 on four separate
+  rows, every run. It is not perfectly stable and should not be described as such; it is
+  roughly an order of magnitude better on exactly the failure this gate exists to catch.
+  **And it is nearly free, which was the open cost question.** 249 luna screen calls
+  (83 rows x K=3) moved the reported window from **41% to 41%** — under the endpoint's
+  1-point resolution, so <1%, against ~12% had they billed like fit messages (~0.8
+  msg/row). Screening on `codex`/luna therefore costs a GPU-less user almost nothing
+  against the weekly budget; it is the *fit* call that is expensive. Do not read the 0 as
+  exactly zero — integer percent hides anything under a point — but the order of magnitude
+  is settled.
+  **THE TERRA QUESTION, MEASURED 2026-07-31 — and the original rejection was right about
+  the wrong thing.** The human gate is vacuous (see Defects), so both arms ran against a
+  40-row stratified subset of the Sol-labelled frame (15 `keep`, 25 `near`, fixed seed),
+  via the new `GOLDEN_SET` override. K=3, `codex` backend:
+
+  | arm | agreement with the stored sol verdicts | flip-rate (self-disagreement) |
+  |---|---|---|
+  | `gpt-5.6-sol`, fresh | 34/40 (85%) | **22%** |
+  | `gpt-5.6-terra` | 32/40 (80%) | **35%** |
+
+  **Read the two columns differently, because only one of them is label-independent.**
+  *Agreement* is measured against sol's own stored verdicts, so it structurally favours
+  sol — and even so, **sol re-run agrees with itself only 85% of the time.** That 6-row
+  self-disagreement IS the noise floor the 2026-07-16 comparison never had, and terra's
+  80% sits inside it. **The "76% vs 86%" gap that rejected terra does not reproduce as a
+  meaningful difference.**
+  *Flip-rate* compares each model against itself, needs no labels, and **does** reproduce:
+  terra 35% vs sol 22% today, against terra 38% vs sol 29% on 2026-07-16. Terra is ~1.5x
+  less self-consistent, measured twice, fifteen days apart, on different corpora.
+  **So the rejection stands, on stability rather than on accuracy** — which matters because
+  the notify gate is a verdict predicate, and a model that changes its mind on a third of
+  rows moves rows across it at random. Do not re-run the agreement comparison as the
+  deciding test; run flip-rate, which needs no golden set at all and would have answered
+  this in 2026-07-16 without one.
+
+  **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
+  paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
+  measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
+
 - **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (CHANGELOG). **Stage 3,
   non-tech discovery feeds:** the watchlist already covers any company, so decide the need
   before building (brittle, anti-bot handling, dilutes the moat).
@@ -309,6 +431,56 @@ privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should
 The recovery ran: 73 paid calls recovered 52 scored rows, 4 of them matches. Queue item 2
 has the numbers and the two ways the estimate was low.
 
+### Provider generality — the goal reframe of 2026-08-01
+
+**Operator's call, 2026-08-01: this is a general-purpose tool, and neither the hardware
+nor the provider is part of the product.** The target matrix is four AI backends —
+`claude-api`, `claude-code`, `openai-api`, `codex` — for BOTH stages, plus a local
+option (Ollama) on the screen. PRINCIPLES 4 was rewritten in the same change from a
+hardware statement ("runs on the host GPU") to a cost-tier one, and SPEC §3/§4 follow.
+
+**Quota is a PRODUCT constraint, not this deployment's quirk.** The reasoning that
+settles it: the operator's own plan is the GENEROUS end — a flat-rate weekly window of
+roughly 2000 messages — and the backlog still does not fit inside it. Anyone on a
+tighter or metered plan is worse off by definition. So the levers already underway
+(free seniority vetoes cutting paid CALLS, prefix caching cutting TOKENS) are product
+work, not personal tuning, and they generalize: fewer calls and fewer tokens help all
+four backends identically. Nothing in the quota plan needs replanning.
+
+What does NOT generalize is the reporting layer — `capture_usage` is per-provider, and
+two of the four have no usage endpoint story yet.
+
+**The open gap, and it is a stated contract violation (SPEC §4):**
+
+- **Fit scoring supports two of the four backends** — `[SCORE · M · blocks the goal]`.
+  `run.make_scorer` dispatches `codex` and `claude` only; `SCORE_BACKEND=openai` is
+  explicitly rejected. A user with a Claude Code subscription and no API key, or with
+  only an OpenAI key, can screen but cannot score — and scoring is the stage that
+  matters. The screen stage is already complete at five backends, so the whole
+  remaining gap is **two fit adapters**.
+  **The contract is already clean:** `make_scorer`'s own docstring says both twins
+  expose the same `fit(postings, resumes) -> list[dict]` shape, so "only this line
+  changes"; `backends_claude.py` is 67 lines. This is a longer LIST, not a new
+  abstraction — do not build a provider base class or a registry.
+  **The honest cost is four parts per adapter, and the adapter is the small one:**
+  1. the adapter itself;
+  2. a `_scorer_meta` branch — it already warns that falling through writes a
+     silently WRONG provenance stamp;
+  3. `capture_usage` support, or an explicitly documented "none". A backend with no
+     quota bar is a backend the user flies blind on.
+  4. **an `eval-score` run on the golden set.** Fit is judgment and judgment is
+     calibration-sensitive: `run.py` already rejects `gpt-5.6-luna` for fit on MEASURED
+     grounds (~3x looser spread). Shipping a fit backend without measuring it repeats
+     the exact mistake the screen side made — six options, one measured.
+
+- **Four of the five screen backends have never been measured** —
+  `[SCREEN · M · shipped unvalidated]`. `tools/screen_eval.py:23` is explicit that the
+  gate is meaningful only when eval-model == production-model, and it defaults to
+  ollama/qwen3.5:4b. So `make eval-screen` gates the path the operator runs and nobody
+  else's. A GPU-less user on `SCREEN_BACKEND=codex` runs an accuracy path with no
+  measurement behind it. The harness already accepts `SCREEN_BACKEND` and per-backend
+  models, so this is run-and-record, not build.
+
 ### Do next — the pick order
 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
@@ -316,8 +488,11 @@ take first and why. Each numbered item is independently pickable.
 
 > **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
 > 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
-> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed but not
-> decided:** the numbers an operator needs are in
+> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed and PARTLY APPLIED
+> as of 2026-08-01:** one board-side filter shipped (Amazon fetches US-only —
+> 768 fewer rows/pass, identical survivor set), and the other candidates were probed and
+> declined with the measurements recorded. The rest of Q3 — `title_filter`,
+> `max_age_days`, dropping low-yield boards — is still the operator's call. Numbers in
 > [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
 > Anything in the catalogue below that is not a quota lever waits. The order is fixed and
 > the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
@@ -347,6 +522,10 @@ take first and why. Each numbered item is independently pickable.
 > the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
 > watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
 > the trivial end of it and are one decision, recorded below.
+> **Board-side filtering was tried 2026-08-01 and it is not a general lever.** Amazon
+> takes a country facet and now fetches US-only (768 rows/pass, zero coverage loss);
+> TikTok/ByteDance accept city codes only, Workday silently IGNORES an unrecognised
+> country facet, and greenhouse ignores location params outright. Table in `BACKLOG.md`.
 > **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
 > autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
 > (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
@@ -469,6 +648,15 @@ take first and why. Each numbered item is independently pickable.
 
 ### Quota — the gap and the three levers
 
+**READ BEFORE QUOTING ANY "messages" FIGURE BELOW.** Every per-row and per-week number in
+this section is denominated in **messages** (`~0.8 paid messages/row`, `~2,000/week`).
+The quota is **per-TOKEN credits** (measured 2026-07-31; SCORING §4.5). The *ratios* and
+row counts still hold — they came from counting calls — but the ceiling and the
+"% of a weekly window" arithmetic do not, and must be re-derived against credits before
+they size a decision. Not rewritten in place because the credit-side denominator has not
+been measured yet; the rollout instrument that would measure it is no longer available
+(SCORING §4.5).
+
 **Measured live 2026-07-31** (`db/applications.db`, read-only): backlog **9,381** `new`;
 intake **728 rows on 07-30** (07-29 was 3,212 — a feed spike, not the norm); scored **251
 on 07-30, 197 on 07-29**. Capacity at `--score-limit 40` x 6 passes is **240 rows/day =
@@ -515,6 +703,40 @@ migration path, deployment/monitoring, dead-link sweep, more adapters, README
 screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
+
+- **`make eval-score` has been measuring ONE row and reporting PASS — the authoritative
+  fit gate cannot fail** — `[SCORE · M · found 2026-07-31 · PRE-EXISTING, partially fixed]`.
+  `eval/golden.jsonl` holds 23 hand-labelled rows keyed by `job_postings.id`, and **22 of
+  the 23 name postings that are no longer in the DB.** `score_row` prints one line to
+  stderr per missing id and returns `None`; the run then gates on whatever is left. The
+  2026-07-31 run reported *"gate rows: 1 · agreement 1/1 (100%) · PASS"*, which is the
+  same failure shape as the clearance tautology in `eval-screen`: a green gate that no
+  behavior can turn red.
+  **Not caused by the 07-31 sweep** — the pre-session backup
+  (`applications.db.backup-20260731-0210-pre-deprioritized-column`) already had 1/23. Nor
+  by application code: there is **no `DELETE FROM job_postings` anywhere** in the worker
+  or the web. The golden ids span 26-1159 and ids 2000-5000 are 99.97% present, so this is
+  not the ~40% background gap in that id range — the set was curated against a DB state
+  that no longer exists (the terra measurement dates to 2026-07-16).
+  **The labels are NOT recoverable by remapping, and this was tried.** Matching each
+  row's `note` back to a live posting by title is ambiguous: *"Maven Trading Analyst
+  (Python)"* and *"Point72 Fund Flow Analyst"* both fuzzy-match the same candidates
+  (on "Analyst"). Binding a hand-written verdict to the wrong posting is worse than an
+  empty gate, so the 23 labels are written off.
+  **Consequence, and it is the load-bearing one: the standing `gpt-5.6-terra` rejection
+  (76% gate vs sol's 86%) rests on a corpus that no longer exists and cannot be
+  re-measured against it.** Any claim sourced to that comparison is now unfalsifiable.
+  **Fixed on this branch, in the direction that prevents recurrence:** `golden.jsonl` rows
+  may now carry an inline `posting` payload and `score_row` falls back to it, making the
+  corpus **self-contained the way `screen_golden.jsonl` already is** — that asymmetry is
+  exactly why the screen corpus survived and this one decayed. `tools/label_golden.py`
+  writes the payload for every new row. `eval/` is gitignored, which is what makes storing
+  it safe. **Still open: the rebuild itself**, which needs human labelling; the gate stays
+  vacuous until then, so do not read a PASS from it.
+  **Also added:** `GOLDEN_SET`/`SCORE_EVAL_OUT` env overrides, so an A/B can run against a
+  substitute corpus while the authoritative one is empty. A substituted corpus is not the
+  gate — anything built from the strong scorer's own verdicts measures agreement, not
+  correctness.
 
 - **`capture_usage` silently stopped writing the quota snapshot, and the quota is the
   binding constraint** — `[SCORE · XS · found 2026-07-30]`. `db/scorer_usage.json` was

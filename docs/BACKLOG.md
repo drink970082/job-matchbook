@@ -27,6 +27,32 @@
   the web bar would lag by one pass. Capturing at both ends doubles the call but is still
   free of quota. **Decide only after the WARNING rate has been measured across days** — if
   the retry (PR #63) drops it near zero, this is unnecessary complexity.
+  **MEASURED 2026-08-01 from journald, and the answer is "not yet decidable" — read the
+  denominator before quoting the rate.** Over the whole journal
+  (`journalctl --user -u ats-worker`, 2026-07-28 21:17 → 2026-07-31 15:26) only **three**
+  passes both fit-scored and ran with the WARNING live, because the passes of 07-30
+  16:00/20:00 and 07-31 00:00 fit-scored **0** rows — the guarded call correctly never
+  fired, so they are not in the denominator either way:
+
+  | pass (EDT) | fit-scored | snapshot |
+  |---|---|---|
+  | 07-31 04:46 | 7 | written |
+  | 07-31 08:50 | 34 | **WARNING**, no cause named (the 403 diagnosis was not live yet) |
+  | 07-31 12:48 | 26 | **WARNING** + `HTTP 403 (Forbidden)` |
+
+  So **2 of 3**, which happens to match the ~2-in-3 per-call failure rate the hand probes
+  suggested — at n=3 that is a coincidence worth nothing. Corroborated independently:
+  `db/scorer_usage.json` carries `as_of: 2026-07-31T04:46:44-04:00`, i.e. the last pass
+  that wrote, three passes back.
+  **The decisive fact is that this measures the PRE-retry rate.** PR #63 **is merged** —
+  `d983e13`, 2026-07-31 14:02:44 EDT (an earlier draft of this entry said "landed but
+  unmerged", repeating a stale PROGRESS line without checking `main`; the conclusion
+  survives, the reason did not). The retry has still never executed in a live pass, for
+  two independent reasons: the last scoring pass was **12:48**, 74 minutes before the
+  merge, and the daemon — last restarted 09:17, so running pre-merge code — was stopped at
+  14:42 and again at 15:26 and has not run since. The question this entry gates on ("does
+  the retry drop it near zero") therefore has no data behind it and cannot get any until
+  the daemon runs again. **Do not decide this entry off the 2/3.**
 - **The seniority title-token floor: measured 2026-07-31, ambiguous, and the decision is
   the operator's** — `[SCORE · XS · decision pending]`. SCORING §5.7 declined to build a
   floor for the *"Senior ..."* titles the model returns an empty object on, asking for its
@@ -84,9 +110,52 @@
      clearance token anywhere; 'security' is the engineering domain"* — the same 20.
      **Fix this one first.** The clearance check that ran 83% wrong for four days is the
      reason this eval exists, and it is the half the eval cannot see.
+     **FIXED 2026-07-31 — the corpus now has 14 golden-`false` rows that carry a
+     clearance token, so this half can finally fail.** `eval/` is gitignored, so this
+     entry is the only record of what was added: 83 → 103 rows. The 14 come from the one
+     class that exists in the data — a clearance token in a NON-security sense: customs
+     clearance (Optiver 727), import clearance (TikTok 2992), construction permits/
+     clearances (Micron 10203), compliance pre-clearance for personal trading (Goldman
+     11907), university "BACKGROUND CHECKS/CLEARANCES" (Penn State 24853-24857),
+     background-check clearance (Motorola 24978), and — the strongest adversarial rows —
+     **CACI 25018/25019/57108, a defense contractor whose JD carries an explicit
+     `Minimum Clearance Required to Start: None`**, plus BlackRock 88648 whose JOB TITLE
+     is *"Trade Clearance & Settlement"*.
+     **What does NOT exist in this data, which is why the fix took this shape:** a
+     genuinely *optional* security clearance. Searched the whole DB — **zero** rows say
+     "clearance preferred / a plus / not required". Earlier attempts to find them matched
+     only section-boundary artifacts (`"…verified US government Clearance"` ending one
+     block, `"Preferred Qualifications:"` opening the next), which is the bullet-JD defect
+     below biting the *search* rather than the snippet window.
+     **Operator convention, set 2026-07-31 and load-bearing for every future row:**
+     *"must be able to obtain and maintain a TS/SCI clearance"* is `requires_clearance:
+     **true**`. TS is Top Secret; for a candidate with no clearance who needs sponsorship
+     it is a hard bar, not a soft one. The ~38 "ability to obtain" rows in the DB are
+     therefore golden `true` — they improve **recall** measurement and do nothing for this
+     tautology, since only golden-`false` rows can produce a false disqualification.
+     Deliberately excluded as genuinely-true or ambiguous: mthree 25411 (BPSS + SC
+     required), ASSYSTEM 25388 (BPSS eligibility + UK sole nationality), CACI 25021
+     (`DOJ MBI` — a background investigation, not clearly a clearance).
   2. **The sponsorship half rests on 5 rows, not 21.** Only 10 of the 21 are golden
      non-`refuses`, and 5 of those retrieve no snippet at all, so nothing the classifier
      does can move them.
+     **RAISED 5 → 11 on 2026-07-31** by adding 6 golden `offers` rows that *do* carry the
+     `sponsor` token, so the classifier can actually move them: Bridgewater 34/35
+     (*"we do provide immigration sponsorship for this position"* — the exact phrase
+     `_OFFERS_SPONSORSHIP` never matched), Jump Trading 548/558/567 (*"we sponsor work
+     visas for full-time positions"*), and Optiver 721 (*"supportive of US immigration
+     sponsorship for this role"* — the row the 07-30 discard recovery was named for).
+     `offers` is already in the schema enum and `fact_is_a_bar` returns `label ==
+     "refuses"`, so these are gate-eligible golden-`false` rows; no code change needed.
+     **Only 3 of Jump's 8 identical rows were taken** — the other 5 repeat one JD shape
+     verbatim and would inflate the count without adding signal, the same way ids 67/68
+     are flagged above as "one JD shape, counted twice".
+     **Candidate selection had to be done by hand, and that is the durable lesson.**
+     A regex sweep for offer-language returned 91 rows and was wrong on two whole
+     companies: Qualcomm (31 rows) matched on *"will provide reasonable
+     **accommodations**"* while its JDs actually say *"not eligible for Qualcomm
+     immigration sponsorship"*, and Microsoft matched despite *"unable to sponsor a work
+     visa"*. Every row above was read individually before it entered the corpus.
   3. **4 corpus rows are labeled on evidence the corpus does not contain.** Ids
      456/529/534/538 (all IMC, golden `refuses`) have excerpts of exactly 1606 chars —
      the `_readme` truncation cap — with no `sponsor`/`visa`/`citizen`/`authoriz`/
@@ -148,6 +217,32 @@
   capped at `num_ctx*2`, so the snippet payload is uncapped budget. The fix is splitting
   on line breaks as well as `[.!?]`, which changes what every snippet contains and so
   needs a gate re-run — hence recorded rather than done.
+  **MEASURED ON LIVE DESCRIPTIONS 2026-07-31, as this entry asked — and the rate is far
+  lower than "degenerates to the whole JD" implies.** Over a **random 3,000** of the 9,584
+  live `description` values >=800 chars, through the real `_sentences`: the **median**
+  longest-"sentence" share of a JD is **13%**; **140 (5%)** have one "sentence" covering
+  more than half the description; **1 (0.03%)** is genuinely a single sentence. So the
+  catastrophic shape is very rare and the too-wide shape is uncommon — and both were
+  previously quoted off 2-3 sentence *excerpts*, where a +/-1 window trivially covers
+  everything.
+  **A first version of this bullet published 27% / 14% / 0.2%, and it was sampling bias —
+  in the entry that exists to stop exactly that.** Those figures came from
+  `ORDER BY id LIMIT 600`, i.e. the **oldest** 600 rows, 6% of the population and the
+  boards ingested first. Re-measured across the id range: oldest-600 gives 27% / 14%,
+  random-3000 gives 13% / 5%, newest-600 gives 13% / 2%. **Age of the sample, not the
+  splitter, drove the headline.** The "0.2% single sentence" was also mislabelled: it
+  counted rows whose longest sentence exceeded 95% of the JD, and the true
+  `len(_sentences(d)) == 1` count in that same sample is **zero**. Any future measurement
+  here must randomize over the id range and say which sample it used.
+  **Still not fixed, and the reason is measurement hygiene rather than effort.** The screen
+  corpus changed the same day (83 → 103 rows; both blind halves opened up). Shipping the
+  splitter now would move two variables at once and no gate result could be attributed to
+  either. It wants its own branch, a settled corpus, and a before/after — not a bundle.
+  **Independent evidence it is real:** two separate candidate-search heuristics written on
+  2026-07-31 were both defeated by these missing boundaries — one ranked Microsoft
+  `CTJ - Poly` roles as *soft* clearance because `"…verified US government Clearance"`
+  closes one block and `"Preferred Qualifications:"` opens the next. The defect bites
+  anything that reasons about JD structure, not only `sponsorship_snippets`.
 
 - **Sponsorship recall is a DELIBERATE, pinned trade** — `[SCREEN · open by design]`.
   Retrieve-then-classify shipped 2026-07-28 (false disqualifications 2 → 0; behavior in
@@ -336,6 +431,9 @@
   verdict stands.
 - **655 rows already in the `new` queue fail today's filters and will each cost a paid
   fit call** — `[SCORE · XS · measured 2026-07-29 · nothing done]`. `prefilter_postings`
+  **Its "messages" arithmetic is in the wrong currency** — the quota is per-token credits
+  (SCORING §4.5), so `~0.8 paid messages/row` and the "% of a weekly window" figures below
+  are ratios worth keeping and ceilings worth distrusting. Re-derive before sizing a run.
   runs at *ingest*; nothing re-applies it to a row already stored, and `screen_posting`
   re-runs only the deterministic intern/location gate, not title or age. So every row
   ingested before its filter existed keeps its place in the queue. Re-running the current
@@ -493,7 +591,7 @@
   but serves full descriptions for the rest, so it is a partial-drop board, not an
   empty-JD one.
 - **Intake-cut evidence — MEASURED 2026-07-31, the decision is the operator's**
-  — `[FETCH · S · Q3 · numbers ready, nothing changed]`. Q3 is the only lever that
+  — `[FETCH · S · Q3 · numbers ready; ONE board-side filter applied 2026-08-01, rest declined]`. Q3 is the only lever that
   reduces *demand* rather than re-ordering it, and it was never costed. Three findings.
   **1. 37% of the live `new` queue (3,440 of 9,381) dies on the free deterministic
   gates** — it was fetched, stored, and will be discarded without a model ever reading
@@ -528,6 +626,115 @@
   intake cut is a per-board location constraint or dropping the worst offenders — but
   note this is *fetch* cost only, since the gate is free and (as of 2026-07-31) no longer
   spends a budget slot either.
+  **PROBED 2026-08-01: only ONE of the five `custom` boards can be filtered board-side,
+  and the four negatives are the useful part.** The idea was to push the location
+  constraint upstream into each board's own query so the wasted rows are never fetched.
+  Scope was `custom` boards only — the three `workday` offenders (Micron 484, Cisco 303,
+  BlackRock 84) need `appliedFacets` with opaque per-tenant GUIDs and were ruled out
+  without probing. Live results:
+
+  | board | free-killed | board-side country filter? |
+  |---|---|---|
+  | Amazon | 357 | **yes** — `normalized_country_code[]=USA`, 2,036 → 1,267 hits (38%) |
+  | TikTok | 782 | no — `location_code_list` takes **city** codes only |
+  | ByteDance | 75 | no — same API as TikTok |
+  | Jane Street | 94 | no — static `main.json`, no query params at all |
+  | Oracle | 77 | no — opaque `GeographyId`, level unverifiable |
+
+  **The TikTok negative is the load-bearing one, because it is the biggest board.** Its
+  `city_info` exposes a clean city → state → country hierarchy (`CT_` → `ST_` → `CN_`), so
+  a country filter looks available: US is `CN_6`. It is not. Measured against the live
+  endpoint, `location_code_list: ["CN_6"]` returns **0**, `["ST_1002078"]` returns **0**,
+  and only city codes work — `["CT_114"]` (New York) 181, `["CT_114","CT_157"]` (+Seattle)
+  491, against a 3,651 baseline. Filtering TikTok therefore means enumerating US city
+  codes, which silently drops every US city not on the list and rots the moment
+  `candidate.locations` changes — the failure being indistinguishable from a quiet board.
+  Declined on that basis, not on effort.
+  **Oracle looked possible and could not be confirmed.** `selectedLocationsFacet` and
+  `locationId` both narrow 2,314 → 1,544 with a clean 25/25 US sample, but the value is a
+  15-digit `GeographyId` scraped off one requisition, the facet list is not requestable
+  (`expand=filters.facets.items` → HTTP 400), and 50 rows carry 24 distinct ids — so
+  whether that id means "United States" or a region that happens to contain 1,544 jobs is
+  unknown. Same class as the Workday GUIDs, for the smallest payoff of the five.
+  **Amazon is verified rather than assumed:** 300 of 300 rows sampled across offsets 0,
+  100 and 1,100 come back `USA`, `hits` holds at 1,267, and pagination is unaffected.
+  **And the null-field trap was checked explicitly, because this file teaches that
+  lesson two findings up.** Walking the **whole unfiltered board** (2,035 rows, offsets
+  0-2,000) and reading `normalized_country_code` on every row: **0 rows carry no country
+  code.** The split is `USA 1267 · IND 371 · CAN 111 · ISR 47 · IRL 41 · GBR 28 · BRA 26 ·
+  AUS 23 · MEX 22 · CHN 20 · DEU 15 · ESP 14 · …`, summing to 2,035 — so the filter is an
+  exact partition, not a heuristic, and there is no unjudgeable bucket to drop silently.
+  That is the difference between this and the Susquehanna 0% above, where a NULL field
+  meant "cannot be evaluated" rather than "matches nothing". The
+  38% API-side cut lines up with the 36% free-kill rate this table already measured for
+  Amazon. **That agreement is a coincidence, not a check, and an earlier draft of this
+  entry called it one** — the 36% is 357/987 over rows that reached the *gate*, the 38% is
+  768/2,035 over rows *fetched*; different numerators over different denominators. The
+  real corroboration is the A/B immediately below, which compares the two survivor sets
+  directly.
+  **APPLIED 2026-08-01 and verified by DRIVING the production path, not the probe.**
+  `watched_companies.recipe.url` for `custom/amazon` now ends
+  `&normalized_country_code%5B%5D=USA`; pre-change copy at
+  `db/applications.db.backup-20260801-1318-pre-amazon-country-filter`. Run back through
+  the real `fetch_company` with the stored recipe: **1,267 postings, 1,267 of them USA, 0
+  non-US** — the same count the probe predicted, so ~768 rows/pass (38%) are no longer
+  fetched, parsed or stored. Revert by restoring the backup or deleting the parameter.
+  (The unfiltered baseline reads 2,036 in the probe and 2,035 in the A/B twenty minutes
+  later. That is one posting closing on a live board, not a discrepancy to reconcile — any
+  figure here is a snapshot of a board that moves.)
+  `requests` merges `params=` with a URL that already carries a query string, so the
+  `offset`/`result_limit` pagination the recipe adds is unaffected — confirmed by the row
+  count, which needs every page.
+  **A/B'd through the production fetch + gates 2026-08-01, and the filter is LOSSLESS —
+  this is the number that settles it:**
+
+  | arm | fetched | past `title_filter`/age | past the free gate |
+  |---|---|---|---|
+  | unfiltered | 2,035 | 640 | **411** |
+  | filtered | 1,267 | 411 | **411** |
+
+  Identical survivor set. Of the **768** rows the filter removes from the fetch, **0**
+  would have survived every free gate — so nothing is lost, and the 229 rows the location
+  gate used to kill for Amazon (640 → 411) are simply never fetched now. `prefilter_postings`
+  was called with an explicit `now=`; its default silently disables the age rule.
+  **The 37% queue-waste headline in finding 1 above is now HISTORY, not a live figure.**
+  Re-measured 2026-08-01 by driving `deterministic_screen` over the live queue: **4,430
+  `new` rows, 0 free-gate kills, 0%** — because the 07-31 04:46 pass already swept them
+  (`3,646 free-gate discarded (unbudgeted)` in its log line), so what remains is the
+  survivor set by construction. The harness was positive-controlled before that 0 was
+  believed: fed 200 rows already `discarded` with a `location:` reason, it re-killed
+  **200/200**. A 0% here means the waste was harvested, not that the gate stopped working.
+  **EXTENDED BEYOND `custom` 2026-08-01 — `workday` and `greenhouse` are both measured
+  NOs, and they cover 129 of the 172 watchlist rows.** Queue share by source at the time:
+  `custom` 1,599 · `workday` 738 · `greenhouse` 571 · `browser` 529 · `phenom` 239 ·
+  `icims` 148 · `ashby` 128 · rest <30 each.
+  **Workday (28 boards) has no country tier, and fails in the dangerous direction.** The
+  well-known global Workday country GUID for the USA
+  (`bc33aa3152ec42d4995f4791a106ed09`, the reason the "per-tenant GUID" objection looked
+  beatable) was applied as `appliedFacets: {"locationCountry": [...]}` to Micron, Cisco and
+  BlackRock: totals came back **2,725 → 2,725**, **1,018 → 1,018**, **257 → 257**, with
+  Japan and London rows still present. **An unrecognised facet key is silently ignored, not
+  rejected** — so this ships looking like it works. The response's own `facets` array is
+  the authority, and Micron advertises only `timeType`, `workerSubType`, `jobFamilyGroup`
+  and `locationMainGroup`; the last expands to a flat **site-level** list
+  (`Boise, ID - Main Site`, `Bengaluru, India`, `Arzano (NA), Italy`) keyed by per-tenant
+  GUIDs. Filtering Workday therefore means enumerating individual sites per tenant — the
+  TikTok city-enumeration shape, and worse, because the ids are not portable between
+  boards. Read `facets` before believing any Workday filter.
+  **Greenhouse (101 boards) accepts no filter at all**, same silent-ignore shape:
+  `boards-api.greenhouse.io/v1/boards/optiverus/jobs` returns **180** jobs with
+  `?location=United States`, `?country=US` and `?offices=US` alike. Its board genuinely
+  carries the waste (Amsterdam 33, Sydney 31, Shanghai 28 of 180) — there is simply no
+  lever. That is what a board-embed API is *for*: it serves the whole board.
+  **So the generalisation is that this does NOT generalise.** Amazon worked because
+  `amazon.jobs` is a faceted *search* API; the ATS platforms are not. `browser` (529),
+  `phenom` (239), `icims` (148) and `ashby` (128) are unprobed — worth a look only if
+  someone is already in that adapter, since the remaining per-board upside is a fraction
+  of Amazon's 768 rows/pass and every negative so far has cost a live probe to establish.
+  **Whatever is applied, record the board's own pre/post total** (`total_path` for TikTok/
+  ByteDance, `hits` for Amazon). A server-side filter that over-narrows reads exactly like
+  a healthy quiet board, which is the confusion the eighteen zero-yield rows below already
+  caused once.
   **2. Eighteen watchlist rows have produced ZERO postings, ever** — `ashby/hebbia-ai`,
   `ashby/uniswap`, `browser/citadel.com`, `greenhouse/aurosglobal`, `b2c2`, `crabel`,
   `davinciderivatives`, `exoduspoint`, `genevatrading`, `mwinternshipprogram`,
@@ -542,6 +749,20 @@
   broken slug — a small board may genuinely carry nothing past `title_filter` — but each
   costs a fetch six times a day for nothing. This supersedes the three-row deletion
   decision below: it is eighteen, not three.
+  **The mechanism is now MEASURED, and it is age, not `title_filter` — 2026-07-31.**
+  Fifteen of these boards were probed live through the production `fetch_company`: every
+  slug resolved, every adapter returned cleanly, **not one was broken**. Three serve
+  genuinely nothing (`lever/voleon`, `lever/tgsmc`, `workday/mlp/wd5/mlpcareers`). The rest
+  serve postings that **pass** `title_filter` and then die on `max_age_days` — Virtu 48
+  served / 31 title-ok / 0 surviving, Geneva Trading 14 / 10 / 0, Radix experienced 7 / 6 /
+  0, Maven 36 / 18 / 1. So the zero is a freshness effect on a slow-moving board, not a
+  title-vocabulary one, and a board can sit at zero for weeks while being entirely healthy.
+  Counts as of that date: **5 of 39 `config.yaml` rows and 16 of 172 `watched_companies`
+  rows** at zero lifetime ingest.
+  **Do not measure this with "rows ingested in the last N days".** `upsert_postings` is
+  `ON CONFLICT DO NOTHING`, so a board with stable inventory inserts nothing while serving
+  normally — that metric reports healthy boards as dead. It read as "15 of 39 stale" before
+  being re-run on `(source, slug)` and on lifetime counts.
   **3. The current filters would refuse 775 of the queued rows that survive the free
   gates (13% of 5,941)** — **587 on AGE**, 206 on title, 18 on both (569 age-only, 188
   title-only). At the measured ~0.8
@@ -587,9 +808,38 @@
   it); only the cleanup degrades. **Decision:** leave it (documented-safe, litter only)
   or default the codex/`claude-code` fit path to 1 worker. Screen concurrency already
   defaults to 1 for `ollama` for an unrelated reason (a single GPU serialises anyway).
-  **Still open 2026-07-29:** `run.py` line 231 still defaults `score_workers=4`, and
-  nothing in SPEC/CHANGELOG records a decision — the 2026-07-29 audit dropped this entry
-  by mistake and it is restored here.
+  **CLOSED 2026-07-31 — the premise died with the quota-capture rewrite, and no code
+  change was needed.** The decision above was framed around a rollout cleanup that no
+  longer exists: the pre-2026-07-29 capture scraped `rate_limits` out of the session
+  rollout, which forced dropping `--ephemeral` and left the résumé+profile+JD prompt on
+  disk to be reaped. `GET /backend-api/codex/usage` replaced that (`score/usage.py:9-15`),
+  so **`--ephemeral` is unconditional again** (`backends_codex.py:132`) and the fit call
+  writes no rollout to clean up. Verified by observation, not by reading: the newest file
+  in `~/.codex/sessions` is dated **2026-07-29 09:00**, unchanged across every scoring
+  call since. `score_workers=4` is therefore correct as it stands, and the "leave it or
+  default to 1" fork is moot.
+  **One residual, and it is privacy rather than litter.** The 215 rollouts written
+  *before* the fix are still there — 17 MB, 2026-07-16 to 07-29, and **158 of them match
+  résumé/profile markers**. The fix stopped new writes but never reaped the old ones, and
+  they sit in `~/.codex/`, outside the repo, so `.gitignore` and `make check-privacy` have
+  never covered them. Deleting them is the operator's call (they are also that session
+  history's only record); nothing in this repo depends on them.
+  **RE-CHECKED 2026-08-01 — the rollout files are GONE, and the exposure moved rather than
+  closed. Two of the three claims above are now wrong.** `~/.codex/sessions/` holds **zero**
+  files (the directory is empty, 4 KB), so there is nothing left to reap there. But the
+  same prompts persist in **`~/.codex/state_5.sqlite`** (16 MB): of 318 rows in its
+  `threads` table, **208 carry the `=== RESUME` block inline** — and not in one column but
+  in **three**: `first_user_message`, `preview`, and `title`. `preview` and `title` are the
+  columns a session picker renders, so this store is *more* exposed than the rollouts were,
+  not less. 1,877 `=== RESUME` and 623 `=== JOB job_ref` occurrences in the file overall.
+  **"The fix stopped new writes" is false for this store.** Those rows run
+  **2026-07-17 20:10 → 2026-07-31 13:30** — the latest is the 12:48 scoring pass on 07-31,
+  well after the 07-29 `--ephemeral` restoration that stopped rollout writes. Every paid fit
+  call still deposits the résumé here.
+  **Deleting is a different risk than it was**, which is why nothing was deleted here: this
+  is the codex CLI's own live state database, not an inert log, so a row delete wants the
+  CLI stopped and a file copy taken first. Verify with a read-only connection before acting
+  — `select count(*) from threads where first_user_message like '%=== RESUME%'`.
 - **SSRF residual shapes** — `[FETCH · M]`. Three shapes remain reachable (browser-path
   redirect GET · DNS-rebinding · statically-internal hostnames — accepted meanwhile,
   SPEC §11). Closing the DNS shapes needs a resolve-then-check with a TOCTOU-safe
@@ -621,8 +871,88 @@
   The worker runs on system python3, not `apps/worker/.venv` (which has 0.107.1), so
   confirm the installed version there and raise the floor to match. A first run that dies
   on a `TypeError` proves nothing about the backend.
+
+### Found by the 2026-08-01 deep clean, deferred as behavior changes
+
+The cleanup pass (CLEAN-01..09) was scoped to change no observable behavior. These
+seven findings each WOULD change behavior, so none was touched; they are recorded here
+rather than left in a PR description. Each cites the evidence that found it.
+
+- **`removeAllInView` has no `lowcontext` branch** — `[WEB · XS · latent, unreachable
+  today]`. `getJobPostings` special-cases the low-context bucket before building its
+  where; `removeAllInView` does not, so `buildJobWhere` falls through to its `matched`
+  default. A bulk remove on that bucket would sweep MATCHED rows. Unreachable today:
+  the "Remove all in view" button renders only when `bucket === 'discarded'`
+  (`DiscoveredJobsTable.tsx:347`). `src/__tests__/job-query-shape.test.ts` pins the
+  current behavior so a refactor cannot silently change it in either direction. Fixing
+  it is a one-line branch; decide whether the button will ever be shown elsewhere first.
+
+- **`util.to_iso_date` returns a 10-char slice where its docstring promises `None`** —
+  `[FETCH · S · filter change, governed by err-toward-keep]`. `to_iso_date("not a real
+  date")` returns `'not a real'`, and `to_iso_date(True)` returns `'1970-01-01'`; the
+  sibling `_recipe.normalize_date` guards both (a `\d{4}-\d{2}-\d{2}` match and an
+  `isinstance(value, bool)` check). The value feeds `max_age_days` freshness filtering,
+  so tightening it DROPS postings that are currently kept — which is exactly the
+  direction PRINCIPLES 3 says to justify explicitly. The docstring was left alone in
+  CLEAN-07 for this reason: it describes the intended contract, and changing the code to
+  match is the real fix.
+
+- **`location_verdict`'s `resolved` / `ask_llm` are documented, tested, and then
+  discarded** — `[SCORE · M · contract contradiction, touches SPEC §9]`.
+  `location.py:441-445` states that an unresolved location "must NOT be recorded as a
+  passing location check", because leaving the key absent is what lets a later free
+  extraction fill the gap. But `resolve_location` drops both fields, and
+  `deterministic_screen` (`screen.py:112-114`) writes
+  `screen["location"] = {"pass": passed, ...}` unconditionally. So either the docstring
+  is wrong or the gate is silently blessing unresolved locations. Verified directly on
+  2026-08-01. Resolving it changes screen outcomes and touches a SPEC §9 clause.
+
+- **`no_sponsorship_quote` is a required schema field with no consumer, and the prompt
+  makes a false promise about it** — `[SCORE · S · prompt-byte change, needs
+  eval-screen]`. `score/prompts.py:97` requires the field and `prompts/score.txt:33`
+  tells the model it "is verified against the posting and a sentence that does not
+  appear there is discarded". `_quote_in` was deleted (see `screen.py:687`); nothing
+  reads the field. Removing either changes prompt BYTES, hence model output
+  distribution, hence the Claude cache prefix — so it needs `make eval-screen`, not a
+  cleanup patch. Overlaps `fix/sponsorship-positive-evidence`.
+
+- **`todayISO()` is UTC, so a form opened late in the US evening defaults to tomorrow**
+  — `[WEB · XS]`. `lib/utils.ts todayISO` is the five inlined
+  `new Date().toISOString().split('T')[0]` copies, named. Past ~19:00 US Eastern, UTC has
+  rolled over and "date applied" pre-fills with tomorrow. Pre-existing and unchanged by
+  CLEAN-04. `TimelineHeatmap` deliberately uses a LOCAL reference instead, so the two
+  rules already differ; unifying on local would move real dates and is the decision.
+
+- **The modal and the table coerce `recommended_resume` differently** — `[WEB · XS]`.
+  For a non-string value the modal yields `''` (`typeof === 'string'` guard) and the
+  table yields `'5'` (`String(...)`). Same for `reasoning`. CLEAN-06 shared the
+  assessment parsing but left this divergence, since picking a winner changes what one
+  component renders on malformed input; both sites now carry a comment saying so.
+
+- **Nine server actions are covered only by the excluded integration suite** —
+  `[WEB · S]`. `jest.config.ts:18` excludes `*.int.test.ts` from the default run, so
+  `removeAllInView`, `deleteApplication`, `deleteHistoryItem`, `exportApplicationsCSV`,
+  `importApplicationsCSV`, `getCategories` and `setCategories` have no fast-suite guard;
+  `getApplicationHistory` has no test at all. CLEAN-05 closed this for `bulkRemove` and
+  `bulkReopen` because it refactored them. The rest is test work, not cleanup.
+
 ## Enhancements — not built, optional
 
+- **Onboarding ANY user, not just the first one** — `[DOCS · L · discussion recorded
+  2026-08-02, nothing decided]`. Tuning the tool for its first user took an afternoon:
+  126 golden rows reviewed, four profile rewrites, three paid probes, and a 71-key
+  `title_exclude` list that only existed because a session ran ad-hoc SQL over 11,675
+  stored titles. The constraints, the measurements, and four open questions are in
+  [`superpowers/specs/2026-08-02-universal-onboarding-design.md`](./superpowers/specs/2026-08-02-universal-onboarding-design.md).
+  The three that shape any solution: **the free filter matters more than the profile
+  prose** (a tuned exclude list cut kept intake 8,851 → 6,099, and seniority tokens
+  alone were 21%); **`onboard-me` runs before `onboard-board`, so the DB is empty** and
+  every corpus-driven suggestion has nothing to mine; and **the scorer already names the
+  profile line it used** (99% of 502 stored domain notes state `ANTI: yes/no`, 54% state
+  the tier) — the diagnosis done by hand this session was sitting in `score_detail` all
+  along. Also settled there: the adapters are industry-general, so the audience limit is
+  *discovery*, not fetch; feeds are a source concept deserving an `onboard-feed` skill;
+  and filters should become DB-owned so in-flight tuning does not need a worker restart.
 - **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
   2026-07-22 expansion (49 → 172 boards) ran an ad-hoc pipeline worth encoding:
   read `personal_profile.txt` → parallel company research per target tier → **verify

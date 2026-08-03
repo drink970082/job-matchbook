@@ -19,7 +19,7 @@ day with no tracebacks and no breaker trips.
 | Harness trim (`--ignore-user-config`) | **not done** — worth 1.7%, not 30% as first claimed |
 | Luna/terra as the FIT scorer | **not started** — this is the remaining lever with real headroom |
 | Luna as the SCREEN model | **PASSES, and beats the local 4B** — 0 false disqualifications vs the 4B's 2-3; see below |
-| 13 stale "message-bound" doc sites | **not done** |
+| 13 stale "message-bound" doc sites | **DONE 2026-08-01** (`chore/small-fixes-batch`) — plus two paraphrases this list missed: `tools/score_eval.py:351/429` and the long-run-day runbook's Budget section |
 
 ## The expanded score corpus — built, and NOT yet trusted
 
@@ -79,7 +79,7 @@ The operator's standing priority is **score quota first**.
    A paid screen inverts the economics: today the screen is free and discards ~18% of rows
    *before* the paid scorer, so on a paid screen every queued row costs something. The
    no-local-LLM default probably needs tighter intake, not the same watchlist.
-3. **The 13 stale "message-bound" sites.** `run.py:69`, `pipeline.py:811`,
+3. **The 13 stale "message-bound" sites — DONE 2026-08-01, see the table above.** `run.py:69`, `pipeline.py:811`,
    `backends_codex.py:49`, `SCORING.md` 982/983/990/1278/1500, `SPEC.md` 983/2186, and two
    dated design specs. **CHANGELOG and the dated specs are history — annotate, do not
    rewrite.** The quota premise was wrong; the accuracy objection to a cheaper model

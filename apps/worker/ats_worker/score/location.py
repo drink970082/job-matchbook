@@ -101,8 +101,11 @@ _US_STATE_CODES = {s.code.split("-")[1] for s in pycountry.subdivisions if s.cou
 
 
 def _mentions(description: str, hints: tuple[str, ...]) -> bool:
-    """True if the JD text contains any of `hints` (used to sanity-check the model's
-    sponsorship/remote guesses against the source)."""
+    """True if `description` contains any of `hints`.
+
+    One caller remains — `location_verdict`, which passes the LOCATION STRING (not the
+    JD) to test it for remote wording. The sponsorship half this once backed moved to
+    score/screen.py entirely; the parameter name is a leftover from that."""
     t = (description or "").lower()
     return any(h in t for h in hints)
 

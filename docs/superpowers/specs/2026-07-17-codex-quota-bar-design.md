@@ -1,5 +1,11 @@
 # Codex quota usage bar — design
 
+> **PREMISE CORRECTED 2026-08-01 — this document reasons from a quota model that is
+> false.** The ChatGPT subscription bills **per-TOKEN credits**, not messages
+> (measured 2026-07-31; SCORING §4.5). This is a dated design record and is left
+> as written; do not carry its message-bound premise, or any sizing derived from
+> it, into new work.
+
 **Date:** 2026-07-17
 **Status:** shipped 2026-07-17 (v1.0.0)
 **Supersedes:** the "Codex message-quota usage tracker" item in

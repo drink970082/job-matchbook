@@ -628,8 +628,9 @@ def _preorder_by_seniority(conn, rows, *, seniority_fn, now, limit, tally) -> li
     is the ordinary case rather than the exotic one.
 
     That breaker is what bounds the WALL CLOCK, and it is the reason it exists. These
-    calls are sequential (`DEFAULT_SCREEN_WORKERS['ollama']` is 1 — the GPU serialises
-    anyway) and `make_ollama_extract` defaults to a 180s timeout, so without it a HUNG
+    calls are sequential — the loop below drives `seniority_fn` directly, with no
+    executor, so `screen_workers` never reaches it — and `make_ollama_extract`
+    defaults to a 180s timeout, so without it a HUNG
     local model would cost `2 x limit x 180s` — at `--score-limit 40` that is exactly
     4 hours, the whole slot, after which `pass_lock` would refuse the next one too.
     With it the worst case is `_BREAKER_LIMIT x 180s`, about 15 minutes, whether the
@@ -797,7 +798,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
     whatever check the screen produced no verdict for (see
     `score.merge_fallback_screen`).
 
-    Three phases:
+    Phases 1-3 below. Two free steps run BEFORE them in the body: phase 0 (the
+    deterministic gates) and phase 0.5 (the seniority pre-ordering).
       1. SCREEN every 'new' row (cheap, local Ollama, per-item — one bad screen
          call marks only that row 'failed' and never blocks the rest). A
          disqualified posting is persisted 'discarded' right here and NEVER
@@ -807,8 +809,11 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          here too, ALSO skipping the fit scorer: the UI/notify gate hold back any
          scored row that thin, so paying to fit-score it would only buy a verdict
          we then hide.
-      2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call —
-         the codex quota win (message-bound, not token-bound).
+      2. Chunk the survivors and BATCH-fit each chunk in one `fit_fn` call. This
+         used to be called "the codex quota win (message-bound)"; the quota is
+         per-TOKEN credits, measured 2026-07-31, so a batch saves only the repeated
+         prompt prefix. Chunk size is 1 in production anyway (correctness — see
+         DEFAULT_BATCH_SIZE in run.py), which makes this step a per-posting call.
       3. FALLBACK: a chunk that raises ScoreError (e.g. a batch alignment/parse
          failure) is retried as one `fit_fn` call PER posting in that chunk, so
          a single bad JD in a batch doesn't sink its batch-mates. A single that

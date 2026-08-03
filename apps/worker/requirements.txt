@@ -1,6 +1,15 @@
 requests>=2.31
 beautifulsoup4>=4.12
-anthropic>=0.40
+# FLOORED at a version verified to accept the kwargs the code actually passes.
+# `>=0.40` certified an install that cannot run: score/backends_claude.py:47/49 and
+# score/backends_screen.py:62 pass `thinking={"type": "adaptive"}` and
+# `output_config={"format": ...}`, both of which an 0.40 client rejects with TypeError,
+# so `--score-backend claude` would have died on the first call. 0.107.1 is the version
+# in apps/worker/.venv and was checked directly: `thinking` and `output_config` are both
+# in `Messages.create`'s signature and `ThinkingConfigAdaptiveParam` exists. The true
+# minimum is likely lower; nothing here needs it, and a floor that is verified beats one
+# that is guessed.
+anthropic>=0.107.1
 apscheduler>=3.10
 PyYAML>=6.0
 # PINNED, not floored: tests/fixtures/location_corpus.jsonl gates exact leak counts

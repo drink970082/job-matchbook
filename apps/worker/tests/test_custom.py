@@ -309,6 +309,34 @@ def test_fetch_amazon_offset_get_pagination():
     assert all(m == "GET" for m, *_ in sess.calls)
 
 
+def test_a_recipe_urls_own_query_string_survives_pagination():
+    """Pagination goes in `params`, never spliced into the url — so a recipe that
+    carries its own filter keeps it on every page.
+
+    The shipped Amazon recipe is
+    `...search.json?base_query=software+engineer&normalized_country_code%5B%5D=USA`
+    (`[]` percent-encoded, as the live row and the example both write it)
+    (`config.yaml.example`), a US-only filter that removes ~768 rows/pass with zero
+    coverage loss (BACKLOG, the intake-cut entry). Rebuild the url by concatenation —
+    the obvious "simplification" — and the `?offset=` clobbers the filter, silently
+    restoring the non-US rows on every page but the first.
+
+    SCOPE, so nobody reads more assurance into this than it gives: the session here is
+    injected, so what is pinned is *this executor's* contract — url passed through
+    byte-identical, pagination confined to `params`. The other half of the guarantee is
+    `requests` merging `params=` onto an existing query string, which no unit test
+    covers because no real client is involved. A session object that REPLACED the query
+    string instead of merging would keep this test green and still kill the filter."""
+    recipe = dict(AMAZON_RECIPE,
+                  url=AMAZON_RECIPE["url"] + "&normalized_country_code%5B%5D=USA")
+    sess = _PagedJson(AMAZON, {"hits": 1986, "jobs": []})
+    custom.fetch("amazon", "Amazon", recipe, session=sess, timeout=20)
+
+    assert [url for _, url, *_ in sess.calls] == [recipe["url"]] * len(sess.calls)
+    assert all("offset" not in url for _, url, *_ in sess.calls)
+    assert [(p or {}).get("offset") for _, _, p, _, _ in sess.calls] == [0, 2]
+
+
 def test_fetch_tiktok_post_headers_and_body_offset():
     sess = _PagedJson(TIKTOK, {"data": {"count": 3701, "job_post_list": []}})
     out = custom.fetch("tiktok", "TikTok", TIKTOK_RECIPE, session=sess, timeout=20)

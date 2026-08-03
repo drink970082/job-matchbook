@@ -1,10 +1,11 @@
 """Preflight for a worker checkout: `make doctor` (or `python -m ats_worker.doctor`).
 
 Prints one ASCII status line per check and exits non-zero ONLY when a universal
-prerequisite is missing (worker python deps + a set-up database). Provider rows
-(ollama / codex / claude / node / docker / anthropic key / telegram) print ok/no
-but never fail the exit code: which provider is "right" depends on the path the
-user picks, and `onboard-me` Step 0 reads these lines to pick it.
+prerequisite is missing (worker python deps + a set-up database). Every other row
+— ollama, codex CLI, claude CLI, anthropic api key, openai api key, node, docker,
+telegram, daemon dep, worker daemon — prints ok/no but never fails the exit code:
+which provider is "right" depends on the path the user picks, and `onboard-me`
+Step 0 reads these lines to pick it.
 
 Imports only the standard library at load time so it runs even on a checkout whose
 deps are missing — the exact state it exists to diagnose (importing `run`/`fetch`

@@ -249,6 +249,10 @@ test('getJobPostings cause sub-filter narrows the discarded bucket by disqualifi
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'clr', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'clearance: requires security clearance' }) }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'int', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'internship/co-op role' }) }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'multi', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd; internship/co-op role' }) }) })
+    // The prefilter cause covers BOTH strings the worker writes — run_score's phase-0
+    // sweep and the operator's 2026-07-29 bulk sweep — which differ after the prefix.
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre1', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: title refused by the current filters' }) }) })
+    await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre2', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: refused by the current title/age filters' }) }) })
 
     const auth = await getJobPostings({ bucket: 'discarded', cause: 'authorization' })
     expect(auth.data.map((d) => d.external_id)).toEqual(['auth'])
@@ -266,9 +270,17 @@ test('getJobPostings cause sub-filter narrows the discarded bucket by disqualifi
     const int = await getJobPostings({ bucket: 'discarded', cause: 'internship' })
     expect(int.data.map((d) => d.external_id).sort()).toEqual(['int', 'multi'])
 
+    // One pattern, both prefilter spellings — this is what makes the ~1,300-row sweep
+    // population selectable, and so bulk-removable, in the Discarded bucket.
+    const pre = await getJobPostings({ bucket: 'discarded', cause: 'prefilter' })
+    expect(pre.data.map((d) => d.external_id).sort()).toEqual(['pre1', 'pre2'])
+
+    // ...and it does NOT bleed into the hard-constraint causes.
+    expect(deg.data.map((d) => d.external_id)).not.toContain('pre1')
+
     // No cause = every disqualified row.
     const all = await getJobPostings({ bucket: 'discarded' })
-    expect(all.data.map((d) => d.external_id).sort()).toEqual(['auth', 'clr', 'deg', 'int', 'loc', 'multi'])
+    expect(all.data.map((d) => d.external_id).sort()).toEqual(['auth', 'clr', 'deg', 'int', 'loc', 'multi', 'pre1', 'pre2'])
 })
 
 test('getJobPostings routes every fit-verdict reject into discarded, near misses into belowbar', async () => {

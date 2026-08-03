@@ -75,7 +75,7 @@ export type JobBucket = 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowco
 // cause. The worker writes `disqualification_reason` keyed like "degree: requires phd"
 // / "authorization: no visa sponsorship offered" / "clearance: …" / "location: …" /
 // "internship/co-op role" (multiple joined by "; "); each cause maps to a LIKE pattern.
-export type DisqualifyCause = 'authorization' | 'location' | 'degree' | 'clearance' | 'internship'
+export type DisqualifyCause = 'authorization' | 'location' | 'degree' | 'clearance' | 'internship' | 'prefilter'
 
 // LIKE patterns that recognize each disqualification cause inside the (possibly
 // "; "-joined) disqualification_reason string. See disqualifyCauseIds.
@@ -85,6 +85,20 @@ const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
     degree: '%degree:%',
     clearance: '%clearance:%',
     internship: '%internship/co-op%',
+    // Not a hard-constraint cause: the operator's own title/age filters, re-applied to
+    // already-queued rows by run_score's free phase-0 sweep. Without a cause these rows
+    // are visible in the Discarded bucket (that filter keys on `disqualified`, not on
+    // cause) but not selectable, so an operator cannot bulk-remove them — 1,504 rows as
+    // of 2026-07-31.
+    //
+    // The worker writes two spellings and they do NOT both reach this filter, which is
+    // worth stating because the prefix suggests otherwise. Measured 2026-07-31:
+    //   "prefilter: title refused by the current filters"        1,504 rows, all discarded
+    //   "prefilter: refused by the current title/age filters"        56 rows, all `new`
+    // `disqualifyCauseIds` scopes to pipeline_status='discarded', so the second spelling
+    // contributes zero here. The wildcard covers it only if those rows are ever
+    // discarded; it is deliberately not narrowed to the first spelling so that stays true.
+    prefilter: '%prefilter:%',
 }
 
 // Sort for the discovered queue: best match (score) or freshest posting.
@@ -202,8 +216,9 @@ async function lowContextIds(): Promise<number[]> {
 // the old threshold; the verdicts are stable (see PROGRESS.md). Prisma's typed
 // `where` can't reach into the score_detail JSON, so — mirroring lowContextIds — we
 // fetch the matching ids once with a raw query and layer them onto the matched/
-// belowbar bucket queries (id `in` for matched, `notIn` for belowbar). Scope: only
-// rows that actually received a fit score (scored|notified).
+// belowbar bucket queries — id `in` for BOTH. `notIn` belongs to the discarded
+// bucket, which excludes the union of the two keep sets. Scope: only rows that
+// actually received a fit score (scored|notified).
 async function matchedIds(): Promise<number[]> {
     const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`
         SELECT id FROM job_postings
@@ -973,8 +988,8 @@ export async function importApplicationsCSV(csvText: string) {
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
 // The watchlist moved out of the worker's config.yaml into the DB so it can be
-// managed here. A future step adds promotion suggestions (feed -> watchlist);
-// for now this is manual list / add / remove.
+// managed here: manual list / add / remove. Promotion suggestions
+// (feed -> watchlist) shipped since, and live in lib/promotion-actions.ts.
 
 export async function getWatchedCompanies() {
     const [data, total] = await Promise.all([
