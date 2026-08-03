@@ -873,6 +873,21 @@
   on a `TypeError` proves nothing about the backend.
 ## Enhancements — not built, optional
 
+- **Onboarding ANY user, not just the first one** — `[DOCS · L · discussion recorded
+  2026-08-02, nothing decided]`. Tuning the tool for its first user took an afternoon:
+  126 golden rows reviewed, four profile rewrites, three paid probes, and a 71-key
+  `title_exclude` list that only existed because a session ran ad-hoc SQL over 11,675
+  stored titles. The constraints, the measurements, and four open questions are in
+  [`superpowers/specs/2026-08-02-universal-onboarding-design.md`](./superpowers/specs/2026-08-02-universal-onboarding-design.md).
+  The three that shape any solution: **the free filter matters more than the profile
+  prose** (a tuned exclude list cut kept intake 8,851 → 6,099, and seniority tokens
+  alone were 21%); **`onboard-me` runs before `onboard-board`, so the DB is empty** and
+  every corpus-driven suggestion has nothing to mine; and **the scorer already names the
+  profile line it used** (99% of 502 stored domain notes state `ANTI: yes/no`, 54% state
+  the tier) — the diagnosis done by hand this session was sitting in `score_detail` all
+  along. Also settled there: the adapters are industry-general, so the audience limit is
+  *discovery*, not fetch; feeds are a source concept deserving an `onboard-feed` skill;
+  and filters should become DB-owned so in-flight tuning does not need a worker restart.
 - **Bulk watchlist onboarding as a skill** — `[DOCS · M · proposed, not built]`. The
   2026-07-22 expansion (49 → 172 boards) ran an ad-hoc pipeline worth encoding:
   read `personal_profile.txt` → parallel company research per target tier → **verify
