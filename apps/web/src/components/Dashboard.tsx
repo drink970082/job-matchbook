@@ -29,6 +29,7 @@ import {
 } from '@/lib/actions'
 import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
+import { todayISO } from '@/lib/utils'
 import { ApplicationsTab } from './ApplicationsTab'
 import { DiscoveredJobsTab } from './DiscoveredJobsTab'
 import { WatchlistTab } from './WatchlistTab'
@@ -254,7 +255,7 @@ export function Dashboard({
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `applications-${new Date().toISOString().split('T')[0]}.csv`
+        a.download = `applications-${todayISO()}.csv`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)

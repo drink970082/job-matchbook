@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ExternalLink, CheckCircle2, XCircle, RotateCcw, ChevronDown, ChevronRight, Ban } from 'lucide-react'
 import { safeHref } from '@/lib/utils'
-import { verdictClass, safeParseDetail } from '@/lib/score-detail'
+import { verdictClass, safeParseDetail, parseAssessment } from '@/lib/score-detail'
+import type { Assessment } from '@/lib/score-detail'
 import type { JobPosting } from './DiscoveredJobsTable'
 
 interface JobDetailModalProps {
@@ -28,21 +29,6 @@ interface ScreenVerdict {
     note: string
 }
 
-interface Verdict {
-    verdict: string
-    note: string
-}
-
-// The S2.1 fit scorecard — per-dimension verdicts that supersede the flat
-// matched/missing keyword lists + prose reasoning (kept as a legacy fallback below).
-interface Assessment {
-    seniority: Verdict
-    domain: Verdict
-    mustHaves: { met: string[]; missing: string[] }
-    niceToHaves: { missing: string[] }
-    summary: string
-}
-
 interface ScoreDetail {
     assessment: Assessment | null
     matched: string[]
@@ -52,22 +38,6 @@ interface ScoreDetail {
     disqualificationReason: string
     recommendedResume: string
     screen: [string, ScreenVerdict][]
-}
-
-function parseAssessment(a: any): Assessment | null {
-    if (!a || typeof a !== 'object') return null
-    const verdict = (v: any): Verdict => ({
-        verdict: String(v?.verdict ?? ''),
-        note: String(v?.note ?? ''),
-    })
-    const list = (x: any): string[] => (Array.isArray(x) ? x.map(String) : [])
-    return {
-        seniority: verdict(a.seniority),
-        domain: verdict(a.domain),
-        mustHaves: { met: list(a.must_haves?.met), missing: list(a.must_haves?.missing) },
-        niceToHaves: { missing: list(a.nice_to_haves?.missing) },
-        summary: String(a.summary ?? ''),
-    }
 }
 
 // The worker (apps/worker/ats_worker/pipeline.py) writes score_detail as

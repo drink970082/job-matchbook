@@ -2,10 +2,15 @@
 
 import { useMemo } from 'react'
 
+import type { ChartStatus } from '@/lib/constants'
+
 interface StatusFunnelProps {
     data: { from: string; to: string; value: number }[]
 }
 
+// `satisfies` keeps the runtime object exactly as written while making the key set
+// exhaustive over ChartStatus — add a status to STATUSES and this stops compiling
+// until it has a color, rather than quietly falling back to grey in getColor.
 const STATUS_COLORS: Record<string, string> = {
     'Applied': '#3b82f6',
     'Online Assessment': '#8b5cf6',
@@ -22,7 +27,7 @@ const STATUS_COLORS: Record<string, string> = {
     'Withdrew': '#64748b',
     'Ghosted': '#94a3b8',
     'No Response': '#9ca3af',
-}
+} satisfies Record<ChartStatus, string>
 
 function getColor(name: string): string {
     return STATUS_COLORS[name] || '#6b7280'

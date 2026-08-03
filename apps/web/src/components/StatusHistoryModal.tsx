@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { todayISO } from '@/lib/utils'
 import { STATUSES, getStatusColor } from '@/lib/constants'
 import { Trash2 } from 'lucide-react'
 
@@ -68,7 +69,7 @@ export function StatusHistoryModal({
         notes: application.notes || '',
     })
     const [newStatus, setNewStatus] = useState<string>(STATUSES[0])
-    const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
+    const [newDate, setNewDate] = useState(todayISO())
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()

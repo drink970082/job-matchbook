@@ -15,6 +15,19 @@ export const STATUSES = [
   'Ghosted',
 ] as const
 
+// The vocabulary the CHARTS key on: every real status plus 'No Response', the
+// pseudo-status getStatusFlow synthesizes for an application that never left
+// 'Applied' (see actions.ts). It is deliberately not a real status — nothing is ever
+// stored as 'No Response' — which is why it lives here and not in STATUSES.
+//
+// SankeyChart and StatusFunnel each hold a hand-authored color per member. A color
+// cannot be derived from a name, so those maps stay written out; what this type buys
+// is that they must stay COMPLETE. Both `satisfies Record<ChartStatus, ...>`, so a
+// status added to STATUSES fails the build until it is given a color in both — the
+// alternative being a node that silently renders grey.
+export const CHART_STATUSES = [...STATUSES, 'No Response'] as const
+export type ChartStatus = (typeof CHART_STATUSES)[number]
+
 // Default application-category vocabulary — the SEED / fallback for a fresh install.
 // Users pick their own labels at onboarding or via the Categories editor (stored in
 // the app_settings table; see actions.ts getCategories/setCategories), so this list is

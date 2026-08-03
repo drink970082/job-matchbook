@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
-import { verdictClass, verdictLabel, safeParseDetail } from '@/lib/score-detail'
+import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/lib/score-detail'
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
@@ -122,16 +122,18 @@ interface ParsedDetail {
 function parseDetail(raw?: string | null): ParsedDetail | null {
     const p = safeParseDetail(raw)
     if (!p) return null
-    const a = p.assessment && typeof p.assessment === 'object' ? p.assessment : null
-    const missing = Array.isArray(a?.must_haves?.missing) ? a.must_haves.missing.map(String) : []
+    const a = parseAssessment(p.assessment)
     return {
         disqualificationReason: String(p.disqualification_reason ?? ''),
-        seniorityVerdict: String(a?.seniority?.verdict ?? ''),
-        seniorityNote: String(a?.seniority?.note ?? ''),
-        domainVerdict: String(a?.domain?.verdict ?? ''),
-        domainNote: String(a?.domain?.note ?? ''),
-        firstMissing: missing.length > 0 ? String(missing[0]) : '',
-        summary: String(a?.summary ?? ''),
+        seniorityVerdict: a?.seniority.verdict ?? '',
+        seniorityNote: a?.seniority.note ?? '',
+        domainVerdict: a?.domain.verdict ?? '',
+        domainNote: a?.domain.note ?? '',
+        firstMissing: a?.mustHaves.missing[0] ?? '',
+        summary: a?.summary ?? '',
+        // Coerced HERE rather than in the shared parser: the modal deliberately reads
+        // these two differently (a non-string recommended_resume is 'absent' there,
+        // '5' here). Unifying would change one component's output on malformed input.
         reasoning: String(p.reasoning ?? ''),
         recommendedResume: String(p.recommended_resume ?? ''),
     }
