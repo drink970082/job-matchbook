@@ -44,18 +44,27 @@ kept, not dropped. Scope: *opportunity* uncertainty only — see
 - *Smell:* a new gate whose default branch discards; tightening a filter without
   stating the false-drop story.
 
-**4. Local for frequency, a hosted model for judgment, cache the static.**
-High-frequency cheap checks run on the host GPU; metered or quota-bound calls happen
-only where judgment matters, with the static prefix cached.
-- *Why:* per-posting cost compounds across every scheduled pass; judgment quality is
-  worth paying for only where rules can't reach (principle 2 first!).
-- *In this repo:* the hard-requirements screen on Ollama (`qwen3.5:4b`, free,
-  rate-limit-free) gates the hosted fit score — the Codex CLI on a flat-rate ChatGPT
-  subscription by default, Claude as the metered alternate. On the Claude path the
-  résumé+rubric system prefix is byte-identical and cached (`cache_control:
-  ephemeral`) so only the JD is fresh.
-- *Smell:* a new per-posting hosted call for something a local model or a rule could
-  do; a prompt assembled in a way that breaks byte-identical caching.
+**4. Cheap tier for frequency, judgment tier for judgment, cache the static — and the
+tier is a BACKEND CHOICE, not a hardware assumption.** High-frequency checks run on the
+cheapest adequate backend the deployment has; metered or quota-bound calls happen only
+where judgment matters, with the static prefix cached.
+- *Why:* per-posting cost compounds across every scheduled pass, and judgment quality is
+  worth paying for only where rules can't reach (principle 2 first!). The tier is the
+  invariant; *local* is one instance of the cheap tier, not its definition. Phrasing the
+  rule as "runs on the host GPU" quietly made a GPU a prerequisite — untenable for a tool
+  other people are meant to run, and the reason this principle was rewritten (2026-08-01,
+  operator's call).
+- *In this repo:* the hard-requirements screen has five backends — Ollama
+  (`qwen3.5:4b`, free and rate-limit-free where a GPU exists) plus `codex`,
+  `claude-code`, `claude-api` and `openai-api` for hosts without one — and whichever is
+  configured gates the fit score. Auto-detection never selects a paid backend: spending
+  money is explicit opt-in (`run.make_screener`). On the Claude fit path the
+  résumé+rubric system prefix is byte-identical and cached (`cache_control: ephemeral`)
+  so only the JD is fresh.
+- *Smell:* a new per-posting call at the judgment tier for something a cheaper backend
+  or a rule could do; a prompt assembled in a way that breaks byte-identical caching; a
+  default, doc, or setup step that assumes the operator has a GPU — or that treats one
+  provider as *the* provider.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;
 nothing is silently swallowed.
