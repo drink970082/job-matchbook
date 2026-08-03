@@ -71,10 +71,12 @@ function parseAssessment(a: any): Assessment | null {
 }
 
 // The worker (apps/worker/ats_worker/pipeline.py) writes score_detail as
-// { matched_keywords, missing_keywords, reasoning, [disqualified,
-// disqualification_reason], [screen] }. Normalize to a stable shape here,
-// tolerating the legacy { matched, missing } keys too. `screen` is the
-// per-requirement gate breakdown (which hard requirement passed/failed).
+// { assessment, recommended_resume, reasoning, [disqualified,
+// disqualification_reason], [screen] }. Normalize to a stable shape here, still
+// tolerating the flat keyword lists `assessment` superseded — both the
+// { matched_keywords, missing_keywords } spelling and the older
+// { matched, missing } one. `screen` is the per-requirement gate breakdown
+// (which hard requirement passed/failed).
 function parseScoreDetail(raw?: string | null): ScoreDetail | null {
     const p = safeParseDetail(raw)
     if (!p) return null

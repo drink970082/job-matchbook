@@ -871,6 +871,71 @@
   The worker runs on system python3, not `apps/worker/.venv` (which has 0.107.1), so
   confirm the installed version there and raise the floor to match. A first run that dies
   on a `TypeError` proves nothing about the backend.
+
+### Found by the 2026-08-01 deep clean, deferred as behavior changes
+
+The cleanup pass (CLEAN-01..09) was scoped to change no observable behavior. These
+seven findings each WOULD change behavior, so none was touched; they are recorded here
+rather than left in a PR description. Each cites the evidence that found it.
+
+- **`removeAllInView` has no `lowcontext` branch** — `[WEB · XS · latent, unreachable
+  today]`. `getJobPostings` special-cases the low-context bucket before building its
+  where; `removeAllInView` does not, so `buildJobWhere` falls through to its `matched`
+  default. A bulk remove on that bucket would sweep MATCHED rows. Unreachable today:
+  the "Remove all in view" button renders only when `bucket === 'discarded'`
+  (`DiscoveredJobsTable.tsx:347`). `src/__tests__/job-query-shape.test.ts` pins the
+  current behavior so a refactor cannot silently change it in either direction. Fixing
+  it is a one-line branch; decide whether the button will ever be shown elsewhere first.
+
+- **`util.to_iso_date` returns a 10-char slice where its docstring promises `None`** —
+  `[FETCH · S · filter change, governed by err-toward-keep]`. `to_iso_date("not a real
+  date")` returns `'not a real'`, and `to_iso_date(True)` returns `'1970-01-01'`; the
+  sibling `_recipe.normalize_date` guards both (a `\d{4}-\d{2}-\d{2}` match and an
+  `isinstance(value, bool)` check). The value feeds `max_age_days` freshness filtering,
+  so tightening it DROPS postings that are currently kept — which is exactly the
+  direction PRINCIPLES 3 says to justify explicitly. The docstring was left alone in
+  CLEAN-07 for this reason: it describes the intended contract, and changing the code to
+  match is the real fix.
+
+- **`location_verdict`'s `resolved` / `ask_llm` are documented, tested, and then
+  discarded** — `[SCORE · M · contract contradiction, touches SPEC §9]`.
+  `location.py:441-445` states that an unresolved location "must NOT be recorded as a
+  passing location check", because leaving the key absent is what lets a later free
+  extraction fill the gap. But `resolve_location` drops both fields, and
+  `deterministic_screen` (`screen.py:112-114`) writes
+  `screen["location"] = {"pass": passed, ...}` unconditionally. So either the docstring
+  is wrong or the gate is silently blessing unresolved locations. Verified directly on
+  2026-08-01. Resolving it changes screen outcomes and touches a SPEC §9 clause.
+
+- **`no_sponsorship_quote` is a required schema field with no consumer, and the prompt
+  makes a false promise about it** — `[SCORE · S · prompt-byte change, needs
+  eval-screen]`. `score/prompts.py:97` requires the field and `prompts/score.txt:33`
+  tells the model it "is verified against the posting and a sentence that does not
+  appear there is discarded". `_quote_in` was deleted (see `screen.py:687`); nothing
+  reads the field. Removing either changes prompt BYTES, hence model output
+  distribution, hence the Claude cache prefix — so it needs `make eval-screen`, not a
+  cleanup patch. Overlaps `fix/sponsorship-positive-evidence`.
+
+- **`todayISO()` is UTC, so a form opened late in the US evening defaults to tomorrow**
+  — `[WEB · XS]`. `lib/utils.ts todayISO` is the five inlined
+  `new Date().toISOString().split('T')[0]` copies, named. Past ~19:00 US Eastern, UTC has
+  rolled over and "date applied" pre-fills with tomorrow. Pre-existing and unchanged by
+  CLEAN-04. `TimelineHeatmap` deliberately uses a LOCAL reference instead, so the two
+  rules already differ; unifying on local would move real dates and is the decision.
+
+- **The modal and the table coerce `recommended_resume` differently** — `[WEB · XS]`.
+  For a non-string value the modal yields `''` (`typeof === 'string'` guard) and the
+  table yields `'5'` (`String(...)`). Same for `reasoning`. CLEAN-06 shared the
+  assessment parsing but left this divergence, since picking a winner changes what one
+  component renders on malformed input; both sites now carry a comment saying so.
+
+- **Nine server actions are covered only by the excluded integration suite** —
+  `[WEB · S]`. `jest.config.ts:18` excludes `*.int.test.ts` from the default run, so
+  `removeAllInView`, `deleteApplication`, `deleteHistoryItem`, `exportApplicationsCSV`,
+  `importApplicationsCSV`, `getCategories` and `setCategories` have no fast-suite guard;
+  `getApplicationHistory` has no test at all. CLEAN-05 closed this for `bulkRemove` and
+  `bulkReopen` because it refactored them. The rest is test work, not cleanup.
+
 ## Enhancements — not built, optional
 
 - **Onboarding ANY user, not just the first one** — `[DOCS · L · discussion recorded

@@ -1,9 +1,13 @@
 """Load and validate the worker's `config.yaml`.
 
-WHY a dataclass with explicit defaults rather than a bare dict: the rest of the
-pipeline reads `cfg.companies[i].source`, etc. Centralising the
+WHY a dataclass with explicit defaults rather than a bare dict: centralising the
 defaults and the source-allowlist validation here means a typo'd board source is
 caught at startup with a clear message instead of blowing up mid-fetch.
+
+The WATCHLIST no longer lives here — it is DB-owned (`watched_companies`, read by
+`db.get_watchlist`). `cfg.companies` survives for exactly two one-time seeding
+sites in run.py: filling an empty watchlist on first run, and the explicit
+seed path. The pipeline itself never reads it.
 
 `load_config` accepts either a path (str/PathLike) or a raw YAML string so tests
 can pass tiny inline documents without touching the filesystem.
