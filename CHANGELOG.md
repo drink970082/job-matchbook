@@ -58,6 +58,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **`title_exclude` now matches WHOLE WORDS, not substrings — and the asymmetry against
+  `title_filter` is the point.** Measured over the 11,675 titles in the live DB: the
+  positive keep-list *needs* substring matching as a stemmer (`quant` catches 436 titles
+  where `\bquant\b` catches 40 — the 396 "Quantitative …" rows are the product; `research`
+  → "Researcher" is 265 more, `engineer` → "Engineering" 747), so it is unchanged. The
+  exclude list needs the opposite. 13 of the 15 keys shipped before this matched
+  identically either way; `intern` was the exception and it was silently eating
+  `Software Developer - Internal Compute Frameworks (Python)` — a tier-2 target — along
+  with "International Sector Analyst". An over-reaching exclude is invisible by
+  construction, because the posting it wrongly dropped never surfaces anywhere to be
+  noticed. New `fetch.exclude_matcher` compiles the list once, with lookarounds rather
+  than `\b` so a key ending in punctuation (`co-op`, `ai/ml`) still matches.
+  **The cost is that keys no longer stem**, so `intern` and `internship` are both
+  required, and `robot` no longer reaches "robotics". `config.yaml.example` gains
+  `internship` and documents the rule (SPEC §7.2).
+  **What it unlocks is the real payoff:** short tokens a substring rule could not safely
+  carry. `sr` hit SRAM and SRE, `ios` hit BIOS / Biosciences / Portfolios, `ii` hit
+  anything. Those are the highest-volume seniority leaks in the corpus — 428 `Sr` titles,
+  452 `II`, 498 `manager` and 205 `lead` were all reaching the paid scorer, and the
+  operator's `config.yaml` (private) now excludes them: 8,851 kept titles → 6,099, a 31%
+  intake cut, verified by driving `prefilter_postings` over the live DB rather than
+  reimplementing its rule.
 - **PRINCIPLE 4 REWRITTEN: the compute tier is a backend choice, not a hardware
   assumption.** It read "Local for frequency, a hosted model for judgment... run on the
   host GPU", which quietly made a GPU a prerequisite for a tool other people are meant to

@@ -1,6 +1,7 @@
 """Fetch adapters and shared post-processing for board APIs."""
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from . import (ashby, browser, custom, greenhouse, icims, jobvite, lever, oracle,
@@ -83,18 +84,49 @@ def _too_old(posted_at, now, max_age_days: int) -> bool:
     return (today - posted).days > max_age_days
 
 
+def exclude_matcher(title_exclude):
+    """WORD-boundary matcher for `title_exclude`, or None when the list is empty.
+
+    Deliberately NOT the substring rule `filter_postings` uses, and the asymmetry is
+    measured (11,675 titles, 2026-08-02). The POSITIVE filter needs substring as a
+    stemmer: `quant` catches 436 titles where a word match catches 40, and the 396
+    "Quantitative ..." rows it would lose are the whole point of this tool ("research"
+    -> "Researcher" is 265 more, "engineer" -> "Engineering" 747). The EXCLUDE list
+    needs the opposite — precision. 13 of the 15 keys shipped before this change matched
+    identically either way; `intern` was the exception, and it was eating
+    "International Sector Analyst" and "Software Developer - Internal Compute Frameworks
+    (Python)", which is a tier-2 target. Word matching also unlocks the short tokens a
+    substring rule cannot safely carry: `sr` (else SRAM, SRE), `ios` (BIOS, Biosciences,
+    Portfolios), `ii`, `vp`, `lead` (Leadership).
+
+    The trade: a key no longer stems, so an operator wanting "robotics" must say
+    "robotics" and not rely on "robot", and internships need both `intern` and
+    `internship`. That is the intended direction — an exclude that over-reaches is
+    invisible, because the posting it wrongly ate never appears anywhere to be noticed.
+
+    Lookarounds rather than `\\b`: a key ending in punctuation ("co-op", "ai/ml") has no
+    word boundary after its final character, so `\\b` would never match it at all.
+    """
+    keys = [k.strip().lower() for k in (title_exclude or []) if k and k.strip()]
+    if not keys:
+        return None
+    return re.compile(r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)",
+                      re.IGNORECASE)
+
+
 def prefilter_postings(postings, *, title_filter=None, title_exclude=None,
                        max_age_days=0, now=None):
     """Fetch-time coarse pre-filter (deterministic, no LLM). Drops a posting when it
-    fails the positive title keep-list, its title contains a title_exclude keyword,
-    or its posted_at is older than max_age_days (null/unparseable posted_at kept).
-    Title matching is case-insensitive and title-only, like filter_postings."""
+    fails the positive title keep-list, its title carries a title_exclude keyword as a
+    WHOLE WORD (see `exclude_matcher` — the keep-list is substring, this is not), or its
+    posted_at is older than max_age_days (null/unparseable posted_at kept). Title
+    matching is case-insensitive and title-only, like filter_postings."""
     kept = filter_postings(postings, title_filter)
-    excl = [k.lower() for k in (title_exclude or []) if k]
+    excl = exclude_matcher(title_exclude)
     out = []
     for p in kept:
-        title = (p.get("job_title") or "").lower()
-        if any(k in title for k in excl):
+        title = p.get("job_title") or ""
+        if excl is not None and excl.search(title):
             continue
         if _too_old(p.get("posted_at"), now, max_age_days):
             continue
