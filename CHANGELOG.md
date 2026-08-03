@@ -237,6 +237,25 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`make eval-score` shrank instead of failing when the corpus rotted, so it ran 71 of
+  93 rows and still reported PASS.** A golden row whose posting is neither in the DB nor
+  carried inline was dropped with one stderr line and the gate then judged whatever
+  survived — `gate rows: 71` reads exactly like a healthy 71-row gate. Same
+  green-gate-that-cannot-fail shape as the clearance tautology in `eval-screen`, and the
+  same consequence: the rows that vanish are whichever ones the DB happened to lose, so
+  the surviving sample is not the gate anyone approved.
+  Reachability is now measured **once, up front**, before any quota is spent: `main()`
+  resolves every corpus row through the existing `_cols_for` helper, prints the
+  unreachable ids to stderr, names the count in the report header, and forces FAIL. Done
+  there rather than in the scoring loops because `--batched` and `--drift-probe` share
+  the same hole and would each have needed their own tally; `--batched` gets it too, and
+  its flag is applied in `run_batched` where the value becomes the exit code, not in the
+  renderer. `--selftest` pins both (SPEC §12).
+  **It does not repair the corpus.** 22 of the 93 rows are still unreachable — the
+  hand-written labels cannot be re-derived and remapping by title was tried and rejected
+  — so the authoritative gate is now RED rather than falsely green. `GOLDEN_SET` still
+  points a run at a substitute corpus meanwhile.
+
 - **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was
   `>=0.40`, while `score/backends_claude.py:47/49` and `score/backends_screen.py:62` pass
   `thinking={"type": "adaptive"}` and `output_config={"format": ...}` — kwargs an 0.40
