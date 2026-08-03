@@ -286,6 +286,43 @@ def test_prefilter_future_posted_at_is_kept():
     assert prefilter_postings(posts, max_age_days=30, now="2026-06-04") == posts
 
 
+def test_prefilter_exclude_is_word_matched_not_substring():
+    # The asymmetry this pins: `filter_postings` (keep-list) is SUBSTRING so that
+    # "quant" reaches "Quantitative"; `title_exclude` is WHOLE-WORD so that "intern"
+    # does not eat "Internal Compute Frameworks". Both directions asserted here — a
+    # regression that unified them would otherwise pass every other test in this file.
+    posts = [{"job_title": "Software Developer - Internal Compute Frameworks (Python)"},
+             {"job_title": "International Sector Analyst"},
+             {"job_title": "Software Engineering Intern"}]
+    kept = prefilter_postings(posts, title_exclude=["intern"], now="2026-06-04")
+    assert [p["job_title"] for p in kept] == [
+        "Software Developer - Internal Compute Frameworks (Python)",
+        "International Sector Analyst"]
+    # ... and the keep-list still stems.
+    assert len(filter_postings([{"job_title": "Quantitative Developer"}], ["quant"])) == 1
+
+
+def test_prefilter_exclude_carries_short_tokens_safely():
+    # `sr`, `ios` and `ii` are the tokens a substring rule could not carry: they would
+    # have hit SRAM/SRE, BIOS/Biosciences and any word containing "ii".
+    posts = [{"job_title": "Sr. Software Engineer"},      # dropped
+             {"job_title": "iOS Engineer"},               # dropped
+             {"job_title": "Software Engineer II"},       # dropped
+             {"job_title": "CPU SRAM Design Engineer"},   # kept: SRAM is not `sr`
+             {"job_title": "AI Support Engineer, Biosciences"}]  # kept: not `ios`
+    kept = prefilter_postings(posts, title_exclude=["sr", "ios", "ii"], now="2026-06-04")
+    assert [p["job_title"] for p in kept] == ["CPU SRAM Design Engineer",
+                                              "AI Support Engineer, Biosciences"]
+
+
+def test_prefilter_exclude_key_ending_in_punctuation_still_matches():
+    # Lookarounds, not \b: "co-op" ends in a word char but "ai/ml" does not, and a
+    # trailing \b would never fire on the latter.
+    posts = [{"job_title": "AI/ML Engineer"}, {"job_title": "Software Engineer"}]
+    kept = prefilter_postings(posts, title_exclude=["ai/ml"], now="2026-06-04")
+    assert [p["job_title"] for p in kept] == ["Software Engineer"]
+
+
 def test_prefilter_composes_keep_then_exclude():
     posts = [{"job_title": "Senior Engineer", "posted_at": None},
              {"job_title": "Sales Engineer", "posted_at": None},
