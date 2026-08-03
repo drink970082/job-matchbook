@@ -40,10 +40,24 @@ def test_inline_posting_text_is_used_without_touching_the_db(tmp_path):
     assert rows[0]["description"] == "Build things."
 
 
-def test_a_row_with_no_usable_text_falls_back_to_the_db_and_says_so(tmp_path):
-    """The fallback is real, so an unreachable id must fail loudly rather than shrink the
-    run — the same failure that had `make eval-score` running 71 of 93 rows and reporting
-    PASS."""
+def test_a_row_with_no_usable_text_is_routed_to_the_db(tmp_path, monkeypatch):
+    """A row that carries no inline text falls back to the DB, and an id the DB does not
+    have fails loudly rather than shrinking the run — the same failure that had
+    `make eval-score` running 71 of 93 rows and reporting PASS.
+
+    The DB read is faked, not performed. Worker tests take no network and touch no real
+    files (CLAUDE.md), and the operator's DB does not exist in CI — a test that opens it
+    passes here and fails there, which is worse than no test.
+    """
+    asked = {}
+
+    def fake_db(ids):
+        asked["ids"] = ids
+        raise SystemExit(f"{len(ids)} id(s) are not in the DB: {ids}")
+
+    monkeypatch.setattr("tools.extract_shadow._rows_from_db", fake_db)
     stub = {"id": 999999999, "posting": {"description": ""}}
     with pytest.raises(SystemExit, match="not in the DB"):
-        _rows_from_frame(_frame(tmp_path, FRAME_HEADER, stub))
+        _rows_from_frame(_frame(tmp_path, FRAME_HEADER, FRAME_ROW, stub))
+    # Only the textless row is asked for; the inline one never reaches the DB.
+    assert asked["ids"] == [999999999]
