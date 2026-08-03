@@ -23,6 +23,23 @@ POSTING_FIELDS = (
 )
 
 
+def join_present(obj: dict, keys: tuple[str, ...]) -> str | None:
+    """`", "`-join the non-blank values of `keys`, in order — or None if none are set.
+
+    Three boards spell a location as flat sibling fields under different names, and
+    each carried its own copy of this comprehension with only the key tuple differing:
+    workable (city/state/country), smartrecruiters (city/region/country), and jobvite's
+    JSON-LD address (addressLocality/addressRegion/addressCountry).
+
+    Present-but-blank values are dropped rather than joined, so a record with an empty
+    city yields "CA, US" and never ", CA, US". Everything is `str()`-coerced first —
+    these are board JSON payloads, where a country can arrive as a number.
+    """
+    parts = [str(obj.get(k)).strip() for k in keys
+             if obj.get(k) and str(obj.get(k)).strip()]
+    return ", ".join(parts) or None
+
+
 def to_iso_date(value) -> str | None:
     """Normalize a board posting date to 'YYYY-MM-DD', or None.
 

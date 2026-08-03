@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import requests
 
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, join_present
 
 SOURCE = "workable"
 API = "https://apply.workable.com/api/v1/widget/accounts/{slug}"
@@ -18,9 +18,7 @@ API = "https://apply.workable.com/api/v1/widget/accounts/{slug}"
 
 def _location(job: dict) -> str | None:
     """Assemble "city, state, country" from the job's flat location fields."""
-    parts = [str(job.get(k)).strip() for k in ("city", "state", "country")
-             if job.get(k) and str(job.get(k)).strip()]
-    return ", ".join(parts) or None
+    return join_present(job, ("city", "state", "country"))
 
 
 def parse_jobs(payload: dict, slug: str, company_name: str) -> list[dict]:

@@ -29,6 +29,50 @@ _GREENHOUSE_HOSTS = {
     "job-boards.eu.greenhouse.io",  # EU data-residency host; same path + same boards-api
 }
 
+# Hosts whose apply URL has a FIXED shape, as a table rather than six near-identical
+# branches — the shapes differ only in whether a marker segment sits between the slug
+# and the id, and a hand-written branch per host is where a missing `unquote` or an
+# off-by-one path index gets copy-pasted in.
+#
+#   value (source, None)     ->  {slug}/{external_id}
+#   value (source, "marker") ->  {slug}/{marker}/{external_id}
+#
+# The slug is always segment 0 and always unquoted: Ashby and SmartRecruiters both
+# surface %20-encoded company names. Per-host shapes, for the reader:
+#
+#   jobs.lever.co/{slug}/{uuid}[/apply]
+#   jobs.ashbyhq.com/{slug}/{uuid}[/application]
+#   jobs.smartrecruiters.com/{slug}/{id}[/{title-slug}]
+#   apply.workable.com/{slug}/j/{shortcode}[/apply]
+#   jobs.jobvite.com/{slug}/job/{id}
+#   boards.greenhouse.io/{slug}/jobs/{id}   (and the two other greenhouse hosts)
+_FIXED_SHAPE_HOSTS: dict[str, tuple[str, str | None]] = {
+    "jobs.lever.co": ("lever", None),
+    "jobs.ashbyhq.com": ("ashby", None),
+    "jobs.smartrecruiters.com": ("smartrecruiters", None),
+    "apply.workable.com": ("workable", "j"),
+    "jobs.jobvite.com": ("jobvite", "job"),
+    **{h: ("greenhouse", "jobs") for h in _GREENHOUSE_HOSTS},
+}
+
+
+def _resolve_fixed_shape(
+    entry: tuple[str, str | None], parts: list[str]
+) -> tuple[str, str, str] | None:
+    """Apply one `_FIXED_SHAPE_HOSTS` entry to a path, or None.
+
+    None when the path is too short, or the marker segment is absent — a partial
+    match is something the caller records, never an id we fabricate. That is what
+    turns `boards.greenhouse.io/embed/job_app?token=…` (a job id with no board slug)
+    into an unresolved row rather than a wrong one.
+    """
+    source, marker = entry
+    if marker is None:
+        return (source, unquote(parts[0]), parts[1]) if len(parts) >= 2 else None
+    if len(parts) >= 3 and parts[1] == marker:
+        return (source, unquote(parts[0]), parts[2])
+    return None
+
 
 def _path_parts(parsed) -> list[str]:
     return [p for p in parsed.path.split("/") if p]
@@ -48,42 +92,12 @@ def resolve_url(url: str | None) -> tuple[str, str, str] | None:
     host = (p.hostname or "").lower()
     parts = _path_parts(p)
 
-    if host == "jobs.lever.co":
-        # jobs.lever.co/{slug}/{uuid}[/apply]
-        if len(parts) >= 2:
-            return ("lever", unquote(parts[0]), parts[1])
-        return None
+    entry = _FIXED_SHAPE_HOSTS.get(host)
+    if entry is not None:
+        return _resolve_fixed_shape(entry, parts)
 
-    if host == "jobs.ashbyhq.com":
-        # jobs.ashbyhq.com/{slug}/{uuid}[/application]; slug may be %20-encoded
-        if len(parts) >= 2:
-            return ("ashby", unquote(parts[0]), parts[1])
-        return None
-
-    if host in _GREENHOUSE_HOSTS:
-        # boards.greenhouse.io/{slug}/jobs/{id}
-        if len(parts) >= 3 and parts[1] == "jobs":
-            return ("greenhouse", unquote(parts[0]), parts[2])
-        return None
-
-    if host == "jobs.smartrecruiters.com":
-        # jobs.smartrecruiters.com/{slug}/{id}[...]; id is the 2nd path segment.
-        if len(parts) >= 2:
-            return ("smartrecruiters", unquote(parts[0]), parts[1])
-        return None
-
-    if host == "apply.workable.com":
-        # apply.workable.com/{slug}/j/{shortcode}[/apply]
-        if len(parts) >= 3 and parts[1] == "j":
-            return ("workable", unquote(parts[0]), parts[2])
-        return None
-
-    if host == "jobs.jobvite.com":
-        # jobs.jobvite.com/{slug}/job/{id} — id is the segment after `job`.
-        if len(parts) >= 3 and parts[1] == "job":
-            return ("jobvite", unquote(parts[0]), parts[2])
-        return None
-
+    # Oracle and Workday are NOT fixed-shape: both pack multiple path segments into
+    # the slug, so each keeps its own resolver.
     if host.endswith(".oraclecloud.com"):
         return _resolve_oracle(host, parts)
 

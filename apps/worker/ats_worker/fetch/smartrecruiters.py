@@ -16,7 +16,7 @@ from __future__ import annotations
 import requests
 
 from ats_worker.fetch._paged import paged_details
-from ats_worker.util import html_to_text
+from ats_worker.util import html_to_text, join_present
 
 SOURCE = "smartrecruiters"
 API = "https://api.smartrecruiters.com/v1/companies/{slug}/postings"
@@ -32,10 +32,7 @@ def parse_listing(payload: dict) -> list[dict]:
 
 def _location(loc: dict | None) -> str | None:
     """Assemble "city, region, country" from the location object, or None."""
-    loc = loc or {}
-    parts = [str(loc.get(k)).strip() for k in ("city", "region", "country")
-             if loc.get(k) and str(loc.get(k)).strip()]
-    return ", ".join(parts) or None
+    return join_present(loc or {}, ("city", "region", "country"))
 
 
 def _description(detail_payload: dict) -> str:
