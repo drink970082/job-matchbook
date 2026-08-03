@@ -248,13 +248,31 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   resolves every corpus row through the existing `_cols_for` helper, prints the
   unreachable ids to stderr, names the count in the report header, and forces FAIL. Done
   there rather than in the scoring loops because `--batched` and `--drift-probe` share
-  the same hole and would each have needed their own tally; `--batched` gets it too, and
-  its flag is applied in `run_batched` where the value becomes the exit code, not in the
-  renderer. `--selftest` pins both (SPEC §12).
+  the same hole and would each have needed their own tally.
+  **The FAIL reaches the EXIT CODE, which is the only part `make` can see.** `render()`
+  now returns `(doc, passed)` and `main()` ends in `return 0 if passed else 1`; it used
+  to compute the verdict inside the report string and then `return 0` unconditionally, so
+  the default path — the one `make eval-score` runs — printed FAIL and exited green.
+  `--batched` already propagated, which is what made the asymmetry visible. Verified by
+  running the gate against a one-row corpus naming a posting that does not exist: report
+  FAIL, exit 1, zero paid calls.
+  **An unreachable MARKED row is reported but does NOT gate.** Marked rows are watch-list
+  rows the accuracy gate excludes by policy ("they cannot decide PASS"), and both of the
+  corpus's two — 132 and 184 — are among the orphans; failing on them would have meant
+  `make eval-score` could never go green no matter how many gate rows were relabelled. So
+  the 22 unreachable rows are **20 gating + 2 reported-only** (measured 2026-08-03).
+  `--selftest` drives `run_batched` end-to-end with stubbed draw helpers — hermetic, no
+  model call, no quota — rather than asserting on a rendered string, because the flip
+  lives where `ok` becomes the exit code and a renderer assertion cannot see it (SPEC §12).
+  **`--drift-probe` now refuses to run when a probe id is unreachable.** All four
+  `PROBE_IDS` are, and an unreachable probe row renders as `ALL DRAWS FAILED` — maximal
+  instability, the opposite of its meaning — after ~50 minutes of quota.
   **It does not repair the corpus.** 22 of the 93 rows are still unreachable — the
   hand-written labels cannot be re-derived and remapping by title was tried and rejected
-  — so the authoritative gate is now RED rather than falsely green. `GOLDEN_SET` still
-  points a run at a substitute corpus meanwhile.
+  — so the authoritative gate is now RED rather than falsely green. **The inline `posting`
+  payload rescues none of them:** all 70 rows carrying one are also live in the DB, so it
+  is forward protection for rows labelled from 2026-08-02 on, not mitigation for these.
+  `GOLDEN_SET` still points a run at a substitute corpus meanwhile.
 
 - **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was
   `>=0.40`, while `score/backends_claude.py:47/49` and `score/backends_screen.py:62` pass
