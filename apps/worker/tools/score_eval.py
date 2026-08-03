@@ -297,14 +297,20 @@ def run_batched(rows, conn, score_fit, resumes, meta, batch_size: int = BATCH_SI
     # Marked rows stay in the batches above (real batch-mates) but cannot decide PASS.
     marked_ids = frozenset(r["id"] for r in rows if r.get("marked"))
     ok, drift = verdicts_match(single_map, batched_map, marked_ids)
-    # Same corpus-reachability rule as the K=3 gate: `_build_postings` drops an
-    # unreachable row silently, so a shrunken corpus would otherwise report PASS. Applied
-    # HERE, not in render_batched, because this `ok` is what becomes the exit code.
-    ok = ok and not meta.get("missing")
+    # Same two corpus rules as the K=3 gate, applied HERE and not in render_batched
+    # because this `ok` is what becomes the exit code.
+    #   1. reachability — `_build_postings` drops an unreachable row silently, so a
+    #      shrunken corpus would otherwise report PASS;
+    #   2. the gate floor — `verdicts_match({}, {})` is True, so a corpus whose only
+    #      unreachable rows are `marked` would report "0/0 agree → PASS" over nothing.
+    ok = (ok and not meta.get("missing")
+          and gate_floor_ok(len(set(single_map) - marked_ids), meta.get("corpus")))
     doc = render_batched(single_map, batched_map, ok, drift, meta, marked_ids)
-    OUT_BATCHED.write_text(doc)
     print(doc)
-    print(f"→ {OUT_BATCHED.relative_to(ROOT)}")
+    # Through _write_report, not a hand-rolled write_text + relative_to: this path had
+    # neither the mkdir nor the out-of-repo guard, and the duplication was the only
+    # reason the selftest's temp report had to live in the repo root.
+    _write_report(OUT_BATCHED, doc)
     return ok
 
 
@@ -393,9 +399,21 @@ def run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size: int) -> bo
     """
     postings = _build_postings(rows, conn)
     probe = [p for p in postings if p["id"] in PROBE_IDS]
-    missing = set(PROBE_IDS) - {p["id"] for p in probe}
-    if missing:  # a probe row absent from the DB makes its column unreadable, not empty
-        print(f"! probe ids missing from DB: {sorted(missing)}", file=sys.stderr)
+    # REFUSE rather than measure noise, and refuse HERE — against the postings actually
+    # built — because that is the only set that catches both ways a probe row goes away:
+    # unreachable (in the corpus, no DB row and no payload) AND absent from the corpus
+    # altogether. Keying the refusal off main()'s `missing` lists caught only the first,
+    # since those are derived from the corpus rows themselves; a GOLDEN_SET substitute or
+    # the documented "labelled or DROPPED" repair path silently re-armed the burn.
+    # An unreachable probe row is not an empty column — it renders as ALL DRAWS FAILED,
+    # i.e. maximal instability, which is the opposite of what it means — after ~50
+    # minutes of quota. It used to be a stderr warning that scrolled past the draw log.
+    gone = sorted(set(PROBE_IDS) - {p["id"] for p in probe})
+    if gone:
+        raise SystemExit(
+            f"! --drift-probe refused: probe ids {gone} are unreachable or absent from "
+            f"the corpus, so their columns would read as ALL DRAWS FAILED rather than "
+            f"empty. Relabel them, or repoint PROBE_IDS at rows this corpus has.")
     draws: dict = {p["id"]: [] for p in probe}
 
     if batch_size == 1:
@@ -541,6 +559,32 @@ def _rowline(r) -> str:
             f"{'notify' if r['notify'] else '—':<6}  {r['title'][:40]}")
 
 
+# The gate must judge a MAJORITY of the corpus, not merely a non-empty slice of it.
+# `marked` rows are excluded from PASS in both directions (they cannot pass it and their
+# absence cannot fail it), which is correct policy and also the cheapest possible route
+# from a RED gate to a green one: `marked: true` is a one-word edit per line, so marking
+# the 20 unreachable rows would turn the gate green without relabelling anything. Same
+# for a corpus whose only unreachable rows are marked — `verdicts_match({}, {})` is True,
+# so --batched would have reported PASS over ZERO rows. A floor is what makes "the gate
+# ran" a claim rather than an assumption; this repo has shipped two gates that could not
+# fail (this one at 71/93, eval-screen's clearance tautology) and both looked healthy.
+# 0.5 is a floor, not a target — move it UP as the corpus is repaired, never down.
+GATE_MIN_FRACTION = 0.5
+
+
+def gate_floor_ok(n_gate: int, corpus: int | None) -> bool:
+    """Did enough of the corpus actually reach the gate to call the result a gate?
+
+    `corpus` None (a caller that does not know the corpus size — only the selftest and
+    the drift probe) degrades to the non-empty check alone, which is still strictly
+    better than the implicit `apct = 0.0 -> FAIL` that used to cover the empty case by
+    accident rather than by rule.
+    """
+    if n_gate <= 0:
+        return False
+    return corpus is None or n_gate >= GATE_MIN_FRACTION * corpus
+
+
 def render(gate, watch, meta) -> tuple[str, bool]:
     hard = [r for r in gate if r.get("hard")]
     errored = [r for r in gate if r.get("errored")]
@@ -552,10 +596,14 @@ def render(gate, watch, meta) -> tuple[str, bool]:
     # the surviving sample is not the gate anyone approved. FAIL is the only honest
     # verdict — see the corpus-reachability check in main().
     missing = meta.get("missing") or []
-    passed = (not hard_viol and not errored and not missing
+    thin = not gate_floor_ok(n, meta.get("corpus"))
+    passed = (not hard_viol and not errored and not missing and not thin
               and apct >= 85 and fpct < 20)
     verdict = (f"agreement {agree}/{n} ({apct:.0f}%) · hard {len(hard) - len(hard_viol)}/"
                f"{len(hard)} · flip-rate {fpct:.0f}% → {'PASS' if passed else 'FAIL'}"
+               + (f"  ⚠ GATE TOO THIN — {n} gate-eligible rows judged out of a "
+                  f"{meta.get('corpus', '?')}-row corpus (floor "
+                  f"{GATE_MIN_FRACTION:.0%})" if thin else "")
                + (f"  ⚠ {len(errored)} ERRORED — re-run" if errored else "")
                + (f"  ⚠ {len(missing)} of {meta.get('corpus', '?')} CORPUS ROWS "
                   f"UNREACHABLE — the gate did not see them" if missing else ""))
@@ -678,11 +726,25 @@ def main() -> int:
         assert ok is True, "an unreachable MARKED row must not decide PASS"
         assert "1 MARKED rows unreachable, not gating: [132]" in marked_gone
 
+        # The gate floor. Marked rows are gate-exempt in BOTH directions, so marking rows
+        # is the cheapest route from RED to green — a floor is what stops it. Also covers
+        # the empty gate, which used to FAIL only by the accident of apct == 0.0.
+        assert gate_floor_ok(0, None) is False and gate_floor_ok(0, 10) is False
+        assert gate_floor_ok(5, 10) is True and gate_floor_ok(4, 10) is False
+        assert gate_floor_ok(1, None) is True, "unknown corpus size degrades to non-empty"
+        thin, ok = render([clean], [], {**gate_meta, "corpus": 93})
+        assert ok is False, "1 gate row out of a 93-row corpus is not a gate"
+        assert "GATE TOO THIN — 1 gate-eligible rows judged out of a 93-row corpus" in thin
+        empty, ok = render([], [], {**gate_meta, "corpus": 0})
+        assert ok is False, "an empty gate must FAIL by rule, not by arithmetic accident"
+
         # The batched half of the same rule, driven END-TO-END rather than asserted on a
         # rendered string: the flip lives in run_batched (where `ok` becomes the exit
         # code), not in render_batched, so a renderer assertion cannot see it and the
         # document it produces literally reads "→ PASS" with a hole named in its header.
         # Hermetic — the two draw helpers are stubbed, so no model call and no quota.
+        import contextlib
+        import io
         import tempfile
         conn = sqlite3.connect(":memory:")  # empty: every row resolves via inline payload
         conn.execute(f"CREATE TABLE job_postings (id INTEGER PRIMARY KEY, "
@@ -693,18 +755,30 @@ def main() -> int:
         g["draw_verdicts"] = lambda sf, p, r: ("match", "match")
         g["draw_batch_verdicts"] = lambda sf, ps, r: {p["id"]: ("match", "match") for p in ps}
         try:
-            # dir=ROOT: run_batched prints the report path relative to ROOT, which raises
-            # on a path outside it. Auto-deleted on close.
-            with tempfile.NamedTemporaryFile(dir=ROOT, suffix=".md") as tmp:
-                g["OUT_BATCHED"] = Path(tmp.name)
+            # run_batched's own output announces "LIVE run, spends quota" — true of the
+            # real thing, a lie about this one, and "the report misdescribes what ran" is
+            # the exact shape this whole change is fixing. Swallowed rather than made
+            # conditional: a `quiet=` parameter on production code, existing only for the
+            # selftest, is a worse trade than two lines of redirect here.
+            with tempfile.TemporaryDirectory() as tmp, \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                g["OUT_BATCHED"] = Path(tmp) / "batched.md"
                 bmeta = {"ts": "-", "model": "-", "batch_size": 10, "corpus": 2}
-                assert run_batched([live], conn, None, {}, {**bmeta, "missing": []}) is True
+                assert run_batched([live], conn, None, {},
+                                   {**bmeta, "missing": [], "corpus": 1}) is True
                 assert run_batched([live], conn, None, {},
                                    {**bmeta, "missing": [2]}) is False, \
                     "an unreachable gate row must FAIL --batched, not just annotate it"
-                # …and a marked orphan does not, matching the K=3 gate above.
+                # A marked orphan does not fail it — but the gate floor still must, or
+                # "0/0 agree → PASS" over a corpus of nothing but marked orphans survives.
                 assert run_batched([live], conn, None, {},
-                                   {**bmeta, "missing": [], "missing_marked": [132]}) is True
+                                   {**bmeta, "missing": [],
+                                    "missing_marked": [132], "corpus": 1}) is True
+                assert run_batched([], conn, None, {},
+                                   {**bmeta, "missing": [],
+                                    "missing_marked": [1, 2]}) is False, \
+                    "--batched must not report PASS over zero gate-eligible rows"
         finally:
             g.update(saved)
             conn.close()
@@ -759,18 +833,9 @@ def main() -> int:
             ok = run_batched(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)
             return 0 if ok else 1
         if "--drift-probe" in sys.argv:  # LIVE: bleed-vs-noise probe (one setting/run)
-            # Refuse rather than measure noise. The probe reads four specific ids, and an
-            # unreachable one is not an empty column — it renders as ALL DRAWS FAILED,
-            # i.e. maximal instability, which is the opposite of what it means. Today all
-            # four PROBE_IDS are unreachable, so the run would spend ~50 minutes of quota
-            # to produce "0/4 held". The only signal otherwise is a stderr line that
-            # scrolls past under the draw logging.
-            gone = sorted(set(PROBE_IDS) & set(missing + missing_marked))
-            if gone:
-                print(f"! --drift-probe refused: probe ids {gone} are unreachable, so "
-                      f"their columns would read as ALL DRAWS FAILED rather than empty. "
-                      f"Relabel or repoint PROBE_IDS first.", file=sys.stderr)
-                return 1
+            # The refusal lives in run_drift_probe, against the postings it actually
+            # built — see the comment there for why keying it off `missing` here was
+            # blind to a probe id that is absent from the corpus rather than unreachable.
             meta = {"ts": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL,
                     "batch_size": BATCH_SIZE}
             run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)

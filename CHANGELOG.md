@@ -261,12 +261,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   corpus's two — 132 and 184 — are among the orphans; failing on them would have meant
   `make eval-score` could never go green no matter how many gate rows were relabelled. So
   the 22 unreachable rows are **20 gating + 2 reported-only** (measured 2026-08-03).
+  **The exemption is bounded by a gate floor**, or it would be the hole it closes: PASS
+  now also requires that at least `GATE_MIN_FRACTION` (0.5) of the corpus reached the
+  gate. `marked: true` is a one-word edit per line, so marking the 20 orphans would
+  otherwise turn the gate green without relabelling anything; and `verdicts_match({}, {})`
+  is True, so a corpus whose only unreachable rows were marked made `--batched` report
+  "0/0 agree → PASS" over zero rows. The empty gate used to fail only by the accident of
+  `apct = 0.0`, never by rule. Verified: 1 gate row against a 51-row corpus reports
+  `GATE TOO THIN` and exits 1.
   `--selftest` drives `run_batched` end-to-end with stubbed draw helpers — hermetic, no
   model call, no quota — rather than asserting on a rendered string, because the flip
   lives where `ok` becomes the exit code and a renderer assertion cannot see it (SPEC §12).
-  **`--drift-probe` now refuses to run when a probe id is unreachable.** All four
-  `PROBE_IDS` are, and an unreachable probe row renders as `ALL DRAWS FAILED` — maximal
-  instability, the opposite of its meaning — after ~50 minutes of quota.
+  **`--drift-probe` now refuses to run when a probe id is unreachable OR absent from the
+  corpus.** All four `PROBE_IDS` are unreachable today, and an unreachable probe row
+  renders as `ALL DRAWS FAILED` — maximal instability, the opposite of its meaning —
+  after ~50 minutes of quota. The refusal lives in `run_drift_probe`, against the
+  postings it actually built: keying it off `main()`'s unreachable lists saw only rows
+  the corpus still names, so a `GOLDEN_SET` substitute or the documented "labelled or
+  **dropped**" repair path silently re-armed the burn.
   **It does not repair the corpus.** 22 of the 93 rows are still unreachable — the
   hand-written labels cannot be re-derived and remapping by title was tried and rejected
   — so the authoritative gate is now RED rather than falsely green. **The inline `posting`
