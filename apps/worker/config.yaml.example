@@ -136,3 +136,47 @@ schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every 
 # Off by default so a normal run stays pure `requests` and never imports Playwright.
 # Requires: pip install -r requirements-browser.txt && playwright install chromium
 enable_browser_sources: false
+
+# ---------------------------------------------------------------------------------
+# OPTIONAL — FIT VOCABULARY. The closed list of concepts a job's duties are matched
+# against. SHADOW ONLY today: nothing in the running pipeline reads it (the live fit
+# score still works off resume/personal_profile.txt). It feeds the bounded-extraction
+# experiment — `tools/extract_shadow.py` — and the rebuild plan under
+# docs/superpowers/plans/. Omit the whole block and nothing changes.
+#
+# THE IDEA. Instead of showing a model your preferences and asking it to judge, you
+# list the kinds of WORK that exist for you, and the model only says which ones each
+# duty is about. Your ranking (`priority`), your dislikes (`kind: anti_target`) and the
+# numbers stay in code and are never sent to the model.
+#
+# WRITING A DESCRIPTION: describe the work, never your opinion of it. No "target",
+# "avoid", "tier 1", "I want" — if the model can read your preference out of the text,
+# you have just moved the judgment back into the model.
+#
+# LIMITS: ids unique and stable (they are stored on every label), descriptions <= 600
+# characters, an `anti_target` may not carry a `priority`, at least one target concept,
+# a warning past `warn_concepts` (default 20) and a hard failure past `max_concepts`
+# (default 40). Fewer, well-separated concepts beat many overlapping ones.
+#fit_profile:
+#  priority_levels:              # three tiers, five, or none — nothing assumes a scale
+#    primary:   { rank: 1, bonus: 10 }
+#    secondary: { rank: 2, bonus: 4 }
+#    fallback:  { rank: 3, bonus: -6 }
+#    none:      { rank: 99, bonus: -12 }   # the tier a duty matching NOTHING votes for
+#  none_level: none
+#  concepts:
+#    - id: ml_platform
+#      priority: primary
+#      description: >
+#        Building the infrastructure used to train, deploy, serve, evaluate or monitor
+#        machine-learning models — pipelines, feature stores, serving and evaluation.
+#    - id: backend_services
+#      priority: secondary
+#      description: >
+#        Server-side application engineering: APIs, distributed services, data stores
+#        and the systems behind a product.
+#    - id: frontend_only
+#      kind: anti_target          # no priority: an anti-target is not a low tier
+#      description: >
+#        Work whose deliverable is the client user interface — components, visual
+#        styling and browser application development.

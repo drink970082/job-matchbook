@@ -133,6 +133,11 @@ class Config:
     # this many days. 0 = off. Dateless/unparseable posted_at is always kept.
     max_age_days: int = 0
     candidate: Candidate = field(default_factory=Candidate)
+    # The fit vocabulary (`score/fit_profile.py`): the operator's concept list and
+    # priority tiers. None = not configured, which is legal — it only makes the
+    # bounded-extraction path unavailable and changes nothing else. Typed loosely here
+    # because the parser lives beside the scorer that consumes it, not beside the loader.
+    fit_profile: object | None = None
     feeds: list[Feed] = field(default_factory=list)
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
     # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the
@@ -178,6 +183,10 @@ def load_config(source) -> Config:
             "removed — use `candidate.locations` for geography. See config.yaml.example."
         )
     _reject_unknown_keys(data, Config, "top-level config")
+    # Imported here, not at module level: `score.fit_profile` raises this module's
+    # ConfigError, so a top-level import in both directions would be a cycle.
+    from ats_worker.score.fit_profile import parse_fit_profile
+
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
     candidate = _parse_candidate(data.get("candidate") or {})
@@ -213,6 +222,7 @@ def load_config(source) -> Config:
         title_exclude=_parse_title_filter(data.get("title_exclude") or []),
         max_age_days=_int_field(data, "max_age_days", 0),
         candidate=candidate,
+        fit_profile=parse_fit_profile(data.get("fit_profile")),
         feeds=feeds,
         schedule_hours=schedule_hours,
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),

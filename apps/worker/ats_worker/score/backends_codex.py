@@ -102,44 +102,60 @@ def make_codex_scorer(model: str, *, profile: str = "", reasoning_effort: str = 
                   + _job_block(posting, 0, include_location=False)
                   for posting in postings]
         prompt = "\n\n".join([*_scorer_system_sections(resumes, profile), *blocks])
-        with tempfile.TemporaryDirectory() as tmp:
-            schema_path = os.path.join(tmp, "schema.json")
-            out_path = os.path.join(tmp, "out.json")
-            with open(schema_path, "w", encoding="utf-8") as fh:
-                json.dump(_batch_schema(list(resumes)), fh)
-            cmd = [codex_bin, "exec", "--model", model,
-                   # Strip BOTH tools: scoring is pure judgment, and a JD is untrusted
-                   # scraped text. See the docstring — this is a security boundary, not
-                   # a tuning knob.
-                   "--disable", "shell_tool",
-                   "-c", 'web_search="disabled"',
-                   "-c", f"model_reasoning_effort={reasoning_effort}",
-                   "-c", f"model_verbosity={verbosity}",
-                   "--output-schema", schema_path, "--output-last-message", out_path,
-                   # --ephemeral is unconditional again: the quota bar used to need the
-                   # session rollout (the only place codex records rate_limits), which
-                   # meant dropping --ephemeral and leaving the résumé+JD prompt on disk
-                   # until it was reaped. `score.usage` now reads the same accounting
-                   # from GET /backend-api/codex/usage, so nothing is written at all.
-                   "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
-                   "--color", "never", "-C", tmp, "-"]
-            try:
-                proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                      text=True, timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                raise ScoreError(f"codex exec timed out after {timeout}s") from exc
-            except FileNotFoundError as exc:
-                raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
-            if proc.returncode != 0:
-                tail = (proc.stdout or proc.stderr or "").strip()[-400:]
-                raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
-            try:
-                with open(out_path, encoding="utf-8") as fh:
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise ScoreError(f"codex returned non-JSON score: {exc}") from exc
+        data = codex_json(prompt, _batch_schema(list(resumes)), model=model,
+                          reasoning_effort=reasoning_effort, verbosity=verbosity,
+                          timeout=timeout, codex_bin=codex_bin)
         # Realign by job_ref rather than trusting list position, failing the WHOLE batch
         # on any missing/duplicate/unknown ref — see `_batch.align_results`.
         return align_results(data, postings, backend="codex")
 
     return fit
+
+
+def codex_json(prompt: str, schema: dict, *, model: str, reasoning_effort: str = "low",
+               verbosity: str = "low", timeout: int = 600, codex_bin: str = "codex"):
+    """One tool-less `codex exec` under a JSON schema -> the parsed object.
+
+    Split out of `fit` on 2026-08-03 so the shadow EXTRACTION call (`score/extract.py`)
+    reaches the same CLI invocation instead of copying it. That matters because the flags
+    here are not tuning: `--disable shell_tool` + `web_search="disabled"` remove
+    capability from an agent that is about to read untrusted scraped text, and a second
+    call site with its own hand-copied argv is exactly how one of them silently loses a
+    flag. Every choice made here is argued in `make_codex_scorer`'s docstring.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        schema_path = os.path.join(tmp, "schema.json")
+        out_path = os.path.join(tmp, "out.json")
+        with open(schema_path, "w", encoding="utf-8") as fh:
+            json.dump(schema, fh)
+        cmd = [codex_bin, "exec", "--model", model,
+               # Strip BOTH tools: scoring is pure judgment, and a JD is untrusted
+               # scraped text. See the docstring — this is a security boundary, not
+               # a tuning knob.
+               "--disable", "shell_tool",
+               "-c", 'web_search="disabled"',
+               "-c", f"model_reasoning_effort={reasoning_effort}",
+               "-c", f"model_verbosity={verbosity}",
+               "--output-schema", schema_path, "--output-last-message", out_path,
+               # --ephemeral is unconditional again: the quota bar used to need the
+               # session rollout (the only place codex records rate_limits), which
+               # meant dropping --ephemeral and leaving the résumé+JD prompt on disk
+               # until it was reaped. `score.usage` now reads the same accounting
+               # from GET /backend-api/codex/usage, so nothing is written at all.
+               "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+               "--color", "never", "-C", tmp, "-"]
+        try:
+            proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                  text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise ScoreError(f"codex exec timed out after {timeout}s") from exc
+        except FileNotFoundError as exc:
+            raise ScoreError(f"codex binary not found: {codex_bin!r}") from exc
+        if proc.returncode != 0:
+            tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+            raise ScoreError(f"codex exec failed (exit {proc.returncode}): {tail}")
+        try:
+            with open(out_path, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ScoreError(f"codex returned non-JSON score: {exc}") from exc

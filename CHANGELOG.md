@@ -158,6 +158,66 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   re-pointing `external_id` would re-key all 360 stored rows.
   Already-stored rows are unchanged — `upsert_postings` is `ON CONFLICT DO NOTHING`, so a backfill
   is owed separately.
+- **Bounded fit extraction, in shadow: a concept vocabulary, four provenance hashes, a
+  schema that emits no numbers, and a stratified frame.** Steps 0-2 of
+  [`docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
+  Today's fit call asks a model to read the operator's preference document and return a
+  three-way `domain` judgment plus a calibrated 0-100 number. Both halves are measured
+  problems: the number has a **13-point median cross-model difference** (p90 33, max 53)
+  over 287 double-labelled rows, and `domain=adjacent` routes nothing — 0 notifications
+  from 89 rows — while 42 of 43 `match` rows parse as the operator's priority 1-3 and 83
+  of 84 `adjacent` rows as priority 4-5, i.e. the enum is a tier list wearing a costume.
+  The replacement shows the model a closed list of concept **descriptions** and asks only
+  which ones each duty is about; `kind`, `priority` and every bonus stay in code and never
+  go on the wire. `SCORING §9.1` is why: the model emits categories, code emits every
+  number.
+  **What landed.** `config.yaml`'s optional `fit_profile` block (concepts + declared
+  priority tiers, validated at startup by `score/fit_profile.py` — unique ids, an
+  `anti_target` may not carry a priority, bounded descriptions, a concept-count ceiling
+  that warns then fails); `score/extract.py` (per-run opaque concept refs, the
+  structured-output schema, closed-vocabulary validation, and verbatim-quote verification
+  of every item's evidence); `prompts/extract.txt`; `tools/extract_shadow.py`; and
+  `tools/pick_frame.py`, which picks the 250-row stratified frame the rebuilt corpus will
+  be labelled from.
+  **Four hashes rather than one, and that is the design.** `concept_vocab_hash` covers
+  exactly what the model sees (ids + descriptions), `preference_policy_hash` the half it
+  never sees (kind, priority, bonuses), `profile_hash` the document a human grades
+  relevance against, `resume_hash` the résumé texts. One hash over everything would mean a
+  bonus tweak expires the expensive human-labelled extraction layer; splitting them is
+  what makes a config-driven rubric affordable. `rubric_hash` is deliberately absent until
+  the arithmetic it would cover exists.
+  **Evidence fails asymmetrically, because the two sides mean different things.** A
+  job-side quote that is not in the posting means the model may have invented the
+  requirement, so the item is **dropped** and never costs the candidate anything; a
+  résumé-side quote that is not in the résumé means the requirement is real and the claim
+  is not, so the item is **kept**, marked unverified, and stays in the denominator. An
+  earlier single rule let a hallucinated JD requirement lower a candidate's score.
+  **Relations are per-résumé, so cross-résumé mixing is structurally impossible** rather
+  than merely detectable — with one relation field a model can cite résumé A on one duty
+  and B on the next and produce a composite fit no single résumé earns. There is no
+  `recommended_resume`: code scores each version and takes the argmax.
+  **Shadow is a correctness requirement, not caution.** The live fit response carries the
+  secondary `screen` block `merge_fallback_screen` uses to refill a degree/clearance check
+  `demote_for_confirmation` deliberately removed; swapping in an extraction record would
+  leave that refill with nothing to read — `SCORING §9.3`'s "materializing a pass verdict
+  from a blind check". Nothing in this change is imported by `pipeline.py` or `run.py`
+  (asserted by a test), writes a status, or touches `score_detail`. SPEC §7 (`config.py`)
+  and §13.
+  **The frame is picked, not re-labelled, and the composition is the reason.**
+  `golden.jsonl` is 15 keep / 54 near / 2 skip after its dead rows — a gate whose job is
+  to stop false keeps holding almost no false-keep evidence, which no amount of
+  re-labelling fixes. The new frame allocates **balanced, not proportional**, across the
+  six live `domain x seniority` cells (proportional would spend the human budget on the
+  42% `mismatch/too_junior` majority), spreads across companies and JD lengths, stores
+  inline posting text so it cannot rot the way 22 rows of `golden.jsonl` did, stamps the
+  four hashes on every row, and carries a deliberate 10-row thin-JD cell so
+  `insufficient_context` is a field that *can* fail.
+  **Not verified, and named rather than glossed:** there is no accuracy gate for this
+  schema. `tools/score_eval.py`'s PASS is defined over `seniority`/`domain` agreement and
+  flip-rate, and this design deletes both, so the harness rewrite belongs to the cutover
+  step. What is measured so far is a 2-posting live probe on `codex`/`gpt-5.6-sol`: both
+  returned schema-valid records, 35 of 35 job-side quotes verified against their postings,
+  ~60s per posting.
 
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
   bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own

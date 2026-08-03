@@ -39,6 +39,34 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
+  2026-08-03** `[SCORE · L]`. Plan:
+  [`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
+  Its locked order is **0** freeze + hash the inputs · **1** the extraction schema, shadow
+  only · **2** the fresh frame · **3** run both model families · **4** human labelling ·
+  **5** cut development/held-out · **6** settle the arithmetic on development data · **7**
+  verify on held-out and cut over Stage 2 + gate + web in ONE move · **8** model
+  downgrade, 2B arbiter, notification cap.
+  **Steps 0-2 are on the branch.** A `fit_profile` config block (20 concepts, declared
+  priority tiers), four provenance hashes split by what each change actually invalidates,
+  the bounded-extraction prompt + schema + validation + quote verification, a
+  `tools/extract_shadow.py` runner, and a 250-row stratified frame at
+  `eval/frame_extraction.jsonl` (gitignored, like every corpus here). Behavior notes in
+  SPEC §7 (`config.py`) and §13.
+  **It stops at step 3, and that is the operator's call, not a blocker in the code.** Step
+  3 is a paid pass over ~250 postings on each of two backends against the standing quota
+  directive; step 4 is human labelling. Both need a decision this session cannot make.
+  **Nothing here reads or writes production state** — no import from `pipeline.py` or
+  `run.py` (asserted in `test_extract.py`), no status, no `score_detail`. That is a
+  correctness requirement: the live fit response carries the `screen` block
+  `merge_fallback_screen` refills a removed degree/clearance check from, so replacing it
+  would materialize a pass verdict out of a blind check.
+  **Two things the plan settles that a reader will otherwise re-litigate:** the six rows
+  scored 52-58 that opened it are a *labelling* problem and are out of scope (none
+  survives as `match/match` under either relabel arm), and `feat/golden-relabel` is not in
+  this order — its `domain` output depreciates under a schema that deletes the enum.
+
+
 - **Generalized detail hydration — the fetch layer's teaser problem — IN PROGRESS
   2026-08-07** `[FETCH · L · branch `feat/fetch-detail-hydration`, cut from `main`]`.
   Plan: `~/.claude/plans/build-a-comprehensive-plan-majestic-grove.md` (operator-local).
