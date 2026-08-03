@@ -1,6 +1,6 @@
 """Load prompts from the prompts/ directory at import time.
 
-The scoring stage has TWO files (score.txt, screen.txt), each split into named
+The scoring stage has THREE files (score.txt, screen.txt, seniority.txt), each split into named
 sections by `@@ <name>` marker lines — `@@` is used because the prompt bodies
 themselves use `=== … ===` as content delimiters, so the splitter must not
 collide with those.

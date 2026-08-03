@@ -53,7 +53,7 @@ export const VALID_SOURCES = [
 
 // Sources whose fetch is driven by a declarative JSON `recipe` (not a slug alone).
 // A watchlist row for one of these MUST carry a recipe. Mirrors the worker's
-// config.RECIPE_SOURCES. (`browser` joins in phase 4.)
+// config.RECIPE_SOURCES.
 export const RECIPE_SOURCES = ['custom', 'browser'] as const
 
 // A scored posting whose JD body (trimmed) is shorter than this many characters is

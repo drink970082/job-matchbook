@@ -80,6 +80,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   operator's `config.yaml` (private) now excludes them: 8,851 kept titles → 6,099, a 31%
   intake cut, verified by driving `prefilter_postings` over the live DB rather than
   reimplementing its rule.
+- **PRINCIPLE 4 REWRITTEN: the compute tier is a backend choice, not a hardware
+  assumption.** It read "Local for frequency, a hosted model for judgment... run on the
+  host GPU", which quietly made a GPU a prerequisite for a tool other people are meant to
+  run. It now reads "cheap tier for frequency, judgment tier for judgment", with *local*
+  as one instance of the cheap tier rather than its definition. `PRINCIPLES.md` requires
+  the operator's sign-off to overturn a principle and an edit in the same change
+  (decision procedure item 6); this is that edit — operator's call, 2026-08-01.
+  Docs only, no behavior change: the code already shipped five screen backends.
+- **SPEC §3 and §4 follow, and §4 gains a clause the code does not yet satisfy.** §3 no
+  longer says "local-first compute"; §4's cloud-dependency non-goal now names the whole
+  provider set, and a new goal states that no provider and no hardware is required.
+  That clause is **satisfied for the screen stage (five backends) and NOT for fit scoring
+  (two)** — stated as a contract so the gap is visible rather than implied, with the
+  remaining work and its honest cost in PROGRESS.
+- **README no longer implies a GPU.** "No GPU required" is stated outright, and the
+  not-containerized note no longer says the worker "needs host-side Ollama".
+- **PROGRESS records the goal reframe and why quota is a PRODUCT constraint.** The
+  operator's own plan is the generous end — a flat-rate weekly window of ~2000 messages —
+  and the backlog still does not fit inside it, so anyone on a tighter or metered plan is
+  worse off by definition. The levers already underway (fewer paid calls, fewer tokens)
+  therefore generalize across all four backends and need no replanning.
+
 - **Amazon is fetched US-only, cutting 768 rows per pass with zero coverage loss.** The
   `custom/amazon` recipe URL gains `normalized_country_code[]=USA`, a board-side facet, so
   the non-US rows are never fetched, parsed or stored. A/B'd through the production

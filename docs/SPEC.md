@@ -109,11 +109,14 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Local-first compute where it's cheap, a frontier LLM where judgment matters.**
-  The high-frequency hard-requirements screen runs on a local GPU (Ollama), not a
-  paid API; fit scoring (every posting, needs real seniority/domain judgment) hits
-  the Codex CLI by default (flat-rate ChatGPT subscription), or Claude as a
-  metered alternate.
+- **Cheap compute for the high-frequency stage, a frontier LLM where judgment
+  matters — and the operator picks both.** The hard-requirements screen runs on
+  whichever of five backends the host can afford: Ollama on a local GPU (free) where
+  one exists, or `codex` / `claude-code` / `claude-api` / `openai-api` where it does
+  not. Fit scoring (every posting, needs real seniority/domain judgment) runs on the
+  Codex CLI by default (flat-rate ChatGPT subscription) or Claude. **No GPU is
+  required**, and no single provider is; which one is a deployment choice. See
+  PRINCIPLES 4.
 
 ---
 
@@ -141,8 +144,14 @@ Two pains, addressed by the two services:
   GitHub data file** (SimplifyJobs `listings.json`) — not a scraped UI — and still
   fetches every JD from the official board the listing's URL resolves to; aggregator
   *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
-- **No cloud dependency** beyond the external services the worker calls (the
-  Codex CLI or Anthropic Claude for fit scoring, the host's Ollama, Telegram).
+- **No cloud dependency** beyond the LLM provider the operator chooses — Codex CLI,
+  Claude Code CLI, the Anthropic API, the OpenAI API, or a local Ollama — plus
+  Telegram.
+- **No required provider and no required hardware.** Which LLM backend runs each
+  stage is a deployment choice, not a product commitment, and a host with no GPU is a
+  supported configuration. *This clause is currently satisfied for the screen stage
+  (five backends) and NOT for fit scoring (two: `codex`, `claude`) — the gap is
+  tracked in PROGRESS.*
 - **The worker issues no schema DDL** — Prisma owns the schema.
 
 ---

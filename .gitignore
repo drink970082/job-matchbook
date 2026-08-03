@@ -2,6 +2,12 @@
 __pycache__
 db/
 
+# Coverage data. `apps/worker/.gitignore` already covers the normal case (`make
+# test-coverage` runs pytest from apps/worker, so the file lands there), but a
+# pytest run from the REPO ROOT writes it here, where nothing caught it — that is
+# how a 52 KB .coverage got committed in #7. Belt to the worker's braces.
+.coverage
+
 # Per-user secrets & config. The repo ships ONLY *.example templates; each user
 # copies them to the real filename (which stays gitignored), so no personal data
 # — resume, target companies, API keys, chat id — is ever committed/pushed.

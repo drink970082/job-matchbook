@@ -431,6 +431,56 @@ privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should
 The recovery ran: 73 paid calls recovered 52 scored rows, 4 of them matches. Queue item 2
 has the numbers and the two ways the estimate was low.
 
+### Provider generality — the goal reframe of 2026-08-01
+
+**Operator's call, 2026-08-01: this is a general-purpose tool, and neither the hardware
+nor the provider is part of the product.** The target matrix is four AI backends —
+`claude-api`, `claude-code`, `openai-api`, `codex` — for BOTH stages, plus a local
+option (Ollama) on the screen. PRINCIPLES 4 was rewritten in the same change from a
+hardware statement ("runs on the host GPU") to a cost-tier one, and SPEC §3/§4 follow.
+
+**Quota is a PRODUCT constraint, not this deployment's quirk.** The reasoning that
+settles it: the operator's own plan is the GENEROUS end — a flat-rate weekly window of
+roughly 2000 messages — and the backlog still does not fit inside it. Anyone on a
+tighter or metered plan is worse off by definition. So the levers already underway
+(free seniority vetoes cutting paid CALLS, prefix caching cutting TOKENS) are product
+work, not personal tuning, and they generalize: fewer calls and fewer tokens help all
+four backends identically. Nothing in the quota plan needs replanning.
+
+What does NOT generalize is the reporting layer — `capture_usage` is per-provider, and
+two of the four have no usage endpoint story yet.
+
+**The open gap, and it is a stated contract violation (SPEC §4):**
+
+- **Fit scoring supports two of the four backends** — `[SCORE · M · blocks the goal]`.
+  `run.make_scorer` dispatches `codex` and `claude` only; `SCORE_BACKEND=openai` is
+  explicitly rejected. A user with a Claude Code subscription and no API key, or with
+  only an OpenAI key, can screen but cannot score — and scoring is the stage that
+  matters. The screen stage is already complete at five backends, so the whole
+  remaining gap is **two fit adapters**.
+  **The contract is already clean:** `make_scorer`'s own docstring says both twins
+  expose the same `fit(postings, resumes) -> list[dict]` shape, so "only this line
+  changes"; `backends_claude.py` is 67 lines. This is a longer LIST, not a new
+  abstraction — do not build a provider base class or a registry.
+  **The honest cost is four parts per adapter, and the adapter is the small one:**
+  1. the adapter itself;
+  2. a `_scorer_meta` branch — it already warns that falling through writes a
+     silently WRONG provenance stamp;
+  3. `capture_usage` support, or an explicitly documented "none". A backend with no
+     quota bar is a backend the user flies blind on.
+  4. **an `eval-score` run on the golden set.** Fit is judgment and judgment is
+     calibration-sensitive: `run.py` already rejects `gpt-5.6-luna` for fit on MEASURED
+     grounds (~3x looser spread). Shipping a fit backend without measuring it repeats
+     the exact mistake the screen side made — six options, one measured.
+
+- **Four of the five screen backends have never been measured** —
+  `[SCREEN · M · shipped unvalidated]`. `tools/screen_eval.py:23` is explicit that the
+  gate is meaningful only when eval-model == production-model, and it defaults to
+  ollama/qwen3.5:4b. So `make eval-screen` gates the path the operator runs and nobody
+  else's. A GPU-less user on `SCREEN_BACKEND=codex` runs an accuracy path with no
+  measurement behind it. The harness already accepts `SCREEN_BACKEND` and per-backend
+  models, so this is run-and-record, not build.
+
 ### Do next — the pick order
 
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
