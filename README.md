@@ -73,9 +73,10 @@ make install && make db-push && make dev     # → http://localhost:3000
 ```
 
 **Full pipeline** — adds discovery, screening, scoring and alerts. You'll need
-Python 3.11, a screening backend (local Ollama by default, or a hosted one), and a
-fit-score backend (Codex CLI + a ChatGPT subscription by default, or Claude with an
-API key). Telegram is optional.
+Python 3.11, a screening backend, and a fit-score backend. **No GPU required:** the
+screen runs on a local Ollama if you have one, and on Codex, Claude Code, the
+Anthropic API or the OpenAI API if you don't. Fit scoring runs on the Codex CLI + a
+ChatGPT subscription by default, or Claude with an API key. Telegram is optional.
 
 ```bash
 make setup     # web + worker deps, DB, config templates (never clobbers yours)
@@ -85,8 +86,9 @@ make up        # web app, in Docker
 cd apps/worker && python -m ats_worker.run --once   # the worker runs natively
 ```
 
-The worker is deliberately *not* containerized — it needs host-side Ollama and your
-`codex login`. [**`docs/SETUP.md`**](./docs/SETUP.md) has the full prerequisite
+The worker is deliberately *not* containerized — it runs natively so it can reach a
+host-side Ollama (if you use one) and whichever provider CLI you are logged in to
+(`codex login`, `claude`). [**`docs/SETUP.md`**](./docs/SETUP.md) has the full prerequisite
 table, the three things that surprise everyone, and where each setting lives.
 
 ---
