@@ -86,6 +86,30 @@ def _rows_from_frame(path: Path) -> list[dict]:
     return inline + (_rows_from_db(needed) if needed else [])
 
 
+def _tightest_window(backend: str):
+    """Read the backend's usage and return (used_percent, key) for the window that binds
+    SOONEST, or None if the meter could not be read.
+
+    The tightest window is the right one to guard, not the biggest: Claude Code meters a
+    rolling 5-hour SESSION window alongside a weekly one, and a 250-call batch exhausts
+    the 5-hour one long before the weekly. Codex exposes only a weekly window, so the
+    rule degenerates correctly there.
+    """
+    from ats_worker.score.usage import fetch_claude_usage, fetch_codex_usage
+    snapshot = (fetch_claude_usage if backend == "claude" else fetch_codex_usage)()
+    limits = (snapshot or {}).get("limits") or []
+    if not limits:
+        return None
+    tight = min(limits, key=lambda x: x.get("window_minutes") or 10 ** 9)
+    return int(tight.get("used_percent") or 0), tight.get("key")
+
+
+# Consecutive unreadable meters before the run stops. The quota endpoint is known to
+# answer 403 intermittently (PROGRESS: `capture_usage`), so one miss must not end a paid
+# run — but flying blind INTO a hard limit is worse than stopping early, so it is bounded.
+_MAX_BLIND_ROWS = 3
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -96,6 +120,14 @@ def main() -> int:
     ap.add_argument("--model", required=True)
     ap.add_argument("--out", required=True, help="jsonl artifact (appended, resumable)")
     ap.add_argument("--limit", type=int, default=0, help="stop after N new postings")
+    ap.add_argument("--stop-at-percent", type=int, default=0,
+                    help="stop cleanly once the backend's TIGHTEST quota window reaches "
+                         "this percent (0 = no guard). Checked before every call, so the "
+                         "run stops below the line rather than crossing it.")
+    ap.add_argument("--effort", default="",
+                    help="reasoning effort for the claude backend (`--effort`). Codex is "
+                         "pinned to `low`; pass `low` here to configure the two "
+                         "comparably, or an A/B measures the flags, not the models.")
     ap.add_argument("--run-token", default="",
                     help="seeds the ephemeral concept refs; defaults to the concept "
                          "vocabulary hash, so every run of one vocabulary — including "
@@ -154,7 +186,9 @@ def main() -> int:
     if not pending:
         return 0
 
-    extract = make_extractor(profile, run_token, backend=args.backend, model=args.model)
+    backend_kwargs = {"effort": args.effort} if args.effort and args.backend == "claude" else {}
+    extract = make_extractor(profile, run_token, backend=args.backend, model=args.model,
+                             **backend_kwargs)
     header = {
         "kind": "run_header", "extractor_version": EXTRACTOR_VERSION,
         "backend": args.backend, "model": args.model, "run_token": run_token,
@@ -170,7 +204,28 @@ def main() -> int:
         if not have_header:
             fh.write(json.dumps(header, ensure_ascii=False) + "\n")
             fh.flush()
+        blind = 0
         for n, posting in enumerate(pending, 1):
+            if args.stop_at_percent:
+                reading = _tightest_window(args.backend)
+                if reading is None:
+                    blind += 1
+                    print(f"  [{n}/{len(pending)}] quota meter unreadable "
+                          f"({blind}/{_MAX_BLIND_ROWS})", file=sys.stderr)
+                    if blind >= _MAX_BLIND_ROWS:
+                        print(f"STOPPING: could not read the quota meter {blind} times "
+                              "in a row. Resume with the same --out once it answers.",
+                              file=sys.stderr)
+                        break
+                else:
+                    blind = 0
+                    used, key = reading
+                    if used >= args.stop_at_percent:
+                        print(f"STOPPING at {used}% of the `{key}` window "
+                              f"(guard {args.stop_at_percent}%), {n - 1} row(s) written "
+                              f"this sitting. Resume with the same --out after it resets.",
+                              file=sys.stderr)
+                        break
             started = time.monotonic()
             try:
                 # ONE posting per call. Batching was measured to bleed duty and verdict

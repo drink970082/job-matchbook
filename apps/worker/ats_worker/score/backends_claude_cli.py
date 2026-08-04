@@ -102,7 +102,7 @@ def make_claude_cli_scorer(model: str, *, profile: str = "", timeout: int = 600,
 
 
 def claude_json(prompt: str, schema: dict, *, model: str, timeout: int = 600,
-                claude_bin: str = "claude"):
+                claude_bin: str = "claude", effort: str = ""):
     """One tool-less `claude -p` under a JSON schema -> the parsed object.
 
     Split out of `fit` on 2026-08-03 so the shadow EXTRACTION call
@@ -111,9 +111,26 @@ def claude_json(prompt: str, schema: dict, *, model: str, timeout: int = 600,
     removes capability from an agent about to read untrusted scraped text, and the
     isolation flags are also the measured cost lever. All of it is argued in
     `make_claude_cli_scorer`'s docstring.
+
+    `effort` maps to `--effort` and is the counterpart of codex's pinned
+    `model_reasoning_effort`. Left EMPTY by default, which keeps the production fit call
+    byte-identical — changing that path's behavior is gated by `make eval-score`. Callers
+    that want the two backends configured comparably pass it explicitly. Measured on one
+    extraction call, 2026-08-04: `low` cut output 13,301 -> 8,714 tokens (-34%), wall
+    clock 106s -> 71s, cost $0.357 -> $0.296.
+
+    **DO NOT PIN IT TO `low` FOR EXTRACTION — measured 2026-08-04 and it breaks the
+    schema.** Posting id 48915 (a thin JD) extracted cleanly unpinned in 68s, and under
+    `--effort low` the CLI gave up with `error_max_structured_output_retries` — "failed to
+    provide valid structured output after 5 attempts" — burning 48s of retries to produce
+    nothing. 1 of 3 rows in that sitting, against codex's 0.8% over 253. The saving is
+    real and so is the cost: a schema this size needs the reasoning budget to fill, and a
+    failed row spends quota AND yields no record. Left empty by default for that reason as
+    much as for the production gate.
     """
     with tempfile.TemporaryDirectory() as tmp:
         cmd = [claude_bin, "-p", "--model", model, "--output-format", "json",
+               *(["--effort", effort] if effort else []),
                # Capability removal, not permission denial. See the docstring —
                # `--allowedTools ""` was measured to leave the tools loaded.
                "--tools", "",
