@@ -7,50 +7,30 @@
 > finished item *leaves* this file to land in SPEC + CHANGELOG. Update it in the same
 > change as the work it describes — see [How to update](#how-to-update) at the bottom.
 >
-> **Split 2026-07-30, because every session reloads this file.** What stays here is what
-> a session needs *now*: in flight, the pick order, the quota gap, and open defects. The
-> rest is two files it can load on demand — [`BACKLOG.md`](./BACKLOG.md) (the open
-> catalogue: unverified/deferred + enhancements) and [`REJECTED.md`](./REJECTED.md)
-> (proposals evaluated and turned down; read your block's entry before proposing a
-> redesign).
+> What stays here is what a session needs *now*: in flight, the pick order, the quota gap,
+> and open defects. The rest is two files it can load on demand —
+> [`BACKLOG.md`](./BACKLOG.md) (the open catalogue: unverified/deferred + enhancements)
+> and [`REJECTED.md`](./REJECTED.md) (proposals evaluated and turned down; read your
+> block's entry before proposing a redesign).
 
-**Current phase:** **v1.0.0 released** (2026-07-22) — tagged on `main`, repo public
-as [`drink970082/job-matchbook`](https://github.com/drink970082/job-matchbook), CI
-fully green (web / worker / e2e). Feature-set complete and validated live end-to-end;
-testing/CI hardened (coverage gates, integration + Playwright e2e, schema-drift and
-privacy guards). **"Hardened"
-means test/CI hardening, not security hardening** — accepted residuals are documented
-in SPEC §11 + `SECURITY.md`; genuinely open items are below.
+**Current phase:** released and running unattended. `v1.0.0` is tagged on `main`, the repo
+is public as [`drink970082/job-matchbook`](https://github.com/drink970082/job-matchbook),
+CI is green (web / worker / e2e), and the worker runs as a systemd user unit on a
+wall-clock schedule. **"Hardened" means test/CI hardening, not security hardening** —
+accepted residuals are in SPEC §11 + `SECURITY.md`.
 
-**Since then the work has been accuracy, then readiness to run unattended.** The screen's
-three hard-requirement checks were each acting on a model verdict with no evidence behind
-it; `make eval-screen` now measures that and gates the prompt, and the
-false-disqualification count over 81 labeled live rows went **11 → 2-3** (the residual is a
-4B ceiling and the count is not run-to-run stable — see Defects). Five PRs landed
-2026-07-28: the screen stack (#24), a per-host pass lock (#20), wall-clock scheduling with
-no eager startup pass (#25), a systemd user unit (#26), and an autoheal healthcheck that
-can actually fail (#27). **`make eval-screen` is RED on `main`** at 2-3 degree
-false-disqualifications; that is the documented ceiling, and queue item 3 is its remedy.
+**`make eval-screen` is RED on `main`** at 2-3 degree false-disqualifications. That is a 4B
+model ceiling, not a wording gap, and the count is not run-to-run stable — do not diff it,
+and do not spend another prompt rewrite on it (see Defects).
 
-**The system has been running unattended since 2026-07-28 22:19 EDT** (PR #29 — feed
-pre-filter, newest-first score queue, read-only lock fallback). The first three passes ran
-2026-07-29 with no restarts, missed slots, tracebacks or breaker trips. **What they proved
-is that the constraint is no longer correctness, it is QUOTA:** three passes spent 10% of
-the weekly Codex window, which projects to ~140% at 6 passes/day. The open decisions are
-therefore about spend and intake, not about whether the pipeline works — see In flight.
-
-**Measured 2026-07-30, and it points at a free lever rather than a cheaper model:** 75% of
-paid fit calls come back `domain=mismatch` and 54% come back `seniority=too_junior`, so 96%
-of them buy a "no". Seniority is the half a *free* local extraction can reach, and it was
-measured on 07-30 and passed — see the seniority entry under In flight.
-
-**QUOTA IS THE STANDING PRIORITY as of 2026-07-31 (operator's call).** Work that is not a
-quota lever waits. The gap, the three levers that move it, and the two measured dead ends
-are in [Quota — the gap and the three levers](#quota--the-gap-and-the-three-levers); the
-pick order is Q1-Q3 at the top of the queue. **The reframe that section turns on: the
-backlog is not a debt to repay** — this system surfaces ~15 postings a week to a human, it
-does not owe every row a verdict, so the problem is *which* rows get the paid call, not how
-many.
+**QUOTA IS THE STANDING PRIORITY (operator's call).** Work that is not a quota lever waits.
+The gap, the three levers that move it, and the two measured dead ends are in
+[Quota — the gap and the three levers](#quota--the-gap-and-the-three-levers). **The reframe
+that section turns on: the backlog is not a debt to repay** — this system surfaces ~15
+postings a week to a human, it does not owe every row a verdict, so the problem is *which*
+rows get the paid call, not how many. **96% of paid fit calls buy a "no"** (75%
+`domain=mismatch`, 54% `seniority=too_junior`), which is why the free seniority
+pre-ordering exists.
 
 For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and §7
 (components); for *when each piece landed*, read the [CHANGELOG](../CHANGELOG.md).
@@ -81,25 +61,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   separate branch and is gated on measuring the Claude Code burn rate first — do not
   start it from this entry.
 
-- **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED from
-  2026-07-31 11:47 EDT** `[SCORE · M · operator away, 60-call budget authorized]`.
+- **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED**
+  `[SCORE · M · operator away, 60-call budget authorized]`.
   Branches, one per phase: **`docs/quota-levers-plan`** (this claim, the plan, the
   ledger), **`fix/seniority-veto-evidence`** (Phase 3), and a Phase 1 branch for the
   caching fix. Plan and full sequence:
   [`superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md`](./superpowers/plans/2026-07-31-quota-levers-caching-and-vetoes.md);
   spend is logged per call in
   [`superpowers/notes/2026-07-31-quota-ledger.md`](./superpowers/notes/2026-07-31-quota-ledger.md).
-  **The finding that motivates it: `run.py:69`, `pipeline.py:811`, `backends_codex.py:49`,
-  `SCORING.md:982/983/990/1278/1500` and `SPEC.md:983/2186` are all wrong.**
-  **CORRECTED 2026-08-01** on `chore/small-fixes-batch` (comments and docs only, no
-  behavior change — see CHANGELOG); this paragraph is kept because it is why they were
-  wrong, not because they still are. **The line numbers above are the ones this entry was
-  written with and several were already stale** — the real sites were `SCORING.md`
-  §4.5/§5.6/§8.5 and `SPEC.md` §7.1/§10; grep the claim, don't trust the refs. Two
-  paraphrases the original grep could not see were also fixed, and they mattered more than
-  the literal ones: `tools/score_eval.py:351/429` told every drift report that a smaller
-  batch "keeps most of the quota win", and the long-run-day runbook's **Budget** section
-  sizes a real run in messages (annotated, not rewritten — its row counts still hold, its
+  **The finding that motivates it:** every "message-bound quota" claim in the code and
+  docs was wrong. The sites are `SCORING.md` §4.5/§5.6/§8.5 and `SPEC.md` §7.1/§10 —
+  **grep the claim, don't trust a line ref**, which is how the first sweep missed two
+  paraphrases that mattered more than the literal hits (`tools/score_eval.py` telling every
+  drift report a smaller batch "keeps most of the quota win", and the long-run-day
+  runbook's **Budget** section sizing a run in messages — its row counts still hold, its
   ceiling does not). The
   ChatGPT-subscription quota has been **per-token credits since April 2026**, not
   message-bound (Sol 125 / 12.5 cached / 750 per 1M; Luna 25 / 2.5 / 150 — 5 : 2.5 : 1).
@@ -117,8 +92,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   burst miss 100% of the time under `score_workers=4`).
   **THE CACHING FIGURES ARE CORRECT BUT OUT OF DATE — they describe a CLI that is not
   installed.** 11,008, the 42, and the 27% all re-derive exactly from
-  `db/codex-token-accounting/rollout-token-usage.jsonl` (checked 2026-08-01: 53 of 198
-  `gpt-5.6-sol` rows cached anything = 27%, and 42 of those cached exactly 11,008), so
+  `db/codex-token-accounting/rollout-token-usage.jsonl` (53 of 198 `gpt-5.6-sol` rows
+  cached anything = 27%, and 42 of those cached exactly 11,008), so
   they are not wrong — they are **0.144.x** measurements. The installed CLI is **0.146.0**,
   where Phase 1b measured `cached_input_tokens = 0` on both arms of a controlled probe: no
   cache is operating, so there is nothing for the `-C` change to fix and no headroom to
@@ -130,201 +105,24 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   `main` stays checked out and running in the primary tree. Worktrees and branches are
   removed when the run finishes.
 
-- **The seniority pre-ordering is live and now MEASURED in production**
-  `[SCORE · M · shipped 2026-07-31, first live passes same day]`. The layer, its eval gate
-- **`capture_usage` 403 mitigation — MERGED as `d983e13`, 2026-07-31 14:02:44 EDT**
-  `[SCORE · XS · PR #63]`. (This entry read "landed, awaiting merge" until 2026-08-01;
-  it was stale, and a downstream BACKLOG entry repeated it. The retry has still never
-  run in a live pass — the last scoring pass was 12:48, and the daemon stopped at 14:42.) The cause is named (HTTP 403); the mechanism
-  is not, and the retry is a mitigation with a measured residual rather than a closure.
-  Details under Defects. Also hardens the test suite: it was reaching the operator's real
-  `~/.codex/auth.json` and making live HTTPS calls, against CLAUDE.md's "no network/keys"
-  rule — `conftest` now redirects `CODEX_HOME`/`CLAUDE_CONFIG_DIR`, and the worker suite
-  runs in 15.9s instead of 20s.
-- **Seniority veto defects — MERGED as `c0a9688`** `[SCORE · S · PR #62]`.
-  (Read "landed, awaiting merge" until 2026-08-01. `DEVELOPMENT.md` §7 makes that
-  phrase load-bearing — it tells another session the work is finished but ungated —
-  so a stale one is worse than no entry.) 70% of the layer's 61 misses were code discarding a
-  correct extraction: a cap read as a floor, an unevidenced bar trusted, and a clamped bar
-  cancelling a rank the JD states. Fixing all three moved every gate axis at once —
-  precision 0.964 -> **0.975**, recall 0.757 -> **0.793**, demote share 0.442 -> **0.457**,
-  still 0 false demotions on `domain=match` or notified. Two candidates were measured and
-  deliberately **not** shipped: the title-token floor (biggest in-sample win, owns the only
-  held-out false demotion — the operator's call, numbers in `BACKLOG.md`) and a vocabulary
-  widening (provably redundant). Behavior SPEC §7.1 + §9, contract SCORING §5.7.
-
-- **The seniority pre-ordering is built and gated, but NOTHING has measured it live**
-  `[SCORE · M · shipped 2026-07-31, unmeasured in production]`. The layer, its eval gate
-  (`make eval-seniority`), the `deprioritized_at` ordering column, the
-  `candidate.years_experience` key and the in-pass wiring all ship with this entry.
-  Behavior is SPEC §7.1, the contract and the measurement are SCORING §5.7, and the shape
-  decisions are in
-  `docs/superpowers/specs/2026-07-31-seniority-preordering-design.md`.
-  **First two live passes, 2026-07-31** (the entry previously said none had run):
-
-  | pass (EDT) | deprioritized | rows scored | fit-scored | sent for confirmation |
-  |---|---|---|---|---|
-  | 04:42 | 16 | 40 | 7 | 4 |
-  | 08:44 | 9 | 40 | **34** | 6 |
-
-  25 rows carry `deprioritized_at`. The 04:42 pass also cleared 3,646 rows through the
-  free gates unbudgeted. **What is still unmeasured is the GPU cost per pass and the
-  effect on paid-call yield** — two passes with very different fit-scored counts is not a
-  rate. `candidate.years_experience` is absent from `config.yaml`, so the layer runs at
-  the 0-year default; the operator confirmed 0 is correct on 2026-07-31.
-
-- **The standing quota framing is temporarily FALSE — do not re-quote it as-is.** The
-  passes of 2026-07-30/31 were effectively stalled — 4 rows fit-scored, then 0, then 0 —
-  because free work was consuming the paid budget. That is fixed and merged (#54, #58)
-  and the daemon is running it, but every "quota is the binding constraint" figure below
-  describes the pre-07-30 system. **Re-measure after the first normal pass on the fixed
-  code.** Two residuals the pre-merge reviews measured, so nobody re-discovers them:
-  `--score-limit` is still not a pure quota budget — an LLM screen-discard and a thin-JD
-  row each consume a slot while spending nothing (~18% of screened rows over the 07-29
-  live passes, 8.2% over DB history — SPEC §7.1) — **and** ~320-720 requeued rows survive
-  the free sweep. Together those put catch-up at ~1.3 days rather than ~16, not zero (and
-  slightly conservative now that #58 sweeps 206 more).
-
-- **Scoring the `new` backlog at scale — deferred, and now PARKED BY CONSTRUCTION**
-  `[SCORE · S · quota-bound]`. Per-row cost is **~0.8 paid messages**, measured over the
-  first three live passes (the free screen discards ~18%, not the ~60% an earlier
-  estimate assumed — that estimate is retired). The 3,959-row backlog is therefore on the
-  order of **~3,200 messages**, more than a full weekly budget.
-  **The queue as of 2026-07-29, and the shape is the point:** 5,660 `new` = **3,959 from
-  2026-07-22/23** (the original backlog) + **1,701 from 07-29**. All 148 rows the three
-  live passes scored were ingested that same day; **not one backlog row was touched**.
-  That is newest-first working as designed, but the consequence is now measured rather
-  than predicted: today's pool alone takes ~13 days to clear at ~22 rows/pass, and the
-  2026-07-22/23 rows only begin after that. Treat the backlog as parked until a
-  deliberate operator run, not as something the schedule will eventually reach.
-  Run it with `--score-only --score-limit N` from `apps/worker`
-  (`PYTHONPATH=. python3 -m ats_worker.run --once ...`); the
-  [runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2 carry the
-  quota math and monitoring cadence.
-  **Selector for the pre-2026-07-24 backlog:** rows scored before scorer provenance
-  landed carry no `backend`/`model`/`scorer_version` stamp, so "unstamped" picks them
-  out (SPEC §9).
-  **CHANGED 2026-07-28 — read this before quoting an old `--score-limit` recipe.** The
-  `new` queue is now read **most-recently-touched, then newest id**
-  (`COALESCE(updated_at,'') DESC, id DESC` — PR #29; SPEC §7.1
-  + CHANGELOG), because the old `score DESC, id ASC` was oldest-first for this queue
-  (every `new` row has score NULL) and a scheduled bounded pass would have spent ~2 weeks
-  on this backlog before reaching a job discovered today. Consequences for anyone
-  draining it by hand: a bounded pass now takes the **newest** rows, so `--score-limit N`
-  no longer walks the backlog at all — it scores current intake. To work the backlog
-  deliberately, use `--score-only` (which skips ingest, so nothing newer arrives first)
-  and accept that it now drains from the **top** of the id range. The old
-  "one board at a time" sampling caveat still applies, mirrored.
-
-- **Run the pipeline as a daemon — RUNNING UNATTENDED since 2026-07-28 22:19 EDT
-  (PR #29). First three passes measured 2026-07-29; the mechanism works, the BUDGET
-  does not.**
-  `systemctl --user ats-worker` is `enabled` + `active (running)`, linger is on, and the
-  daemon reports `passes at 0,4,8,12,16,20:00 America/New_York (every 4h, wall-clock)`.
-  Zero restarts, no missed slots, no tracebacks, no circuit-breaker trips, no lock
-  contention. 7 jobs notified on day one.
-
-  | pass (EDT) | ingested | scored | paid fit calls | duration |
-  |---|---|---|---|---|
-  | 00:00 | 703 | 60 | 49 | 55 min |
-  | 04:00 | 86 | 60 | 52 | 55 min |
-  | 08:00 | 84 | 60 | 47 | 60 min |
-
-  **QUOTA IS THE BINDING CONSTRAINT — CAP SET TO `40` ON 2026-07-30** `[SCORE · XS ·
-  operator's call, MADE]`. Over the window's first **7 passes** (23% by 04:50 on 07-30,
-  window resets 2026-08-05) that is **~3.3%/pass at `--score-limit 60`**, so `60`
-  projected to **~138%/week** — the quota would have died around day 6 of 7. `40`
-  projects to **~92%**, which is under budget but NOT roomy: it covers fresh intake only,
-  so nothing drains, and the choice made is *keeping up*. Queue item 6 carries the rest.
-  **Do not read `db/scorer_usage.json` without checking its mtime** — see the
-  `capture_usage` defect below; a 07-30 reading of "23%" was in fact 8 hours old, and the
-  live figure at 12:41 was **32%**.
-  **Lowering the CADENCE does not help, and this is the counter-intuitive part.** Half
-  the passes ingest twice as much each, so paid calls/week are unchanged — quota is a
-  function of newly discovered postings, not of pass count (already stated below, now
-  observed). The only levers that reduce spend are a lower `--score-limit` (parks more
-  work) and tighter `title_filter`/`max_age_days`/watchlist (less intake).
-  **The earlier ~0.4-paid-messages-per-row estimate was wrong: it is ~0.8.** It assumed
-  the free screen discards ~60%; live it discards **~18%** (11/8/13 of 60). Any future
-  quota arithmetic should use the measured rate, not the estimate. **SCORING §5.7 measures a
-  different 54% over a different denominator — 383 of those discards are
-  the deterministic location gazetteer, not the model screen — and the two are NOT
-  reconciled.** Do not average them.
-  **Four things had to land first, and three of them were not the schedule.** (0)
-  `apscheduler` was missing from the system python3, so the daemon would have
-  crash-looped. (1) The feed pre-filter, or 59% of feed intake would have been re-fetched
-  and re-screened six times a day. (2) The newest-first score queue, or a bounded pass
-  would have spent ~2 weeks on the backlog before reaching a job found today. (3) The
-  read-only lock fallback, since an unattended daemon is exactly where a silently wedged
-  pass hides. Cadence choice below supersedes the 2026-07-23 choice of 4/day, which was
-  decided but never written into the config — the file sat at `24` for five days while
-  this entry claimed `6`. One thing is still not expressible.
-  **The schedule is a clock as of 2026-07-28** (`feat/wall-clock-schedule`; SPEC §7.1/§9/§12
-  + CHANGELOG). It used to be an interval — `add_job(once, "interval", hours=…)` plus an
-  eager `once()` before `start()` — so passes fired at *launch time + N* and every restart
-  both re-phased the day and cost a full pass. Now `CronTrigger(hour=cron_hours(h),
-  minute=0)` puts them on 0/4/8/12/16/20, the eager pass is gone (`--run-now` restores it),
-  and `schedule_hours` is bounded to divisors of 24. The config-shape question resolved to
-  **no new key**: the slots are derived from the existing int, so `_reject_unknown_keys`
-  never had to change.
-  **What does NOT get more expensive: the paid scorer.** `upsert_postings` is
-  `ON CONFLICT DO NOTHING` and `run_score` only touches `new` rows, so quota is a function
-  of *newly discovered postings*, not of pass count. What multiplies is fetch: 6x the
-  board HTTP, workday detail calls, Simplify re-reads, `feed_unresolved` re-attempts and
-  Chromium renders per day (`run_expire`'s 50/pass becoming 300/day is the one welcome
-  multiple). That reprices two open items below — the missing 429 backoff
-  (`phenom/qualcomm` already 429s at **one** pass/day) and pruning permanently-dead
-  `feed_unresolved` URLs now retried 6x daily. Both were dormant while the config sat at
-  24h and the feed was off; both are live as of 2026-07-28.
-  **Overlap — CLOSED 2026-07-28** (branch `feat/pass-lockfile`, PR #20; SPEC §7.1/§9 +
-  CHANGELOG). APScheduler's `max_instances=1` never let the scheduler overlap itself; the
-  real exposure was a hand-run pass landing inside a scheduled one, and `run.pass_lock`
-  (a non-blocking `flock`, stale-safe by construction) now refuses the second one
-  outright. The claim/lease shapes stay rejected (see
-  [`REJECTED.md`](./REJECTED.md)).
-  **Residuals (a) and (b) — BOTH FIXED 2026-07-30** by keying the lock on the resolved
-  `--db` (`<db>.pass.lock`, beside the DB; SPEC §7.1/§9 + CHANGELOG). (a) two checkouts on
-  two DBs no longer block each other; (b) the expensive direction — a daemon whose temp
-  dir differs from an operator's shell (cron's sanitized env, `PrivateTmp=yes`, an
-  exported `TMPDIR`) acquired a *second* lock and double-spent paid quota on the same
-  rows — is closed by construction, since both sides now name the DB. The unit's
-  `Environment=TMPDIR=/tmp` pin and its "do not set PrivateTmp" warning are gone with it.
-  `resolve()` is the load-bearing detail (`apps/web/prisma/applications.db` is a symlink
-  to `db/applications.db`). Caught in passing: the suite reached `main()` on the DEFAULT
-  `--db` and left a lock file in the live `db/`; the autouse fixture now redirects
-  `DB_PATH` too.
-  **(c) An unwritable lock file used to wedge the daemon SILENTLY — FIXED 2026-07-28**
-  (PR #29; CHANGELOG). `pass_lock` opened `O_RDWR`, so one
-  accidental `sudo python -m ats_worker.run` left a root-owned lock file — never
-  unlinked, by design — and every later pass got `EACCES`. The eager pass used to kill
-  the daemon at startup, loudly; once that pass was dropped the `RuntimeError` was raised
-  *inside* the APScheduler job, where the executor catches and logs it, so the daemon
-  stayed up, reported a healthy schedule and never completed a pass. It now falls back to
-  `O_RDONLY` — `flock` needs no write access — which keeps the guard exclusive and costs
-  only the pid diagnostic, announced on both the holding and the contending side.
-  **Residuals (a) and (b) are FIXED above** (2026-07-30, the db-keyed lock); (c) is the
-  2026-07-28 `O_RDONLY` fallback and stands.
-
 - **Both eval corpora are too small to answer the questions being asked of them — expansion
-  in flight** `[SCORE + SCREEN · M · branch `docs/corpus-expansion-groundwork`, 2026-07-31]`.
+  in flight** `[SCORE + SCREEN · M · branch `docs/corpus-expansion-groundwork`]`.
   Neither eval is code-bound; both are corpus-bound.
   **Score:** `eval/golden.jsonl` is 23 rows, and the standing `gpt-5.6-terra` rejection
   (76% gate vs sol's 86%) is a **two-row** gap on it. Re-running that A/B cannot separate the
   models. Target ~120 rows, drawn from the `keep`/`adjacent` bands where models actually
   diverge; `tools/expand_golden.py` builds the 499-row Sol-labelled sampling frame (machine
   labels — a frame, never a gate).
-  **Screen — the sharper one, because it is a portability requirement.** Of the 24 clearance
-  rows in `screen_golden.jsonl`, 20 are golden `false` and **none carries a clearance
-  token**, so `_check_clearance` short-circuits on the evidence floor for every one and
-  **no row can produce a clearance false disqualification, for any model.** The sponsorship
-  half likewise rests on 5 effective rows of 21. That blocks the real question: the
+  **Screen — the sharper one, because it is a portability requirement.** The sponsorship
+  half rests on 11 effective rows of 21 (BACKLOG has the corpus conventions). That blocks
+  the real question: the
   GPU-less path (`SCREEN_BACKEND=codex`) shipped on the call that "no new gate needed"
   (screen-backends design §327), so users without a GPU run an **unmeasured** screen today.
   `gpt-5.6-luna` is the cheapest model on that path and has never been measured — its
   standing rejection is for *fit scoring*, which §10 argues does not transfer. Bar is the
   gate's own: zero false disqualifications. Plan:
   `~/.claude/plans/what-are-small-dev-vectorized-elephant.md`.
-  **LUNA MEASURED 2026-07-31, twice — and one run would have told you the wrong thing.**
+  **Luna was measured twice, and one run would have told you the wrong thing.**
   `SCREEN_BACKEND=codex SCREEN_MODEL=gpt-5.6-luna`, K=3, 83 rows. Run 1 **PASS** (0 false
   disqualifications, recall 29/37); run 2 **FAIL** (1, recall 28/37). The gate is
   **any-draw, not majority** by design (`screen_eval.py:149` — "a check that discards a
@@ -332,25 +130,22 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   caught by K=3 only ~70% of the time: **run 1's zero was a 30% miss, not evidence of
   absence.** Run 2 is the trustworthy one. Never promote a screen backend off a single run.
   **A SIBLING BRANCH SAYS THE OPPOSITE — reconcile before merging it.** Another session's
-  unmerged `docs/luna-screen-result` (commit `8b25e97`, 14:10 EDT) is titled *"luna passes
-  the screen gate and beats the local 4B"* and records *"PASS with ZERO false
-  disqualifications"*. That is **run 1**, and it is the same 249-call run this session
-  found already on disk — not an independent confirmation. Run 2 reversed it. Whoever
-  merges that branch must fold in this entry rather than land both, or `main` will carry a
-  PASS claim the replication refutes.
+  unmerged `docs/luna-screen-result` (commit `8b25e97`) is titled *"luna passes the screen
+  gate and beats the local 4B"* and records *"PASS with ZERO false disqualifications"*.
+  That is **run 1**, the same 249-call run this session found already on disk — not an
+  independent confirmation. Run 2 reversed it. Whoever merges that branch must fold in this
+  entry rather than land both, or `main` will carry a PASS claim the replication refutes.
   **What it actually shows, against the 4B's own documented RED set (67/68/672/738):**
   the 4B fails all four on **3/3 draws each — 12 bad draws of 12**. Luna, over both runs,
   produced **1 bad draw of 24** (id 672 only, `X..`), clearing 67/68/738 outright. That is
   ~25x fewer, so "model ceiling" survives as a description — but the residual is not purely
   size, since a frontier model still trips 672 (*"advanced degree … preferably a Ph.D."*).
   **The shipping read is better than the FAIL headline.** A degree false-disqualification
-  no longer deletes a row — the 2026-07-29 `needs_confirmation` routing sends it to the
-  paid scorer — so luna's residual costs **one paid fit call**, not a lost job, while being
-  strictly better than what GPU-owning users run today. Caveat that does not go away: this
-  measures the degree and sponsorship halves only, because the clearance half still cannot
-  fail.
-  **RE-RUN ON THE EXPANDED 103-ROW CORPUS, and this is the decisive comparison** — same
-  corpus, same day, both backends:
+  no longer deletes a row — `needs_confirmation` routing sends it to the paid scorer — so
+  luna's residual costs **one paid fit call**, not a lost job, while being strictly better
+  than what GPU-owning users run today.
+  **On the expanded 103-row corpus, and this is the decisive comparison** — same corpus,
+  same day, both backends:
 
   | backend | false disqualification (the gate) | recall | flip |
   |---|---|---|---|
@@ -373,8 +168,8 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   against the weekly budget; it is the *fit* call that is expensive. Do not read the 0 as
   exactly zero — integer percent hides anything under a point — but the order of magnitude
   is settled.
-  **THE TERRA QUESTION, MEASURED 2026-07-31 — and the original rejection was right about
-  the wrong thing.** The human gate is vacuous (see Defects), so both arms ran against a
+  **THE TERRA QUESTION — the original rejection was right about the wrong thing.**
+  The human gate is vacuous (see Defects), so both arms ran against a
   40-row stratified subset of the Sol-labelled frame (15 `keep`, 25 `near`, fixed seed),
   via the new `GOLDEN_SET` override. K=3, `codex` backend:
 
@@ -386,25 +181,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   **Read the two columns differently, because only one of them is label-independent.**
   *Agreement* is measured against sol's own stored verdicts, so it structurally favours
   sol — and even so, **sol re-run agrees with itself only 85% of the time.** That 6-row
-  self-disagreement IS the noise floor the 2026-07-16 comparison never had, and terra's
-  80% sits inside it. **The "76% vs 86%" gap that rejected terra does not reproduce as a
+  self-disagreement IS the noise floor the original comparison never had, and terra's 80%
+  sits inside it. **The "76% vs 86%" gap that rejected terra does not reproduce as a
   meaningful difference.**
   *Flip-rate* compares each model against itself, needs no labels, and **does** reproduce:
-  terra 35% vs sol 22% today, against terra 38% vs sol 29% on 2026-07-16. Terra is ~1.5x
+  terra 35% vs sol 22%, against terra 38% vs sol 29% on the earlier corpus. Terra is ~1.5x
   less self-consistent, measured twice, fifteen days apart, on different corpora.
   **So the rejection stands, on stability rather than on accuracy** — which matters because
   the notify gate is a verdict predicate, and a model that changes its mind on a third of
   rows moves rows across it at random. Do not re-run the agreement comparison as the
-  deciding test; run flip-rate, which needs no golden set at all and would have answered
-  this in 2026-07-16 without one.
+  deciding test; run flip-rate, which needs no golden set at all.
 
-  **Done on this branch:** the 1,298-row free title sweep verified (queue 5,729 → 4,430, **0**
-  paid calls), daemon stopped to preserve the window, and the zero-yield-watchlist mechanism
-  measured (BACKLOG — it is age, not `title_filter`, and no probed slug was broken).
-
-- **General-purpose pivot — Stage 3 deferred.** Stage 2 shipped (CHANGELOG). **Stage 3,
-  non-tech discovery feeds:** the watchlist already covers any company, so decide the need
-  before building (brittle, anti-bot handling, dilutes the moat).
+- **General-purpose pivot — Stage 3 deferred.** **Stage 3, non-tech discovery feeds:** the
+  watchlist already covers any company, so decide the need before building (brittle,
+  anti-bot handling, dilutes the moat).
   **Standing design rule:** generality lives in `personal_profile.txt`, *not* in the
   fit-scoring prompt — every `score.txt` change is gated behind `score_eval` (SPEC §7.1,
   SCORING §8.4).
@@ -427,11 +217,11 @@ queue. Eight blocks, matching the pipeline walkthrough — the counts below span
 
 | Tag | Covers | Open now |
 |---|---|---|
-| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects. 2026-07-30 closed two by measurement (the workday feed collapse is dead reqs; the workday prose-date age gate is a structural no-op) and opened one that matters more — 50 bodyless Microsoft postings, the largest `empty_description` source, surfaced by the #46 reason split |
-| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect, and since 2026-07-29 it costs a paid fit call rather than a deleted job) plus two of the three the #24 pre-merge review opened: what the eval can actually reach, and the snippet window degenerating on bullet JDs. The blind-backend floor fix closed 2026-07-29. `make eval-screen` gates the prompt |
-| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — **no defects** (the `capture_usage` one closed 2026-07-31: it was never broken, the passes had stopped fit-scoring) and **quota is the binding constraint**: the cap is `40` as of 2026-07-30 because `60` projected to ~138% of the weekly budget (In flight), and 655 queued rows fail today's filters |
+| `FETCH` | `fetch/` adapters, recipe executors, `feed/`, `run_fetch`/`run_feed`/`run_expire`, watchlist | 15 — the long tail lives here; no defects. The one that matters most: 50 bodyless Microsoft postings, the largest `empty_description` source |
+| `SCREEN` | `score/screen.py`, `score/location.py`, `screen.txt`, the screen backends | 4 — **1 residual** (a 4B ceiling, not a coding defect; it costs a paid fit call rather than a deleted job) plus what the eval can actually reach and the snippet window degenerating on bullet JDs. `make eval-screen` gates the prompt |
+| `SCORE` | `run_score`, fit backends, `score.txt`, scorecard schema, quota | 4 — **quota is the binding constraint**: the cap is `--score-limit 40` because `60` projected to ~138% of the weekly budget, and 655 queued rows fail today's filters |
 | `NOTIFY` | `notify.py`, `get_notifiable`, `run_notify`, Telegram | 0 — no defects |
-| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; pass overlap closed 2026-07-28 by the lockfile, leaving scheduler/cadence and the un-hydrated stub discards |
+| `ORCH` | `pipeline.py` shape, `db.py` transitions, retry budgets, threading, scheduler | 2 — no defects; scheduler/cadence and the un-hydrated stub discards |
 | `WEB` | `apps/web` — Prisma schema, server actions, UI | 2 |
 | `INFRA` | Docker, healthcheck/autoheal, CI, migrations, deployment | 4 |
 | `DOCS` | `docs/`, README, `AGENTS.md`/`CLAUDE.md`, `.claude/skills/` (+ the `.agents/skills` link), evals | 4 |
@@ -442,21 +232,14 @@ rather than tagged (`Fetch capability registry…`, `Notification outbox…`, `S
 changes…`, `Screen shape changes…`, `Orchestration-layer shapes…`) — read the one for
 your block before proposing a redesign of it.
 
-**Open defects: one.** It is a model ceiling rather than a coding error — 3 rows where
-the 4B reads a soft degree bar as hard. The `capture_usage` entry below is **closed**:
-root-caused 2026-07-31 as the documented `if _scorer_cell:` guard on passes that scored
-nothing, not a failing fetch. Everything else found in the 2026-07-23 →
-07-28 sweep has shipped a fix (thirteen in total, counting the 2026-07-29 `.env.<suffix>`
-privacy-guard gap; see [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)).
+**Open defects: three**, all in [Defects](#defects--shipped-behavior-that-is-wrong-should-fix)
+— a vacuous fit gate, an intermittently missing quota snapshot, and a 4B degree ceiling
+that is a model limit rather than a coding error.
 
-**Fixing a check does not un-discard the rows it already killed — RESOLVED 2026-07-30.**
-The recovery ran: 73 paid calls recovered 52 scored rows, 4 of them matches. Queue item 2
-has the numbers and the two ways the estimate was low.
+### Provider generality
 
-### Provider generality — the goal reframe of 2026-08-01
-
-**Operator's call, 2026-08-01: this is a general-purpose tool, and neither the hardware
-nor the provider is part of the product.** The target matrix is four AI backends —
+**Operator's call: this is a general-purpose tool, and neither the hardware nor the
+provider is part of the product.** The target matrix is four AI backends —
 `claude-api`, `claude-code`, `openai-api`, `codex` — for BOTH stages, plus a local
 option (Ollama) on the screen. PRINCIPLES 4 was rewritten in the same change from a
 hardware statement ("runs on the host GPU") to a cost-tier one, and SPEC §3/§4 follow.
@@ -508,165 +291,34 @@ two of the four have no usage endpoint story yet.
 The buckets below are a *catalogue* sorted by severity. This is the **queue**: what to
 take first and why. Each numbered item is independently pickable.
 
-> **THE QUEUE IS EMPTY — items 1-6 are all DONE** (6 and 2 on 2026-07-30; 3 on 07-29;
-> 1, 4, 5 on 07-28), **and so are Q1 and Q2** (2026-07-31; Q1 was not a defect — see the
-> `capture_usage` entry under Defects — and Q2 shipped as #57). **Q3 is costed and PARTLY APPLIED
-> as of 2026-08-01:** one board-side filter shipped (Amazon fetches US-only —
-> 768 fewer rows/pass, identical survivor set), and the other candidates were probed and
-> declined with the measurements recorded. The rest of Q3 — `title_filter`,
-> `max_age_days`, dropping low-yield boards — is still the operator's call. Numbers in
-> [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry. **QUOTA IS THE STANDING PRIORITY — operator's call, 2026-07-31.**
-> Anything in the catalogue below that is not a quota lever waits. The order is fixed and
-> the reasoning is in [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers)
-> immediately after this queue; read it before picking, because two of the obvious moves
-> (a cheaper fit model, a slower cadence) are measured dead ends.
->
-> **Q1. Fix the instrument — `capture_usage`, `[SCORE · XS]`. DONE — visibility shipped
-> 2026-07-30, root cause found 2026-07-31 and it was not a defect: the passes had
-> stopped fit-scoring, so the guarded call correctly never ran (the CHANGELOG's
-> "the scoring pass had stalled" entry, and SPEC §7.1). The historical framing follows.** The quota snapshot stopped being written
-> and nothing said so; it has already made one `--score-limit` decision come out ~17
-> points optimistic. Every number in the quota analysis rests on this file, so it went
-> first even though the other two levers are worth more. Shipped: a WARNING on a `False`
-> return and an `as_of` stamp in the snapshot. **Still open: why the fetch fails inside a
-> pass but succeeds standalone** — now waits on the next failing pass to announce itself
-> rather than on someone thinking to check an mtime. Entry under
-> [Defects](#defects--shipped-behavior-that-is-wrong-should-fix).
->
-> **Q2. Build the free seniority pre-ordering — `[SCORE · M]`. SHIPPED 2026-07-31 (#57)**,
-> as a re-ordering with BOTH keep-direction vetoes, as its own call with its own eval gate.
-> It adds no capacity; it makes the capacity you have land on rows worth spending it on.
-> What remains is not a build but a measurement — no live pass has run with it on, so the
-> demote rate and the paid-call yield are projections. Contract and numbers: SCORING §5.7.
+> **Only Q3 is open.** Anything in the catalogue below that is not a quota lever waits.
+> The reasoning is in
+> [Quota: the gap and the three levers](#quota--the-gap-and-the-three-levers) immediately
+> after this queue; read it before picking, because two of the obvious moves (a cheaper
+> fit model, a slower cadence) are measured dead ends.
 >
 > **Q3. Cut intake — `[FETCH · S]`.** The only lever that reduces *demand* rather than
 > re-ordering it: `title_filter`, `max_age_days`, and dropping low-yield boards. The feed is
-> the firehose (3,212 rows in one day on 07-29 against ~730 on a normal one). The zero-yield
+> the firehose (3,212 rows on a spike day against ~730 on a normal one). The zero-yield
 > watchlist rows — `mlp` (measured at 0 postings), `globalcareers-msci`, both Citadels — are
-> the trivial end of it and are one decision, recorded below.
-> **Board-side filtering was tried 2026-08-01 and it is not a general lever.** Amazon
-> takes a country facet and now fetches US-only (768 rows/pass, zero coverage loss);
-> TikTok/ByteDance accept city codes only, Workday silently IGNORES an unrecognised
-> country facet, and greenhouse ignores location params outright. Table in `BACKLOG.md`.
-> **Items 1, 4 and 5 were DONE 2026-07-28**: the screen stack merged as #24 and the
-> autoheal redo as #27, together with the pass lockfile (#20), the wall-clock schedule
-> (#25), the systemd unit (#26) and the feed pre-filter (PR #29). The
-> surviving items keep their original numbers because other entries in this file cite
-> them by number.
->
-> 2. **DONE 2026-07-30 — the recovery ran.** 764 rows in `id <= 1417` were re-screened;
->    **691 re-discarded for free, 73 reached the paid scorer** (of which 23 arrived via
->    #42's `demote_for_confirmation` path), and **52 came back scored**. Four are
->    seniority+domain `match` and will alert on the next normal pass, `--no-notify` having
->    held them back: **Optiver 723** (the *"is supportive of US immigration sponsorship"*
->    row this item was named for), Optiver 738, Tower Research 964, WorldQuant 1074.
->    **The paid cost was 73 calls, not the ~46 predicted** — the dry run measured only the
->    213 hydrated degree/clearance/authorization discards, while the pass also requeues
->    rows discarded in that id range for *other* reasons, which is the "measured floor,
->    not a ceiling" caveat below coming true at ~1.6x. ~5% of the weekly window.
->    **The side effect landed bigger than recorded, too:** `requeue_discarded` moved
->    **4,644** hydrated discards to `new` (not the 3,092 measured on 07-28 — the pool had
->    grown), so `new` went 5,287 -> 9,218 and the 3,880 rows outside the id window now sit
->    there. The note below says "a later pass re-kills them"; **at `--score-limit 40`
->    against ~205 rows/pass of fresh intake, no scheduled pass will ever reach them** —
->    they are parked, not queued. 632 un-hydrated stubs were left alone by design.
->    A pre-run backup is at `db/applications.db.backup-20260730-1119-pre-discard-recovery`.
->    The recipe, for the record:
->    ```
->    cd apps/worker && PYTHONPATH=. python3 -m ats_worker.run --once --no-notify \
->        --rescreen-discarded --score-max-id 1417
->    ```
->    `--score-max-id` bounds the pass to `id <= N`, applied BEFORE `--score-limit`. 1417 is
->    the top of the degree/clearance/authorization discard range (ids 7-1417) and the
->    pre-existing paid backlog starts at 1419, so the bound selects the recovery targets and
->    structurally cannot reach the backlog. No `--score-limit` is wanted here: a budget would
->    re-introduce the newest-first problem inside the selection. Like `--rescreen-discarded`,
->    the flag requires `--once`, and a negative value is a parser error rather than "no bound".
->    **`--no-notify` is not optional here.** `run_notify` has no per-pass cap, so without it
->    every newly-matched recovered row fires a Telegram alert in one burst. The rows stay
->    `scored` and alert on a later normal pass.
->    **What the ~46 does and does not cover.** It is measured over the **213 hydrated**
->    degree/clearance/authorization discards, which are a subset of the **736** such
->    discards in ids 7-1417 (the rest are un-hydrated stubs `requeue_discarded` skips by
->    design). Rows in that id range discarded for *other* reasons are also requeued and
->    re-screened for free; the location half of those re-discards for free too (PR #35
->    tightened that gate one-directionally with a clean discard side), but **the survivor
->    count for the non-location, non-d/c/a remainder was never measured**. Treat ~46 as the
->    measured floor, not a ceiling.
->    Re-screening the live DB read-only against the three fixes (free, local Ollama, no
->    writes): of 213 hydrated discards whose reason names degree/clearance/authorization,
->    **46 now keep** — **~46 Codex messages, ~2.3% of a weekly budget**. 20 Microsoft
->    phantom-clearance rows, 6 degree, ~20 authorization.
->    **Two of the authorization recoveries are postings that OFFER sponsorship and were
->    being deleted** — Optiver 723 *"is supportive of US immigration sponsorship for this
->    role"* and Bridgewater 34 *"we do provide immigration sponsorship for this position"*;
->    `_OFFERS_SPONSORSHIP` never matched "do provide". One sampled recovery (IMC 529) is a
->    genuine recall loss, already a known miss in the eval report.
->    **Why the old `--score-limit 736` recipe had to be replaced — do not resurrect it.**
->    It was exact under `ORDER BY score DESC, id ASC`: the 736 degree/clearance/authorization
->    discards occupy ids **7-1417** and the pre-existing backlog starts at **1419**, so
->    the first 736 rows of the queue were the targets and nothing else. As of 2026-07-28
->    (PR #29) the queue is `COALESCE(updated_at,'') DESC, id DESC`, which inverts exactly
->    that. `requeue_discarded` stamps `updated_at`, so the good news is the pass cannot
->    wander into the paid backlog — every requeued discard sorts ahead of it. The bad news
->    is that all **3,232** of them do, tied on the same timestamp and broken by `id DESC`,
->    while the 46 targets are among the **lowest** ids in that set. `--score-limit 736`
->    would therefore score the 736 *newest* requeued discards and reach **zero** targets.
->    Reaching the oldest one needs the whole 3,232 — the cost the bound existed to avoid.
->    **This item needed a selector, not a limit — BUILT 2026-07-29** (`--score-max-id`,
->    the id-bound shape; inverting the queue for one operator flag was the alternative and
->    was rejected as a second ordering to reason about). The measurement below is
->    unaffected — it is a property of the rows, not of the ordering. What is left is the
->    run, which spends ~46 messages.
->    **The side effect to accept first:** `requeue_discarded` is unfiltered — it moves all
->    **3,092** hydrated discards out of `discarded` permanently, and the 2,356 outside the
->    window sit as `new` until a later pass re-kills them (free: 3,066 are location, a code
->    path that did not change). 186 un-hydrated stub discards are skipped by design.
-> 3. **DONE 2026-07-29** — a degree/clearance-only screen fail is routed to the strong
->    model instead of discarding (`score.demote_for_confirmation`; SPEC §7.1 + §9
->    traceability, CHANGELOG). Built as an in-pass routing decision plus a
->    `needs_confirmation` marker in `score_detail`, **not** a new `pipeline_status`:
->    screen and fit run in the same pass, so no row would ever be stored in that state,
->    and adding one would mean new buckets in `constants.ts` and the UI for something
->    never observed. The residual degree defect below is now one paid fit call per row
->    rather than a deleted job.
-> 5. **DONE 2026-07-28** (PR #29) — `run_feed` now runs the same
->    `prefilter_postings` call `run_fetch` does, before the resolve. See SPEC §7.1 (feed
->    ingestion) + CHANGELOG for the measurement and for the two silent mistranslations
->    (`title` vs `job_title`, epoch vs ISO date) the tests now pin.
-> 6. **DONE 2026-07-30 — `--score-limit` is `40`** (`~/.config/systemd/user/ats-worker.service`
->    and `deploy/ats-worker.service.example`; restarted 11:07 EDT, between slots).
->    Re-measured at the decision, over **7 passes**: 23% of the weekly window by 04:50 on
->    07-30, i.e. **~3.3% per pass**, so 42 passes/week projects to **~138%** — close to
->    the 3-pass sample's ~140%, which was right for the wrong reason.
->    **The first arithmetic done here was WRONG and the lesson is about the instrument,
->    not the sums:** `db/scorer_usage.json` carries no `as_of` field, so "23%" was read as
->    current when it was 8 hours and one pass stale (`capture_usage` had silently stopped
->    writing — defect below), which understated the burn as ~2.9%/pass and ~121%/week.
->    **Check the file's mtime before quoting it.** `40` projects to **~92%**: under
->    budget, but the ~8% left over is one recovery run, not a comfortable margin — item
->    2's run then spent ~5%. Intake over the last 24h
->    was **~205 rows/pass** (median ~85 — it is spiky), so the cap, not intake, binds:
->    every pass saturated it. The cost is that `40` parks ~20 more rows/pass than `60`
->    (~120/day), and the backlog grows either way. The **choice made is *keeping up*, not
->    *catching up***; draining is a deliberate operator run.
->    **Found while checking the restart window:** the daemon had been running pre-#48 code
->    since 21:12 on 07-29, so every `blind response, no 'screen' object` line was a
->    posting kept unscreened and handed to the *paid* scorer. The restart picked the fix
->    up — after any screen-path merge, restart between slots or keep paying for it.
->    It was one number in
->    `ExecStart` (`~/.config/systemd/user/ats-worker.service`), then
->    `systemctl --user daemon-reload && systemctl --user restart ats-worker` **between
->    slots** — a restart mid-pass kills an in-flight `codex exec` and spends the quota for
->    nothing (the unit configures no graceful shutdown; see `deploy/*.example`).
->    **Do not reach for the cadence instead:** halving the passes doubles the intake each
->    one carries, so paid calls/week do not move. Only a lower cap or less intake
->    (`title_filter`, `max_age_days`, dropping low-yield boards) reduces spend.
+> the trivial end of it and are one decision. Numbers in
+> [`BACKLOG.md`](./BACKLOG.md)'s intake-cut entry; **the call is the operator's.**
+> **Board-side filtering is not a general lever** — it was probed per board and only Amazon
+> takes it (now US-only: 768 fewer rows/pass, identical survivor set). TikTok/ByteDance
+> accept city codes only, Workday silently IGNORES an unrecognised country facet, and
+> greenhouse ignores location params outright. Table in `BACKLOG.md`.
 >
 > **Also open, not queued:** #21 ships dead. The
 > [long-run-day runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2
 > (bounded fetch + scoring at scale) remain unrun — read them before any large paid pass
-> for the quota math, monitoring cadence and authority boundary. Phases 3-4 are done.
+> for the quota math, monitoring cadence and authority boundary.
+>
+> **One piece of live state a pass will not fix:** ~3,880 requeued discards sit in `new`
+> outside any reachable window. At `--score-limit 40` against ~205 rows/pass of fresh
+> intake, no scheduled pass reaches them — they are parked, not queued, and draining them
+> is a deliberate operator run (`--rescreen-discarded` + `--score-max-id`, and
+> `--no-notify` is not optional: `run_notify` has no per-pass cap, so a recovery run
+> without it fires every newly-matched row at Telegram in one burst).
 
 ### Quota — the gap and the three levers
 
@@ -688,7 +340,7 @@ on 07-30, 197 on 07-29**. Capacity at `--score-limit 40` x 6 passes is **240 row
 demand is ~2,800–4,900 fit calls/week against capacity near ~1,344 — behind by ~2–3x. No
 cap setting fixes that: `60` blew the budget at ~138%, `40` fits at ~92% but covers fresh
 intake only. **Every figure here rests on `db/scorer_usage.json`, which is the file that
-silently stopped updating — see Q1.**
+still goes missing on roughly a fifth of passes — see Defects.**
 
 **THE REFRAME, AND IT IS THE POINT: the backlog is not a debt to repay.** This system's job
 is to surface ~15 postings a week to a human who applies by hand. It is not a queue
@@ -700,12 +352,26 @@ buy a "no" and 54% are `too_junior`** (SCORING §5.7): the budget is being spent
 proving that jobs that were never viable are not viable.
 
 **The three levers, and only these three.**
-1. **Prioritize** (Q2). Adds no capacity; roughly doubles the yield of the capacity there
-   is. Measured and ready.
+1. **Prioritize** — the free seniority pre-ordering. Adds no capacity; roughly doubles the
+   yield of the capacity there is. Shipped; what remains is measuring the demote rate and
+   paid-call yield on live passes, since both are still projections (SCORING §5.7).
 2. **Cut intake** (Q3). The only lever that reduces demand rather than re-ordering it.
-3. **Accept the parked backlog.** The 2026-07-22/23 rows are already unreachable by
-   construction — the queue is most-recently-touched-first, so only a deliberate operator
-   run reaches them. Treating them as owed is what makes the arithmetic look hopeless.
+3. **Accept the parked backlog.** The oldest rows are already unreachable by
+   construction — the queue is most-recently-touched-then-newest
+   (`COALESCE(updated_at,'') DESC, id DESC`), so a bounded pass scores current intake and
+   never walks the backlog. Only a deliberate operator run reaches it: `--score-only`
+   (skips ingest, drains from the top of the id range), with the
+   [runbook](./superpowers/plans/2026-07-24-long-run-day-runbook.md) phases 1-2 for the
+   quota math and monitoring cadence. Rows predating scorer provenance carry no
+   `backend`/`model`/`scorer_version` stamp, so "unstamped" selects them (SPEC §9).
+   Treating them as owed is what makes the arithmetic look hopeless.
+
+**Two arithmetic traps in this section.** (1) **`--score-limit` is not a pure quota
+budget** — an LLM screen-discard and a thin-JD row each consume a slot while spending
+nothing (~18% of screened rows on live passes, 8.2% over DB history; SPEC §7.1), so the
+cap bounds *slots*, not spend. (2) **The ~18% free-discard rate and SCORING §5.7's 54% are
+different denominators** — most of that 54% is the deterministic location gazetteer, not
+the model screen. They are not reconciled; do not average them.
 
 **Two moves that are NOT levers, both measured, do not re-propose them.** A *cheaper fit
 model*: SCORING §8.7 — it lost on real JDs on both gate axes (agreement 76% vs 86%,
@@ -726,120 +392,50 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **`make eval-score` has been measuring ONE row and reporting PASS — the authoritative
-  fit gate cannot fail** — `[SCORE · M · found 2026-07-31 · PRE-EXISTING, partially fixed]`.
-  `eval/golden.jsonl` holds 23 hand-labelled rows keyed by `job_postings.id`, and **22 of
-  the 23 name postings that are no longer in the DB.** `score_row` prints one line to
-  stderr per missing id and returns `None`; the run then gates on whatever is left. The
-  2026-07-31 run reported *"gate rows: 1 · agreement 1/1 (100%) · PASS"*, which is the
-  same failure shape as the clearance tautology in `eval-screen`: a green gate that no
-  behavior can turn red.
-  **Not caused by the 07-31 sweep** — the pre-session backup
-  (`applications.db.backup-20260731-0210-pre-deprioritized-column`) already had 1/23. Nor
-  by application code: there is **no `DELETE FROM job_postings` anywhere** in the worker
-  or the web. The golden ids span 26-1159 and ids 2000-5000 are 99.97% present, so this is
-  not the ~40% background gap in that id range — the set was curated against a DB state
-  that no longer exists (the terra measurement dates to 2026-07-16).
-  **The labels are NOT recoverable by remapping, and this was tried.** Matching each
-  row's `note` back to a live posting by title is ambiguous: *"Maven Trading Analyst
-  (Python)"* and *"Point72 Fund Flow Analyst"* both fuzzy-match the same candidates
-  (on "Analyst"). Binding a hand-written verdict to the wrong posting is worse than an
-  empty gate, so the 23 labels are written off.
+- **`make eval-score` gates on one row and reports PASS — the authoritative fit gate
+  cannot fail** — `[SCORE · M · needs human labelling]`. `eval/golden.jsonl` holds 23
+  hand-labelled rows keyed by `job_postings.id` and **22 of them name postings that are no
+  longer in the DB.** `score_row` prints one line to stderr per missing id and returns
+  `None`; the run gates on whatever is left, reporting *"gate rows: 1 · agreement 1/1
+  (100%) · PASS"* — the same failure shape as the clearance tautology in `eval-screen`, a
+  green gate no behavior can turn red. **Do not read a PASS from it.**
+  **The labels are NOT recoverable by remapping, and this was tried.** Matching each row's
+  `note` back to a live posting by title is ambiguous — *"Maven Trading Analyst (Python)"*
+  and *"Point72 Fund Flow Analyst"* both fuzzy-match the same candidates (on "Analyst") —
+  and binding a hand-written verdict to the wrong posting is worse than an empty gate, so
+  the 23 labels are written off.
   **Consequence, and it is the load-bearing one: the standing `gpt-5.6-terra` rejection
   (76% gate vs sol's 86%) rests on a corpus that no longer exists and cannot be
-  re-measured against it.** Any claim sourced to that comparison is now unfalsifiable.
-  **Fixed on this branch, in the direction that prevents recurrence:** `golden.jsonl` rows
-  may now carry an inline `posting` payload and `score_row` falls back to it, making the
-  corpus **self-contained the way `screen_golden.jsonl` already is** — that asymmetry is
-  exactly why the screen corpus survived and this one decayed. `tools/label_golden.py`
-  writes the payload for every new row. `eval/` is gitignored, which is what makes storing
-  it safe. **Still open: the rebuild itself**, which needs human labelling; the gate stays
-  vacuous until then, so do not read a PASS from it.
-  **Also added:** `GOLDEN_SET`/`SCORE_EVAL_OUT` env overrides, so an A/B can run against a
-  substitute corpus while the authoritative one is empty. A substituted corpus is not the
-  gate — anything built from the strong scorer's own verdicts measures agreement, not
-  correctness.
+  re-measured against it.** Any claim sourced to that comparison is unfalsifiable.
+  **Recurrence is already prevented:** `golden.jsonl` rows may carry an inline `posting`
+  payload and `score_row` falls back to it, so the corpus is **self-contained the way
+  `screen_golden.jsonl` already is** — that asymmetry is exactly why the screen corpus
+  survived and this one decayed. `tools/label_golden.py` writes the payload for every new
+  row, and `eval/` is gitignored, which is what makes storing it safe. `GOLDEN_SET` /
+  `SCORE_EVAL_OUT` env overrides let an A/B run against a substitute corpus meanwhile — a
+  substitute is not the gate, since anything built from the strong scorer's own verdicts
+  measures agreement, not correctness.
+  **What is left is the rebuild**, which needs human labelling.
 
-- **`capture_usage` silently stopped writing the quota snapshot, and the quota is the
-  binding constraint** — `[SCORE · XS · found 2026-07-30]`. `db/scorer_usage.json` was
-  last written **04:50 on 07-30** despite two later passes that both fit-scored (the
-  08:00 daemon pass, 49 paid calls, and the 12:00-ish recovery run, 73). Called by hand
-  against the very same resolved path it returns `True` and writes correctly (live
-  reading 32% where the file still said 23%), so the fetch is failing *inside the pass*
-  and nothing says so: `capture_usage` is best-effort by contract and swallows every
-  exception, `run_once` ignores the return value, and the file has **no `as_of` field**,
-  so a stale snapshot is indistinguishable from a fresh one at a glance — only the mtime
-  tells you, and the web renders the bar from that mtime while the CLI shows nothing.
-  **This is how the first `--score-limit` arithmetic came out ~17 points optimistic.**
-  Two things to fix, and they are separable: (1) find why the fetch fails under a pass
-  but not standalone — a concurrent `codex exec` touching `~/.codex/auth.json` is the
-  first suspect; (2) regardless of (1), make the failure
-  *visible* — log at WARNING when `capture_usage` returns False, and stamp `as_of` into
-  the snapshot so a stale reading is legible without an `ls -la`. (2) is the one that
-  matters more: the instrument being wrong is survivable, the instrument being
-  **silently** wrong is what cost the decision.
-  **(2) SHIPPED 2026-07-30** (`chore/small-fixes-and-progress-split`; SPEC §7.1 +
-  CHANGELOG): `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`
-  on a `False` return, and the snapshot carries an offset-aware `as_of` stamped at write
-  time. **(1) The cause is NAMED as of 2026-07-31 12:48 — HTTP 403. What produces it is still
-  open, and the retry shipped for it is a mitigation, not a closure.** The instrumentation shipped that morning named it on the FIRST
-  failing pass after it landed: the 12:00 pass fit-scored 26 rows and printed
-  `[quota] https://chatgpt.com/backend-api/codex/usage returned HTTP 403 (Forbidden)`.
-  That is candidate (a) below by status — but **the follow-up does NOT rule out the
-  rate-limit reading, and an earlier version of this entry wrongly said it did.** Called by
-  hand seconds later the endpoint gave 403, then 200, then 403 inside forty seconds; that
-  alternation is exactly what a limiter sitting near its threshold produces, and Cloudflare
-  rate-limit rules commonly answer 403 rather than 429. The hand calls also came from a
-  different client than the in-pass failure, so they may not sample the same thing at all
-  — the same "measure by driving, not reimplementing" trap as the `now=None` incident.
-  Candidates (b) and (c) are **unobserved, not excluded**; (c) is in fact now retried by
-  the same change.
-  **Mitigation shipped** (`fix/capture-usage-403-retry`): 4 attempts on a growing 2/8/20s
-  schedule, agnostic between the two hypotheses because the evidence cannot separate them.
-  **It does not end the staleness** — at the ~2-in-3 per-call failure rate observed, four
-  attempts still leave roughly 20% of passes without a snapshot, and three consecutive
-  hand-call successes cannot tell 70% from 100%. **The measurement that would settle it is
-  the WARNING rate across passes over days**, not more hand calls. The remedy that
-  sidesteps the question — capture usage at pass START, before the account is hot — is in
-  `BACKLOG.md`. The historical framing follows.
-  **(1) was REOPENED 2026-07-31 08:50 — the 07-31 root cause was true of its window and
-  NOT the whole story.** The 08:00 pass fit-scored **34** rows and still wrote no
-  snapshot, and the shipped WARNING is what said so — the first time this failure has
-  announced itself rather than being found by an `ls -la` days later. Called by hand 20
-  seconds after that pass, the same fetch returned 200 (35% stale on disk vs 37% live),
-  and `~/.codex/auth.json` has still not been rewritten since 07-26, so the
-  concurrent-`codex exec` suspicion is dead a second time. What is left is a real,
-  intermittent, in-pass failure with **no cause named** — because `_get_json` swallowed
-  the status. It no longer does
-  (`fix/capture-usage-diagnosis`): **every** route to a `False` return names itself — a
-  non-200 with status and reason, an `HTTPError` (which `urlopen` raises, so the status
-  check never saw a 4xx), a truncated body or connection failure with its exception type,
-  "not logged in", a 200 with no `rate_limit` object, a 200 whose window carries a null
-  `used_percent`, and the blanket catch that covers the file write. A first cut
-  instrumented only the three HTTP paths, which the pre-merge review showed would have
-  missed the suspect below entirely.
-  **Three untested candidates, in the order they are worth checking.** (a) A 429/403 on
-  the usage endpoint right after a burst of paid calls on the same account — note the
-  evidence is **n=1 against n=1**: the endpoint is called ONCE per pass, so one usage call
-  failed after 34 fit calls where one succeeded after 7. (b) A 200 whose `used_percent`
-  comes back null under the same load, which has no status code to show for it. (c) A
-  truncated body (`IncompleteRead`) behind the CDN — it subclasses neither `OSError` nor
-  `ValueError`, so before this branch it escaped the fetch entirely and was swallowed in
-  silence.
-  **The earlier finding, which still holds for its own window:** `capture_usage` is called under `if _scorer_cell:`, i.e. only when a
-  scorer was actually built, and the passes after 12:41 on 07-30 **fit-scored nothing**
-  (4 rows, then 0, then 0 — CHANGELOG, "the scoring pass had stalled"), so the call was
-  correctly never made. Verified three ways: the fetch returns `True` both from an
-  interactive shell and from a replica of the daemon's own environment (`env -i` with
-  the unit's `HOME`/`PATH`/`TMPDIR`); `~/.codex/auth.json` has not been rewritten since
-  07-26 and its token is valid to 08-05, so the concurrent-`codex exec` suspicion is
-  dead; and the DB shows the scored-row count going to zero exactly when the file
-  stopped updating. **The instrument was reporting correctly on a pipeline that had
-  stopped spending.** What made it read as a defect is that a stale snapshot and a
-  no-spend pass look identical from the outside — which the shipped `as_of` stamp and
-  WARNING now distinguish. The web route still derives its own `as_of` from the file mtime (same instant,
-  and it must keep working for pre-stamp snapshots), so the two agree; a reader of the
-  raw file no longer has to.
+- **`capture_usage` misses the quota snapshot on roughly a fifth of passes, and the quota
+  is the binding constraint** — `[SCORE · XS · mitigated, cause unnamed]`. The failure is
+  a real, intermittent, in-pass one: the codex usage endpoint answers **HTTP 403** under
+  load and the snapshot is simply not written for that pass. It is no longer silent —
+  `run_once` prints `[quota] WARNING: no <backend> usage snapshot written`, every route to
+  a `False` return names itself, and the snapshot carries an offset-aware `as_of` so a
+  stale reading is legible without an `ls -la`. A 4-attempt retry on a growing 2/8/20s
+  schedule is the mitigation; at the observed per-call failure rate it still leaves ~20%
+  of passes uncovered.
+  **The cause is not established, and hand calls cannot establish it.** Called by hand the
+  endpoint alternates 403 / 200 / 403 inside forty seconds — consistent with a limiter
+  near its threshold (Cloudflare rate-limit rules commonly answer 403, not 429) — but the
+  hand client is not the in-pass client, so it may not sample the same thing at all. **The
+  measurement that would settle it is the WARNING rate across passes over days**, not more
+  hand calls. Two candidates remain unobserved rather than excluded: a 200 whose
+  `used_percent` comes back null under load, and a truncated body (`IncompleteRead`, which
+  subclasses neither `OSError` nor `ValueError`).
+  **The remedy that sidesteps the question** — capture usage at pass START, before the
+  account is hot — is in `BACKLOG.md`.
 
 - **The 4B misreads a soft degree bar as a hard one — 2-3 rows, and it is a MODEL CEILING,
   not a wording gap** — `[SCREEN · XS · residual of the 2026-07-28 degree fix]`.
@@ -855,35 +451,13 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
   clause reached 3 while *raising* recall). Probing the raw output settled why: the same
   model **invents** a `master's` level on genuine sole-PhD roles, so it is unreliable in
   both directions — a ceiling, not mis-instruction.
-  **The remedy shipped 2026-07-29** (queue item 3, `needs_confirmation` routing): these
-  rows are no longer deleted, they buy one paid fit call each and the strong model's
-  extraction decides. The 4B ceiling itself is unchanged and unfixable at this size — what
-  changed is what a misreading costs.
-  **RE-MEASURED 2026-07-29 (post-#45 corpus repair): the count is 4, at the top of its
-  band, and this run was internally STABLE** — ids 67, 68, 672 and 738, every one
-  disqualified on all 3 draws, with a whole-run flip count of **0**. So the earlier "moved
-  3 → 2 between back-to-back runs" instability did not reproduce here; a single run's count
-  is still not a trend, and the standing instruction not to diff it holds. The repair did
-  not touch degree rows, so 4 is a draw from the same distribution rather than a
-  regression.
-
-**Thirteen others found in the 2026-07-23 → 07-29 sweep have shipped fixes** and their
-records are in CHANGELOG + SPEC (§7.1, §9 traceability, §11); they are not repeated here.
-**One consequence outlives them:** the ~20 rows the clearance defect already killed are
-still `discarded` — queue item 2 recovers them.
-
-**The pattern, and the reason PRINCIPLES exists.** Nine of the thirteen were the same
-policy error — a *systemic* condition handled as a per-item verdict — now named in
-[`PRINCIPLES.md`](./PRINCIPLES.md) ("the four kinds of uncertainty") and obeyed by every
-pipeline stage. The 2026-07-27/28 pair is a *different* class: a per-item verdict acted on
-**without checking what the JD says**. They part company on the remedy — clearance is
-lexical, so code can floor it on a token; degree is semantic, so no floor exists and the
-answer is routing, not a regex.
+  **The cost is bounded, not the ceiling.** `needs_confirmation` routing means these rows
+  are no longer deleted: each buys one paid fit call and the strong model's extraction
+  decides. The 4B ceiling itself is unfixable at this size — what changed is what a
+  misreading costs. The count sits in a 2-4 band across runs; a single run's count is not
+  a trend.
 
 ### The rest of the open catalogue lives in two other files
-
-Everything below the defects moved out on 2026-07-30 — this file is reloaded by every
-session and most of it was reference material, not state.
 
 - **[`BACKLOG.md`](./BACKLOG.md)** — the open catalogue: *Unverified / deferred*
   (behavior may be fine but nothing proves it, or a decision is pending) and
@@ -899,9 +473,13 @@ session and most of it was reference material, not state.
 ## How to update
 
 This file tracks only *movement*; it should never accumulate a wall of finished
-items. When state changes:
+items. The full rule — current state only, no dated completion records, no narrating the
+document's own edit history — is in [`CLAUDE.md`](../CLAUDE.md) / `AGENTS.md`.
+When state changes:
 
-- **Starting work** → add an in-flight line under [In flight](#in-flight).
+- **Starting work** → add an in-flight line under [In flight](#in-flight). **When it
+  lands, that line leaves** — an entry saying "MERGED as `abc1234`" is a completion
+  record, and completion records live in git.
 - **Closing a gap / shipping a feature** → remove its line here, add a
   [`CHANGELOG.md`](../CHANGELOG.md) entry (history), and update the matching section
   of [`SPEC.md`](./SPEC.md) (the capability map / behavior) — **all in the same

@@ -37,6 +37,28 @@ the task needs:
 When you change behavior, update the matching section of `SPEC.md`, `PROGRESS.md` and
 `CHANGELOG.md` **in the same commit**. Conventions in `CONTRIBUTING.md`.
 
+**Every doc except `CHANGELOG.md` states the CURRENT state, never the history of how it
+got there.** `CHANGELOG.md` is the one file that is a record of *when*; git is the record
+of *what happened*. So, everywhere else:
+
+- **Delete a finished item — do not mark it done.** No `DONE 2026-08-04`, no `SHIPPED
+  (#57)`, no struck-through entry, no "the historical framing follows". A shipped feature
+  leaves `PROGRESS.md` for `SPEC.md` + `CHANGELOG.md`; a resolved backlog entry is deleted.
+- **Do not append a dated completion record** to an entry that is still open. Rewrite the
+  entry to say what is true now. If a residual survives, the entry *is* the residual.
+- **Do not narrate the document's own edit history** — "an earlier draft said", "two
+  earlier versions had it wrong", "the counts above are now history". Correct the text and
+  delete the wrong version; a correction only needs to exist while a wrong figure is still
+  circulating somewhere you cannot edit.
+- **Keep a date only when it qualifies a fact that is still live** — a measurement whose
+  staleness matters, a decision whose window is open. Not to timestamp completion.
+- **The exception is a negative result**: what was tried and failed, and why, is not
+  recoverable from git (a failed experiment usually leaves no commit at all). Write it as a
+  present-tense constraint — "batching is dead at every size above 1" — in `SCORING.md`
+  §"Measured history" or `REJECTED.md`, not as a dated log entry. Same for anything whose
+  only record is a **gitignored** artifact, like the eval corpora: state what the corpus
+  contains and why, since git cannot.
+
 ## Skills
 
 Reusable procedures live in `.claude/skills/` as `SKILL.md` files — the cross-agent
