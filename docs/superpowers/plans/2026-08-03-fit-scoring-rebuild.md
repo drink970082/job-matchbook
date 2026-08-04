@@ -7,8 +7,8 @@
 > each of two backends against the standing quota directive, and step 4 is human
 > labelling. Nothing in steps 0-2 touches production state.
 >
-> **TWO OPEN DECISIONS FOUND BY THE STEP 0-2 AUDIT. Both are the operator's, and the
-> first one prices step 3.**
+> **TWO FINDINGS FROM THE STEP 0-2 AUDIT. A is open and prices step 3; B is resolved
+> and deferred to the cutover (operator's call, 2026-08-03).**
 >
 > **A. The frame cannot settle the tier boundary, and no re-pick fixes it.** Parsing
 > `TARGET: Priority N` out of every stored domain note: the whole DB holds **2 priority-1
@@ -23,18 +23,50 @@
 > that is "pick one of five", which 250 rows can do. The tier question needs a different
 > source of priority-1/2 rows — fetch-side, not DB-side — or a different method.
 >
-> **B. The profile's CAVEATS have no home, and quote verification cannot replace them.**
-> `personal_profile.txt` lines 33-41 are downward correctors on the *résumé* side ("C++ is
-> coursework-depth", "I have not built streaming systems", "trading results are simulated,
-> not live P&L"). The extractor deliberately never sees the profile — correct for the
-> preference half — but the résumés carry the uncaveated claims, so a "3+ years C++ in
-> low-latency systems" requirement can come back `adjacent_match` with a quote that
-> *verifies*. Quote checking catches invention, not over-claim. And `SCORING 8.4`'s one
-> converged lever, *edit the profile not the prompt*, is structurally unavailable here.
-> The candidate fix is to append CAVEATS to the résumé material as its own labelled
-> section — they are facts about the evidence, not preferences, so this does not breach
-> the design rule — but it changes what is on the wire and it is not a session's call.
-> **Decide it before step 4 buys labels against uncorrected relations.**
+> **B. There is a THIRD input category with no declared home: annotations on the
+> candidate's own evidence.** RESOLVED as deferred — the reasoning is worth keeping,
+> because the first two answers to it were both wrong.
+>
+> The observation: the extractor deliberately never reads `personal_profile.txt`, but that
+> file's CAVEATS lines are downward correctors on the *résumé* side ("C++ is
+> coursework-depth", "I have not built streaming systems", "results are simulated, not
+> live P&L"). The résumés carry the uncaveated claims, so a requirement the résumé
+> over-reads can come back `adjacent_match` with a quote that *verifies*. Quote checking
+> catches invention, never over-claim, and `SCORING 8.4`'s one converged lever — *edit the
+> profile, not the prompt* — is structurally unavailable once the profile is not read.
+>
+> **The first proposed fix was unsound: route the CAVEATS section to the extractor.** That
+> routes by CONTAINER, not by function. The header is a free-text bucket; another
+> operator's CAVEATS could hold a preference ("I won't work for defense contractors"), and
+> the rule would feed it straight into the extractor — breaking the one rule this design
+> turns on, silently, while looking correct. It only appears safe here because all seven
+> of this operator's caveat statements happen to be the same type. A rule that is right on
+> the author's own data and unsound in general is the worst shape available.
+>
+> **Route by function instead, and the system already has exactly three functions** — two
+> declared, one not:
+>
+> | function | declared home |
+> |---|---|
+> | what work I want | `fit_profile.concepts`, with an explicit `kind` |
+> | what disqualifies me outright | the `candidate:` block |
+> | **what my evidence actually means** | **none — still free prose** |
+>
+> The third is a real category and it is independent of who wrote it or which file it sits
+> in: a private annotation on one's own evidence, which cannot go in the résumé itself
+> because the résumé is an outward document. If it is worth having, it gets DECLARED the
+> way the other two are — a list whose structure says "this is a limit on my evidence" —
+> so that nothing has to read a section by name.
+>
+> **Deferred, deliberately, and not silently.** The bite is narrower than it first looked:
+> the `low_latency_systems` anti-target already kills the C++ case on the duty side, so
+> what remains is a handful of requirement types on roles the operator would otherwise
+> want (streaming, blockchain depth, simulated-vs-live results). That does not justify
+> designing a new config shape before the pilot has shown whether the model over-credits
+> anything at all. **Step 3's pilot should read the relation distribution for exactly
+> this** — `adjacent_match` or better on streaming/blockchain/live-P&L requirements. The
+> declared home lands at the cutover, when the profile stops being one blob for the old
+> scorer to read whole.
 >
 > **Status 2026-08-03.** Converged after two adversarial audits, then re-sequenced.
 > The rebuild proceeds, but **extraction ships before the arithmetic** and the rubric's
