@@ -66,11 +66,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   survives as `match/match` under either relabel arm), and `feat/golden-relabel` is not in
   this order — its `domain` output depreciates under a schema that deletes the enum.
   **TWO FINDINGS from the step 0-2 audit, both written up at the top of the plan.**
-  (1) **OPEN, and it prices step 3: the frame cannot settle the tier boundary at any
-  budget** — the whole DB holds 2 priority-1 and 6 priority-2 rows, and the frame already
-  takes every `match/*` row that exists, so the class the top two tiers exist to find
-  lands at ~5 rows. Step 6's relation-weight sensitivity test dies on that; the dominance
-  threshold survives (a choice among 5 lattice values, not a continuous estimate).
+  (1) **RESOLVED 2026-08-04, after being diagnosed wrong twice: the tier-1/2 evidence was
+  thin because of WHICH rows got scored, not because the postings are missing.** The
+  retracted claim ("the DB holds 2 priority-1 rows") was a regex artifact measured against
+  the 502 fit-scored rows and reported as the whole DB — those 502 are ~97%
+  non-trading-firm. What is true: **1,197 postings sit at prop/HFT/market-making/hedge-fund
+  employers and exactly 30 ever got a paid fit call**; ~700 were correctly discarded on
+  geography, and **345 are still `new`, never processed.** Fixed by re-picking rather than
+  re-gathering — `pick_frame.py --oversample` reserves a live-rows-only `target_employer`
+  stratum, and the 2026-08-04 frame draws 75 (62 US/remote, 63 never scored) out of the
+  same 250 slots. The dominance threshold was always answerable here (a choice among 5
+  lattice values, not a continuous estimate).
   (2) **RESOLVED as deferred (operator, 2026-08-03): a third input category — annotations
   on the candidate's own evidence — has no declared home.** The extractor correctly never
   reads `personal_profile.txt`, but its CAVEATS lines are downward correctors on the

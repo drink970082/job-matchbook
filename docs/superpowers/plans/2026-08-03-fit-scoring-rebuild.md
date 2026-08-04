@@ -7,21 +7,48 @@
 > each of two backends against the standing quota directive, and step 4 is human
 > labelling. Nothing in steps 0-2 touches production state.
 >
-> **TWO FINDINGS FROM THE STEP 0-2 AUDIT. A is open and prices step 3; B is resolved
-> and deferred to the cutover (operator's call, 2026-08-03).**
+> **TWO FINDINGS FROM THE STEP 0-2 AUDIT, both now resolved.** A was diagnosed wrong
+> twice before it was diagnosed right — read it for the method, not just the answer. B is
+> deferred to the cutover (operator's call, 2026-08-03).
 >
-> **A. The frame cannot settle the tier boundary, and no re-pick fixes it.** Parsing
-> `TARGET: Priority N` out of every stored domain note: the whole DB holds **2 priority-1
-> and 6 priority-2 rows**, and the frame already takes *all 30* `match/match` and *all 13*
-> `match/too_junior` rows available. So the corpus that step 4 labels will carry ~5 rows of
-> the class the t1/t2 concepts exist to find. Consequences: macro-F1 over concept ids is
-> uncomputable for the target classes (the plan's own "do not report macro-F1 on 11 rows
-> per class" is breached by 5x), NDCG@K rests on ~5 graded-3 rows, and step 7's held-out
-> split leaves 2-3 of them. **Step 6's relation-weight sensitivity test is the one this
-> kills outright**; the dominance threshold survives, because with importance weights
-> 4/2/0 over <=5 duties the winner share only takes 5 distinct values in (0.50, 0.70] —
-> that is "pick one of five", which 250 rows can do. The tier question needs a different
-> source of priority-1/2 rows — fetch-side, not DB-side — or a different method.
+> **A. The tier-1/2 evidence is thin because of WHICH rows were scored, not because the
+> postings are missing. RESOLVED 2026-08-04 by re-picking the frame; the first diagnosis
+> was wrong twice and both errors are worth keeping.**
+>
+> *The retracted claim* was "the whole DB holds 2 priority-1 and 6 priority-2 rows".
+> **Error 1, a regex artifact.** `TARGET[^.]{0,40}?[Pp]riority\s*([1-5])` gave p1=2;
+> loosening it to `[Pp]riority\s*([1-5])` gave p1=14. Neither is real — reading the notes
+> by hand, most loose hits are the phrase *"rather than any priority 1-5 software/quant
+> field"*, which means `TARGET: none`. **Error 2, the wrong population.** The count ran
+> over the 502 rows carrying a fit assessment and was reported as "the DB". Those 502 are
+> ~97% non-trading-firm, so they could not have contained tier-1 rows however many exist.
+> Genuine non-anti tier-1/2 rows, read by hand: about five (Tower Research p1; Optiver,
+> Eastern Bank, Cetera, Voleon p2).
+>
+> *What is actually true.* **1,197 postings sit at prop / HFT / market-making / hedge-fund
+> employers** — Jane Street, Optiver, IMC, DRW, Jump, Tower, Susquehanna, Point72, Two
+> Sigma and the rest — and **exactly 30 of them ever received a paid fit call.** The rest:
+> ~700 discarded on GEOGRAPHY (on-site UK 194, Hong Kong 101, Singapore 91, Netherlands
+> 61, India 55, Australia 47, China 40, Poland 17), 45 internships, 28 excluded titles, 14
+> no-sponsorship — all correct discards — and **345 still `new`, never processed at all.**
+> The scoring queue is newest-first and reached 502 of 11,675 rows, drawn essentially at
+> random with respect to employer.
+>
+> *The fix, and it is cheap.* Change WHICH rows the frame draws, not how many.
+> `pick_frame.py --oversample <company substrings> --oversample-size N` reserves a
+> `target_employer` stratum, restricted to rows that are still live — a paid call spent on
+> an already-correctly-discarded Bristol support role buys nothing. The 2026-08-04 frame
+> draws **75 such rows of 415 available, 62 of them US/remote and 63 never scored**,
+> against the 30 that carried tier evidence before. That is roughly a tenfold increase in
+> the class the t1/t2 concepts exist to resolve, at the same total corpus size — paid for
+> out of the `mismatch/*` cells, whose answer is already known.
+>
+> *The limit that remains.* Most trading-firm postings are overseas, so the genuine
+> US-and-remote supply from these employers is a few hundred, not thousands. Enough to
+> settle a tier boundary; not enough to make tier 1 a well-populated class in absolute
+> terms. And with importance weights 4/2/0 over <=5 duties the dominance threshold is a
+> choice among **5 lattice values** in (0.50, 0.70], not a continuous estimate — that one
+> was always answerable at this corpus size.
 >
 > **B. There is a THIRD input category with no declared home: annotations on the
 > candidate's own evidence.** RESOLVED as deferred — the reasoning is worth keeping,

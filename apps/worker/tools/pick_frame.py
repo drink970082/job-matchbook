@@ -101,9 +101,26 @@ def _load_rows() -> list[dict]:
     return rows
 
 
-def _stratum(row: dict) -> str:
+def _stratum(row: dict, oversample: tuple = ()) -> str:
     """The cell a row belongs to. `unscored` is one cell, not a hole: those rows are the
-    intake the paid scorer has never reached, and they are the majority of the backlog."""
+    intake the paid scorer has never reached, and they are the majority of the backlog.
+
+    `oversample` wins over every other cell, and that is the point of it — see
+    `--oversample` in main(). It is a substring match on the company name, supplied at
+    pick time rather than stored in config, because which employers matter is the
+    operator's business and nothing the engine should carry a list of.
+    """
+    if oversample and row["pipeline_status"] != "discarded":
+        # LIVE rows only, and the exclusion is the point rather than a tidy-up. At the
+        # employers this stratum exists to sample, roughly two thirds of the postings are
+        # already discarded — overwhelmingly on GEOGRAPHY (on-site UK / Hong Kong /
+        # Singapore / Netherlands / India), plus internships and excluded titles. Those
+        # are correct discards, and a paid extraction call spent on one buys evidence
+        # about a posting that is already, rightly, dead. The negative class is supplied
+        # by the `mismatch/*` cells, which is where it belongs.
+        name = (row["company_name"] or "").lower()
+        if any(token in name for token in oversample):
+            return "target_employer"
     if row["length"] < THIN_JD_MAX:
         return "thin_jd"
     if not row["domain"] or not row["seniority"]:
@@ -195,6 +212,14 @@ def main() -> int:
     ap.add_argument("--per-company", type=int, default=3,
                     help="soft cap per company inside a stratum (0 = off)")
     ap.add_argument("--seed", default="2026-08-03", help="makes the draw reproducible")
+    ap.add_argument("--oversample", default="",
+                    help="comma-separated company-name substrings whose postings get "
+                         "their own stratum and a fixed quota. Use it when the class the "
+                         "corpus has to resolve is rare in the SCORED population but "
+                         "common in the fetched one — balanced allocation over today's "
+                         "verdicts cannot find rows the paid scorer never reached.")
+    ap.add_argument("--oversample-size", type=int, default=0,
+                    help="slots reserved for --oversample (0 = no reservation)")
     ap.add_argument("--dry-run", action="store_true", help="print the composition, write nothing")
     ap.add_argument("--config", default=str(WORKER / "config.yaml"))
     ap.add_argument("--resume-dir", default=str(WORKER / "resume"))
@@ -212,19 +237,28 @@ def main() -> int:
     resumes, profile_text = load_resumes(args.resume_dir)
     stamp = provenance(cfg.fit_profile, profile_text=profile_text, resumes=resumes)
 
+    oversample = tuple(t.strip().lower() for t in args.oversample.split(",") if t.strip())
     rows = _load_rows()
     by_stratum: dict[str, list[dict]] = collections.defaultdict(list)
     for row in rows:
-        by_stratum[_stratum(row)].append(row)
+        by_stratum[_stratum(row, oversample)].append(row)
 
-    # The thin cell is fixed and small; the rest of the budget is balanced across the
-    # cells that carry real JDs.
+    # Two cells get a FIXED reservation off the top; the rest of the budget is balanced
+    # across the cells that carry real JDs. Both reservations exist for the same reason:
+    # balanced allocation over today's verdicts can only find what the paid scorer already
+    # looked at, and it never looked at most of the backlog.
+    reserved = {}
     thin = by_stratum.pop("thin_jd", [])
+    reserved["thin_jd"] = (thin, min(THIN_JD_QUOTA, len(thin)))
+    if oversample:
+        target = by_stratum.pop("target_employer", [])
+        reserved["target_employer"] = (target, min(args.oversample_size, len(target)))
+
     counts = {name: len(items) for name, items in by_stratum.items()}
-    thin_quota = min(THIN_JD_QUOTA, len(thin))
-    quotas = _allocate(counts, max(0, args.size - thin_quota))
-    quotas["thin_jd"] = thin_quota
-    by_stratum["thin_jd"] = thin
+    quotas = _allocate(counts, max(0, args.size - sum(q for _, q in reserved.values())))
+    for name, (items, quota) in reserved.items():
+        quotas[name] = quota
+        by_stratum[name] = items
 
     rng = random.Random(args.seed)
     picked: list[dict] = []
@@ -255,6 +289,7 @@ def main() -> int:
               "per_company_cap": args.per_company, "provenance": stamp,
               "strata": {name: quotas[name] for name in sorted(quotas) if quotas[name]},
               "population": len(rows),
+              "oversample": list(oversample), "oversample_size": args.oversample_size,
               # Every stored verdict in the DB was produced under the pre-2026-08-02
               # profile and the pre-rewrite `title_exclude`. The `current` block on each
               # row is therefore a record of a system state that no longer exists —
