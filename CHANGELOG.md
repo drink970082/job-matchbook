@@ -58,6 +58,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **`tools/backfill_descriptions.py`, because `upsert_postings` never updates.** Every change
+  above helps only postings fetched *after* it — `ON CONFLICT DO NOTHING` means the 1,615 rows
+  already holding a teaser keep it forever. The tool re-runs the now-capable fetch for a board
+  and `UPDATE`s `description` where the fresh body is materially longer (`--min-gain`, default
+  1.2x, which also stops a board transiently serving a *shorter* body from overwriting a good
+  one). Dry-run by default; `--all` picks every board whose stored rows read as teasers.
+  **It never re-scores and never touches `score`, `score_detail` or `pipeline_status`** — 665
+  of these rows hold a paid verdict computed from a teaser, and re-scoring them is a quota
+  decision, so the tool reports and stops. Postings that have left the board are left alone.
+
 - **A per-board health line from `run_fetch`, so a teaser board stops being invisible.** One
   line per board per pass: `fetched / kept / new / bodyless / desc_median`, plus a `TEASER?`
   marker under 1,500 median chars. `_valid_posting` already catches an EMPTY description — how
