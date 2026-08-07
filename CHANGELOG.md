@@ -58,6 +58,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A stealth browser transport, which recovers the Cloudflare-walled boards.** `browser.py`
+  wraps its playwright context in `playwright-stealth` (`Stealth().use_sync(sync_playwright())`),
+  a new line in the already-optional `requirements-browser.txt`. Citadel goes from a
+  "Just a moment" interstitial on **every** detail navigation to **10/10 full JDs** — median
+  3,432 chars on `citadelsecurities.com` and 2,878 on `citadel.com`, both previously 0.
+  **Placement is the whole fix.** The per-page `Stealth().apply_stealth_sync(page)` form silently
+  under-patches and does not work: six arms failed on it, with and without the SSRF route guard,
+  with and without a UA override, with crawl4ai's full launch-flag set, and with a 14s fixed
+  dwell. This is also the entirety of what crawl4ai's `enable_stealth=True` does
+  (`enable_stealth=False` -> 3/3 interstitial), so it buys nothing a 208 KB dependency does not.
+  Stealth is a property of the transport, not of a board — no per-row flag — and the extra stays
+  optional: absent it, the un-patched context is used and the core install, CI and the no-network
+  test gate stay Chromium-free.
+  `browser` also drops its inline detail loop for the shared stage, so its per-posting
+  `empties >= 3` counter becomes the board-level breaker that `BACKLOG.md` names as the
+  precondition for any detail retry. `browser.apply_detail` is deleted; the fixtures that pinned
+  it now pin `_detail.apply_detail` against the same saved pages.
+
 - **A detail step for iCIMS, making it the third stub-gated adapter.** Its search card's
   `div.description` is a teaser, and on some tenants absent entirely — MSCI lists 92 live
   postings with **no description at all**, which is why `BACKLOG.md` had it queued for deletion

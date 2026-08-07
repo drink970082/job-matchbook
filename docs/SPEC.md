@@ -609,6 +609,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   the health signal rather than the HTTP status, because a Cloudflare interstitial is a 200 with a
   parseable body. Detail URLs are `is_safe_public_url`-checked before the request — they are
   scraped from third-party listing HTML (§11).
+  The browser transport is **stealth-patched at context creation** when the optional
+  `playwright-stealth` extra is installed — `Stealth().use_sync(sync_playwright())`, never the
+  per-page `apply_stealth_sync(page)`, which silently under-patches (six measured arms failed on
+  it). Placement is the whole fix, and it is what makes a Cloudflare-walled board's DETAIL pages
+  reachable at all: Citadel goes from a "Just a moment" interstitial on every detail navigation to
+  10/10 full JDs (median 3,432 / 2,878 chars across the two rows). It is a property of the
+  transport, not of a board — no per-row flag — and absent the extra the un-patched context is
+  used, so the core install and the no-network test gate stay Chromium-free.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
   rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).

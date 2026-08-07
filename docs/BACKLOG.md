@@ -220,24 +220,28 @@
   number however it is tuned; the remaining detail-call cost lives on the phenom two-step
   boards. Parse coverage is 100% (14/20/21/30+ days, no "Today"/"Yesterday"/locale
   strings), so the gate is neutralised by the threshold, not by parse misses.
-- **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
-  `[FETCH · decided · do not re-derive]`. `browser/citadel.com` and
-  `browser/citadelsecurities.com` scrape their listing pages fine (10 postings each,
-  clean on id/title/location/url) but **0/10 on `description`**: Cloudflare clears once
-  for the listing render, then re-challenges the deep-link detail navigations.
-  Three probes settled it — plain-HTTP listing GET → `403`; deep-link `goto` + 15s
-  dwell → `Just a moment...`; **clicking** the card from the already-cleared listing
-  (user gesture + same-origin referer) + 30s dwell → byte-identical. The detail route
-  is challenged regardless of arrival path and does not self-clear; everything past
-  this rung is a stealth plugin / real browser profile / residential proxy — detection
-  evasion plus a new dependency, out of scope here.
-  **Decision: keep both rows.** Since the body-required guard shipped they simply yield
-  nothing (dropped at `run_fetch`, logged), costing a few Chromium renders per cycle,
-  and they self-heal if Citadel's Cloudflare behavior relaxes. The only other honest
-  option is deleting them; dropping the `detail:` block to take title-only is now a
-  no-op, since the guard would drop those rows anyway.
-  **The real price is 6x/day** now that the daemon runs, for a known-zero yield — which is
-  why these rows are part of the one watchlist decision in the empty-JD-boards entry below.
+- **Boards behind a bot wall — the stealth transport is the rung, and it is cheap** —
+  `[FETCH · reference]`. Citadel was the worked example and is now resolved: both rows
+  yield full JDs (`citadelsecurities.com` median **3,432**, `citadel.com` **2,878** chars,
+  10/10, zero empty) through `playwright-stealth` applied at context creation. Kept here
+  because the *reasoning* generalises to the next walled board.
+  **What the earlier probe series got wrong is instructive.** It ruled the next rung out
+  as "a stealth plugin / real browser profile / residential proxy — detection evasion plus
+  a new dependency, out of scope". Two of those three are indeed out of scope; the first is
+  208 KB in an already-optional extra, needs no proxy and no profile, and was the answer.
+  **Placement is the whole fix, and the obvious API is the wrong one.**
+  `Stealth().use_sync(sync_playwright())` works; the per-page `Stealth().apply_stealth_sync(page)`
+  silently under-patches and does not. Six arms failed on the per-page form — with and
+  without the SSRF route guard, with and without a UA override, with crawl4ai's full
+  launch-flag set, with a 14s fixed dwell. If a future board resists, check the placement
+  before concluding the library is spent.
+  **`citadel.com` never needed it.** It cleared on unmodified playwright at 2,414 chars
+  while `citadelsecurities.com` was still interstitial — so "both rows are 0/10" was already
+  stale before this work. Re-measure per host; a wall is not a company-wide property.
+  **Next rungs, if one is ever needed:** Patchright is the drop-in Chromium upgrade
+  (CDP-level patches, no code change); Camoufox patches Firefox at the C++ level but costs
+  200MB+ RAM per instance and ~42s per Turnstile challenge, which is the wrong shape for a
+  6x/day pipeline. Every open-source patcher leaks after browser updates.
 - **Stale-mount recovery — the recovery leg is proven, detection of a real event is not** —
   `[INFRA · S · needs a real event]`. A live drill with a throwaway container
   (`--label autoheal=true`, always-failing healthcheck) confirmed the recovery leg
@@ -402,17 +406,10 @@
   suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
   breaker first (stop hydrating this board after K consecutive throttled details), and
   404 must stay terminal.
-- **Empty-JD boards ON the watchlist — the Citadel pair** — `[FETCH · XS]`.
-  `browser/citadelsecurities.com` (7) and `browser/citadel.com` (4) still drop every
-  posting bodyless, re-fetched and re-dropped **6x/day**. **Do not delete them:** both are
-  recoverable, not zero-yield (see the Citadel entry above), and what they wait on is the
-  stealth browser transport, not a watchlist decision.
-  **`icims/globalcareers-msci` has left this set.** It was never an empty-JD board, only a
-  board with no detail step: its iCIMS list endpoint carries no description at all, but the
-  job's own page does — 92 live postings, median **7,032** chars. The fix was a platform
-  capability serving every iCIMS tenant, not a decision about this row (`SPEC.md` §7.1).
-  **`phenom/microsoft` was never in this set:** it drops 4-6 bodyless rows per pass but
-  serves full descriptions for the rest, so it is a partial-drop board.
+- **Bodyless rows on `phenom/microsoft`** — `[FETCH · XS]`. It drops 4-6 postings per pass
+  whose list entry carries no description, while serving full ones for the rest — a
+  partial-drop board, so there is no watchlist decision to make and no board-wide detail
+  step to add. Non-destructive (the guard drops them and records them in `feed_unresolved`).
 - **Intake-cut evidence — the numbers are ready, the decision is the operator's**
   — `[FETCH · S · Q3 · one board-side filter applied, rest declined]`. Q3 is the only lever
   that reduces *demand* rather than re-ordering it. Three findings.

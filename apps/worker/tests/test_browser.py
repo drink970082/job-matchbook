@@ -19,7 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.fetch import _recipe, browser
+from bs4 import BeautifulSoup
+
+from ats_worker.fetch import _detail, _recipe, browser
 from ats_worker.util import POSTING_FIELDS
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -397,17 +399,26 @@ def test_parse_jobs_url_template_interpolates_an_extracted_field():
     assert job["job_url"] == "https://careers.bamfunds.com/s/details?jobReq=Quant_REQ8036"
 
 
+def _detailed(job, html, recipe):
+    """Detail merging moved to the shared stage (`_detail.apply_detail`), which takes a
+    PARSED document and the `detail` block rather than raw HTML and the whole recipe —
+    the transport is the caller's business now. These fixtures still pin the real
+    selectors against real saved pages."""
+    return _detail.apply_detail(job, BeautifulSoup(html or "", "html.parser"),
+                                recipe.get("detail") or {})
+
+
 def test_apply_detail_merges_description():
     [job] = browser.parse_jobs([CITADEL_LIST], CITADEL_RECIPE, "Citadel Securities")[:1]
     assert job["description"] == ""
-    browser.apply_detail(job, CITADEL_DETAIL, CITADEL_RECIPE)
+    _detailed(job, CITADEL_DETAIL, CITADEL_RECIPE)
     assert "systematic options trader" in job["description"].lower()
     assert "Role Overview" in job["description"]
 
 
 def test_apply_detail_no_detail_block_is_noop():
     job = {"description": "keep me"}
-    browser.apply_detail(job, CITADEL_DETAIL, {"item": "x"})   # no `detail` in recipe
+    _detailed(job, CITADEL_DETAIL, {"item": "x"})              # no `detail` in recipe
     assert job["description"] == "keep me"
 
 
@@ -425,7 +436,7 @@ def test_parse_jobs_citadel_com():
 
 def test_apply_detail_citadel_com():
     [job] = browser.parse_jobs([CITADEL_COM_LIST], CITADEL_COM_RECIPE, "Citadel")[:1]
-    browser.apply_detail(job, CITADEL_COM_DETAIL, CITADEL_COM_RECIPE)
+    _detailed(job, CITADEL_COM_DETAIL, CITADEL_COM_RECIPE)
     assert "citadel" in job["description"].lower()
 
 
@@ -441,7 +452,7 @@ def test_parse_jobs_rentec_self_text_title():
 
 def test_apply_detail_rentec():
     [job] = browser.parse_jobs([RENTEC_LIST], RENTEC_RECIPE, "Renaissance Technologies")[:1]
-    browser.apply_detail(job, RENTEC_DETAIL, RENTEC_RECIPE)
+    _detailed(job, RENTEC_DETAIL, RENTEC_RECIPE)
     assert "responsib" in job["description"].lower()
 
 

@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from ats_worker.fetch._recipe import _css_description, apply_css_fields
+from ats_worker.fetch import _detail
+from ats_worker.fetch._recipe import apply_css_fields
 from ats_worker.util import is_safe_public_url
 
 SOURCE = "browser"
@@ -69,17 +70,31 @@ def parse_jobs(pages: list[str], recipe: dict, company_name: str) -> list[dict]:
     return out
 
 
-def apply_detail(posting: dict, detail_html: str, recipe: dict) -> dict:
-    """Merge detail-page fields (currently `description`) into a posting (pure)."""
-    fields = (recipe.get("detail") or {}).get("fields") or {}
-    if "description" in fields:
-        node = BeautifulSoup(detail_html or "", "html.parser")
-        posting["description"] = _css_description(node, fields["description"])
-    return posting
+def _stealth_context(sync_playwright):
+    """The playwright context manager, stealth-patched when the optional extra is
+    installed.
+
+    **Placement is the whole fix.** `Stealth().use_sync(sync_playwright())` patches at
+    context creation and clears Citadel's Cloudflare wall — 3/3 detail pages at
+    3.4-5.4k chars, with the SSRF route guard still installed. The obvious per-page form,
+    `Stealth().apply_stealth_sync(page)`, silently under-patches and does NOT: six
+    measured arms failed on it (with and without the route guard, with and without a UA
+    override, with crawl4ai's full launch-flag set, with a 14s fixed dwell). crawl4ai's
+    `enable_stealth=True` is this same library and nothing else, so it buys nothing a
+    208 KB dependency does not.
+
+    Absent, the un-patched context is returned: the extra stays optional and the core
+    install, CI, and the no-network test gate stay Chromium-free.
+    """
+    try:
+        from playwright_stealth import Stealth
+    except ImportError:       # pragma: no cover - env-dependent, like playwright itself
+        return sync_playwright()
+    return Stealth().use_sync(sync_playwright())
 
 
 def fetch(slug: str, company_name: str, recipe: dict,
-          session=None, timeout: int = 30) -> list[dict]:
+          session=None, timeout: int = 30, keep=None) -> list[dict]:
     """Render the board in headless Chromium, paginate, optionally enrich each
     posting from its detail page. `session` is ignored (signature parity)."""
     if not is_safe_public_url(recipe.get("url")):
@@ -93,13 +108,12 @@ def fetch(slug: str, company_name: str, recipe: dict,
     ptype = page_cfg.get("type", "none")
     detail = recipe.get("detail") or {}
     url_field = detail.get("url_field")
-    enrich = bool(url_field and detail.get("fields"))
 
     item_sel = recipe.get("item")
     detail_desc = (detail.get("fields") or {}).get("description")
     detail_wait = detail_desc if isinstance(detail_desc, str) else None
 
-    with sync_playwright() as pw:
+    with _stealth_context(sync_playwright) as pw:
         browser = pw.chromium.launch(
             headless=True, args=["--disable-blink-features=AutomationControlled"])
         page = browser.new_context(
@@ -155,26 +169,17 @@ def fetch(slug: str, company_name: str, recipe: dict,
         elif ptype != "none":
             raise ValueError(f"browser recipe: unsupported page type {ptype!r}")
 
-        if enrich:
-            # One detail render per posting. A bot wall (Cloudflare) clears once for the
-            # listing but re-challenges rapid deep-link navigations, so detail pages come
-            # back description-less; a circuit-breaker bails after 3 straight empties
-            # rather than burning a ~15s render on every posting. Self-heals if the wall
-            # relaxes. (Edge: a board with 3+ genuinely blank JDs in a row stops early —
-            # postings stay valid, just description-less.)
-            empties = 0
-            for p in postings:
-                url = p.get(url_field)
-                if not url or not is_safe_public_url(url):
-                    continue  # skip a missing OR unsafe (SSRF) detail url — the detail
-                              # href is scraped from third-party listing HTML; keep the
-                              # posting description-less (same policy as a failed render).
-                try:
-                    apply_detail(p, render(url, detail_wait), recipe)
-                except Exception:  # noqa: BLE001 — keep the posting, description as-is
-                    continue
-                empties = empties + 1 if not p.get("description") else 0
-                if empties >= 3:
-                    break
+        # One detail render per posting, through the shared stage — which owns the
+        # board-level breaker, the stub gate and the SSRF re-check. A bot wall clears
+        # once for the listing but re-challenges deep-link navigations, so a walled
+        # board's detail renders come back description-less and the breaker ends them
+        # rather than burning a ~15s render on every posting. Self-heals if the wall
+        # relaxes, and `_stealth_context` is what stops it re-challenging at all.
+        if url_field:
+            postings = _detail.hydrate(
+                postings, detail, keep=keep, label=f"{SOURCE}/{slug}",
+                detail_url=lambda p: p.get(url_field),
+                fetch_doc=lambda url: BeautifulSoup(render(url, detail_wait),
+                                                    "html.parser"))
         browser.close()
     return postings
