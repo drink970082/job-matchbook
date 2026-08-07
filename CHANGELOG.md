@@ -58,6 +58,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Detail hydration now runs behind the stub gate, and the detail transport can differ from
+  the list transport.** `custom` and `browser` join `STUB_GATE_SOURCES`, so a detail call is
+  spent only on postings that survive the free title/exclude/age gates. `browser.fetch`
+  previously hydrated **every** parsed posting before any gate ran; `run_fetch`'s existing
+  `_keep` closure supplies the verdict, so nothing changed in `pipeline.py`.
+  A `detail:` block may also declare `mode: http-html` / `http-json` on a `browser` recipe —
+  for the many boards that need Chromium only to **enumerate** (the listing is a JS app) but
+  serve each job page server-rendered. Google is the case in point: 817 rows now hydrate over
+  plain `requests` (`.aG5W3`, 452 -> 1,821 median chars, 10/10 on live postings) instead of
+  paying a ~15s Chromium render each. The 4-in-12 miss rate on *stored* URLs is expired
+  postings, not a selector fault, and the breaker resets on every gain.
+
 - **A stealth browser transport, which recovers the Cloudflare-walled boards.** `browser.py`
   wraps its playwright context in `playwright-stealth` (`Stealth().use_sync(sync_playwright())`),
   a new line in the already-optional `requirements-browser.txt`. Citadel goes from a

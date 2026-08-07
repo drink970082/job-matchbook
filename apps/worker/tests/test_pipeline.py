@@ -185,7 +185,8 @@ def test_run_fetch_drops_bodyless_postings(db_path, capsys):
     # recorded in feed_unresolved so the broken scraper surfaces (not just a log line).
     conn = db.connect(db_path)
 
-    def fetch_fn(source, slug, name):
+    # `browser` is stub-gated now, so run_fetch hands it the `keep` the real adapter takes.
+    def fetch_fn(source, slug, name, **kw):
         return [_posting("body"),
                 _posting("empty", description="", job_url="https://x.co/empty")]
 

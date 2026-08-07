@@ -6,8 +6,11 @@ Playwright Chromium and extraction reads the RENDERED DOM via CSS selectors.
 
 Walled off so the pure-`requests` core never touches Chromium: Playwright is
 lazy-imported INSIDE fetch() and ships as an optional extra
-(requirements-browser.txt); importing this module needs only bs4. The pure
-`parse_jobs` / `apply_detail` are unit-tested against saved HTML fixtures; the
+(requirements-browser.txt); importing this module needs only bs4. Detail merging
+belongs to the shared stage (`_detail.py`) — which also means a board Chromium must
+only ENUMERATE can hydrate over plain `requests` via an `http-html`/`http-json`
+detail mode, instead of paying a render per posting. The pure `parse_jobs` is
+unit-tested against saved HTML fixtures; the
 `fetch` glue's SSRF guards (detail + pagination URLs) are exercised via a fake
 `sync_playwright` (test_browser.py) with no real Chromium, but the live browser
 I/O itself is not (same as other adapters' network I/O). The executor is also
@@ -15,6 +18,7 @@ gated off the default cycle in run.py (enable_browser_sources).
 """
 from __future__ import annotations
 
+import requests
 from bs4 import BeautifulSoup
 
 from ats_worker.fetch import _detail
@@ -95,8 +99,12 @@ def _stealth_context(sync_playwright):
 
 def fetch(slug: str, company_name: str, recipe: dict,
           session=None, timeout: int = 30, keep=None) -> list[dict]:
-    """Render the board in headless Chromium, paginate, optionally enrich each
-    posting from its detail page. `session` is ignored (signature parity)."""
+    """Render the board in headless Chromium, paginate, optionally enrich each posting
+    from its detail page.
+
+    `session` is used ONLY by an `http-html`/`http-json` detail mode (a board Chromium
+    must enumerate but whose job pages are server-rendered); the listing render never
+    touches it. `keep` is the stub-gate predicate — see `phenom.fetch`."""
     if not is_safe_public_url(recipe.get("url")):
         raise ValueError(f"browser recipe url is not a safe public http(s) URL: {recipe.get('url')!r}")
     try:
@@ -169,17 +177,27 @@ def fetch(slug: str, company_name: str, recipe: dict,
         elif ptype != "none":
             raise ValueError(f"browser recipe: unsupported page type {ptype!r}")
 
-        # One detail render per posting, through the shared stage — which owns the
-        # board-level breaker, the stub gate and the SSRF re-check. A bot wall clears
-        # once for the listing but re-challenges deep-link navigations, so a walled
-        # board's detail renders come back description-less and the breaker ends them
-        # rather than burning a ~15s render on every posting. Self-heals if the wall
-        # relaxes, and `_stealth_context` is what stops it re-challenging at all.
+        # Hydration through the shared stage, which owns the board-level breaker, the
+        # stub gate and the SSRF re-check. A bot wall clears once for the listing but
+        # re-challenges deep-link navigations, so a walled board's detail renders come
+        # back description-less and the breaker ends them rather than burning a ~15s
+        # render on every posting; `_stealth_context` is what stops the re-challenge.
+        #
+        # **The detail transport need not be the browser.** Plenty of boards need
+        # Chromium only to ENUMERATE — the listing is a JS app but each job page is
+        # server-rendered — and for those an `http-html`/`http-json` detail mode hydrates
+        # over plain `requests`, turning one Chromium render per posting into one cheap
+        # GET. Google is the case in point: 817 rows, SSR'd detail pages.
         if url_field:
+            mode = detail.get("mode")
+            if mode in ("http-html", "http-json"):
+                fetch_doc = _detail.http_doc(session or requests, timeout=timeout,
+                                             html=mode == "http-html")
+            else:
+                def fetch_doc(url):
+                    return BeautifulSoup(render(url, detail_wait), "html.parser")
             postings = _detail.hydrate(
                 postings, detail, keep=keep, label=f"{SOURCE}/{slug}",
-                detail_url=lambda p: p.get(url_field),
-                fetch_doc=lambda url: BeautifulSoup(render(url, detail_wait),
-                                                    "html.parser"))
+                detail_url=lambda p: p.get(url_field), fetch_doc=fetch_doc)
         browser.close()
     return postings

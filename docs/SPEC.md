@@ -609,6 +609,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   the health signal rather than the HTTP status, because a Cloudflare interstitial is a 200 with a
   parseable body. Detail URLs are `is_safe_public_url`-checked before the request — they are
   scraped from third-party listing HTML (§11).
+  A `browser` recipe's `detail` block may declare `mode: http-html` / `http-json`, in which case
+  hydration goes over plain `requests` and Chromium is used only to **enumerate** — the common
+  shape where the listing is a JS app but each job page is server-rendered (Google: 817 rows,
+  452 -> 1,821 median chars, one cheap GET each instead of a ~15s render).
+  `custom` and `browser` are both stub-gated, so a detail call is spent only on postings that
+  survive the free title/exclude/age gates.
   The browser transport is **stealth-patched at context creation** when the optional
   `playwright-stealth` extra is installed — `Stealth().use_sync(sync_playwright())`, never the
   per-page `apply_stealth_sync(page)`, which silently under-patches (six measured arms failed on
