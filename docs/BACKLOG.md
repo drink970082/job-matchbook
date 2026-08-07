@@ -402,21 +402,17 @@
   suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
   breaker first (stop hydrating this board after K consecutive throttled details), and
   404 must stay terminal.
-- **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS]`. Its iCIMS list
-  endpoint carries titles but no description, so every fetch drops ~42 bodyless postings;
-  `citadelsecurities` (7) and `citadel` (4) are the same story on the browser executor.
-  Non-destructive (the guard drops them and records them in `feed_unresolved`), but they
-  produce nothing and are re-fetched and re-dropped **6x/day**, which is what turns a
-  documented no-op into an ongoing fetch cost. Candidates to drop, or to route through a
-  detail-fetch once one exists.
-  **The choice is binary, and one decision covers the three zero-yield rows** — `msci`
-  plus the Citadel pair above. `watched_companies` has no `active` column, so there is no
-  soft-disable: the row stays and keeps paying, or it is deleted. Deleting is the cheap
-  call — re-adding is one `onboard-board` run and the rationale is recorded here, whereas
-  adding a flag is a schema change, i.e. the thing "No schema migration path" below exists
-  to avoid. **`phenom/microsoft` is NOT in this set:** it drops 4-6 bodyless rows per pass
-  but serves full descriptions for the rest, so it is a partial-drop board, not an
-  empty-JD one.
+- **Empty-JD boards ON the watchlist — the Citadel pair** — `[FETCH · XS]`.
+  `browser/citadelsecurities.com` (7) and `browser/citadel.com` (4) still drop every
+  posting bodyless, re-fetched and re-dropped **6x/day**. **Do not delete them:** both are
+  recoverable, not zero-yield (see the Citadel entry above), and what they wait on is the
+  stealth browser transport, not a watchlist decision.
+  **`icims/globalcareers-msci` has left this set.** It was never an empty-JD board, only a
+  board with no detail step: its iCIMS list endpoint carries no description at all, but the
+  job's own page does — 92 live postings, median **7,032** chars. The fix was a platform
+  capability serving every iCIMS tenant, not a decision about this row (`SPEC.md` §7.1).
+  **`phenom/microsoft` was never in this set:** it drops 4-6 bodyless rows per pass but
+  serves full descriptions for the rest, so it is a partial-drop board.
 - **Intake-cut evidence — the numbers are ready, the decision is the operator's**
   — `[FETCH · S · Q3 · one board-side filter applied, rest declined]`. Q3 is the only lever
   that reduces *demand* rather than re-ordering it. Three findings.

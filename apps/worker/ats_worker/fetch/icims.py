@@ -14,11 +14,20 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
+from ats_worker.fetch import _detail
 from ats_worker.util import html_to_text
 
 SOURCE = "icims"
 SEARCH = "https://{slug}.icims.com/jobs/search"
 _ID_RE = re.compile(r"/jobs/(\d+)/")
+
+# The search card's `div.description` is a teaser and on some tenants is absent
+# entirely (MSCI lists 92 postings with NO description at all). The full JD lives on
+# the job's own page under `div.iCIMS_JobContent` — a PLATFORM fact, true of every
+# iCIMS tenant, so it belongs here exactly as `position_details` belongs in phenom.py,
+# not in a per-board recipe. Measured: SIG 561 -> 3,666, GTS 537 -> 3,100, MSCI
+# 0 -> ~6,800 median chars.
+DETAIL_SPEC = {"fields": {"description": "div.iCIMS_JobContent"}}
 
 
 def parse_jobs(html: str, company_name: str) -> list[dict]:
@@ -49,6 +58,14 @@ def parse_jobs(html: str, company_name: str) -> list[dict]:
     return out
 
 
+def _detail_url(posting: dict) -> str | None:
+    """The job's own page, asked for in the same iframe form the list uses. `_detail`
+    re-checks it with `is_safe_public_url` before requesting — the href was scraped
+    from third-party HTML."""
+    url = posting.get("job_url")
+    return f"{url}?in_iframe=1" if url else None
+
+
 def _location(card) -> str | None:
     """Some iCIMS boards carry a 'Location' header field; many (e.g. SIG) don't.
     Return the first Location-labeled value, else None."""
@@ -62,7 +79,13 @@ def _location(card) -> str | None:
 
 
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
-          timeout: int = 20) -> list[dict]:
+          timeout: int = 20, keep=None) -> list[dict]:
+    """List an iCIMS board and hydrate each posting from its detail page.
+
+    `keep` is the stub-gate predicate the two-step adapters take (see `phenom.fetch`):
+    the search card already carries title and location, which is everything the
+    deterministic gates read, so a rejected posting can skip its detail GET.
+    """
     http = session or requests
     out: list[dict] = []
     seen: set[str] = set()
@@ -83,4 +106,8 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         seen.update(j["external_id"] for j in fresh)
         out.extend(fresh)
         page += 1
-    return out
+
+    return _detail.hydrate(
+        out, DETAIL_SPEC, keep=keep, label=f"{SOURCE}/{slug}",
+        detail_url=_detail_url,
+        fetch_doc=_detail.http_doc(http, timeout=timeout, html=True))

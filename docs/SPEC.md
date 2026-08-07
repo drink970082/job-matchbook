@@ -519,7 +519,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | yes (per-job by id) | yes |
   | Pinpoint | `{slug}.pinpointhq.com` | list | no | yes |
   | Workable | `apply.workable.com` | list | yes | yes |
-  | iCIMS | `{slug}.icims.com` | list (server HTML) | no | yes |
+  | iCIMS | `{slug}.icims.com` | list (server HTML) + per-job detail | no | yes |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | no | yes |
   | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) + optional per-job `detail` | no | yes (needs `recipe`) |
   | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | no | yes (needs `recipe`; opt-in) |
@@ -574,6 +574,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   wording leave `posted_at` None (kept), so a mis-parse never drops a good posting. `now`
   reaches the adapter through the same `keep`-gate call path.
   (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
+  **iCIMS is the third stub-gated adapter.** Its search card's `div.description` is a
+  teaser and on some tenants absent entirely, so the JD comes from the job's own page
+  (`{job_url}?in_iframe=1` -> `div.iCIMS_JobContent`) through the shared detail stage. That
+  is a PLATFORM fact, true of every iCIMS tenant, so it lives in the adapter exactly as
+  `position_details` lives in phenom's — never in a per-board recipe. The card already
+  carries id, title and location, so a `drop`/`discard` verdict is decidable from the stub
+  and, unlike workday's GUID-less stub, costs no dedup key — both verdicts are honoured.
+  Measured: SIG 561 -> 3,835, GTS 537 -> 3,987, MSCI **0 -> 7,032** median chars.
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),

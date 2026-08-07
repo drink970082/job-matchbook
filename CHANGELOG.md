@@ -58,6 +58,20 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A detail step for iCIMS, making it the third stub-gated adapter.** Its search card's
+  `div.description` is a teaser, and on some tenants absent entirely — MSCI lists 92 live
+  postings with **no description at all**, which is why `BACKLOG.md` had it queued for deletion
+  as an "empty-JD board". It was never that; it was a board with no detail step. The JD is on the
+  job's own page (`{job_url}?in_iframe=1` -> `div.iCIMS_JobContent`), reached through the shared
+  stage. Measured median description chars: **SIG 561 -> 3,835, GTS 537 -> 3,987, MSCI 0 ->
+  7,032**.
+  This is a PLATFORM capability, not three board fixes: it lives in the adapter exactly as
+  `position_details` lives in phenom's, and serves every current and future iCIMS tenant.
+  `icims` joins `STUB_GATE_SOURCES`, so the detail GET is only spent on postings that survive
+  the free gates — on MSCI that skipped 64 of 92 calls in one pass. Both `drop` and `discard`
+  are honoured: the card carries id, title and location, so the verdict is decidable from the
+  stub and costs no dedup key (unlike workday's GUID-less stub, which honours `drop` only).
+
 - **A shared detail-hydration stage (`fetch/_detail.py`), and a `detail:` block for `custom`
   recipes.** The fit scorer's whole job is reading a job description; on 1,615 of 11,675 stored
   postings (14%) it was reading a 250-850 character teaser, and 665 of those had already bought a

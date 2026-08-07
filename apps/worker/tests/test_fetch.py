@@ -191,7 +191,11 @@ def test_stub_gate_sources_is_exactly_the_two_step_adapters():
     # Pinned deliberately: `keep` is only safe for adapters that accept the kwarg
     # AND can honour a verdict without breaking their dedup key. Adding a source
     # here without wiring its fetch raises TypeError on every board it owns.
-    assert STUB_GATE_SOURCES == frozenset({"phenom", "workday"})
+    # `icims` joined when it gained a detail step: its search card already carries
+    # the id, title and location, so a 'drop'/'discard' verdict is decidable from the
+    # stub and costs no dedup key (unlike workday's GUID-less stub, which is why that
+    # one honours 'drop' only).
+    assert STUB_GATE_SOURCES == frozenset({"phenom", "workday", "icims"})
 
 
 # --- fetch_one_company dispatcher (per-listing detail sources) -------------
