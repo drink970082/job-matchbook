@@ -399,3 +399,78 @@ def test_config_bad_recipe_type_rejected():
         config.load_config(
             "companies:\n  - {source: greenhouse, slug: acme, name: Acme, recipe: notamap}\n"
         )
+
+
+# --- `detail:` block: hydrate from one detail document per posting --------
+
+LIST_RECIPE = {
+    "method": "GET",
+    "url": "https://boards.example.com/api/search",
+    "mode": "json",
+    "item_path": "results",
+    "page": {"type": "none"},
+    "fields": {"title": "postingTitle", "url": "https://x/{positionId}",
+               "description": "teaser", "external_id": "id"},
+}
+LIST_PAYLOAD = {"results": [
+    {"id": "PIPE-900", "positionId": "900", "postingTitle": "Engineer", "teaser": "short"},
+]}
+
+
+def test_detail_url_template_interpolates_against_the_RAW_item():
+    """The id a detail endpoint wants is often NOT the one mapped to external_id
+    (Apple keys its detail API on positionId while external_id is `id`). Re-pointing
+    external_id would re-key every stored row, so the template reads the raw item."""
+    recipe = {**LIST_RECIPE, "detail": {
+        "mode": "http-json",
+        "url": "https://boards.example.com/api/jobDetails/{positionId}",
+        "fields": {"description": "res.body"}}}
+    sess = FakeSession(responses=[
+        FakeResponse(LIST_PAYLOAD),
+        FakeResponse({"res": {"body": "the full job description"}}),
+    ])
+    out = custom.fetch("acme", "Acme", recipe, session=sess)
+    assert out[0]["description"] == "the full job description"
+    assert sess.calls[1][1] == "https://boards.example.com/api/jobDetails/900"
+
+
+def test_detail_url_field_reuses_the_postings_own_url():
+    recipe = {**LIST_RECIPE, "detail": {
+        "mode": "http-json", "url_field": "job_url",
+        "fields": {"description": "res.body"}}}
+    sess = FakeSession(responses=[
+        FakeResponse(LIST_PAYLOAD), FakeResponse({"res": {"body": "hydrated"}}),
+    ])
+    out = custom.fetch("acme", "Acme", recipe, session=sess)
+    assert out[0]["description"] == "hydrated"
+    assert sess.calls[1][1] == "https://x/900"
+
+
+def test_detail_html_mode_selects_on_the_rendered_page():
+    """A board may list as JSON and hydrate from HTML: the detail transport is
+    independent of the list transport."""
+    recipe = {**LIST_RECIPE, "detail": {
+        "mode": "http-html", "url_field": "job_url",
+        "fields": {"description": ".jd"}}}
+    sess = FakeSession(responses=[
+        FakeResponse(LIST_PAYLOAD),
+        FakeResponse(text="<html><div class='jd'>rendered JD body</div></html>"),
+    ])
+    out = custom.fetch("acme", "Acme", recipe, session=sess)
+    assert "rendered JD body" in out[0]["description"]
+
+
+def test_no_detail_block_makes_no_extra_request():
+    sess = FakeSession(responses=[FakeResponse(LIST_PAYLOAD)])
+    out = custom.fetch("acme", "Acme", LIST_RECIPE, session=sess)
+    assert out[0]["description"] == "short"
+    assert len(sess.calls) == 1
+
+
+def test_detail_keep_gate_skips_the_call_for_a_doomed_posting():
+    recipe = {**LIST_RECIPE, "detail": {
+        "mode": "http-json", "url_field": "job_url",
+        "fields": {"description": "res.body"}}}
+    sess = FakeSession(responses=[FakeResponse(LIST_PAYLOAD)])
+    out = custom.fetch("acme", "Acme", recipe, session=sess, keep=lambda p: "drop")
+    assert out == [] and len(sess.calls) == 1

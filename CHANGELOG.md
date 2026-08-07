@@ -58,6 +58,29 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A shared detail-hydration stage (`fetch/_detail.py`), and a `detail:` block for `custom`
+  recipes.** The fit scorer's whole job is reading a job description; on 1,615 of 11,675 stored
+  postings (14%) it was reading a 250-850 character teaser, and 665 of those had already bought a
+  paid fit call on one. The cause was not nine bad boards — detail hydration existed only inside
+  the two-step platform adapters and the `browser` executor, so a board whose list call returned a
+  summary had nowhere to go.
+  `_detail.hydrate` is the skeleton (sibling of `_paged.py`) with `fetch_doc`, `detail_url` and
+  the `keep` stub gate injected. **The detail transport is independent of the list transport** —
+  a board can list as JSON and hydrate from HTML — and **the circuit breaker is per board, not per
+  posting**, since a bot wall fails identically for every row. The health signal is "did this call
+  earn more description?", not the HTTP status: a Cloudflare interstitial is a 200 with a
+  parseable body.
+  Measured through `fetch_company` against the live boards, median description chars:
+  **IBM 253 -> 3,718** (no `detail` block at all — its full `body` was already in the list
+  response and only wanted mapping), **Apple 843 -> 2,488**, **Oracle 330 -> 7,909**. Oracle's
+  section list and order match `fetch/oracle.py:_SECTIONS`, deliberately excluding
+  `CorporateDescriptionStr` — identical boilerplate on every requisition that every paid fit call
+  would otherwise carry. A detail `url` template interpolates against the **raw** item, not the
+  canonical posting: Apple's detail API keys on `positionId` while `external_id` is `id`, and
+  re-pointing `external_id` would re-key all 360 stored rows.
+  Already-stored rows are unchanged — `upsert_postings` is `ON CONFLICT DO NOTHING`, so a backfill
+  is owed separately.
+
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
   bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own
   `title_filter`/`title_exclude` to already-queued rows, and it is the bulk producer of

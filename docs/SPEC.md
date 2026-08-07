@@ -521,7 +521,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   | Workable | `apply.workable.com` | list | yes | yes |
   | iCIMS | `{slug}.icims.com` | list (server HTML) | no | yes |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | no | yes |
-  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | no | yes (needs `recipe`) |
+  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) + optional per-job `detail` | no | yes (needs `recipe`) |
   | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | no | yes (needs `recipe`; opt-in) |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | yes | no (feed-only) |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | yes | no (feed-only) |
@@ -583,6 +583,24 @@ worker modules are pure and dependency-injected; real services are wired only in
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
   `browser` recipe, never a hand-written adapter.
+  An optional **`detail` block** hydrates a board whose list call carries only a teaser: `url`
+  (a `{field}` template interpolated against the **raw** item, not the canonical posting — the id a
+  detail endpoint keys on is often not the one mapped to `external_id`) or `url_field` (reuse the
+  posting's own `job_url`), `mode` (`http-json` default, or `http-html`), and a `fields` map read by
+  the same `_recipe.py` helpers. Apple and Oracle hydrate this way; IBM needs no `detail` at all,
+  because its full `body` was already in the list response and only wanted mapping.
+  **Shared detail stage** (`fetch/_detail.py`): one hydration skeleton the recipe executors and
+  detail-capable adapters share, with the per-board parts injected — sibling of `fetch/_paged.py`.
+  Two properties it exists to enforce. **The detail transport is independent of the list
+  transport**, so a board can need a browser to enumerate and plain HTTP to hydrate; the caller
+  supplies `fetch_doc` and the stage never assumes which it got (a `dict` document is read with
+  dotted paths, anything else as a bs4 node with CSS selectors — neither extractor is
+  reimplemented, `_recipe.py` owns both). **The circuit breaker is per BOARD, not per posting**: a
+  bot wall or a dead detail endpoint fails identically for every posting, so N consecutive calls
+  that win no new description stop the board and say so. "Did this call earn more description?" is
+  the health signal rather than the HTTP status, because a Cloudflare interstitial is a 200 with a
+  parseable body. Detail URLs are `is_safe_public_url`-checked before the request — they are
+  scraped from third-party listing HTML (§11).
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
   rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).
@@ -2198,7 +2216,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The workday gate stub carries no `external_id` (unstorable by construction) | `test_fetch_new.py::test_workday_parse_stub_carries_no_external_id` |
 | The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
-| Custom-recipe executor (`json`/`next-data` modes, paging, fields map) | `test_custom.py` |
+| Custom-recipe executor (`json`/`next-data` modes, paging, fields map, `detail` hydration) | `test_custom.py` |
+| Shared detail stage (extractor picked by document type, stub gate, board-level breaker, unsafe-URL skip) | `test_detail.py` |
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |

@@ -39,6 +39,31 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Generalized detail hydration — the fetch layer's teaser problem — IN PROGRESS
+  2026-08-07** `[FETCH · L · branch `feat/fetch-detail-hydration`, cut from `main`]`.
+  Plan: `~/.claude/plans/build-a-comprehensive-plan-majestic-grove.md` (operator-local).
+  **The gap:** the fit scorer's whole job is reading a JD, and on **1,615 of 11,675 rows
+  (14%)** it reads a 250-850 char teaser; 665 of those already bought a paid fit call on
+  one. Three more boards store nothing at all. This is not nine bad boards — detail
+  hydration lives only in the two-step platform adapters and `browser`, so any board whose
+  list call returns a summary has nowhere to go. Every affected board's full JD was
+  measured live and is reachable (`SPEC.md` §7.1 for the mechanism).
+  **Landed:** `fetch/_detail.py` (the shared stage) + a `custom` `detail:` block; IBM
+  253 -> 3,718, Apple 843 -> 2,488, Oracle 330 -> 7,909 median chars through `fetch_company`.
+  **Remaining, in order:** an `icims` detail step (203 rows across sig/msci/gtsx, and every
+  future tenant); `playwright-stealth` as a browser-transport property, which is what
+  recovers Citadel — `Stealth().use_sync(sync_playwright())` gets 3/3 detail pages at
+  3.4-5.4k chars where the per-page `apply_stealth_sync` form fails; gating hydration
+  behind the existing `keep` stub gate so a detail call is only spent on postings that
+  survive the free gates (`browser.fetch` hydrates **every** parsed posting today, before
+  any gate runs); a per-board fetch health line, since a teaser board and a healthy board
+  are indistinguishable in the logs and that is why this needed a manual DB dig to find;
+  and a backfill, because `upsert_postings` is `ON CONFLICT DO NOTHING` and none of the
+  above touches an already-stored row.
+  **The backfill must not re-score.** Those 665 rows hold verdicts computed from teasers;
+  re-scoring them is a quota decision and quota is the standing priority, so the tool
+  reports and stops.
+
 - **The golden fit corpus is being rebuilt, and it is blocked on human review**
   `[SCORE · M · blocks the `eval-score` gate; the tools are on `main`]`.
   The blind labeler and the sheet generator exist (`tools/label_run.py`,
