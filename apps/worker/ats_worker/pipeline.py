@@ -131,7 +131,9 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                         reason="empty_description", now=now)
                 drop_ids = {id(p) for p in bodyless}
                 kept = [p for p in kept if id(p) not in drop_ids]
-            inserted += db.upsert_postings(conn, kept, now=now)
+            added = db.upsert_postings(conn, kept, now=now)
+            inserted += added
+            _log_board_health(c, postings, kept, bodyless, added)
         except Exception as exc:  # noqa: BLE001 — one bad board must not abort the rest
             print(f"[fetch] {c.get('source')}/{c.get('slug')}: skipped after error: {exc}")
             continue
@@ -150,6 +152,30 @@ _REQUIRED_FIELDS = ("external_id", "job_title", "description")
 
 def _valid_posting(p: dict) -> bool:
     return all(str((p or {}).get(k) or "").strip() for k in _REQUIRED_FIELDS)
+
+
+# A description SHORTER than this is a teaser, not a job description. Not a gate —
+# nothing is dropped on it — purely the threshold at which the health line says so.
+# Healthy boards measure 1,900-2,200 median chars; the boards that turned out to be
+# serving a summary measured 250-850, and the gap between them is empty.
+_TEASER_MEDIAN_CHARS = 1500
+
+
+def _log_board_health(company, fetched, kept, bodyless, added) -> None:
+    """One line per board per pass: what it returned and how much JD came with it.
+
+    `_valid_posting` already catches a description that is EMPTY, which is how a moved
+    selector announces itself. It cannot catch a board that serves a 250-character
+    summary — that reads as a healthy fetch and silently starves the fit scorer, which
+    is why finding it took a manual query over the stored rows rather than a log. The
+    median is the cheapest thing that would have said so.
+    """
+    lengths = sorted(len(p.get("description") or "") for p in kept)
+    median = lengths[len(lengths) // 2] if lengths else 0
+    note = " TEASER? (board may need a detail step)" if kept and median < _TEASER_MEDIAN_CHARS else ""
+    print(f"[fetch] {company['source']}/{company['slug']}: fetched={len(fetched)} "
+          f"kept={len(kept)} new={added} bodyless={len(bodyless)} "
+          f"desc_median={median}{note}")
 
 
 def _detail_fetch(detail_fetch_fn, source: str, slug: str, ids,

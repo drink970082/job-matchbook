@@ -58,6 +58,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A per-board health line from `run_fetch`, so a teaser board stops being invisible.** One
+  line per board per pass: `fetched / kept / new / bodyless / desc_median`, plus a `TEASER?`
+  marker under 1,500 median chars. `_valid_posting` already catches an EMPTY description — how
+  a moved selector announces itself — but a board serving 250-character summaries reads as a
+  perfectly healthy fetch, which is why finding this class took a manual query over stored rows
+  instead of a log line. Healthy boards measure 1,900-2,200 median chars and the affected ones
+  measured 250-850, so the threshold sits in an empty gap. Nothing is dropped on it; it is a
+  signal, not a gate. Source-agnostic, so the `pipeline.py` architecture guard stays green.
+
+- **One `util.BROWSER_UA` instead of four hand-copied User-Agent strings.** It lived in
+  `browser.py` plus three recipe `headers` blocks — three chances to drift. `custom` now
+  defaults the header (a recipe that sets its own still wins), so the three recipes drop
+  theirs. The version is deliberately **not** bumped to match the local Chromium: the string
+  reads stale next to a Chrome 151 binary, but it is part of the configuration measured to
+  clear Citadel's wall, and dropping the override leaks `HeadlessChrome`. Changing it is its
+  own experiment.
+
 - **Detail hydration now runs behind the stub gate, and the detail transport can differ from
   the list transport.** `custom` and `browser` join `STUB_GATE_SOURCES`, so a detail call is
   spent only on postings that survive the free title/exclude/age gates. `browser.fetch`

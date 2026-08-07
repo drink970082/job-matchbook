@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 
 from ats_worker.fetch import _detail
 from ats_worker.fetch._recipe import apply_css_fields
-from ats_worker.util import is_safe_public_url
+from ats_worker.util import BROWSER_UA, is_safe_public_url
 
 SOURCE = "browser"
 
@@ -34,9 +34,9 @@ _INSTALL_HINT = (
 
 # A realistic UA + headed-looking context + the automation-flag off lets Cloudflare's
 # "Just a moment" JS interstitial auto-clear; the default headless-shell fingerprint
-# gets stuck on it (0 cards).
-_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+# gets stuck on it (0 cards) and leaks "HeadlessChrome". Shared with the `custom`
+# executor's default header — see util.BROWSER_UA on why the version is not bumped.
+_UA = BROWSER_UA
 
 
 def _block_unsafe_navigation(route):

@@ -8,7 +8,7 @@ import pytest
 
 from ats_worker import config
 from ats_worker.fetch import _recipe, custom
-from ats_worker.util import POSTING_FIELDS
+from ats_worker.util import BROWSER_UA, POSTING_FIELDS
 from tests._helpers import FakeResponse, FakeSession
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -342,7 +342,9 @@ def test_fetch_tiktok_post_headers_and_body_offset():
     out = custom.fetch("tiktok", "TikTok", TIKTOK_RECIPE, session=sess, timeout=20)
     assert len(out) == 2
     assert all(m == "POST" for m, *_ in sess.calls)
-    assert sess.calls[0][4] == {"website-path": "tiktok"}       # headers passed
+    # The recipe's own headers pass through, plus the defaulted browser UA. A recipe
+    # that sets its own User-Agent still wins -- setdefault, not overwrite.
+    assert sess.calls[0][4] == {"website-path": "tiktok", "User-Agent": BROWSER_UA}
     body_offsets = [(b or {}).get("offset") for _, _, _, b, _ in sess.calls]
     assert body_offsets == [0, 2]                               # offset in POST body
     j = out[0]
@@ -474,3 +476,10 @@ def test_detail_keep_gate_skips_the_call_for_a_doomed_posting():
     sess = FakeSession(responses=[FakeResponse(LIST_PAYLOAD)])
     out = custom.fetch("acme", "Acme", recipe, session=sess, keep=lambda p: "drop")
     assert out == [] and len(sess.calls) == 1
+
+
+def test_a_recipe_user_agent_overrides_the_default():
+    recipe = {**LIST_RECIPE, "headers": {"User-Agent": "custom-agent/1.0"}}
+    sess = FakeSession(responses=[FakeResponse(LIST_PAYLOAD)])
+    custom.fetch("acme", "Acme", recipe, session=sess)
+    assert sess.calls[0][2]["headers"]["User-Agent"] == "custom-agent/1.0"

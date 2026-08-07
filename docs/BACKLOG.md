@@ -406,6 +406,16 @@
   suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
   breaker first (stop hydrating this board after K consecutive throttled details), and
   404 must stay terminal.
+- **Eight recipes carry no `posted_at`, and four of them CANNOT** — `[FETCH · XS · measured,
+  do not re-derive]`. Where a recipe maps no `posted_at`, `upsert_postings` stamps the scrape
+  day (`db.py`), so `max_age_days` can never fire for that board and the displayed date is the
+  day we saw it, not the day it was posted. It reads like a recipe oversight. For
+  `tiktok`, `janestreet`, `bytedance` and `ibm` it is not: their list payloads carry **no
+  date-ish field at all** — a full recursive walk of a live item for `date|posted|created|
+  updated|publish|time` returns nothing. There is no recipe fix; it needs a detail call whose
+  only purpose is a date, which is not worth one request per posting. Check the payload before
+  filing this as a bug on a ninth board.
+
 - **Bodyless rows on `phenom/microsoft`** — `[FETCH · XS]`. It drops 4-6 postings per pass
   whose list entry carries no description, while serving full ones for the rest — a
   partial-drop board, so there is no watchlist decision to make and no board-wide detail

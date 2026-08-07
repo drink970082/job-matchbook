@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 
 from ats_worker.fetch import _detail
 from ats_worker.fetch._recipe import apply_fields, dotted_get, interpolate
-from ats_worker.util import get_redirect_safe, is_safe_public_url
+from ats_worker.util import BROWSER_UA, get_redirect_safe, is_safe_public_url
 
 SOURCE = "custom"
 
@@ -92,7 +92,10 @@ def fetch(slug: str, company_name: str, recipe: dict,
     http = session or requests
     method = (recipe.get("method") or "GET").upper()
     mode = recipe.get("mode") or "json"
-    headers = recipe.get("headers")
+    # Default the UA rather than making every recipe hand-copy one: without it
+    # `requests` announces itself as python-requests and some boards refuse.
+    headers = dict(recipe.get("headers") or {})
+    headers.setdefault("User-Agent", BROWSER_UA)
     page = recipe.get("page") or {"type": "none"}
     ptype = page.get("type", "none")
 
