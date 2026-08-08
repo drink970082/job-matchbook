@@ -189,9 +189,8 @@ function buildJobWhere(params: {
 // the two agree by construction.
 //
 // NOTE it has no lowcontext case, because buildJobWhere has none — that bucket falls
-// through to `matched`. getJobPostings branches before reaching here; removeAllInView
-// does not, which is latent today (its button renders only on the discarded bucket)
-// and is recorded in the deep-clean decision register rather than changed here.
+// through to `matched`. Nothing calls this with `bucket: 'lowcontext'`;
+// jobWhereForBucket below is the entry point and peels that bucket off first.
 async function jobWhereExcludingLowContext(
     filter: { bucket?: JobBucket; search?: string; minScore?: number; cause?: DisqualifyCause },
     matchIds: number[],
@@ -210,6 +209,36 @@ async function jobWhereExcludingLowContext(
             ...(lowIds.length > 0 ? [{ id: { notIn: lowIds } }] : []),
         ],
     }
+}
+
+// The `where` for ANY bucket — the single place a bucket becomes a query. getJobPostings
+// and removeAllInView both go through here so a bulk remove sweeps exactly the rows the
+// view is showing, for EVERY bucket rather than for all but one.
+//
+// The lowcontext bucket is peeled off first because buildJobWhere has no case for it and
+// would fall through to `matched`: before this was shared, a removeAllInView on that
+// bucket would have swept the MATCHED rows instead. Latent (the button renders only on
+// the discarded bucket) but one branch away from real, so it is closed by construction
+// instead of by that button never moving.
+async function jobWhereForBucket(
+    filter: { bucket?: JobBucket; search?: string; minScore?: number; cause?: DisqualifyCause },
+    matchIds: number[],
+    belowIds: number[],
+    lowIds: number[],
+): Promise<Prisma.job_postingsWhereInput> {
+    if (filter.bucket === 'lowcontext') {
+        // The low-context bucket IS the thin-JD id set, plus the shared search/minScore
+        // filters. It does not exclude itself, and the discarded-only cause sub-filter
+        // does not apply.
+        return {
+            AND: [
+                { id: { in: lowIds } },
+                filter.minScore != null ? { score: { gte: filter.minScore } } : {},
+                searchClause(filter.search || ''),
+            ],
+        }
+    }
+    return jobWhereExcludingLowContext(filter, matchIds, belowIds, lowIds)
 }
 
 // Ids of discarded postings whose `disqualification_reason` matches one hard-constraint
@@ -301,25 +330,11 @@ export async function getJobPostings(params: {
 }) {
     const page = Math.max(0, Math.floor(params.page ?? 0))
     const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
-    const search = params.search || ''
-    const minScore = params.minScore
 
     const [lowIds, matchIds, belowIds] = await Promise.all([
         lowContextIds(), matchedIds(), belowBarIds(),
     ])
-    let where: Prisma.job_postingsWhereInput
-    if (params.bucket === 'lowcontext') {
-        // The low-context bucket IS the thin-JD id set, plus the shared search/minScore filters.
-        where = {
-            AND: [
-                { id: { in: lowIds } },
-                minScore != null ? { score: { gte: minScore } } : {},
-                searchClause(search),
-            ],
-        }
-    } else {
-        where = await jobWhereExcludingLowContext(params, matchIds, belowIds, lowIds)
-    }
+    const where = await jobWhereForBucket(params, matchIds, belowIds, lowIds)
 
     const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
         params.sort === 'posted'
@@ -402,10 +417,10 @@ export async function removeAllInView(filter: {
         ])
         // Exactly the where getJobPostings uses, by construction rather than by
         // agreement, so a bulk-remove can never sweep up a row that is actually
-        // showing under the Low-context tab. Load-bearing now that the Discarded
+        // showing under a different tab. Load-bearing now that the Discarded
         // bucket also holds LIVE fit-verdict rejects (scored|notified), which DO
         // overlap lowContextIds' scope.
-        const where = await jobWhereExcludingLowContext(filter, matchIds, belowIds, lowIds)
+        const where = await jobWhereForBucket(filter, matchIds, belowIds, lowIds)
         const res = await prisma.job_postings.updateMany({
             where,
             data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },

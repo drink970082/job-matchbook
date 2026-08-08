@@ -258,21 +258,19 @@ describe('removeAllInView query shape', () => {
         expect(call.data.pipeline_status).toBe('removed')
     })
 
-    // KNOWN ASYMMETRY, pinned so a refactor cannot quietly "fix" it. removeAllInView
-    // has no lowcontext branch, so buildJobWhere falls through to its `matched`
-    // default. Unreachable today -- the "Remove all in view" button renders only on
-    // the discarded bucket (DiscoveredJobsTable.tsx:347) -- but it is a landmine if
-    // that button is ever shown elsewhere. Recorded in the deep-clean decision
-    // register; correcting it is a behavior change, not cleanup.
-    it('lowcontext falls through to the matched shape (latent, documented)', async () => {
+    // The asymmetry this used to pin: removeAllInView had no lowcontext branch, so
+    // buildJobWhere fell through to its `matched` default and a bulk remove on that
+    // bucket would have swept the MATCHED rows. Both callers now share
+    // jobWhereForBucket, so the sweep is the low-context id set -- the same where
+    // getJobPostings builds for that bucket, asserted above. Unreachable today (the
+    // button renders only on the discarded bucket, DiscoveredJobsTable.tsx:347); this
+    // asserts it stays harmless if it is ever shown elsewhere.
+    it('lowcontext sweeps the low-context rows, NOT the matched ones', async () => {
         primeIdSets()
         mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 0 } as any)
         await removeAllInView({ bucket: 'lowcontext' })
 
         const call = mockPrisma.job_postings.updateMany.mock.calls[0][0] as any
-        expect(call.where.AND[0]).toEqual({
-            pipeline_status: { in: ACTIVE },
-            id: { in: MATCH_IDS },
-        })
+        expect(call.where).toEqual({ AND: [{ id: { in: LOW_IDS } }, {}, {}] })
     })
 })
