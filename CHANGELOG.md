@@ -7,6 +7,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **The docs state current state only; completion history moves to git.** `PROGRESS.md`
+  and `BACKLOG.md` had accumulated ~1,000 lines of finished work marked done rather than
+  removed — a queue whose own header said every item was `DONE`, a closed defect kept with
+  70 lines of investigation log, resolved backlog entries, and paragraphs narrating the
+  documents' own edit history ("an earlier draft said…"). All of it is recoverable from
+  `git log`; none of it was current state. `CLAUDE.md`/`AGENTS.md` now carry the rule that
+  produced the drift, including its one exception — a **negative result** (what was tried
+  and failed) and anything whose only record is a **gitignored** artifact are not in git,
+  so they stay, written as present-tense constraints in `SCORING.md`/`REJECTED.md` rather
+  than dated log entries.
+
 ### Added
 
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be

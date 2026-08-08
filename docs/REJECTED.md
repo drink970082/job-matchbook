@@ -84,10 +84,10 @@
   a transition function is a large diff against a problem with no observed instance (no
   illegal transition has occurred). `db._update`'s `_UPDATABLE_COLUMNS` allowlist
   already demonstrates the taste at a tenth the cost.
-  (b) *Per-row `claimed_by` / `claim_expires_at` lease columns.* Covered under the
-  cadence entry in [In flight](./PROGRESS.md#in-flight): APScheduler cannot overlap itself
-  (`max_instances=1`), so the only real race is a hand-run pass inside a scheduled one
-  on a single host — a PID lockfile is ~15 lines against a per-row lease protocol.
+  (b) *Per-row `claimed_by` / `claim_expires_at` lease columns.* APScheduler cannot
+  overlap itself (`max_instances=1`), so the only real race is a hand-run pass inside a
+  scheduled one on a single host — and `run.pass_lock` (a non-blocking, stale-safe
+  `flock`, SPEC §7.1) is ~15 lines against a per-row lease protocol.
   Note the asymmetry that makes it *worth* the lockfile: a duplicated notify costs one
   extra Telegram message, but a duplicated score costs real quota.
   (c) *Five per-stage retry budgets (`fetch_`/`screen_`/`score_`/`notify_`/`expiry_`)
