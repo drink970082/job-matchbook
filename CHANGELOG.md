@@ -128,6 +128,28 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A blind two-backend labeling pass over the reachable golden corpus, and the two
+  tools that produce it.** `tools/label_run.py` scores a corpus once per row on one
+  backend (K=1, resumable, blind — it reads `id` and nothing else, so no prior label can
+  leak into the prompt); `tools/build_review_sheet.py` diffs two label files into
+  `eval/golden_review.html` for the existing `review_server.py`, which nothing could
+  regenerate before. Deliberately separate from `score_eval.py`: that is a *gate* (K=3,
+  PASS/FAIL against reference labels), these are *labelers*, and conflating the two is
+  how the corpora rotted the first time.
+  **Run 2026-08-02 over 287 rows on both backends, 574 calls, 0 errors:** the backends
+  agree on **228/287 (79%)** — 241/287 on domain, 273/287 on seniority — leaving 59
+  disagreements as the review queue plus a seeded 25-row audit sample of the consensus,
+  because two backends can be wrong the same way.
+  **Both backends independently agree with the operator's 37 earlier answers on exactly
+  24/37**, which is why those answers are fed back through blind and shown only as
+  context: they were written while the profile and title filters were mid-edit, and two
+  of them already contradict rules set later the same day.
+  Claude-code is the more conservative of the two (215 `mismatch` vs codex's 184; it
+  would notify on 19 rows against codex's 27).
+  **Measured quota, not projected:** claude-code costs 0.29pp of the 5-hour session
+  window per call and ~0.02pp of the weekly — so the *session* window is the binding
+  constraint, not the weekly one. Codex costs 0.053%/call. The full run took the
+  session window 10 -> 74% and codex 17 -> 31%.
 - **A Claude Code CLI fit backend (`SCORE_BACKEND=claude-code`) — the subscription twin
   of the codex scorer, and the second arm of a backend A/B that no longer costs money.**
   `score/backends_claude_cli.py` shells out to `claude -p` the way `backends_codex.py`

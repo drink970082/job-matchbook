@@ -60,6 +60,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   mid-edit, so they are fed back blind rather than treated as truth. That run is a
   separate branch and is gated on measuring the Claude Code burn rate first — do not
   start it from this entry.
+  **PHASE 2 PASSED and the burn rate is measured** (2026-08-02, branch
+  `feat/golden-relabel`, stacked on this one because the labeler imports the backend
+  and PR #74 is unmerged — §7's "stacking unavoidable" case; merge bottom-up).
+  16/16 well-formed on the probe corpus; **claude-code agreed with the operator on 14/16
+  against codex's 13/16**, and got right the three rows codex gets *stably* wrong
+  (24838, 25380, 64530) — the same three that survived every profile fix that day, which
+  makes them a codex reading rather than profile wording.
+  **Quota, measured over 100 live calls rather than projected:** claude-code costs
+  **0.29pp of the 5-hour session window per call** and only ~0.02pp of the weekly, so
+  the *session* window is the binding constraint (287 rows lands ~93%), not the weekly
+  one the plan gated on. Codex costs 0.053%/call, ~15pp for the full run.
 
 - **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED**
   `[SCORE · M · operator away, 60-call budget authorized]`.
