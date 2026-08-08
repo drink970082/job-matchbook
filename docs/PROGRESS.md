@@ -39,6 +39,54 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
+  2026-08-03** `[SCORE · L]`. Plan:
+  [`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
+  Its locked order is **0** freeze + hash the inputs · **1** the extraction schema, shadow
+  only · **2** the fresh frame · **3** run both model families · **4** human labelling ·
+  **5** cut development/held-out · **6** settle the arithmetic on development data · **7**
+  verify on held-out and cut over Stage 2 + gate + web in ONE move · **8** model
+  downgrade, 2B arbiter, notification cap.
+  **Steps 0-2 are on the branch.** A `fit_profile` config block (20 concepts, declared
+  priority tiers), four provenance hashes split by what each change actually invalidates,
+  the bounded-extraction prompt + schema + validation + quote verification, a
+  `tools/extract_shadow.py` runner, and a 250-row stratified frame at
+  `eval/frame_extraction.jsonl` (gitignored, like every corpus here). Behavior notes in
+  SPEC §7 (`config.py`) and §13.
+  **It stops at step 3, and that is the operator's call, not a blocker in the code.** Step
+  3 is a paid pass over ~250 postings on each of two backends against the standing quota
+  directive; step 4 is human labelling. Both need a decision this session cannot make.
+  **Nothing here reads or writes production state** — no import from `pipeline.py` or
+  `run.py` (asserted in `test_extract.py`), no status, no `score_detail`. That is a
+  correctness requirement: the live fit response carries the `screen` block
+  `merge_fallback_screen` refills a removed degree/clearance check from, so replacing it
+  would materialize a pass verdict out of a blind check.
+  **Two things the plan settles that a reader will otherwise re-litigate:** the six rows
+  scored 52-58 that opened it are a *labelling* problem and are out of scope (none
+  survives as `match/match` under either relabel arm), and `feat/golden-relabel` is not in
+  this order — its `domain` output depreciates under a schema that deletes the enum.
+  **TWO FINDINGS from the step 0-2 audit, both written up at the top of the plan.**
+  (1) **RESOLVED 2026-08-04, after being diagnosed wrong twice: the tier-1/2 evidence was
+  thin because of WHICH rows got scored, not because the postings are missing.** The
+  retracted claim ("the DB holds 2 priority-1 rows") was a regex artifact measured against
+  the 502 fit-scored rows and reported as the whole DB — those 502 are ~97%
+  non-trading-firm. What is true: **1,197 postings sit at prop/HFT/market-making/hedge-fund
+  employers and exactly 30 ever got a paid fit call**; ~700 were correctly discarded on
+  geography, and **345 are still `new`, never processed.** Fixed by re-picking rather than
+  re-gathering — `pick_frame.py --oversample` reserves a live-rows-only `target_employer`
+  stratum, and the 2026-08-04 frame draws 75 (62 US/remote, 63 never scored) out of the
+  same 250 slots. The dominance threshold was always answerable here (a choice among 5
+  lattice values, not a continuous estimate).
+  (2) **RESOLVED as deferred (operator, 2026-08-03): a third input category — annotations
+  on the candidate's own evidence — has no declared home.** The extractor correctly never
+  reads `personal_profile.txt`, but its CAVEATS lines are downward correctors on the
+  *résumé* side, and a quote check catches invention, not over-claim. **Do not "fix" this
+  by routing the CAVEATS section to the extractor** — that routes by container, and
+  another operator's CAVEATS may hold a preference, which would breach the design's one
+  rule silently. The category gets a *declared* home like `concepts` and `candidate` have,
+  at the cutover; step 3's pilot measures whether it bites at all.
+
+
 - **Generalized detail hydration — the fetch layer's teaser problem — IN PROGRESS
   2026-08-07** `[FETCH · L · branch `feat/fetch-detail-hydration`, cut from `main`]`.
   Plan: `~/.claude/plans/build-a-comprehensive-plan-majestic-grove.md` (operator-local).

@@ -467,6 +467,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
+  `fit_profile` is optional and **read by nothing in the running pipeline** — it is the
+  concept vocabulary the shadow extraction experiment uses (§13), parsed and validated by
+  `fit_profile.py`, which raises the same `ConfigError` at startup on a structural
+  mistake (unknown priority, an `anti_target` carrying a priority, a duplicate id, an
+  over-long description, no target concept, or a concept count over the ceiling).
 - **`fetch/` — board adapters.** One thin module per source, registered in
   `fetch/ADAPTERS`. Each returns the unified posting dict (`title`, `location`,
   `url`, full JD `description`, `external_id`). Two shapes:
@@ -2556,6 +2561,20 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.
+- **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
+  `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
+  rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):
+  a bounded-extraction call that emits duties / qualifications / evidence in a closed
+  vocabulary and **no numbers**, a stratified 250-row sampling frame, and the four
+  provenance hashes (`concept_vocab` / `preference_policy` / `profile` / `resume`) every
+  artifact is stamped with. **Shadow is a correctness requirement, not caution:** the
+  live fit response carries the secondary `screen` block `merge_fallback_screen` refills
+  a removed degree/clearance check from, so swapping in an extraction record would
+  materialize a pass verdict from a blind check. Nothing here is imported by
+  `pipeline.py` or `run.py` (asserted by `test_extract.py`), writes a status, or touches
+  `score_detail`. There is no accuracy gate for it — `tools/score_eval.py`'s PASS is
+  defined over `seniority`/`domain`, both of which this schema deletes, so the harness
+  rewrite is part of the cutover step, not of this tooling.
 - **Batching acceptance gate — FAILED; `batch_size` is parked at 1.** Two **live,
   quota-spending** checks in `tools/score_eval.py` (no `make` target, never run from
   CI) tested whether batching N JDs into one `codex exec` call corrupts a JD's verdict

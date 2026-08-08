@@ -94,43 +94,75 @@ def make_claude_cli_scorer(model: str, *, profile: str = "", timeout: int = 600,
                   + _job_block(posting, 0, include_location=False)
                   for posting in postings]
         prompt = "\n\n".join([*_scorer_system_sections(resumes, profile), *blocks])
-        schema = json.dumps(batch_schema(list(resumes)))
-        with tempfile.TemporaryDirectory() as tmp:
-            cmd = [claude_bin, "-p", "--model", model, "--output-format", "json",
-                   # Capability removal, not permission denial. See the docstring —
-                   # `--allowedTools ""` was measured to leave the tools loaded.
-                   "--tools", "",
-                   "--strict-mcp-config", "--setting-sources", "",
-                   "--disable-slash-commands", "--no-session-persistence",
-                   "--json-schema", schema]
-            try:
-                proc = subprocess.run(cmd, input=prompt, capture_output=True,
-                                      text=True, timeout=timeout, cwd=tmp)
-            except subprocess.TimeoutExpired as exc:
-                raise ScoreError(f"claude -p timed out after {timeout}s") from exc
-            except FileNotFoundError as exc:
-                raise ScoreError(f"claude binary not found: {claude_bin!r}") from exc
-        if proc.returncode != 0:
-            tail = (proc.stdout or proc.stderr or "").strip()[-400:]
-            raise ScoreError(f"claude -p failed (exit {proc.returncode}): {tail}")
-        try:
-            payload = json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
-            raise ScoreError(f"claude returned non-JSON output: {exc}") from exc
-
-        result = _result_event(payload)
-        # `is_error` is the CLI's own success flag and is independent of the exit code:
-        # an API error mid-session can still exit 0. Check both.
-        if result.get("is_error") or result.get("subtype") != "success":
-            detail = result.get("api_error_status") or result.get("subtype")
-            raise ScoreError(f"claude -p returned an error result: {detail!r}")
-
-        data = result.get("structured_output")
-        if data is None:  # schema satisfied but delivered only as text
-            try:
-                data = json.loads(result.get("result") or "")
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise ScoreError(f"claude result carried no parseable score: {exc}") from exc
+        data = claude_json(prompt, batch_schema(list(resumes)), model=model,
+                           timeout=timeout, claude_bin=claude_bin)
         return align_results(data, postings, backend="claude")
 
     return fit
+
+
+def claude_json(prompt: str, schema: dict, *, model: str, timeout: int = 600,
+                claude_bin: str = "claude", effort: str = ""):
+    """One tool-less `claude -p` under a JSON schema -> the parsed object.
+
+    Split out of `fit` on 2026-08-03 so the shadow EXTRACTION call
+    (`score/extract.py`) reaches this invocation instead of copying it. The flags are a
+    security and isolation boundary, not tuning — `--tools ""` (NOT `--allowedTools ""`)
+    removes capability from an agent about to read untrusted scraped text, and the
+    isolation flags are also the measured cost lever. All of it is argued in
+    `make_claude_cli_scorer`'s docstring.
+
+    `effort` maps to `--effort` and is the counterpart of codex's pinned
+    `model_reasoning_effort`. Left EMPTY by default, which keeps the production fit call
+    byte-identical — changing that path's behavior is gated by `make eval-score`. Callers
+    that want the two backends configured comparably pass it explicitly. Measured on one
+    extraction call, 2026-08-04: `low` cut output 13,301 -> 8,714 tokens (-34%), wall
+    clock 106s -> 71s, cost $0.357 -> $0.296.
+
+    **DO NOT PIN IT TO `low` FOR EXTRACTION — measured 2026-08-04 and it breaks the
+    schema.** Posting id 48915 (a thin JD) extracted cleanly unpinned in 68s, and under
+    `--effort low` the CLI gave up with `error_max_structured_output_retries` — "failed to
+    provide valid structured output after 5 attempts" — burning 48s of retries to produce
+    nothing. 1 of 3 rows in that sitting, against codex's 0.8% over 253. The saving is
+    real and so is the cost: a schema this size needs the reasoning budget to fill, and a
+    failed row spends quota AND yields no record. Left empty by default for that reason as
+    much as for the production gate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        cmd = [claude_bin, "-p", "--model", model, "--output-format", "json",
+               *(["--effort", effort] if effort else []),
+               # Capability removal, not permission denial. See the docstring —
+               # `--allowedTools ""` was measured to leave the tools loaded.
+               "--tools", "",
+               "--strict-mcp-config", "--setting-sources", "",
+               "--disable-slash-commands", "--no-session-persistence",
+               "--json-schema", json.dumps(schema)]
+        try:
+            proc = subprocess.run(cmd, input=prompt, capture_output=True,
+                                  text=True, timeout=timeout, cwd=tmp)
+        except subprocess.TimeoutExpired as exc:
+            raise ScoreError(f"claude -p timed out after {timeout}s") from exc
+        except FileNotFoundError as exc:
+            raise ScoreError(f"claude binary not found: {claude_bin!r}") from exc
+    if proc.returncode != 0:
+        tail = (proc.stdout or proc.stderr or "").strip()[-400:]
+        raise ScoreError(f"claude -p failed (exit {proc.returncode}): {tail}")
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise ScoreError(f"claude returned non-JSON output: {exc}") from exc
+
+    result = _result_event(payload)
+    # `is_error` is the CLI's own success flag and is independent of the exit code:
+    # an API error mid-session can still exit 0. Check both.
+    if result.get("is_error") or result.get("subtype") != "success":
+        detail = result.get("api_error_status") or result.get("subtype")
+        raise ScoreError(f"claude -p returned an error result: {detail!r}")
+
+    data = result.get("structured_output")
+    if data is None:  # schema satisfied but delivered only as text
+        try:
+            data = json.loads(result.get("result") or "")
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ScoreError(f"claude result carried no parseable score: {exc}") from exc
+    return data

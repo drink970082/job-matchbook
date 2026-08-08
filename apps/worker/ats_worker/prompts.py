@@ -1,7 +1,7 @@
 """Load prompts from the prompts/ directory at import time.
 
-The scoring stage has THREE files (score.txt, screen.txt, seniority.txt), each split into named
-sections by `@@ <name>` marker lines — `@@` is used because the prompt bodies
+The scoring stage has FOUR files (score.txt, screen.txt, seniority.txt, extract.txt),
+each split into named sections by `@@ <name>` marker lines — `@@` is used because the prompt bodies
 themselves use `=== … ===` as content delimiters, so the splitter must not
 collide with those.
 """
@@ -32,6 +32,7 @@ def _sections(filename: str) -> dict[str, str]:
 _score = _sections("score.txt")
 _screen = _sections("screen.txt")
 _seniority = _sections("seniority.txt")
+_extract = _sections("extract.txt")
 
 # Stamped into every fit-scored row's score_detail (pipeline._score_detail) so the
 # operator can select the rows that predate a rubric change and re-score just those.
@@ -66,3 +67,16 @@ SENIORITY_HEADER: str = _seniority["seniority_header"] + "\n"
 SENIORITY_LIST_HEADER: str = _seniority["seniority_list_header"]
 SENIORITY_C_SENIORITY: str = _seniority["c_seniority"]
 SENIORITY_FOOTER: str = _seniority["seniority_footer"]
+
+# A FOURTH call that nothing in the pipeline makes yet: the bounded fit EXTRACTION
+# (score/extract.py), run in shadow by tools/extract_shadow.py. Its own file for the same
+# reason seniority.txt is — it is gated by its own eval and its own corpus, and folding it
+# into score.txt would put the live fit rubric behind that gate. See
+# docs/superpowers/plans/2026-08-03-fit-scoring-rebuild.md.
+EXTRACT_HEADER: str = _extract["extract_header"] + "\n"
+
+# Bumped when extract.txt, the extraction schema, or the concept vocabulary changes in a
+# way that should invalidate stored shadow extractions. Separate from SCORER_VERSION
+# because the two prompts move independently — and unlike SCORER_VERSION, the *inputs*
+# side is covered by the four content hashes in score/fit_profile.py.
+EXTRACTOR_VERSION: str = "2026-08-03"

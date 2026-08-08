@@ -1647,6 +1647,72 @@ to predict real behavior twice.
 
 ---
 
+### 8.8 First shadow extraction pass: the mechanics hold, two rubric rules do not
+
+**Run 2026-08-04.** 250-row stratified frame, `codex`/`gpt-5.6-sol`, one posting per call,
+batch 1. 253 records (243 + a 10-row pilot), **3.3h wall clock, median 50s/posting, 24
+points of the weekly window** (33% -> 57%) — so roughly **0.1%/call**, and an extraction
+call is about 1.6x a fit call, entirely on the OUTPUT side (18 items, each with a verbatim
+quote, times one relation record per résumé). Artifact `eval/extract_codex.jsonl`.
+
+**The mechanics are sound and need no further work.**
+
+| measure | result |
+|---|---|
+| schema/validation failures | **2 of 253 (0.8%)** — both `nice_to_haves` over the 5 cap |
+| job-side quote verification | **23 failures of 2,987 items (0.77%)**; 13 rows material |
+| résumé-side quote verification | 5 failures |
+| `insufficient_context` | 38 rows, of which 19 returned zero duties |
+
+Compare the baseline this replaces: today's free-text `BACKGROUND:` field runs **17%
+off-vocabulary** across 501 rows. A closed vocabulary plus a code-checked quote moves that
+to under 1%, and the caps fail loudly rather than truncating.
+
+**Two rubric rules are contradicted by the data, and both are cheap to fix before they are
+built.**
+
+1. **`incidental` is a dead enum value — 2 uses in 1,029 duties.** The model classifies
+   almost everything `core` (763) or `supporting` (264). So D2 rule 5's escape hatch
+   ("*incidental* duty on an anti concept -> ignored", the rule that stops "occasionally
+   maintains a dashboard" killing a backend role) **is unreachable as written**: an
+   anti-target duty is in practice always core (reject) or supporting (confirm). Either
+   the prompt must earn the third value or the rule must be restated over the two that
+   exist. It also strands the importance weights, since core 4 / supporting 2 /
+   incidental 0 is really a two-value scale.
+2. **The dominance aggregator returns no usable tier on 43 of the 232 rows that have
+   duties (18.5%)** — `unresolved` 17, tie-at-maximum 14, unique-winner-below-threshold
+   12. The design record already flagged ties and zero-weight as undefined; this prices
+   them. (The 19 zero-duty rows are NOT part of that: they are correctly
+   `insufficient_context` under D2 rule 2.)
+
+**Corpus composition, and the lesson is about sampling rather than about scoring.** The
+frame was re-picked the same day after the tier-1/2 class was found to be nearly absent —
+see the plan's finding A. 1,197 postings sit at prop/HFT/market-making/hedge-fund
+employers and only 30 had ever received a paid fit call; ~700 were correctly discarded on
+geography and 345 were simply never processed. Reserving 75 slots for live rows at those
+employers took derived tier-1/2 rows from ~5 to **11 (t1=5, t2=6)**. That is a doubling,
+**not** the tenfold the re-pick was projected to give: the number of rows at target
+employers rose 30 -> 75, but most of what those firms post is trading, operations and IT,
+not quant development. *Rows at the right employer* and *rows of the right work* are
+different quantities, and only the first is controllable by sampling.
+
+**One vocabulary precision miss, found by reading the records.**
+`trading_platform_engineering` claimed all five duties of a Verition *Operations Associate
+- Cash & Position Reconciliations* — "perform daily reconciliations", "investigate
+reconciliation breaks", "maintain transaction records". The description names trade
+lifecycle and post-trade systems as nouns and never requires that the candidate BUILD
+them, so a back-office seat matches it. The profile's POSITIONING section carries exactly
+that builder-vs-practitioner distinction and no concept encodes it — the same family of
+gap as the plan's finding B.
+
+**A caution for whoever reads these records.** A Bridgewater *Commodities Research
+Associate* derived t1 and looks wrong from the title; its extracted duties are "build
+systematic commodities data pipelines and infrastructure", "manage vendor feeds", "build
+dashboards and monitoring". It is a builder seat wearing a research title, which the
+profile says fits, and the extraction is **right**. This session mis-called it from the
+title before reading the duties — which is the precise error the whole design exists to
+prevent. Judge these records by their duties, never by their titles.
+
 ## 9. Redesign notes
 
 ### 9.1 What a weak model can and cannot do here
