@@ -39,41 +39,34 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **A Claude Code CLI fit backend, and the `SCORE_BACKEND` rename it forces — IN
-  PROGRESS 2026-08-02** `[SCORE · M · branch `feat/claude-cli-scorer`, cut from `main`]`.
-  Plan: `~/.claude/plans/make-a-plan-tender-aurora.md` (operator-local, not in-repo).
-  **The gap this closes is one `usage.py:19` already documents:** the quota telemetry
-  for backend `claude` reads the **Claude Code subscription**, while the only Claude
-  scorer (`make_claude_scorer`) bills `ANTHROPIC_API_KEY` — so the bar describes a budget
-  nothing spends. This adds `backends_claude_cli.py` (`claude -p --json-schema`, the
-  subscription twin of `make_codex_scorer`) and **repoints the vocabulary: `claude` is
-  now the CLI, `claude-api` is the metered SDK** (operator's call, 2026-08-02). A stale
-  `SCORE_BACKEND=claude` therefore silently changes *which* backend runs — it is caught
-  loudly by the existing env-value check in `run.py`, and that is asserted in tests.
-  `--json-schema` (Claude Code 2.1.220) is the reason this is tractable: it enforces
-  structured output the way codex's `--output-schema` does, so there is no
-  prompt-and-parse path.
-  **It exists to serve a second, gated piece of work:** a blind two-backend re-label of
-  the 287 *reachable* rows of `golden_expanded.jsonl`, because today's profile and
-  `title_exclude` rewrites invalidated the corpora (499 rows are 100% `label_source:
-  "sol"` from the old profile) and the operator's 44 review answers were written
-  mid-edit, so they are fed back blind rather than treated as truth. That run is a
-  separate branch and is gated on measuring the Claude Code burn rate first — do not
-  start it from this entry.
-  **PHASE 2 PASSED and the burn rate is measured** (2026-08-02, branch
-  `feat/golden-relabel`, stacked on this one because the labeler imports the backend
-  and PR #74 is unmerged — §7's "stacking unavoidable" case; merge bottom-up).
-  16/16 well-formed on the probe corpus; **claude-code agreed with the operator on 14/16
-  against codex's 13/16**, and got right the three rows codex gets *stably* wrong
-  (24838, 25380, 64530) — the same three that survived every profile fix that day, which
-  makes them a codex reading rather than profile wording.
-  **Quota, measured over 100 live calls rather than projected:** claude-code costs
-  **0.29pp of the 5-hour session window per call** and only ~0.02pp of the weekly, so
-  the *session* window is the binding constraint (287 rows lands ~93%), not the weekly
-  one the plan gated on. Codex costs 0.053%/call, ~15pp for the full run.
+- **The golden fit corpus is being rebuilt, and it is blocked on human review**
+  `[SCORE · M · blocks the `eval-score` gate; the tools are on `main`]`.
+  The blind labeler and the sheet generator exist (`tools/label_run.py`,
+  `tools/build_review_sheet.py`). **Phase 5 does not** — folding reviewed answers back
+  into `golden.jsonl` with inline posting payloads is unbuilt, so nothing consumes
+  `eval/golden_review_answers.json` today.
+  **Where the review stands:** the 287 *reachable* rows of `golden_expanded.jsonl` are
+  labelled blind on both backends (574 calls, 0 errors). 203 consensus rows are accepted
+  without review; the queue is **84 rows — 59 disagreements plus 25 seeded audit rows**
+  drawn from the consensus set. **24 answered, 60 open.** Serve the sheet with
+  `python3 apps/worker/eval/review_server.py` (binds 127.0.0.1:8765 only; autosaves).
+  **Consensus is not truth**, which is what the audit sample is for — row 25206 (UPS,
+  generic enterprise app support, labelled `match`) is the standing example of both
+  backends agreeing and both being wrong.
+  **The 40 earlier answers in that file grade nothing.** Both backends independently
+  agree with them on 24/37, which fits two different stories — the rules changed under
+  those answers, or the profile still does not capture the judgment — and this run
+  separates neither. They are displayed as context and never pre-selected.
+  **Backend split, for whoever works the queue:** agreement 228/287 (79%); domain
+  241/287, seniority 273/287. claude-code is the more conservative side (215 `mismatch`
+  to codex's 184, and it would notify on 19 rows against codex's 27).
+  **Measured cost, over 100 live calls:** claude-code spends **0.29pp of the 5-hour
+  session window per call** and ~0.02pp of the weekly, so the *session* window binds,
+  not the weekly one; a 287-row pass lands near 93% of it. Codex is 0.053%/call.
+  `eval/` is gitignored — this state lives on the operator's host and nowhere else.
 
-- **Quota levers: prefix caching and the seniority vetoes — RUNNING UNATTENDED**
-  `[SCORE · M · operator away, 60-call budget authorized]`.
+- **Quota levers: prefix caching and the seniority vetoes**
+  `[SCORE · M · Phase 1 closed as a negative; Phase 3 open]`.
   Branches, one per phase: **`docs/quota-levers-plan`** (this claim, the plan, the
   ledger), **`fix/seniority-veto-evidence`** (Phase 3), and a Phase 1 branch for the
   caching fix. Plan and full sequence:
