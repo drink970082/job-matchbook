@@ -58,6 +58,107 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **`tools/backfill_descriptions.py`, because `upsert_postings` never updates.** Every change
+  above helps only postings fetched *after* it — `ON CONFLICT DO NOTHING` means the 1,615 rows
+  already holding a teaser keep it forever. The tool re-runs the now-capable fetch for a board
+  and `UPDATE`s `description` where the fresh body is materially longer (`--min-gain`, default
+  1.2x, which also stops a board transiently serving a *shorter* body from overwriting a good
+  one). Dry-run by default; `--all` picks every board whose stored rows read as teasers, and
+  `--ids` targets specific rows.
+  **`--ids` exists for the eval corpora.** The golden sets are label-only and key on
+  `job_postings.id`, carrying no description snapshot, so an eval reads whatever the row holds
+  *now* — a corpus row on a teaser board was being labelled against 250-850 characters. It also
+  keeps labelling stable, since rows nobody is grading are left untouched. The wanted ids become
+  a `keep` verdict, so the board's detail calls collapse to just them (31 requests rather than
+  Google's 817).
+  **It never re-scores and never touches `score`, `score_detail` or `pipeline_status`** — 665
+  of these rows hold a paid verdict computed from a teaser, and re-scoring them is a quota
+  decision, so the tool reports and stops. Postings that have left the board are left alone.
+
+- **A per-board health line from `run_fetch`, so a teaser board stops being invisible.** One
+  line per board per pass: `fetched / kept / new / bodyless / desc_median`, plus a `TEASER?`
+  marker under 1,500 median chars. `_valid_posting` already catches an EMPTY description — how
+  a moved selector announces itself — but a board serving 250-character summaries reads as a
+  perfectly healthy fetch, which is why finding this class took a manual query over stored rows
+  instead of a log line. Healthy boards measure 1,900-2,200 median chars and the affected ones
+  measured 250-850, so the threshold sits in an empty gap. Nothing is dropped on it; it is a
+  signal, not a gate. Source-agnostic, so the `pipeline.py` architecture guard stays green.
+
+- **One `util.BROWSER_UA` instead of four hand-copied User-Agent strings.** It lived in
+  `browser.py` plus three recipe `headers` blocks — three chances to drift. `custom` now
+  defaults the header (a recipe that sets its own still wins), so the three recipes drop
+  theirs. The version is deliberately **not** bumped to match the local Chromium: the string
+  reads stale next to a Chrome 151 binary, but it is part of the configuration measured to
+  clear Citadel's wall, and dropping the override leaks `HeadlessChrome`. Changing it is its
+  own experiment.
+
+- **Detail hydration now runs behind the stub gate, and the detail transport can differ from
+  the list transport.** `custom` and `browser` join `STUB_GATE_SOURCES`, so a detail call is
+  spent only on postings that survive the free title/exclude/age gates. `browser.fetch`
+  previously hydrated **every** parsed posting before any gate ran; `run_fetch`'s existing
+  `_keep` closure supplies the verdict, so nothing changed in `pipeline.py`.
+  A `detail:` block may also declare `mode: http-html` / `http-json` on a `browser` recipe —
+  for the many boards that need Chromium only to **enumerate** (the listing is a JS app) but
+  serve each job page server-rendered. Google is the case in point: 817 rows now hydrate over
+  plain `requests` (`.aG5W3`, 452 -> 1,821 median chars, 10/10 on live postings) instead of
+  paying a ~15s Chromium render each. The 4-in-12 miss rate on *stored* URLs is expired
+  postings, not a selector fault, and the breaker resets on every gain.
+
+- **A stealth browser transport, which recovers the Cloudflare-walled boards.** `browser.py`
+  wraps its playwright context in `playwright-stealth` (`Stealth().use_sync(sync_playwright())`),
+  a new line in the already-optional `requirements-browser.txt`. Citadel goes from a
+  "Just a moment" interstitial on **every** detail navigation to **10/10 full JDs** — median
+  3,432 chars on `citadelsecurities.com` and 2,878 on `citadel.com`, both previously 0.
+  **Placement is the whole fix.** The per-page `Stealth().apply_stealth_sync(page)` form silently
+  under-patches and does not work: six arms failed on it, with and without the SSRF route guard,
+  with and without a UA override, with crawl4ai's full launch-flag set, and with a 14s fixed
+  dwell. This is also the entirety of what crawl4ai's `enable_stealth=True` does
+  (`enable_stealth=False` -> 3/3 interstitial), so it buys nothing a 208 KB dependency does not.
+  Stealth is a property of the transport, not of a board — no per-row flag — and the extra stays
+  optional: absent it, the un-patched context is used and the core install, CI and the no-network
+  test gate stay Chromium-free.
+  `browser` also drops its inline detail loop for the shared stage, so its per-posting
+  `empties >= 3` counter becomes the board-level breaker that `BACKLOG.md` names as the
+  precondition for any detail retry. `browser.apply_detail` is deleted; the fixtures that pinned
+  it now pin `_detail.apply_detail` against the same saved pages.
+
+- **A detail step for iCIMS, making it the third stub-gated adapter.** Its search card's
+  `div.description` is a teaser, and on some tenants absent entirely — MSCI lists 92 live
+  postings with **no description at all**, which is why `BACKLOG.md` had it queued for deletion
+  as an "empty-JD board". It was never that; it was a board with no detail step. The JD is on the
+  job's own page (`{job_url}?in_iframe=1` -> `div.iCIMS_JobContent`), reached through the shared
+  stage. Measured median description chars: **SIG 561 -> 3,835, GTS 537 -> 3,987, MSCI 0 ->
+  7,032**.
+  This is a PLATFORM capability, not three board fixes: it lives in the adapter exactly as
+  `position_details` lives in phenom's, and serves every current and future iCIMS tenant.
+  `icims` joins `STUB_GATE_SOURCES`, so the detail GET is only spent on postings that survive
+  the free gates — on MSCI that skipped 64 of 92 calls in one pass. Both `drop` and `discard`
+  are honoured: the card carries id, title and location, so the verdict is decidable from the
+  stub and costs no dedup key (unlike workday's GUID-less stub, which honours `drop` only).
+
+- **A shared detail-hydration stage (`fetch/_detail.py`), and a `detail:` block for `custom`
+  recipes.** The fit scorer's whole job is reading a job description; on 1,615 of 11,675 stored
+  postings (14%) it was reading a 250-850 character teaser, and 665 of those had already bought a
+  paid fit call on one. The cause was not nine bad boards — detail hydration existed only inside
+  the two-step platform adapters and the `browser` executor, so a board whose list call returned a
+  summary had nowhere to go.
+  `_detail.hydrate` is the skeleton (sibling of `_paged.py`) with `fetch_doc`, `detail_url` and
+  the `keep` stub gate injected. **The detail transport is independent of the list transport** —
+  a board can list as JSON and hydrate from HTML — and **the circuit breaker is per board, not per
+  posting**, since a bot wall fails identically for every row. The health signal is "did this call
+  earn more description?", not the HTTP status: a Cloudflare interstitial is a 200 with a
+  parseable body.
+  Measured through `fetch_company` against the live boards, median description chars:
+  **IBM 253 -> 3,718** (no `detail` block at all — its full `body` was already in the list
+  response and only wanted mapping), **Apple 843 -> 2,488**, **Oracle 330 -> 7,909**. Oracle's
+  section list and order match `fetch/oracle.py:_SECTIONS`, deliberately excluding
+  `CorporateDescriptionStr` — identical boilerplate on every requisition that every paid fit call
+  would otherwise carry. A detail `url` template interpolates against the **raw** item, not the
+  canonical posting: Apple's detail API keys on `positionId` while `external_id` is `id`, and
+  re-pointing `external_id` would re-key all 360 stored rows.
+  Already-stored rows are unchanged — `upsert_postings` is `ON CONFLICT DO NOTHING`, so a backfill
+  is owed separately.
+
 - **A `prefilter` disqualification cause in the Discarded bucket, so the swept rows can be
   bulk-removed.** `run_score`'s free phase-0 sweep re-applies the operator's own
   `title_filter`/`title_exclude` to already-queued rows, and it is the bulk producer of

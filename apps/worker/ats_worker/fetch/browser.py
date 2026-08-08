@@ -6,8 +6,11 @@ Playwright Chromium and extraction reads the RENDERED DOM via CSS selectors.
 
 Walled off so the pure-`requests` core never touches Chromium: Playwright is
 lazy-imported INSIDE fetch() and ships as an optional extra
-(requirements-browser.txt); importing this module needs only bs4. The pure
-`parse_jobs` / `apply_detail` are unit-tested against saved HTML fixtures; the
+(requirements-browser.txt); importing this module needs only bs4. Detail merging
+belongs to the shared stage (`_detail.py`) — which also means a board Chromium must
+only ENUMERATE can hydrate over plain `requests` via an `http-html`/`http-json`
+detail mode, instead of paying a render per posting. The pure `parse_jobs` is
+unit-tested against saved HTML fixtures; the
 `fetch` glue's SSRF guards (detail + pagination URLs) are exercised via a fake
 `sync_playwright` (test_browser.py) with no real Chromium, but the live browser
 I/O itself is not (same as other adapters' network I/O). The executor is also
@@ -15,10 +18,12 @@ gated off the default cycle in run.py (enable_browser_sources).
 """
 from __future__ import annotations
 
+import requests
 from bs4 import BeautifulSoup
 
-from ats_worker.fetch._recipe import _css_description, apply_css_fields
-from ats_worker.util import is_safe_public_url
+from ats_worker.fetch import _detail
+from ats_worker.fetch._recipe import apply_css_fields
+from ats_worker.util import BROWSER_UA, is_safe_public_url
 
 SOURCE = "browser"
 
@@ -29,9 +34,9 @@ _INSTALL_HINT = (
 
 # A realistic UA + headed-looking context + the automation-flag off lets Cloudflare's
 # "Just a moment" JS interstitial auto-clear; the default headless-shell fingerprint
-# gets stuck on it (0 cards).
-_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+# gets stuck on it (0 cards) and leaks "HeadlessChrome". Shared with the `custom`
+# executor's default header — see util.BROWSER_UA on why the version is not bumped.
+_UA = BROWSER_UA
 
 
 def _block_unsafe_navigation(route):
@@ -69,19 +74,37 @@ def parse_jobs(pages: list[str], recipe: dict, company_name: str) -> list[dict]:
     return out
 
 
-def apply_detail(posting: dict, detail_html: str, recipe: dict) -> dict:
-    """Merge detail-page fields (currently `description`) into a posting (pure)."""
-    fields = (recipe.get("detail") or {}).get("fields") or {}
-    if "description" in fields:
-        node = BeautifulSoup(detail_html or "", "html.parser")
-        posting["description"] = _css_description(node, fields["description"])
-    return posting
+def _stealth_context(sync_playwright):
+    """The playwright context manager, stealth-patched when the optional extra is
+    installed.
+
+    **Placement is the whole fix.** `Stealth().use_sync(sync_playwright())` patches at
+    context creation and clears Citadel's Cloudflare wall — 3/3 detail pages at
+    3.4-5.4k chars, with the SSRF route guard still installed. The obvious per-page form,
+    `Stealth().apply_stealth_sync(page)`, silently under-patches and does NOT: six
+    measured arms failed on it (with and without the route guard, with and without a UA
+    override, with crawl4ai's full launch-flag set, with a 14s fixed dwell). crawl4ai's
+    `enable_stealth=True` is this same library and nothing else, so it buys nothing a
+    208 KB dependency does not.
+
+    Absent, the un-patched context is returned: the extra stays optional and the core
+    install, CI, and the no-network test gate stay Chromium-free.
+    """
+    try:
+        from playwright_stealth import Stealth
+    except ImportError:       # pragma: no cover - env-dependent, like playwright itself
+        return sync_playwright()
+    return Stealth().use_sync(sync_playwright())
 
 
 def fetch(slug: str, company_name: str, recipe: dict,
-          session=None, timeout: int = 30) -> list[dict]:
-    """Render the board in headless Chromium, paginate, optionally enrich each
-    posting from its detail page. `session` is ignored (signature parity)."""
+          session=None, timeout: int = 30, keep=None) -> list[dict]:
+    """Render the board in headless Chromium, paginate, optionally enrich each posting
+    from its detail page.
+
+    `session` is used ONLY by an `http-html`/`http-json` detail mode (a board Chromium
+    must enumerate but whose job pages are server-rendered); the listing render never
+    touches it. `keep` is the stub-gate predicate — see `phenom.fetch`."""
     if not is_safe_public_url(recipe.get("url")):
         raise ValueError(f"browser recipe url is not a safe public http(s) URL: {recipe.get('url')!r}")
     try:
@@ -93,13 +116,12 @@ def fetch(slug: str, company_name: str, recipe: dict,
     ptype = page_cfg.get("type", "none")
     detail = recipe.get("detail") or {}
     url_field = detail.get("url_field")
-    enrich = bool(url_field and detail.get("fields"))
 
     item_sel = recipe.get("item")
     detail_desc = (detail.get("fields") or {}).get("description")
     detail_wait = detail_desc if isinstance(detail_desc, str) else None
 
-    with sync_playwright() as pw:
+    with _stealth_context(sync_playwright) as pw:
         browser = pw.chromium.launch(
             headless=True, args=["--disable-blink-features=AutomationControlled"])
         page = browser.new_context(
@@ -155,26 +177,27 @@ def fetch(slug: str, company_name: str, recipe: dict,
         elif ptype != "none":
             raise ValueError(f"browser recipe: unsupported page type {ptype!r}")
 
-        if enrich:
-            # One detail render per posting. A bot wall (Cloudflare) clears once for the
-            # listing but re-challenges rapid deep-link navigations, so detail pages come
-            # back description-less; a circuit-breaker bails after 3 straight empties
-            # rather than burning a ~15s render on every posting. Self-heals if the wall
-            # relaxes. (Edge: a board with 3+ genuinely blank JDs in a row stops early —
-            # postings stay valid, just description-less.)
-            empties = 0
-            for p in postings:
-                url = p.get(url_field)
-                if not url or not is_safe_public_url(url):
-                    continue  # skip a missing OR unsafe (SSRF) detail url — the detail
-                              # href is scraped from third-party listing HTML; keep the
-                              # posting description-less (same policy as a failed render).
-                try:
-                    apply_detail(p, render(url, detail_wait), recipe)
-                except Exception:  # noqa: BLE001 — keep the posting, description as-is
-                    continue
-                empties = empties + 1 if not p.get("description") else 0
-                if empties >= 3:
-                    break
+        # Hydration through the shared stage, which owns the board-level breaker, the
+        # stub gate and the SSRF re-check. A bot wall clears once for the listing but
+        # re-challenges deep-link navigations, so a walled board's detail renders come
+        # back description-less and the breaker ends them rather than burning a ~15s
+        # render on every posting; `_stealth_context` is what stops the re-challenge.
+        #
+        # **The detail transport need not be the browser.** Plenty of boards need
+        # Chromium only to ENUMERATE — the listing is a JS app but each job page is
+        # server-rendered — and for those an `http-html`/`http-json` detail mode hydrates
+        # over plain `requests`, turning one Chromium render per posting into one cheap
+        # GET. Google is the case in point: 817 rows, SSR'd detail pages.
+        if url_field:
+            mode = detail.get("mode")
+            if mode in ("http-html", "http-json"):
+                fetch_doc = _detail.http_doc(session or requests, timeout=timeout,
+                                             html=mode == "http-html")
+            else:
+                def fetch_doc(url):
+                    return BeautifulSoup(render(url, detail_wait), "html.parser")
+            postings = _detail.hydrate(
+                postings, detail, keep=keep, label=f"{SOURCE}/{slug}",
+                detail_url=lambda p: p.get(url_field), fetch_doc=fetch_doc)
         browser.close()
     return postings

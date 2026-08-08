@@ -6,3 +6,14 @@
 #
 # Install:  pip install -r requirements-browser.txt && playwright install chromium
 playwright>=1.40
+# Stealth patches applied at CONTEXT CREATION — `Stealth().use_sync(sync_playwright())`,
+# not the per-page `apply_stealth_sync(page)`, which silently under-patches (six measured
+# arms failed on it: with and without the SSRF route guard, with and without a UA
+# override, with crawl4ai's full launch-flag set, with a 14s fixed dwell). Placement is
+# the whole fix. It clears the Cloudflare wall on Citadel's detail pages — 3/3 at
+# 3.4-5.4k chars against a "Just a moment" interstitial without it — and it is the
+# entirety of what crawl4ai's `enable_stealth=True` does, at 208 KB rather than an
+# 821 MB dependency tree carrying its own pinned Chromium.
+# Lazy-imported like playwright, and absent it the un-patched context is used, so this
+# line stays optional.
+playwright-stealth>=2.0.3

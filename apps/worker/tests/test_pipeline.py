@@ -185,7 +185,8 @@ def test_run_fetch_drops_bodyless_postings(db_path, capsys):
     # recorded in feed_unresolved so the broken scraper surfaces (not just a log line).
     conn = db.connect(db_path)
 
-    def fetch_fn(source, slug, name):
+    # `browser` is stub-gated now, so run_fetch hands it the `keep` the real adapter takes.
+    def fetch_fn(source, slug, name, **kw):
         return [_posting("body"),
                 _posting("empty", description="", job_url="https://x.co/empty")]
 
@@ -2194,3 +2195,42 @@ def test_no_stale_predicate_leaves_every_row_alone(db_path):
                        screen_fn=lambda p: {"disqualified": False, "screen": {},
                                             "disqualification_reason": ""}, limit=5)
     assert db.get_by_status(conn, "scored")
+
+
+# --- per-board health line: the thing that makes a teaser board visible ---
+
+def test_run_fetch_logs_a_health_line_per_board(db_path, capsys):
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name, **kw):
+        return [_posting("a", description="x" * 2000), _posting("b", description="y" * 2200)]
+
+    pipeline.run_fetch(conn, [{"source": "greenhouse", "slug": "acme", "name": "Acme"}],
+                       None, now=NOW, fetch_fn=fetch_fn)
+    line = [l for l in capsys.readouterr().out.splitlines() if "greenhouse/acme" in l][0]
+    assert "fetched=2" in line and "kept=2" in line and "new=2" in line
+    assert "desc_median=2200" in line
+    assert "TEASER" not in line
+
+
+def test_run_fetch_health_line_flags_a_teaser_board(db_path, capsys):
+    """A board serving 250-char summaries reads as a healthy fetch: nothing is empty,
+    nothing raises, `_valid_posting` passes. Only the median says otherwise."""
+    conn = db.connect(db_path)
+
+    def fetch_fn(source, slug, name, **kw):
+        return [_posting(str(i), description="teaser " * 35) for i in range(3)]
+
+    pipeline.run_fetch(conn, [{"source": "custom", "slug": "ibm", "name": "IBM"}],
+                       None, now=NOW, fetch_fn=fetch_fn)
+    line = [l for l in capsys.readouterr().out.splitlines() if "custom/ibm" in l][0]
+    assert "TEASER?" in line and "detail step" in line
+
+
+def test_run_fetch_health_line_on_an_empty_board(db_path, capsys):
+    conn = db.connect(db_path)
+    pipeline.run_fetch(conn, [{"source": "lever", "slug": "gone", "name": "Gone"}],
+                       None, now=NOW, fetch_fn=lambda *a, **kw: [])
+    line = [l for l in capsys.readouterr().out.splitlines() if "lever/gone" in l][0]
+    assert "fetched=0" in line and "desc_median=0" in line
+    assert "TEASER" not in line, "an empty board is not a teaser board"

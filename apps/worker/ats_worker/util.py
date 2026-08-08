@@ -22,6 +22,20 @@ POSTING_FIELDS = (
     "posted_at",
 )
 
+# One browser User-Agent for every outbound fetch that wants to look like a browser:
+# the `browser` executor's Chromium context, and the default header for a `custom`
+# recipe that sets none. It lived in four places (browser.py plus three hand-copied
+# recipe `headers` blocks), which is three chances to drift.
+#
+# The version is DELIBERATELY not bumped to match the locally-installed Chromium. It
+# reads stale next to a Chrome 151 binary, and a UA contradicting the `sec-ch-ua`
+# client hints is a standard bot signal — but this exact string is part of the
+# configuration measured to clear Citadel's wall, and dropping the override entirely
+# leaks "HeadlessChrome". Changing it is its own experiment with its own measurement,
+# not a tidy-up.
+BROWSER_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36")
+
 
 def join_present(obj: dict, keys: tuple[str, ...]) -> str | None:
     """`", "`-join the non-blank values of `keys`, in order — or None if none are set.

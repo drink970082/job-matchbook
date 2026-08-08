@@ -220,24 +220,28 @@
   number however it is tuned; the remaining detail-call cost lives on the phenom two-step
   boards. Parse coverage is 100% (14/20/21/30+ days, no "Today"/"Yesterday"/locale
   strings), so the gate is neutralised by the threshold, not by parse misses.
-- **Citadel's JD is unreachable behind Cloudflare — both rows kept anyway** —
-  `[FETCH · decided · do not re-derive]`. `browser/citadel.com` and
-  `browser/citadelsecurities.com` scrape their listing pages fine (10 postings each,
-  clean on id/title/location/url) but **0/10 on `description`**: Cloudflare clears once
-  for the listing render, then re-challenges the deep-link detail navigations.
-  Three probes settled it — plain-HTTP listing GET → `403`; deep-link `goto` + 15s
-  dwell → `Just a moment...`; **clicking** the card from the already-cleared listing
-  (user gesture + same-origin referer) + 30s dwell → byte-identical. The detail route
-  is challenged regardless of arrival path and does not self-clear; everything past
-  this rung is a stealth plugin / real browser profile / residential proxy — detection
-  evasion plus a new dependency, out of scope here.
-  **Decision: keep both rows.** Since the body-required guard shipped they simply yield
-  nothing (dropped at `run_fetch`, logged), costing a few Chromium renders per cycle,
-  and they self-heal if Citadel's Cloudflare behavior relaxes. The only other honest
-  option is deleting them; dropping the `detail:` block to take title-only is now a
-  no-op, since the guard would drop those rows anyway.
-  **The real price is 6x/day** now that the daemon runs, for a known-zero yield — which is
-  why these rows are part of the one watchlist decision in the empty-JD-boards entry below.
+- **Boards behind a bot wall — the stealth transport is the rung, and it is cheap** —
+  `[FETCH · reference]`. Citadel was the worked example and is now resolved: both rows
+  yield full JDs (`citadelsecurities.com` median **3,432**, `citadel.com` **2,878** chars,
+  10/10, zero empty) through `playwright-stealth` applied at context creation. Kept here
+  because the *reasoning* generalises to the next walled board.
+  **What the earlier probe series got wrong is instructive.** It ruled the next rung out
+  as "a stealth plugin / real browser profile / residential proxy — detection evasion plus
+  a new dependency, out of scope". Two of those three are indeed out of scope; the first is
+  208 KB in an already-optional extra, needs no proxy and no profile, and was the answer.
+  **Placement is the whole fix, and the obvious API is the wrong one.**
+  `Stealth().use_sync(sync_playwright())` works; the per-page `Stealth().apply_stealth_sync(page)`
+  silently under-patches and does not. Six arms failed on the per-page form — with and
+  without the SSRF route guard, with and without a UA override, with crawl4ai's full
+  launch-flag set, with a 14s fixed dwell. If a future board resists, check the placement
+  before concluding the library is spent.
+  **`citadel.com` never needed it.** It cleared on unmodified playwright at 2,414 chars
+  while `citadelsecurities.com` was still interstitial — so "both rows are 0/10" was already
+  stale before this work. Re-measure per host; a wall is not a company-wide property.
+  **Next rungs, if one is ever needed:** Patchright is the drop-in Chromium upgrade
+  (CDP-level patches, no code change); Camoufox patches Firefox at the C++ level but costs
+  200MB+ RAM per instance and ~42s per Turnstile challenge, which is the wrong shape for a
+  6x/day pipeline. Every open-source patcher leaks after browser updates.
 - **Stale-mount recovery — the recovery leg is proven, detection of a real event is not** —
   `[INFRA · S · needs a real event]`. A live drill with a throwaway container
   (`--label autoheal=true`, always-failing healthcheck) confirmed the recovery leg
@@ -402,21 +406,20 @@
   suppress the next 4-hourly pass entirely. If it is ever wanted, it needs a board-level
   breaker first (stop hydrating this board after K consecutive throttled details), and
   404 must stay terminal.
-- **Empty-JD boards ON the watchlist — MSCI icims** — `[FETCH · XS]`. Its iCIMS list
-  endpoint carries titles but no description, so every fetch drops ~42 bodyless postings;
-  `citadelsecurities` (7) and `citadel` (4) are the same story on the browser executor.
-  Non-destructive (the guard drops them and records them in `feed_unresolved`), but they
-  produce nothing and are re-fetched and re-dropped **6x/day**, which is what turns a
-  documented no-op into an ongoing fetch cost. Candidates to drop, or to route through a
-  detail-fetch once one exists.
-  **The choice is binary, and one decision covers the three zero-yield rows** — `msci`
-  plus the Citadel pair above. `watched_companies` has no `active` column, so there is no
-  soft-disable: the row stays and keeps paying, or it is deleted. Deleting is the cheap
-  call — re-adding is one `onboard-board` run and the rationale is recorded here, whereas
-  adding a flag is a schema change, i.e. the thing "No schema migration path" below exists
-  to avoid. **`phenom/microsoft` is NOT in this set:** it drops 4-6 bodyless rows per pass
-  but serves full descriptions for the rest, so it is a partial-drop board, not an
-  empty-JD one.
+- **Eight recipes carry no `posted_at`, and four of them CANNOT** — `[FETCH · XS · measured,
+  do not re-derive]`. Where a recipe maps no `posted_at`, `upsert_postings` stamps the scrape
+  day (`db.py`), so `max_age_days` can never fire for that board and the displayed date is the
+  day we saw it, not the day it was posted. It reads like a recipe oversight. For
+  `tiktok`, `janestreet`, `bytedance` and `ibm` it is not: their list payloads carry **no
+  date-ish field at all** — a full recursive walk of a live item for `date|posted|created|
+  updated|publish|time` returns nothing. There is no recipe fix; it needs a detail call whose
+  only purpose is a date, which is not worth one request per posting. Check the payload before
+  filing this as a bug on a ninth board.
+
+- **Bodyless rows on `phenom/microsoft`** — `[FETCH · XS]`. It drops 4-6 postings per pass
+  whose list entry carries no description, while serving full ones for the rest — a
+  partial-drop board, so there is no watchlist decision to make and no board-wide detail
+  step to add. Non-destructive (the guard drops them and records them in `feed_unresolved`).
 - **Intake-cut evidence — the numbers are ready, the decision is the operator's**
   — `[FETCH · S · Q3 · one board-side filter applied, rest declined]`. Q3 is the only lever
   that reduces *demand* rather than re-ordering it. Three findings.

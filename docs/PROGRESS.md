@@ -39,6 +39,36 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Generalized detail hydration — the fetch layer's teaser problem — IN PROGRESS
+  2026-08-07** `[FETCH · L · branch `feat/fetch-detail-hydration`, cut from `main`]`.
+  Plan: `~/.claude/plans/build-a-comprehensive-plan-majestic-grove.md` (operator-local).
+  **The gap:** the fit scorer's whole job is reading a JD, and on **1,615 of 11,675 rows
+  (14%)** it reads a 250-850 char teaser; 665 of those already bought a paid fit call on
+  one. Three more boards store nothing at all. This is not nine bad boards — detail
+  hydration lives only in the two-step platform adapters and `browser`, so any board whose
+  list call returns a summary has nowhere to go. Every affected board's full JD was
+  measured live and is reachable (`SPEC.md` §7.1 for the mechanism).
+  **The code is complete and green** (`SPEC.md` §7.1 for the mechanism, `CHANGELOG.md` for
+  the per-piece measurements). Median description chars, measured through the real
+  `fetch_company`/adapters: IBM 253 -> 3,718 · Apple 843 -> 2,488 · Oracle 330 -> 7,909 ·
+  SIG 561 -> 3,835 · GTS 537 -> 3,987 · MSCI 0 -> 7,032 · Google 452 -> 1,821 ·
+  citadelsecurities 0 -> 3,432 · citadel.com 0 -> 2,878.
+  **What is left is the operator's, not the code's:**
+  1. **Run the rest of the backfill.** `tools/backfill_descriptions.py` has been applied to
+     `ibm` (34 rows) and to the **eval-corpus rows** (`--ids`, 31 of 98 — operator's call, so
+     the ~1,500 non-golden teaser rows are deliberately left alone). Dry-run counts for the
+     rest: oracle 7, careers-sig 134, careers-gtsx 12, msci 32. Apple and Google are the slow
+     ones (360 and 817 rows at one detail call each) and want a long-run window.
+     **67 of the 98 golden rows can never be fixed** — those postings have rotated off their
+     boards (apple 58, google 6, oracle 3, ibm 2), so there is no source to re-fetch from and
+     their 250-850 char teaser is permanent. Any label on one of them is a label on a summary;
+     weigh that before trusting a disagreement between two corpus rows.
+  2. **Decide about the stale verdicts.** 665 rows hold a paid fit verdict computed from a
+     teaser. The backfill deliberately leaves `score`/`score_detail`/`pipeline_status` alone —
+     re-scoring costs quota, and quota is the standing priority. Nothing recomputes until
+     someone says so.
+  3. **Merge.** Not merged; branch is `feat/fetch-detail-hydration`, cut from `main`.
+
 - **The golden fit corpus is being rebuilt, and it is blocked on human review**
   `[SCORE · M · blocks the `eval-score` gate; the tools are on `main`]`.
   The blind labeler and the sheet generator exist (`tools/label_run.py`,

@@ -19,8 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.fetch import _recipe, browser
+from bs4 import BeautifulSoup
+
+from ats_worker.fetch import _detail, _recipe, browser
 from ats_worker.util import POSTING_FIELDS
+from tests._helpers import FakeSession
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CITADEL_LIST = (FIXTURES / "citadel.html").read_text(encoding="utf-8")
@@ -397,17 +400,26 @@ def test_parse_jobs_url_template_interpolates_an_extracted_field():
     assert job["job_url"] == "https://careers.bamfunds.com/s/details?jobReq=Quant_REQ8036"
 
 
+def _detailed(job, html, recipe):
+    """Detail merging moved to the shared stage (`_detail.apply_detail`), which takes a
+    PARSED document and the `detail` block rather than raw HTML and the whole recipe —
+    the transport is the caller's business now. These fixtures still pin the real
+    selectors against real saved pages."""
+    return _detail.apply_detail(job, BeautifulSoup(html or "", "html.parser"),
+                                recipe.get("detail") or {})
+
+
 def test_apply_detail_merges_description():
     [job] = browser.parse_jobs([CITADEL_LIST], CITADEL_RECIPE, "Citadel Securities")[:1]
     assert job["description"] == ""
-    browser.apply_detail(job, CITADEL_DETAIL, CITADEL_RECIPE)
+    _detailed(job, CITADEL_DETAIL, CITADEL_RECIPE)
     assert "systematic options trader" in job["description"].lower()
     assert "Role Overview" in job["description"]
 
 
 def test_apply_detail_no_detail_block_is_noop():
     job = {"description": "keep me"}
-    browser.apply_detail(job, CITADEL_DETAIL, {"item": "x"})   # no `detail` in recipe
+    _detailed(job, CITADEL_DETAIL, {"item": "x"})              # no `detail` in recipe
     assert job["description"] == "keep me"
 
 
@@ -425,7 +437,7 @@ def test_parse_jobs_citadel_com():
 
 def test_apply_detail_citadel_com():
     [job] = browser.parse_jobs([CITADEL_COM_LIST], CITADEL_COM_RECIPE, "Citadel")[:1]
-    browser.apply_detail(job, CITADEL_COM_DETAIL, CITADEL_COM_RECIPE)
+    _detailed(job, CITADEL_COM_DETAIL, CITADEL_COM_RECIPE)
     assert "citadel" in job["description"].lower()
 
 
@@ -441,7 +453,7 @@ def test_parse_jobs_rentec_self_text_title():
 
 def test_apply_detail_rentec():
     [job] = browser.parse_jobs([RENTEC_LIST], RENTEC_RECIPE, "Renaissance Technologies")[:1]
-    browser.apply_detail(job, RENTEC_DETAIL, RENTEC_RECIPE)
+    _detailed(job, RENTEC_DETAIL, RENTEC_RECIPE)
     assert "responsib" in job["description"].lower()
 
 
@@ -582,3 +594,71 @@ def test_browser_fetch_skips_templated_url_that_resolves_internal(monkeypatch):
     assert posting["job_url"] == "http://169.254.169.254/secret"
     assert page.goto_calls == ["https://boards.example.com/careers/open-roles"]
     assert posting["description"] == ""
+
+
+# --- the detail transport is independent of the LIST transport ------------
+#
+# Plenty of boards need Chromium only to ENUMERATE: the listing is a JS app but each
+# job page is server-rendered. An `http-html`/`http-json` detail mode hydrates those
+# over plain `requests`, turning one ~15s render per posting into one cheap GET.
+# Google is the case in point at 817 rows.
+
+_MIXED_LISTING = (
+    '<div>'
+    '<a class="job" href="https://example.com/job/1">Job One</a>'
+    '<a class="job" href="https://example.com/job/2">Job Two</a>'
+    '</div>'
+)
+
+
+def _mixed_recipe(mode="http-html", fields=None):
+    return {
+        **_GUARD_RECIPE_BASE,
+        "page": {"type": "none"},
+        "detail": {"mode": mode, "url_field": "job_url",
+                   "fields": fields or {"description": ".jd"}},
+    }
+
+
+def test_http_detail_mode_hydrates_without_a_second_render(monkeypatch):
+    page = _FakePage({"https://example.com/careers": _MIXED_LISTING})
+    _install_fake_playwright(monkeypatch, page)
+    sess = FakeSession(text="<div class='jd'>server rendered JD</div>")
+
+    postings = browser.fetch("slug", "Acme", _mixed_recipe(), session=sess)
+
+    assert page.goto_calls == ["https://example.com/careers"], \
+        "Chromium must render the LISTING only; details go over plain HTTP"
+    assert len(sess.calls) == 2
+    assert all("server rendered JD" in p["description"] for p in postings)
+
+
+def test_http_json_detail_mode_reads_dotted_paths(monkeypatch):
+    page = _FakePage({"https://example.com/careers": _MIXED_LISTING})
+    _install_fake_playwright(monkeypatch, page)
+    sess = FakeSession(payload={"res": {"body": "json JD"}})
+
+    postings = browser.fetch(
+        "slug", "Acme",
+        _mixed_recipe("http-json", {"description": "res.body"}), session=sess)
+
+    assert page.goto_calls == ["https://example.com/careers"]
+    assert all(p["description"] == "json JD" for p in postings)
+
+
+def test_the_stub_gate_skips_detail_renders_for_doomed_postings(monkeypatch):
+    """The cost lever: `browser` hydrated EVERY parsed posting before any gate ran."""
+    page = _FakePage({
+        "https://example.com/careers": _MIXED_LISTING,
+        "https://example.com/job/1": "<div class='jd'>one</div>",
+        "https://example.com/job/2": "<div class='jd'>two</div>",
+    })
+    _install_fake_playwright(monkeypatch, page)
+    recipe = {**_GUARD_RECIPE_BASE, "page": {"type": "none"},
+              "detail": {"url_field": "job_url", "fields": {"description": ".jd"}}}
+
+    keep = lambda p: "hydrate" if p["job_url"].endswith("/1") else "drop"  # noqa: E731
+    postings = browser.fetch("slug", "Acme", recipe, keep=keep)
+
+    assert page.goto_calls == ["https://example.com/careers", "https://example.com/job/1"]
+    assert [p["job_url"] for p in postings] == ["https://example.com/job/1"]

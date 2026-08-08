@@ -15,8 +15,9 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-from ats_worker.fetch._recipe import apply_fields, dotted_get
-from ats_worker.util import get_redirect_safe, is_safe_public_url
+from ats_worker.fetch import _detail
+from ats_worker.fetch._recipe import apply_fields, dotted_get, interpolate
+from ats_worker.util import BROWSER_UA, get_redirect_safe, is_safe_public_url
 
 SOURCE = "custom"
 
@@ -34,16 +35,28 @@ def _payload(resp, mode: str):
     return resp.json()
 
 
-def parse_jobs(payload, recipe: dict, company_name: str) -> list[dict]:
-    """Map one page's payload to canonical postings (pure; no I/O)."""
+def raw_items(payload, recipe: dict) -> list:
+    """The raw job objects on one page. Split out of `parse_jobs` because `fetch` needs
+    them too: a `detail:` URL template interpolates against the RAW item, not the
+    canonical posting, since the id a detail endpoint wants is often not the one the
+    recipe maps to `external_id` (Apple's detail API keys on `positionId` while
+    `external_id` is `id`, and re-pointing `external_id` would re-key every stored row).
+    """
     ip = recipe.get("item_path")
     # No item_path + the payload IS the array -> root-level array board (e.g. a bare
     # JSON feed). Otherwise walk item_path into the payload.
     items = payload if (not ip and isinstance(payload, list)) else (dotted_get(payload, ip) or [])
     if not isinstance(items, list):
         raise ValueError(f"custom recipe item_path {recipe.get('item_path')!r} is not a list")
+    return items
+
+
+def parse_jobs(payload, recipe: dict, company_name: str) -> list[dict]:
+    """Map one page's payload to canonical postings (pure; no I/O). 1:1 with
+    `raw_items(payload, recipe)` and in the same order — `fetch` pairs them by index."""
     fields = recipe.get("fields") or {}
-    return [apply_fields(item, fields, company_name, SOURCE) for item in items]
+    return [apply_fields(item, fields, company_name, SOURCE)
+            for item in raw_items(payload, recipe)]
 
 
 def _request(http, method: str, url: str, params, body, headers, timeout):
@@ -72,17 +85,22 @@ def _page_request(recipe: dict, page: dict, n: int):
 
 
 def fetch(slug: str, company_name: str, recipe: dict,
-          session: requests.Session | None = None, timeout: int = 20) -> list[dict]:
+          session: requests.Session | None = None, timeout: int = 20,
+          keep=None) -> list[dict]:
     if not is_safe_public_url(recipe.get("url")):
         raise ValueError(f"custom recipe url is not a safe public http(s) URL: {recipe.get('url')!r}")
     http = session or requests
     method = (recipe.get("method") or "GET").upper()
     mode = recipe.get("mode") or "json"
-    headers = recipe.get("headers")
+    # Default the UA rather than making every recipe hand-copy one: without it
+    # `requests` announces itself as python-requests and some boards refuse.
+    headers = dict(recipe.get("headers") or {})
+    headers.setdefault("User-Agent", BROWSER_UA)
     page = recipe.get("page") or {"type": "none"}
     ptype = page.get("type", "none")
 
     out: list[dict] = []
+    raws: list = []          # 1:1 with `out`; only used to interpolate a detail URL
     seen: set[str] = set()
     n = 0  # offset (rows) for `offset`, page number for `page`
     while True:
@@ -93,11 +111,12 @@ def fetch(slug: str, company_name: str, recipe: dict,
         postings = parse_jobs(payload, recipe, company_name)
 
         fresh = 0
-        for p in postings:
+        for p, raw in zip(postings, raw_items(payload, recipe)):
             if not p["external_id"] or p["external_id"] in seen:
                 continue  # empty id can't dedup; a repeated id means we looped
             seen.add(p["external_id"])
             out.append(p)
+            raws.append(raw)
             fresh += 1
 
         if ptype == "none" or not postings or fresh == 0:
@@ -107,4 +126,26 @@ def fetch(slug: str, company_name: str, recipe: dict,
         total = dotted_get(payload, recipe.get("total_path")) if recipe.get("total_path") else None
         if isinstance(total, int) and ptype == "offset" and n >= total:
             break
-    return out
+
+    detail = recipe.get("detail") or {}
+    if not detail.get("fields"):
+        return out
+    # A board whose LIST call carries only a teaser (or nothing) hydrates from one
+    # detail document per posting. `mode` lives on this block, not on the recipe, so a
+    # board can list as JSON and hydrate from HTML (or the reverse) — the transports
+    # are independent by design (see _detail.py).
+    raw_of = {p["external_id"]: raw for p, raw in zip(out, raws)}
+
+    def _detail_url(posting):
+        template = detail.get("url")
+        if template:
+            return interpolate(template, raw_of.get(posting["external_id"]) or {})
+        field = detail.get("url_field")
+        return posting.get(field) if field else None
+
+    return _detail.hydrate(
+        out, detail, keep=keep, label=f"{SOURCE}/{slug}",
+        detail_url=_detail_url,
+        fetch_doc=_detail.http_doc(http, timeout=timeout,
+                                   headers=detail.get("headers") or headers,
+                                   html=detail.get("mode") == "http-html"))
