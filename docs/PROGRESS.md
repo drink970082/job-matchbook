@@ -396,30 +396,30 @@ screenshot, eval iteration 2. Real, none of it blocking, none of it cheap.
 
 ### Defects — shipped behavior that is wrong (should fix)
 
-- **`make eval-score` gates on one row and reports PASS — the authoritative fit gate
-  cannot fail** — `[SCORE · M · needs human labelling]`. `eval/golden.jsonl` holds 23
-  hand-labelled rows keyed by `job_postings.id` and **22 of them name postings that are no
-  longer in the DB.** `score_row` prints one line to stderr per missing id and returns
-  `None`; the run gates on whatever is left, reporting *"gate rows: 1 · agreement 1/1
-  (100%) · PASS"* — the same failure shape as the clearance tautology in `eval-screen`, a
-  green gate no behavior can turn red. **Do not read a PASS from it.**
-  **The labels are NOT recoverable by remapping, and this was tried.** Matching each row's
-  `note` back to a live posting by title is ambiguous — *"Maven Trading Analyst (Python)"*
-  and *"Point72 Fund Flow Analyst"* both fuzzy-match the same candidates (on "Analyst") —
-  and binding a hand-written verdict to the wrong posting is worse than an empty gate, so
-  the 23 labels are written off.
-  **Consequence, and it is the load-bearing one: the standing `gpt-5.6-terra` rejection
-  (76% gate vs sol's 86%) rests on a corpus that no longer exists and cannot be
-  re-measured against it.** Any claim sourced to that comparison is unfalsifiable.
-  **Recurrence is already prevented:** `golden.jsonl` rows may carry an inline `posting`
-  payload and `score_row` falls back to it, so the corpus is **self-contained the way
-  `screen_golden.jsonl` already is** — that asymmetry is exactly why the screen corpus
-  survived and this one decayed. `tools/label_golden.py` writes the payload for every new
-  row, and `eval/` is gitignored, which is what makes storing it safe. `GOLDEN_SET` /
-  `SCORE_EVAL_OUT` env overrides let an A/B run against a substitute corpus meanwhile — a
-  substitute is not the gate, since anything built from the strong scorer's own verdicts
-  measures agreement, not correctness.
-  **What is left is the rebuild**, which needs human labelling.
+- **The authoritative fit corpus is rotted: 22 of `golden.jsonl`'s 93 rows name postings
+  that no longer exist** — `[SCORE · M · needs human labelling]`. The labels are hand-written
+  and **not recoverable by remapping** — matching a row's note back to a live posting by
+  title is ambiguous (two different golden rows fuzzy-match the same candidates), and
+  binding a hand-written verdict to the wrong posting is worse than an empty gate. There is
+  no `DELETE FROM job_postings` anywhere in the worker or the web; the set was curated
+  against a DB state that no longer exists.
+  **Two things are fixed, and neither is the corpus.** (1) Rows may carry an inline
+  `posting` payload and the eval falls back to it, making the corpus self-contained the way
+  `screen_golden.jsonl` already is — that asymmetry is exactly why the screen corpus
+  survived and this one decayed; `tools/label_golden.py` writes the payload for every new
+  row. **It rescues none of the 22** — all 70 rows carrying a payload are also live in the
+  DB — so it is forward protection, not mitigation. (2) An unreachable row **fails** the
+  gate instead of silently shrinking it, so the rot no longer has to be remembered:
+  `make eval-score` is RED on its own, **exit 1 and not merely a FAIL in the report** —
+  a FAIL that does not reach the exit code is a gate CI cannot enforce.
+  **The repair job is 20 rows, not 22.** The other two (132, 184) are `marked` watch-list
+  rows, which the gate excludes from PASS by policy; they are reported without gating,
+  because failing on them would mean the corpus could never go green however many gate
+  rows were relabelled.
+  **`GOLDEN_SET`/`SCORE_EVAL_OUT` run an A/B against a substitute corpus meanwhile.** A
+  substituted corpus is not the gate: anything built from the strong scorer's own verdicts
+  measures agreement, not correctness, so a genuinely better challenger scores as a
+  regression. The blind two-backend relabel under In flight is the rebuild.
 
 - **`capture_usage` misses the quota snapshot on roughly a fifth of passes, and the quota
   is the binding constraint** — `[SCORE · XS · mitigated, cause unnamed]`. The failure is

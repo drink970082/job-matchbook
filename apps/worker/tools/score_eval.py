@@ -91,9 +91,16 @@ if BACKEND not in _MODELS:
                      "'claude-api' on 2026-08-02")
 MODEL = _MODELS[BACKEND]()
 # The corpus, overridable the same way BACKEND/MODEL are. An A/B needs a swappable
-# corpus: as of 2026-07-31 **22 of the 23 rows in golden.jsonl name postings that are no
-# longer in the DB**, so the default corpus scores 1 row and reports PASS at 100% — a gate
-# that cannot fail. Point GOLDEN_SET at another file to measure something real meanwhile.
+# corpus: on 2026-07-31 **22 of the 23 rows then in golden.jsonl named postings no longer
+# in the DB**, so the default corpus scored 1 row and reported PASS at 100% — a gate that
+# cannot fail. Point GOLDEN_SET at another file to measure something real meanwhile.
+# The 22 orphans are still there (golden.jsonl is 93 rows as of 2026-08-02), but they no
+# longer hide: a corpus row the harness cannot reach now FAILS the gate — in the exit
+# code, not just the report — instead of shrinking it. See the reachability check in
+# main(). 20 of the 22 gate; the other 2 are `marked` watch-list rows, which the gate
+# excludes by policy and which are therefore reported without gating.
+# NOTE the inline payload rescues NONE of the 22: 70 rows carry one, and all 70 are also
+# live in the DB. It is forward protection for rows labelled from 2026-08-02 on.
 # A substituted corpus is NOT the authoritative gate: golden.jsonl carries HUMAN labels,
 # and anything built from the strong scorer's own verdicts measures AGREEMENT, not
 # correctness (a challenger that is genuinely better scores as a regression).
@@ -290,22 +297,44 @@ def run_batched(rows, conn, score_fit, resumes, meta, batch_size: int = BATCH_SI
     # Marked rows stay in the batches above (real batch-mates) but cannot decide PASS.
     marked_ids = frozenset(r["id"] for r in rows if r.get("marked"))
     ok, drift = verdicts_match(single_map, batched_map, marked_ids)
+    # Same two corpus rules as the K=3 gate, applied HERE and not in render_batched
+    # because this `ok` is what becomes the exit code.
+    #   1. reachability — `_build_postings` drops an unreachable row silently, so a
+    #      shrunken corpus would otherwise report PASS;
+    #   2. the gate floor — `verdicts_match({}, {})` is True, so a corpus whose only
+    #      unreachable rows are `marked` would report "0/0 agree → PASS" over nothing.
+    ok = (ok and not meta.get("missing")
+          and gate_floor_ok(len(set(single_map) - marked_ids), meta.get("corpus")))
     doc = render_batched(single_map, batched_map, ok, drift, meta, marked_ids)
-    OUT_BATCHED.write_text(doc)
     print(doc)
-    print(f"→ {OUT_BATCHED.relative_to(ROOT)}")
+    # Through _write_report, not a hand-rolled write_text + relative_to: this path had
+    # neither the mkdir nor the out-of-repo guard, and the duplication was the only
+    # reason the selftest's temp report had to live in the repo root.
+    _write_report(OUT_BATCHED, doc)
     return ok
 
 
 def render_batched(single_map, batched_map, ok, drift, meta, marked_ids=frozenset()) -> str:
     n = len(single_map)
-    n_gate = n - len(marked_ids)
+    # Intersected with what was actually SCORED. `marked_ids` is built from the whole
+    # corpus, `n` only from reachable rows, so subtracting the raw set charges `n_gate`
+    # for marked rows that were never in it — 71 reachable rows with both marked ids
+    # unreachable rendered as "69 gate-eligible", and enough of them drives it negative.
+    n_marked = len(marked_ids & set(single_map))
+    n_gate = n - n_marked
     gate_drift = [d for d in drift if not d["marked"]]
     watch_drift = [d for d in drift if d["marked"]]
+    # Same corpus-reachability rule as the K=3 gate: `_build_postings` drops an
+    # unreachable row silently, so a shrunken corpus would otherwise report PASS.
+    missing = meta.get("missing") or []
     lines = [
         f"# Batched == single verdict guard (B4) — {meta['ts']}", "",
         f"Model: `{meta['model']}` · batch_size={meta['batch_size']} · rows={n} "
-        f"({n_gate} gate-eligible + {len(marked_ids)} marked)",
+        f"({n_gate} gate-eligible + {n_marked} marked)"
+        + (f" · **{len(missing)} of {meta.get('corpus', '?')} corpus rows unreachable: "
+           f"{missing}**" if missing else "")
+        + (f" · {len(meta['missing_marked'])} MARKED rows unreachable, not gating: "
+           f"{meta['missing_marked']}" if meta.get("missing_marked") else ""),
         "LIVE run — spends quota. READ-ONLY on the DB. Each row scored ONCE per pass "
         "(not K×): isolates context bleed, not draw-to-draw noise.", "",
         f"**batched==single (gate-eligible): {n_gate - len(gate_drift)}/{n_gate} agree "
@@ -370,9 +399,21 @@ def run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size: int) -> bo
     """
     postings = _build_postings(rows, conn)
     probe = [p for p in postings if p["id"] in PROBE_IDS]
-    missing = set(PROBE_IDS) - {p["id"] for p in probe}
-    if missing:  # a probe row absent from the DB makes its column unreadable, not empty
-        print(f"! probe ids missing from DB: {sorted(missing)}", file=sys.stderr)
+    # REFUSE rather than measure noise, and refuse HERE — against the postings actually
+    # built — because that is the only set that catches both ways a probe row goes away:
+    # unreachable (in the corpus, no DB row and no payload) AND absent from the corpus
+    # altogether. Keying the refusal off main()'s `missing` lists caught only the first,
+    # since those are derived from the corpus rows themselves; a GOLDEN_SET substitute or
+    # the documented "labelled or DROPPED" repair path silently re-armed the burn.
+    # An unreachable probe row is not an empty column — it renders as ALL DRAWS FAILED,
+    # i.e. maximal instability, which is the opposite of what it means — after ~50
+    # minutes of quota. It used to be a stderr warning that scrolled past the draw log.
+    gone = sorted(set(PROBE_IDS) - {p["id"] for p in probe})
+    if gone:
+        raise SystemExit(
+            f"! --drift-probe refused: probe ids {gone} are unreachable or absent from "
+            f"the corpus, so their columns would read as ALL DRAWS FAILED rather than "
+            f"empty. Relabel them, or repoint PROBE_IDS at rows this corpus has.")
     draws: dict = {p["id"]: [] for p in probe}
 
     if batch_size == 1:
@@ -518,22 +559,67 @@ def _rowline(r) -> str:
             f"{'notify' if r['notify'] else '—':<6}  {r['title'][:40]}")
 
 
-def render(gate, watch, meta) -> str:
+# The gate must judge a MAJORITY of the corpus, not merely a non-empty slice of it.
+# `marked` rows are excluded from PASS in both directions (they cannot pass it and their
+# absence cannot fail it), which is correct policy and also the cheapest possible route
+# from a RED gate to a green one: `marked: true` is a one-word edit per line, so marking
+# the 20 unreachable rows would turn the gate green without relabelling anything. Same
+# for a corpus whose only unreachable rows are marked — `verdicts_match({}, {})` is True,
+# so --batched would have reported PASS over ZERO rows. A floor is what makes "the gate
+# ran" a claim rather than an assumption; this repo has shipped two gates that could not
+# fail (this one at 71/93, eval-screen's clearance tautology) and both looked healthy.
+# 0.5 is a floor, not a target — move it UP as the corpus is repaired, never down.
+GATE_MIN_FRACTION = 0.5
+
+
+def gate_floor_ok(n_gate: int, corpus: int | None) -> bool:
+    """Did enough of the corpus actually reach the gate to call the result a gate?
+
+    `corpus` None (a caller that does not know the corpus size — only the selftest and
+    the drift probe) degrades to the non-empty check alone, which is still strictly
+    better than the implicit `apct = 0.0 -> FAIL` that used to cover the empty case by
+    accident rather than by rule.
+    """
+    if n_gate <= 0:
+        return False
+    return corpus is None or n_gate >= GATE_MIN_FRACTION * corpus
+
+
+def render(gate, watch, meta) -> tuple[str, bool]:
     hard = [r for r in gate if r.get("hard")]
     errored = [r for r in gate if r.get("errored")]
     hard_viol = [r for r in hard if r.get("hard_viol")]
     agree, flips, n = sum(r["agree"] for r in gate), sum(r["flip"] for r in gate), len(gate)
     apct, fpct = (100 * agree / n, 100 * flips / n) if n else (0.0, 0.0)
-    passed = not hard_viol and not errored and apct >= 85 and fpct < 20
+    # An unreachable row is a corpus defect, not a scoring result, and it must not be
+    # survivable: the rows that vanish are whichever ones the DB happened to lose, so
+    # the surviving sample is not the gate anyone approved. FAIL is the only honest
+    # verdict — see the corpus-reachability check in main().
+    missing = meta.get("missing") or []
+    thin = not gate_floor_ok(n, meta.get("corpus"))
+    passed = (not hard_viol and not errored and not missing and not thin
+              and apct >= 85 and fpct < 20)
     verdict = (f"agreement {agree}/{n} ({apct:.0f}%) · hard {len(hard) - len(hard_viol)}/"
                f"{len(hard)} · flip-rate {fpct:.0f}% → {'PASS' if passed else 'FAIL'}"
-               + (f"  ⚠ {len(errored)} ERRORED — re-run" if errored else ""))
+               + (f"  ⚠ GATE TOO THIN — {n} gate-eligible rows judged out of a "
+                  f"{meta.get('corpus', '?')}-row corpus (floor "
+                  f"{GATE_MIN_FRACTION:.0%})" if thin else "")
+               + (f"  ⚠ {len(errored)} ERRORED — re-run" if errored else "")
+               + (f"  ⚠ {len(missing)} of {meta.get('corpus', '?')} CORPUS ROWS "
+                  f"UNREACHABLE — the gate did not see them" if missing else ""))
     head = (f"{'id':>5}  {'golden':<18}  {'draws (seniority/domain × K)':<58}  "
             f"{'maj':<18}  fl ag        notify  title")
     lines = [
         f"# Fit-score verdict-accuracy eval — {meta['ts']}", "",
         f"Model: `{meta['model']}` · resumes: {meta['labels']} · "
-        f"profile: {meta['profile']} chars · K={K} · gate rows: {n}",
+        f"profile: {meta['profile']} chars · K={K} · gate rows: {n}"
+        + (f" · **{len(missing)} of {meta.get('corpus', '?')} corpus rows unreachable "
+           f"(no DB row, no inline payload): {missing}**" if missing else "")
+        # Reported, never gating — a marked row cannot decide PASS in either direction.
+        # In the report rather than only on stderr, because stderr scrolls past under
+        # the per-row draw logging and the report is the artifact anyone re-reads.
+        + (f" · {len(meta['missing_marked'])} MARKED rows unreachable, not gating: "
+           f"{meta['missing_marked']}" if meta.get("missing_marked") else ""),
         "READ-ONLY — scores measured, never written to the DB. "
         "Shipping needs two consecutive PASS runs.", "",
         f"**{verdict}**", "", "## Per-row (gate)", "```", head, "-" * 130,
@@ -541,7 +627,11 @@ def render(gate, watch, meta) -> str:
         "## ⚑ Watch list (marked — scored, excluded from gate)", "```",
         *([_rowline(r) for r in watch] or ["(none)"]), "```", "",
     ]
-    return "\n".join(lines)
+    # `passed` is RETURNED, not just rendered. It used to live only inside the report
+    # string while main() ended in a bare `return 0`, so `make eval-score` printed FAIL
+    # and exited 0 — the gate went red on paper and green to every caller that checks
+    # status, which is every caller that is not a human reading markdown.
+    return "\n".join(lines), passed
 
 
 def main() -> int:
@@ -613,6 +703,86 @@ def main() -> int:
         assert "ALL DRAWS FAILED" in errored
         assert f"{len(PROBE_IDS) - 1}/{len(PROBE_IDS)} probe rows held" in errored
 
+        # Corpus reachability. A row the corpus names but the harness cannot reach is a
+        # gate that did not RUN, and it used to just shrink `n` behind one stderr line —
+        # which is how the authoritative fit gate reported PASS over 71 of its 93 rows.
+        clean = {"id": 1, "seniority": "match", "domain": "match", "hard": False,
+                 "draws": [("match", "match")] * K, "maj_seniority": "match",
+                 "maj_domain": "match", "flip": 0, "agree": 1, "notify": True,
+                 "title": "t"}
+        gate_meta = {"ts": "-", "model": "-", "labels": [], "profile": 0}
+        doc, ok = render([clean], [], gate_meta)
+        assert "→ PASS" in doc and ok is True
+        # The verdict is RETURNED, not only rendered — it is the exit code, and a report
+        # that says FAIL while the process says 0 is the same green-that-cannot-fail.
+        holed, ok = render([clean], [], {**gate_meta, "missing": [7, 9], "corpus": 3})
+        assert "→ FAIL" in holed, "unreachable corpus rows must not survive as a PASS"
+        assert ok is False, "the unreachable-row FAIL must reach the exit code"
+        assert "2 of 3 corpus rows unreachable" in holed
+        # A MARKED row's absence is reported and does NOT gate: the gate excludes marked
+        # rows by policy, so failing on them would make the corpus unfixable.
+        marked_gone, ok = render([clean], [], {**gate_meta, "missing": [],
+                                               "missing_marked": [132], "corpus": 2})
+        assert ok is True, "an unreachable MARKED row must not decide PASS"
+        assert "1 MARKED rows unreachable, not gating: [132]" in marked_gone
+
+        # The gate floor. Marked rows are gate-exempt in BOTH directions, so marking rows
+        # is the cheapest route from RED to green — a floor is what stops it. Also covers
+        # the empty gate, which used to FAIL only by the accident of apct == 0.0.
+        assert gate_floor_ok(0, None) is False and gate_floor_ok(0, 10) is False
+        assert gate_floor_ok(5, 10) is True and gate_floor_ok(4, 10) is False
+        assert gate_floor_ok(1, None) is True, "unknown corpus size degrades to non-empty"
+        thin, ok = render([clean], [], {**gate_meta, "corpus": 93})
+        assert ok is False, "1 gate row out of a 93-row corpus is not a gate"
+        assert "GATE TOO THIN — 1 gate-eligible rows judged out of a 93-row corpus" in thin
+        empty, ok = render([], [], {**gate_meta, "corpus": 0})
+        assert ok is False, "an empty gate must FAIL by rule, not by arithmetic accident"
+
+        # The batched half of the same rule, driven END-TO-END rather than asserted on a
+        # rendered string: the flip lives in run_batched (where `ok` becomes the exit
+        # code), not in render_batched, so a renderer assertion cannot see it and the
+        # document it produces literally reads "→ PASS" with a hole named in its header.
+        # Hermetic — the two draw helpers are stubbed, so no model call and no quota.
+        import contextlib
+        import io
+        import tempfile
+        conn = sqlite3.connect(":memory:")  # empty: every row resolves via inline payload
+        conn.execute(f"CREATE TABLE job_postings (id INTEGER PRIMARY KEY, "
+                     f"{', '.join(COLS)})")
+        live = {"id": 1, "posting": {c: "x" for c in COLS}}
+        g = globals()
+        saved = {k: g[k] for k in ("draw_verdicts", "draw_batch_verdicts", "OUT_BATCHED")}
+        g["draw_verdicts"] = lambda sf, p, r: ("match", "match")
+        g["draw_batch_verdicts"] = lambda sf, ps, r: {p["id"]: ("match", "match") for p in ps}
+        try:
+            # run_batched's own output announces "LIVE run, spends quota" — true of the
+            # real thing, a lie about this one, and "the report misdescribes what ran" is
+            # the exact shape this whole change is fixing. Swallowed rather than made
+            # conditional: a `quiet=` parameter on production code, existing only for the
+            # selftest, is a worse trade than two lines of redirect here.
+            with tempfile.TemporaryDirectory() as tmp, \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                g["OUT_BATCHED"] = Path(tmp) / "batched.md"
+                bmeta = {"ts": "-", "model": "-", "batch_size": 10, "corpus": 2}
+                assert run_batched([live], conn, None, {},
+                                   {**bmeta, "missing": [], "corpus": 1}) is True
+                assert run_batched([live], conn, None, {},
+                                   {**bmeta, "missing": [2]}) is False, \
+                    "an unreachable gate row must FAIL --batched, not just annotate it"
+                # A marked orphan does not fail it — but the gate floor still must, or
+                # "0/0 agree → PASS" over a corpus of nothing but marked orphans survives.
+                assert run_batched([live], conn, None, {},
+                                   {**bmeta, "missing": [],
+                                    "missing_marked": [132], "corpus": 1}) is True
+                assert run_batched([], conn, None, {},
+                                   {**bmeta, "missing": [],
+                                    "missing_marked": [1, 2]}) is False, \
+                    "--batched must not report PASS over zero gate-eligible rows"
+        finally:
+            g.update(saved)
+            conn.close()
+
         print("selftest ok")
         return 0
 
@@ -633,12 +803,39 @@ def main() -> int:
     # mode=ro: a bug can never write the shared DB (probed: reads the live WAL fine).
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     try:
+        # Corpus reachability, measured ONCE and up front. Every scoring path below
+        # drops an unreachable row with a stderr line and carries on, so `n` in the
+        # report is the rows that survived — and a report saying "gate rows: 71" over a
+        # 93-row corpus reads exactly like a healthy 71-row gate. That is the same
+        # green-gate-that-cannot-fail shape as the clearance tautology in eval-screen.
+        # Counted here rather than in the scoring loops because `--batched` and
+        # `--drift-probe` share the hole and would each need their own tally.
+        #
+        # Split by `marked`, because the two halves mean different things. A
+        # gate-eligible row that cannot be reached is a gate that did not run, and it
+        # FAILS. A MARKED row is a watch-list row the gate already excludes by policy
+        # ("they cannot decide PASS" — see verdicts_match); letting its absence fail the
+        # run would mean the corpus can never go green no matter how many gate rows are
+        # relabelled. Two of today's 22 orphans (132, 184) are exactly that case.
+        unreachable = [r for r in rows if _cols_for(conn, r) is None]
+        missing = [r["id"] for r in unreachable if not r.get("marked")]
+        missing_marked = [r["id"] for r in unreachable if r.get("marked")]
+        if missing:
+            print(f"! {len(missing)} of {len(rows)} corpus rows are unreachable — no DB "
+                  f"row and no inline `posting` payload: {missing}", file=sys.stderr)
+        if missing_marked:
+            print(f"! {len(missing_marked)} MARKED corpus rows are unreachable "
+                  f"(reported, not gating): {missing_marked}", file=sys.stderr)
         if "--batched" in sys.argv:  # B4: LIVE, quota-spending batched==single guard
             meta = {"ts": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL,
-                    "batch_size": BATCH_SIZE}
+                    "batch_size": BATCH_SIZE, "missing": missing,
+                    "missing_marked": missing_marked, "corpus": len(rows)}
             ok = run_batched(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)
             return 0 if ok else 1
         if "--drift-probe" in sys.argv:  # LIVE: bleed-vs-noise probe (one setting/run)
+            # The refusal lives in run_drift_probe, against the postings it actually
+            # built — see the comment there for why keying it off `missing` here was
+            # blind to a probe id that is absent from the corpus rather than unreachable.
             meta = {"ts": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL,
                     "batch_size": BATCH_SIZE}
             run_drift_probe(rows, conn, score_fit, resumes, meta, batch_size=BATCH_SIZE)
@@ -652,14 +849,15 @@ def main() -> int:
             # Which corpus produced this. Without it, a shell that still exports
             # GOLDEN_SET emits a report indistinguishable from the authoritative gate's
             # while measuring a substitute (machine-labelled) corpus.
-            "golden": GOLDEN}
-    doc = render([r for r in scored if not r.get("marked")],
-                 [r for r in scored if r.get("marked")], meta)
+            "golden": GOLDEN, "missing": missing,
+            "missing_marked": missing_marked, "corpus": len(rows)}
+    doc, passed = render([r for r in scored if not r.get("marked")],
+                         [r for r in scored if r.get("marked")], meta)
     # print BEFORE writing: the write can fail (missing parent dir) and this run cost
     # real quota, so the report must reach the terminal either way.
     print(doc)
     _write_report(OUT, doc)
-    return 0
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

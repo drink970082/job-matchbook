@@ -17,6 +17,22 @@
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **`GATE_MIN_FRACTION = 0.5` is a made-up number, and the choice is deferred to the
+  scoring redesign** — `[SCORE · XS · decision pending]`.
+  `score_eval.py`'s gate floor: PASS requires that at least half the corpus rows actually
+  reached the gate. It exists because `marked: true` is a one-word edit per line and
+  marked rows are gate-exempt in both directions, so marking the unreachable rows would
+  turn the gate green having relabelled nothing (and `verdicts_match({}, {})` is True, so
+  `--batched` reported PASS over ZERO rows). The floor closes that.
+  **Unlike the gate's other thresholds — >=85% agreement, <20% flip-rate — it has no
+  measurement behind it.** It is a don't-be-absurd line, not a calibrated one. It is also
+  slack against every real number: 69/93 = 74% today, 91/93 = 98% after the relabel, so
+  it fires only on the marking path.
+  **Operator's call: leave it** — the scoring subsystem is being redesigned and tuning
+  this now may be wasted. Revisit when the redesign settles what the gate measures; the
+  fallback if the fraction is unwanted is `n_gate > 0` alone, which still closes the
+  PASS-over-zero-rows case but reopens the marking path.
+
 - **Capture the quota snapshot at pass START, not after the fit phase** —
   `[SCORE · XS · would sidestep the 403 entirely]`. `capture_usage` runs at the end of a
   pass, i.e. immediately after a burst of paid calls on the same account. That is exactly

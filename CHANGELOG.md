@@ -237,6 +237,55 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- **`make eval-score` shrank instead of failing when the corpus rotted, so it ran 71 of
+  93 rows and still reported PASS.** A golden row whose posting is neither in the DB nor
+  carried inline was dropped with one stderr line and the gate then judged whatever
+  survived — `gate rows: 71` reads exactly like a healthy 71-row gate. Same
+  green-gate-that-cannot-fail shape as the clearance tautology in `eval-screen`, and the
+  same consequence: the rows that vanish are whichever ones the DB happened to lose, so
+  the surviving sample is not the gate anyone approved.
+  Reachability is now measured **once, up front**, before any quota is spent: `main()`
+  resolves every corpus row through the existing `_cols_for` helper, prints the
+  unreachable ids to stderr, names the count in the report header, and forces FAIL. Done
+  there rather than in the scoring loops because `--batched` and `--drift-probe` share
+  the same hole and would each have needed their own tally.
+  **The FAIL reaches the EXIT CODE, which is the only part `make` can see.** `render()`
+  now returns `(doc, passed)` and `main()` ends in `return 0 if passed else 1`; it used
+  to compute the verdict inside the report string and then `return 0` unconditionally, so
+  the default path — the one `make eval-score` runs — printed FAIL and exited green.
+  `--batched` already propagated, which is what made the asymmetry visible. Verified by
+  running the gate against a one-row corpus naming a posting that does not exist: report
+  FAIL, exit 1, zero paid calls.
+  **An unreachable MARKED row is reported but does NOT gate.** Marked rows are watch-list
+  rows the accuracy gate excludes by policy ("they cannot decide PASS"), and both of the
+  corpus's two — 132 and 184 — are among the orphans; failing on them would have meant
+  `make eval-score` could never go green no matter how many gate rows were relabelled. So
+  the 22 unreachable rows are **20 gating + 2 reported-only** (measured 2026-08-03).
+  **The exemption is bounded by a gate floor**, or it would be the hole it closes: PASS
+  now also requires that at least `GATE_MIN_FRACTION` (0.5) of the corpus reached the
+  gate. `marked: true` is a one-word edit per line, so marking the 20 orphans would
+  otherwise turn the gate green without relabelling anything; and `verdicts_match({}, {})`
+  is True, so a corpus whose only unreachable rows were marked made `--batched` report
+  "0/0 agree → PASS" over zero rows. The empty gate used to fail only by the accident of
+  `apct = 0.0`, never by rule. Verified: 1 gate row against a 51-row corpus reports
+  `GATE TOO THIN` and exits 1.
+  `--selftest` drives `run_batched` end-to-end with stubbed draw helpers — hermetic, no
+  model call, no quota — rather than asserting on a rendered string, because the flip
+  lives where `ok` becomes the exit code and a renderer assertion cannot see it (SPEC §12).
+  **`--drift-probe` now refuses to run when a probe id is unreachable OR absent from the
+  corpus.** All four `PROBE_IDS` are unreachable today, and an unreachable probe row
+  renders as `ALL DRAWS FAILED` — maximal instability, the opposite of its meaning —
+  after ~50 minutes of quota. The refusal lives in `run_drift_probe`, against the
+  postings it actually built: keying it off `main()`'s unreachable lists saw only rows
+  the corpus still names, so a `GOLDEN_SET` substitute or the documented "labelled or
+  **dropped**" repair path silently re-armed the burn.
+  **It does not repair the corpus.** 22 of the 93 rows are still unreachable — the
+  hand-written labels cannot be re-derived and remapping by title was tried and rejected
+  — so the authoritative gate is now RED rather than falsely green. **The inline `posting`
+  payload rescues none of them:** all 70 rows carrying one are also live in the DB, so it
+  is forward protection for rows labelled from 2026-08-02 on, not mitigation for these.
+  `GOLDEN_SET` still points a run at a substitute corpus meanwhile.
+
 - **`requirements.txt` certified an `anthropic` install that cannot run.** The floor was
   `>=0.40`, while `score/backends_claude.py:47/49` and `score/backends_screen.py:62` pass
   `thinking={"type": "adaptive"}` and `output_config={"format": ...}` — kwargs an 0.40
