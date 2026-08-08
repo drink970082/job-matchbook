@@ -1,8 +1,9 @@
 # Quota levers: prefix caching, harness trim, and the seniority vetoes
 
-**Status:** approved by the operator 2026-07-31; execution started the same day while
-they were away. The quota budget and merge authority below were both given *before* any
-work began.
+**Status:** Phase 1 is closed as a negative — see its header before reading any of its
+figures as available headroom. Phase 3 (the seniority vetoes) is the live part; the
+operator is no longer away, so the standing 60-call budget and merge authority below have
+lapsed and a paid run wants a fresh ask.
 
 > **For a session picking this up mid-run:** phase order and dependencies are under
 > [Sequence and dependencies](#sequence-and-dependencies). Where the run actually *is*
@@ -152,9 +153,19 @@ each get their own.
 
 ---
 
-## Phase 1 — Restore prefix caching (~2h, 6 calls) — HIGHEST VALUE
+## Phase 1 — Restore prefix caching — CLOSED, DO NOT EXECUTE
 
-### 1a. Forensics first, before spending (free) — DONE, and it moved the numbers
+**There is no cache to restore on the installed CLI.** Everything below was written
+against codex-cli 0.144.x. On 0.146.0, Phase 1b measured `cached_input_tokens = 0` on
+*both* arms of the controlled probe: nothing caches, so the `-C` change has nothing to
+fix and there is no headroom to reclaim. The stable-`-C` lever was not shipped, and the
+6-call probe budget below buys a result that is already known. Read 1a's figures as a
+description of a CLI that is not installed, never as current headroom; the full negative
+is in [`../notes/2026-07-31-quota-ledger.md`](../notes/2026-07-31-quota-ledger.md).
+The per-token billing finding that motivates the *rest* of this plan is unaffected — that
+one reproduced.
+
+### 1a. Forensics first, before spending (free) — the 0.144.x measurements
 
 The 212 rollouts predate the current invocation: `--ephemeral` suppresses rollout files,
 and the newest on disk is 2026-07-29 even though the daemon has fit-scored since. So the
