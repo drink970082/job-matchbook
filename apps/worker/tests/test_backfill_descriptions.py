@@ -98,3 +98,29 @@ def test_min_gain_guards_against_churn_and_regression(seeded, monkeypatch,
     _fake_fetch(mod, monkeypatch, [make_posting("keep-me", description="F" * fresh_len)])
     _, got, *_ = mod.backfill(seeded, BOARD, apply_changes=False, min_gain=1.2)
     assert got == improved
+
+
+def test_only_ids_restricts_the_rows_and_gates_the_detail_calls(seeded, monkeypatch):
+    """`--ids` is the eval-corpus path: touch the graded rows, leave the rest alone.
+    The `keep` verdict it builds is what stops the board hydrating everything else."""
+    mod = _load_tool()
+    target = seeded.execute(
+        "SELECT id FROM job_postings WHERE external_id='keep-me'").fetchone()["id"]
+    verdicts = {}
+
+    def fake_fetch(source, slug, name, recipe=None, keep=None):
+        for ext in ("keep-me", "also-me"):
+            verdicts[ext] = keep({"external_id": ext})
+        return [make_posting("keep-me", description="F" * 4000),
+                make_posting("also-me", description="F" * 4000)]
+
+    monkeypatch.setattr(mod, "fetch_company", fake_fetch)
+    examined, improved, *_ = mod.backfill(
+        seeded, BOARD, apply_changes=True, min_gain=1.2, only_ids=[target])
+
+    assert verdicts == {"keep-me": "hydrate", "also-me": "drop"}
+    assert (examined, improved) == (1, 1)
+    untouched = seeded.execute(
+        "SELECT LENGTH(description) n FROM job_postings WHERE external_id='also-me'"
+    ).fetchone()["n"]
+    assert untouched == 210, "a row outside --ids must not be rewritten"

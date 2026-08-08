@@ -54,10 +54,15 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   SIG 561 -> 3,835 · GTS 537 -> 3,987 · MSCI 0 -> 7,032 · Google 452 -> 1,821 ·
   citadelsecurities 0 -> 3,432 · citadel.com 0 -> 2,878.
   **What is left is the operator's, not the code's:**
-  1. **Run the rest of the backfill.** `tools/backfill_descriptions.py` is applied to `ibm`
-     only (34 rows, avg 253 -> 1,717, scores untouched and asserted). Dry-run counts for the
+  1. **Run the rest of the backfill.** `tools/backfill_descriptions.py` has been applied to
+     `ibm` (34 rows) and to the **eval-corpus rows** (`--ids`, 31 of 98 — operator's call, so
+     the ~1,500 non-golden teaser rows are deliberately left alone). Dry-run counts for the
      rest: oracle 7, careers-sig 134, careers-gtsx 12, msci 32. Apple and Google are the slow
      ones (360 and 817 rows at one detail call each) and want a long-run window.
+     **67 of the 98 golden rows can never be fixed** — those postings have rotated off their
+     boards (apple 58, google 6, oracle 3, ibm 2), so there is no source to re-fetch from and
+     their 250-850 char teaser is permanent. Any label on one of them is a label on a summary;
+     weigh that before trusting a disagreement between two corpus rows.
   2. **Decide about the stale verdicts.** 665 rows hold a paid fit verdict computed from a
      teaser. The backfill deliberately leaves `score`/`score_detail`/`pipeline_status` alone —
      re-scoring costs quota, and quota is the standing priority. Nothing recomputes until

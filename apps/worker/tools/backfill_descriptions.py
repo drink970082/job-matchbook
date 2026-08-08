@@ -16,6 +16,13 @@ stops. Deciding what to do about the stale verdicts is the operator's.
     python3 tools/backfill_descriptions.py --slug ibm
     python3 tools/backfill_descriptions.py --slug ibm --apply
     python3 tools/backfill_descriptions.py --all --apply
+    python3 tools/backfill_descriptions.py --ids 723,738,964 --apply
+
+`--ids` is the eval-corpus case. The golden sets are label-only and key on
+`job_postings.id`, carrying no description snapshot, so an eval reads whatever the row
+holds NOW — a corpus row on a teaser board was being labelled against 250-850 characters.
+Restricting to those ids also keeps the labelling stable: rows nobody is grading are left
+exactly as they are.
 """
 import argparse
 import json
@@ -52,17 +59,39 @@ def _teaser_boards(conn):
     return out
 
 
-def backfill(conn, board, *, apply_changes, min_gain):
-    """Returns (examined, improved, chars_before, chars_after)."""
+def backfill(conn, board, *, apply_changes, min_gain, only_ids=None):
+    """Returns (examined, improved, chars_before, chars_after).
+
+    `only_ids` restricts the work to those `job_postings.id`s. The board's LIST call
+    still happens (there is no fetch-one for a watchlist source), but the wanted rows
+    are turned into a `keep` verdict so the DETAIL calls — the expensive part, one per
+    posting — collapse to just them. On Apple that is 59 requests instead of 360.
+    """
+    where = "WHERE company_slug = ?"
+    params = [board["slug"]]
+    if only_ids:
+        where += f" AND id IN ({','.join('?' * len(only_ids))})"
+        params += list(only_ids)
+    stored = conn.execute(
+        "SELECT id, source, external_id, LENGTH(COALESCE(description,'')) n "
+        "FROM job_postings " + where, params).fetchall()
+    if not stored:
+        return 0, 0, [], []
+
+    keep = None
+    if only_ids:
+        wanted = {r["external_id"] for r in stored}
+        # The stub gate, used for exactly what it is for: skip the detail call for a
+        # posting we are not going to write.
+        def keep(posting):                                    # noqa: E306
+            return "hydrate" if posting.get("external_id") in wanted else "drop"
+
     recipe = json.loads(board["recipe"]) if board["recipe"] else None
-    fresh = fetch_company(board["source"], board["slug"], board["name"], recipe=recipe)
+    fresh = fetch_company(board["source"], board["slug"], board["name"],
+                          recipe=recipe, keep=keep)
     # Same key `upsert_postings` dedups on, so a match here is the row that would have
     # been written had the board been capable at the time.
     by_id = {(p["source"], p["external_id"]): p for p in fresh}
-
-    stored = conn.execute(
-        "SELECT id, source, external_id, LENGTH(COALESCE(description,'')) n "
-        "FROM job_postings WHERE company_slug = ?", (board["slug"],)).fetchall()
 
     examined = improved = 0
     before, after = [], []
@@ -95,6 +124,9 @@ def main() -> int:
     g.add_argument("--slug", help="one watchlist slug")
     g.add_argument("--all", action="store_true",
                    help="every board whose stored rows read as teasers")
+    g.add_argument("--ids", metavar="CSV",
+                   help="only these job_postings ids, on whichever boards own them "
+                        "(e.g. the rows an eval corpus references)")
     ap.add_argument("--apply", action="store_true",
                     help="write the UPDATEs (default is a dry run)")
     ap.add_argument("--min-gain", type=float, default=1.2,
@@ -105,20 +137,30 @@ def main() -> int:
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
-    slugs = _teaser_boards(conn) if args.all else [args.slug]
+    only_ids = None
+    if args.ids:
+        only_ids = [int(x) for x in args.ids.replace("\n", ",").split(",") if x.strip()]
+        rows = conn.execute(
+            "SELECT DISTINCT company_slug FROM job_postings WHERE id IN "
+            f"({','.join('?' * len(only_ids))})", only_ids).fetchall()
+        slugs = [r["company_slug"] for r in rows]
+    else:
+        slugs = _teaser_boards(conn) if args.all else [args.slug]
     boards = [b for b in _boards(conn, None) if b["slug"] in slugs]
     if not boards:
         print(f"no watchlist board matched {slugs}")
         return 1
 
+    scope = f"{len(only_ids)} target id(s)" if only_ids else f"{len(boards)} board(s)"
     print(f"{'DRY RUN — nothing written' if not args.apply else 'APPLYING'}"
-          f"   min-gain={args.min_gain}x   db={args.db}\n")
+          f"   {scope}   min-gain={args.min_gain}x   db={args.db}\n")
     print(f"{'board':<24} {'examined':>8} {'improved':>8} {'median before':>14} {'after':>8}")
     total = 0
     for b in boards:
         try:
             examined, improved, before, after = backfill(
-                conn, b, apply_changes=args.apply, min_gain=args.min_gain)
+                conn, b, apply_changes=args.apply, min_gain=args.min_gain,
+                only_ids=only_ids)
         except Exception as exc:  # noqa: BLE001 — one bad board must not stop the rest
             print(f"{b['slug']:<24} SKIPPED: {type(exc).__name__}: {str(exc)[:60]}")
             continue

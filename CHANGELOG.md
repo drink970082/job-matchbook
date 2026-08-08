@@ -63,7 +63,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   already holding a teaser keep it forever. The tool re-runs the now-capable fetch for a board
   and `UPDATE`s `description` where the fresh body is materially longer (`--min-gain`, default
   1.2x, which also stops a board transiently serving a *shorter* body from overwriting a good
-  one). Dry-run by default; `--all` picks every board whose stored rows read as teasers.
+  one). Dry-run by default; `--all` picks every board whose stored rows read as teasers, and
+  `--ids` targets specific rows.
+  **`--ids` exists for the eval corpora.** The golden sets are label-only and key on
+  `job_postings.id`, carrying no description snapshot, so an eval reads whatever the row holds
+  *now* — a corpus row on a teaser board was being labelled against 250-850 characters. It also
+  keeps labelling stable, since rows nobody is grading are left untouched. The wanted ids become
+  a `keep` verdict, so the board's detail calls collapse to just them (31 requests rather than
+  Google's 817).
   **It never re-scores and never touches `score`, `score_detail` or `pipeline_status`** — 665
   of these rows hold a paid verdict computed from a teaser, and re-scoring them is a quota
   decision, so the tool reports and stops. Postings that have left the board are left alone.
