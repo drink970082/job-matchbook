@@ -10,7 +10,7 @@ COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
-        eval-score eval-screen eval-seniority
+        eval-score eval-screen eval-seniority label-extractions
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -73,6 +73,9 @@ eval-screen: ## Hard-requirement accuracy eval vs the screen golden set (249 loc
 
 eval-seniority: ## Seniority pre-ordering accuracy vs the strong scorer's own verdicts (446 local Ollama calls: free, ~12min). Gate = zero false demotions on a domain=match or notified row
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/seniority_eval.py
+
+label-extractions: ## Hand-label the extraction arms in a local browser sheet (no model calls, no cost; autosaves to eval/extract_labels.json)
+	cd $(WORKER) && PYTHONPATH=. $(PY) tools/label_extractions.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma
 	node tools/check_schema_drift.mjs

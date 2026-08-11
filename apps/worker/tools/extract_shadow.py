@@ -86,22 +86,68 @@ def _rows_from_frame(path: Path) -> list[dict]:
     return inline + (_rows_from_db(needed) if needed else [])
 
 
-def _tightest_window(backend: str):
+# The meter is read before EVERY call, and `/api/oauth/usage` is rate-limited. At opus's
+# ~25s/posting an uncached read is ~144 requests/hour; it answers 429, three in a row trip
+# the blind-row stop, and the sitting ends at 31 rows (measured 2026-08-04). Sonnet at
+# 136s/posting never hit it — the faster the arm, the harder it polls, so the speed win is
+# what created this. ccstatusline caches the same endpoint for 180s for the same reason.
+#
+# A cached reading can only ever be stale-LOW, so the guard must sit far enough below 100
+# to absorb one TTL of burn: at ~0.6 points/row and ~25s/row that is ~7 rows, ~4 points.
+# Hence `--stop-at-percent 88` rather than 95 on this arm.
+# Caching the HEALTHY path is not enough, and the second 429-stall proved it: `_get_json`
+# retries a 429 four times with backoff, and the next row 35s later does it again, so a
+# failing meter generates ~4 requests per row in a tight loop and holds the endpoint in
+# its penalty box indefinitely. The failure path needs the backoff, not just the hot path.
+#
+# So a failed read opens a penalty box: no request AT ALL for 300s (the backoff
+# ccstatusline observes after a 429), during which the last good reading is served if it
+# is still worth trusting. Only when there is no reading that fresh does the run go blind
+# and the 3-strike stop apply.
+_METER_TTL_S = 180.0
+_METER_PENALTY_S = 300.0
+# The oldest reading still worth acting on. Bounds the stale-LOW error: ~600s at this
+# arm's ~35s/row and ~0.6 points/row is ~10 points, which is why the guard sits at 85.
+_METER_STALE_MAX_S = 600.0
+
+_meter_cache: dict[str, tuple[float, tuple[int, str]]] = {}
+_meter_penalty: dict[str, float] = {}
+
+
+def _tightest_window(backend: str, ttl: float = _METER_TTL_S):
     """Read the backend's usage and return (used_percent, key) for the window that binds
-    SOONEST, or None if the meter could not be read.
+    SOONEST, or None if no reading worth acting on is available. Cached for `ttl` seconds,
+    with a 300s no-request penalty box after any failure.
 
     The tightest window is the right one to guard, not the biggest: Claude Code meters a
     rolling 5-hour SESSION window alongside a weekly one, and a 250-call batch exhausts
     the 5-hour one long before the weekly. Codex exposes only a weekly window, so the
     rule degenerates correctly there.
     """
+    now = time.monotonic()
+    cached = _meter_cache.get(backend)
+    if cached is not None and (now - cached[0]) < ttl:
+        return cached[1]
+
+    def _stale_or_blind():
+        if cached is not None and (now - cached[0]) < _METER_STALE_MAX_S:
+            return cached[1]
+        return None
+
+    if now < _meter_penalty.get(backend, 0.0):
+        return _stale_or_blind()  # in the penalty box: make no request
+
     from ats_worker.score.usage import fetch_claude_usage, fetch_codex_usage
     snapshot = (fetch_claude_usage if backend == "claude" else fetch_codex_usage)()
     limits = (snapshot or {}).get("limits") or []
     if not limits:
-        return None
+        _meter_penalty[backend] = now + _METER_PENALTY_S
+        return _stale_or_blind()
     tight = min(limits, key=lambda x: x.get("window_minutes") or 10 ** 9)
-    return int(tight.get("used_percent") or 0), tight.get("key")
+    result = (int(tight.get("used_percent") or 0), tight.get("key"))
+    _meter_cache[backend] = (now, result)
+    _meter_penalty.pop(backend, None)
+    return result
 
 
 # Consecutive unreadable meters before the run stops. The quota endpoint is known to

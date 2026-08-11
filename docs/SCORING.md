@@ -1713,6 +1713,113 @@ profile says fits, and the extraction is **right**. This session mis-called it f
 title before reading the duties — which is the precise error the whole design exists to
 prevent. Judge these records by their duties, never by their titles.
 
+### 8.9 The claude-family arm is `claude-opus-5 --effort low`, and sonnet-5 is retired from it
+
+**Measured 2026-08-04, same frame and prompt, paired postings.** The claude arm of step 3
+runs **`claude-opus-5` with `--effort low`**. Not sonnet-5 at default effort, which is what
+the first 33 rows were drawn on and what §5.1's candidate list used to name.
+
+| | sonnet-5 (default effort) | **opus-5 (`low`)** | codex `gpt-5.6-sol` (`low`) |
+|---|---|---|---|
+| median wall clock | 136s | **25s** | 50s |
+| session points/row | 1.45 | **~0.94** | n/a (different meter) |
+| output tokens/call | 13,301 | **3,442-3,794** | unmeasured |
+| valid records | 33/33 | 17/17 | 251/253 |
+| job-quote verification | 99.2% | 99.0% | 99.2% |
+
+**Opus at `low` is 5.4x faster AND ~35% cheaper per row than sonnet at default.** That is
+not the tradeoff it looks like, and the output column is the mechanism: sonnet emits 13,301
+tokens for a record whose JSON is ~3.5k, so three-quarters of what it produces is thinking
+it does not need. Opus at `low` emits essentially just the answer, in 2 turns.
+
+**Two rules this arm carries, and both are easy to violate by accident.**
+
+1. **`--effort low` is part of the arm's identity, not a tuning knob.** Sol is pinned to
+   `low`, so pinning opus to `low` makes step 3 a *model* comparison; leaving it default
+   makes it a *configuration* comparison, and the result would not answer the question the
+   step exists to ask. A default-effort row appended to `extract_opus.jsonl` silently mixes
+   the two — the artifact records the model in its `run_header` and **not the effort**, so
+   nothing downstream can detect it.
+2. **The pin is arm-specific and must not be generalized.** `--effort low` on *sonnet*
+   broke the schema — posting 48915 exhausted 5 structured-output retries and produced
+   nothing, 1 failure in 3 rows, against 0 in 33 unpinned. See commit `e2dd3b0`, whose
+   message concludes "`--effort` is not pinned"; that conclusion is **about sonnet** and
+   was measured before opus was tried. A stronger model fills the schema at `low` where a
+   weaker one cannot.
+
+**The sonnet rows are kept, as a separate 40-row partial arm** (`extract_claude.jsonl`) —
+uniform at default effort, 0 failures. `extract_claude.jsonl.unpinned-effort` is a 7-row
+fragment from a superseded sitting and is not part of any arm; the live file was deleted
+and rebuilt from scratch after the pinned probe, so the two are different draws of the same
+configuration rather than a mixed-flag corpus.
+
+**The speed win broke the quota guard, and that is worth knowing before the next fast
+model.** `--stop-at-percent` reads `/api/oauth/usage` before *every* call. At sonnet's
+136s/posting that is ~26 requests/hour and fine; at opus's 25s it is ~144/hour, the
+endpoint answers **429**, and three unreadable meters in a row trip the runner's blind-row
+stop — the 2026-08-04 sitting ended at 31 rows for this reason and nothing else. The meter
+read is now **cached 180s** (`extract_shadow._tightest_window`), matching what ccstatusline
+does to the same endpoint. A failed read is deliberately *not* cached, or one 429 would
+freeze the run into the blind path for a whole TTL.
+
+**Caching the healthy path was not enough, and the second stall is the instructive one.**
+The run died again at 40 rows, three consecutive strikes. `_get_json` retries a 429 **four
+times** with backoff, and the next row 35s later does it again — so a failing meter emits
+~4 requests per row in a tight loop and holds the endpoint in its own penalty box
+indefinitely. The cache only ever governed the *healthy* path; the hammering was entirely
+on the *failure* path. **Rate-limit fixes have to cover the retry loop, not just the
+success loop** — that is the general lesson, and it is easy to miss because the cache
+visibly works.
+
+So a failed read now opens a **300s penalty box in which no request is made at all**, and
+the last good reading is served during it. A 429 means "you asked too often", not "the
+meter is broken", so the previous reading is still the best evidence available and should
+not cost a blind strike. Past `_METER_STALE_MAX_S` (600s) it is too stale to act on and the
+3-strike stop applies as before.
+
+The cost is one-directional: a served reading can only be stale-**low**, bounded by that
+600s ceiling (~17 rows, ~10 points at this arm's rate). **So the guard drops from 95 to
+85** — 95 with a 10-point blind spot lands past 100, which is the overrun the guard exists
+to prevent. Faster arm, lower guard.
+
+### 8.10 `skill` is the drain for dispositional boilerplate, and the cost is the item cap
+
+Measured over both step-3 arms (1,595 `required_qualifications` items typed `skill`,
+`eval/extract_opus.jsonl` + `eval/extract_codex.jsonl`; the corpora are gitignored, which
+is why the numbers live here).
+
+`extract.txt` defines `skill` as "a technology, tool, method or body of knowledge".
+**"High attention to detail" and "willingness to learn" are none of those**, and they are
+typed `skill` anyway. This is not model sloppiness: the vocabulary is `eligibility |
+credential | skill | experience`, a disposition fits none of them, and nothing in the
+prompt permits dropping an item — so `skill` is the least-wrong of four by construction.
+
+**It does NOT distort the score, which is the intuition to correct.** Soft-trait skills
+come back **60% `unknown` / 9% `missing`**, against **8% / 28%** for the rest: the model
+correctly reports that a résumé cannot settle whether someone is detail-oriented, and
+`unknown` carries no signal. D2 rule 1 scores a missing `skill` normally in any case.
+
+**The cost is crowding.** `required_qualifications` is capped at 8 items. **41% of rows
+(184 of 454) sit at that cap, and 57% of those carry at least one soft trait** — on a full
+list, boilerplate displaces a real requirement.
+
+**Size the problem honestly: the share is regex-derived, so treat it as an upper bound.**
+337 of 1,595 (21%) match a soft-trait pattern, but 130 of those are "communication", which
+is genuinely load-bearing for client-facing roles. The unambiguous core — attention to
+detail, willingness, passion, self-starter, organized — is ~116 items, about **7%**.
+
+**Do not fix this by narrowing `skill` to tools or keywords.** The design is deliberately
+anti-keyword ("Adjacency is not adjacency of words. Python does not imply mypy"), a
+tools-only list drops real non-tool requirements, and §8.1 records the "required vs
+preferred" framing failing four times — `requirement_type` works because it asks about the
+requirement's *nature*. A fifth `disposition` type, or an extraction-side instruction to
+omit uncheckable boilerplate, are the two live shapes.
+
+**Neither is actionable until step 4 finishes.** Both arms are complete; editing the
+prompt or the enum invalidates all 250 paired rows and step 3 gets re-bought at a full
+session quota window. D2 rule 1 already requires `requirement_type` to be in the golden
+eval — this is that question, and the labelling pass is its data.
+
 ## 9. Redesign notes
 
 ### 9.1 What a weak model can and cannot do here

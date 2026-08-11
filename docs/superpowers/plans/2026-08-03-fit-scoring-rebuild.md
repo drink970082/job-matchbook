@@ -1147,7 +1147,7 @@ Nothing is pre-assigned, including the default backend.
 
 | role | task | candidates |
 |---|---|---|
-| **2A extractor** | JD + resume -> duties, quals, evidence. No numbers. | `qwen3.5:4b` (free, local), luna, terra, sol, haiku-4.5, sonnet-5 |
+| **2A extractor** | JD + resume -> duties, quals, evidence. No numbers. | `qwen3.5:4b` (free, local), luna, terra, sol, haiku-4.5, **opus-5 at `--effort low`** |
 | **2B arbiter** | independent re-derivation on routed rows | same list; likely a different winner |
 
 Local candidates are bounded by VRAM - `seniority.py` notes the 9b spills to CPU on an 8GB
