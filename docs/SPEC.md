@@ -524,9 +524,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   | SmartRecruiters | `jobs.smartrecruiters.com` | list (watchlist) + per-job (feed) | yes (per-job by id) | yes |
   | Pinpoint | `{slug}.pinpointhq.com` | list | no | yes |
   | Workable | `apply.workable.com` | list | yes | yes |
-  | iCIMS | `{slug}.icims.com` | list (server HTML) + per-job detail | no | yes |
+  | iCIMS | `{slug}.icims.com` | list (server HTML) | no | yes |
   | Phenom | `{host}` (e.g. `apply.careers.microsoft.com`) | list + per-job detail | no | yes |
-  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) + optional per-job `detail` | no | yes (needs `recipe`) |
+  | Custom (recipe) | any (recipe-driven) | list (`json`/`next-data`) | no | yes (needs `recipe`) |
   | Browser (recipe) | any (Cloudflare-blocked / JS-only) | list (headless Chromium + CSS) | no | yes (needs `recipe`; opt-in) |
   | Oracle Cloud HCM | `*.oraclecloud.com` | detail (`fetch_one`) | yes | no (feed-only) |
   | Jobvite | `jobs.jobvite.com` | detail (JSON-LD) | yes | no (feed-only) |
@@ -579,14 +579,6 @@ worker modules are pure and dependency-injected; real services are wired only in
   wording leave `posted_at` None (kept), so a mis-parse never drops a good posting. `now`
   reaches the adapter through the same `keep`-gate call path.
   (See `docs/superpowers/specs/2026-07-21-stub-gate-design.md`.)
-  **iCIMS is the third stub-gated adapter.** Its search card's `div.description` is a
-  teaser and on some tenants absent entirely, so the JD comes from the job's own page
-  (`{job_url}?in_iframe=1` -> `div.iCIMS_JobContent`) through the shared detail stage. That
-  is a PLATFORM fact, true of every iCIMS tenant, so it lives in the adapter exactly as
-  `position_details` lives in phenom's — never in a per-board recipe. The card already
-  carries id, title and location, so a `drop`/`discard` verdict is decidable from the stub
-  and, unlike workday's GUID-less stub, costs no dedup key — both verdicts are honoured.
-  Measured: SIG 561 -> 3,835, GTS 537 -> 3,987, MSCI **0 -> 7,032** median chars.
   **Custom (recipe) executor** (`fetch/custom.py`): a generic, declarative fetcher — the board's
   `recipe` (a JSON object stored on the watchlist row) names the `url`, `method` (GET/POST),
   `mode` (`json`, or `next-data` = extract the `__NEXT_DATA__` blob then treat as JSON),
@@ -596,38 +588,6 @@ worker modules are pure and dependency-injected; real services are wired only in
   the shared `fetch/_recipe.py` helpers. One executor covers many boards (Amazon, ByteDance/TikTok,
   DE Shaw, Jane Street, …) with **no per-site code** — adding one stays a data row. Anything a recipe can't express is a
   `browser` recipe, never a hand-written adapter.
-  An optional **`detail` block** hydrates a board whose list call carries only a teaser: `url`
-  (a `{field}` template interpolated against the **raw** item, not the canonical posting — the id a
-  detail endpoint keys on is often not the one mapped to `external_id`) or `url_field` (reuse the
-  posting's own `job_url`), `mode` (`http-json` default, or `http-html`), and a `fields` map read by
-  the same `_recipe.py` helpers. Apple and Oracle hydrate this way; IBM needs no `detail` at all,
-  because its full `body` was already in the list response and only wanted mapping.
-  **Shared detail stage** (`fetch/_detail.py`): one hydration skeleton the recipe executors and
-  detail-capable adapters share, with the per-board parts injected — sibling of `fetch/_paged.py`.
-  Two properties it exists to enforce. **The detail transport is independent of the list
-  transport**, so a board can need a browser to enumerate and plain HTTP to hydrate; the caller
-  supplies `fetch_doc` and the stage never assumes which it got (a `dict` document is read with
-  dotted paths, anything else as a bs4 node with CSS selectors — neither extractor is
-  reimplemented, `_recipe.py` owns both). **The circuit breaker is per BOARD, not per posting**: a
-  bot wall or a dead detail endpoint fails identically for every posting, so N consecutive calls
-  that win no new description stop the board and say so. "Did this call earn more description?" is
-  the health signal rather than the HTTP status, because a Cloudflare interstitial is a 200 with a
-  parseable body. Detail URLs are `is_safe_public_url`-checked before the request — they are
-  scraped from third-party listing HTML (§11).
-  A `browser` recipe's `detail` block may declare `mode: http-html` / `http-json`, in which case
-  hydration goes over plain `requests` and Chromium is used only to **enumerate** — the common
-  shape where the listing is a JS app but each job page is server-rendered (Google: 817 rows,
-  452 -> 1,821 median chars, one cheap GET each instead of a ~15s render).
-  `custom` and `browser` are both stub-gated, so a detail call is spent only on postings that
-  survive the free title/exclude/age gates.
-  The browser transport is **stealth-patched at context creation** when the optional
-  `playwright-stealth` extra is installed — `Stealth().use_sync(sync_playwright())`, never the
-  per-page `apply_stealth_sync(page)`, which silently under-patches (six measured arms failed on
-  it). Placement is the whole fix, and it is what makes a Cloudflare-walled board's DETAIL pages
-  reachable at all: Citadel goes from a "Just a moment" interstitial on every detail navigation to
-  10/10 full JDs (median 3,432 / 2,878 chars across the two rows). It is a property of the
-  transport, not of a board — no per-row flag — and absent the extra the un-patched context is
-  used, so the core install and the no-network test gate stay Chromium-free.
   **Browser (recipe) executor** (`fetch/browser.py`): the same recipe idea for boards plain HTTP
   can't reach — a headless Playwright Chromium renders the page and CSS selectors extract from the
   rendered DOM (`item` + `fields`, `url`-template pagination, optional per-role `detail` enrich).
@@ -2243,8 +2203,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | The workday gate stub carries no `external_id` (unstorable by construction) | `test_fetch_new.py::test_workday_parse_stub_carries_no_external_id` |
 | The gate never changes a row's status | `test_pipeline.py::test_run_fetch_gated_batch_matches_the_ungated_statuses` |
 | Pinpoint + Workday board adapters | `test_fetch_new.py` |
-| Custom-recipe executor (`json`/`next-data` modes, paging, fields map, `detail` hydration) | `test_custom.py` |
-| Shared detail stage (extractor picked by document type, stub gate, board-level breaker, unsafe-URL skip) | `test_detail.py` |
+| Custom-recipe executor (`json`/`next-data` modes, paging, fields map) | `test_custom.py` |
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
@@ -2533,7 +2492,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
-| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate, **and every corpus row reachable** — a row that names no live posting and carries no inline `posting` payload used to drop out behind one stderr line, shrinking the gate instead of failing it (it ran 71 of 93 rows and reported PASS); the count is now measured up front, printed in the report header, and forces FAIL **in the exit code** (`render()` returns `(doc, passed)`; the default path used to `return 0` unconditionally, so the gate printed FAIL and exited green), for `--batched` too. A `marked` watch-list row is exempt in BOTH directions — the gate already excludes those from PASS, so its absence is reported without gating, otherwise the corpus could never go green; today's 22 orphans are 20 gating + 2 reported-only. **That exemption is bounded by a gate floor: PASS also requires that at least `GATE_MIN_FRACTION` (0.5) of the corpus reached the gate**, because `marked: true` is a one-word edit per line and would otherwise be the cheapest route from a RED gate to a green one — and because `verdicts_match({}, {})` is True, so `--batched` would report "0/0 agree → PASS" over nothing. Move the floor UP as the corpus is repaired, never down. `--drift-probe` refuses to start when a probe id is unreachable **or absent from the corpus** (the second case is what a `GOLDEN_SET` substitute and the "labelled or dropped" repair path both produce), since it would spend ~50 min of quota rendering `ALL DRAWS FAILED` (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude-api` A/Bs the paid metered path (`claude` was split into `claude-code`/`claude-api` on 2026-08-02 and the bare value is now rejected), and `CODEX_SCORE_MODEL` / `ANTHROPIC_SCORE_MODEL` A/B the model — the same vars `run.py` reads, so eval-model == production-model by default and an override is honoured rather than silently ignored). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
+| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude` A/Bs the paid metered path, and `CODEX_SCORE_MODEL` / `ANTHROPIC_SCORE_MODEL` A/B the model — the same vars `run.py` reads, so eval-model == production-model by default and an override is honoured rather than silently ignored). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
 | `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — the gate `screen.txt` never had. **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend, and the run mirrors production's model resolution exactly — `OLLAMA_MODEL` / `SCREEN_MODEL` **and** `OLLAMA_NUM_CTX`, which feeds both the screener and `screen_posting`'s `num_ctx*2` JD cap; the report header names the model actually used (the real `DEFAULT_*_SCREEN_MODEL`, not "backend default"), since that is what an A/B is diffed on. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants — including that a row labeled as a **bar** carries that requirement's vocabulary in its own excerpt+title (`unsupportable_bars`). That is a check on the CORPUS, not the model: an excerpt truncated before the sentence its label rests on is a guaranteed miss for any model or prompt, so recall computed over it is meaningless. Only the bar direction is asserted — for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
