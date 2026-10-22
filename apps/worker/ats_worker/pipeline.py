@@ -609,6 +609,127 @@ class _BackendBreaker:
         return self.successes == 0 and self.failures >= self.limit
 
 
+SCREEN_EVALUATOR_VERSION = "screen-v1"
+
+
+def _screen_error_category(exc: Exception | None) -> str:
+    """Map failures to fixed safe categories; exception text may contain job data."""
+    if exc is None:
+        return "provider_error"
+    if type(exc).__name__ in {"TimeoutError", "TimeoutExpired"}:
+        return "timeout"
+    if isinstance(exc, FileNotFoundError):
+        return "executable_missing"
+    return "screen_error"
+
+
+def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
+               model: str | None, effort: str | None, limit: int = 40,
+               screen_workers: int = 1) -> dict:
+    """Persist standalone screening without touching fit or posting lifecycle state.
+
+    Fresh eligible postings run newest-first. Provider errors are retried oldest-first
+    after the fresh queue, while completed screens remain cached. ``limit`` reserves
+    only actual extraction-provider calls; deterministic-only checks continue after the
+    cap. DB reads/writes stay on this thread while provider work may overlap.
+    """
+    if limit <= 0:
+        raise ValueError("screen provider-call limit must be positive")
+    if screen_fn is None:
+        raise ValueError("run_screen requires an injected screen_fn")
+    rows = db.get_screen_candidates(conn)
+    cached = conn.execute(
+        "SELECT COUNT(*) FROM job_screenings s JOIN job_postings p "
+        "ON p.id=s.job_posting_id WHERE p.pipeline_status='new' AND s.state='complete'"
+    ).fetchone()[0]
+    tally = {"attempted": 0, "passed": 0, "disqualified": 0, "unknown": 0,
+             "errors": 0, "saved": 0, "changed": 0, "uncalled": 0}
+    breaker = _BackendBreaker()
+    workers = max(1, int(screen_workers))
+
+    def invoke(posting):
+        try:
+            return screen_fn(posting), None
+        except Exception as exc:  # noqa: BLE001 — isolate one row, discard unsafe text
+            return None, _screen_error_category(exc)
+
+    def persist(row, result, error_category, *, provider_attempted):
+        if error_category or (isinstance(result, dict) and result.get("provider_error")):
+            category = error_category or result.get("provider_error_category") \
+                or "provider_error"
+            state, stored = "provider_error", None
+            tally["errors"] += 1
+            if provider_attempted:
+                breaker.record_failure()
+        else:
+            if not isinstance(result, dict):
+                state, stored = "provider_error", None
+                category = "screen_error"
+                tally["errors"] += 1
+                if provider_attempted:
+                    breaker.record_failure()
+            else:
+                state = "complete"
+                stored = {key: value for key, value in result.items()
+                          if key not in {"provider_error", "provider_error_category"}}
+                category = None
+                if provider_attempted:
+                    breaker.record_success()
+                if result.get("disqualified"):
+                    tally["disqualified"] += 1
+                else:
+                    checks = (result.get("screen") or {}).values()
+                    has_verdict = any(isinstance(check, dict) and "pass" in check
+                                      for check in checks)
+                    tally["passed" if has_verdict else "unknown"] += 1
+        saved = db.save_screening(
+            conn, int(row["id"]), state=state, result=stored,
+            error_category=category, backend=backend, model=model, effort=effort,
+            evaluator_version=SCREEN_EVALUATOR_VERSION, now=now,
+        )
+        tally["saved" if saved else "changed"] += 1
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        pending = []
+        cursor = 0
+        while cursor < len(rows) or pending:
+            while cursor < len(rows) and len(pending) < workers:
+                row = rows[cursor]
+                cursor += 1
+                try:
+                    needs_provider = score.screen_requires_provider(
+                        row, extract=extract, candidate=candidate)
+                except Exception as exc:  # noqa: BLE001 — fail this item visibly
+                    persist(row, None, _screen_error_category(exc),
+                            provider_attempted=False)
+                    continue
+                if needs_provider:
+                    if breaker.tripped or tally["attempted"] >= limit:
+                        tally["uncalled"] += 1
+                        continue
+                    tally["attempted"] += 1
+                    pending.append((row, executor.submit(invoke, row), True))
+                else:
+                    result, category = invoke(row)
+                    persist(row, result, category, provider_attempted=False)
+
+            if pending:
+                row, future, provider_attempted = pending.pop(0)
+                result, category = future.result()
+                persist(row, result, category, provider_attempted=provider_attempted)
+
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM job_postings p LEFT JOIN job_screenings s "
+        "ON s.job_posting_id=p.id WHERE p.pipeline_status='new' "
+        "AND (s.id IS NULL OR s.state='provider_error')"
+    ).fetchone()[0]
+    print(f"[screen-only] {tally['attempted']} provider call(s), {cached} cached, "
+          f"{tally['passed']} pass, {tally['disqualified']} disqualified, "
+          f"{tally['unknown']} unknown, {tally['errors']} error(s), "
+          f"{tally['uncalled']} provider call(s) deferred, {remaining} still eligible")
+    return tally
+
+
 
 # How many rows the free seniority pre-ordering may examine to fill one pass's budget.
 # The cap exists so a pathological queue (everything demoted) cannot turn a bounded pass

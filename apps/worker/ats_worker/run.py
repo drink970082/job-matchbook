@@ -117,7 +117,8 @@ DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
 _ENV_ARGPARSE_KEYS = frozenset({
     "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
     "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CLAUDE_CODE_SCORE_MODEL",
-    "CODEX_BATCH_SIZE", "SCREEN_WORKERS", "SCORE_WORKERS",
+    "CODEX_BATCH_SIZE", "SCREEN_WORKERS", "SCREEN_EFFORT", "SCREEN_LIMIT",
+    "SCORE_WORKERS",
 })
 
 
@@ -170,11 +171,13 @@ def _scorer_meta(backend: str, *,
 # reports which providers are actually installed; the operator (or onboard-me Step 0)
 # chooses from that, and this function never guesses.
 DEFAULT_SCREEN_BACKEND = "ollama"
+DEFAULT_SCREEN_ONLY_CODEX_MODEL = "gpt-5.6-luna"
+SCREEN_EFFORT_VALUES = ("none", "low", "medium", "high", "xhigh", "max")
 SCREEN_BACKENDS = ("ollama", "codex", "claude-code", "claude-api", "openai-api", "none")
 
 
 def make_screener(backend: str, *, env, http=None, model=None, screen_model=None,
-                  num_ctx: int = 8192):
+                  screen_effort=None, num_ctx: int = 8192):
     """Pick the screen backend, returning the `extract(prompt, schema) -> dict`
     callable `screen_posting` consumes — or None for `none`, which runs the
     deterministic gates only (documented as LOW RECALL on sponsorship: it falls back
@@ -193,7 +196,10 @@ def make_screener(backend: str, *, env, http=None, model=None, screen_model=None
             num_ctx=num_ctx,
         )
     if backend == "codex":
-        return make_codex_extract(screen_model or DEFAULT_CODEX_SCREEN_MODEL)
+        model_name = screen_model or DEFAULT_CODEX_SCREEN_MODEL
+        if screen_effort is None:
+            return make_codex_extract(model_name)
+        return make_codex_extract(model_name, reasoning_effort=screen_effort)
     if backend == "claude-code":
         return make_claude_code_extract(screen_model)
     if backend == "claude-api":
@@ -249,6 +255,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
              screen_backend=DEFAULT_SCREEN_BACKEND,
              screen_model=None,
+             screen_effort=None, screen_only: bool = False,
+             screen_limit: int = 40, rescreen_screened: bool = False,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
@@ -297,6 +305,12 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 "exclude_internships": cfg.candidate.exclude_internships,
             }
 
+        if screen_only and (fetch_only or score_only or rescreen_discarded):
+            raise ValueError("screen-only cannot be combined with fetch-only, score-only, "
+                             "or rescreen-discarded")
+        if screen_only and screen_limit <= 0:
+            raise ValueError("screen-only requires a positive --screen-limit")
+
         # --score-only skips the whole network ingest (fetch/feed/expire) and scores
         # the existing 'new' backlog — the inverse of --fetch-only, so an operator can
         # score a large intake without paying a full re-fetch first.
@@ -341,6 +355,38 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
             if gone:
                 print(f"expired {gone} dead posting(s)")
 
+        if screen_only:
+            if rescreen_screened:
+                cleared = db.clear_completed_screenings(conn)
+                print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
+                      "new postings")
+            num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
+            effective_model = screen_model
+            if screen_backend == "codex" and not effective_model:
+                effective_model = DEFAULT_SCREEN_ONLY_CODEX_MODEL
+            elif screen_backend == "ollama" and not effective_model:
+                effective_model = ollama_model or DEFAULT_OLLAMA_MODEL
+            elif screen_backend == "claude-api" and not effective_model:
+                effective_model = DEFAULT_CLAUDE_SCREEN_MODEL
+            elif screen_backend == "openai-api" and not effective_model:
+                effective_model = DEFAULT_OPENAI_SCREEN_MODEL
+            effective_effort = (screen_effort or "medium") if screen_backend == "codex" else None
+            screen_extract = make_screener(
+                screen_backend, env=env, http=requests, model=ollama_model,
+                screen_model=effective_model, screen_effort=effective_effort,
+                num_ctx=num_ctx)
+
+            def screen_only_fn(posting):
+                return screen_posting(posting, extract=screen_extract,
+                                       candidate=candidate, num_ctx=num_ctx)
+
+            pipeline.run_screen(
+                conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
+                candidate=candidate, backend=screen_backend, model=effective_model,
+                effort=effective_effort, limit=screen_limit,
+                screen_workers=screen_workers or 1)
+            return
+
         # Operator-only escape hatch from the terminal 'discarded' state: after a
         # candidate hard-requirement edit, bring every discard back to 'new' so this
         # same pass re-screens it under the new rules. Screening is free on the
@@ -379,6 +425,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
 
         screen_extract = make_screener(screen_backend, env=env, http=requests,
                                        model=ollama_model, screen_model=screen_model,
+                                       screen_effort=screen_effort,
                                        num_ctx=num_ctx)
 
         def screen_fn(posting):
@@ -811,6 +858,9 @@ def main(argv=None) -> None:
     parser.add_argument("--fetch-only", action="store_true",
                         help="run fetch/feed/expire/retry then stop, before any "
                              "screen or scorer call (quota-free board refresh)")
+    parser.add_argument("--screen-only", action="store_true",
+                        help="run fetch/feed/expire plus standalone hard-requirements "
+                             "screen; skip fit scoring, quota refresh and notify")
     parser.add_argument("--score-only", action="store_true",
                         help="skip the network ingest (fetch/feed/expire) and score "
                              "the existing 'new' backlog — inverse of --fetch-only")
@@ -859,9 +909,19 @@ def main(argv=None) -> None:
                              "only and is LOW RECALL on sponsorship")
     parser.add_argument("--screen-model",
                         default=os.environ.get("SCREEN_MODEL"),
-                        help="model for the screen backend (default: per-backend — "
-                             "qwen3.5:4b / claude-haiku-4-5 / gpt-5.6-luna / "
-                             "gpt-5.6-sol)")
+                        help="model for the screen backend (screen-only Codex defaults "
+                             "to gpt-5.6-luna; legacy Codex defaults to gpt-5.6-sol)")
+    parser.add_argument("--screen-effort", choices=SCREEN_EFFORT_VALUES,
+                        default=os.environ.get("SCREEN_EFFORT"),
+                        help="Codex screen reasoning effort; screen-only defaults to "
+                             "medium, legacy mode preserves the CLI default")
+    parser.add_argument("--screen-limit", type=int,
+                        default=int(os.environ.get("SCREEN_LIMIT", "40")),
+                        help="maximum provider calls per screen-only pass (default 40; "
+                             "must be positive in screen-only mode)")
+    parser.add_argument("--rescreen-screened", action="store_true",
+                        help="clear successful screen cache for eligible 'new' rows; "
+                             "requires --screen-only --once")
     parser.add_argument("--codex-score-model",
                         default=os.environ.get("CODEX_SCORE_MODEL",
                                                DEFAULT_CODEX_SCORE_MODEL),
@@ -917,6 +977,21 @@ def main(argv=None) -> None:
         parser.error("--run-now is for daemon mode: it runs one pass and then STAYS on "
                      "the schedule. For a single pass that exits, use --once alone.")
 
+    if sum((args.fetch_only, args.score_only, args.screen_only)) > 1:
+        parser.error("--fetch-only, --score-only and --screen-only are mutually exclusive")
+    if args.screen_only and args.rescreen_discarded:
+        parser.error("--screen-only cannot be combined with --rescreen-discarded")
+    if args.screen_only and args.screen_limit <= 0:
+        parser.error("--screen-limit must be a positive provider-call cap in screen-only mode")
+    if args.screen_workers < 0:
+        parser.error("--screen-workers must be >= 0 (0 selects the mode default)")
+    if args.screen_effort and args.screen_effort not in SCREEN_EFFORT_VALUES:
+        parser.error("SCREEN_EFFORT must be one of " + ", ".join(SCREEN_EFFORT_VALUES))
+    if args.rescreen_screened and not args.screen_only:
+        parser.error("--rescreen-screened requires --screen-only")
+    if args.rescreen_screened and not args.once:
+        parser.error("--rescreen-screened is one-shot: pass --screen-only --once")
+
     # One-shot only: on the schedule this would resurrect the same discards every pass and
     # re-charge the paid fit scorer for each survivor, indefinitely.
     # `--run-now` is deliberately NOT accepted here even though it also runs one pass
@@ -960,7 +1035,10 @@ def main(argv=None) -> None:
         print(f"imported {seeded} companies into the watchlist")
         return
 
-    resumes, profile = load_resumes(args.resume_dir)
+    if args.fetch_only or args.screen_only:
+        resumes, profile = {}, ""
+    else:
+        resumes, profile = load_resumes(args.resume_dir)
 
     def once(foreground: bool = False):
         # The predicate is "does a refused pass kill the caller", and it is passed
@@ -981,6 +1059,10 @@ def main(argv=None) -> None:
                          env=env, ollama_model=args.model,
                          screen_backend=args.screen_backend,
                          screen_model=args.screen_model,
+                         screen_effort=args.screen_effort,
+                         screen_only=args.screen_only,
+                         screen_limit=args.screen_limit,
+                         rescreen_screened=args.rescreen_screened,
                          score_backend=args.score_backend,
                          codex_score_model=args.codex_score_model,
                          anthropic_score_model=args.anthropic_score_model,

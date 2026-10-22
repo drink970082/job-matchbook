@@ -58,6 +58,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **A standalone `--screen-only` worker pass with durable hard-requirement results.**
+  The pass keeps the existing fetch/expiry rules, screens eligible `new` postings and
+  exits before legacy fit retry, fit scoring, quota refresh or notification. Successful
+  screens live in a new Prisma-owned `job_screenings` table and remain cached until an
+  explicit one-shot re-screen; provider errors retain only a safe category and retry
+  under the positive per-pass call cap and existing circuit breaker. The pass never
+  changes posting lifecycle or fit state. Codex can pin reasoning effort; screen-only
+  Codex defaults to Luna at medium, while the repo-wide Ollama and legacy model defaults
+  remain unchanged.
+
 - **`tools/backfill_descriptions.py`, because `upsert_postings` never updates.** Every change
   above helps only postings fetched *after* it — `ON CONFLICT DO NOTHING` means the 1,615 rows
   already holding a teaser keep it forever. The tool re-runs the now-capable fetch for a board

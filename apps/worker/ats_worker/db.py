@@ -237,6 +237,91 @@ def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool =
     ).fetchall()
 
 
+def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
+    """Return eligible standalone-screen work: fresh rows newest-first, then errors
+    oldest-attempt-first. Completed rows remain cached until explicitly cleared.
+    """
+    fresh = conn.execute(
+        "SELECT p.* FROM job_postings p "
+        "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
+        "WHERE p.pipeline_status='new' AND s.id IS NULL "
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
+    ).fetchall()
+    errors = conn.execute(
+        "SELECT p.* FROM job_postings p "
+        "JOIN job_screenings s ON s.job_posting_id=p.id "
+        "WHERE p.pipeline_status='new' AND s.state='provider_error' "
+        "ORDER BY s.last_attempted_at ASC, p.id ASC"
+    ).fetchall()
+    return [dict(row) for row in (*fresh, *errors)]
+
+
+def clear_completed_screenings(conn: sqlite3.Connection) -> int:
+    """Clear successful screen cache for eligible `new` rows only."""
+    cur = conn.execute(
+        "DELETE FROM job_screenings WHERE state='complete' AND job_posting_id IN "
+        "(SELECT id FROM job_postings WHERE pipeline_status='new')"
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
+                   result: dict | None, error_category: str | None, backend: str,
+                   model: str | None, effort: str | None,
+                   evaluator_version: str, now: str) -> bool:
+    """Persist one latest screen result if the posting is still eligible.
+
+    The result and eligibility check share a short transaction. Screen provider errors
+    deliberately carry only a fixed message and a closed category; raw provider output
+    can contain job text or credentials and is never persisted here.
+    """
+    if state not in {"complete", "provider_error"}:
+        raise ValueError(f"invalid screen state: {state!r}")
+    if state == "complete" and result is None:
+        raise ValueError("a completed screen requires a result")
+    if state == "provider_error" and result is not None:
+        raise ValueError("provider errors cannot be cached as successful results")
+    safe_category = error_category if state == "provider_error" else None
+    if safe_category not in {None, "provider_error", "timeout", "executable_missing",
+                             "screen_error"}:
+        raise ValueError("invalid screen error category")
+    result_json = (json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+                   if result is not None else None)
+    error_message = ("Screen provider failed; retry is pending."
+                     if state == "provider_error" else None)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        eligible = conn.execute(
+            "SELECT 1 FROM job_postings WHERE id=? AND pipeline_status='new'",
+            (posting_id,),
+        ).fetchone()
+        if eligible is None:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO job_screenings "
+            "(job_posting_id,state,result_json,error_category,error_message,backend,model,"
+            "effort,evaluator_version,last_attempted_at,completed_at,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(job_posting_id) DO UPDATE SET "
+            "state=excluded.state,result_json=excluded.result_json,"
+            "error_category=excluded.error_category,error_message=excluded.error_message,"
+            "backend=excluded.backend,model=excluded.model,effort=excluded.effort,"
+            "evaluator_version=excluded.evaluator_version,"
+            "last_attempted_at=excluded.last_attempted_at,"
+            "completed_at=excluded.completed_at,updated_at=excluded.updated_at",
+            (posting_id, state, result_json, safe_category, error_message, backend, model,
+             effort, evaluator_version, now, now if state == "complete" else None,
+             now, now),
+        )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
     """Live postings (scored|notified) from per-listing sources, least-recently
     touched first — the expiry re-check queue (pipeline.run_expire). Every check

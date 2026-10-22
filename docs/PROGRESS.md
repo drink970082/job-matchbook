@@ -46,10 +46,17 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   approved design:
   [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
   Approved choices: `job_screenings` with minimal-state retry/cache policy A, official
-  MCP Python SDK v2, and redaction of custom-recipe credential values. The
-  implementation brief proposes `gpt-5.6-luna` at pinned `medium`; current
-  expanded-corpus evidence has zero false disqualifications for Luna, but does not record
-  effort. No schema, worker, MCP service, live model call, or deployment has changed.
+  MCP Python SDK v2, and redaction of custom-recipe credential values. Milestone A's
+  worker mode, storage helpers and additive Prisma model are implemented in this branch;
+  focused worker tests, schema drift check and whitespace check pass, and the Milestone A
+  commit is next. The MCP repository/server, final run and
+  access documentation, full gates, bounded runtime smoke, push and PR remain. The
+  unchanged expanded 103-row comparison is the quality baseline, not a request to rerun:
+  qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
+  flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
+  evaluation does not record effort, so production `medium` remains unmeasured. No live
+  model call, production schema application, worker activation/restart, or MCP/tunnel
+  connection has occurred.
 
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:

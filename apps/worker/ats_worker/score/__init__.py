@@ -40,6 +40,7 @@ from .screen import (  # noqa: F401  (re-export)
     make_ollama_extract,
     merge_fallback_screen,
     screen_posting,
+    screen_requires_provider,
     sponsorship_snippets,
 )
 from .usage import (  # noqa: F401  (re-export)
