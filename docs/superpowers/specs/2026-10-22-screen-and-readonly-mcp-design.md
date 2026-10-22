@@ -79,7 +79,8 @@ reach an arbitrary URL. User-facing actions to create/import records are outside
 **Recommendation: B.** It preserves the meaning of current fit columns and supports
 screening independently. The exact fields depend on Fork 2. Keep the current nested
 screen JSON shape; do not replace the check vocabulary rejected in `REJECTED.md`.
-This changes the Prisma schema, so the operator must choose A or B before implementation.
+This changes the Prisma schema. **Operator decision: B, a separate `job_screenings`
+record, is approved.**
 
 ## Fork 2 — retry, caching, and input changes
 
@@ -94,12 +95,11 @@ before. Compare:
 | A — minimal state (recommended) | Store one latest result per posting with status, raw structured screen result on success, sanitized error and `last_attempted_at`, backend/model/effort, and evaluator version. Cache success until the operator runs an explicit one-shot `--rescreen-screened --screen-only --once` action for eligible `new` rows. Retry errors on later passes, order them by oldest attempt to avoid starvation, and reuse the existing screen circuit breaker plus a positive per-pass `--screen-limit` (default 40). No per-row retry budget, input fingerprint planner, or automatic invalidation when candidate config, model, prompt or rules change. | Durable no-fit screen results and bounded per-pass work with little new state. A screen can become stale after input changes until the operator explicitly requests a re-screen. A persistent per-row error may be retried over later runs but each run has a hard call cap and the existing breaker. |
 | B — full state from the implementation brief | Store a hash of posting, candidate constraints, deterministic rules, prompt/schema, backend/model/effort. Automatically skip identical completed inputs and invalidate on any change. Store retry counts/time per fingerprint, back off, and park after three failures. | Automatically fresh evidence and bounded repeats. Adds a rerun planner and a separate retry lifecycle, both previously rejected; increases DDL, tests and maintenance. |
 
-**Recommendation: A.** If Fork 1 selects a separate table, that table is justified
-because screen becomes independent; the hash-driven rerun planner is not required to
-achieve that. An explicit reset makes staleness a deliberate operator action and follows
-the prior simplicity decision. This recommendation intentionally replaces the original
-plan's automatic fingerprints and per-input retry budget. The operator must choose A or
-B before behavior implementation.
+**Recommendation: A.** The approved separate table gives screen independent storage;
+the hash-driven rerun planner is not required to achieve that. An explicit reset makes
+staleness a deliberate operator action and follows the prior simplicity decision. This
+recommendation intentionally replaces the original plan's automatic fingerprints and
+per-input retry budget. The operator must choose A or B before behavior implementation.
 
 With either option, screen only rows left eligible as `new` after ordinary fetch/feed
 filters. Fetch retains its existing deterministic status effects, including setting a
@@ -113,20 +113,18 @@ For either option:
 - A provider error is never stored as a successful screen. Persist only a sanitized
   error category/message and timestamp; do not persist raw prompt, JD, stdout or stderr.
 - A posting re-checks `pipeline_status='new'` immediately before result persistence.
-- Keep existing fit score, attempts, notification attempts, pipeline status and
-  application link untouched by the screen-only stage. Under the separate-table option,
-  keep `score_detail` untouched too. Under the `score_detail` option, update only the
-  screen member using a schema-aware merge that preserves unrelated fit evidence; test
-  that the persisted fit fields survive that merge.
+- Keep existing fit score, attempts, notification attempts, pipeline status, application
+  link and `score_detail` byte-for-byte unchanged by the screen-only stage.
 - Do not reprocess terminal or already fit-scored historical rows in v1.
 - Fetch-time title, age, location and internship rules remain as configured. The MCP
   can read discarded postings, including bodyless stubs; it must report stored content
   faithfully and never invent a full JD.
 - Screen deterministic-only outcomes are recorded without spending a Codex call.
 - The command rejects conflicting `--fetch-only`, `--score-only`, and
-  `--screen-only` modes before opening/mutating the database or fetching. The
-  `--rescreen-screened` reset is only valid with `--screen-only --once`; it cannot be
-  combined with `--rescreen-discarded`.
+  `--screen-only` modes before opening/mutating the database or fetching. Under minimal
+  state option A, `--rescreen-screened` is only valid with `--screen-only --once` and
+  cannot be combined with `--rescreen-discarded`. Option B relies on automatic
+  fingerprint invalidation instead.
 - Keep `SCREEN_BACKEND`'s global default as Ollama. The host deployment opts into
   Codex Luna medium explicitly. Codex subprocess remains tool-less, read-only and
   ephemeral, with web disabled.
@@ -204,13 +202,11 @@ registered, but connection-level read-only mode is the enforcement boundary.
 
 ## Operator decisions requested
 
-1. Screen result storage: choose A (`job_postings.score_detail`, with its fit-column
-   collision risk) or B (a separate one-to-one Prisma `job_screenings` row). Recommendation B.
-2. Screen persistence/retry: choose A (minimal result + explicit re-screen) or B
+1. Screen persistence/retry: choose A (minimal result + explicit re-screen) or B
    (automatic fingerprint invalidation + per-input retry state). Recommendation A.
-3. MCP package: approve official SDK v2, or request v1 for compatibility with Sure's
+2. MCP package: approve official SDK v2, or request v1 for compatibility with Sure's
    current example. Recommendation v2.
-4. Recipe credential visibility: approve redacting recipe header/secret query values
+3. Recipe credential visibility: approve redacting recipe header/secret query values
    while returning all other ATS business data, or specify another boundary.
 
 After those decisions are recorded, change this header to `approved`, then implement the

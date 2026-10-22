@@ -150,14 +150,13 @@ Reuse known deterministic outcomes without calling a provider. Log attempted cal
 cache hits, pass/disqualify/unknown outcomes and errors, without raw JD or secrets.
 Fresh, never-screened `new` postings use the existing newest-first queue order. Once
 those are selected, unused provider-call capacity retries screen errors oldest-attempt
-first. The same `--screen-limit` caps provider calls, including failures. A one-shot
-`--rescreen-screened` operator action clears successful screen cache for eligible `new`
-rows; require `--once` so a recurring daemon cannot clear its own cache every pass.
+first. The same `--screen-limit` caps provider calls, including failures. Under minimal-
+state option A, `--rescreen-screened` clears successful screen cache for eligible `new`
+rows and requires `--screen-only --once`; recurring passes must never clear their own
+cache. Full-state option B uses fingerprint changes for automatic invalidation instead.
 
-**Screen result storage and persistence/retry policy require operator signoff before
-implementation.** The companion spec also asks whether results belong in the existing
-`score_detail` field or a separate Prisma `job_screenings` row; its recommendation is
-the separate row so screen evidence remains distinct from fit evidence.
+**Screen result storage is approved as a separate Prisma `job_screenings` row. The
+persistence/retry policy still requires operator signoff before implementation.**
 `docs/REJECTED.md` rejects per-stage screen retry budgets and end-to-end hashes with an
 automatic re-run planner. This task changes an important premise: screen is now a
 standalone recurring stage, while postings remain `new`, so its result cannot live only
@@ -178,18 +177,14 @@ backend/model/effort; automatic invalidation; bounded retries/backoff; and per-i
 error state. This avoids stale cached results and repeated errors, but reopens both
 previously rejected directions and adds a Prisma model and retry lifecycle.
 
-The complete state proposal is not silently approved by the implementation plan.
-Preserve the existing screen payload contract under either choice; do not introduce a
+Preserve the existing screen payload contract; do not introduce a
 replacement set of per-check verdict enums. The screen stage must not change
 `pipeline_status`, fit `score`, `attempts`, `notify_attempts`, or application links. If
-the operator selects the separate-table design, it also leaves `score_detail`
-byte-for-byte unchanged. If they select `score_detail`, update only the screen member
-through a schema-aware merge that preserves unrelated fit evidence. No fake score, no
-`scored` status, and no successful cache entry for a provider error. Fetch's existing
-filters retain their status effects; the screen stage only processes rows left eligible
-as `new`. Do not automatically requeue or process terminal/already fit-scored historical
-rows. Expose old fetch/legacy screen evidence as its original evidence, not as a new
-Luna run.
+or `score_detail` (which stays fit/legacy evidence). No fake score, no `scored` status,
+and no successful cache entry for a provider error. Fetch's existing filters retain
+their status effects; the screen stage only processes rows left eligible as `new`. Do
+not automatically requeue or process terminal/already fit-scored historical rows.
+Expose old fetch/legacy screen evidence as its original evidence, not as a new Luna run.
 
 Use a transaction per result and re-check row eligibility before storing it if another
 writer has changed its lifecycle. A crash after a provider call but before commit may
@@ -206,8 +201,8 @@ Missing DB/schema should produce an actionable error without filesystem disclosu
 
 Coverage inventory (re-read current Prisma schema; do not omit models added since
 this brief): `job_postings`, `applications`, `status_history`, `watched_companies`,
-`feed_unresolved`, `promotion_dismissed`, `app_settings`, and the selected screen-result
-storage (a `job_screenings` model only if option B is approved).
+`feed_unresolved`, `promotion_dismissed`, `app_settings`, and the approved
+`job_screenings` result model.
 Expose all stored business-data fields through typed details or allowlisted entity
 record tools. `custom` fetch recipes can contain arbitrary request headers, including
 credentials. The companion spec must choose an explicit policy for those values and
@@ -286,21 +281,20 @@ Required evidence:
    `_sweep_free_gates`, fit factory, fit function, quota-refresh and notify mocks are set
    to raise if reached and remain uncalled, including with previously queued
    notifications. The fit retry/requeue stage is also uncalled. No resume needed.
-2. CLI tests: mode exclusivity, `--rescreen-screened` one-shot requirements, limits,
-   environment precedence, medium effort in Codex argv, unsupported effort fails before
-   side effects; preserve tool-less flags.
+2. CLI tests: mode exclusivity, selected reset/invalidation behavior, limits, environment
+   precedence, medium effort in Codex argv, unsupported effort fails before side effects;
+   preserve tool-less flags. Under option A, `--rescreen-screened` must require
+   `--screen-only --once`; option B automatically invalidates on fingerprint changes.
 3. Screen state tests: pass, grounded disqualification, no configured requirements,
    missing/unknown checks, invalid JSON, timeout, missing executable/auth/provider
-   failure, changed eligibility, empty and short JD, crash/restart behavior, and the
-   chosen storage path. For minimal-state option A, prove success caching until the
+   failure, changed eligibility, empty and short JD, crash/restart behavior, and
+   persistence in `job_screenings`. For minimal-state option A, prove success caching until the
    explicit one-shot re-screen, oldest-attempt-first error retries under the call cap,
    and no automatic invalidation, fingerprint planner, per-row retry budget or backoff.
    For full-state option B, prove every fingerprint input change invalidates and bounded
    retry/backoff parks after three failures. Do not require tests for the unselected
-   policy. If `score_detail` is selected, prove the merge preserves unrelated fit JSON;
-   if the separate table is selected, prove `score_detail` remains byte-for-byte
-   unchanged. Preserve the other fit/application fields the selected storage contract
-   leaves unchanged.
+   policy. Prove `score_detail` remains byte-for-byte unchanged and preserve the other
+   fit/application fields.
 4. Repository tests: every Prisma model/field in the selected schema has an access
    route; all pipeline states reachable, orphaned optional links, Unicode, long text,
    nulls, malformed JSON, unknown legacy status, stable complete pagination over static
