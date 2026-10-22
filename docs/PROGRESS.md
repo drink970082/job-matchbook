@@ -45,9 +45,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   [`superpowers/plans/2026-10-22-screen-and-readonly-mcp.md`](./superpowers/plans/2026-10-22-screen-and-readonly-mcp.md);
   draft design:
   [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
-  **Implementation is waiting for the operator to choose** the screen result retry/cache
-  policy, SDK major line, and treatment of credentials inside stored custom-board
-  recipes. The implementation brief proposes `gpt-5.6-luna` at pinned `medium`; current
+  **Screen results are approved for a separate `job_screenings` table. Implementation is
+  waiting for the operator to choose** the screen result retry/cache policy, SDK major
+  line, and treatment of credentials inside stored custom-board recipes. The
+  implementation brief proposes `gpt-5.6-luna` at pinned `medium`; current
   expanded-corpus evidence has zero false disqualifications for Luna, but does not record
   effort. No schema, worker, MCP service, live model call, or deployment has changed.
 
