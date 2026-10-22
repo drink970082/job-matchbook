@@ -68,6 +68,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Codex defaults to Luna at medium, while the repo-wide Ollama and legacy model defaults
   remain unchanged.
 
+- **An optional, allowlisted read-only ATS MCP server.** Its v2 stdio tools query all
+  eight Prisma models through SQLite `mode=ro` and `query_only`, with bounded
+  filter-scoped pagination and chunked job descriptions/application notes. Unknown
+  states and malformed legacy JSON retain their reported status; malformed recipes are
+  withheld when they cannot be safely redacted. Recipe header values and conventional
+  secret URL query values are redacted. CI installs the exact optional SDK pin and runs
+  in-memory plus stdio protocol tests.
+
 - **`tools/backfill_descriptions.py`, because `upsert_postings` never updates.** Every change
   above helps only postings fetched *after* it — `ON CONFLICT DO NOTHING` means the 1,615 rows
   already holding a teaser keep it forever. The tool re-runs the now-capable fetch for a board

@@ -180,7 +180,7 @@ def _redact_recipe(value: Any, *, key: str = "") -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for child_key, child in value.items():
-            if str(child_key).lower() == "headers":
+            if str(child_key).casefold() == "headers":
                 if isinstance(child, dict):
                     result[child_key] = {header: REDACTED for header in child}
                 elif isinstance(child, list):
@@ -216,6 +216,9 @@ def _recipe_info(raw: str | None) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
+        return {"raw_redacted": MALFORMED_RECIPE, "parsed": None,
+                "parse_status": "malformed_withheld"}
+    if not isinstance(parsed, dict):
         return {"raw_redacted": MALFORMED_RECIPE, "parsed": None,
                 "parse_status": "malformed_withheld"}
     safe = _redact_recipe(parsed)
@@ -503,10 +506,10 @@ class ReadOnlyATSRepository:
             clauses.append("substr(p.created_at, 1, 10) <= ?")
             params.append(created_to)
         if posted_from:
-            clauses.append("p.posted_at >= ?")
+            clauses.append("substr(p.posted_at, 1, 10) >= ?")
             params.append(posted_from)
         if posted_to:
-            clauses.append("p.posted_at <= ?")
+            clauses.append("substr(p.posted_at, 1, 10) <= ?")
             params.append(posted_to)
         if decoded:
             clauses.append("p.id < ?")

@@ -17,6 +17,17 @@ talks to external services (board APIs, Ollama, the Codex CLI or Anthropic
 API, Telegram) using operator-supplied credentials in a gitignored `.env` /
 `config.yaml`. It is not a network-facing service.
 
+An optional ATS MCP process is launched locally over stdio and reads the shared
+database through SQLite `mode=ro` plus `query_only`; it does not bind a listener
+or expose write tools. When an operator connects it through OpenAI Secure MCP
+Tunnel, approved ChatGPT users can read the ATS records and send returned job
+text, application notes, and other selected data to the connected model. Tunnel
+access and ChatGPT workspace policy define that additional trust boundary. The
+MCP service redacts recipe header values and conventional secret URL query
+values, and marks scraped text and notes as untrusted data, but the connected
+model still receives business data requested through read tools. Only connect a
+workspace the operator trusts.
+
 ## Reporting a Vulnerability
 
 Please use GitHub's **["Report a vulnerability"](https://github.com/drink970082/job-matchbook/security/advisories/new)**

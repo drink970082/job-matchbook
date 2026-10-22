@@ -241,7 +241,8 @@ Use the official MCP Python SDK v2, the current stable line and compatible with 
 repo's Python 3.11 floor. Its current server API is `from mcp.server import MCPServer`;
 Sure's `mcp.server.fastmcp.FastMCP` example is v1-era and must not be copied blindly.
 Keep the SDK optional so worker-only installs/tests do not acquire an unrelated runtime
-import requirement. Pin an exact tested v2 release in a separate MCP dependency file.
+import requirement. Pin an exact v2 release in a separate MCP dependency file, and
+require its in-memory and stdio protocol tests to execute in CI before merge.
 Wire paths/services in entrypoints, keep query functions testable by DI.
 MCP entrypoint must not import/run the worker scheduler or mutable DB bootstrap.
 

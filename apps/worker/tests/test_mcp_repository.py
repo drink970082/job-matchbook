@@ -48,6 +48,17 @@ def test_database_is_opened_read_only_and_query_only(db_path):
         assert conn.execute("SELECT COUNT(*) FROM app_settings").fetchone()[0] == 0
 
 
+def test_each_query_opens_a_live_connection_that_sees_committed_wal_writes(db_path):
+    repo = ReadOnlyATSRepository(db_path)
+    assert repo.list_jobs()["items"] == []
+    writer = sqlite3.connect(db_path)
+    writer.execute("PRAGMA journal_mode=WAL")
+    _job(writer)
+    writer.commit()
+    writer.close()
+    assert len(repo.list_jobs()["items"]) == 1
+
+
 def test_missing_or_incomplete_database_fails_safely_without_creating_file(tmp_path):
     missing = tmp_path / "private" / "missing.db"
     repo = ReadOnlyATSRepository(missing)
@@ -116,6 +127,15 @@ def test_job_search_escapes_like_wildcards_and_keyset_pages(db_path):
         repo.list_jobs(cursor="../bad")
 
 
+def test_orphaned_optional_application_link_is_returned_as_stored(db_path):
+    with sqlite3.connect(db_path) as conn:
+        job_id = _job(conn)
+        conn.execute("UPDATE job_postings SET application_id=999 WHERE id=?", (job_id,))
+    job = ReadOnlyATSRepository(db_path).get_job(job_id)
+    assert job["application_id"] == 999
+    assert job["pipeline_status"] == "new"
+
+
 def test_cursor_is_bounded_and_does_not_store_filter_text(db_path):
     long_source, long_status, long_screen, long_search = "s" * 200, "p" * 200, "x" * 200, "t" * 200
     with sqlite3.connect(db_path) as conn:
@@ -150,6 +170,7 @@ def test_job_filters_and_get_job_withhold_description_but_offer_exact_chunks(db_
     with sqlite3.connect(db_path) as conn:
         matching = _job(conn, title="Principal Engineer", status="new", description=body,
                         url="https://jobs.test/apply?token=private&page=2", posted="2026-10-02")
+        timestamped = _job(conn, title="Timestamped", posted="2026-10-02T23:59:59Z")
         _job(conn, title="Other", status="failed", posted="2026-09-01")
     repo = ReadOnlyATSRepository(db_path)
     page = repo.list_jobs(
@@ -157,6 +178,8 @@ def test_job_filters_and_get_job_withhold_description_but_offer_exact_chunks(db_
         created_from="2026-10-22", posted_from="2026-10-01", posted_to="2026-10-31",
     )
     assert [row["id"] for row in page["items"]] == [matching]
+    end_of_day = repo.list_jobs(posted_from="2026-10-02", posted_to="2026-10-02")
+    assert {row["id"] for row in end_of_day["items"]} == {matching, timestamped}
     assert "private" not in page["items"][0]["job_url"]
     assert page["items"][0]["description_chars"] == len(body)
     full = repo.get_job(matching)
@@ -273,6 +296,15 @@ def test_malformed_recipe_is_withheld_without_leaking_raw_value(db_path):
     record = ReadOnlyATSRepository(db_path).get_ats_record("watched_companies", "1")
     assert record["recipe_parse_status"] == "malformed_withheld"
     assert "secret" not in json.dumps(record)
+
+
+def test_valid_json_that_is_not_a_recipe_object_is_withheld(db_path):
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO watched_companies(source,slug,name,recipe,created_at) "
+                     "VALUES('custom','scalar','Scalar','\"api_key=private\"', 'now')")
+    record = ReadOnlyATSRepository(db_path).get_ats_record("watched_companies", "1")
+    assert record["recipe_parse_status"] == "malformed_withheld"
+    assert "private" not in json.dumps(record)
 
 
 @pytest.mark.parametrize("entity", [[], {}, None, "sqlite_master", "applications; DROP TABLE applications"])

@@ -48,15 +48,32 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   Approved choices: `job_screenings` with minimal-state retry/cache policy A, official
   MCP Python SDK v2, and redaction of custom-recipe credential values. Milestone A's
   worker mode, storage helpers and additive Prisma model are implemented in this branch;
-  focused worker tests, schema drift check and whitespace check pass, and the Milestone A
-  commit is next. The MCP repository/server, final run and
-  access documentation, full gates, bounded runtime smoke, push and PR remain. The
-  unchanged expanded 103-row comparison is the quality baseline, not a request to rerun:
+  focused worker tests, schema drift check and whitespace check pass; Milestone A is
+  committed at 9b80c06. The allowlisted MCP repository is committed at a1747f2; the
+  SDK v2 stdio server, protocol tests, CI dependency gate and current access/run docs are
+  implemented. `make test-worker` passes (1114 passed, one optional-SDK protocol module
+  skipped locally); worker coverage is 92.43%. `make check-schema` passes. CI installs
+  `mcp==2.3.0`; local protocol execution remains unverified because the SDK is not
+  installed and DNS/cache restrictions prevent installation. The worker integration tier
+  passes (4 tests), but web integration/coverage and lint cannot run because web dependencies
+  are absent (`jest`/`next` not found, and offline `npm ci` lacks the cached `zod` tarball).
+  `make check-privacy` cannot spawn `git` from Node in this sandbox (`EPERM`); its self-test
+  and an equivalent scan of all 332 tracked paths pass with no private paths.
+  Two synthetic-only screen calls recorded a safe `provider_error` for `gpt-5.6-luna` at
+  `medium`; the second call's protected stderr showed Codex startup failing because its
+  in-process app-server could not create PATH aliases on the sandbox's read-only filesystem
+  (`Read-only file system`, OS error 30). The CLI login is authenticated, but no model
+  response was reached, so this is an environment-specific startup failure rather than a
+  Luna quality result. The synthetic posting stayed `new`, with fit, application, attempt,
+  and notification fields unchanged; no further retry was made and temporary data/stderr
+  were removed. The tunnel client is unavailable, so ChatGPT end-to-end remains
+  unverified. No production schema was applied, and no worker daemon was started or
+  restarted. The unchanged expanded 103-row comparison is the quality baseline, not a
+  request to rerun:
   qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
   flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
-  evaluation does not record effort, so production `medium` remains unmeasured. No live
-  model call, production schema application, worker activation/restart, or MCP/tunnel
-  connection has occurred.
+  evaluation does not record effort, so production `medium` remains unmeasured. Full web
+  dependency-backed gates, CI protocol execution, production-host smoke, push and PR remain.
 
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:

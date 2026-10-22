@@ -14,7 +14,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-22 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-22 · **License:** MIT
 
 ---
 
@@ -1510,6 +1510,34 @@ it simply waits for an unbounded pass. **The `new` queue is read
   `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
+- **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
+  `requirements-mcp.txt` only for this service. `ReadOnlyATSRepository` opens the
+  Prisma-owned SQLite file with URI `mode=ro`, enables `query_only`, uses a bounded
+  busy timeout, and opens a live connection per call so committed WAL updates remain
+  visible. It never imports the worker scheduler or writer bootstrap, creates a missing
+  database, seeds settings, or performs DDL. `ATS_DB_PATH` selects the database; when
+  unset, the repository resolves the web Prisma database path from the checkout.
+  The `MCPServer` entrypoint is `python -m ats_worker.mcp` and its default transport is
+  stdio; it binds no listener. Registered tools are `get_ats_overview`, `list_jobs`,
+  `get_job`, `get_job_description`, `list_applications`, `get_application`,
+  `get_application_notes`, `list_application_history`, `list_ats_records`, and
+  `get_ats_record`. Every tool carries read-only/closed-world annotations, but the
+  connection-level SQLite settings enforce the boundary. The eight model names are a
+  closed enum, identifiers are selected from an internal allowlist, values are bound,
+  and no tool accepts SQL, filesystem paths, HTTP targets, or mutation requests.
+  Lists use filter-scoped opaque keyset cursors (default 25, maximum 100); pages are live
+  rather than one cross-call snapshot. Job descriptions and application notes use
+  explicit character chunks up to 16,000; null and empty values remain distinct.
+  The tools expose all eight current Prisma models, including unknown lifecycle states,
+  links, complete text, and raw/parsed legacy JSON. `app_settings` exposes the approved
+  `categories` value only; other setting values are withheld until reviewed. `custom`
+  and `browser` recipes retain their ordinary fields and header names while all header
+  values and conventional secret URL query values are redacted; malformed recipes are
+  withheld because they cannot be safely parsed. Tool errors contain actionable
+  repository messages but never a database path or driver text. Server instructions
+  mark job descriptions, application notes, recipes and scraped text as untrusted data.
+  MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
+
 ### 7.2 Web (`apps/web/src/`)
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
@@ -2323,6 +2351,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
+| MCP repository uses SQLite `mode=ro` + `query_only`, fails without creating/incompletely accepting a DB, returns current WAL commits, and exposes only bounded, allowlisted, parameter-bound model reads with scoped cursors, chunked text, secret redaction, approved settings, and unknown/orphan data preserved | `tests/test_mcp_repository.py` (`test_database_is_opened_read_only_and_query_only`, `test_each_query_opens_a_live_connection_that_sees_committed_wal_writes`, `test_missing_or_incomplete_database_fails_safely_without_creating_file`, `test_cursor_is_bounded_and_does_not_store_filter_text`, `test_all_ats_entities_are_allowlisted_and_json_is_reported`, `test_malformed_recipe_is_withheld_without_leaking_raw_value`, `test_valid_json_that_is_not_a_recipe_object_is_withheld`, `test_entity_input_cannot_select_arbitrary_sql`) |
+| MCP protocol advertises only read-only/closed-world tools, returns structured data and safe errors, leaves application rows unchanged, and serves the stdio transport without non-protocol stdout | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
@@ -2487,6 +2517,14 @@ automated coverage — those rely on code review or the human in the loop, not a
     anything; it could still talk the model into a wrong number/verdict. Probed
     behaviorally (a canary JD demanding score 99 got 0); blast radius is one bogus
     Telegram alert.
+  - **The optional ATS MCP deliberately sends selected business data to the connected
+    model through Secure MCP Tunnel.** Its local process is stdio-only and exposes no
+    write tool, but it has no per-record or per-user authorization layer. Tunnel and
+    ChatGPT workspace permissions govern who can connect; a shared workspace or plugin
+    should therefore be limited to people trusted with the ATS data. Job descriptions,
+    application notes, and recipe fields remain untrusted model input. Header values and
+    conventional secret URL query values are redacted, but all other returned ATS data
+    is available to a caller with access.
 
 ---
 
@@ -2573,6 +2611,18 @@ absent file (which fails loudly) is safer. Longhand:
    ```
    **The timezone comes from `tzlocal`**, so a host running UTC defeats the point of
    wall-clock slots. `TZ=America/New_York` in the environment is the no-code override.
+
+**Read-only MCP:** apply the Prisma schema from the repository root (`make db-push`)
+before first use of an existing database, so `job_screenings` is present; the worker
+does not issue DDL. Install the optional pinned dependency with
+`cd apps/worker && pip install -r requirements-mcp.txt`, then run
+`ATS_DB_PATH=/absolute/path/to/applications.db python -m ats_worker.mcp` from
+`apps/worker`. `ATS_DB_PATH` may be omitted when the checkout's default Prisma database
+path is correct. This starts a stdio child process, not a web listener; do not run it
+with a different database path than intended. The MCP has no writes or authentication
+of its own, so tunnel/workspace access must be restricted to trusted users. See the
+worker README for setup through OpenAI Secure MCP Tunnel; ChatGPT connectivity remains
+separate from the local server's stdio tests.
 
 **One-off test pass:**
 `cd apps/worker && python -m ats_worker.run --once` (defaults to `config.yaml`/`.env`

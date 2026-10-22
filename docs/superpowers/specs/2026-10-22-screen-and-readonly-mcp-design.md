@@ -134,12 +134,12 @@ The approved screen-stage contract is:
 
 | Option | Trade-off |
 |---|---|
-| A — official SDK v2 (`mcp.server.MCPServer`) | Current stable SDK and current docs; requires an optional `mcp>=2,<3` runtime dependency and tests under Python 3.11. Differs from Sure's older examples. |
+| A — official SDK v2 (`mcp.server.MCPServer`) | Current stable SDK and current docs; requires an optional, exact `mcp==2.3.0` dependency and tests under Python 3.11. Differs from Sure's older examples. |
 | B — pin official SDK v1 (`mcp<2`) | Matches Sure's demonstrated `FastMCP` import, but pins the maintenance line and its v1 API after v2's breaking rework. |
 
-**Recommendation: A. Operator decision: official SDK v2 is approved.** Pin the
-supported major range, keep the dependency out of
-worker-only runtime installs, and test tools in-process plus stdio protocol. Use stdio
+**Recommendation: A. Operator decision: official SDK v2 is approved.** Pin
+`mcp==2.3.0` in an optional dependency file, keep it out of worker-only runtime
+installs, and run in-process plus stdio protocol tests in CI. Use stdio
 through an ATS-specific Secure MCP Tunnel profile; do not change Sure's target/profile.
 If the tunnel client or account is unavailable during implementation, document the
 exact manual setup and leave ChatGPT end-to-end verification open.
