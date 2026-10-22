@@ -39,6 +39,18 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Codex Luna screen + read-only ATS MCP — design signoff pending**
+  `[FETCH + SCREEN + MCP · L · branch `feat/codex-screen-readonly-mcp`, cut from
+  `origin/main`]`. Plan:
+  [`superpowers/plans/2026-10-22-screen-and-readonly-mcp.md`](./superpowers/plans/2026-10-22-screen-and-readonly-mcp.md);
+  draft design:
+  [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
+  **Implementation is waiting for the operator to choose** the screen result retry/cache
+  policy, SDK major line, and treatment of credentials inside stored custom-board
+  recipes. The implementation brief proposes `gpt-5.6-luna` at pinned `medium`; current
+  expanded-corpus evidence has zero false disqualifications for Luna, but does not record
+  effort. No schema, worker, MCP service, live model call, or deployment has changed.
+
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
   [`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
