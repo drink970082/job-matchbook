@@ -460,7 +460,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   `--screen-limit` must be positive. `--rescreen-screened` clears successful cached
   results only for eligible `new` rows and is accepted only with `--screen-only --once`.
   The mode rejects conflicts with `--fetch-only`, `--score-only`, and
-  `--rescreen-discarded` before network or DB work.
+  `--rescreen-discarded` before network or DB work, both in the CLI and direct
+  `run_once` calls; invalid screen-call caps also fail before opening the database.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -731,8 +732,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `delete_unresolved` (clears a row once its posting is re-ingested),
-  `existing_external_ids`. Standalone screening selects fresh eligible rows newest-first,
-  then provider errors oldest-attempt-first; successful results stay cached until an
+  `existing_external_ids`. Standalone screening selects fresh eligible rows using the
+  existing queue order: undemoted rows first, then recency and descending id within each
+  priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
   explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
   transaction before writing. Issues no DDL.
 - **`score/` — screening + fit scoring.** A package — `screen.py`, `location.py`,
@@ -1532,7 +1534,8 @@ it simply waits for an unbounded pass. **The `new` queue is read
   links, complete text, and raw/parsed legacy JSON. `app_settings` exposes the approved
   `categories` value only; other setting values are withheld until reviewed. `custom`
   and `browser` recipes retain their ordinary fields and header names while all header
-  values and conventional secret URL query values are redacted; malformed recipes are
+  values and conventional secret URL query values are redacted, including encoded keys
+  in malformed URLs whose authority cannot be parsed; malformed recipes are
   withheld because they cannot be safely parsed. Tool errors contain actionable
   repository messages but never a database path or driver text. Server instructions
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
@@ -2351,6 +2354,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
+| Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
+| Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
+| MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |
 | MCP repository uses SQLite `mode=ro` + `query_only`, fails without creating/incompletely accepting a DB, returns current WAL commits, and exposes only bounded, allowlisted, parameter-bound model reads with scoped cursors, chunked text, secret redaction, approved settings, and unknown/orphan data preserved | `tests/test_mcp_repository.py` (`test_database_is_opened_read_only_and_query_only`, `test_each_query_opens_a_live_connection_that_sees_committed_wal_writes`, `test_missing_or_incomplete_database_fails_safely_without_creating_file`, `test_cursor_is_bounded_and_does_not_store_filter_text`, `test_all_ats_entities_are_allowlisted_and_json_is_reported`, `test_malformed_recipe_is_withheld_without_leaking_raw_value`, `test_valid_json_that_is_not_a_recipe_object_is_withheld`, `test_entity_input_cannot_select_arbitrary_sql`) |
 | MCP protocol advertises only read-only/closed-world tools, returns structured data and safe errors, leaves application rows unchanged, and serves the stdio transport without non-protocol stdout | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |

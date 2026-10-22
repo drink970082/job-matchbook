@@ -213,3 +213,25 @@ def test_provider_exception_text_is_not_persisted(tmp_path):
         assert stored == ("screen_error", "Screen provider failed; retry is pending.", None)
     finally:
         conn.close()
+
+
+def test_screen_provider_cap_preserves_existing_deprioritized_queue(db_path):
+    conn = db.connect(db_path)
+    try:
+        db.upsert_postings(conn, [make_posting('older-priority'),
+                                  make_posting('newer-demoted')], now=NOW)
+        conn.execute("UPDATE job_postings SET deprioritized_at=? WHERE external_id=?",
+                     (NOW, 'newer-demoted'))
+        conn.commit()
+        attempted = []
+
+        def screen(posting):
+            attempted.append(posting['external_id'])
+            return _screen_result()
+
+        _run(conn, screen, candidate={'highest_degree': 'bachelor'}, limit=1)
+        assert attempted == ['older-priority']
+        _run(conn, screen, candidate={'highest_degree': 'bachelor'}, limit=1)
+        assert attempted == ['older-priority', 'newer-demoted']
+    finally:
+        conn.close()

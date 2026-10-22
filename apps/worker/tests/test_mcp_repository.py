@@ -332,3 +332,18 @@ def test_invalid_filters_keys_and_missing_rows_are_actionable(db_path):
         repo.get_job(999)
     with pytest.raises(RecordNotFound, match="record was not found"):
         repo.get_job_description(999)
+
+
+@pytest.mark.parametrize('query_key', ['key', 'sig', 'jwt', 'access_token', 'api%5Fkey'])
+def test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads(db_path, query_key):
+    recipe = {'url': f'https://[bad?{query_key}=synthetic-secret&page=2#{query_key}'}
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('INSERT INTO watched_companies(source,slug,name,recipe,created_at) '
+                     'VALUES(?,?,?,?,?)', ('custom', 'acme', 'Acme', json.dumps(recipe), 'now'))
+    repo = ReadOnlyATSRepository(db_path)
+    detail = repo.get_ats_record('watched_companies', '1')
+    listing = repo.list_ats_records('watched_companies')
+    for result in (detail, listing):
+        assert 'synthetic-secret' not in json.dumps(result)
+        assert 'page=2' in json.dumps(result)
+    assert '[REDACTED]' in detail['recipe_parsed']['url'] or '%5BREDACTED%5D' in detail['recipe_parsed']['url']

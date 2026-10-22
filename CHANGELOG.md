@@ -22,6 +22,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- Standalone screen preserves the existing deprioritized job order under its call cap.
+  Conflicting direct worker modes and invalid screen caps fail before database access.
+  MCP URL redaction uses the same secret-key policy for valid and malformed URLs,
+  including `key`, `sig`, `jwt`, and percent-encoded query keys.
+
 - **The date defaults were UTC, so after ~19:00 US Eastern the app offered TOMORROW.**
   `lib/utils.ts todayISO` — the "date applied" pre-fill on the add form and on the status
   history modal, and the exported CSV's filename stamp — built its day from

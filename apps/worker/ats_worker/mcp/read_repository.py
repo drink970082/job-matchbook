@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import parse_qsl, quote, unquote_plus, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
@@ -157,23 +157,29 @@ def _secret_query_key(key: str) -> bool:
     )
 
 
+def _redact_query(query: str) -> str:
+    return urlencode([
+        (key, REDACTED if _secret_query_key(key) else item)
+        for key, item in parse_qsl(query, keep_blank_values=True)
+    ], doseq=True)
+
+
 def redact_url(value: str) -> str:
     """Replace conventional secret query values while retaining the rest of a URL."""
     try:
         parts = urlsplit(value)
         if not parts.query:
             return value
-        pairs = parse_qsl(parts.query, keep_blank_values=True)
-        safe_pairs = [(key, REDACTED if _secret_query_key(key) else item)
-                      for key, item in pairs]
         return urlunsplit((parts.scheme, parts.netloc, parts.path,
-                           urlencode(safe_pairs, doseq=True), parts.fragment))
+                           _redact_query(parts.query), parts.fragment))
     except (TypeError, ValueError):
-        # A malformed URL must not turn into an unredacted fallback.
-        return re.sub(
-            r"([?&](?:[^=&#]*(?:token|secret|api[-_]?key|signature|password|auth)[^=&#]*)=)[^&#]*",
-            lambda match: match.group(1) + quote(REDACTED), value, flags=re.IGNORECASE,
-        )
+        # Even an invalid authority can contain a query. Apply the same decoded-key
+        # policy as valid URLs, rather than a second, incomplete regex key list.
+        prefix, separator, tail = value.partition("?")
+        if not separator:
+            return value
+        query, fragment_separator, fragment = tail.partition("#")
+        return prefix + separator + _redact_query(query) + fragment_separator + fragment
 
 
 def _redact_recipe(value: Any, *, key: str = "") -> Any:

@@ -245,7 +245,8 @@ def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
         "SELECT p.* FROM job_postings p "
         "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
         "WHERE p.pipeline_status='new' AND s.id IS NULL "
-        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
+        "ORDER BY (p.deprioritized_at IS NOT NULL) ASC, "
+        "COALESCE(p.updated_at,'') DESC, p.id DESC"
     ).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p "

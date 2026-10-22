@@ -270,6 +270,12 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
     sees either)."""
+    if sum((fetch_only, score_only, screen_only)) > 1:
+        raise ValueError("fetch-only, score-only and screen-only are mutually exclusive")
+    if screen_only and rescreen_discarded:
+        raise ValueError("screen-only cannot be combined with rescreen-discarded")
+    if screen_only and screen_limit <= 0:
+        raise ValueError("screen-only requires a positive --screen-limit")
     conn = db.connect(db_path)
     try:
         now = _now()
@@ -304,12 +310,6 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 "locations": list(cfg.candidate.locations),
                 "exclude_internships": cfg.candidate.exclude_internships,
             }
-
-        if screen_only and (fetch_only or score_only or rescreen_discarded):
-            raise ValueError("screen-only cannot be combined with fetch-only, score-only, "
-                             "or rescreen-discarded")
-        if screen_only and screen_limit <= 0:
-            raise ValueError("screen-only requires a positive --screen-limit")
 
         # --score-only skips the whole network ingest (fetch/feed/expire) and scores
         # the existing 'new' backlog — the inverse of --fetch-only, so an operator can

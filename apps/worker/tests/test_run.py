@@ -1598,3 +1598,22 @@ def test_scorer_meta_rejects_the_retired_backend_name():
     # with — a silently wrong `backend`/`model` stamp is worse than no stamp.
     with pytest.raises(ValueError, match="unknown score backend"):
         run._scorer_meta("claude")
+
+
+@pytest.mark.parametrize('modes', [
+    {'screen_only': True, 'fetch_only': True},
+    {'screen_only': True, 'score_only': True},
+    {'fetch_only': True, 'score_only': True},
+    {'screen_only': True, 'rescreen_discarded': True},
+    {'screen_only': True, 'screen_limit': 0},
+])
+def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypatch, modes):
+    def unexpected_connect(*args, **kwargs):
+        pytest.fail('invalid modes must fail before opening or seeding the database')
+
+    monkeypatch.setattr(run.db, 'connect', unexpected_connect)
+    cfg = cfgmod.Config(companies=[cfgmod.Company('greenhouse', 'acme', 'Acme')])
+    with pytest.raises(ValueError):
+        run.run_once(cfg, db_path=str(tmp_path / 'must-not-exist.db'), resumes={},
+                     env={}, **modes)
+    assert not (tmp_path / 'must-not-exist.db').exists()
