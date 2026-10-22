@@ -46,22 +46,20 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   approved design:
   [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
   Approved choices: `job_screenings` with minimal-state retry/cache policy A, official
-  MCP Python SDK v2, and redaction of custom-recipe credential values. Milestone A's
-  worker mode, storage helpers and additive Prisma model are implemented in this branch;
-  focused worker tests, schema drift check and whitespace check pass; Milestone A is
-  committed at 9b80c06. The allowlisted MCP repository is committed at a1747f2; the
-  SDK v2 stdio server, protocol tests, CI dependency gate and current access/run docs are
-  implemented. The PR CI passes: worker pytest (1114 passed, 3 skipped; 93.30% coverage,
+  MCP Python SDK v2, and redaction of custom-recipe credential values. The standalone
+  screen lifecycle, independent result storage, allowlisted MCP repository and SDK v2
+  stdio server are implemented with focused tests, a CI dependency gate and current
+  access/run docs. The PR CI passes: worker pytest (1114 passed, 3 skipped; 93.30% coverage,
   including the MCP SDK v2 protocol tests), web Jest (28 suites, 251 tests), lint, schema
   drift, and privacy checks. E2E is skipped by its workflow condition. Local worker
   coverage is 92.43%; the worker integration tier passes (4 tests). `make check-privacy`
   cannot spawn `git` from Node in this sandbox (`EPERM`); its self-test and an equivalent
   scan of all 336 tracked paths pass with no private paths.
-  Two synthetic-only screen calls recorded a safe `provider_error` for `gpt-5.6-luna` at
-  `medium`; Codex startup failed before a model response because its in-process app-server
-  could not create PATH aliases on the sandbox's read-only filesystem. This is not a Luna
-  quality result. The synthetic posting stayed `new`, with fit, application, attempt, and
-  notification fields unchanged; temporary data and stderr were removed. The tunnel client
+  A successful Codex runtime smoke is not available: two synthetic screen attempts at
+  `medium` failed during app-server startup in the read-only sandbox, before a model
+  response. This is not Luna quality evidence. The synthetic posting stayed `new`, with
+  fit, application, attempt, and notification fields unchanged; temporary data and stderr
+  were removed. The tunnel client
   is unavailable, so ChatGPT end-to-end remains unverified. The host worker service is
   still active in its existing `--fetch-only` configuration. The PR branch has not been
   deployed to that checkout; no production schema was applied and no worker daemon was
@@ -70,10 +68,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
   flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
   evaluation does not record effort, so production `medium` remains unmeasured. The MCP
-  server/protocol/docs slice is committed at 278c9f1. The branch is pushed and PR #86 is
-  open against `main` with all required CI jobs passing; independent review, production-host
-  smoke, and ChatGPT tunnel verification remain. The production screen smoke must wait until
-  the reviewed feature is deployed to the host checkout; it is capped at five provider calls.
+  feature branch is pushed and PR #86 is open against `main` with all required CI jobs
+  passing; independent review, production-host smoke, and ChatGPT tunnel verification
+  remain. The production screen smoke must wait until the reviewed feature is deployed to
+  the host checkout; it is capped at five provider calls.
 
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
