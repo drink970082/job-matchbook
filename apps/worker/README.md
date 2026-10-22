@@ -145,10 +145,17 @@ create the plugin, and install it before use. OpenAI's current guide requires a 
 id, runtime API key, and Tunnels Read + Use access. Keep the key out of logs and repository
 files.
 
-This checkout's environment does not have `tunnel-client`, so the official command
-sequence above and ChatGPT end-to-end connection have not been verified on this host.
-Start with the installed client's `help quickstart` if its release differs from the
-current guide; do not reuse a profile intended for another server.
+If the installed client is outside PATH, use its absolute executable path in these
+commands. The operator deployment uses a dedicated ATS profile and systemd user service;
+its doctor checks, health/ready endpoints and outbound control-plane polling pass.
+The existing Sure profile/service is unchanged. Local stdio verification reads all eight
+models, pagination and a complete multi-chunk JD. The operator confirms a successful
+ChatGPT `get_ats_overview` invocation; the connected ATS plugin also passes remote reads
+through all ten tools, including job details, application notes/history and complete
+multi-chunk text. For another deployment, enable its ATS plugin and observe a completed
+tool invocation before claiming the connection is verified. Start with the installed
+client's `help quickstart` if its release differs from the guide; do not reuse a profile
+intended for another server.
 
 ## Tests
 

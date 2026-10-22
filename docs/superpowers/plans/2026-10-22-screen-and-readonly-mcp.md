@@ -1,6 +1,6 @@
 # Codex screen + complete read-only ATS MCP — implementation brief
 
-**Status:** approved design; implementation in progress under the signed-off choices.
+**Status:** implemented, deployed, and verified through the connected ATS plugin.
 **Implementer:** GPT Luna, reasoning effort max, using goal mode.
 **Reviewer:** GPT Sol / Astra, independent of the implementer.
 **Deliverable:** a new feature branch and a PR against `main`; do not merge.

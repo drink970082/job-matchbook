@@ -17,6 +17,13 @@
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **Medium-effort screen corpus accuracy has no measured provenance** —
+  `[SCREEN · XS · evaluation provenance]`. Codex Luna/medium is available and passes
+  the bounded production smoke, but the existing expanded 103-row comparison (zero
+  false disqualifications, recall 30/37) does not record effort. Runtime success is
+  not corpus accuracy evidence. Do not rerun the unchanged evaluation solely to attach
+  an effort label to the historical measurement.
+
 - **`GATE_MIN_FRACTION = 0.5` is a made-up number, and the choice is deferred to the
   scoring redesign** — `[SCORE · XS · decision pending]`.
   `score_eval.py`'s gate floor: PASS requires that at least half the corpus rows actually

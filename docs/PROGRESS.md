@@ -39,41 +39,6 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Codex Luna screen + read-only ATS MCP — implementation in progress**
-  `[FETCH + SCREEN + MCP · L · branch `feat/codex-screen-readonly-mcp`, cut from
-  `origin/main`]`. Plan:
-  [`superpowers/plans/2026-10-22-screen-and-readonly-mcp.md`](./superpowers/plans/2026-10-22-screen-and-readonly-mcp.md);
-  approved design:
-  [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
-  Approved choices: `job_screenings` with minimal-state retry/cache policy A, official
-  MCP Python SDK v2, and redaction of custom-recipe credential values. The standalone
-  screen lifecycle, independent result storage, allowlisted MCP repository and SDK v2
-  stdio server are implemented with focused tests, a CI dependency gate and current
-  access/run docs. The screen queue preserves existing deprioritization, malformed URL
-  query secrets use the same redaction policy as valid URLs, and direct mode validation
-  precedes database access. Independent review finds the three reported defects resolved,
-  with all 11 focused regression cases passing. The SDK-backed worker suite passes
-  (1125 passed, 3 scheduler tests skipped because `apscheduler` is not installed;
-  93.38% coverage), including the MCP protocol tests. Worker integration (4 tests),
-  schema drift, privacy (336 tracked files), and whitespace checks pass. CI runs worker
-  coverage, web Jest/integration, lint, schema drift and privacy checks; E2E is conditional.
-  A successful Codex runtime smoke is not available: two synthetic screen attempts at
-  `medium` failed during app-server startup in the read-only sandbox, before a model
-  response. This is not Luna quality evidence. The synthetic posting stayed `new`, with
-  fit, application, attempt, and notification fields unchanged; temporary data and stderr
-  were removed. The tunnel client
-  is unavailable, so ChatGPT end-to-end remains unverified. The host worker service is
-  still active in its existing `--fetch-only` configuration. The PR branch has not been
-  deployed to that checkout; no production schema was applied and no worker daemon was
-  restarted. The unchanged expanded 103-row comparison is the quality baseline, not a
-  request to rerun:
-  qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
-  flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
-  evaluation does not record effort, so production `medium` remains unmeasured. The MCP
-  feature branch is pushed and PR #86 is open against `main` for operator acceptance.
-  Production-host smoke and ChatGPT tunnel verification remain. The production screen smoke must wait until the reviewed feature is deployed to
-  the host checkout; it is capped at five provider calls.
-
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
   [`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
