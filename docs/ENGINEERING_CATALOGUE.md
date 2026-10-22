@@ -872,4 +872,3 @@ branch — shipped 2026-08-03 and left for CHANGELOG.
   fetch the job page and score fit directly from the raw page, bypassing
   parse-then-score. Candidate landing spot for the iCIMS/ByteDance tail if a plain
   fetch isn't enough.
-
