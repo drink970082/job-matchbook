@@ -243,8 +243,21 @@ phases: it promotes a `job_postings` row into an `applications` row.
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
 | fetch / screen / score / notify | **host** — `python -m ats_worker.run`, not containerized | board APIs, host Ollama, Codex CLI (fit score), Telegram API |
+| ATS read-only MCP | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
 | Ollama | **host** (GPU) — not containerized | — |
 | SQLite db | `./db` directory, bind-mounted into the `web` container | — |
+
+**Operator runtime:** the native worker service uses `--screen-only` with explicit
+Codex `gpt-5.6-luna`, medium effort, a 40-provider-call cap and one screen worker. Fit,
+notification and quota refresh are disabled in this mode. It runs from a separate
+persistent deployment checkout while retaining the existing private configuration and
+shared database. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
+the Sure tunnel unchanged. A controlled production pass against one existing board
+uses five provider calls without error, plus deterministic-only results, and preserves
+all posting fields across the screen stage with zero fit/notify/quota invocations.
+Local stdio verification covers all eight models, pagination and full multi-chunk text.
+ChatGPT-origin tool execution is a separate, pending acceptance check; tunnel readiness
+alone is not end-to-end evidence. These deployment choices do not change CLI defaults.
 
 The worker is **not containerized** (the `ats-worker` service was removed 2026-07-16):
 the default fit-score backend shells out to the **Codex CLI**, which authenticates from

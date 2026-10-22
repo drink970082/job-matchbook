@@ -1,6 +1,6 @@
 # Codex screen and read-only ATS MCP — design
 
-**Status:** approved
+**Status:** shipped
 **Related plan:** [`../plans/2026-10-22-screen-and-readonly-mcp.md`](../plans/2026-10-22-screen-and-readonly-mcp.md)
 
 ## Purpose

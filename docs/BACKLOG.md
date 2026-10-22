@@ -17,6 +17,17 @@
 
 ## Unverified / deferred — behavior may be fine, but nothing proves it, or a decision is pending
 
+- **ATS ChatGPT access and medium-effort corpus accuracy remain separate checks** —
+  `[SCREEN / INFRA · XS · operator verification]`. The production screen-only worker
+  passes a bounded five-call Codex smoke with zero fit/notify/quota calls and unchanged
+  posting fields. The ATS tunnel is healthy/ready and local stdio calls cover all models,
+  pagination and a multi-chunk JD, but a completed ChatGPT-origin tool call is not yet
+  observed. Enable the ATS plugin and call `get_ats_overview` to close that transport gap.
+  The existing expanded 103-row Luna comparison has zero false disqualifications and
+  recall 30/37, but no reasoning-effort provenance. Runtime medium is available; its
+  corpus accuracy remains unmeasured. Do not rerun the unchanged evaluation solely to
+  attach an effort label to the historical measurement.
+
 - **`GATE_MIN_FRACTION = 0.5` is a made-up number, and the choice is deferred to the
   scoring redesign** — `[SCORE · XS · decision pending]`.
   `score_eval.py`'s gate floor: PASS requires that at least half the corpus rows actually
