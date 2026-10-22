@@ -46,6 +46,7 @@ model job_postings {
   notify_attempts Int           @default(0) // NOTIFY-stage send-failure count, kept separate so score hiccups can't pre-spend the delivery budget; a notify-exhausted row (>= 3) never requeues
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
+  job_screening   job_screenings?
   created_at      String
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
@@ -53,6 +54,29 @@ model job_postings {
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])
+}
+
+// Latest standalone hard-requirements screen result. This lifecycle is separate from
+// job_postings.pipeline_status and fit score_detail: screening can complete while a
+// posting stays `new`, and provider failures remain visible for a later bounded retry.
+model job_screenings {
+  id                Int          @id @default(autoincrement())
+  job_posting_id    Int          @unique
+  state             String       // complete | provider_error
+  result_json       String?      // nested screen result; null on provider error
+  error_category    String?
+  error_message     String?      // fixed sanitized summary; never provider output
+  backend           String
+  model             String?
+  effort            String?
+  evaluator_version String
+  last_attempted_at String
+  completed_at      String?
+  created_at        String
+  updated_at        String?
+  job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
+
+  @@index([state, last_attempted_at])
 }
 
 model status_history {

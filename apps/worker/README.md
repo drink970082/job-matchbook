@@ -74,10 +74,87 @@ worker isn't containerized (its default fit-score backend shells out to the
 Codex CLI, which authenticates from the operator's host `~/.codex`, and it's
 already pinned to the host by Ollama's GPU). See `docs/SPEC.md` §6.
 
+## Standalone screen-only pass
+
+This mode fetches as usual, runs the hard-requirements screen, records the result
+separately, then exits before fit scoring, quota refresh, or notification. It does
+not need a résumé or fit-backend credentials. Successful results are cached until
+an explicit one-shot re-screen; provider errors can retry on a later capped pass.
+Codex selection defaults to Luna at medium in this mode:
+
+Before the first use against an existing database, apply the Prisma-owned schema from
+the repository root with `make db-push`; this adds the `job_screenings` table. The worker
+does not issue DDL.
+
+```bash
+cd apps/worker
+python -m ats_worker.run --once --screen-only --screen-backend codex \
+  --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --screen-workers 1
+```
+
+The expanded 103-row evaluation measured Luna at zero false disqualifications
+(30/37 recall, three flips) against seven for qwen3.5:4b (31/37, no flips).
+That historical evaluation does not record effort, so medium is not separately
+measured. Do not rerun an unchanged evaluation.
+
+## Optional read-only MCP service
+
+Install the pinned optional SDK only for MCP use, then launch the stdio service from
+the worker directory:
+
+```bash
+cd apps/worker
+python -m pip install -r requirements-mcp.txt
+ATS_DB_PATH=/absolute/path/to/applications.db python -m ats_worker.mcp
+```
+
+Omit `ATS_DB_PATH` when the repository's default Prisma database path is correct.
+Apply the Prisma schema first (`make db-push` from the repository root) so all eight
+models, including `job_screenings`, exist. The service opens SQLite read-only and
+query-only, offers bounded reads for all eight
+Prisma models, and binds no TCP listener. It does not start the worker or change data.
+Job descriptions and application notes use chunked reads; watchlist recipe headers and
+conventional secret URL query values are redacted. The MCP server has no separate
+user-authentication layer, so only connect it to a trusted ChatGPT workspace.
+
+To connect through [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+use a separate ATS profile. Install the current tunnel client from Platform tunnel
+settings or its official release. The current guide documents `help quickstart`, the
+`sample_mcp_stdio_local` init sample, `doctor --profile ... --explain`, and `run --profile ...`.
+For that documented profile flow, enter the runtime key without putting it in shell
+history and initialize a distinct profile from `apps/worker`:
+
+```bash
+cd apps/worker
+read -r -p 'OpenAI tunnel ID: ' ATS_TUNNEL_ID
+read -r -s -p 'Tunnel runtime API key: ' CONTROL_PLANE_API_KEY
+printf '\n'
+export CONTROL_PLANE_API_KEY
+tunnel-client init --sample sample_mcp_stdio_local --profile ats-local \
+  --tunnel-id "$ATS_TUNNEL_ID" --mcp-command 'python -m ats_worker.mcp'
+tunnel-client doctor --profile ats-local --explain
+tunnel-client run --profile ats-local
+```
+
+Set `ATS_DB_PATH` in the environment first if the checkout's default database path is
+not the intended file. The command runs from `apps/worker` so the Python module resolves;
+keep the existing Sure target/profile untouched. Confirm the tunnel client's healthy and
+ready state, then in ChatGPT Plugins choose **Add custom MCP server → Connection: Tunnel**.
+Select the same tunnel, configure authentication, review and accept the risk warning,
+create the plugin, and install it before use. OpenAI's current guide requires a tunnel
+id, runtime API key, and Tunnels Read + Use access. Keep the key out of logs and repository
+files.
+
+This checkout's environment does not have `tunnel-client`, so the official command
+sequence above and ChatGPT end-to-end connection have not been verified on this host.
+Start with the installed client's `help quickstart` if its release differs from the
+current guide; do not reuse a profile intended for another server.
+
 ## Tests
 
 ```bash
 python -m pytest        # pure unit tests; no network / Ollama / Codex / Claude needed
 ```
-All external services are dependency-injected, so the suite runs anywhere
-Python + pytest exist.
+All external services are dependency-injected, so the suite runs anywhere Python +
+pytest exist. For MCP protocol tests, install `requirements-mcp.txt` first; CI installs
+that pinned SDK and exercises both in-memory and stdio clients.

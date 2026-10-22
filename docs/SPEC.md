@@ -14,7 +14,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-07-22 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-22 · **License:** MIT
 
 ---
 
@@ -174,6 +174,10 @@ Phase 1 — Discovery & scoring (apps/worker, scheduled)
                                           [disqualified → discarded, fit call skipped]
             ─► notify (Telegram message)   [gate: seniority=match AND domain=match,
                                             NOT insufficient_context — score is display/ranking only]
+
+`--screen-only` is an operator-selected fetch/feed/expiry → standalone screen path that
+returns before fit scoring and notification. Its results live in `job_screenings`; the
+normal combined screen+fit path remains the default.
 
 Phase 2 — Triage & tracking (apps/web, browser)
   Discovered Jobs tab ─► review JD + match analysis
@@ -405,6 +409,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   `score/` below), `--screen-model` (`SCREEN_MODEL`, overrides the chosen screen
   backend's default model; unset lets each backend fall back to its own default,
   and on `claude-code` that default is the CLI's own, not a value hard-coded here),
+  `--screen-effort` (`SCREEN_EFFORT`, Codex reasoning effort; unset preserves the
+  backend default in legacy modes), `--screen-only` (normal fetch/feed/expiry followed
+  by standalone screening, then return before fit scoring, quota refresh, legacy retry,
+  notification delivery, or Telegram), `--screen-limit N` (positive provider-call cap
+  for screen-only mode, default 40), `--rescreen-screened` (clear successful screen
+  cache for eligible `new` rows before a one-shot screen pass; requires
+  `--screen-only --once`),
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
   `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
   `--fetch-only` (run fetch/feed/expire/retry then stop before any screen/scorer call —
@@ -442,6 +453,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   (running)` on a healthy-looking schedule while completing no pass, since with no eager
   startup pass the error is raised inside the APScheduler job. Other open failures
   (an unwritable DB directory, a file this user simply cannot read) still fail loud.
+  `--screen-only` retains the repo-wide Ollama default; if Codex is explicitly selected
+  without an override, it uses `gpt-5.6-luna` at `medium`. It defaults to one worker and
+  a 40-call cap, skips resume loading and fit-provider setup, and returns before legacy
+  failed-row retry, `--rescreen-discarded`, fit scoring, quota refresh, or notification.
+  `--screen-limit` must be positive. `--rescreen-screened` clears successful cached
+  results only for eligible `new` rows and is accepted only with `--screen-only --once`.
+  The mode rejects conflicts with `--fetch-only`, `--score-only`, and
+  `--rescreen-discarded` before network or DB work, both in the CLI and direct
+  `run_once` calls; invalid screen-call caps also fail before opening the database.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -712,7 +732,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
   `delete_unresolved` (clears a row once its posting is re-ingested),
-  `existing_external_ids`. Issues no DDL.
+  `existing_external_ids`. Standalone screening selects fresh eligible rows using the
+  existing queue order: undemoted rows first, then recency and descending id within each
+  priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
+  explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
+  transaction before writing. Issues no DDL.
 - **`score/` — screening + fit scoring.** A package — `screen.py`, `location.py`,
   `prompts.py`, `usage.py`, `backends_screen.py` (SCREEN backends),
   `backends_codex.py`/`backends_claude.py` (fit-SCORE backends) — re-exported
@@ -723,7 +747,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
   schema) -> dict` (`screen_posting`'s `extract` kwarg) — so swapping backends is a
   new callable, never a new branch inside `screen_posting`. `run.make_screener(backend,
-  *, env, http=None, model=None, screen_model=None, num_ctx=8192)` builds that
+  *, env, http=None, model=None, screen_model=None, screen_effort=None,
+  num_ctx=8192)` builds that
   callable from **`SCREEN_BACKEND`/`--screen-backend`**, one of **six** values in
   **three** adapter shapes (`score/backends_screen.py`):
   - **HTTP + JSON schema** — `ollama` (**default**; free, local,
@@ -737,7 +762,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     default `gpt-5.6-sol`; runs **tool-less** — `--disable shell_tool`,
     `web_search="disabled"` — the same security posture as the fit backend below,
     since a JD is untrusted scraped text; the schema goes in as a **file**,
-    `--output-schema`), `claude-code` (the operator's Claude Code CLI subscription;
+    `--output-schema`; an explicit `screen_effort` is forwarded as
+    `model_reasoning_effort`), `claude-code` (the operator's Claude Code CLI subscription;
     **no** hard-coded default model, so an unset `--screen-model` takes whatever the
     CLI itself defaults to; the schema goes in **inline** as JSON text —
     `--json-schema <json>`, **not** a file path, despite the flag name — verified
@@ -771,6 +797,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   actually available, and the operator — or `onboard-me` Step 0 — chooses from
   that). `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the in-process `env`
   dict only, same as the fit backend, never promoted to an argparse default (§12).
+
+  **Standalone screen-only lifecycle.** `pipeline.run_screen` uses the same
+  `screen_posting` and deterministic hard-requirement rules without entering the legacy
+  combined `run_score` flow. It stores one latest result per posting in `job_screenings`,
+  leaving `job_postings.pipeline_status`, fit `score`/`score_detail`, score attempts,
+  notification attempts and application links untouched. Successful results are reused
+  until `--rescreen-screened --screen-only --once` explicitly clears them for eligible
+  `new` postings. Provider errors remain retryable and are selected oldest-attempt-first
+  after fresh rows, under the same positive per-pass provider-call cap and existing
+  circuit-breaker policy; there is no per-row retry budget or automatic input-hash
+  invalidation. Deterministic-only outcomes do not spend provider-call capacity and are
+  still processed after the cap. A provider error stores only a closed safe category and
+  fixed summary, never raw exception text. A per-result transaction re-checks that the
+  posting is still `new`; a provider call interrupted before commit can be repeated on
+  a later pass (at-least-once external execution).
 
   Whichever backend is picked, the call only fires when a non-empty `candidate` is
   supplied, and — with **no résumé in the prompt** — extracts each requirement
@@ -1471,6 +1512,35 @@ it simply waits for an unbounded pass. **The `new` queue is read
   `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
+- **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
+  `requirements-mcp.txt` only for this service. `ReadOnlyATSRepository` opens the
+  Prisma-owned SQLite file with URI `mode=ro`, enables `query_only`, uses a bounded
+  busy timeout, and opens a live connection per call so committed WAL updates remain
+  visible. It never imports the worker scheduler or writer bootstrap, creates a missing
+  database, seeds settings, or performs DDL. `ATS_DB_PATH` selects the database; when
+  unset, the repository resolves the web Prisma database path from the checkout.
+  The `MCPServer` entrypoint is `python -m ats_worker.mcp` and its default transport is
+  stdio; it binds no listener. Registered tools are `get_ats_overview`, `list_jobs`,
+  `get_job`, `get_job_description`, `list_applications`, `get_application`,
+  `get_application_notes`, `list_application_history`, `list_ats_records`, and
+  `get_ats_record`. Every tool carries read-only/closed-world annotations, but the
+  connection-level SQLite settings enforce the boundary. The eight model names are a
+  closed enum, identifiers are selected from an internal allowlist, values are bound,
+  and no tool accepts SQL, filesystem paths, HTTP targets, or mutation requests.
+  Lists use filter-scoped opaque keyset cursors (default 25, maximum 100); pages are live
+  rather than one cross-call snapshot. Job descriptions and application notes use
+  explicit character chunks up to 16,000; null and empty values remain distinct.
+  The tools expose all eight current Prisma models, including unknown lifecycle states,
+  links, complete text, and raw/parsed legacy JSON. `app_settings` exposes the approved
+  `categories` value only; other setting values are withheld until reviewed. `custom`
+  and `browser` recipes retain their ordinary fields and header names while all header
+  values and conventional secret URL query values are redacted, including encoded keys
+  in malformed URLs whose authority cannot be parsed; malformed recipes are
+  withheld because they cannot be safely parsed. Tool errors contain actionable
+  repository messages but never a database path or driver text. Server instructions
+  mark job descriptions, application notes, recipes and scraped text as untrusted data.
+  MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
+
 ### 7.2 Web (`apps/web/src/`)
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
@@ -1576,9 +1646,9 @@ it simply waits for an unbounded pass. **The `new` queue is read
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Seven tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Eight tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `feed_unresolved`,
-`promotion_dismissed`, `app_settings`). Dates are stored as **ISO-8601 strings** for sortability and
+`promotion_dismissed`, `app_settings`, `job_screenings`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1626,12 +1696,33 @@ model job_postings {
   notify_attempts Int           @default(0)     // NOTIFY-stage send failures, separate budget (parks failed at 3)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
+  job_screening   job_screenings?
   created_at      String
   updated_at      String?
   posted_at       String?       // board posting date YYYY-MM-DD; scrape-date fallback for dateless boards; null on legacy pre-backfill rows
 
   @@unique([source, external_id])  // dedup key
   @@index([pipeline_status])
+}
+
+model job_screenings {
+  id                Int          @id @default(autoincrement())
+  job_posting_id    Int          @unique
+  state             String       // complete | provider_error
+  result_json       String?      // nested hard-requirements result; null on provider error
+  error_category    String?
+  error_message     String?      // fixed safe summary; never provider output
+  backend           String
+  model             String?
+  effort            String?
+  evaluator_version String
+  last_attempted_at String
+  completed_at      String?
+  created_at        String
+  updated_at        String?
+  job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
+
+  @@index([state, last_attempted_at])
 }
 
 model watched_companies {        // the DB-owned watchlist (web-managed)
@@ -1736,7 +1827,8 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   endpoint — never on a timeout, bot wall, or 5xx.
 
 - **Stage gating is strict:** `run_retry` processes only `failed` rows with
-  `attempts < RETRY_MAX_ATTEMPTS`; `run_score` processes only `new`; `run_notify` only
+  `attempts < RETRY_MAX_ATTEMPTS`; `run_score` processes only `new`; standalone
+  `run_screen` processes eligible `new` rows without changing their lifecycle; `run_notify` only
   `scored` rows the fit verdicts mark a strong match (`db.get_notifiable` —
   `seniority=match AND domain=match AND NOT insufficient_context`; non-matching rows
   stay `scored`, untouched). The score is not the gate — it quantizes to a rubric
@@ -1744,10 +1836,13 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   held stable across every draw (see §13). A failure in one posting never
   aborts the batch (per-item try/except → `mark_failed`, or the notify stage's
   bounded retry — see "Failure handling and recovery limits" below).
-- **Screening is part of scoring, not a separate stage.** With an empty `candidate`
-  block, the screen call is skipped entirely (no disqualification). A `discarded`
-  row keeps its `score`/`score_detail` (including `disqualification_reason`) so the
-  UI can explain *why*.
+- **Legacy `run_score` still composes screening and fit; screen-only is independently
+  persisted.** The combined path screens before fit and retains its existing lifecycle.
+  `--screen-only` instead records the hard-requirement result in `job_screenings` for
+  eligible `new` rows without changing their lifecycle or fit evidence. An empty
+  `candidate` block skips the model call; deterministic location/internship gates still
+  run. A legacy combined-path `discarded` row keeps its `score`/`score_detail` (including
+  `disqualification_reason`) so the UI can explain *why*.
 - **A batch-fit call can never silently misattribute a score to the wrong posting.**
   `make_codex_scorer`'s batched `fit` realigns results by `job_ref` (the posting id),
   not list position; a missing/duplicate/unknown `job_ref` raises `ScoreError` for the
@@ -2158,6 +2253,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Invariant | Test(s) |
 |-----------|---------|
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
+| Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
+| Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
@@ -2257,7 +2354,12 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
-| Worker SQL fixture ↔ `schema.prisma` in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
+| Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
+| Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
+| MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |
+| MCP repository uses SQLite `mode=ro` + `query_only`, fails without creating/incompletely accepting a DB, returns current WAL commits, and exposes only bounded, allowlisted, parameter-bound model reads with scoped cursors, chunked text, secret redaction, approved settings, and unknown/orphan data preserved | `tests/test_mcp_repository.py` (`test_database_is_opened_read_only_and_query_only`, `test_each_query_opens_a_live_connection_that_sees_committed_wal_writes`, `test_missing_or_incomplete_database_fails_safely_without_creating_file`, `test_cursor_is_bounded_and_does_not_store_filter_text`, `test_all_ats_entities_are_allowlisted_and_json_is_reported`, `test_malformed_recipe_is_withheld_without_leaking_raw_value`, `test_valid_json_that_is_not_a_recipe_object_is_withheld`, `test_entity_input_cannot_select_arbitrary_sql`) |
+| MCP protocol advertises only read-only/closed-world tools, returns structured data and safe errors, leaves application rows unchanged, and serves the stdio transport without non-protocol stdout | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`); CI installs `requirements-mcp.txt` so these cannot skip there |
+| Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---
@@ -2421,6 +2523,14 @@ automated coverage — those rely on code review or the human in the loop, not a
     anything; it could still talk the model into a wrong number/verdict. Probed
     behaviorally (a canary JD demanding score 99 got 0); blast radius is one bogus
     Telegram alert.
+  - **The optional ATS MCP deliberately sends selected business data to the connected
+    model through Secure MCP Tunnel.** Its local process is stdio-only and exposes no
+    write tool, but it has no per-record or per-user authorization layer. Tunnel and
+    ChatGPT workspace permissions govern who can connect; a shared workspace or plugin
+    should therefore be limited to people trusted with the ATS data. Job descriptions,
+    application notes, and recipe fields remain untrusted model input. Header values and
+    conventional secret URL query values are redacted, but all other returned ATS data
+    is available to a caller with access.
 
 ---
 
@@ -2507,6 +2617,18 @@ absent file (which fails loudly) is safer. Longhand:
    ```
    **The timezone comes from `tzlocal`**, so a host running UTC defeats the point of
    wall-clock slots. `TZ=America/New_York` in the environment is the no-code override.
+
+**Read-only MCP:** apply the Prisma schema from the repository root (`make db-push`)
+before first use of an existing database, so `job_screenings` is present; the worker
+does not issue DDL. Install the optional pinned dependency with
+`cd apps/worker && pip install -r requirements-mcp.txt`, then run
+`ATS_DB_PATH=/absolute/path/to/applications.db python -m ats_worker.mcp` from
+`apps/worker`. `ATS_DB_PATH` may be omitted when the checkout's default Prisma database
+path is correct. This starts a stdio child process, not a web listener; do not run it
+with a different database path than intended. The MCP has no writes or authentication
+of its own, so tunnel/workspace access must be restricted to trusted users. See the
+worker README for setup through OpenAI Secure MCP Tunnel; ChatGPT connectivity remains
+separate from the local server's stdio tests.
 
 **One-off test pass:**
 `cd apps/worker && python -m ats_worker.run --once` (defaults to `config.yaml`/`.env`

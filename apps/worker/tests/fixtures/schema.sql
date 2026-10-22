@@ -39,6 +39,24 @@ CREATE TABLE "job_postings" (
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
+CREATE TABLE "job_screenings" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "job_posting_id" INTEGER NOT NULL,
+    "state" TEXT NOT NULL,
+    "result_json" TEXT,
+    "error_category" TEXT,
+    "error_message" TEXT,
+    "backend" TEXT NOT NULL,
+    "model" TEXT,
+    "effort" TEXT,
+    "evaluator_version" TEXT NOT NULL,
+    "last_attempted_at" TEXT NOT NULL,
+    "completed_at" TEXT,
+    "created_at" TEXT NOT NULL,
+    "updated_at" TEXT,
+    CONSTRAINT "job_screenings_job_posting_id_fkey" FOREIGN KEY ("job_posting_id") REFERENCES "job_postings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 CREATE TABLE "status_history" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "application_id" INTEGER NOT NULL,
@@ -82,6 +100,8 @@ CREATE TABLE "app_settings" (
 );
 
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
+CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");
+CREATE INDEX "job_screenings_state_last_attempted_at_idx" ON "job_screenings"("state", "last_attempted_at");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");
 CREATE UNIQUE INDEX "watched_companies_source_slug_key" ON "watched_companies"("source", "slug");
 CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");

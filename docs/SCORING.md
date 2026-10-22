@@ -6,7 +6,7 @@ repository. It is also the working document for a redesign: Part 8 records what 
 already been measured and failed, so a redesign does not re-run experiments that are
 already answered.
 
-Everything here is descriptive of the shipped system as of 2026-07-30. Where a number
+Everything here is descriptive of the shipped system as of 2026-10-22. Where a number
 appears it was measured, and the measurement is named. Where a design choice was made
 against an obvious alternative, the alternative and the reason are recorded, because a
 redesign needs the losing branches more than the winning one.
@@ -1390,6 +1390,24 @@ rollouts show positions 0-5 of every burst missing 100% of the time at `score_wo
 That is not live: `cached_input_tokens` reads 0 on codex-cli 0.146.0. If caching ever
 returns, re-measure this claim before trusting it.
 
+### 5.7 Standalone screen-only pass
+
+`--screen-only` runs the same hard-requirements screen after fetch/feed/expiry, then
+returns before legacy failed-row retry, fit scoring, quota refresh, or notification.
+It does not load a résumé or initialize the fit provider. Each screen result is stored
+separately in `job_screenings`; the posting remains in its existing lifecycle state and
+its fit score, score detail, attempts, notification attempts, and application link are
+unchanged. A completed result is cached until an explicit one-shot
+`--rescreen-screened --screen-only --once`; provider errors retry on later passes,
+oldest attempt first, under the positive per-pass provider-call cap and existing
+circuit breaker. There is no per-row retry budget or automatic input-hash invalidation.
+Deterministic-only results do not spend provider-call capacity.
+
+When `codex` is explicitly selected for this standalone mode and no model or effort
+override is supplied, it uses `gpt-5.6-luna` at `medium`. The expanded 103-row screen
+comparison below does not record reasoning effort, so it supports Luna as the selected
+model but is not a measurement of `medium`.
+
 ---
 
 ## 6. The consumer - what the score is actually used for
@@ -1492,8 +1510,10 @@ disqualified - **in any draw, not just the majority**. That direction is the exp
 **Recall is reported, never gated**, and so is flip rate. This asymmetry is the whole
 design of the harness.
 
-- Corpus: 83 real postings, **excerpts only** (the repository is public). Split by
-  requirement: 38 degree, 24 clearance, 21 sponsorship. 81 gate-eligible, 2 excluded.
+- Corpus: the expanded 103-row set of real postings, **excerpts only** (the repository
+  is public). Its self-check verifies every labeled bar against the excerpt and title;
+  a row that cannot support its own label is excluded from the gate rather than counted
+  as a model miss.
 - Each row is labeled with a **JD fact**, not a verdict. Code turns the fact into "is this
   a bar for the eval candidate?" - which keeps the labels stable when the candidate config
   changes.
@@ -1502,7 +1522,8 @@ design of the harness.
   no clearance, internships not excluded (several corpus rows are internships and the
   title gate would disqualify them before the requirement under test ran), and every
   synthetic posting is Remote so the location gate always passes.
-- K=3 draws, free (local model), about 10 minutes.
+- K=3 draws. Ollama uses the local model; the Codex target uses the subscription CLI.
+  The corpus is gitignored and the manual eval is not a CI gate.
 
 **A corpus self-check runs in the hermetic selftest**, and it is worth copying: a row
 labeled as a BAR must contain that requirement's vocabulary in its own excerpt. A row
@@ -1512,10 +1533,14 @@ labeled `refuses`, excerpts truncated before the refusal sentence, no sponsorshi
 anywhere. Only the BAR direction is asserted; a "no bar" row legitimately contains
 nothing.
 
-Last recorded result: **FAIL** - 4 false disqualifications, recall 31/37 (84%), flip 0.
-All 4 are the same shape: a soft degree preference read as a hard bar
-("DESIRABLE CANDIDATES: Ph.D. candidates", "advanced degree ... preferably a Ph.D.").
-This is the open weak-model ceiling, documented in 8.1.
+Measured on the expanded corpus on the same day: `ollama` / `qwen3.5:4b` produced 7
+false disqualifications (4 degree and 3 clearance), recall 31/37 (84%), flip 0;
+`codex` / `gpt-5.6-luna` produced 0 false disqualifications, recall 30/37 (81%),
+flip 3. The new clearance examples expose the local model's word-matching error;
+Luna keeps on those rows and on the degree example described in §8.1. Earlier K=3
+runs on the 83-row set alternated PASS/FAIL/PASS, so the first passing run was not
+reliable evidence. The expanded same-day comparison is the current result. The eval
+record does not identify the Luna reasoning effort; `medium` remains unmeasured.
 
 ---
 

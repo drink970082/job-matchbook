@@ -114,10 +114,9 @@ def make_openai_api_extract(api_key: str, model: str = DEFAULT_OPENAI_SCREEN_MOD
     return extract
 
 
-# The codex screen ships on the model already trusted for fit scoring. gpt-5.6-luna is
-# the cheaper candidate, but run.py rejects luna on MEASURED golden-set grounds (~3x
-# looser spread) — a verdict measured on calibration-sensitive JUDGMENT, which does not
-# obviously transfer to extraction. Re-measure before switching; do not assume.
+# Preserve the legacy screen backend default. Screen-only mode selects Luna explicitly
+# from run.py, using the measured expanded screen-corpus comparison; the evaluation's
+# effort provenance is unknown, so its result does not establish medium-effort quality.
 DEFAULT_CODEX_SCREEN_MODEL = "gpt-5.6-sol"
 
 
@@ -136,6 +135,7 @@ def _run_cli(runner, cmd, prompt, timeout, provider):
 
 
 def make_codex_extract(model: str = DEFAULT_CODEX_SCREEN_MODEL, *,
+                       reasoning_effort: str | None = None,
                        codex_bin: str = "codex", timeout: int = 180, runner=None):
     """Screen via the Codex CLI on the operator's ChatGPT subscription.
 
@@ -157,6 +157,8 @@ def make_codex_extract(model: str = DEFAULT_CODEX_SCREEN_MODEL, *,
             cmd = [codex_bin, "exec", "--model", model,
                    "--disable", "shell_tool",
                    "-c", 'web_search="disabled"',
+                   *(["-c", f"model_reasoning_effort={reasoning_effort}"]
+                     if reasoning_effort else []),
                    "--output-schema", schema_path,
                    "--output-last-message", out_path,
                    "--sandbox", "read-only", "--skip-git-repo-check",

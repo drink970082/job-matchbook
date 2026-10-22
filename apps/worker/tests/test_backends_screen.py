@@ -129,6 +129,17 @@ def test_codex_extract_reads_the_output_file():
     assert "--output-schema" in cmd
 
 
+def test_codex_extract_pins_reasoning_effort_only_when_selected():
+    runner = _fake_runner(writes={"--output-last-message": '{"screen": {}}'})
+    extract = backends_screen.make_codex_extract(
+        "gpt-5.6-luna", reasoning_effort="medium", runner=runner)
+    assert extract("the prompt", {"type": "object"}) == {"screen": {}}
+    cmd = runner.calls[0]["cmd"]
+    assert cmd[cmd.index("-c") + 1] == 'web_search="disabled"'
+    effort_idx = cmd.index("model_reasoning_effort=medium")
+    assert cmd[effort_idx - 1] == "-c"
+
+
 def test_codex_extract_raises_on_nonzero_exit():
     extract = backends_screen.make_codex_extract(runner=_fake_runner(returncode=1))
     with pytest.raises(ScoreError, match="codex"):

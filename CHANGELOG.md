@@ -22,6 +22,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- Standalone screen preserves the existing deprioritized job order under its call cap.
+  Conflicting direct worker modes and invalid screen caps fail before database access.
+  MCP URL redaction uses the same secret-key policy for valid and malformed URLs,
+  including `key`, `sig`, `jwt`, and percent-encoded query keys.
+
 - **The date defaults were UTC, so after ~19:00 US Eastern the app offered TOMORROW.**
   `lib/utils.ts todayISO` — the "date applied" pre-fill on the add form and on the status
   history modal, and the exported CSV's filename stamp — built its day from
@@ -57,6 +62,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `job-query-shape.test.ts` flips from pinning the asymmetry to pinning its absence.
 
 ### Added
+
+- **A standalone `--screen-only` worker pass with durable hard-requirement results.**
+  The pass keeps the existing fetch/expiry rules, screens eligible `new` postings and
+  exits before legacy fit retry, fit scoring, quota refresh or notification. Successful
+  screens live in a new Prisma-owned `job_screenings` table and remain cached until an
+  explicit one-shot re-screen; provider errors retain only a safe category and retry
+  under the positive per-pass call cap and existing circuit breaker. The pass never
+  changes posting lifecycle or fit state. Codex can pin reasoning effort; screen-only
+  Codex defaults to Luna at medium, while the repo-wide Ollama and legacy model defaults
+  remain unchanged.
+
+- **An optional, allowlisted read-only ATS MCP server.** Its v2 stdio tools query all
+  eight Prisma models through SQLite `mode=ro` and `query_only`, with bounded
+  filter-scoped pagination and chunked job descriptions/application notes. Unknown
+  states and malformed legacy JSON retain their reported status; malformed recipes are
+  withheld when they cannot be safely redacted. Recipe header values and conventional
+  secret URL query values are redacted. CI installs the exact optional SDK pin and runs
+  in-memory plus stdio protocol tests.
 
 - **`tools/backfill_descriptions.py`, because `upsert_postings` never updates.** Every change
   above helps only postings fetched *after* it — `ON CONFLICT DO NOTHING` means the 1,615 rows

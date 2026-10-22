@@ -161,6 +161,63 @@ def test_run_once_score_only_skips_ingest(monkeypatch):
     assert order == ["run_retry", "run_score", "run_notify"]  # no fetch/expire
 
 
+def test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify(
+        monkeypatch, tmp_path):
+    dbfile = bootstrap_db(tmp_path / "screen-only.db")
+    conn = dbmod.connect(str(dbfile))
+    dbmod.upsert_postings(conn, [make_posting("screen-only")],
+                          now="2026-06-04T08:00:00.000Z")
+    conn.close()
+    cfg = cfgmod.load_config("companies: []\n")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("screen-only reached a fit/retry/notify side effect")
+
+    monkeypatch.setattr(run.pipeline, "run_retry", forbidden)
+    monkeypatch.setattr(run.pipeline, "run_score", forbidden)
+    monkeypatch.setattr(run.pipeline, "run_notify", forbidden)
+    monkeypatch.setattr(run, "make_scorer", forbidden)
+    monkeypatch.setattr(run, "capture_usage", forbidden)
+    monkeypatch.setattr(run, "notify_posting", forbidden)
+
+    run.run_once(cfg, db_path=str(dbfile), resumes={}, env={}, screen_backend="none",
+                 screen_only=True)
+
+    conn = dbmod.connect(str(dbfile))
+    try:
+        posting = conn.execute(
+            "SELECT pipeline_status, score, score_detail, attempts, notify_attempts "
+            "FROM job_postings WHERE external_id='screen-only'"
+        ).fetchone()
+        assert tuple(posting) == ("new", None, None, 0, 0)
+        assert conn.execute("SELECT state FROM job_screenings").fetchone()[0] == "complete"
+    finally:
+        conn.close()
+
+
+def test_run_once_screen_only_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
+    cfg = cfgmod.load_config("companies: []\n")
+    dbfile = bootstrap_db(tmp_path / "screen-only-codex.db")
+    captured = {}
+    extract = lambda *_args: {"screen": {}}
+    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(run.pipeline, "run_expire", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(run, "make_screener", lambda *args, **kwargs: (
+        captured.update(make_screener=(args, kwargs)) or extract))
+    monkeypatch.setattr(run.pipeline, "run_screen", lambda *_args, **kwargs:
+                        captured.update(run_screen=kwargs))
+
+    run.run_once(cfg, db_path=str(dbfile), resumes={}, env={}, screen_backend="codex",
+                 screen_only=True)
+
+    assert captured["make_screener"][1]["screen_model"] == "gpt-5.6-luna"
+    assert captured["make_screener"][1]["screen_effort"] == "medium"
+    assert captured["run_screen"]["model"] == "gpt-5.6-luna"
+    assert captured["run_screen"]["effort"] == "medium"
+    assert captured["run_screen"]["limit"] == 40
+    assert captured["run_screen"]["screen_workers"] == 1
+
+
 def test_run_once_without_telegram_skips_notify(monkeypatch, capsys):
     # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
     # rows show there at 'scored', not just 'notified') runs the worker with no bot
@@ -687,6 +744,65 @@ def test_make_screener_codex_wires_model(monkeypatch):
         "codex", run.DEFAULT_CODEX_SCREEN_MODEL)
     assert run.make_screener("codex", env={}, http=None,
                              screen_model="gpt-5.6-luna") == ("codex", "gpt-5.6-luna")
+
+
+def test_make_screener_codex_wires_reasoning_effort(monkeypatch):
+    monkeypatch.setattr(
+        run, "make_codex_extract",
+        lambda model, reasoning_effort=None: ("codex", model, reasoning_effort))
+    assert run.make_screener("codex", env={}, http=None,
+                             screen_model="gpt-5.6-luna",
+                             screen_effort="medium") == (
+        "codex", "gpt-5.6-luna", "medium")
+
+
+def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    captured = {}
+    monkeypatch.setattr(run.config_mod, "load_config", lambda _path: object())
+    monkeypatch.setattr(run, "run_once",
+                        lambda _cfg, **kwargs: captured.update(kwargs))
+
+    run.main([
+        "--once", "--screen-only", "--screen-backend", "none",
+        "--config", "unused.yaml", "--env", str(env_file),
+        "--db", str(tmp_path / "applications.db"),
+        "--resume-dir", str(tmp_path / "does-not-exist"),
+    ])
+
+    assert captured["resumes"] == {}
+    assert captured["profile"] == ""
+    assert captured["screen_only"] is True
+    assert captured["screen_limit"] == 40
+
+
+@pytest.mark.parametrize("mode_args", [
+    ["--screen-only", "--fetch-only"],
+    ["--screen-only", "--score-only"],
+    ["--screen-only", "--rescreen-discarded"],
+    ["--rescreen-screened"],
+    ["--screen-only", "--screen-limit", "0"],
+])
+def test_screen_only_invalid_combinations_fail_before_config_or_db(
+        mode_args, tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda _path: pytest.fail("config must not load"))
+    with pytest.raises(SystemExit):
+        run.main([*mode_args, "--once", "--config", "unused.yaml",
+                  "--env", str(env_file), "--db", str(tmp_path / "db.sqlite")])
+
+
+def test_rescreen_screened_requires_one_shot(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda _path: pytest.fail("config must not load"))
+    with pytest.raises(SystemExit):
+        run.main(["--screen-only", "--rescreen-screened", "--config", "unused.yaml",
+                  "--env", str(env_file), "--db", str(tmp_path / "db.sqlite")])
 
 
 def test_make_screener_claude_code_wires_model(monkeypatch):
@@ -1482,3 +1598,22 @@ def test_scorer_meta_rejects_the_retired_backend_name():
     # with — a silently wrong `backend`/`model` stamp is worse than no stamp.
     with pytest.raises(ValueError, match="unknown score backend"):
         run._scorer_meta("claude")
+
+
+@pytest.mark.parametrize('modes', [
+    {'screen_only': True, 'fetch_only': True},
+    {'screen_only': True, 'score_only': True},
+    {'fetch_only': True, 'score_only': True},
+    {'screen_only': True, 'rescreen_discarded': True},
+    {'screen_only': True, 'screen_limit': 0},
+])
+def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypatch, modes):
+    def unexpected_connect(*args, **kwargs):
+        pytest.fail('invalid modes must fail before opening or seeding the database')
+
+    monkeypatch.setattr(run.db, 'connect', unexpected_connect)
+    cfg = cfgmod.Config(companies=[cfgmod.Company('greenhouse', 'acme', 'Acme')])
+    with pytest.raises(ValueError):
+        run.run_once(cfg, db_path=str(tmp_path / 'must-not-exist.db'), resumes={},
+                     env={}, **modes)
+    assert not (tmp_path / 'must-not-exist.db').exists()

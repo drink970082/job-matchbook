@@ -120,6 +120,26 @@ def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) ->
     return screen
 
 
+def screen_requires_provider(posting: dict, *, extract, candidate: dict | None) -> bool:
+    """Return whether ``screen_posting`` will invoke its extraction provider.
+
+    The screen-only queue uses this pure preflight to reserve its per-pass provider-call
+    budget. Keep it aligned with the deterministic short-circuit and checklist gate in
+    ``screen_posting``; rows that need only code checks remain eligible after the hosted
+    call cap is reached.
+    """
+    if extract is None:
+        return False
+    gated = deterministic_screen(
+        {"screen": {}, "disqualified": False, "disqualification_reason": ""},
+        posting, candidate)
+    if gated["disqualified"]:
+        return False
+    description = str(posting.get("description") or "")
+    snippets = sponsorship_snippets(description)
+    return bool(_candidate_block(candidate, snippets))
+
+
 def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None,
                    num_ctx: int = 8192) -> dict:
     """Screen `posting` against the candidate's hard requirements — the CHEAP half of
@@ -167,6 +187,7 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     checklist = _candidate_block(candidate, snippets)
     screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     provider_error = False
+    provider_error_category = None
     if checklist and extract is not None:
         try:
             data = extract(SCREEN_HEADER + checklist + "\n" + job, SCREEN_SCHEMA)
@@ -190,10 +211,16 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
                 raise ScoreError(f"blind response, no usable verdict: {data!r:.200}")
             screen = _screen_verdict(data, candidate or {}, description,
                                      str(posting.get("job_title") or ""), snippets)
-        except Exception as exc:  # noqa: BLE001 — err toward KEEP on any provider failure
-            print(f"[screen] provider error, keeping posting unscreened: {exc}")
+        except Exception as exc:  # noqa: BLE001 — exception may contain JD text
+            print("[screen] provider error, keeping posting unscreened")
             screen = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
             provider_error = True
+            error_name = type(exc).__name__
+            provider_error_category = (
+                "timeout" if error_name in {"TimeoutError", "TimeoutExpired"}
+                else "executable_missing" if isinstance(exc, FileNotFoundError)
+                else "provider_error"
+            )
 
     # Deterministic CODE gates (intern title + location string), hoisted into a
     # shared helper so the fetch-time pre-filter applies the SAME verdict. No LLM.
@@ -239,6 +266,9 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     # run_score reads this both to skip the paid call and to detect a dead provider.
     if provider_error:
         out["provider_error"] = True
+        # Closed categories only; never expose provider exception text, which can echo
+        # the untrusted posting or request context.
+        out["provider_error_category"] = provider_error_category
     return out
 
 
