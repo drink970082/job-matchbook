@@ -58,7 +58,7 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   passes (4 tests), but web integration/coverage and lint cannot run because web dependencies
   are absent (`jest`/`next` not found, and offline `npm ci` lacks the cached `zod` tarball).
   `make check-privacy` cannot spawn `git` from Node in this sandbox (`EPERM`); its self-test
-  and an equivalent scan of all 332 tracked paths pass with no private paths.
+  and an equivalent scan of all 336 tracked paths pass with no private paths.
   Two synthetic-only screen calls recorded a safe `provider_error` for `gpt-5.6-luna` at
   `medium`; the second call's protected stderr showed Codex startup failing because its
   in-process app-server could not create PATH aliases on the sandbox's read-only filesystem
@@ -73,10 +73,10 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
   flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
   evaluation does not record effort, so production `medium` remains unmeasured. The MCP
-  server/protocol/docs slice is committed at 278c9f1. Full web dependency-backed gates,
-  SDK protocol execution in CI, and production-host smoke remain. Push and PR are blocked
-  in this environment because `github.com` does not resolve and GitHub CLI authentication
-  is unavailable.
+  server/protocol/docs slice is committed at 278c9f1. The branch is pushed and PR #86 is
+  open against `main`. The repository's CI workflow was disabled for inactivity and has
+  been re-enabled; a fresh pull-request run is still outstanding. Full web dependency-backed
+  gates, SDK protocol execution in CI, and production-host smoke remain.
 
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
