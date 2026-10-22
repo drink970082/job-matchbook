@@ -235,3 +235,35 @@ def test_screen_provider_cap_preserves_existing_deprioritized_queue(db_path):
         assert attempted == ['older-priority', 'newer-demoted']
     finally:
         conn.close()
+
+
+def test_unlimited_screen_exceeds_default_cap_and_still_caches_success(db_path):
+    conn = db.connect(db_path)
+    try:
+        db.upsert_postings(conn, [make_posting(str(i)) for i in range(45)], now=NOW)
+        calls = []
+        def screen(posting):
+            calls.append(posting["id"])
+            return _screen_result()
+        first = _run(conn, screen, candidate={"highest_degree": "bachelor"}, limit=None)
+        assert first["attempted"] == 45 and first["saved"] == 45
+        second = _run(conn, screen, candidate={"highest_degree": "bachelor"}, limit=None)
+        assert second["attempted"] == 0 and len(calls) == 45
+    finally:
+        conn.close()
+
+
+def test_unlimited_screen_retains_dead_provider_breaker(db_path):
+    conn = db.connect(db_path)
+    try:
+        db.upsert_postings(conn, [make_posting(str(i)) for i in range(45)], now=NOW)
+        calls = []
+        def fail(posting):
+            calls.append(posting["id"])
+            return {"provider_error": True}
+        result = _run(conn, fail, candidate={"highest_degree": "bachelor"}, limit=None)
+        assert 0 < result["attempted"] < 45
+        assert len(calls) == result["errors"] == result["attempted"]
+        assert conn.execute("SELECT COUNT(*) FROM job_screenings WHERE state='complete'").fetchone()[0] == 0
+    finally:
+        conn.close()

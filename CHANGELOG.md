@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add explicit `--screen-unlimited` for standalone screening and select it in the
+  operator deployment. It removes the per-pass provider-call count cap while retaining
+  successful-result caching, circuit breaking and screen-only isolation. Numeric limits
+  remain positive with a default of 40; the new flag requires `--screen-only` and cannot
+  be combined with an explicit `--screen-limit`.
+
 - Deploy the standalone Codex Luna/medium screen worker with a 40-call cap and one
   worker, plus a separate healthy/ready ATS MCP tunnel. A controlled production smoke
   completes five provider calls with no fit/notify/quota calls; local MCP reads cover

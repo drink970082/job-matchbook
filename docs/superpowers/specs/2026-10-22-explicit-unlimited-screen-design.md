@@ -1,6 +1,6 @@
 # Explicit unlimited standalone screening
 
-**Status:** approved
+**Status:** shipped
 
 The operator explicitly requests no Codex screen-call limit in the production worker.
 This supersedes the mandatory production cap in the original screen/MCP plan. It does
