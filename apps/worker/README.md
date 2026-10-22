@@ -149,10 +149,13 @@ If the installed client is outside PATH, use its absolute executable path in the
 commands. The operator deployment uses a dedicated ATS profile and systemd user service;
 its doctor checks, health/ready endpoints and outbound control-plane polling pass.
 The existing Sure profile/service is unchanged. Local stdio verification reads all eight
-models, pagination and a complete multi-chunk JD. ChatGPT end-to-end remains a separate
-check: enable the ATS plugin and observe a completed `get_ats_overview` invocation before
-claiming that connection is verified. Start with the installed client's `help quickstart`
-if its release differs from the guide; do not reuse a profile intended for another server.
+models, pagination and a complete multi-chunk JD. The operator confirms a successful
+ChatGPT `get_ats_overview` invocation; the connected ATS plugin also passes remote reads
+through all ten tools, including job details, application notes/history and complete
+multi-chunk text. For another deployment, enable its ATS plugin and observe a completed
+tool invocation before claiming the connection is verified. Start with the installed
+client's `help quickstart` if its release differs from the guide; do not reuse a profile
+intended for another server.
 
 ## Tests
 

@@ -12,7 +12,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - Deploy the standalone Codex Luna/medium screen worker with a 40-call cap and one
   worker, plus a separate healthy/ready ATS MCP tunnel. A controlled production smoke
   completes five provider calls with no fit/notify/quota calls; local MCP reads cover
-  all models and full multi-chunk text. ChatGPT-origin invocation remains unverified.
+  all models and full multi-chunk text. ChatGPT overview and connected-plugin remote
+  reads through all ten tools verify end-to-end access.
 
 - **The docs state current state only; completion history moves to git.** `PROGRESS.md`
   and `BACKLOG.md` had accumulated ~1,000 lines of finished work marked done rather than

@@ -256,8 +256,10 @@ the Sure tunnel unchanged. A controlled production pass against one existing boa
 uses five provider calls without error, plus deterministic-only results, and preserves
 all posting fields across the screen stage with zero fit/notify/quota invocations.
 Local stdio verification covers all eight models, pagination and full multi-chunk text.
-ChatGPT-origin tool execution is a separate, pending acceptance check; tunnel readiness
-alone is not end-to-end evidence. These deployment choices do not change CLI defaults.
+The operator confirms ChatGPT overview execution, and the connected ATS plugin passes
+19 remote tool calls exercising all ten tools: all eight models, `new` and `discarded`
+job details, application notes/history, non-overlapping pages and a full two-chunk JD.
+These deployment choices do not change CLI defaults.
 
 The worker is **not containerized** (the `ats-worker` service was removed 2026-07-16):
 the default fit-score backend shells out to the **Codex CLI**, which authenticates from
