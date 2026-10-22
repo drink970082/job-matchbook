@@ -38,6 +38,12 @@ gate, which means the fork goes to the user before you build.
 
 ## 3. Read only the SPEC sections the change touches
 
+For product/architecture work, also read `docs/ARCHITECTURE.md` and `docs/ROADMAP.md`.
+ATS supplies job evidence/tools/tracking; ChatGPT owns primary judgment. Optional
+screen and fit remain supported. Read `docs/EVALUATION.md` for the checks relevant to
+model work; deferred corpus/fit experiments do not block unrelated source/MCP/UI changes.
+
+
 `SPEC.md` is a capability map with numbered sections — grep for the component
 (`§6` deployment, `§7.1` scoring backends, `§9` behaviors & invariants) rather than
 reading front to back. A change to a §9 behavior/invariant must update that clause

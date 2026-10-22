@@ -49,7 +49,9 @@ early as context insurance produces exactly such drafts).
 ## 4. Implement
 
 - Test-first (red → green → refactor); one focused commit per green step where
-  practical.
+  practical. Product order comes from ROADMAP, branch claims from PROGRESS; consult
+  ARCHITECTURE before implementing target boundaries. EVALUATION scopes model checks:
+  retaining a scorer does not require live model evals for unrelated docs/source/tool work.
 - Hold the structural invariants while coding: worker modules stay pure + dependency-
   injected (wiring only in `run.py`); web mutations go through Server Actions; the
   worker issues no DDL. Conventions: [`../CONTRIBUTING.md`](../CONTRIBUTING.md).
@@ -198,8 +200,8 @@ tests, not about whether the change is right.
 
 ### Issues: deliberately not used as the queue
 
-`PROGRESS.md` (with [`BACKLOG.md`](./BACKLOG.md), the catalogue half it hands off to)
-is the queue — in-repo, versioned, greppable, and it arrives in context with the code. GitHub issues would duplicate it and drift, and a session would have to
+[`ROADMAP.md`](./ROADMAP.md) sets product order; `PROGRESS.md` owns branch claims
+and selected work; [`BACKLOG.md`](./BACKLOG.md) triages residuals. Together they form the queue — in-repo, versioned, greppable, and it arrives in context with the code. GitHub issues would duplicate it and drift, and a session would have to
 fetch them to know what is open. Use issues only for externally-reported bugs that
 arrive that way; the moment one is picked up, it becomes a PROGRESS entry.
 

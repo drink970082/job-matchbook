@@ -1,9 +1,13 @@
 # Quota levers: prefix caching, harness trim, and the seniority vetoes
 
-**Status:** Phase 1 is closed as a negative — see its header before reading any of its
-figures as available headroom. Phase 3 (the seniority vetoes) is the live part; the
-operator is no longer away, so the standing 60-call budget and merge authority below have
-lapsed and a paid run wants a fresh ask.
+**Status:** Deferred quota research; not the product pick order or a current execution authorization.
+
+> **Execution boundary:** [ROADMAP](../../ROADMAP.md) owns current priorities and
+> [EVALUATION](../../EVALUATION.md) governs model checks. Retain the scorer, private
+> inputs, negative findings and unfinished branch work. Detailed phases and old budget
+> permissions below are reference material, not permission to restart a provider run,
+> mutate the database or merge an unreviewed branch. Re-scope any selected experiment
+> against current code, corpus and allowance first.
 
 > **For a session picking this up mid-run:** phase order and dependencies are under
 > [Sequence and dependencies](#sequence-and-dependencies). Where the run actually *is*

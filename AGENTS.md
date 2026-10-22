@@ -18,8 +18,8 @@ the task needs:
 
 - **`docs/SPEC.md`** — what the system *is*: capability map, data model, behaviors and
   invariants. Source of truth.
-- **`docs/PROGRESS.md`** — the *delta* only: in flight, the pick order, quota, open
-  defects. Completed work lives in SPEC, history in `CHANGELOG.md`. Two files hang off
+- **`docs/PROGRESS.md`** — the *delta* only: in flight, branch claims, current
+  limitations and open defects. Completed work lives in SPEC, history in `CHANGELOG.md`. Two files hang off
   it and are loaded on demand, not by default: **`docs/BACKLOG.md`** (the open catalogue
   — unverified/deferred and enhancements) and **`docs/REJECTED.md`** (proposals
   evaluated and turned down — read your block's entry before proposing a redesign).
@@ -28,11 +28,14 @@ the task needs:
   "err toward keep" is one row of four.
 - **`docs/DEVELOPMENT.md`** — the session rail: task classification, the verify gate,
   definition of done, and the branch/PR/merge protocol (§7).
-- **`docs/SCORING.md`** — the scoring subsystem as a *rebuild spec*, self-contained and
-  portable (it assumes no repo knowledge, so it restates what SPEC covers). Read it
-  before touching `score/`, either prompt, or an eval — its "measured history" section
-  records what has already been tried and failed, and its "known-hostile directions"
-  list is why several odd-looking rules are the way they are.
+- **`docs/ARCHITECTURE.md`** and **`docs/ROADMAP.md`** — approved ChatGPT-first
+  ownership, feature readiness and product order. ATS supplies sources/tools/tracking;
+  screen and fit remain optional assistance. Targets are not shipped capabilities.
+- **`docs/EVALUATION.md`** — relevant checks and private-corpus limitations. No broad
+  scorer eval is owed for unrelated source/MCP/UI/docs work; provider runs need scoped
+  authorization. Preserve useful scorer tools/tests and private research artifacts.
+- **`docs/SCORING.md`** — retained optional subsystem contracts and measured failure
+  modes. Read before touching `score/`, its prompts or evals. It is not the product queue.
 
 When you change behavior, update the matching section of `SPEC.md`, `PROGRESS.md` and
 `CHANGELOG.md` **in the same commit**. Conventions in `CONTRIBUTING.md`.
@@ -73,6 +76,11 @@ Current skills: `session-boot` (load repo state before substantive work), `onboa
 watchlist).
 
 ## What this is
+
+A ChatGPT-first job-source, evidence and tracking system with optional screening and
+fit assistance. The implemented combined pipeline remains available; the operator's
+current screen-only mode bypasses fit/Telegram. Luna/medium refers to that screen,
+not an enabled fit model. See docs/ARCHITECTURE.md for target/current boundaries.
 
 A self-hosted, semi-automated job-application system — two services, one shared SQLite
 database:

@@ -1,15 +1,15 @@
-# The scoring mechanism - a rebuild specification
+# Optional scoring — implementation reference
 
-This document specifies the job-posting scoring subsystem completely enough to rebuild
-it from scratch, and it is written to be handed to a model that has never seen this
-repository. It is also the working document for a redesign: Part 8 records what has
-already been measured and failed, so a redesign does not re-run experiments that are
-already answered.
+This is the technical reference for the retained optional screen and fit subsystem,
+not the product roadmap or an instruction to rebuild it. [ARCHITECTURE](ARCHITECTURE.md)
+defines ChatGPT-primary judgment; [ROADMAP](ROADMAP.md) prioritizes source/tools work;
+[EVALUATION](EVALUATION.md) scopes checks and inventories private corpora.
 
-Everything here is descriptive of the shipped system as of 2026-10-22. Where a number
-appears it was measured, and the measurement is named. Where a design choice was made
-against an obvious alternative, the alternative and the reason are recorded, because a
-redesign needs the losing branches more than the winning one.
+Screen-only uses Codex Luna/medium in the operator deployment. The fit default/model
+validation is unchanged; keeping the scorer does not enable Luna fit scoring. Detailed
+contracts below describe existing optional paths, including combined fit/Telegram.
+Measured negative results remain constraints; old experiment counts are not current
+production backlog or subscription forecasts.
 
 Scope: how one job posting becomes a score, a set of verdicts, and a keep/discard/notify
 decision. Out of scope: fetching postings, storing them, notifying, and the web UI.
@@ -18,8 +18,8 @@ Contents:
 
 1. The problem and the one design law
 2. Data contracts (what goes in, what comes out)
-3. Stage 1 - SCREEN (hard requirements, free, local)
-4. Stage 2 - SCORE (fit, paid, strong model)
+3. Stage 1 - SCREEN (hard requirements; backend-selected)
+4. Stage 2 - SCORE (optional fit, subscription or metered provider)
 5. Composition (how a pass runs the two stages)
 6. The consumer (what the score is actually used for)
 7. Evaluation (the two harnesses and their gates)
@@ -1450,99 +1450,18 @@ holds for the UI and any analytics over scored rows: those must read both status
 
 ## 7. Evaluation
 
-Neither harness writes the database. Both reuse the production wiring exactly, so a gate
-measures the shipped code path rather than a re-implementation.
+Evaluation requirements and corpus readiness are defined in
+[EVALUATION](EVALUATION.md). The retained fit gate uses K=3 majority verdicts, zero
+hard-invariant violations/errors, >=85% verdict agreement and <20% flip-rate; existing
+fit-prompt changes require two consecutive passing runs against supported inputs.
+The screen gate requires zero false disqualification in **any draw**, with recall and
+flip-rate reported separately. Both are manual provider-using evaluations, not generic
+CI or prerequisites for unrelated source/MCP/UI work.
 
-### 7.1 Fit-score eval
-
-**What it gates:** per-dimension verdict accuracy against frozen human labels.
-
-- Corpus: 23 labeled rows. Each carries `{id, band, hard, seniority, domain, note}`.
-  Current distribution: seniority 16 match / 7 too_junior; domain 15 match / 7 mismatch /
-  1 adjacent; 10 rows flagged `hard`; 2 flagged `marked`.
-- Draws each row **K=3 times**, takes the **majority** verdict per dimension.
-- Backend follows the production default, because a gate is only meaningful when
-  eval-model == production-model.
-
-**PASS requires all four:**
-
-| condition | threshold |
-|---|---|
-| hard-invariant violations | 0 |
-| errored rows | 0 |
-| verdict agreement | >= 85% |
-| verdict flip-rate (any draw disagreed with the majority) | < 20% |
-
-**Shipping a prompt change needs two consecutive PASS runs.** One run is roughly 70 model
-calls.
-
-A `hard` row is a safety floor: its derived notify decision (`seniority == match AND
-domain == match`) must match its golden match/match status. A hard+keep row that fails to
-notify, or a hard+skip row that does notify, is a violation. Non-hard rows can never
-violate - soft disagreements are tolerated as noise.
-
-A `marked` row is on a watch list: its label is provisional or the model is known to split
-on it (one row's note reads "model splits 50/50, 34 vs 70, a full band"). Marked rows are
-scored and reported but **excluded from the gate**, because a gate that can be argued with
-is worthless.
-
-The derived notify decision is reported per row for visibility but is **not itself the
-gate**. That is what lets an accepted recall loss (adjacent-domain keeps) pass without
-failing the prompt.
-
-Last recorded result: agreement 20/21 (95%), hard 10/10, flip-rate 5% -> PASS.
-
-**Two auxiliary modes, both live and quota-spending:**
-
-- **Batched-equals-single guard.** Scores the corpus once single and once batched, one
-  draw per row per pass, and asserts the per-row verdict pairs are IDENTICAL. This is what
-  proves batching does not corrupt a JD's score via context bleed from its batch-mates.
-  PASS = 0 drift.
-- **Drift probe.** The guard above draws once each way, so it cannot separate context
-  bleed from a JD whose verdict is a coin-flip on any re-draw. The probe re-draws the
-  drift rows K=3 at one batch size per run; compare reports across sizes to attribute the
-  cause.
-
-### 7.2 Screen eval
-
-**What it gates, and only this: ZERO false disqualification.**
-
-A row whose golden fact carries no bar for the eval candidate must never come back
-disqualified - **in any draw, not just the majority**. That direction is the expensive one.
-**Recall is reported, never gated**, and so is flip rate. This asymmetry is the whole
-design of the harness.
-
-- Corpus: the expanded 103-row set of real postings, **excerpts only** (the repository
-  is public). Its self-check verifies every labeled bar against the excerpt and title;
-  a row that cannot support its own label is excluded from the gate rather than counted
-  as a model miss.
-- Each row is labeled with a **JD fact**, not a verdict. Code turns the fact into "is this
-  a bar for the eval candidate?" - which keeps the labels stable when the candidate config
-  changes.
-- The eval candidate is **fixed in the harness**, not read from the operator's live
-  config, so the gate's meaning does not drift with it: Master's, needs visa sponsorship,
-  no clearance, internships not excluded (several corpus rows are internships and the
-  title gate would disqualify them before the requirement under test ran), and every
-  synthetic posting is Remote so the location gate always passes.
-- K=3 draws. Ollama uses the local model; the Codex target uses the subscription CLI.
-  The corpus is gitignored and the manual eval is not a CI gate.
-
-**A corpus self-check runs in the hermetic selftest**, and it is worth copying: a row
-labeled as a BAR must contain that requirement's vocabulary in its own excerpt. A row
-whose excerpt cannot support its own label is a guaranteed miss for any model or prompt,
-so every recall figure computed over it is meaningless. Four rows were exactly that -
-labeled `refuses`, excerpts truncated before the refusal sentence, no sponsorship word
-anywhere. Only the BAR direction is asserted; a "no bar" row legitimately contains
-nothing.
-
-Measured on the expanded corpus on the same day: `ollama` / `qwen3.5:4b` produced 7
-false disqualifications (4 degree and 3 clearance), recall 31/37 (84%), flip 0;
-`codex` / `gpt-5.6-luna` produced 0 false disqualifications, recall 30/37 (81%),
-flip 3. The new clearance examples expose the local model's word-matching error;
-Luna keeps on those rows and on the degree example described in §8.1. Earlier K=3
-runs on the 83-row set alternated PASS/FAIL/PASS, so the first passing run was not
-reliable evidence. The expanded same-day comparison is the current result. The eval
-record does not identify the Luna reasoning effort; `medium` remains unmeasured.
+Current corpus limitations include unsupported legacy fit references and missing effort
+provenance for the expanded Luna screen comparison. A stale, missing or machine-labelled
+input cannot certify human-fit accuracy. See the evaluation inventory before choosing
+or interpreting a run. Keep hermetic selftests and all existing isolation/identity checks.
 
 ---
 
@@ -1800,28 +1719,15 @@ unreliable the moment the answer requires a judgment call about degree of obliga
 - **Trusting list position over an explicit tag** when a model returns N results for N
   inputs.
 
-### 9.4 Open questions worth a redesign's budget
+### 9.4 Optional research boundary
 
-1. **The soft-degree-bar residual (2-3 rows/run).** Four prompt attempts failed; the shape
-   change helped but did not close it. Untried: a two-field split that separates "is a
-   degree named" from "is holding it a condition of applying", or moving the
-   required/preferred call to the strong model entirely (it is already routed there on a
-   degree-only failure, so the marginal cost may be near zero).
-2. **What the screen eval can actually reach.** Some corpus rows may be unreachable for
-   any prompt at this model size. Establishing that ceiling would stop future work from
-   chasing it.
-3. **The snippet window degenerating on bullet-list JDs.** Sentence splitting assumes
-   prose; a bulleted requirements list has few sentence terminators, so the +/-1 window can
-   swallow a large block.
-4. **The blind-response fork (3.7).** Should a live-but-blind response reach the phrase
-   floor at all, or be treated as a provider error?
-5. **Whether a stronger screen model changes the economics.** The screen is free today
-   because it is local. If routing degree/clearance to the strong model costs a paid call
-   per row anyway, a mid-sized screen model that gets the required/preferred call right
-   might be cheaper overall than a weak screen plus routing.
-6. **Score calibration.** The 0-100 number is currently ranking-only. Either make it
-   trustworthy (and measure that) or drop it to an ordinal and stop implying precision it
-   does not have.
+Source freshness, queryable evidence and the ChatGPT workflow take precedence over
+new rubric/model/corpus campaigns. Existing open hypotheses include sponsorship snippet
+windows on bullet lists and local-model preferred/required degree errors; select one
+only when changing that capability. A model change requires a new scoped question and
+representative evidence, not repetition of an old passing run. Luna/medium fit and
+JEV classification remain separate unvalidated proposals. [ROADMAP R4](ROADMAP.md#r4--optional-scorer-maintenance)
+and [EVALUATION](EVALUATION.md) govern selection and acceptance.
 
 ### 9.5 Rebuild checklist
 

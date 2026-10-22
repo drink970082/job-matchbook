@@ -65,13 +65,13 @@ test-coverage: ## Run both suites with coverage (gated by thresholds)
 	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
 
-eval-score: ## Verdict-accuracy eval vs the frozen golden set (~70 calls on the default codex backend: free, ~50min; SCORE_BACKEND=claude-code is also free, claude-api is PAID)
+eval-score: ## Optional live fit eval; consumes subscription allowance or API spend. Check docs/EVALUATION.md and corpus readiness first
 	cd $(WORKER) && $(PY) tools/score_eval.py
 
-eval-screen: ## Hard-requirement accuracy eval vs the screen golden set (249 local Ollama calls: free, ~10min). Gate = zero false disqualification
+eval-screen: ## Optional live screen eval; backend-dependent allowance/cost. Gate: zero false disqualification; see docs/EVALUATION.md
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/screen_eval.py
 
-eval-seniority: ## Seniority pre-ordering accuracy vs the strong scorer's own verdicts (446 local Ollama calls: free, ~12min). Gate = zero false demotions on a domain=match or notified row
+eval-seniority: ## Optional live seniority diagnostic against model labels; see docs/EVALUATION.md for limits and cost
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/seniority_eval.py
 
 check-schema: ## Fail if worker schema.sql drifts from prisma/schema.prisma

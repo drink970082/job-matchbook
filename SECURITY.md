@@ -57,7 +57,7 @@ dependency advisories, the `autoheal` sidecar's Docker-socket mount, the SSRF
 guard's no-DNS residual shapes, and JD prompt-injection blast radius.
 
 Anything with a route to closure is tracked in
-[`docs/PROGRESS.md`](./docs/PROGRESS.md#open-work).
+[`docs/BACKLOG.md`](./docs/BACKLOG.md#relevant-to-the-sourcetool-product).
 
 ## Supported Versions
 

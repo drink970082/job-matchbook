@@ -5,9 +5,11 @@
 > code. When code and this spec disagree, that is a bug in one of them — fix it,
 > don't let them drift. New work should update this file in the same change.
 >
-> Companion documents: [`PROGRESS.md`](./PROGRESS.md) (live delta: in flight, the pick
-> order, open defects) and its two on-demand halves [`BACKLOG.md`](./BACKLOG.md) (the
-> open catalogue) + [`REJECTED.md`](./REJECTED.md) (turned-down proposals),
+> Companion documents: [`ARCHITECTURE.md`](./ARCHITECTURE.md) (ownership/boundaries),
+> [`ROADMAP.md`](./ROADMAP.md) (product order), [`PROGRESS.md`](./PROGRESS.md)
+> (branch claims and current gaps), [`BACKLOG.md`](./BACKLOG.md) (residual triage),
+> [`EVALUATION.md`](./EVALUATION.md) (checks and corpus readiness),
+> [`REJECTED.md`](./REJECTED.md) (turned-down proposals),
 > [`../CHANGELOG.md`](../CHANGELOG.md) (release history),
 > [`../CONTRIBUTING.md`](../CONTRIBUTING.md) (conventions).
 
@@ -17,6 +19,21 @@
 - **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-22 · **License:** MIT
 
 ---
+
+## Product direction and implementation boundary
+
+[The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
+positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
+primary personal judgment/recommendation interface. **Screening and fit scoring remain
+supported optional assistance.** The operator values Luna/medium within an existing
+subscription; inclusion does not remove allowance limits. The shipped Luna/medium
+configuration is standalone screening, not a fit-model change.
+
+[ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
+[ROADMAP](ROADMAP.md) lists feature readiness and outstanding slices;
+[EVALUATION](EVALUATION.md) scopes model checks. This specification's detailed pipeline,
+UI, default-model and schema descriptions remain the shipped reference. A target feature
+is not implemented merely because it appears in those planning documents.
 
 ## Table of contents
 
@@ -62,21 +79,16 @@ are explanatory. Each section is tagged with its class under its heading.
 
 ## 1. Overview
 
-Job Matchbook is **one project made of two cooperating services that share a single
-SQLite database**:
+Job Matchbook collects official job evidence and tracks applications in a shared
+SQLite database. Its Next.js web UI, native Python worker and host stdio read-only MCP
+process provide complementary access to that data. The MCP is used by ChatGPT for
+research; the web app retains manual tracking and fit-oriented discovered-job views.
 
-- **`apps/web`** — a Next.js 14 tracker + dashboards. You browse a queue of
-  discovered jobs, triage them, and track every application through its status
-  lifecycle with KPIs and charts.
-- **`apps/worker`** — a scheduled Python pipeline that *feeds* the tracker: it
-  scans company ATS boards, screens out hard-constraint mismatches with a local
-  LLM, scores each posting's fit against your resume version(s) — by default via
-  the Codex CLI (the operator's ChatGPT subscription), with Claude as a metered
-  alternate — and pings you on Telegram for the best matches.
-
-The two services never call each other. Their only contract is the **shared
-database**. The worker discovers and prepares; the web app is where a human
-triages, applies by hand, and tracks.
+The worker supports fetch-only, standalone screen-only and the default combined
+screen/fit/Telegram pipeline. The operator selects standalone Codex Luna/medium screening;
+fit and Telegram are bypassed in that deployment. Optional fit scoring still loads private
+candidate inputs and uses the existing configured provider. The pivot changes product
+ownership and priorities, not these CLI defaults or deployed behavior.
 
 ---
 
@@ -93,9 +105,9 @@ Two pains, addressed by the two services:
 
 1. **Tracking** is tedious and hard to analyze in a spreadsheet → the web app is
    "the spreadsheet plus the answers" (KPIs, heatmap, funnel, Sankey).
-2. **Discovery** is repetitive: scanning boards and judging fit per role → the
-   worker automates everything *up to* the apply click, leaving the human in
-   control of the actual submission.
+2. **Discovery** is repetitive: scanning boards and retrieving JD evidence → the
+   worker collects it for review and optional assistance; ChatGPT-led research can
+   supply the primary personal judgment while the human controls actual submission.
 
 ---
 
@@ -109,14 +121,11 @@ Two pains, addressed by the two services:
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
   without exposing personal data.
-- **Cheap compute for the high-frequency stage, a frontier LLM where judgment
-  matters — and the operator picks both.** The hard-requirements screen runs on
-  whichever of five backends the host can afford: Ollama on a local GPU (free) where
-  one exists, or `codex` / `claude-code` / `claude-api` / `openai-api` where it does
-  not. Fit scoring (every posting, needs real seniority/domain judgment) runs on the
-  Codex CLI by default (flat-rate ChatGPT subscription) or Claude. **No GPU is
-  required**, and no single provider is; which one is a deployment choice. See
-  PRINCIPLES 4.
+- **Cheap optional assistance, primary judgment in ChatGPT.** The worker supports
+  multiple screen providers and existing fit adapters; no GPU is required for discovery
+  or subscription-backed screening. Luna/medium is currently selected for standalone
+  screen-only. The optional fit default remains Sol. Personal-fit ranking and delivery
+  are not prerequisites for reading source evidence. See PRINCIPLES 4 and ROADMAP.
 
 ---
 
@@ -127,8 +136,10 @@ Two pains, addressed by the two services:
 **Goals**
 
 - Track applications end-to-end with status history and visual analytics.
-- Discover and pre-qualify jobs from company ATS boards on a schedule.
-- Alert the human on Telegram for every high-scoring role, for manual application.
+- Discover jobs from company ATS boards on a schedule; support explicitly selected
+  screening and fit paths without requiring them for discovery/MCP record access.
+- Retain optional Telegram alerts for the combined pipeline's eligible matches;
+  fetch-only and screen-only do not require recommendation delivery.
 - Keep the two services safely co-writing one SQLite database.
 - Stay runnable on a single host: `docker compose up` brings up the whole web
   stack, and the worker is one native command alongside it (§12).
@@ -144,14 +155,12 @@ Two pains, addressed by the two services:
   GitHub data file** (SimplifyJobs `listings.json`) — not a scraped UI — and still
   fetches every JD from the official board the listing's URL resolves to; aggregator
   *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
-- **No cloud dependency** beyond the LLM provider the operator chooses — Codex CLI,
-  Claude Code CLI, the Anthropic API, the OpenAI API, or a local Ollama — plus
-  Telegram.
-- **No required provider and no required hardware.** Which LLM backend runs each
-  stage is a deployment choice, not a product commitment, and a host with no GPU is a
-  supported configuration. *This clause is currently satisfied for the screen stage
-  (five backends) and NOT for fit scoring (two: `codex`, `claude`) — the gap is
-  tracked in PROGRESS.*
+- **No mandatory model or notification service for local tracking/discovery.** Optional
+  assistance, ChatGPT/MCP and Telegram workflows depend on the selected services.
+- **No required provider or GPU for the core tracker/discovery path.** Optional
+  model stages require a supported configured backend. Adding every provider to fit
+  scoring is not a prerequisite for the source/tool product; current adapters and
+  defaults are specified in §7.1.
 - **The worker issues no schema DDL** — Prisma owns the schema.
 
 ---
@@ -2274,6 +2283,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 | Invariant | Test(s) |
 |-----------|---------|
+| Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |

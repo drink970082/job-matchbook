@@ -1,81 +1,104 @@
 # Setup
 
-The friendly front door. This page gets you oriented, helps you decide *which*
-setup you need, and flags the things that surprise people. For the authoritative,
-always-current command list, follow the links into
-[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment) — that section is the source
-of truth and this one intentionally doesn't duplicate it.
+Choose a path explicitly. The web app and native worker share SQLite; read-only MCP
+is a separate host process. [SPEC §12](SPEC.md#12-setup-and-deployment) supplies detailed
+commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from targets.
 
-Two things to internalise before anything else:
+## Prerequisites by path
 
-- This is **two services sharing one SQLite database**: a **web app** (the
-  tracker/dashboards, runs in Docker) and a **worker** (the fetch→screen→score→notify
-  pipeline, runs **natively on your host** — *not* in Docker).
-- You can run **just the web app** (a clean manual tracker) and skip the whole
-  pipeline. Do that first if you're evaluating.
+| Requirement | Needed for |
+|---|---|
+| Docker + Compose | Containerized web/autoheal |
+| Node 20+ | Web development/tests or running web without Docker |
+| Python 3.11+ | Native worker and MCP |
+| Configured public job sources/network access | Discovery |
+| A selected screen backend | Optional screening; no model needed for fetch-only |
+| Codex CLI login or selected fit-provider credentials plus private résumé inputs | Optional fit pipeline |
+| Telegram bot credentials | Optional existing match alerts |
+| MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | ChatGPT reading local ATS data |
 
-## Before you start — prerequisites
+A local GPU/Ollama, a résumé, a fit backend and Telegram are not prerequisites for the
+tracker or fetch-only discovery. Subscription inference consumes allowance; metered APIs
+can incur separate bills. The operator's affordable Luna/medium preference does not
+change the existing fit model defaults or guards.
 
-| You need | For | If you don't have it |
-|----------|-----|----------------------|
-| Docker + Compose (≥ 24) | The web app | Required for the web app |
-| Node 20+ | Web dev/tests (and non-Docker run) | Required unless you only use Docker |
-| Python 3.11+ | **The worker** (native) | Required for the pipeline |
-| **Ollama** reachable (local GPU, or remote via `OLLAMA_HOST`) — or any of five other screen backends | The hard-requirements screen | Required for the pipeline in some form; no GPU and no Ollama at all? set `SCREEN_BACKEND` to `codex`/`claude-code`/`claude-api`/`openai-api`/`none` instead (SPEC §7.1) |
-| **Codex CLI + a ChatGPT subscription** | Fit scoring (the **default** backend) | No subscription? Use `SCORE_BACKEND=claude` + an `ANTHROPIC_API_KEY` (metered) |
-| A Telegram bot | Match alerts (**optional**) | Skip it — matches still land in the web Discovered-Jobs tab, just without a push alert |
-
-## Three things that surprise everyone
-
-1. **`docker compose up` starts only the web app.** The worker is deliberately
-   *not* containerised (it needs host-side Ollama and your `codex login`). You start it
-   yourself: `cd apps/worker && python -m ats_worker.run`.
-2. **The default fit scorer needs a ChatGPT subscription**, not an API key. Run
-   `codex login` once on the worker host (`codex doctor` should show auth ok). No
-   subscription → switch the backend to `claude-code` (Claude Code CLI, also
-subscription-billed, no key), or `claude-api` and supply `ANTHROPIC_API_KEY`.
-3. **The screen doesn't need Ollama at all, and Ollama doesn't need a local GPU.**
-   The worker reaches Ollama at `localhost:11434` by default; set `OLLAMA_HOST` to
-   point at a remote or cloud Ollama if the worker host has no GPU, or skip Ollama
-   entirely with `SCREEN_BACKEND=codex`/`claude-code`/`claude-api`/`openai-api`/`none`.
-
-## Path A — tracker only (~5 min)
-
-Just the web app, no pipeline. You add applications by hand; the Discovered-Jobs
-queue stays empty until you set up the worker.
+## Path A — tracker only
 
 ```bash
-make install && make db-push && make dev     # → http://localhost:3000
+make install && make db-push && make dev
 ```
 
-(Same commands as the [root README](../README.md#quick-start); the longhand is
-`cd apps/web && npm install && npx prisma generate && npx prisma db push && npm run dev`.)
+Enter/import applications manually. Existing data stays yours; never replace the database
+with a test fixture. Docker users can run web with `make up` after configuration.
 
-## Path B — full pipeline
+## Path B — discovery
 
-Fastest start: **`make setup`** — installs web + worker deps, creates the DB, and copies
-the gitignored config templates (`config.yaml`, `.env`) *only where they don't already
-exist*. Fill those in, add your own `resume/resume.txt` (deliberately not templated — a
-placeholder there would be scored as your real résumé), then run **`make doctor`** to
-check what's present before the first pass. (Or follow the longhand numbered steps in
-[**`SPEC.md` §12**](./SPEC.md#12-setup-and-deployment).)
+```bash
+make setup
+make doctor
+make up
+cd apps/worker
+python -m ats_worker.run --fetch-only --once
+```
 
-Two things worth knowing before you start: unknown or typo'd `config.yaml` keys
-fail loud at startup (a stale field can never silently do nothing), and the first
-run to aim for is `python -m ats_worker.run --once` — a single pass whose matches
-land in the Discovered-Jobs tab (and Telegram too, if you configured a bot). Drop
-`--once` to run on a schedule.
+Fill the private config for intended sources/intake first. `make setup` does not overwrite
+existing files. Doctor reports the broader installation; a missing optional scorer is
+not a requirement to enable it. Fetch-only still applies configured title/candidate/age
+filters and runs the existing expiry/retry behavior. Dropping `--once` enables the
+configured schedule. The web's fit-oriented view is not yet a complete unscored-job
+browser; use MCP for current record access.
 
-## Where each setting lives (this trips people up)
+## Path C — optional standalone screening
 
-Config is split across a file and the database, with different lifecycles:
+```bash
+cd apps/worker
+python -m ats_worker.run --screen-only --screen-backend codex \
+  --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --once
+```
 
-| Setting | Lives in | Notes |
-|---------|----------|-------|
-| Candidate hard-constraints, `title_filter`, `schedule_hours` | `config.yaml` | File-only; edit and restart the worker. |
-| **Watched companies** | `config.yaml` **→ then the DB** | The `companies:` list is a **one-time seed**. After the first run it's managed in the web app's **Watchlist** tab; later edits to the file are ignored (re-seed with `--import-companies`). |
-| Secrets + backend choice (Telegram / Ollama / `SCREEN_BACKEND` / `SCORE_BACKEND` / API keys) | `.env` | Gitignored. `SCREEN_BACKEND` picks the hard-requirements screen — `ollama` (default, free, local) or `codex`/`claude-code`/`claude-api`/`openai-api`/`none`; `none` is low-recall on sponsorship (SPEC §7.1). |
-| Résumé + profile | `apps/worker/resume/*.txt` | Gitignored personal data; every `*.txt` is loaded as a résumé version. |
+Authenticate the Codex CLI on the host. This skips fit, Telegram and résumé loading;
+results live in `job_screenings` without changing posting lifecycle status. Completed
+is not synonymous with passed. Numeric limits count provider calls; deterministic checks
+need none. Explicit `--screen-unlimited` replaces the numeric limit while preserving
+cache/breaker behavior, but does not remove subscription limits. The operator uses that
+explicit unlimited mode with one worker; this bounded example is not a deployment change.
 
-All of `config.yaml`, `.env`, `resume/`, and `db/` are gitignored — the repo ships
-only `*.example` templates.
+## Path D — optional combined fit and alerts
+
+Read [SCORING](SCORING.md) and provider/configuration details in SPEC before running:
+
+```bash
+cd apps/worker
+python -m ats_worker.run --once
+```
+
+Without a mode flag this selects the existing screen+fit path, not discovery-only.
+It loads configured private résumé/profile inputs and may notify via Telegram.
+Fit defaults to Codex `gpt-5.6-sol`; alternatives are `claude-code` or metered `claude-api`.
+Retaining Luna screening does not certify or enable Luna as a fit model.
+A live eval is not part of setup; [EVALUATION](EVALUATION.md) describes when one is needed.
+
+## Path E — ChatGPT access
+
+Follow [SPEC §12](SPEC.md#12-setup-and-deployment) for the MCP extra, stdio command,
+absolute database path and private tunnel configuration. Connect and test the ATS plugin
+in ChatGPT; verify overview, pagination, full JD chunks and application records.
+No API key, tunnel identity or private profile belongs in the repo.
+
+Daily Brief instructions/background and a scheduled task are separate user-controlled
+configuration. Test an actual unattended run, not only an interactive call. MCP cannot
+save recommendations or import jobs today; the manual tracker remains available.
+
+## Where settings live
+
+| Setting | Location | Lifecycle |
+|---|---|---|
+| Collection filters, candidate facts, schedule | Private `config.yaml` | Existing intake/screen semantics; edit and restart intentionally |
+| Watchlist | Config seed, then DB | After initial seed, manage in web; config edits do not replace DB rows |
+| Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
+| Optional fit résumé/profile | `apps/worker/resume/` | Still read by fit; not removed by the pivot |
+| Primary personal judgment rubric | ChatGPT task/project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
+| Application history and job evidence | Shared SQLite directory | Back up with SQLite-aware tools; preserve WAL sidecars |
+
+All private config, résumé and database paths remain gitignored. No runtime migration is
+performed by this documentation update.

@@ -1,136 +1,110 @@
 # Job Matchbook
 
-**The job tracker that finds your matches for you.**
+**Your job sources, evidence and application history — available to ChatGPT.**
 
 [![CI](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-*match* — it watches company job boards, screens each posting against your hard
-requirements, and scores fit against your résumé.
-*book* — every match you act on is tracked: status history, KPIs, charts.
+Job Matchbook collects jobs from official company boards, stores their descriptions,
+and tracks applications in a self-hosted SQLite database. Its read-only MCP tools let
+ChatGPT inspect jobs and application history for personal analysis and a Daily Job Brief.
+Screening and résumé-fit scoring remain available as **optional assistance**.
 
-> **Watch company boards → screen out hard mismatches → score résumé fit →
-> alert you → track the application.**
+> **Collect and preserve job evidence → query with ChatGPT → review and apply by hand → track.**
 
-You review and apply by hand. No auto-apply, no résumé farming — a human is always
-in the loop.
-
-<p align="center">
-  <img src="docs/images/dashboard.png" alt="Full dashboard view" width="900">
-</p>
-
-## Who it's for
-
-Job seekers watching more companies than they can check by hand, with hard
-constraints a keyword alert can't express — sponsorship, location, degree,
-clearance, seniority band. It's self-hosted: your résumé and application history
-live in a SQLite file you own. (Fit scoring does send each JD plus your résumé to
-whichever backend you configure — Codex CLI or Claude.)
-
-It is **not** an employer-side ATS, it does not apply on your behalf, and it never
-logs in to a job board or works around a CAPTCHA — it reads public listings.
-
----
-
-## Features
-
-**Discover** — the worker scans watched company boards and external feeds; the
-**Discovered Jobs** tab triages everything into five buckets: **Matched** (cleared
-the seniority + domain gate the worker notifies on), **Below bar**, **Discarded**
-(failed hard-requirement screening), **Failed** (pipeline error), and **Low-context**
-(JD too thin to score fairly). Sort by best match or newest, filter by score and
-disqualification cause.
-
-**Screen** — a local LLM drops postings that violate your hard requirements before
-anything expensive runs.
-
-**Score** — surviving postings are scored against your résumé, reason first. Every
-row carries a "why" subline (verdict pills plus the top missing must-have, or the
-disqualification reason) and a recommended-résumé label; open one for the full JD,
-must-haves met vs. missing, and a one-line summary. Telegram pings you on the best
-matches.
-
-**Track** — **Mark Applied** promotes a posting into a tracked application. Header
-KPIs, a searchable table with inline status editing and per-application history, CSV
-import/export, and four dashboards: an activity heatmap, a category donut, a status
-funnel, and a status-flow Sankey reconstructed from history.
+ChatGPT-led judgment and delivery are the product direction, not a claim that every
+roadmap feature is implemented. The current web Discovered Jobs view still uses fit
+buckets; an unscored job or standalone screen is not necessarily visible in Matched.
+See the [feature readiness matrix](docs/ROADMAP.md#feature-ownership-and-readiness).
 
 <p align="center">
-  <img src="docs/images/kpi-and-table.png" alt="KPI strip and applications table" width="900"><br>
-  <img src="docs/images/charts-row.png" alt="Activity heatmap and category donut" width="900"><br>
-  <img src="docs/images/sankey.png" alt="Status flow Sankey diagram" width="900">
+  <img src="docs/images/dashboard.png" alt="Current tracker dashboard" width="900">
 </p>
 
----
+## What is available
+
+- **Discover:** scheduled watchlists and public discovery feeds, official-board JD
+  retrieval, generic HTTP/browser recipes and unresolved-source records.
+- **Read with ChatGPT:** ten bounded read-only MCP tools covering postings, full JD
+  chunks, standalone screenings, applications/history and the other ATS record types.
+- **Track:** manual application entry, Mark Applied, status history, CSV import/export,
+  KPIs and charts; a web-managed watchlist.
+- **Assist optionally:** standalone hard-requirement screening, the existing résumé-fit
+  scorer and Telegram alerts. The operator currently uses Codex Luna/medium screen-only;
+  fit and Telegram are bypassed in that mode. Combined scoring remains the CLI default.
+
+A ChatGPT task must be configured and tested separately for unattended daily delivery.
+MCP is currently read-only: it cannot import web jobs, record Brief delivery, save an
+agent assessment or update applications. Context-based cross-day deduplication is
+best-effort until a persistent delivery ledger exists.
+
+No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
+configuration, résumé files and databases are gitignored. Optional fit scoring sends
+selected JD and personal inputs to the configured provider; connecting ChatGPT exposes
+the data returned by the enabled MCP tools to that chat.
 
 ## Quick start
 
-**Tracker only (~5 min)** — the web app on its own. You add applications by hand;
-the Discovered Jobs queue stays empty until you set up the worker.
+**Tracker only** — no worker or model required:
 
 ```bash
-make install && make db-push && make dev     # → http://localhost:3000
+make install && make db-push && make dev     # http://localhost:3000
 ```
 
-**Full pipeline** — adds discovery, screening, scoring and alerts. You'll need
-Python 3.11, a screening backend, and a fit-score backend. **No GPU required:** the
-screen runs on a local Ollama if you have one, and on Codex, Claude Code, the
-Anthropic API or the OpenAI API if you don't. Fit scoring runs on the Codex CLI + a
-ChatGPT subscription by default, or Claude with an API key. Telegram is optional.
+**Discovery and optional assistance** — native Python worker plus web app:
 
 ```bash
-make setup     # web + worker deps, DB, config templates (never clobbers yours)
-               # then fill in apps/worker/{config.yaml,.env} + resume/resume.txt
-make doctor    # preflight: what's present, what's missing
-make up        # web app, in Docker
-cd apps/worker && python -m ats_worker.run --once   # the worker runs natively
+make setup     # dependencies, DB and non-clobbering private config templates
+make doctor    # inspect prerequisites for the selected path
+make up        # web app in Docker; does not start the native worker
+cd apps/worker
+python -m ats_worker.run --fetch-only --once
 ```
 
-The worker is deliberately *not* containerized — it runs natively so it can reach a
-host-side Ollama (if you use one) and whichever provider CLI you are logged in to
-(`codex login`, `claude`). [**`docs/SETUP.md`**](./docs/SETUP.md) has the full prerequisite
-table, the three things that surprise everyone, and where each setting lives.
+Fetch-only does not call the screen or fit model, but still uses configured intake
+filters and the existing expiry/retry flow. It does not yet implement the target
+unscored-inventory UI or freshness improvements.
 
----
+To opt into standalone subscription-backed screening:
 
-## Supported sources
+```bash
+python -m ats_worker.run --screen-only --screen-backend codex \
+  --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --once
+```
 
-11 platform adapters — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable,
-Pinpoint, iCIMS, Phenom, Oracle, Jobvite — plus generic custom-HTTP and browser
-recipe executors for boards without a usable API. 11 of those 13 can be watched
-per-company; Oracle and Jobvite only resolve listings that arrive via a discovery
-feed.
+Run `codex login` on the host first. `--screen-unlimited` is an explicit alternative to
+`--screen-limit`, not unlimited subscription entitlement. Screening is distinct from fit;
+this command does not enable Luna fit scoring. Running without a mode flag selects the
+existing combined pipeline and may invoke fit scoring and Telegram. Read
+[SETUP](docs/SETUP.md) before selecting it or enabling a metered provider.
 
-## How it works
+## Sources and components
 
-One project, two cooperating services sharing a single SQLite database:
-[`apps/web`](./apps/web) is the Next.js tracker and dashboards you interact with;
-[`apps/worker`](./apps/worker) is the Python pipeline that feeds it.
+11 platform adapters: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable,
+Pinpoint, iCIMS, Phenom, Oracle and Jobvite; plus custom HTTP and browser recipes.
+Oracle/Jobvite resolve feed listings rather than per-company watchlist rows.
 
-Next.js 14 (App Router, Server Actions) · TypeScript · Prisma 6 + SQLite ·
-React 18 · Tailwind CSS 4 · Radix UI · Recharts + hand-rolled SVG charts ·
-Python 3.11 worker (APScheduler, Ollama, Codex CLI, Claude, Telegram) ·
-Jest + Playwright + pytest · Docker Compose. Details in
-[`docs/SPEC.md` §6](./docs/SPEC.md#6-architecture).
-
----
+Next.js 14 / React 18 / Prisma 6 / SQLite web app; Python 3.11 native worker;
+stdio MCP through a private tunnel; Docker Compose for web/autoheal.
+See [current and target architecture](docs/ARCHITECTURE.md) and the detailed
+[implementation specification](docs/SPEC.md).
 
 ## Documentation
 
-| Doc | What |
-|-----|------|
-| [`docs/SETUP.md`](./docs/SETUP.md) | Setup front door — prerequisites, gotchas, tracker-only vs. full-pipeline paths, and where each setting lives |
-| [`docs/SPEC.md`](./docs/SPEC.md) | **Authoritative system spec + capability map** — architecture, components, data model, behaviors, setup, testing |
-| [`docs/PROGRESS.md`](./docs/PROGRESS.md) | Live delta — in flight, the pick order, open defects (capabilities → SPEC, history → CHANGELOG) |
-| [`docs/BACKLOG.md`](./docs/BACKLOG.md) | The open catalogue — unverified/deferred behavior and optional enhancements |
-| [`docs/REJECTED.md`](./docs/REJECTED.md) | Proposals evaluated and turned down, with the measurement that killed each |
-| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Conventions and how to run tests |
-| [`CHANGELOG.md`](./CHANGELOG.md) | Release history |
-| [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) | Community expectations (Contributor Covenant) |
-| [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting + accepted-risk scope |
+| Document | Purpose |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | Current implementation, target ownership and boundaries |
+| [Roadmap](docs/ROADMAP.md) | Feature readiness, R1–R4 priorities and acceptance |
+| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction with optional scorer retained |
+| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/scorer and MCP paths |
+| [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
+| [Progress](docs/PROGRESS.md) | Branch claims, next work and current limitations |
+| [Backlog](docs/BACKLOG.md) | Current triage; links to deferred technical investigations |
+| [Evaluation](docs/EVALUATION.md) | Relevant checks, retained eval tools and private corpus limitations |
+| [Scoring reference](docs/SCORING.md) | Optional subsystem contracts and measured failure modes |
+| [Principles](docs/PRINCIPLES.md) / [Development](docs/DEVELOPMENT.md) | Design and contribution protocol |
+| [Rejected proposals](docs/REJECTED.md) | Negative findings to consult before redesign |
+| [Contributing](CONTRIBUTING.md) / [Security](SECURITY.md) | Tests, conventions and accepted-risk scope |
+| [Changelog](CHANGELOG.md) | Release history |
 
----
-
-## License
-
-[MIT](./LICENSE).
+[MIT license](LICENSE) · [Code of conduct](CODE_OF_CONDUCT.md)
