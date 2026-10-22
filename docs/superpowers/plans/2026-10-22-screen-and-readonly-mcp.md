@@ -142,7 +142,10 @@ reject nonpositive values in this mode. Other modes' existing caps remain unchan
 Reuse known deterministic outcomes without calling a provider. Log attempted calls,
 cache hits, pass/disqualify/unknown outcomes and errors, without raw JD or secrets.
 
-**Persistence and retry policy require operator signoff before implementation.**
+**Screen result storage and persistence/retry policy require operator signoff before
+implementation.** The companion spec also asks whether results belong in the existing
+`score_detail` field or a separate Prisma `job_screenings` row; its recommendation is
+the separate row so screen evidence remains distinct from fit evidence.
 `docs/REJECTED.md` rejects per-stage screen retry budgets and end-to-end hashes with an
 automatic re-run planner. This task changes an important premise: screen is now a
 standalone recurring stage, while postings remain `new`, so its result cannot live only
