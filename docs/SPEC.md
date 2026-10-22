@@ -248,7 +248,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
 | SQLite db | `./db` directory, bind-mounted into the `web` container | — |
 
 **Operator runtime:** the native worker service uses `--screen-only` with explicit
-Codex `gpt-5.6-luna`, medium effort, a 40-provider-call cap and one screen worker. Fit,
+Codex `gpt-5.6-luna`, medium effort, explicit `--screen-unlimited` and one screen worker. Fit,
 notification and quota refresh are disabled in this mode. It runs from a separate
 persistent deployment checkout while retaining the existing private configuration and
 shared database. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
@@ -428,7 +428,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   backend default in legacy modes), `--screen-only` (normal fetch/feed/expiry followed
   by standalone screening, then return before fit scoring, quota refresh, legacy retry,
   notification delivery, or Telegram), `--screen-limit N` (positive provider-call cap
-  for screen-only mode, default 40), `--rescreen-screened` (clear successful screen
+  for screen-only mode, default 40), `--screen-unlimited` (explicitly remove that cap;
+  requires screen-only and conflicts with an explicit screen-limit), `--rescreen-screened` (clear successful screen
   cache for eligible `new` rows before a one-shot screen pass; requires
   `--screen-only --once`),
   `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
@@ -472,7 +473,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   without an override, it uses `gpt-5.6-luna` at `medium`. It defaults to one worker and
   a 40-call cap, skips resume loading and fit-provider setup, and returns before legacy
   failed-row retry, `--rescreen-discarded`, fit scoring, quota refresh, or notification.
-  `--screen-limit` must be positive. `--rescreen-screened` clears successful cached
+  `--screen-limit` must be positive; zero remains invalid. `--screen-unlimited`
+  overrides the default/environment cap and passes `None` to the runner, while the
+  existing provider breaker and successful-result cache remain active.
+  `--rescreen-screened` clears successful cached
   results only for eligible `new` rows and is accepted only with `--screen-only --once`.
   The mode rejects conflicts with `--fetch-only`, `--score-only`, and
   `--rescreen-discarded` before network or DB work, both in the CLI and direct
@@ -820,8 +824,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   notification attempts and application links untouched. Successful results are reused
   until `--rescreen-screened --screen-only --once` explicitly clears them for eligible
   `new` postings. Provider errors remain retryable and are selected oldest-attempt-first
-  after fresh rows, under the same positive per-pass provider-call cap and existing
-  circuit-breaker policy; there is no per-row retry budget or automatic input-hash
+  after fresh rows, under the configured positive per-pass provider-call cap (default
+  40), or without a call-count cap when `--screen-unlimited` is explicit. The existing
+  circuit-breaker policy remains active in either mode; there is no per-row retry budget or automatic input-hash
   invalidation. Deterministic-only outcomes do not spend provider-call capacity and are
   still processed after the cap. A provider error stores only a closed safe category and
   fixed summary, never raw exception text. A per-result transaction re-checks that the
@@ -1856,7 +1861,9 @@ UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-
   `--screen-only` instead records the hard-requirement result in `job_screenings` for
   eligible `new` rows without changing their lifecycle or fit evidence. An empty
   `candidate` block skips the model call; deterministic location/internship gates still
-  run. A legacy combined-path `discarded` row keeps its `score`/`score_detail` (including
+  run. Provider calls default to a positive cap of 40; explicit `--screen-unlimited`
+  removes only the count cap, retaining success caching and the provider breaker.
+  A legacy combined-path `discarded` row keeps its `score`/`score_detail` (including
   `disqualification_reason`) so the UI can explain *why*.
 - **A batch-fit call can never silently misattribute a score to the wrong posting.**
   `make_codex_scorer`'s batched `fit` realigns results by `job_ref` (the posting id),
@@ -2369,6 +2376,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
+| Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker and fit/notify isolation; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`) |
 | Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
 | Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
 | MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |

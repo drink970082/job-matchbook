@@ -1399,8 +1399,10 @@ separately in `job_screenings`; the posting remains in its existing lifecycle st
 its fit score, score detail, attempts, notification attempts, and application link are
 unchanged. A completed result is cached until an explicit one-shot
 `--rescreen-screened --screen-only --once`; provider errors retry on later passes,
-oldest attempt first, under the positive per-pass provider-call cap and existing
-circuit breaker. There is no per-row retry budget or automatic input-hash invalidation.
+oldest attempt first, under the positive per-pass provider-call cap (default 40).
+Explicit `--screen-unlimited` removes the count cap while retaining the existing
+circuit breaker and result cache; it is valid only with `--screen-only` and conflicts
+with an explicit `--screen-limit`. Zero remains invalid. There is no per-row retry budget or automatic input-hash invalidation.
 Deterministic-only results do not spend provider-call capacity.
 
 When `codex` is explicitly selected for this standalone mode and no model or effort

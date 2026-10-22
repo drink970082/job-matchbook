@@ -5,6 +5,13 @@
 **Reviewer:** GPT Sol / Astra, independent of the implementer.
 **Deliverable:** a new feature branch and a PR against `main`; do not merge.
 
+**Current operating policy:** the operator-selected unlimited mode is specified in
+[`../specs/2026-10-22-explicit-unlimited-screen-design.md`](../specs/2026-10-22-explicit-unlimited-screen-design.md).
+It supersedes this brief's mandatory per-pass screen cap. Numeric limits still default
+to 40; the production service selects `--screen-unlimited`. The controlled live smoke
+remains bounded to five calls.
+
+
 ## 1. User intent and exact finish line
 
 The operator wants the worker to fetch and screen hard requirements using Codex Luna,
@@ -261,7 +268,7 @@ listener. Tunnel transport access uses its own account/org/workspace permissions
 do not assume Sure's upstream API key authenticates ATS or create credentials in git.
 
 Worker deployment example: `--screen-only --screen-backend codex --screen-model
-gpt-5.6-luna --screen-effort medium --screen-limit 40 --screen-workers 1` (confirm exact
+gpt-5.6-luna --screen-effort medium --screen-unlimited --screen-workers 1` (confirm exact
 parser names as implemented). Add `--once` for controlled smoke, `--run-now` only for
 daemon eager start; never combine those two. Do not restart an active paid pass.
 Code runs from the deployment checkout, not accidentally the feature worktree.
@@ -325,8 +332,8 @@ Required evidence:
    prompts, buy a full fit eval, or assert Luna quality from API docs.
 9. Live deployment gate: once quality passes, one controlled fetch+screen smoke with
    at most 5 provider calls, then inspect DB effects and zero fit/notify calls. Read
-   representative real data without copying JD/notes/PII into PR logs. Final steady
-   state cap is 40; no unlimited backlog run. The user's requested Codex operation
+   representative real data without copying JD/notes/PII into PR logs. The operator-selected steady
+   state uses `--screen-unlimited`; only the controlled smoke is capped at five calls. The user's requested Codex operation
    authorizes this bounded screen work, not unrelated bulk evaluation/spending.
 10. ChatGPT gate: using ATS tunnel, read overview, a `new` job, a discarded job, full
     multi-chunk JD, application/history and auxiliary records. Observe one completed

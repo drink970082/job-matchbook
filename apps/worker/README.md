@@ -79,7 +79,7 @@ already pinned to the host by Ollama's GPU). See `docs/SPEC.md` §6.
 This mode fetches as usual, runs the hard-requirements screen, records the result
 separately, then exits before fit scoring, quota refresh, or notification. It does
 not need a résumé or fit-backend credentials. Successful results are cached until
-an explicit one-shot re-screen; provider errors can retry on a later capped pass.
+an explicit one-shot re-screen; provider errors can retry on a later pass.
 Codex selection defaults to Luna at medium in this mode:
 
 Before the first use against an existing database, apply the Prisma-owned schema from
@@ -91,6 +91,13 @@ cd apps/worker
 python -m ats_worker.run --once --screen-only --screen-backend codex \
   --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --screen-workers 1
 ```
+
+The default cap is 40 provider calls per pass. To explicitly screen all eligible work,
+replace `--screen-limit 40` with `--screen-unlimited`; the two flags are mutually
+exclusive. Unlimited mode requires `--screen-only`, overrides the environment/default
+cap, and keeps success caching, the provider breaker and the per-DB pass lock. Zero is
+still an invalid numeric limit. The operator deployment selects unlimited mode with
+one screen worker; it does not run fit scoring or notifications.
 
 The expanded 103-row evaluation measured Luna at zero false disqualifications
 (30/37 recall, three flips) against seven for qwen3.5:4b (31/37, no flips).

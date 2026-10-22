@@ -256,7 +256,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              screen_backend=DEFAULT_SCREEN_BACKEND,
              screen_model=None,
              screen_effort=None, screen_only: bool = False,
-             screen_limit: int = 40, rescreen_screened: bool = False,
+             screen_limit: int | None = 40, rescreen_screened: bool = False,
              score_backend=DEFAULT_SCORE_BACKEND,
              codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
              anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
@@ -274,7 +274,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         raise ValueError("fetch-only, score-only and screen-only are mutually exclusive")
     if screen_only and rescreen_discarded:
         raise ValueError("screen-only cannot be combined with rescreen-discarded")
-    if screen_only and screen_limit <= 0:
+    if screen_only and screen_limit is not None and screen_limit <= 0:
         raise ValueError("screen-only requires a positive --screen-limit")
     conn = db.connect(db_path)
     try:
@@ -915,10 +915,13 @@ def main(argv=None) -> None:
                         default=os.environ.get("SCREEN_EFFORT"),
                         help="Codex screen reasoning effort; screen-only defaults to "
                              "medium, legacy mode preserves the CLI default")
-    parser.add_argument("--screen-limit", type=int,
-                        default=int(os.environ.get("SCREEN_LIMIT", "40")),
-                        help="maximum provider calls per screen-only pass (default 40; "
-                             "must be positive in screen-only mode)")
+    screen_budget = parser.add_mutually_exclusive_group()
+    screen_budget.add_argument("--screen-limit", type=int,
+                               help="maximum provider calls per screen-only pass (default 40; "
+                                    "must be positive in screen-only mode)")
+    screen_budget.add_argument("--screen-unlimited", action="store_true",
+                               help="explicitly remove the screen-only provider-call cap; "
+                                    "requires --screen-only and retains the provider breaker")
     parser.add_argument("--rescreen-screened", action="store_true",
                         help="clear successful screen cache for eligible 'new' rows; "
                              "requires --screen-only --once")
@@ -981,7 +984,16 @@ def main(argv=None) -> None:
         parser.error("--fetch-only, --score-only and --screen-only are mutually exclusive")
     if args.screen_only and args.rescreen_discarded:
         parser.error("--screen-only cannot be combined with --rescreen-discarded")
-    if args.screen_only and args.screen_limit <= 0:
+    if args.screen_unlimited:
+        if not args.screen_only:
+            parser.error("--screen-unlimited requires --screen-only")
+        args.screen_limit = None
+    elif args.screen_limit is None:
+        try:
+            args.screen_limit = int(os.environ.get("SCREEN_LIMIT", "40"))
+        except ValueError:
+            parser.error("SCREEN_LIMIT must be an integer")
+    if args.screen_only and args.screen_limit is not None and args.screen_limit <= 0:
         parser.error("--screen-limit must be a positive provider-call cap in screen-only mode")
     if args.screen_workers < 0:
         parser.error("--screen-workers must be >= 0 (0 selects the mode default)")

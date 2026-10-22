@@ -1,6 +1,12 @@
 # Codex screen and read-only ATS MCP — design
 
 **Status:** shipped
+
+**Current operating policy:** the explicit-unlimited design
+[`2026-10-22-explicit-unlimited-screen-design.md`](./2026-10-22-explicit-unlimited-screen-design.md)
+supersedes the mandatory per-pass screen cap in this design. Numeric limits default to
+40; the production operator explicitly selects `--screen-unlimited`.
+
 **Related plan:** [`../plans/2026-10-22-screen-and-readonly-mcp.md`](../plans/2026-10-22-screen-and-readonly-mcp.md)
 
 ## Purpose

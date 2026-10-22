@@ -624,16 +624,17 @@ def _screen_error_category(exc: Exception | None) -> str:
 
 
 def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
-               model: str | None, effort: str | None, limit: int = 40,
+               model: str | None, effort: str | None, limit: int | None = 40,
                screen_workers: int = 1) -> dict:
     """Persist standalone screening without touching fit or posting lifecycle state.
 
     Fresh eligible postings run newest-first. Provider errors are retried oldest-first
     after the fresh queue, while completed screens remain cached. ``limit`` reserves
     only actual extraction-provider calls; deterministic-only checks continue after the
-    cap. DB reads/writes stay on this thread while provider work may overlap.
+    cap. ``None`` explicitly removes that cap while retaining the provider breaker.
+    DB reads/writes stay on this thread while provider work may overlap.
     """
-    if limit <= 0:
+    if limit is not None and limit <= 0:
         raise ValueError("screen provider-call limit must be positive")
     if screen_fn is None:
         raise ValueError("run_screen requires an injected screen_fn")
@@ -704,7 +705,7 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
                             provider_attempted=False)
                     continue
                 if needs_provider:
-                    if breaker.tripped or tally["attempted"] >= limit:
+                    if breaker.tripped or (limit is not None and tally["attempted"] >= limit):
                         tally["uncalled"] += 1
                         continue
                     tally["attempted"] += 1

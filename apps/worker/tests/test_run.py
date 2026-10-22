@@ -161,8 +161,9 @@ def test_run_once_score_only_skips_ingest(monkeypatch):
     assert order == ["run_retry", "run_score", "run_notify"]  # no fetch/expire
 
 
+@pytest.mark.parametrize("screen_limit", [40, None])
 def test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, screen_limit):
     dbfile = bootstrap_db(tmp_path / "screen-only.db")
     conn = dbmod.connect(str(dbfile))
     dbmod.upsert_postings(conn, [make_posting("screen-only")],
@@ -181,7 +182,7 @@ def test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify(
     monkeypatch.setattr(run, "notify_posting", forbidden)
 
     run.run_once(cfg, db_path=str(dbfile), resumes={}, env={}, screen_backend="none",
-                 screen_only=True)
+                 screen_only=True, screen_limit=screen_limit)
 
     conn = dbmod.connect(str(dbfile))
     try:
@@ -783,6 +784,9 @@ def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypa
     ["--screen-only", "--rescreen-discarded"],
     ["--rescreen-screened"],
     ["--screen-only", "--screen-limit", "0"],
+    ["--screen-unlimited"],
+    ["--fetch-only", "--screen-unlimited"],
+    ["--screen-only", "--screen-unlimited", "--screen-limit", "1"],
 ])
 def test_screen_only_invalid_combinations_fail_before_config_or_db(
         mode_args, tmp_path, monkeypatch):
@@ -1617,3 +1621,16 @@ def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypat
         run.run_once(cfg, db_path=str(tmp_path / 'must-not-exist.db'), resumes={},
                      env={}, **modes)
     assert not (tmp_path / 'must-not-exist.db').exists()
+
+
+@pytest.mark.parametrize("environment_limit", ["1", "40", "0", "invalid"])
+def test_screen_unlimited_cli_overrides_environment_limit(tmp_path, monkeypatch, environment_limit):
+    monkeypatch.setenv("SCREEN_LIMIT", environment_limit)
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    captured = {}
+    monkeypatch.setattr(run.config_mod, "load_config", lambda _: object())
+    monkeypatch.setattr(run, "run_once", lambda cfg, **kw: captured.update(kw))
+    run.main(["--once", "--screen-only", "--screen-unlimited", "--env", str(env_file),
+              "--db", str(tmp_path / "db.sqlite")])
+    assert captured["screen_limit"] is None
