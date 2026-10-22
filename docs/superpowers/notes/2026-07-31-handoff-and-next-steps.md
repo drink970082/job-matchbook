@@ -1,5 +1,10 @@
 # Handoff — 2026-07-31 unattended run
 
+> **Scope:** retained research measurements and private-artifact context. Current
+> priorities are in [ROADMAP](../../ROADMAP.md); corpus readiness and model-run scope
+> are in [EVALUATION](../../EVALUATION.md). Commands and next-step suggestions here
+> do not schedule a new run or establish current branch/deployment readiness.
+
 Written at the end of the session, for whoever picks this up next. Plan:
 [`../plans/2026-07-31-quota-levers-caching-and-vetoes.md`](../plans/2026-07-31-quota-levers-caching-and-vetoes.md).
 Spend: [`2026-07-31-quota-ledger.md`](./2026-07-31-quota-ledger.md).

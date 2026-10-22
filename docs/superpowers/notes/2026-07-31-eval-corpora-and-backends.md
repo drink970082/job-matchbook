@@ -1,5 +1,10 @@
 # Handoff - 2026-07-31 (eval corpora and screen backends)
 
+> **Scope:** retained research measurements and private-artifact context. Current
+> priorities are in [ROADMAP](../../ROADMAP.md); corpus readiness and model-run scope
+> are in [EVALUATION](../../EVALUATION.md). Commands and next-step suggestions here
+> do not schedule a new run or establish current branch/deployment readiness.
+
 > **Sibling note, same day, different session:**
 > [`2026-07-31-handoff-and-next-steps.md`](./2026-07-31-handoff-and-next-steps.md) covers
 > the unattended quota-levers run. The two overlap on one fact and agree: that session

@@ -1,6 +1,13 @@
 # Unattended Long-Run Day - Operator Runbook
 
-**Status:** ready to run - authorized by the operator 2026-07-24. Not yet executed.
+**Status:** Deferred research runbook; not a current execution authorization.
+
+> **Execution boundary:** [ROADMAP](../../ROADMAP.md) owns current priorities and
+> [EVALUATION](../../EVALUATION.md) governs model checks. Retain the scorer, private
+> inputs, negative findings and unfinished branch work. Detailed phases and old budget
+> permissions below are reference material, not permission to restart a provider run,
+> mutate the database or merge an unreviewed branch. Re-scope any selected experiment
+> against current code, corpus and allowance first.
 
 > **For agentic workers:** this is an *operations* runbook, not an implementation
 > plan. Nothing here changes code. It drives the existing worker against real data,

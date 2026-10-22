@@ -1,11 +1,18 @@
 # Screen / score redesign: extraction first, rules from data
 
+**Status:** Deferred optional fit research; no production cutover or new model run selected.
+
+> **Execution boundary:** [ROADMAP](../../ROADMAP.md) owns current priorities and
+> [EVALUATION](../../EVALUATION.md) governs model checks. Retain the scorer, private
+> inputs, negative findings and unfinished branch work. Detailed phases and old budget
+> permissions below are reference material, not permission to restart a provider run,
+> mutate the database or merge an unreviewed branch. Re-scope any selected experiment
+> against current code, corpus and allowance first.
+
 > **Execution 2026-08-03: steps 0-2 built on `feat/fit-extraction-shadow`.** The frozen
 > hashes, the extraction schema and its shadow runner, and the 250-row stratified frame
-> (`eval/frame_extraction.jsonl`) exist; see CHANGELOG and SPEC §13. **Step 3 is the next
-> move and it is the operator's**, because it spends a paid pass over ~250 postings on
-> each of two backends against the standing quota directive, and step 4 is human
-> labelling. Nothing in steps 0-2 touches production state.
+> (`eval/frame_extraction.jsonl`) exist; see CHANGELOG and SPEC §13. Remaining model-family comparisons and human labelling are deferred;
+> selecting them requires a new scoped workload decision. Nothing in steps 0-2 touches production state.
 >
 > **TWO FINDINGS FROM THE STEP 0-2 AUDIT, both now resolved.** A was diagnosed wrong
 > twice before it was diagnosed right — read it for the method, not just the answer. B is
@@ -1265,22 +1272,14 @@ co-occurred in one reading, whose evidence quotes no longer match its relations.
 
 ---
 
-## Quota reality
+## Budget boundary
 
-`PROGRESS.md` carries a standing directive: **"QUOTA IS THE STANDING PRIORITY (operator's
-call, 2026-07-31). Work that is not a quota lever waits."** Capacity is ~92% of the weekly
-window at `--score-limit 40`.
-
-This plan is a consumer, not a lever. Costs to price before committing:
-
-- claude-code costs **0.29pp of the 5-hour session window per call** (~345 calls exhausts
-  one window); codex 0.053%/call. Phase 5.2 alone (7 candidates x ~100 postings x K=3) is
-  thousands of calls.
-- **"The July re-score ran free" no longer prices anything.** `SCORING 4.5`: "The premise
-  this design was built on is FALSE, measured 2026-07-31 ... it is **per-TOKEN credits**."
-  The new schema is materially larger on both sides.
-- Phase 1 is the one part that *is* a lever: discarding at screen cuts intake rather than
-  reordering it, and 54% of paid "no"s are `too_junior`.
+The current product order is source quality, retrieval/UI and ChatGPT workflow
+acceptance. This deferred extraction study is not a prerequisite. Its multi-model,
+repeated-draw phases consume subscription allowance or metered spend; cost must be
+estimated against the actual current model/effort/CLI before a selected run. Prior
+strong-fit per-call figures do not price Luna/medium assistance. Preserve the old
+negative cache/batching findings without using them as a standing intake-cut directive.
 
 ---
 

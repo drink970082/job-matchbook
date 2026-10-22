@@ -9,6 +9,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record the ChatGPT-first pivot: ATS supplies job sources, evidence, tracking and
+  collaboration tools; ChatGPT owns primary personal judgment and recommendation
+  delivery. Keep screen and fit scoring as optional low-cost assistance, including
+  the operator's subscription-backed Luna/medium screening preference; fit defaults,
+  runtime services and data are unchanged.
+- Add architecture, feature-readiness/roadmap and evaluation guides. Replace the
+  quota-first product queue with source quality, retrieval/UI and Daily Brief acceptance;
+  retain unmerged branch boundaries, private-corpus limitations, useful eval tools/tests
+  and negative results. Move detailed deferred investigations out of the boot path and
+  withdraw old research plans as automatic execution instructions. Clarify eval cost
+  in make help; no live model run is part of this documentation cleanup.
+
 - Add explicit `--screen-unlimited` for standalone screening and select it in the
   operator deployment. It removes the per-pass provider-call count cap while retaining
   successful-result caching, circuit breaking and screen-only isolation. Numeric limits

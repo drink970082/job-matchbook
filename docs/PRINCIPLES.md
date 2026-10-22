@@ -23,8 +23,9 @@ human, never automated.
 - *Smell:* a change that removes a confirmation seam "for convenience" — auto-retrying
   an apply, auto-adding a watchlist entry, auto-sending anything beyond the alert.
 
-**2. Deterministic code over LLM judgment.** If a rule can be written, write it; LLMs
-extract facts, code decides.
+**2. Deterministic tools for facts and state.** If a factual/state rule can be written,
+write it; models assist with extraction. ChatGPT may make contextual career judgments,
+but those are assessments, not deterministic source facts.
 - *Why:* a rule is testable, free, and never mode-collapses; small models especially
   are unreliable judges.
 - *In this repo:* the location gate is `resolve_location` + pycountry off the board
@@ -44,27 +45,20 @@ kept, not dropped. Scope: *opportunity* uncertainty only — see
 - *Smell:* a new gate whose default branch discards; tightening a filter without
   stating the false-drop story.
 
-**4. Cheap tier for frequency, judgment tier for judgment, cache the static — and the
-tier is a BACKEND CHOICE, not a hardware assumption.** High-frequency checks run on the
-cheapest adequate backend the deployment has; metered or quota-bound calls happen only
-where judgment matters, with the static prefix cached.
-- *Why:* per-posting cost compounds across every scheduled pass, and judgment quality is
-  worth paying for only where rules can't reach (principle 2 first!). The tier is the
-  invariant; *local* is one instance of the cheap tier, not its definition. Phrasing the
-  rule as "runs on the host GPU" quietly made a GPU a prerequisite — untenable for a tool
-  other people are meant to run, and the reason this principle was rewritten (2026-08-01,
-  operator's call).
-- *In this repo:* the hard-requirements screen has five backends — Ollama
-  (`qwen3.5:4b`, free and rate-limit-free where a GPU exists) plus `codex`,
-  `claude-code`, `claude-api` and `openai-api` for hosts without one — and whichever is
-  configured gates the fit score. Auto-detection never selects a paid backend: spending
-  money is explicit opt-in (`run.make_screener`). On the Claude fit path the
-  résumé+rubric system prefix is byte-identical and cached (`cache_control: ephemeral`)
-  so only the JD is fresh.
-- *Smell:* a new per-posting call at the judgment tier for something a cheaper backend
-  or a rule could do; a prompt assembled in a way that breaks byte-identical caching; a
-  default, doc, or setup step that assumes the operator has a GPU — or that treats one
-  provider as *the* provider.
+**4. Cheap optional assistance; primary judgment belongs in the user workflow.**
+Use the cheapest adequate backend for repeated assistance. Keep discovery and evidence
+access independent of completing fit scores; let ChatGPT apply personal context and
+make primary recommendations. Subscription inclusion is not unlimited allowance.
+- *Why:* source quality, retrieval and durable tracking are useful before any model
+  verdict. Low-cost Luna/medium assistance remains valuable without duplicating the
+  whole ChatGPT decision process in the worker.
+- *In this repo:* fetch-only and standalone screen-only are isolated modes; Codex
+  Luna/medium is selected for standalone screening. Fit scoring and Telegram remain
+  supported optional paths, with existing defaults and private inputs. MCP exposes
+  facts and separate assessment state without requiring fit scoring.
+- *Smell:* deleting the useful scorer to claim zero cost; making every job buy a fit
+  call before it is visible; treating a screen measurement as validation of a fit model;
+  adding a metered provider or rerunning a large eval without a concrete need.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;
 nothing is silently swallowed.
@@ -164,8 +158,8 @@ external APIs; rebuildable beats migratable.
 graded honestly.
 - *Why:* an unwritten rejection gets relitigated from scratch (or worse, silently
   reversed) by the next session.
-- *In this repo:* PROGRESS grades open work defects > unverified > enhancements and
-  keeps the ordering honest; iCIMS/ByteDance carry their recon evidence; dropped items
+- *In this repo:* ROADMAP orders product work, PROGRESS preserves unfinished claims
+  and BACKLOG records deferred scope; iCIMS/ByteDance carry their recon evidence; dropped items
   (embed-token, SuccessFactors) state why.
 - *Smell:* a feature quietly scoped out with no PROGRESS line; "we'll do it later"
   with no recorded blocker; re-attempting a deferred item without addressing its
