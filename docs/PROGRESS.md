@@ -72,8 +72,11 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
   request to rerun:
   qwen3.5:4b had 7 false disqualifications (4 degree + 3 clearance), recall 31/37 and
   flip 0; `gpt-5.6-luna` had 0 false disqualifications, recall 30/37 and flip 3. The
-  evaluation does not record effort, so production `medium` remains unmeasured. Full web
-  dependency-backed gates, CI protocol execution, production-host smoke, push and PR remain.
+  evaluation does not record effort, so production `medium` remains unmeasured. The MCP
+  server/protocol/docs slice is committed at 278c9f1. Full web dependency-backed gates,
+  SDK protocol execution in CI, and production-host smoke remain. Push and PR are blocked
+  in this environment because `github.com` does not resolve and GitHub CLI authentication
+  is unavailable.
 
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
