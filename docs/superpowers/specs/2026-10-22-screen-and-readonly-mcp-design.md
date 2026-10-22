@@ -22,6 +22,9 @@ reach an arbitrary URL. User-facing actions to create/import records are outside
   screens and fit-scores. Neither is the requested fetch+screen mode.
 - `run.py` currently loads resumes regardless of mode; a screen-only run should not
   need a resume, Ollama, fit credentials, or a fit-backend call.
+- The current pass requeues eligible `failed` rows through the fit retry stage before
+  screening. Screen-only must bypass that stage so historical fit failures are not
+  silently resurrected into a no-fit screening run.
 - Screen and fit are composed in `pipeline.run_score`; the current screen result is
   ultimately folded into `score_detail`. `score.screen_posting` returns
   `provider_error=True` on provider failure and otherwise reuses the deterministic
@@ -88,29 +91,42 @@ before. Compare:
 
 | Option | State and repeat behavior | Trade-off |
 |---|---|---|
-| A — minimal state (recommended) | Store one latest result per posting with status, raw structured screen result on success, sanitized error and `last_attempted_at`, backend/model/effort, and evaluator version. Cache success until the operator runs an explicit one-shot `--rescreen-screened` action for eligible `new` rows. Retry errors on later passes, order them by oldest attempt to avoid starvation, and reuse the existing screen circuit breaker plus a positive per-pass `--screen-limit` (default 40). No per-row retry budget, input fingerprint planner, or automatic invalidation when candidate config, model, prompt or rules change. | Durable no-fit screen results and bounded per-pass work with little new state. A screen can become stale after input changes until the operator explicitly requests a re-screen. A persistent per-row error may be retried over later runs but each run has a hard call cap and the existing breaker. |
+| A — minimal state (recommended) | Store one latest result per posting with status, raw structured screen result on success, sanitized error and `last_attempted_at`, backend/model/effort, and evaluator version. Cache success until the operator runs an explicit one-shot `--rescreen-screened --screen-only --once` action for eligible `new` rows. Retry errors on later passes, order them by oldest attempt to avoid starvation, and reuse the existing screen circuit breaker plus a positive per-pass `--screen-limit` (default 40). No per-row retry budget, input fingerprint planner, or automatic invalidation when candidate config, model, prompt or rules change. | Durable no-fit screen results and bounded per-pass work with little new state. A screen can become stale after input changes until the operator explicitly requests a re-screen. A persistent per-row error may be retried over later runs but each run has a hard call cap and the existing breaker. |
 | B — full state from the implementation brief | Store a hash of posting, candidate constraints, deterministic rules, prompt/schema, backend/model/effort. Automatically skip identical completed inputs and invalidate on any change. Store retry counts/time per fingerprint, back off, and park after three failures. | Automatically fresh evidence and bounded repeats. Adds a rerun planner and a separate retry lifecycle, both previously rejected; increases DDL, tests and maintenance. |
 
-**Recommendation: A.** The new table is justified because screen becomes independent;
-the hash-driven rerun planner is not required to achieve that. An explicit reset makes
-staleness a deliberate operator action and follows the prior simplicity decision. This
-recommendation intentionally replaces the original plan's automatic fingerprints and
-per-input retry budget. The operator must choose A or B before behavior implementation.
+**Recommendation: A.** If Fork 1 selects a separate table, that table is justified
+because screen becomes independent; the hash-driven rerun planner is not required to
+achieve that. An explicit reset makes staleness a deliberate operator action and follows
+the prior simplicity decision. This recommendation intentionally replaces the original
+plan's automatic fingerprints and per-input retry budget. The operator must choose A or
+B before behavior implementation.
+
+With either option, screen only rows left eligible as `new` after ordinary fetch/feed
+filters. Fetch retains its existing deterministic status effects, including setting a
+newly fetched posting to `discarded`; the screen stage itself leaves the posting's
+pipeline lifecycle untouched. Select never-screened rows newest-first, then use leftover
+provider-call capacity for errors ordered by oldest attempt. Screen-only skips the
+existing fit retry/requeue stage so it does not resurrect historical scoring failures.
 
 For either option:
 
 - A provider error is never stored as a successful screen. Persist only a sanitized
   error category/message and timestamp; do not persist raw prompt, JD, stdout or stderr.
 - A posting re-checks `pipeline_status='new'` immediately before result persistence.
-- Keep existing score, score detail, attempts, notification attempts, status and
-  application link untouched by the screen-only stage.
+- Keep existing fit score, attempts, notification attempts, pipeline status and
+  application link untouched by the screen-only stage. Under the separate-table option,
+  keep `score_detail` untouched too. Under the `score_detail` option, update only the
+  screen member using a schema-aware merge that preserves unrelated fit evidence; test
+  that the persisted fit fields survive that merge.
 - Do not reprocess terminal or already fit-scored historical rows in v1.
 - Fetch-time title, age, location and internship rules remain as configured. The MCP
   can read discarded postings, including bodyless stubs; it must report stored content
   faithfully and never invent a full JD.
 - Screen deterministic-only outcomes are recorded without spending a Codex call.
 - The command rejects conflicting `--fetch-only`, `--score-only`, and
-  `--screen-only` modes before opening/mutating the database or fetching.
+  `--screen-only` modes before opening/mutating the database or fetching. The
+  `--rescreen-screened` reset is only valid with `--screen-only --once`; it cannot be
+  combined with `--rescreen-discarded`.
 - Keep `SCREEN_BACKEND`'s global default as Ollama. The host deployment opts into
   Codex Luna medium explicitly. Codex subprocess remains tool-less, read-only and
   ephemeral, with web disabled.

@@ -29,10 +29,12 @@ test must remain an explicit acceptance gap, never a claimed success.
 In scope:
 
 - Fetch + screen, with screen backend `codex`, model `gpt-5.6-luna`, effort `medium`.
-  This model spelling follows the existing repo's Luna family; validate availability
-  with the installed CLI/account. Do not silently substitute GPT-6 Luna or another
-  model. `medium` is requested as the pinned production setting, but the committed
-  accuracy evaluation does not record effort, so the exact setting is unmeasured.
+  Keep the exact Luna model already compared in this repo's screen corpus; validate
+  availability with the installed CLI/account. GPT-6 Luna is also current in the OpenAI
+  catalog, but changing the model requires a representative quality evaluation, so do
+  not silently substitute it. `medium` is the pinned production setting, but the
+  committed accuracy evaluation does not record effort, so the exact setting is
+  unmeasured.
 - Independent persistence of screen results, provenance, and retry/error state.
 - Complete, paginated, read-only access to every application-owned Prisma model and
   its fields, including records hidden by the current UI's score buckets.
@@ -108,10 +110,13 @@ planned independent Sol/Astra acceptance.
   completed screen.
 - Fetch includes title/age filters and deterministic location/intern disqualification.
   Preserve configured fetch rules in v1, document them, and expose discarded rows
-  through MCP. Some fetch-discarded rows have only stubs; do not fabricate full JDs.
+  through MCP. Fetch's existing deterministic gates may mark a just-fetched row
+  `discarded`; this is fetch behavior. The standalone screen stage processes only rows
+  that remain eligible as `new` and must not change their pipeline lifecycle. Some
+  fetch-discarded rows have only stubs; do not fabricate full JDs.
 - `db.connect` sets WAL and is designed for writers. DO NOT use it for MCP reads.
 - Prisma owns all DDL: `apps/web/prisma/schema.prisma`. Update the worker SQL fixture
-  and schema drift guard coverage when adding the screen persistence model.
+  and schema drift guard coverage if the selected result-storage design adds a model.
 - `job_postings` dedup key is `(source, external_id)`; `application_id` links to
   `applications`; `status_history` holds application transitions.
 - `apps/web/src/lib/actions.ts` defaults to score-derived buckets that hide `new`
@@ -125,10 +130,12 @@ planned independent Sol/Astra acceptance.
 
 Implement an explicit `--screen-only` mode: normal ingest/expiry followed by hard
 requirements screening, then return before ANY fit/notify work, including queued
-notification delivery and fit quota-refresh side effects. Keep legacy default,
-`--fetch-only`, and `--score-only` behavior unchanged. Reject combinations of those
-three modes before network/DB mutations. Do not require resume loading in either
-fetch-only or screen-only mode. Continue using the existing per-DB pass lock.
+notification delivery and fit quota-refresh side effects. It also skips `run_retry` and
+`--rescreen-discarded`: those belong to the legacy fit lifecycle and can requeue or
+mutate historical rows. Keep legacy default, `--fetch-only`, and `--score-only`
+behavior unchanged. Reject combinations of those three modes, or `--screen-only` with
+`--rescreen-discarded`, before network/DB mutations. Do not require resume loading in
+either fetch-only or screen-only mode. Continue using the existing per-DB pass lock.
 
 Expose `--screen-effort` / `SCREEN_EFFORT`, validate supported values, and explicitly
 forward the selected value to Codex's `model_reasoning_effort`. Preserve existing
@@ -141,6 +148,11 @@ including failures, not only passes. Never silently interpret zero as unlimited;
 reject nonpositive values in this mode. Other modes' existing caps remain unchanged.
 Reuse known deterministic outcomes without calling a provider. Log attempted calls,
 cache hits, pass/disqualify/unknown outcomes and errors, without raw JD or secrets.
+Fresh, never-screened `new` postings use the existing newest-first queue order. Once
+those are selected, unused provider-call capacity retries screen errors oldest-attempt
+first. The same `--screen-limit` caps provider calls, including failures. A one-shot
+`--rescreen-screened` operator action clears successful screen cache for eligible `new`
+rows; require `--once` so a recurring daemon cannot clear its own cache every pass.
 
 **Screen result storage and persistence/retry policy require operator signoff before
 implementation.** The companion spec also asks whether results belong in the existing
@@ -168,12 +180,16 @@ previously rejected directions and adds a Prisma model and retry lifecycle.
 
 The complete state proposal is not silently approved by the implementation plan.
 Preserve the existing screen payload contract under either choice; do not introduce a
-replacement set of per-check verdict enums. Keep `job_postings.pipeline_status`, fit
-score/detail, attempts and application links untouched by screen-only writes. No fake
-score, no `scored` status, and no successful cache entry for a provider error. Fetch's
-existing mutations remain as specified. Process eligible `new` postings newest-first;
-do not automatically resurrect or process terminal/already fit-scored historical rows.
-Expose old fetch/legacy screen evidence as its original evidence, not as a new Luna run.
+replacement set of per-check verdict enums. The screen stage must not change
+`pipeline_status`, fit `score`, `attempts`, `notify_attempts`, or application links. If
+the operator selects the separate-table design, it also leaves `score_detail`
+byte-for-byte unchanged. If they select `score_detail`, update only the screen member
+through a schema-aware merge that preserves unrelated fit evidence. No fake score, no
+`scored` status, and no successful cache entry for a provider error. Fetch's existing
+filters retain their status effects; the screen stage only processes rows left eligible
+as `new`. Do not automatically requeue or process terminal/already fit-scored historical
+rows. Expose old fetch/legacy screen evidence as its original evidence, not as a new
+Luna run.
 
 Use a transaction per result and re-check row eligibility before storing it if another
 writer has changed its lifecycle. A crash after a provider call but before commit may
@@ -190,7 +206,8 @@ Missing DB/schema should produce an actionable error without filesystem disclosu
 
 Coverage inventory (re-read current Prisma schema; do not omit models added since
 this brief): `job_postings`, `applications`, `status_history`, `watched_companies`,
-`feed_unresolved`, `promotion_dismissed`, `app_settings`, and new `job_screenings`.
+`feed_unresolved`, `promotion_dismissed`, `app_settings`, and the selected screen-result
+storage (a `job_screenings` model only if option B is approved).
 Expose all stored business-data fields through typed details or allowlisted entity
 record tools. `custom` fetch recipes can contain arbitrary request headers, including
 credentials. The companion spec must choose an explicit policy for those values and
@@ -265,20 +282,30 @@ and synthetic job/candidate data. No live keys, Codex, Ollama, Telegram or websi
 
 Required evidence:
 
-1. New-mode integration: fake ingest + screen persists outcomes; fit factory, fit
-   function, quota-refresh and notify mocks are set to raise if reached and remain
-   uncalled, including with previously queued notifications. No resume needed.
-2. CLI tests: mode exclusivity, limits, environment precedence, medium effort in
-   Codex argv, unsupported effort fails before side effects; preserve tool-less flags.
+1. New-mode integration: fake ingest + screen persists outcomes; `pipeline.run_score`,
+   `_sweep_free_gates`, fit factory, fit function, quota-refresh and notify mocks are set
+   to raise if reached and remain uncalled, including with previously queued
+   notifications. The fit retry/requeue stage is also uncalled. No resume needed.
+2. CLI tests: mode exclusivity, `--rescreen-screened` one-shot requirements, limits,
+   environment precedence, medium effort in Codex argv, unsupported effort fails before
+   side effects; preserve tool-less flags.
 3. Screen state tests: pass, grounded disqualification, no configured requirements,
    missing/unknown checks, invalid JSON, timeout, missing executable/auth/provider
-   failure, cache hit, every fingerprint input change, bounded retry/backoff/reset,
-   changed eligibility, empty and short JD, crash/restart behavior. Preserve legacy
-   fit/score_detail and application relations byte-for-byte where unchanged by fetch.
-4. Repository tests: every Prisma model/field has an access route; all pipeline states
-   reachable, orphaned optional links, Unicode, long text, nulls, malformed JSON,
-   unknown legacy status, stable complete pagination over static fixtures, malicious
-   filter/cursor/SQL-like input, missing DB/schema and concurrent WAL visibility.
+   failure, changed eligibility, empty and short JD, crash/restart behavior, and the
+   chosen storage path. For minimal-state option A, prove success caching until the
+   explicit one-shot re-screen, oldest-attempt-first error retries under the call cap,
+   and no automatic invalidation, fingerprint planner, per-row retry budget or backoff.
+   For full-state option B, prove every fingerprint input change invalidates and bounded
+   retry/backoff parks after three failures. Do not require tests for the unselected
+   policy. If `score_detail` is selected, prove the merge preserves unrelated fit JSON;
+   if the separate table is selected, prove `score_detail` remains byte-for-byte
+   unchanged. Preserve the other fit/application fields the selected storage contract
+   leaves unchanged.
+4. Repository tests: every Prisma model/field in the selected schema has an access
+   route; all pipeline states reachable, orphaned optional links, Unicode, long text,
+   nulls, malformed JSON, unknown legacy status, stable complete pagination over static
+   fixtures, malicious filter/cursor/SQL-like input, missing DB/schema and concurrent
+   WAL visibility.
 5. Read-only tests: SQL write attempts fail at connection level; MCP calls cause no
    application row changes. Do not compare raw DB file hashes during concurrent
    worker writes or claim those prove MCP purity. Verify no startup schema/seed work.
