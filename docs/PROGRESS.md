@@ -39,6 +39,13 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
+- **Explicit unlimited standalone screening** — `[SCREEN · S · branch
+  `feat/screen-unlimited`, cut from main]`. The operator requests removing the
+  production screen-call cap. Approved design:
+  [`superpowers/specs/2026-10-22-explicit-unlimited-screen-design.md`](./superpowers/specs/2026-10-22-explicit-unlimited-screen-design.md).
+  Add an explicit unlimited CLI option while preserving bounded defaults, success
+  caching, the provider breaker and screen-only isolation. Deploy after verification.
+
 - **The fit-scoring rebuild, steps 0-2 — `feat/fit-extraction-shadow`, cut from `main`
   2026-08-03** `[SCORE · L]`. Plan:
   [`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
