@@ -1,6 +1,6 @@
 # Codex screen and read-only ATS MCP — design
 
-**Status:** draft — operator signoff required before behavior, dependency, or schema changes.
+**Status:** approved
 **Related plan:** [`../plans/2026-10-22-screen-and-readonly-mcp.md`](../plans/2026-10-22-screen-and-readonly-mcp.md)
 
 ## Purpose
@@ -43,12 +43,13 @@ reach an arbitrary URL. User-facing actions to create/import records are outside
   the selected runtime setting, not a measured quality setting.
 - Previous repo decisions reject per-stage screen retry budgets and end-to-end input
   hashes with an automatic re-run planner (`docs/REJECTED.md`). This feature changes
-  the premise by moving screen into an independent recurring stage. The alternatives
-  below make that exception visible for operator review.
+  the premise by moving screen into an independent recurring stage. The trade-offs are
+  recorded below; the selected retry policy keeps the earlier simplicity constraint.
 - The official MCP Python SDK v2 is now its stable line and uses `MCPServer`; Sure's
   example is written against the v1 `FastMCP` API. Python 3.11 meets the v2 minimum.
 - A `custom` board's JSON recipe can contain arbitrary request headers, including
-  credentials. “Read all ATS data” therefore needs an explicit secret-display rule.
+  credentials. The approved MCP boundary redacts credential values while preserving
+  recipe structure and header names.
 
 ## Principles
 
@@ -74,7 +75,7 @@ reach an arbitrary URL. User-facing actions to create/import records are outside
 | Option | Shape | Trade-off |
 |---|---|---|
 | A | Write the new result into `job_postings.score_detail` while status stays `new` | No new table, but overloads a fit result column and can be overwritten when a fit pass runs. MCP cannot reliably distinguish the new screen from legacy fit evidence. |
-| B | Add a one-to-one Prisma `job_screenings` record per posting | Clear boundary for new screen evidence, retry status and MCP reads. Adds DDL and a worker fixture, and needs an operator-selected invalidation/retry policy (Fork 2). |
+| B | Add a one-to-one Prisma `job_screenings` record per posting | Clear boundary for new screen evidence, retry status and MCP reads. Adds DDL and a worker fixture; retry behavior follows Fork 2. |
 
 **Recommendation: B.** It preserves the meaning of current fit columns and supports
 screening independently. The exact fields depend on Fork 2. Keep the current nested
@@ -95,20 +96,21 @@ before. Compare:
 | A — minimal state (recommended) | Store one latest result per posting with status, raw structured screen result on success, sanitized error and `last_attempted_at`, backend/model/effort, and evaluator version. Cache success until the operator runs an explicit one-shot `--rescreen-screened --screen-only --once` action for eligible `new` rows. Retry errors on later passes, order them by oldest attempt to avoid starvation, and reuse the existing screen circuit breaker plus a positive per-pass `--screen-limit` (default 40). No per-row retry budget, input fingerprint planner, or automatic invalidation when candidate config, model, prompt or rules change. | Durable no-fit screen results and bounded per-pass work with little new state. A screen can become stale after input changes until the operator explicitly requests a re-screen. A persistent per-row error may be retried over later runs but each run has a hard call cap and the existing breaker. |
 | B — full state from the implementation brief | Store a hash of posting, candidate constraints, deterministic rules, prompt/schema, backend/model/effort. Automatically skip identical completed inputs and invalidate on any change. Store retry counts/time per fingerprint, back off, and park after three failures. | Automatically fresh evidence and bounded repeats. Adds a rerun planner and a separate retry lifecycle, both previously rejected; increases DDL, tests and maintenance. |
 
-**Recommendation: A.** The approved separate table gives screen independent storage;
+**Recommendation: A. Operator decision: A, minimal state with explicit re-screen, is
+approved.** The approved separate table gives screen independent storage;
 the hash-driven rerun planner is not required to achieve that. An explicit reset makes
 staleness a deliberate operator action and follows the prior simplicity decision. This
 recommendation intentionally replaces the original plan's automatic fingerprints and
-per-input retry budget. The operator must choose A or B before behavior implementation.
+per-input retry budget.
 
-With either option, screen only rows left eligible as `new` after ordinary fetch/feed
+Under approved option A, screen only rows left eligible as `new` after ordinary fetch/feed
 filters. Fetch retains its existing deterministic status effects, including setting a
 newly fetched posting to `discarded`; the screen stage itself leaves the posting's
 pipeline lifecycle untouched. Select never-screened rows newest-first, then use leftover
 provider-call capacity for errors ordered by oldest attempt. Screen-only skips the
 existing fit retry/requeue stage so it does not resurrect historical scoring failures.
 
-For either option:
+The approved screen-stage contract is:
 
 - A provider error is never stored as a successful screen. Persist only a sanitized
   error category/message and timestamp; do not persist raw prompt, JD, stdout or stderr.
@@ -121,10 +123,9 @@ For either option:
   faithfully and never invent a full JD.
 - Screen deterministic-only outcomes are recorded without spending a Codex call.
 - The command rejects conflicting `--fetch-only`, `--score-only`, and
-  `--screen-only` modes before opening/mutating the database or fetching. Under minimal
-  state option A, `--rescreen-screened` is only valid with `--screen-only --once` and
-  cannot be combined with `--rescreen-discarded`. Option B relies on automatic
-  fingerprint invalidation instead.
+  `--screen-only` modes before opening/mutating the database or fetching.
+  `--rescreen-screened` is only valid with `--screen-only --once` and cannot be
+  combined with `--rescreen-discarded`.
 - Keep `SCREEN_BACKEND`'s global default as Ollama. The host deployment opts into
   Codex Luna medium explicitly. Codex subprocess remains tool-less, read-only and
   ephemeral, with web disabled.
@@ -136,7 +137,8 @@ For either option:
 | A — official SDK v2 (`mcp.server.MCPServer`) | Current stable SDK and current docs; requires an optional `mcp>=2,<3` runtime dependency and tests under Python 3.11. Differs from Sure's older examples. |
 | B — pin official SDK v1 (`mcp<2`) | Matches Sure's demonstrated `FastMCP` import, but pins the maintenance line and its v1 API after v2's breaking rework. |
 
-**Recommendation: A.** Pin the supported major range, keep the dependency out of
+**Recommendation: A. Operator decision: official SDK v2 is approved.** Pin the
+supported major range, keep the dependency out of
 worker-only runtime installs, and test tools in-process plus stdio protocol. Use stdio
 through an ATS-specific Secure MCP Tunnel profile; do not change Sure's target/profile.
 If the tunnel client or account is unavailable during implementation, document the
@@ -152,10 +154,11 @@ query keys if exposed through URLs (`token`, `key`, `secret`, `auth`, `signature
 as requested. `app_settings` currently stores categories only; future entries must be
 filtered by an explicit allowlist before they can be exposed.
 
-**Recommendation: redact recipe credentials and state this as the one exception to
-complete database reads.** Returning the raw recipe would expose request credentials to
-the model through an MCP result. The operator should confirm whether that boundary is
-acceptable. No credentials should appear in fixtures, logs, docs or MCP error text.
+**Operator decision: redact recipe credentials.** Return all ordinary recipe fields,
+preserve header names, and redact every header value plus conventional secret URL query
+values. This is the one exception to complete database reads; it prevents request
+credentials from appearing in MCP results. No credentials should appear in fixtures,
+logs, docs or MCP error text.
 
 ## Read-only query and MCP contract
 
@@ -170,7 +173,7 @@ optional links.
 
 Expose the current application-owned Prisma models: jobs, applications, status history,
 watchlist, unresolved feed entries, dismissed promotion suggestions, application
-settings, and the selected screening result model. Include full job descriptions,
+settings, and `job_screenings`. Include full job descriptions,
 application notes, status history, links, raw screen/score payloads and all record
 fields subject to the credential rule above. Tools cover overview/counts, filtered job
 listing/details, application listing/details/history, and allowlisted auxiliary entity
@@ -200,15 +203,14 @@ registered, but connection-level read-only mode is the enforcement boundary.
   feature worktree. Report whether the production host and ChatGPT tunnel were actually
   verified; never infer either from tests.
 
-## Operator decisions requested
+## Operator decisions recorded
 
-1. Screen persistence/retry: choose A (minimal result + explicit re-screen) or B
-   (automatic fingerprint invalidation + per-input retry state). Recommendation A.
-2. MCP package: approve official SDK v2, or request v1 for compatibility with Sure's
-   current example. Recommendation v2.
-3. Recipe credential visibility: approve redacting recipe header/secret query values
-   while returning all other ATS business data, or specify another boundary.
+1. Screen storage: B, a separate one-to-one `job_screenings` record.
+2. Screen persistence/retry: A, minimal result with explicit one-shot re-screen and
+   capped retries for errors.
+3. MCP package: official Python SDK v2.
+4. Recipe credential visibility: redact header values and conventional secret URL query
+   values while returning all other ATS business data.
 
-After those decisions are recorded, change this header to `approved`, then implement the
-approved path. Other details—tool names, cursor encoding, exact schema field names—are
-implementation choices inside the approved contract.
+Other details—tool names, cursor encoding, exact schema field names—are implementation
+choices inside the approved contract.

@@ -1,7 +1,6 @@
 # Codex screen + complete read-only ATS MCP — implementation brief
 
-**Status:** implementation plan; the design forks in the companion draft spec require
-operator signoff before behavior or schema implementation.
+**Status:** approved design; implementation in progress under the signed-off choices.
 **Implementer:** GPT Luna, reasoning effort max, using goal mode.
 **Reviewer:** GPT Sol / Astra, independent of the implementer.
 **Deliverable:** a new feature branch and a PR against `main`; do not merge.
@@ -60,22 +59,18 @@ Out of scope:
    `docs/DEVELOPMENT.md` §§2–7, `docs/PRINCIPLES.md`, relevant SPEC sections
    (§§6, 7.1, 7.2, 8, 9, 11, 12, 13), `docs/SCORING.md` including measured history
    and hostile directions, and `docs/REJECTED.md` screen-shape entry.
-2. Inspect status, active branch, claims, current remote state, and any running worker.
-   At preparation time the checkout was `feat/import-csv-dialog`, with user edits in
-   `docs/BACKLOG.md`, `docs/PROGRESS.md`, and `docs/SCORING.md`. Re-check, never assume.
-3. Never stash, overwrite, commit, or reset those unrelated edits. Do not switch a
-   live worker's checkout. Fetch remote and create an isolated worktree from current
-   `origin/main`, branch `feat/codex-screen-readonly-mcp` (use a noncolliding suffix if
-   necessary). Put the worktree under an allowed writable directory. No stacked PR.
-4. Add an In-flight claim on the implementation branch. Resolve overlap with existing
-   claims without modifying someone else's work.
-5. This is design-shaped (new dependency, schema, behavior). Produce a companion
-   design spec under `docs/superpowers/specs/`, citing principles 1–4 and explaining
-   the decisions in this brief. Respect the repo's explicit design approval rule:
-   do not invent an `approved` header or treat this plan as a pre-existing approved
-   spec. Present any required design signoff as a concrete spec, with its exact
-   rule source, while continuing independent preparatory work. Routine details
-   within authorized scope do not require repeated permission requests.
+2. The root checkout is `feat/import-csv-dialog` and contains user changes in
+   `docs/BACKLOG.md`, `docs/PROGRESS.md`, `docs/SCORING.md`, plus an untracked plan.
+   Re-check status, claims, remote state, and any running worker before proceeding.
+3. Never stash, overwrite, commit, or reset those unrelated root-checkout changes. Do
+   not switch a live worker's checkout. Implement in the existing isolated worktree
+   `/tmp/ats-codex-screen-readonly-mcp`, branch `feat/codex-screen-readonly-mcp`, based
+   on `origin/main`. No stacked PR.
+4. The In-flight claim is on the implementation branch. The companion design spec is
+   approved with these choices: separate `job_screenings` storage, minimal-state retry
+   and cache policy A, official MCP Python SDK v2, and redaction of recipe credential
+   values. Do not reopen these forks; routine details within the approved scope do not
+   require repeated permission requests.
 
 ## 4. Goal-mode execution contract
 
@@ -155,13 +150,15 @@ state option A, `--rescreen-screened` clears successful screen cache for eligibl
 rows and requires `--screen-only --once`; recurring passes must never clear their own
 cache. Full-state option B uses fingerprint changes for automatic invalidation instead.
 
-**Screen result storage is approved as a separate Prisma `job_screenings` row. The
-persistence/retry policy still requires operator signoff before implementation.**
+**Screen storage and retry policy are approved:** persist one latest result per posting
+in a separate Prisma `job_screenings` row, cache successful outcomes until an explicit
+one-shot re-screen, and retry errors on later passes under the per-pass cap and existing
+screen circuit breaker.
 `docs/REJECTED.md` rejects per-stage screen retry budgets and end-to-end hashes with an
 automatic re-run planner. This task changes an important premise: screen is now a
 standalone recurring stage, while postings remain `new`, so its result cannot live only
-inside fit `score_detail` or be inferred from `pipeline_status`. The companion draft
-spec presents two choices:
+inside fit `score_detail` or be inferred from `pipeline_status`. The companion spec
+records the approved policy and the alternative considered:
 
 1. A smaller `job_screenings` table with one latest result per posting, screen payload,
 attempt time, state, backend/model/effort and evaluator version. Completed outcomes are
@@ -179,8 +176,8 @@ previously rejected directions and adds a Prisma model and retry lifecycle.
 
 Preserve the existing screen payload contract; do not introduce a
 replacement set of per-check verdict enums. The screen stage must not change
-`pipeline_status`, fit `score`, `attempts`, `notify_attempts`, or application links. If
-or `score_detail` (which stays fit/legacy evidence). No fake score, no `scored` status,
+`pipeline_status`, fit `score`, `attempts`, `notify_attempts`, application links, or
+`score_detail` (which stays fit/legacy evidence). No fake score, no `scored` status,
 and no successful cache entry for a provider error. Fetch's existing filters retain
 their status effects; the screen stage only processes rows left eligible as `new`. Do
 not automatically requeue or process terminal/already fit-scored historical rows.
@@ -205,9 +202,10 @@ this brief): `job_postings`, `applications`, `status_history`, `watched_companie
 `job_screenings` result model.
 Expose all stored business-data fields through typed details or allowlisted entity
 record tools. `custom` fetch recipes can contain arbitrary request headers, including
-credentials. The companion spec must choose an explicit policy for those values and
-state exactly how the response remains complete with credential redaction. Sensitive
-future settings keys require an explicit policy, never unreviewed exposure.
+credentials. Return all ordinary recipe fields and header names, but redact every
+header value and conventional secret URL query values. This is the approved exception
+to complete business-data reads. Sensitive future settings keys require an explicit
+policy, never unreviewed exposure.
 
 Tools should include:
 
@@ -243,9 +241,7 @@ Use the official MCP Python SDK v2, the current stable line and compatible with 
 repo's Python 3.11 floor. Its current server API is `from mcp.server import MCPServer`;
 Sure's `mcp.server.fastmcp.FastMCP` example is v1-era and must not be copied blindly.
 Keep the SDK optional so worker-only installs/tests do not acquire an unrelated runtime
-import requirement. Pin an exact tested v2 release in a separate MCP dependency file
-after design signoff. A v1 pin below 2 is the compatibility alternative only if a
-v1-specific interoperability need is established; see the companion spec's SDK fork.
+import requirement. Pin an exact tested v2 release in a separate MCP dependency file.
 Wire paths/services in entrypoints, keep query functions testable by DI.
 MCP entrypoint must not import/run the worker scheduler or mutable DB bootstrap.
 

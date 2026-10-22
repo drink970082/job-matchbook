@@ -39,15 +39,14 @@ For *what the system currently does*, read SPEC §4 (goals), §5 (workflow), and
 
 ## In flight
 
-- **Codex Luna screen + read-only ATS MCP — design signoff pending**
+- **Codex Luna screen + read-only ATS MCP — implementation in progress**
   `[FETCH + SCREEN + MCP · L · branch `feat/codex-screen-readonly-mcp`, cut from
   `origin/main`]`. Plan:
   [`superpowers/plans/2026-10-22-screen-and-readonly-mcp.md`](./superpowers/plans/2026-10-22-screen-and-readonly-mcp.md);
-  draft design:
+  approved design:
   [`superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md`](./superpowers/specs/2026-10-22-screen-and-readonly-mcp-design.md).
-  **Screen results are approved for a separate `job_screenings` table. Implementation is
-  waiting for the operator to choose** the screen result retry/cache policy, SDK major
-  line, and treatment of credentials inside stored custom-board recipes. The
+  Approved choices: `job_screenings` with minimal-state retry/cache policy A, official
+  MCP Python SDK v2, and redaction of custom-recipe credential values. The
   implementation brief proposes `gpt-5.6-luna` at pinned `medium`; current
   expanded-corpus evidence has zero false disqualifications for Luna, but does not record
   effort. No schema, worker, MCP service, live model call, or deployment has changed.
