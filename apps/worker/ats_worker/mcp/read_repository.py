@@ -10,9 +10,9 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 
@@ -24,6 +24,10 @@ MAX_SEARCH_CHARS = 200
 MAX_FILTER_CHARS = 200
 MAX_CURSOR_CHARS = 1_024
 MAX_CURSOR_KEY_CHARS = 300
+MAX_RFC3339_CHARS = 40
+MAX_SCREEN_REASON_CHARS = 300
+MAX_SCREEN_PROVENANCE_CHARS = 120
+MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807
 
 REQUIRED_TABLES = frozenset({
     "applications",
@@ -76,7 +80,162 @@ _SECRET_QUERY_KEYS = frozenset({
     "credential", "credentials", "accesskey", "jwt",
 })
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_RFC3339_RE = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})[Tt](?P<hour>\d{2}):(?P<minute>\d{2}):"
+    r"(?P<second>\d{2})(?P<fraction>\.\d+)?(?P<zone>[Zz]|[+-]\d{2}:\d{2})$"
+)
+_STORED_TIMESTAMP_RE = re.compile(
+    r"^(?P<date>\d{4}-\d{2}-\d{2})[Tt ](?P<hour>\d{2}):(?P<minute>\d{2}):"
+    r"(?P<second>\d{2})(?P<fraction>\.\d+)?(?P<zone>[Zz]|[+-]\d{2}:\d{2})?$"
+)
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _INTEGER_KEY_RE = re.compile(r"^[1-9]\d{0,9}$")
+
+SCREEN_OUTCOMES = (
+    "not_screened", "provider_error", "disqualified", "no_disqualifier_found", "unknown",
+)
+_SCREEN_OUTCOME_SET = frozenset(SCREEN_OUTCOMES)
+_UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_SAFE_SCREEN_JSON_SQL = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
+_MAX_TIMESTAMP_CHARS = MAX_RFC3339_CHARS
+
+
+def _timestamp_key(value: Any) -> tuple[int, str] | None:
+    """Return exact UTC parts for a supported timestamp with an explicit zone."""
+    if not isinstance(value, str) or len(value) > _MAX_TIMESTAMP_CHARS:
+        return None
+    match = _STORED_TIMESTAMP_RE.fullmatch(value)
+    if match is None:
+        return None
+    zone = match.group("zone")
+    if zone is None:
+        return None
+    zone_for_parser = "+00:00" if zone in {"Z", "z"} else zone
+    base = (f"{match.group('date')}T{match.group('hour')}:{match.group('minute')}:"
+            f"{match.group('second')}{zone_for_parser}")
+    try:
+        parsed = datetime.fromisoformat(base)
+        delta = parsed.astimezone(timezone.utc) - _UTC_EPOCH
+    except (ValueError, OverflowError):
+        return None
+    seconds = delta.days * 86_400 + delta.seconds
+    fraction = (match.group("fraction") or "").lstrip(".").rstrip("0")
+    return seconds, fraction
+
+
+def _compare_timestamp_keys(left: tuple[int, str], right: tuple[int, str]) -> int:
+    if left[0] != right[0]:
+        return -1 if left[0] < right[0] else 1
+    width = max(len(left[1]), len(right[1]))
+    left_fraction = left[1].ljust(width, "0")
+    right_fraction = right[1].ljust(width, "0")
+    return (left_fraction > right_fraction) - (left_fraction < right_fraction)
+
+
+def _timestamp_compare(stored: Any, bound: Any) -> int | None:
+    left = _timestamp_key(stored)
+    right = _timestamp_key(bound)
+    return None if left is None or right is None else _compare_timestamp_keys(left, right)
+
+
+def _parse_rfc3339(value: str | None, name: str) -> str | None:
+    value = _bounded_text(value, name, MAX_RFC3339_CHARS, allow_empty=False)
+    if value is None:
+        return None
+    if not _RFC3339_RE.fullmatch(value):
+        raise QueryInputError(f"{name} must be an offset-aware RFC3339 instant")
+    key = _timestamp_key(value)
+    if key is None:
+        raise QueryInputError(f"{name} must be a valid RFC3339 instant")
+    seconds, fraction = key
+    try:
+        whole_second = _UTC_EPOCH + timedelta(seconds=seconds)
+    except OverflowError:
+        raise QueryInputError(f"{name} is outside the supported datetime range") from None
+    canonical = whole_second.strftime("%Y-%m-%dT%H:%M:%S")
+    if fraction:
+        canonical += "." + fraction
+    return canonical + "Z"
+
+
+def _timestamp_valid(value: Any) -> int | None:
+    """Return known only for persisted timestamps carrying an explicit UTC offset."""
+    key = _timestamp_key(value)
+    return 1 if key is not None else None
+
+
+def _screen_outcome_sql() -> str:
+    """SQL outcome logic shared by list filters, summaries, and overview counts."""
+    result = _SAFE_SCREEN_JSON_SQL
+    failed_check = (
+        f"EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS screen_check "
+        "WHERE screen_check.type='object' AND "
+        "CASE WHEN screen_check.type='object' "
+        "THEN json_type(screen_check.value, '$.pass')='false' ELSE 0 END)"
+    )
+    passed_check = (
+        f"EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS screen_check "
+        "WHERE screen_check.type='object' AND "
+        "CASE WHEN screen_check.type='object' "
+        "THEN json_type(screen_check.value, '$.pass')='true' ELSE 0 END)"
+    )
+    return f"""CASE
+        WHEN s.id IS NULL THEN 'not_screened'
+        WHEN s.state='provider_error' THEN 'provider_error'
+        WHEN s.state!='complete' OR json_valid(s.result_json)=0 THEN 'unknown'
+        WHEN json_type({result}, '$')!='object' THEN 'unknown'
+        WHEN json_type({result}, '$.disqualified')='true'
+             AND json_type({result}, '$.screen')='object' AND {failed_check}
+            THEN 'disqualified'
+        WHEN json_type({result}, '$.disqualified')='false'
+             AND json_type({result}, '$.screen')='object'
+             AND {passed_check} AND NOT {failed_check}
+            THEN 'no_disqualifier_found'
+        ELSE 'unknown'
+        END"""
+
+
+def _screen_summary(row: dict[str, Any]) -> dict[str, Any]:
+    outcome = row.get("screen_outcome", "unknown")
+    reason: str | None
+    if outcome == "not_screened":
+        reason = None
+    elif outcome == "provider_error":
+        reason = row.get("screening_error_message") or "Screening provider failed; retry is pending."
+    elif outcome == "disqualified":
+        reason = row.get("screening_reason") or "The stored checked result marks a disqualifier."
+    elif outcome == "no_disqualifier_found":
+        reason = "No failing typed check was stored; unchecked requirements remain unknown."
+    else:
+        reason = "The stored assessment is incomplete, contradictory, or not classifiable."
+
+    def bounded_provenance(field: str) -> str | None:
+        value = row.get(field)
+        return value[:MAX_SCREEN_PROVENANCE_CHARS] if isinstance(value, str) else None
+
+    assessment_time = row.get("screening_updated_at")
+    if (not isinstance(assessment_time, str)
+            or _timestamp_key(assessment_time) is None):
+        assessment_time = None
+    else:
+        assessment_time = assessment_time[:MAX_RFC3339_CHARS]
+    if isinstance(reason, str):
+        reason = " ".join(reason.split())
+        reason = _URL_IN_TEXT_RE.sub(lambda match: redact_url(match.group(0)), reason)
+        reason = reason[:MAX_SCREEN_REASON_CHARS]
+    else:
+        reason = None
+    return {
+        "outcome": outcome,
+        "is_advisory": True,
+        "reason": reason,
+        "assessment_time": assessment_time,
+        "backend": bounded_provenance("screening_backend"),
+        "model": bounded_provenance("screening_model"),
+        "effort": bounded_provenance("screening_effort"),
+        "evaluator_version": bounded_provenance("screening_evaluator_version"),
+        "origin": "job_screenings" if row.get("screening_id") is not None else "none",
+    }
 
 
 class RepositoryError(Exception):
@@ -263,14 +422,16 @@ def _cursor_decode(cursor: str | None, scope: str, key_kind: str,
         raise QueryInputError("cursor does not match this query")
     value = payload.get("key")
     if key_kind == "int":
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or value <= 0 or value > MAX_SQLITE_INTEGER):
             raise QueryInputError("cursor is malformed")
     else:
         if not isinstance(value, str) or len(value) > MAX_CURSOR_KEY_CHARS:
             raise QueryInputError("cursor is malformed")
     extra = payload.get("extra")
     if composite:
-        if isinstance(extra, bool) or not isinstance(extra, int) or extra <= 0:
+        if (isinstance(extra, bool) or not isinstance(extra, int)
+                or extra <= 0 or extra > MAX_SQLITE_INTEGER):
             raise QueryInputError("cursor is malformed")
     elif "extra" in payload:
         raise QueryInputError("cursor is malformed")
@@ -278,14 +439,15 @@ def _cursor_decode(cursor: str | None, scope: str, key_kind: str,
 
 
 def _page(rows: list[dict[str, Any]], limit: int, scope: str,
-          key_field: str, *, descending: bool, extra_field: str | None = None) -> dict[str, Any]:
+          key_field: str, *, descending: bool, extra_field: str | None = None,
+          cursor_extra: int | None = None) -> dict[str, Any]:
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor = None
     if has_more and items:
         last = items[-1]
-        next_cursor = _cursor_encode(scope, last[key_field],
-                                    last[extra_field] if extra_field else None)
+        extra = last[extra_field] if extra_field else cursor_extra
+        next_cursor = _cursor_encode(scope, last[key_field], extra)
     return {"items": items, "limit": limit, "has_more": has_more,
             "next_cursor": next_cursor, "ordering": "live keyset page; not a snapshot"}
 
@@ -377,12 +539,14 @@ def _list_record(entity: str, raw: dict[str, Any]) -> dict[str, Any]:
 class ReadOnlyATSRepository:
     """An allowlisted query API over SQLite opened in read-only/query-only mode."""
 
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path | None = None, *,
+                 clock: Callable[[], datetime] | None = None):
         if db_path is None:
             configured = os.environ.get("ATS_DB_PATH")
             db_path = configured or (Path(__file__).resolve().parents[4]
                                      / "apps" / "web" / "prisma" / "applications.db")
         self.db_path = Path(db_path).expanduser()
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -400,6 +564,12 @@ class ReadOnlyATSRepository:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA query_only = ON")
             connection.execute(f"PRAGMA busy_timeout = {DEFAULT_BUSY_TIMEOUT_MS}")
+            connection.create_function(
+                "ats_instant_valid", 1, _timestamp_valid, deterministic=True,
+            )
+            connection.create_function(
+                "ats_instant_cmp", 2, _timestamp_compare, deterministic=True,
+            )
             if connection.execute("PRAGMA query_only").fetchone()[0] != 1:
                 raise DatabaseUnavailable("ATS database connection is not query-only")
             present = {row[0] for row in connection.execute(
@@ -441,15 +611,38 @@ class ReadOnlyATSRepository:
             # One read snapshot keeps grouped totals internally reconcilable while the
             # worker or web app writes through WAL.
             conn.execute("BEGIN")
+            generated_at = self._clock()
+            if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+                raise RepositoryError("overview clock must return an offset-aware timestamp")
+            response_generated_at = generated_at.astimezone(timezone.utc).isoformat(
+                timespec="milliseconds")
+            response_generated_at = response_generated_at.replace("+00:00", "Z")
             tables = {table: self._count(conn, table) for table, _, _ in ENTITY_KEYS.values()}
             posting_screens = conn.execute(
                 "SELECT CASE WHEN s.id IS NULL THEN 'not_screened' ELSE s.state END AS state, "
                 "COUNT(*) AS count FROM job_postings p LEFT JOIN job_screenings s "
                 "ON s.job_posting_id=p.id GROUP BY state ORDER BY state"
             ).fetchall()
+            outcome_counts_rows = conn.execute(
+                f"SELECT {_screen_outcome_sql()} AS outcome,COUNT(*) AS count "
+                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
+                "GROUP BY outcome"
+            ).fetchall()
+            outcome_count_map = {row["outcome"]: int(row["count"])
+                                 for row in outcome_counts_rows}
             screening_records = self._group_counts(conn, "job_screenings", "state")
             pipeline_counts = self._group_counts(conn, "job_postings", "pipeline_status")
             application_counts = self._group_counts(conn, "applications", "status")
+            eligible_counts = conn.execute(
+                "SELECT SUM(CASE WHEN s.id IS NULL THEN 1 ELSE 0 END) AS fresh, "
+                "SUM(CASE WHEN s.id IS NOT NULL AND s.state='provider_error' "
+                "THEN 1 ELSE 0 END) AS retry_eligible "
+                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
+                "WHERE p.pipeline_status='new'"
+            ).fetchone()
+            unknown_screening_times = int(conn.execute(
+                "SELECT COUNT(*) FROM job_screenings WHERE ats_instant_valid(updated_at) IS NULL"
+            ).fetchone()[0])
             return {
                 "table_counts": tables,
                 "pipeline_status_counts": pipeline_counts,
@@ -463,13 +656,35 @@ class ReadOnlyATSRepository:
                                                if not row["known"]],
                 "unknown_application_statuses": [row["value"] for row in application_counts
                                                   if not row["known"]],
+                "standalone_screen_outcome_counts": {
+                    "scope": "all job_postings",
+                    "counts": [
+                        {"outcome": outcome, "count": outcome_count_map.get(outcome, 0)}
+                        for outcome in SCREEN_OUTCOMES
+                    ],
+                },
+                "eligible_screen_backlog": {
+                    "scope": "pipeline_status=new",
+                    "fresh": int(eligible_counts["fresh"] or 0),
+                    "retry_eligible": int(eligible_counts["retry_eligible"] or 0),
+                    "total": int(eligible_counts["fresh"] or 0)
+                    + int(eligible_counts["retry_eligible"] or 0),
+                },
+                "unknown_screening_updated_at_count": unknown_screening_times,
+                "response_generated_at": response_generated_at,
+                "response_time_semantics": (
+                    "query response time; not fetch completion or source freshness"
+                ),
                 "counts_are_live": True,
             }
 
     def list_jobs(self, *, search: str | None = None, source: str | None = None,
                   pipeline_status: str | None = None, screen_state: str | None = None,
+                  screen_outcome: str | None = None, search_scope: str = "metadata",
                   created_from: str | None = None, created_to: str | None = None,
                   posted_from: str | None = None, posted_to: str | None = None,
+                  screening_updated_from: str | None = None,
+                  screening_updated_to: str | None = None,
                   application_id: int | None = None, limit: int = DEFAULT_PAGE_SIZE,
                   cursor: str | None = None) -> dict[str, Any]:
         limit = _page_size(limit)
@@ -477,26 +692,50 @@ class ReadOnlyATSRepository:
         source = _bounded_text(source, "source", MAX_FILTER_CHARS)
         pipeline_status = _bounded_text(pipeline_status, "pipeline_status", MAX_FILTER_CHARS)
         screen_state = _bounded_text(screen_state, "screen_state", MAX_FILTER_CHARS)
+        screen_outcome = _bounded_text(screen_outcome, "screen_outcome", MAX_FILTER_CHARS)
+        if screen_outcome is not None and screen_outcome not in _SCREEN_OUTCOME_SET:
+            raise QueryInputError("screen_outcome must be one of the supported outcomes")
+        search_scope = _bounded_text(search_scope, "search_scope", MAX_FILTER_CHARS,
+                                     allow_empty=False) or ""
+        if search_scope not in {"metadata", "all_text"}:
+            raise QueryInputError("search_scope must be metadata or all_text")
         created_from, created_to = _iso_date(created_from, "created_from"), _iso_date(created_to, "created_to")
         posted_from, posted_to = _iso_date(posted_from, "posted_from"), _iso_date(posted_to, "posted_to")
+        screening_updated_from = _parse_rfc3339(
+            screening_updated_from, "screening_updated_from")
+        screening_updated_to = _parse_rfc3339(screening_updated_to, "screening_updated_to")
         _check_range(created_from, created_to, "created_from", "created_to")
         _check_range(posted_from, posted_to, "posted_from", "posted_to")
+        from_key = (_timestamp_key(screening_updated_from)
+                    if screening_updated_from is not None else None)
+        to_key = (_timestamp_key(screening_updated_to)
+                  if screening_updated_to is not None else None)
+        if from_key is not None and to_key is not None and _compare_timestamp_keys(from_key, to_key) > 0:
+            raise QueryInputError(
+                "screening_updated_from must not be after screening_updated_to")
         if application_id is not None:
             application_id = _positive_id(application_id, "application_id")
 
         filters = {"search": search, "source": source, "pipeline_status": pipeline_status,
-                   "screen_state": screen_state, "created_from": created_from,
+                   "screen_state": screen_state, "screen_outcome": screen_outcome,
+                   "search_scope": search_scope,
+                   "screening_updated_from": screening_updated_from,
+                   "screening_updated_to": screening_updated_to,
+                   "created_from": created_from,
                    "created_to": created_to, "posted_from": posted_from,
                    "posted_to": posted_to, "application_id": application_id}
         scope = _filter_scope("jobs", filters)
-        decoded = _cursor_decode(cursor, scope, "int")
+        decoded = _cursor_decode(cursor, scope, "int", composite=True)
         clauses: list[str] = []
         params: list[Any] = []
         if search:
             pattern = _like_literal(search)
-            clauses.append("(p.job_title LIKE ? ESCAPE '!' OR p.company_name LIKE ? ESCAPE '!' "
-                           "OR COALESCE(p.location,'') LIKE ? ESCAPE '!')")
-            params.extend((pattern, pattern, pattern))
+            search_columns = ["p.job_title", "p.company_name", "COALESCE(p.location,'')"]
+            if search_scope == "all_text":
+                search_columns.append("p.description")
+            clauses.append("(" + " OR ".join(
+                f"{column} LIKE ? ESCAPE '!'" for column in search_columns) + ")")
+            params.extend([pattern] * len(search_columns))
         for column, value in (("p.source", source), ("p.pipeline_status", pipeline_status),
                               ("p.application_id", application_id)):
             if value is not None:
@@ -505,6 +744,15 @@ class ReadOnlyATSRepository:
         if screen_state is not None:
             clauses.append("COALESCE(s.state, 'not_screened') = ?")
             params.append(screen_state)
+        if screen_outcome is not None:
+            clauses.append(f"({_screen_outcome_sql()}) = ?")
+            params.append(screen_outcome)
+        if screening_updated_from is not None:
+            clauses.append("ats_instant_cmp(s.updated_at, ?) >= 0")
+            params.append(screening_updated_from)
+        if screening_updated_to is not None:
+            clauses.append("ats_instant_cmp(s.updated_at, ?) < 0")
+            params.append(screening_updated_to)
         if created_from:
             clauses.append("substr(p.created_at, 1, 10) >= ?")
             params.append(created_from)
@@ -517,30 +765,75 @@ class ReadOnlyATSRepository:
         if posted_to:
             clauses.append("substr(p.posted_at, 1, 10) <= ?")
             params.append(posted_to)
-        if decoded:
-            clauses.append("p.id < ?")
-            params.append(decoded.key)
-        where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        sql = (
-            "SELECT p.id,p.source,p.external_id,p.company_slug,p.company_name,p.job_title,"
-            "p.location,p.job_url,p.score,p.pipeline_status,p.pipeline_error,p.attempts,"
-            "p.notify_attempts,p.application_id,p.created_at,p.updated_at,p.posted_at,"
-            "p.deprioritized_at,length(p.description) AS description_chars,"
-            "s.id AS screening_id,s.state AS screening_state,s.backend AS screening_backend,"
-            "s.model AS screening_model,s.effort AS screening_effort,"
-            "s.last_attempted_at AS screening_last_attempted_at,"
-            "s.completed_at AS screening_completed_at "
-            "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id" + where +
-            " ORDER BY p.id DESC LIMIT ?"
-        )
-        params.append(limit + 1)
+        if decoded and decoded.extra is not None and decoded.key > decoded.extra:
+            raise QueryInputError("cursor is malformed")
+
         with self._connection() as conn:
+            # The first page fixes an insertion ceiling in the same read snapshot as
+            # its rows; later pages retain that ceiling but remain current-state reads.
+            conn.execute("BEGIN")
+            ceiling = (decoded.extra if decoded else int(conn.execute(
+                "SELECT COALESCE(MAX(id),0) FROM job_postings").fetchone()[0]))
+            if ceiling:
+                clauses.append("p.id <= ?")
+                params.append(ceiling)
+            if decoded:
+                clauses.append("p.id < ?")
+                params.append(decoded.key)
+            where = " WHERE " + " AND ".join(clauses) if clauses else ""
+            sql = (
+                "SELECT p.id,p.source,p.external_id,p.company_slug,p.company_name,p.job_title,"
+                "p.location,p.job_url,p.score,p.pipeline_status,p.pipeline_error,p.attempts,"
+                "p.notify_attempts,p.application_id,p.created_at,p.updated_at,p.posted_at,"
+                "p.deprioritized_at,length(p.description) AS description_chars,"
+                "s.id AS screening_id,s.state AS screening_state,s.backend AS screening_backend,"
+                "s.model AS screening_model,s.effort AS screening_effort,"
+                "s.evaluator_version AS screening_evaluator_version,"
+                "s.error_message AS screening_error_message,s.updated_at AS screening_updated_at,"
+                "s.last_attempted_at AS screening_last_attempted_at,"
+                "s.completed_at AS screening_completed_at,"
+                f"{_screen_outcome_sql()} AS screen_outcome,"
+                f"CASE WHEN json_valid(s.result_json) THEN CASE "
+                f"WHEN json_type(s.result_json,'$.disqualification_reason')='text' "
+                f"THEN substr(json_extract(s.result_json,'$.disqualification_reason'),1,"
+                f"{MAX_SCREEN_REASON_CHARS + 1}) ELSE NULL END ELSE NULL END AS screening_reason,"
+                "CASE WHEN json_valid(p.score_detail) THEN CASE "
+                "WHEN json_type(p.score_detail,'$.screen')='object' THEN 1 ELSE 0 END "
+                "ELSE 0 END AS legacy_screen_evidence_available "
+                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id" + where +
+                " ORDER BY p.id DESC LIMIT ?"
+            )
+            params.append(limit + 1)
             rows = [dict(row) for row in conn.execute(sql, params).fetchall()]
         for row in rows:
             row["job_url"] = redact_url(row["job_url"])
             row["pipeline_error"] = redact_url(row["pipeline_error"]) if row["pipeline_error"] else None
             row["description_is_null"] = row["description_chars"] is None
-        return _page(rows, limit, scope, "id", descending=True)
+            row["screen_summary"] = _screen_summary(row)
+            legacy_available = bool(row.pop("legacy_screen_evidence_available"))
+            row["legacy_screen_evidence"] = {
+                "available": legacy_available,
+                "origin": "job_postings.score_detail.screen"
+                if legacy_available else None,
+                "read_tool": "get_job" if legacy_available else None,
+            }
+            row.pop("screening_updated_at", None)
+            row.pop("screening_reason", None)
+            row.pop("screening_error_message", None)
+        page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
+        page["traversal"] = {
+            "id_ceiling": ceiling,
+            "snapshot": False,
+            "current_state": True,
+            "reconciliation_guidance": (
+                "Rerun overlapping assessment windows, deduplicate by source/external_id "
+                "and assessment time, and periodically reconcile current inventory. "
+                "Overlaps cannot recover arbitrary backdated writes or every transition."
+            ),
+            "assessment_time_field": "job_screenings.updated_at",
+            "source_freshness": "assessment time is not source freshness",
+        }
+        return page
 
     def get_job(self, job_id: int) -> dict[str, Any]:
         job_id = _positive_id(job_id, "job_id")
@@ -550,10 +843,34 @@ class ReadOnlyATSRepository:
                 raise RecordNotFound("job was not found")
             result = _safe_full_record("job_postings", dict(row))
             screening = conn.execute(
-                "SELECT * FROM job_screenings WHERE job_posting_id=?", (job_id,)
+                "SELECT s.*,s.id AS screening_id,s.updated_at AS screening_updated_at,"
+                "s.backend AS screening_backend,s.model AS screening_model,"
+                "s.effort AS screening_effort,s.evaluator_version AS screening_evaluator_version,"
+                "s.error_message AS screening_error_message," + _screen_outcome_sql() + " AS screen_outcome,"
+                "CASE WHEN json_valid(s.result_json) THEN CASE "
+                "WHEN json_type(s.result_json,'$.disqualification_reason')='text' "
+                f"THEN substr(json_extract(s.result_json,'$.disqualification_reason'),1,{MAX_SCREEN_REASON_CHARS + 1}) "
+                "ELSE NULL END ELSE NULL END AS screening_reason "
+                "FROM job_screenings s WHERE s.job_posting_id=?", (job_id,)
             ).fetchone()
-            result["screening"] = (_safe_full_record("job_screenings", dict(screening))
-                                   if screening else None)
+            if screening:
+                screening_row = dict(screening)
+                stored_screening = {
+                    key: value for key, value in screening_row.items()
+                    if not key.startswith("screening_") and key != "screen_outcome"
+                }
+                result["screening"] = _safe_full_record("job_screenings", stored_screening)
+                result["screen_summary"] = _screen_summary(screening_row)
+            else:
+                result["screening"] = None
+                result["screen_summary"] = _screen_summary({"screen_outcome": "not_screened"})
+            legacy_available = isinstance(result.get("score_detail_parsed"), dict) and isinstance(
+                result["score_detail_parsed"].get("screen"), dict)
+            result["legacy_screen_evidence"] = {
+                "available": legacy_available,
+                "origin": "job_postings.score_detail.screen" if legacy_available else None,
+                "read_tool": "get_job" if legacy_available else None,
+            }
             return result
 
     def get_job_description(self, job_id: int, *, offset: int = 0,

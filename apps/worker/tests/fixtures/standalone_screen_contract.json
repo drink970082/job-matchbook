@@ -1,0 +1,95 @@
+{
+  "cases": [
+    {
+      "name": "not_screened",
+      "state": null,
+      "result_json_raw": null,
+      "expected_outcome": "not_screened"
+    },
+    {
+      "name": "successful_checked_result",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"note\":\"Synthetic degree check passed\"}},\"disqualified\":false,\"disqualification_reason\":\"\"}",
+      "expected_outcome": "no_disqualifier_found"
+    },
+    {
+      "name": "explicit_disqualification",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":false,\"note\":\"Synthetic degree requirement\"}},\"disqualified\":true,\"disqualification_reason\":\"Synthetic disqualification\"}",
+      "expected_outcome": "disqualified"
+    },
+    {
+      "name": "missing_checks",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{},\"disqualified\":false}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "unknown_checks",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{\"future_requirement\":{\"pass\":\"unknown\"}},\"disqualified\":false}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "malformed_result",
+      "state": "complete",
+      "result_json_raw": "{malformed",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "contradictory_result",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":false}},\"disqualified\":false}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "unsubstantiated_disqualification",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":true}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "disqualification_without_checks",
+      "state": "complete",
+      "result_json_raw": "{\"disqualified\":true}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "wrong_screen_shape",
+      "state": "complete",
+      "result_json_raw": "{\"screen\":[{\"pass\":false}],\"disqualified\":true}",
+      "expected_outcome": "unknown"
+    },
+    {
+      "name": "provider_error",
+      "state": "provider_error",
+      "result_json_raw": null,
+      "expected_outcome": "provider_error"
+    },
+    {
+      "name": "unknown_state",
+      "state": "future_state",
+      "result_json_raw": null,
+      "expected_outcome": "unknown"
+    }
+  ],
+  "legacy_evidence": {
+    "score_detail_raw": "{\"screen\":{\"legacy_degree\":{\"pass\":false,\"note\":\"Synthetic legacy-only evidence\"}}}",
+    "expected_standalone_outcome": "not_screened",
+    "expected_origin": "job_postings.score_detail.screen"
+  },
+  "assessment_time_cases": [
+    {
+      "name": "offset_bearing_space_form",
+      "stored_updated_at": "2026-10-22 10:20:30+00:00",
+      "expected_known": true,
+      "expected_summary_time": "2026-10-22 10:20:30+00:00"
+    },
+    {
+      "name": "naive_legacy_updated_at",
+      "stored_updated_at": "2026-10-22 10:20:30",
+      "expected_known": false,
+      "expected_summary_time": null
+    }
+  ]
+}

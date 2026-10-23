@@ -104,3 +104,86 @@ async def test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_data
     async with Client(process) as client:
         result = await client.call_tool("get_ats_overview", {})
         assert result.structured_content["table_counts"]["job_postings"] == 1
+
+
+@pytest.mark.anyio
+async def test_stdio_research_path_pages_gets_chunks_and_reports_safe_error(tmp_path):
+    path = bootstrap_db(tmp_path / "mcp-research.db")
+    import sqlite3
+
+    body = "Synthetic full job description with literal 100%_! marker. " * 4
+    with sqlite3.connect(path) as conn:
+        job_ids = []
+        for index in range(3):
+            cursor = conn.execute(
+                "INSERT INTO job_postings(source,external_id,company_name,job_title,job_url,description,"
+                "pipeline_status,created_at,posted_at) VALUES('synthetic',?,?,?,?,?,'new',?,?)",
+                (str(index), "Synthetic Co", f"Role {index}",
+                 f"https://example.test/job/{index}", body,
+                 "2026-10-22T10:00:00Z", "2010-01-01"),
+            )
+            job_ids.append(cursor.lastrowid)
+        conn.execute(
+            "INSERT INTO job_screenings(job_posting_id,state,result_json,backend,model,effort,"
+            "evaluator_version,last_attempted_at,completed_at,created_at,updated_at) "
+            "VALUES(?,'complete',?,'codex','synthetic-model','medium','screen-v1',"
+            "'2026-10-22T10:30:00Z','2026-10-22T10:30:00Z','2026-10-22T10:30:00Z',"
+            "'2026-10-22T10:30:00Z')",
+            (job_ids[0], '{"screen":{"degree":{"pass":true}},"disqualified":false}'),
+        )
+    worker_root = Path(__file__).resolve().parents[1]
+    process = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "ats_worker.mcp"],
+        env={"ATS_DB_PATH": path, "PYTHONPATH": os.fspath(worker_root)},
+    )
+    async with Client(process) as client:
+        literal_search = await client.call_tool("list_jobs", {
+            "search": "100%_!", "search_scope": "all_text", "limit": 10,
+        })
+        assert len(literal_search.structured_content["items"]) == 3
+        assert all("description" not in row for row in literal_search.structured_content["items"])
+
+        outcomes = await client.call_tool("list_jobs", {
+            "screen_outcome": "no_disqualifier_found",
+            "screening_updated_from": "2026-10-22T10:30:00+00:00",
+            "screening_updated_to": "2026-10-22T10:30:01Z",
+        })
+        assert [row["id"] for row in outcomes.structured_content["items"]] == [job_ids[0]]
+        assert outcomes.structured_content["items"][0]["screen_summary"]["is_advisory"] is True
+
+        first = await client.call_tool("list_jobs", {"limit": 1})
+        first_page = first.structured_content
+        assert len(first_page["items"]) == 1 and first_page["has_more"] is True
+        first_job_id = first_page["items"][0]["id"]
+        second = await client.call_tool(
+            "list_jobs", {"limit": 1, "cursor": first_page["next_cursor"]},
+        )
+        assert len(second.structured_content["items"]) == 1
+        assert second.structured_content["items"][0]["id"] < first_job_id
+
+        detail = await client.call_tool("get_job", {"job_id": first_job_id})
+        assert detail.structured_content["description_is_null"] is False
+        collected = []
+        offset = 0
+        while True:
+            chunk = await client.call_tool(
+                "get_job_description", {"job_id": first_job_id, "offset": offset, "limit": 11},
+            )
+            value = chunk.structured_content
+            collected.append(value["text"])
+            if not value["has_more"]:
+                break
+            offset = value["next_offset"]
+        assert "".join(collected) == body
+
+        missing = await client.call_tool("get_job", {"job_id": 999})
+        assert missing.is_error is True
+        assert "job was not found" in missing.content[0].text
+        assert str(tmp_path) not in missing.content[0].text
+
+        invalid = await client.call_tool("list_jobs", {
+            "screening_updated_from": "2026-10-22T10:00:00",
+        })
+        assert invalid.is_error is True
+        assert "offset-aware RFC3339" in invalid.content[0].text

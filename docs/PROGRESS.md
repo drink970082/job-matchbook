@@ -51,10 +51,6 @@ The current runtime Luna/medium screening configuration is a separate concern.
 
 - The web Discovered Jobs view remains fit-bucket oriented; standalone screen/new jobs
   are not fully represented by Matched. Restarting web does not implement R1.
-- MCP has no screen-verdict filter or completed-since query. Creation-date-only daily
-  retrieval misses older rows whose screening finishes later.
-- Eligible screen work is `pipeline_status='new'` with no screening or a provider error;
-  total postings minus complete screens is not the eligible backlog.
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
 - Liveness rechecks select scored/notified rows for supported detail adapters; a stored

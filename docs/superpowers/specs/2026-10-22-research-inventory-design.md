@@ -1,9 +1,8 @@
 # Research retrieval and visible inventory
 
-**Status:** approved scope — user-approved MCP-first / inventory-second direction;
-contracts below are the orchestrator's bounded implementation specification. Material
-changes to schema, dependencies, write capabilities or runtime defaults return to the
-orchestrator/user before implementation. No implementation is shipped by this document.
+**Status:** shipped for Batch 1 / issue #91; Batch 2 / issue #92 remains approved and
+unshipped. Material changes to schema, dependencies, write capabilities or runtime
+defaults return to the orchestrator/user before implementation.
 
 ## Outcome and ownership
 
@@ -25,9 +24,10 @@ list_jobs with optional screen_outcome, search_scope (metadata default, all_text
 and screening_updated_from / screening_updated_to (offset-aware RFC3339 instants,
 from inclusive, to exclusive). Time windows filter job_screenings.updated_at, including
 errors; they are not filters for job creation, arbitrary posting edits or historical events.
-Normalize comparison instants to UTC; support the existing stored timestamp formats.
-Unknown/unparseable stored times do not silently qualify for a dated result; expose their
-count separately. No worker DDL, new provider, vector service or new MCP write tool.
+Normalize comparison instants to UTC; support the existing offset-bearing T/t and space
+stored timestamp forms. Offsetless or otherwise unknown/unparseable stored times do not
+silently qualify for a dated result; expose their count separately and summarize their
+assessment time as null. No worker DDL, new provider, vector service or new MCP write tool.
 
 Every list item gains a bounded screen_summary with outcome, reason, assessment time,
 model/effort provenance and origin. Reasons must be length-bounded and pass existing
@@ -39,9 +39,15 @@ Authoritative outcome for these filters is the standalone job_screenings row:
 |---|---|
 | No standalone row | not_screened |
 | Stored provider_error | provider_error |
-| Complete valid result with explicit boolean disqualified=true | disqualified |
+| Complete valid result with explicit boolean disqualified=true and at least one typed boolean pass=false check | disqualified |
 | Complete result with explicit disqualified=false, at least one typed boolean pass check, and no contradictory failing check | no_disqualifier_found |
-| Missing/malformed/contradictory result, no usable checks, unrecognized stored state | unknown |
+| Missing/malformed/contradictory result, disqualified=true without typed failing evidence, no usable checks, unrecognized stored state | unknown |
+
+The top-level `disqualified` flag must agree with typed check evidence: a true flag
+without a typed failing check and a false flag alongside a typed failing check are both
+unknown. A true flag with no failing evidence is unsubstantiated, not a confirmed
+disqualification. This keeps summary booleans from confirming a result without checked
+evidence.
 
 A no_disqualifier_found result is not confirmation of sponsorship, pay or universal
 qualification; missing individual checks remain unknown. Legacy score_detail.screen is
