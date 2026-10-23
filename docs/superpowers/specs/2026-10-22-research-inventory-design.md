@@ -1,7 +1,6 @@
 # Research retrieval and visible inventory
 
-**Status:** shipped for Batch 1 / issue #91; Batch 2 / issue #92 remains approved and
-unshipped. Material changes to schema, dependencies, write capabilities or runtime
+**Status:** shipped for Batch 1 / issue #91 and Batch 2 / issue #92. Material changes to schema, dependencies, write capabilities or runtime
 defaults return to the orchestrator/user before implementation.
 
 ## Outcome and ownership

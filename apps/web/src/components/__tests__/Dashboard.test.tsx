@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Dashboard } from '@/components/Dashboard'
 import * as actions from '@/lib/actions'
@@ -40,6 +40,13 @@ const props = {
     initialCategoriesConfigured: true,
 }
 
+function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+}
+
 test('renders both tabs and the KPI grid from initial props', () => {
     render(<Dashboard {...props} />)
     expect(screen.getByRole('button', { name: /Discovered Jobs/i })).toBeInTheDocument()
@@ -54,7 +61,61 @@ test('switching to the Discovered Jobs tab shows the discovered view', async () 
     // Now "Discovered Jobs" appears twice — the tab button AND the panel heading.
     expect(screen.getAllByText('Discovered Jobs').length).toBeGreaterThanOrEqual(2)
     // The discovered table's search box (distinct "...or job titles" placeholder).
-    expect(screen.getByPlaceholderText(/job titles/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/companies, roles, or locations/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All jobs' })).toHaveClass('bg-background')
+})
+
+test('selected legacy bucket and filters survive switching away from Discovered Jobs', async () => {
+    const user = userEvent.setup()
+    render(<Dashboard {...props} />)
+    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+    await user.click(screen.getByRole('button', { name: 'Discarded' }))
+    const search = screen.getByPlaceholderText(/search companies or job titles/i)
+    fireEvent.change(search, { target: { value: 'kept selection' } })
+
+    await user.click(screen.getByRole('button', { name: /^Applications$/i }))
+    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+
+    expect(screen.getByRole('button', { name: 'Discarded' })).toHaveClass('bg-background')
+    expect(screen.getByPlaceholderText(/search companies or job titles/i)).toHaveValue('kept selection')
+})
+
+test('overlapping inventory requests never show stale rows under newer filters', async () => {
+    const first = deferred<{ data: any[]; total: number }>()
+    const second = deferred<{ data: any[]; total: number }>()
+    ;(actions.getJobPostings as jest.Mock).mockImplementation((query: any) =>
+        query.search === 'A' ? first.promise : second.promise,
+    )
+    const initialRow = {
+        id: 1, source: 'synthetic', company_name: 'Old', job_title: 'Old page row', job_url: 'https://example.test/old',
+        description: 'Old synthetic description', pipeline_status: 'new', created_at: '2026-10-22T10:00:00Z',
+        screen_summary: { outcome: 'not_screened', is_advisory: true, reason: null, assessment_time: null,
+            backend: null, model: null, effort: null, evaluator_version: null, origin: 'none' },
+        legacy_screen_evidence: { available: false, origin: null },
+    }
+    const user = userEvent.setup()
+    render(<Dashboard {...props} initialJobPostings={[initialRow]} totalJobPostings={1} />)
+    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+    expect(screen.getByText('Old page row')).toBeInTheDocument()
+
+    const search = screen.getByPlaceholderText(/companies, roles, or locations/i)
+    fireEvent.change(search, { target: { value: 'A' } })
+    expect(screen.getByText('Loading jobs…')).toBeInTheDocument()
+    expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
+    fireEvent.change(search, { target: { value: 'B' } })
+
+    await act(async () => {
+        first.resolve({ data: [{ ...initialRow, id: 2, company_name: 'A', job_title: 'A result' }], total: 1 })
+    })
+    expect(screen.getByText('Loading jobs…')).toBeInTheDocument()
+    expect(screen.queryByText('A result')).not.toBeInTheDocument()
+
+    await act(async () => {
+        second.resolve({ data: [{ ...initialRow, id: 3, company_name: 'B', job_title: 'B result' }], total: 1 })
+    })
+    await waitFor(() => expect(screen.getByText('B result')).toBeInTheDocument())
+    expect(screen.queryByText('A result')).not.toBeInTheDocument()
+    expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
 })
 
 test('switching to the Watchlist tab shows the watchlist add form', async () => {

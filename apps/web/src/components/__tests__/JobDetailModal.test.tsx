@@ -129,12 +129,56 @@ describe('JobDetailModal score_detail rendering', () => {
             },
         }
         render(<JobDetailModal {...withScreen} />)
-        expect(screen.getByText('Screening')).toBeInTheDocument()
+        expect(screen.getByText('Legacy screen evidence in fit record')).toBeInTheDocument()
+        expect(screen.getByText(/separate from the standalone advisory result/i)).toBeInTheDocument()
         // Each gate is listed; the failing one shows its note (also in the banner,
         // so it appears more than once).
         expect(screen.getByText('experience')).toBeInTheDocument()
         expect(screen.getByText('location')).toBeInTheDocument()
+        expect(screen.getByText('Passed')).toBeInTheDocument()
+        expect(screen.getByText('Failed')).toBeInTheDocument()
         expect(screen.getAllByText(/on-site in Singapore/).length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('shows standalone outcome provenance separately from legacy fit evidence', () => {
+        const screened = {
+            ...props,
+            job: {
+                ...workerShapedJob,
+                screen_summary: {
+                    outcome: 'provider_error',
+                    is_advisory: true,
+                    reason: 'Screening provider failed.',
+                    assessment_time: null,
+                    backend: 'codex',
+                    model: null,
+                    effort: 'medium',
+                    evaluator_version: 'v1',
+                    origin: 'job_screenings',
+                },
+            },
+        }
+        render(<JobDetailModal {...screened} />)
+        expect(screen.getByText('Advisory · Provider error')).toBeInTheDocument()
+        expect(screen.getByText(/codex · medium/)).toBeInTheDocument()
+        expect(screen.queryByText(/assessed/)).not.toBeInTheDocument()
+    })
+
+    it('renders malformed legacy check values as unknown', () => {
+        const malformed = {
+            ...props,
+            job: { ...workerShapedJob, score_detail: JSON.stringify({ screen: { degree: { pass: 'unknown' } } }) },
+        }
+        render(<JobDetailModal {...malformed} />)
+        expect(screen.getByText('Unknown')).toBeInTheDocument()
+        expect(screen.queryByText('Passed')).not.toBeInTheDocument()
+    })
+
+    it('distinguishes missing and empty descriptions', () => {
+        const { rerender } = render(<JobDetailModal {...props} job={{ ...workerShapedJob, description: null }} />)
+        expect(screen.getByText('Description unavailable.')).toBeInTheDocument()
+        rerender(<JobDetailModal {...props} job={{ ...workerShapedJob, description: '' }} />)
+        expect(screen.getByText('Description is empty.')).toBeInTheDocument()
     })
 
     it('shows the recommended resume without expanding anything', () => {
@@ -194,5 +238,13 @@ describe('JobDetailModal actions', () => {
         expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument()
         await user.click(screen.getByRole('button', { name: /reopen/i }))
         expect(onReopen).toHaveBeenCalledWith(1)
+    })
+
+    it('does not offer another mark-applied or remove action for an applied posting', () => {
+        const applied = { ...props, job: { ...workerShapedJob, pipeline_status: 'applied' } }
+        render(<JobDetailModal {...applied} />)
+        expect(screen.getByText('Applied')).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /mark applied/i })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument()
     })
 })

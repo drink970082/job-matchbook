@@ -49,8 +49,6 @@ The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
 
-- The web Discovered Jobs view remains fit-bucket oriented; standalone screen/new jobs
-  are not fully represented by Matched. Restarting web does not implement R1.
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
 - Liveness rechecks select scored/notified rows for supported detail adapters; a stored

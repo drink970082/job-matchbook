@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { useState } from 'react'
 import { DiscoveredJobsTable } from '@/components/DiscoveredJobsTable'
 
 const mockJobs = [
@@ -33,11 +34,17 @@ const mockJobs = [
 ]
 
 function renderTable(overrides: Partial<React.ComponentProps<typeof DiscoveredJobsTable>> = {}) {
+  const initialFilters = overrides.filters ?? {
+    bucket: 'matched' as const, search: '', searchScope: 'metadata' as const, sort: 'score' as const, sortExplicit: false,
+  }
   const props = {
     data: mockJobs,
     total: 2,
     page: 0,
     size: 25,
+    filters: initialFilters,
+    loading: false,
+    loadError: false,
     onPageChange: jest.fn(),
     onFilterChange: jest.fn(),
     onMarkApplied: jest.fn(),
@@ -49,13 +56,26 @@ function renderTable(overrides: Partial<React.ComponentProps<typeof DiscoveredJo
     onRemoveAllInView: jest.fn(),
     ...overrides,
   }
-  render(<DiscoveredJobsTable {...props} />)
+  function ControlledTable() {
+    const [filters, setFilters] = useState(initialFilters)
+    return <DiscoveredJobsTable
+      {...props}
+      filters={filters}
+      onFilterChange={(next) => {
+        props.onFilterChange(next)
+        setFilters(next)
+      }}
+    />
+  }
+  render(<ControlledTable />)
   return props
 }
 
 function renderWithRerender() {
   const props = {
     data: mockJobs, total: 2, page: 0, size: 25,
+    filters: { bucket: 'matched' as const, search: '', searchScope: 'metadata' as const, sort: 'score' as const, sortExplicit: false },
+    loading: false, loadError: false,
     onPageChange: jest.fn(), onFilterChange: jest.fn(), onMarkApplied: jest.fn(),
     onDiscard: jest.fn(), onReopen: jest.fn(), onViewJD: jest.fn(),
     onBulkRemove: jest.fn(), onBulkReopen: jest.fn(), onRemoveAllInView: jest.fn(),
@@ -94,12 +114,12 @@ describe('DiscoveredJobsTable', () => {
     const onMarkApplied = jest.fn()
     renderTable({ onMarkApplied })
     fireEvent.click(screen.getAllByTitle(/mark applied/i)[0])
-    expect(onMarkApplied).toHaveBeenCalledWith(1)
+    expect(onMarkApplied).toHaveBeenCalledWith(1, expect.objectContaining({ bucket: 'matched' }))
   })
 
   it('renders empty state when there is no data', () => {
     renderTable({ data: [], total: 0 })
-    expect(screen.getByText(/no results/i)).toBeInTheDocument()
+    expect(screen.getByText(/no jobs match these filters/i)).toBeInTheDocument()
   })
 
   it('shows a Reopen control for discarded rows and calls onReopen', () => {
@@ -109,14 +129,14 @@ describe('DiscoveredJobsTable', () => {
     // (Match the button exactly so the "discarded manually" reason label doesn't count.)
     expect(screen.queryByRole('button', { name: /^discard$/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByTitle(/reopen/i))
-    expect(onReopen).toHaveBeenCalledWith(1)
+    expect(onReopen).toHaveBeenCalledWith(1, expect.objectContaining({ bucket: 'matched' }))
   })
 
   it('calls onViewJD with the row id when View JD is clicked', () => {
     const onViewJD = jest.fn()
     renderTable({ onViewJD })
     fireEvent.click(screen.getAllByTitle(/view jd/i)[0])
-    expect(onViewJD).toHaveBeenCalledWith(1)
+    expect(onViewJD).toHaveBeenCalledWith(1, expect.objectContaining({ bucket: 'matched' }))
   })
 
   it('calls onDiscard with the row id for a non-discarded row', () => {
@@ -124,7 +144,7 @@ describe('DiscoveredJobsTable', () => {
     renderTable({ onDiscard })
     // mockJobs[0] (id 1) is 'scored' (not discarded) -> shows a per-row Remove action.
     fireEvent.click(screen.getAllByTitle(/remove/i)[0])
-    expect(onDiscard).toHaveBeenCalledWith(1)
+    expect(onDiscard).toHaveBeenCalledWith(1, expect.objectContaining({ bucket: 'matched' }))
   })
 
   it('renders a — fallback for a row whose score is null', () => {
@@ -132,46 +152,22 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
-  it('debounces onFilterChange with the current bucket + search', () => {
-    jest.useFakeTimers()
-    try {
-      const onFilterChange = jest.fn()
-      renderTable({ onFilterChange })
-
-      const searchInput = screen.getByPlaceholderText(/search/i)
-      fireEvent.change(searchInput, { target: { value: 'Acme' } })
-
-      // The initial-mount effect fires once with the default state; assert only the
-      // post-search payload.
-      onFilterChange.mockClear()
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-
-      expect(onFilterChange).toHaveBeenCalledWith({ search: 'Acme', bucket: 'matched', sort: 'score' })
-    } finally {
-      jest.runOnlyPendingTimers()
-      jest.useRealTimers()
-    }
+  it('sends view and search changes immediately so the parent retains them across tab changes', () => {
+    const onFilterChange = jest.fn()
+    renderTable({ onFilterChange })
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: 'Acme' } })
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'Acme', bucket: 'matched', sort: 'score', sortExplicit: false,
+    }))
   })
 
   it('switching to the Discarded bucket fires onFilterChange with that bucket', () => {
-    jest.useFakeTimers()
-    try {
-      const onFilterChange = jest.fn()
-      renderTable({ onFilterChange })
-
-      onFilterChange.mockClear()
-      fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-
-      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'discarded', sort: 'score' })
-    } finally {
-      jest.runOnlyPendingTimers()
-      jest.useRealTimers()
-    }
+    const onFilterChange = jest.fn()
+    renderTable({ onFilterChange })
+    fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      search: '', bucket: 'discarded', sort: 'score', sortExplicit: false,
+    }))
   })
 
   it('renders a bucket-aware why-cell for a below-bar row (domain verdict pill + top gap)', () => {
@@ -295,40 +291,19 @@ describe('DiscoveredJobsTable', () => {
   })
 
   it('sends minScore in the filter payload', () => {
-    jest.useFakeTimers()
-    try {
-      const onFilterChange = jest.fn()
-      renderTable({ onFilterChange })
-      fireEvent.change(screen.getByLabelText(/minimum score/i), { target: { value: '70' } })
-      onFilterChange.mockClear()
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-      expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ minScore: 70 }))
-    } finally {
-      jest.runOnlyPendingTimers()
-      jest.useRealTimers()
-    }
+    const onFilterChange = jest.fn()
+    renderTable({ onFilterChange })
+    fireEvent.change(screen.getByLabelText(/minimum score/i), { target: { value: '70' } })
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ minScore: 70 }))
   })
 
   it('switching to the Low-context bucket fires onFilterChange with that bucket', () => {
-    jest.useFakeTimers()
-    try {
-      const onFilterChange = jest.fn()
-      renderTable({ onFilterChange })
-
-      onFilterChange.mockClear()
-      fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
-      act(() => {
-        jest.advanceTimersByTime(300)
-      })
-
-      // No cause sub-filter rides along (that sub-filter is Discarded-only).
-      expect(onFilterChange).toHaveBeenCalledWith({ search: '', bucket: 'lowcontext', sort: 'score' })
-    } finally {
-      jest.runOnlyPendingTimers()
-      jest.useRealTimers()
-    }
+    const onFilterChange = jest.fn()
+    renderTable({ onFilterChange })
+    fireEvent.click(screen.getByRole('button', { name: 'Low-context' }))
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({
+      search: '', bucket: 'lowcontext', sort: 'score',
+    }))
   })
 
   it('does not show the disqualification-cause filter in the Low-context bucket', () => {
@@ -360,19 +335,11 @@ describe('DiscoveredJobsTable', () => {
   })
 
   it('sends the chosen sort in the filter payload', () => {
-    jest.useFakeTimers()
-    try {
-      const onFilterChange = jest.fn()
-      renderTable({ onFilterChange })
-      fireEvent.click(screen.getByLabelText(/sort by/i))
-      fireEvent.click(screen.getByText('Newest posted'))
-      onFilterChange.mockClear()
-      act(() => { jest.advanceTimersByTime(300) })
-      expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: 'posted' }))
-    } finally {
-      jest.runOnlyPendingTimers()
-      jest.useRealTimers()
-    }
+    const onFilterChange = jest.fn()
+    renderTable({ onFilterChange })
+    fireEvent.click(screen.getByLabelText(/sort by/i))
+    fireEvent.click(screen.getByText('Newest posted'))
+    expect(onFilterChange).toHaveBeenCalledWith(expect.objectContaining({ sort: 'posted', sortExplicit: true }))
   })
 
   it('selecting a matched row reveals Remove selected and calls onBulkRemove with ids', () => {
@@ -380,7 +347,7 @@ describe('DiscoveredJobsTable', () => {
     renderTable({ onBulkRemove })
     fireEvent.click(screen.getByLabelText('Select Backend Engineer'))
     fireEvent.click(screen.getByRole('button', { name: /remove selected/i }))
-    expect(onBulkRemove).toHaveBeenCalledWith([1])
+    expect(onBulkRemove).toHaveBeenCalledWith([1], expect.objectContaining({ bucket: 'matched' }))
   })
 
   it('on the Discarded bucket, selected rows offer Reopen selected', () => {
@@ -393,7 +360,7 @@ describe('DiscoveredJobsTable', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discarded' }))
     fireEvent.click(screen.getByLabelText('Select Backend Engineer'))
     fireEvent.click(screen.getByRole('button', { name: /reopen selected/i }))
-    expect(onBulkReopen).toHaveBeenCalledWith([1])
+    expect(onBulkReopen).toHaveBeenCalledWith([1], expect.objectContaining({ bucket: 'discarded' }))
   })
 
   it('select-all toggles every row on the page', () => {
@@ -418,5 +385,123 @@ describe('DiscoveredJobsTable', () => {
     expect(onRemoveAllInView).toHaveBeenCalledWith(
       expect.objectContaining({ bucket: 'discarded', search: '' })
     )
+  })
+
+  it('All jobs labels standalone and legacy evidence separately and has no bulk controls', () => {
+    const allFilters = {
+      bucket: 'all' as const,
+      search: '',
+      searchScope: 'metadata' as const,
+      sort: 'created' as const,
+      sortExplicit: false,
+    }
+    renderTable({
+      filters: allFilters,
+      data: [{
+        ...mockJobs[0],
+        pipeline_status: 'new',
+        screen_summary: {
+          outcome: 'no_disqualifier_found',
+          is_advisory: true,
+          reason: 'Unchecked requirements remain unknown.',
+          assessment_time: '2026-10-22T10:20:30Z',
+          backend: 'codex',
+          model: 'fixture-model',
+          effort: 'medium',
+          evaluator_version: 'fixture-v1',
+          origin: 'job_screenings',
+        },
+        legacy_screen_evidence: { available: true, origin: 'job_postings.score_detail.screen' },
+      }],
+      total: 1,
+    })
+
+    expect(screen.getByRole('button', { name: 'All jobs' })).toHaveClass('bg-background')
+    expect(screen.getByText('Advisory · No disqualifier found')).toBeInTheDocument()
+    expect(screen.getByText(/assessed 2026-10-22T10:20:30Z/)).toBeInTheDocument()
+    expect(screen.getByText('Legacy screen evidence')).toBeInTheDocument()
+    expect(screen.getByText('New')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/select all/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove selected/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove all in view/i })).not.toBeInTheDocument()
+  })
+
+  it('labels applied and unknown lifecycle states honestly and disables actions on applied rows', () => {
+    renderTable({
+      filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },
+      data: [
+        { ...mockJobs[0], id: 41, pipeline_status: 'applied' },
+        { ...mockJobs[1], id: 42, pipeline_status: 'future_state' },
+      ],
+      total: 2,
+    })
+
+    expect(screen.getAllByText('Applied').length).toBeGreaterThan(0)
+    expect(screen.getByText('Unknown status (future_state)')).toBeInTheDocument()
+    expect(screen.getAllByTitle(/mark applied/i)).toHaveLength(1)
+    expect(screen.getAllByTitle(/remove/i)).toHaveLength(1)
+  })
+
+  it.each(['__proto__', 'constructor', 'toString', 'valueOf'])(
+    'renders inherited-property lifecycle status %s as unknown text',
+    (status) => {
+      renderTable({
+        filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },
+        data: [{ ...mockJobs[0], pipeline_status: status }],
+        total: 1,
+      })
+
+      expect(screen.getByText(`Unknown status (${status})`)).toBeInTheDocument()
+    },
+  )
+
+  it('distinguishes null, empty, and thin job descriptions without showing JD text in the table', () => {
+    renderTable({
+      filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },
+      data: [
+        { ...mockJobs[0], id: 51, description: null },
+        { ...mockJobs[0], id: 52, description: '' },
+        { ...mockJobs[0], id: 53, description: 'Short JD text' },
+      ],
+      total: 3,
+    })
+    expect(screen.getByText('Description unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Description is empty')).toBeInTheDocument()
+    expect(screen.getByText('Short JD (13 chars)')).toBeInTheDocument()
+    expect(screen.queryByText('Build things')).not.toBeInTheDocument()
+  })
+
+  it('does not show stale rows while the newest filter request is pending or failed', () => {
+    const allFilters = { bucket: 'all' as const, search: 'new filter', sort: 'created' as const, sortExplicit: false }
+    const initialProps = {
+      data: mockJobs, total: 2, page: 0, size: 25, filters: allFilters, loading: true, loadError: false,
+      onPageChange: jest.fn(), onFilterChange: jest.fn(), onMarkApplied: jest.fn(), onDiscard: jest.fn(),
+      onReopen: jest.fn(), onViewJD: jest.fn(), onBulkRemove: jest.fn(), onBulkReopen: jest.fn(),
+      onRemoveAllInView: jest.fn(),
+    }
+    const { rerender } = render(<DiscoveredJobsTable {...initialProps} />)
+    expect(screen.getByText('Loading jobs…')).toBeInTheDocument()
+    expect(screen.queryByText('Backend Engineer')).not.toBeInTheDocument()
+
+    rerender(<DiscoveredJobsTable
+      data={mockJobs}
+      total={2}
+      page={0}
+      size={25}
+      filters={allFilters}
+      loading={false}
+      loadError={true}
+      onPageChange={jest.fn()}
+      onFilterChange={jest.fn()}
+      onMarkApplied={jest.fn()}
+      onDiscard={jest.fn()}
+      onReopen={jest.fn()}
+      onViewJD={jest.fn()}
+      onBulkRemove={jest.fn()}
+      onBulkReopen={jest.fn()}
+      onRemoveAllInView={jest.fn()}
+    />)
+    expect(screen.getByText(/could not load jobs/i)).toBeInTheDocument()
+    expect(screen.queryByText('Backend Engineer')).not.toBeInTheDocument()
   })
 })

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
+import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 
 export async function getApplications(params: {
     page?: number
@@ -79,7 +80,7 @@ const CATEGORY_FALLBACK = 'Others'
 //                so nothing is ever orphaned.
 //   lowcontext — live but the JD was too thin to score with confidence (derived)
 //   failed     — pipeline failure, for monitoring
-export type JobBucket = 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowcontext'
+export type JobBucket = 'all' | 'matched' | 'belowbar' | 'discarded' | 'failed' | 'lowcontext'
 
 // Within the Discarded (disqualified) audit view you can narrow to one hard-constraint
 // cause. The worker writes `disqualification_reason` keyed like "degree: requires phd"
@@ -111,8 +112,153 @@ const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
     prefilter: '%prefilter:%',
 }
 
+const JOB_BUCKETS: readonly JobBucket[] = ['all', 'matched', 'belowbar', 'discarded', 'failed', 'lowcontext']
+const JOB_SORTS: readonly JobSort[] = ['score', 'posted', 'created']
+const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
+const DISQUALIFY_CAUSES: readonly DisqualifyCause[] = [
+    'authorization', 'location', 'degree', 'clearance', 'internship', 'prefilter',
+]
+const JOB_FILTER_KEYS = new Set(['bucket', 'search', 'searchScope', 'screenOutcome', 'page', 'size', 'minScore', 'cause', 'sort'])
+
+function validateJobPostingsFilter(filter: unknown, requireBucket = false, allowPaging = true): asserts filter is JobPostingsFilter {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
+        throw new Error('A job view and filter scope is required')
+    }
+    const value = filter as Record<string, unknown>
+    for (const key of Object.keys(value)) {
+        if (!JOB_FILTER_KEYS.has(key)) throw new Error(`Unsupported job filter: ${key}`)
+        if (!allowPaging && (key === 'page' || key === 'size')) {
+            throw new Error('Page and size are not valid mutation scope filters')
+        }
+    }
+    if (requireBucket && (typeof value.bucket !== 'string' || !JOB_BUCKETS.includes(value.bucket as JobBucket))) {
+        throw new Error('A supported job bucket is required for this action')
+    }
+    if (value.bucket !== undefined && (typeof value.bucket !== 'string' || !JOB_BUCKETS.includes(value.bucket as JobBucket))) {
+        throw new Error('Unsupported job bucket')
+    }
+    if (value.sort !== undefined && (typeof value.sort !== 'string' || !JOB_SORTS.includes(value.sort as JobSort))) {
+        throw new Error('Unsupported job sort')
+    }
+    if (value.searchScope !== undefined && (typeof value.searchScope !== 'string' || !JOB_SEARCH_SCOPES.includes(value.searchScope as JobSearchScope))) {
+        throw new Error('Search scope must be metadata or all_text')
+    }
+    if (value.search !== undefined && typeof value.search !== 'string') throw new Error('Search must be text')
+    checkedSearch(value.search as string | undefined)
+    if (value.screenOutcome !== undefined && !(SCREEN_OUTCOMES as readonly unknown[]).includes(value.screenOutcome)) {
+        throw new Error('Unsupported standalone screen outcome')
+    }
+    if (value.cause !== undefined && (typeof value.cause !== 'string' || !DISQUALIFY_CAUSES.includes(value.cause as DisqualifyCause))) {
+        throw new Error('Unsupported disqualification cause')
+    }
+    if (value.minScore !== undefined && (typeof value.minScore !== 'number' || !Number.isFinite(value.minScore) || value.minScore < 0 || value.minScore > 100)) {
+        throw new Error('Minimum score must be between 0 and 100')
+    }
+    if (value.page !== undefined && (typeof value.page !== 'number' || !Number.isFinite(value.page))) {
+        throw new Error('Page must be a finite number')
+    }
+    if (value.size !== undefined && (typeof value.size !== 'number' || !Number.isFinite(value.size))) {
+        throw new Error('Page size must be a finite number')
+    }
+}
+
 // Sort for the discovered queue: best match (score) or freshest posting.
-export type JobSort = 'score' | 'posted'
+export type JobSort = 'score' | 'posted' | 'created'
+export type JobSearchScope = 'metadata' | 'all_text'
+
+export interface JobPostingsFilter {
+    bucket?: JobBucket
+    search?: string
+    searchScope?: JobSearchScope
+    screenOutcome?: ScreenOutcome
+    page?: number
+    size?: number
+    minScore?: number
+    cause?: DisqualifyCause
+    sort?: JobSort
+}
+
+export type JobViewScope = Omit<JobPostingsFilter, 'page' | 'size'> & { bucket: JobBucket }
+
+const MAX_JOB_SEARCH_CHARS = 200
+
+// Mirrors the approved Batch 1 summary predicate. Guard every JSON access with a safe
+// JSON value so malformed stored output classifies as unknown rather than breaking the
+// inventory query. Keep this expression in lockstep with worker/mcp/read_repository.py.
+const SAFE_SCREEN_JSON_SQL = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
+const SCREEN_OUTCOME_SQL = `CASE
+    WHEN s.id IS NULL THEN 'not_screened'
+    WHEN s.state='provider_error' THEN 'provider_error'
+    WHEN s.state!='complete' OR json_valid(s.result_json)=0 THEN 'unknown'
+    WHEN json_type(${SAFE_SCREEN_JSON_SQL}, '$')!='object' THEN 'unknown'
+    WHEN json_type(${SAFE_SCREEN_JSON_SQL}, '$.disqualified')='true'
+         AND json_type(${SAFE_SCREEN_JSON_SQL}, '$.screen')='object'
+         AND EXISTS (SELECT 1 FROM json_each(${SAFE_SCREEN_JSON_SQL}, '$.screen') AS screen_check
+             WHERE screen_check.type='object'
+               AND CASE WHEN screen_check.type='object'
+                   THEN json_type(screen_check.value, '$.pass')='false' ELSE 0 END)
+        THEN 'disqualified'
+    WHEN json_type(${SAFE_SCREEN_JSON_SQL}, '$.disqualified')='false'
+         AND json_type(${SAFE_SCREEN_JSON_SQL}, '$.screen')='object'
+         AND EXISTS (SELECT 1 FROM json_each(${SAFE_SCREEN_JSON_SQL}, '$.screen') AS screen_check
+             WHERE screen_check.type='object'
+               AND CASE WHEN screen_check.type='object'
+                   THEN json_type(screen_check.value, '$.pass')='true' ELSE 0 END)
+         AND NOT EXISTS (SELECT 1 FROM json_each(${SAFE_SCREEN_JSON_SQL}, '$.screen') AS screen_check
+             WHERE screen_check.type='object'
+               AND CASE WHEN screen_check.type='object'
+                   THEN json_type(screen_check.value, '$.pass')='false' ELSE 0 END)
+        THEN 'no_disqualifier_found'
+    ELSE 'unknown'
+END`
+
+function escapeLikeLiteral(value: string): string {
+    return `%${value.replace(/[!%_]/g, (char) => `!${char}`)}%`
+}
+
+function checkedSearch(value: string | undefined): string {
+    const search = value ?? ''
+    if (search.length > MAX_JOB_SEARCH_CHARS) {
+        throw new Error(`Search must be ${MAX_JOB_SEARCH_CHARS} characters or fewer`)
+    }
+    return search
+}
+
+function checkedScreenOutcome(value: ScreenOutcome | undefined): ScreenOutcome | undefined {
+    if (value !== undefined && !(SCREEN_OUTCOMES as readonly string[]).includes(value)) {
+        throw new Error('Unsupported standalone screen outcome')
+    }
+    return value
+}
+
+function allJobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
+    validateJobPostingsFilter(filter)
+    if (filter.cause) throw new Error('Disqualification cause is only supported in the Discarded view')
+    const search = checkedSearch(filter.search)
+    const searchScope = filter.searchScope ?? 'metadata'
+    if (searchScope !== 'metadata' && searchScope !== 'all_text') {
+        throw new Error('Search scope must be metadata or all_text')
+    }
+    const screenOutcome = checkedScreenOutcome(filter.screenOutcome)
+    const clauses: Prisma.Sql[] = [Prisma.sql`p.pipeline_status <> 'removed'`]
+    if (filter.minScore != null) clauses.push(Prisma.sql`p.score >= ${filter.minScore}`)
+    if (search) {
+        const pattern = escapeLikeLiteral(search)
+        const bodyClause = searchScope === 'all_text'
+            ? Prisma.sql` OR p.description LIKE ${pattern} ESCAPE '!'`
+            : Prisma.empty
+        clauses.push(Prisma.sql`(
+            p.job_title LIKE ${pattern} ESCAPE '!'
+            OR p.company_name LIKE ${pattern} ESCAPE '!'
+            OR COALESCE(p.location, '') LIKE ${pattern} ESCAPE '!'
+            ${bodyClause}
+        )`)
+    }
+    if (screenOutcome) {
+        clauses.push(Prisma.sql`(${Prisma.raw(SCREEN_OUTCOME_SQL)}) = ${screenOutcome}`)
+    }
+    return Prisma.join(clauses, ' AND ')
+}
 
 function buildJobWhere(params: {
     bucket?: JobBucket
@@ -241,6 +387,28 @@ async function jobWhereForBucket(
     return jobWhereExcludingLowContext(filter, matchIds, belowIds, lowIds)
 }
 
+async function jobWhereForFilter(filter: JobPostingsFilter): Promise<Prisma.job_postingsWhereInput> {
+    validateJobPostingsFilter(filter)
+    const bucket = filter.bucket ?? 'all'
+    if (bucket === 'all') {
+        throw new Error('All jobs uses a bound SQL inventory query, not a fit-bucket where clause')
+    }
+    if (filter.screenOutcome) {
+        throw new Error('Standalone screen outcome filters are only supported in All jobs')
+    }
+    if (filter.searchScope === 'all_text') {
+        throw new Error('All-text search is only supported in All jobs')
+    }
+    if (filter.cause && bucket !== 'discarded') {
+        throw new Error('Disqualification cause is only supported in the Discarded view')
+    }
+    checkedSearch(filter.search)
+    const [lowIds, matchIds, belowIds] = await Promise.all([
+        lowContextIds(), matchedIds(), belowBarIds(),
+    ])
+    return jobWhereForBucket({ ...filter, bucket }, matchIds, belowIds, lowIds)
+}
+
 // Ids of discarded postings whose `disqualification_reason` matches one hard-constraint
 // cause. Prisma's typed `where` can't reach into the score_detail JSON, so — mirroring
 // lowContextIds — we fetch the matching ids once with a raw query (SQLite json_extract)
@@ -319,59 +487,248 @@ async function belowBarIds(): Promise<number[]> {
     return rows.map((r) => Number(r.id))
 }
 
-export async function getJobPostings(params: {
-    bucket?: JobBucket
-    search?: string
-    page?: number
-    size?: number
-    minScore?: number
-    cause?: DisqualifyCause
-    sort?: JobSort
-}) {
+type ScreenedJobPosting = Prisma.job_postingsGetPayload<{}> & {
+    job_screening: {
+        id: number
+        state: string
+        result_json: string | null
+        error_message: string | null
+        backend: string
+        model: string | null
+        effort: string | null
+        evaluator_version: string
+        updated_at: string | null
+    } | null
+}
+
+type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
+    screening_id: number | null
+    screening_state: string | null
+    screening_result_json: string | null
+    screening_error_message: string | null
+    screening_backend: string | null
+    screening_model: string | null
+    screening_effort: string | null
+    screening_evaluator_version: string | null
+    screening_updated_at: string | null
+}
+
+function enrichJobPosting(posting: ScreenedJobPosting) {
+    const { job_screening, score_detail, ...job } = posting
+    return {
+        ...job,
+        score_detail,
+        screen_summary: standaloneScreenSummary(job_screening),
+        legacy_screen_evidence: legacyScreenEvidence(score_detail),
+    }
+}
+
+async function getAllJobPostings(params: JobPostingsFilter, page: number, size: number) {
+    const where = allJobsWhereSql(params)
+    const sort = params.sort ?? 'created'
+    const orderSql = sort === 'score'
+        ? Prisma.raw('p.score DESC, p.id ASC')
+        : sort === 'posted'
+            ? Prisma.raw('p.posted_at DESC, p.id DESC')
+            : Prisma.raw('p.created_at DESC, p.id DESC')
+    const [rows, countRows] = await Promise.all([
+        prisma.$queryRaw<RawInventoryPosting[]>(Prisma.sql`
+            SELECT p.*,
+                   s.id AS screening_id,
+                   s.state AS screening_state,
+                   s.result_json AS screening_result_json,
+                   s.error_message AS screening_error_message,
+                   s.backend AS screening_backend,
+                   s.model AS screening_model,
+                   s.effort AS screening_effort,
+                   s.evaluator_version AS screening_evaluator_version,
+                   s.updated_at AS screening_updated_at
+            FROM job_postings p
+            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
+            WHERE ${where}
+            ORDER BY ${orderSql}
+            LIMIT ${size} OFFSET ${page * size}
+        `),
+        prisma.$queryRaw<Array<{ total: number | bigint }>>(Prisma.sql`
+            SELECT COUNT(*) AS total
+            FROM job_postings p
+            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
+            WHERE ${where}
+        `),
+    ])
+    const data = rows.map((row) => {
+        const {
+            screening_id,
+            screening_state,
+            screening_result_json,
+            screening_error_message,
+            screening_backend,
+            screening_model,
+            screening_effort,
+            screening_evaluator_version,
+            screening_updated_at,
+            score_detail,
+            ...posting
+        } = row
+        const screening = screening_id == null ? null : {
+            id: screening_id,
+            state: screening_state ?? 'unknown',
+            result_json: screening_result_json,
+            error_message: screening_error_message,
+            backend: screening_backend ?? '',
+            model: screening_model,
+            effort: screening_effort,
+            evaluator_version: screening_evaluator_version ?? '',
+            updated_at: screening_updated_at,
+        }
+        return {
+            ...posting,
+            score_detail,
+            screen_summary: standaloneScreenSummary(screening),
+            legacy_screen_evidence: legacyScreenEvidence(score_detail),
+        }
+    })
+    return { data, total: Number(countRows[0]?.total ?? 0) }
+}
+
+export async function getJobPostings(params: JobPostingsFilter = {}) {
+    validateJobPostingsFilter(params)
     const page = Math.max(0, Math.floor(params.page ?? 0))
     const size = Math.min(100, Math.max(1, Math.floor(params.size ?? 25)))
-
-    const [lowIds, matchIds, belowIds] = await Promise.all([
-        lowContextIds(), matchedIds(), belowBarIds(),
-    ])
-    const where = await jobWhereForBucket(params, matchIds, belowIds, lowIds)
+    const bucket = params.bucket ?? 'all'
+    if (bucket === 'all') return getAllJobPostings({ ...params, bucket }, page, size)
+    const where = await jobWhereForFilter({ ...params, bucket })
 
     const orderBy: Prisma.job_postingsOrderByWithRelationInput[] =
-        params.sort === 'posted'
-            ? [{ posted_at: 'desc' }, { id: 'desc' }]
-            : [{ score: 'desc' }, { id: 'asc' }]
+        params.sort === 'created'
+            ? [{ created_at: 'desc' }, { id: 'desc' }]
+            : params.sort === 'posted'
+                ? [{ posted_at: 'desc' }, { id: 'desc' }]
+                : [{ score: 'desc' }, { id: 'asc' }]
 
     const [data, total] = await Promise.all([
-        prisma.job_postings.findMany({ where, orderBy, skip: page * size, take: size }),
+        prisma.job_postings.findMany({
+            where,
+            orderBy,
+            skip: page * size,
+            take: size,
+            include: {
+                job_screening: {
+                    select: {
+                        id: true,
+                        state: true,
+                        result_json: true,
+                        error_message: true,
+                        backend: true,
+                        model: true,
+                        effort: true,
+                        evaluator_version: true,
+                        updated_at: true,
+                    },
+                },
+            },
+        }),
         prisma.job_postings.count({ where }),
     ])
 
-    return { data, total }
+    return { data: data.map((posting) => enrichJobPosting(posting as ScreenedJobPosting)), total }
+}
+
+type JobScopeClient = Pick<Prisma.TransactionClient, 'job_postings' | '$queryRaw'>
+
+async function findPostingInView(client: JobScopeClient, id: number, scope: JobViewScope) {
+    validateJobPostingsFilter(scope, true, false)
+    if (scope.bucket === 'all') {
+        const where = allJobsWhereSql(scope)
+        const matches = await client.$queryRaw<Array<{ id: number | bigint }>>(Prisma.sql`
+            SELECT p.id
+            FROM job_postings p
+            LEFT JOIN job_screenings s ON s.job_posting_id=p.id
+            WHERE p.id=${id} AND ${where}
+            LIMIT 1
+        `)
+        if (matches.length === 0) return null
+        return client.job_postings.findUnique({ where: { id } })
+    }
+    const where = await jobWhereForFilter(scope)
+    return client.job_postings.findFirst({ where: { AND: [where, { id }] } })
 }
 
 // The one place a posting's pipeline_status is moved by hand, single-row and bulk.
-// Both stamp updated_at alongside the status; keeping that pairing in one place is the
-// point, since a status moved without a fresh timestamp reorders the 'new' queue
-// wrongly (db.get_by_status sorts on updated_at DESC — see the worker).
-async function setPipelineStatus(id: number, status: string) {
+// The same list predicate must be sent back with a mutation so a crafted/stale request
+// cannot broaden a filter or act on a row outside the view that offered the action.
+function scopedWhere(where: Prisma.job_postingsWhereInput, ids: number[]): Prisma.job_postingsWhereInput {
+    return { AND: [where, { id: { in: ids } }] }
+}
+
+function uniquePostingIds(ids: number[]): number[] {
+    return [...new Set(ids.filter((id) => Number.isSafeInteger(id) && id > 0))]
+}
+
+async function setPipelineStatusInView(
+    id: number,
+    status: 'removed' | 'scored',
+    scope: JobViewScope,
+): Promise<{ success: boolean; error?: string }> {
     try {
-        await prisma.job_postings.update({
-            where: { id },
-            data: { pipeline_status: status, updated_at: new Date().toISOString() },
+        validateJobPostingsFilter(scope, true, false)
+        const result = await prisma.$transaction(async (tx) => {
+            const posting = await findPostingInView(tx, id, scope)
+            if (!posting) return { success: false, error: 'Job is outside the requested view and filters' }
+            if (status === 'removed' && posting.pipeline_status === 'applied') {
+                return { success: false, error: 'Applied postings cannot be removed from the inventory' }
+            }
+            if (status === 'scored' && posting.pipeline_status !== 'discarded') {
+                return { success: false, error: 'Only discarded postings can be reopened' }
+            }
+            const statusGuard: Prisma.job_postingsWhereInput = status === 'removed'
+                ? { pipeline_status: { notIn: ['applied', 'removed'] } }
+                : { pipeline_status: 'discarded' }
+            const updated = await tx.job_postings.updateMany({
+                where: { AND: [{ id }, statusGuard] },
+                data: { pipeline_status: status, updated_at: new Date().toISOString() },
+            })
+            return updated.count === 1
+                ? { success: true }
+                : { success: false, error: 'Job is no longer eligible in the requested view and filters' }
         })
-        return { success: true }
+        return result
     } catch (error: any) {
         return { success: false, error: error.message }
     }
 }
 
-async function setPipelineStatusMany(ids: number[], status: string) {
+async function setPipelineStatusManyInView(
+    ids: number[],
+    status: 'removed' | 'scored',
+    scope: JobViewScope,
+): Promise<{ success: boolean; error?: string; count?: number }> {
     try {
-        const res = await prisma.job_postings.updateMany({
-            where: { id: { in: ids } },
+        validateJobPostingsFilter(scope, true, false)
+        if (scope.bucket === 'all') {
+            return { success: false, error: 'Bulk lifecycle actions are not supported in All jobs' }
+        }
+        if (status === 'scored' && scope.bucket !== 'discarded') {
+            return { success: false, error: 'Bulk reopen is only supported in the Discarded view' }
+        }
+        const postingIds = uniquePostingIds(ids)
+        if (postingIds.length === 0) return { success: true, count: 0 }
+        if (postingIds.length > 100) return { success: false, error: 'Bulk actions are limited to 100 jobs' }
+
+        const where = await jobWhereForFilter(scope)
+        const constrainedWhere = scopedWhere(where, postingIds)
+        const eligibleCount = await prisma.job_postings.count({ where: constrainedWhere })
+        if (eligibleCount !== postingIds.length) {
+            return { success: false, error: 'One or more jobs are outside the requested view and filters' }
+        }
+        const statusGuard: Prisma.job_postingsWhereInput = status === 'removed'
+            ? { pipeline_status: { notIn: ['applied', 'removed'] } }
+            : {}
+        const result = await prisma.job_postings.updateMany({
+            where: { AND: [constrainedWhere, statusGuard] },
             data: { pipeline_status: status, updated_at: new Date().toISOString() },
         })
-        return { success: true, count: res.count }
+        return { success: true, count: result.count }
     } catch (error: any) {
         return { success: false, error: error.message }
     }
@@ -381,48 +738,42 @@ async function setPipelineStatusMany(ids: number[], status: string) {
 // 'discarded'. The Discarded bucket is reserved for the screen's auto-disqualifications,
 // so a hand-dismissed row must not masquerade as one (it would also be unreopenable,
 // matching no bucket). Reopen a genuine disqualification from the Discarded view instead.
-export async function discardJobPosting(id: number) {
-    return setPipelineStatus(id, 'removed')
+export async function discardJobPosting(id: number, scope: JobViewScope) {
+    return setPipelineStatusInView(id, 'removed', scope)
 }
 
 // Reverse a discard (whether user-initiated or an LLM disqualification): send the
 // posting back into the actionable queue. The stored score_detail — including any
 // disqualification_reason — is kept, so the override stays explainable.
-export async function reopenJobPosting(id: number) {
-    return setPipelineStatus(id, 'scored')
+export async function reopenJobPosting(id: number, scope: JobViewScope) {
+    return setPipelineStatusInView(id, 'scored', scope)
 }
 
 // Terminal hide: a 'removed' posting is invisible to every bucket query and inert
 // to the worker (ingest is ON CONFLICT DO NOTHING; the pipeline only selects by
 // explicit status), so it never re-scores/re-notifies. See the design spec.
-export async function bulkRemove(ids: number[]) {
-    return setPipelineStatusMany(ids, 'removed')
+export async function bulkRemove(ids: number[], scope: JobViewScope) {
+    return setPipelineStatusManyInView(ids, 'removed', scope)
 }
 
-export async function bulkReopen(ids: number[]) {
-    return setPipelineStatusMany(ids, 'scored')
+export async function bulkReopen(ids: number[], scope: JobViewScope) {
+    return setPipelineStatusManyInView(ids, 'scored', scope)
 }
 
-// Clear the whole current Discarded view in one click (respects bucket + cause
-// sub-filter + search + minScore via the same where-builder getJobPostings uses).
-export async function removeAllInView(filter: {
-    bucket?: JobBucket
-    search?: string
-    minScore?: number
-    cause?: DisqualifyCause
-}) {
+// Clear the whole current Discarded view in one click, using the exact predicate the
+// list action uses. Inventory is intentionally excluded from bulk lifecycle actions.
+export async function removeAllInView(filter: JobViewScope) {
     try {
-        const [lowIds, matchIds, belowIds] = await Promise.all([
-            lowContextIds(), matchedIds(), belowBarIds(),
-        ])
-        // Exactly the where getJobPostings uses, by construction rather than by
-        // agreement, so a bulk-remove can never sweep up a row that is actually
-        // showing under a different tab. Load-bearing now that the Discarded
-        // bucket also holds LIVE fit-verdict rejects (scored|notified), which DO
-        // overlap lowContextIds' scope.
-        const where = await jobWhereForBucket(filter, matchIds, belowIds, lowIds)
+        validateJobPostingsFilter(filter, true, false)
+        if (filter.bucket === 'all') {
+            return { success: false, error: 'Bulk lifecycle actions are not supported in All jobs' }
+        }
+        if (filter.bucket !== 'discarded') {
+            return { success: false, error: 'Remove all is only supported in the Discarded view' }
+        }
+        const where = await jobWhereForFilter(filter)
         const res = await prisma.job_postings.updateMany({
-            where,
+            where: { AND: [where, { pipeline_status: { notIn: ['applied', 'removed'] } }] },
             data: { pipeline_status: 'removed', updated_at: new Date().toISOString() },
         })
         return { success: true, count: res.count }
@@ -431,21 +782,26 @@ export async function removeAllInView(filter: {
     }
 }
 
-export async function markJobApplied(id: number, category?: string) {
+export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope) {
     try {
-        const posting = await prisma.job_postings.findUnique({ where: { id } })
-        if (!posting) {
-            return { success: false, error: 'Job posting not found' }
-        }
+        validateJobPostingsFilter(scope, true, false)
+        return await prisma.$transaction(async (tx) => {
+            const posting = await findPostingInView(tx, id, scope)
+            if (!posting) {
+                const exists = await tx.job_postings.findUnique({ where: { id }, select: { id: true } })
+                return { success: false, error: exists
+                    ? 'Job is outside the requested view and filters'
+                    : 'Job posting not found' }
+            }
+            if (posting.pipeline_status === 'applied' || posting.pipeline_status === 'removed') {
+                return { success: false, error: 'Job is not eligible to mark applied' }
+            }
 
-        // Category is a free-form user label chosen at apply time; keep whatever's
-        // given, falling back to 'Others' only when blank (or old callers pass nothing).
-        const cat = category?.trim() || CATEGORY_FALLBACK
-        const today = todayISO()
+            // Category is a free-form user label chosen at apply time; keep whatever's
+            // given, falling back to 'Others' only when blank.
+            const cat = category?.trim() || CATEGORY_FALLBACK
+            const today = todayISO()
 
-        // Create the application and backfill the job_postings link atomically so we
-        // can never end up with an application that has no back-link (or vice versa).
-        const result = await prisma.$transaction(async (tx) => {
             const existing = await tx.applications.findFirst({
                 where: {
                     company_name: posting.company_name,
@@ -472,19 +828,18 @@ export async function markJobApplied(id: number, category?: string) {
                 },
             })
 
-            await tx.job_postings.update({
-                where: { id },
+            const updated = await tx.job_postings.updateMany({
+                where: { id, pipeline_status: { notIn: ['applied', 'removed'] } },
                 data: {
                     pipeline_status: 'applied',
                     application_id: newApp.id,
                     updated_at: new Date().toISOString(),
                 },
             })
+            if (updated.count !== 1) throw new Error('Job is no longer eligible in the requested view and filters')
 
-            return newApp
+            return { success: true, data: newApp }
         })
-
-        return { success: true, data: result }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

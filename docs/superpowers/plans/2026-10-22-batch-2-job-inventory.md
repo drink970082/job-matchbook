@@ -1,6 +1,6 @@
 # Batch 2 — browse the inventory without fit scoring
 
-**Status:** implementation plan; blocked on accepted/merged batch 1. Not shipped.
+**Status:** shipped. Implementation: [PR #100](https://github.com/drink970082/job-matchbook/pull/100).
 Owner: Luna at max effort. Orchestrator and acceptance: Astra/Sol.
 [Issue #92](https://github.com/drink970082/job-matchbook/issues/92).
 
@@ -12,9 +12,10 @@ screen result, and use existing tracking actions without running fit. Read the
 [batch 1 plan](2026-10-22-batch-1-mcp-research.md), its actual merged diff and shared
 synthetic outcome fixture. Read DEVELOPMENT/PROGRESS and current SPEC UI contracts.
 
-Start `feat/job-inventory-view` from fresh main only after #91 is accepted and merged;
-no stacked branch. Claim it in PROGRESS. Astra/Sol rechecks the plan against the batch-1
-implementation before assigning Luna; unresolved semantic differences block assignment.
+The implementation branch `feat/job-inventory-view` is based on fresh `origin/main` after
+#91 was accepted and merged; it is claimed in PROGRESS and is not stacked on another
+feature branch. Astra/Sol rechecked the plan against Batch 1's actual implementation and
+the shared fixture before implementation; no unresolved semantic mismatch remains.
 No MCP dependency at web runtime: Prisma reads the same database directly.
 
 ## Starting points to inspect

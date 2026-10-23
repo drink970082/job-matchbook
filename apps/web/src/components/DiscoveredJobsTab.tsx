@@ -4,28 +4,26 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DiscoveredJobsTable, type JobPosting } from './DiscoveredJobsTable'
 import { ScorerUsageBar } from './ScorerUsageBar'
-import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
+import type { JobViewScope } from '@/lib/actions'
+import type { JobTableFilters } from './DiscoveredJobsTable'
 
 interface DiscoveredJobsTabProps {
     data: JobPosting[]
     total: number
     page: number
     size: number
+    filters: JobTableFilters
+    loading: boolean
+    loadError: boolean
     onPageChange: (page: number) => void
-    onFilterChange: (filters: {
-        bucket: JobBucket
-        search: string
-        minScore?: number
-        cause?: DisqualifyCause
-        sort: JobSort
-    }) => void
-    onMarkApplied: (id: number) => void
-    onDiscard: (id: number) => void
-    onReopen: (id: number) => void
-    onViewJD: (id: number) => void
-    onBulkRemove: (ids: number[]) => void
-    onBulkReopen: (ids: number[]) => void
-    onRemoveAllInView: (filter: { bucket: JobBucket; search: string; minScore?: number; cause?: DisqualifyCause }) => void
+    onFilterChange: (filters: JobTableFilters) => void
+    onMarkApplied: (id: number, scope: JobViewScope) => void
+    onDiscard: (id: number, scope: JobViewScope) => void
+    onReopen: (id: number, scope: JobViewScope) => void
+    onViewJD: (id: number, scope: JobViewScope) => void
+    onBulkRemove: (ids: number[], scope: JobViewScope) => void
+    onBulkReopen: (ids: number[], scope: JobViewScope) => void
+    onRemoveAllInView: (filter: JobViewScope) => void
 }
 
 export function DiscoveredJobsTab({
@@ -33,6 +31,9 @@ export function DiscoveredJobsTab({
     total,
     page,
     size,
+    filters,
+    loading,
+    loadError,
     onPageChange,
     onFilterChange,
     onMarkApplied,
@@ -55,6 +56,9 @@ export function DiscoveredJobsTab({
                     total={total}
                     page={page}
                     size={size}
+                    filters={filters}
+                    loading={loading}
+                    loadError={loadError}
                     onPageChange={onPageChange}
                     onFilterChange={onFilterChange}
                     onMarkApplied={onMarkApplied}

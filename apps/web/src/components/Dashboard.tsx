@@ -32,6 +32,7 @@ import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { todayISO } from '@/lib/utils'
 import { ApplicationsTab } from './ApplicationsTab'
 import { DiscoveredJobsTab } from './DiscoveredJobsTab'
+import type { JobTableFilters } from './DiscoveredJobsTable'
 import { WatchlistTab } from './WatchlistTab'
 import { UnresolvedTab } from './UnresolvedTab'
 import { JobDetailModal } from './JobDetailModal'
@@ -42,10 +43,23 @@ import { CategoriesDialog } from './CategoriesDialog'
 import { Button } from '@/components/ui/button'
 import { Download, Upload, Tags } from 'lucide-react'
 import { toast } from 'sonner'
+import type { JobViewScope } from '@/lib/actions'
 
 // Page size for the Discovered Jobs table (must match page.tsx's initial load,
 // which calls getJobPostings with the action's default size).
 const JOB_PAGE_SIZE = 25
+const DEFAULT_JOB_FILTERS: JobTableFilters = {
+    bucket: 'all',
+    search: '',
+    searchScope: 'metadata',
+    sort: 'created',
+    sortExplicit: false,
+}
+
+function jobActionFilters(filters: JobTableFilters) {
+    const { sortExplicit: _sortExplicit, ...query } = filters
+    return query
+}
 
 interface DashboardProps {
     initialApps: any[]
@@ -82,7 +96,9 @@ export function Dashboard({
     // Discovered Jobs state
     const [jobPostings, setJobPostings] = useState<any[]>(initialJobPostings)
     const [totalJobs, setTotalJobs] = useState(totalJobPostings)
-    const [jobFilters, setJobFilters] = useState<any>({})
+    const [jobsLoading, setJobsLoading] = useState(false)
+    const [jobsError, setJobsError] = useState(false)
+    const [jobFilters, setJobFilters] = useState<JobTableFilters>(DEFAULT_JOB_FILTERS)
     const [jobPage, setJobPage] = useState(0)
     const [selectedJob, setSelectedJob] = useState<any>(null)
     const [isJobDetailOpen, setIsJobDetailOpen] = useState(false)
@@ -107,6 +123,8 @@ export function Dashboard({
     const [historyData, setHistoryData] = useState<any[]>([])
     const [isHistoryOpen, setIsHistoryOpen] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const jobRequestVersion = useRef(0)
+    const jobViewRef = useRef({ filters: DEFAULT_JOB_FILTERS, page: 0 })
 
     // Light tier: apps + KPIs + status flow only. A status edit can't move
     // date_applied or category, so re-fetching the timeline/category charts on
@@ -288,10 +306,32 @@ export function Dashboard({
         refreshData()
     }
 
-    const refreshJobPostings = async (filters = jobFilters, page = jobPage) => {
-        const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
-        setJobPostings(data)
-        setTotalJobs(total)
+    const requestJobPostings = useCallback(async (filters: JobTableFilters, page: number) => {
+        const version = ++jobRequestVersion.current
+        setJobsLoading(true)
+        setJobsError(false)
+        setJobPostings([])
+        setTotalJobs(0)
+        try {
+            const { data, total } = await getJobPostings({ ...jobActionFilters(filters), page, size: JOB_PAGE_SIZE })
+            if (version !== jobRequestVersion.current) return
+            setJobPostings(data)
+            setTotalJobs(total)
+            setJobsLoading(false)
+        } catch {
+            if (version === jobRequestVersion.current) {
+                setJobPostings([])
+                setTotalJobs(0)
+                setJobsError(true)
+                setJobsLoading(false)
+                toast.error('Could not load jobs')
+            }
+        }
+    }, [])
+
+    const refreshJobPostings = async (filters?: JobTableFilters, page?: number) => {
+        const current = jobViewRef.current
+        await requestJobPostings(filters ?? current.filters, page ?? current.page)
     }
 
     const refreshWatchlist = async () => {
@@ -363,38 +403,38 @@ export function Dashboard({
         }
     }
 
-    const handleJobFilterChange = useCallback(async (newFilters: any) => {
+    const handleJobFilterChange = useCallback((newFilters: JobTableFilters) => {
+        jobViewRef.current = { filters: newFilters, page: 0 }
         setJobFilters(newFilters)
         setJobPage(0)
-        const { data, total } = await getJobPostings({ ...newFilters, page: 0, size: JOB_PAGE_SIZE })
-        setJobPostings(data)
-        setTotalJobs(total)
-    }, [])
+        void requestJobPostings(newFilters, 0)
+    }, [requestJobPostings])
 
-    const handleJobPageChange = async (newPage: number) => {
+    const handleJobPageChange = (newPage: number) => {
+        jobViewRef.current = { filters: jobViewRef.current.filters, page: newPage }
         setJobPage(newPage)
-        await refreshJobPostings(jobFilters, newPage)
+        void requestJobPostings(jobViewRef.current.filters, newPage)
     }
 
-    const handleViewJD = (id: number) => {
+    const handleViewJD = (id: number, scope: JobViewScope = jobFilters) => {
         const job = jobPostings.find((j: any) => j.id === id)
         if (job) {
-            setSelectedJob(job)
+            setSelectedJob({ ...job, __viewScope: scope })
             setIsJobDetailOpen(true)
         }
     }
 
     // Mark Applied now opens a dialog to pick the application category (instead of
     // always defaulting to 'Others'). The actual apply happens on confirm.
-    const handleMarkApplied = (id: number) => {
+    const handleMarkApplied = (id: number, scope?: JobViewScope) => {
         const job = jobPostings.find((j: any) => j.id === id) || { id }
-        setApplyJob(job)
+        setApplyJob({ ...job, __viewScope: scope ?? selectedJob?.__viewScope ?? jobFilters })
         setIsJobDetailOpen(false)
     }
 
     const handleConfirmApply = async (category: string) => {
         if (!applyJob) return
-        const result = await markJobApplied(applyJob.id, category)
+        const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope)
         if (result.success) {
             toast.success('Marked as applied')
             setApplyJob(null)
@@ -406,8 +446,8 @@ export function Dashboard({
         }
     }
 
-    const handleDiscardJob = async (id: number) => {
-        const result = await discardJobPosting(id)
+    const handleDiscardJob = async (id: number, scope?: JobViewScope) => {
+        const result = await discardJobPosting(id, scope ?? selectedJob?.__viewScope ?? jobFilters)
         if (result.success) {
             toast.success('Job discarded')
             setIsJobDetailOpen(false)
@@ -418,8 +458,8 @@ export function Dashboard({
         }
     }
 
-    const handleReopenJob = async (id: number) => {
-        const result = await reopenJobPosting(id)
+    const handleReopenJob = async (id: number, scope?: JobViewScope) => {
+        const result = await reopenJobPosting(id, scope ?? selectedJob?.__viewScope ?? jobFilters)
         if (result.success) {
             toast.success('Job reopened')
             setIsJobDetailOpen(false)
@@ -430,10 +470,10 @@ export function Dashboard({
         }
     }
 
-    const handleBulkRemove = async (jobIds: number[]) => {
+    const handleBulkRemove = async (jobIds: number[], scope: JobViewScope) => {
         // ponytail: native confirm — same pattern as handleDeleteApplication.
         if (!confirm(`Remove ${jobIds.length} job${jobIds.length === 1 ? '' : 's'}? They'll be hidden from all tabs.`)) return
-        const result = await bulkRemove(jobIds)
+        const result = await bulkRemove(jobIds, scope)
         if (result.success) {
             toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
             await refreshJobPostings()
@@ -442,8 +482,8 @@ export function Dashboard({
         }
     }
 
-    const handleBulkReopen = async (jobIds: number[]) => {
-        const result = await bulkReopen(jobIds)
+    const handleBulkReopen = async (jobIds: number[], scope: JobViewScope) => {
+        const result = await bulkReopen(jobIds, scope)
         if (result.success) {
             toast.success(`Reopened ${result.count} job${result.count === 1 ? '' : 's'}`)
             await refreshJobPostings()
@@ -560,6 +600,9 @@ export function Dashboard({
                     total={totalJobs}
                     page={jobPage}
                     size={JOB_PAGE_SIZE}
+                    filters={jobFilters}
+                    loading={jobsLoading}
+                    loadError={jobsError}
                     onPageChange={handleJobPageChange}
                     onFilterChange={handleJobFilterChange}
                     onMarkApplied={handleMarkApplied}

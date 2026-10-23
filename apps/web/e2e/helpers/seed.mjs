@@ -29,6 +29,20 @@ import { DATABASE_URL } from './db-path.mjs'
 // predicate and the client parse the same JSON blob.
 export const POSTINGS = [
     {
+        source: 'synthetic', external_id: 'e2e-inventory-new', company_slug: 'inventory-new', company_name: 'Recent Synthetic Systems',
+        job_title: 'Senior Systems Engineer', location: 'Remote',
+        job_url: 'https://synthetic.example/jobs/recent',
+        description:
+            'SYNTHETIC FULL JD START. This role builds distributed storage, reliability tooling, and ' +
+            'developer workflows. It includes a uniquely searchable phrase inventory-long-jd-keyword. ' +
+            'The complete fixture description is intentionally long enough to exercise the detail ' +
+            'view and includes operating production services, writing design documents, reviewing ' +
+            'code, mentoring engineers, and partnering with security and product teams. ' +
+            'SYNTHETIC FULL JD END.',
+        score: null, score_detail: null,
+        pipeline_status: 'new', created_at: '2026-01-03T00:00:00.000Z',
+    },
+    {
         source: 'greenhouse', external_id: 'e2e-1', company_slug: 'acme', company_name: 'Acme Robotics',
         job_title: 'Backend Engineer', location: 'Remote',
         job_url: 'https://acme.example/jobs/1',
@@ -46,7 +60,7 @@ export const POSTINGS = [
                 summary: 'Strong backend match on the core stack.',
             },
         }),
-        pipeline_status: 'scored', created_at: '2026-01-01T00:00:00.000Z',
+        pipeline_status: 'scored', created_at: '2026-01-02T00:00:00.000Z',
     },
     {
         source: 'lever', external_id: 'e2e-2', company_slug: 'globex', company_name: 'Globex Analytics',
@@ -140,6 +154,19 @@ export async function seed(url = DATABASE_URL) {
         await clear(prisma)
         await prisma.applications.create({ data: EXISTING_APPLICATION })
         for (const p of POSTINGS) await prisma.job_postings.create({ data: p })
+        // A deterministic second page proves All jobs recency and pagination without
+        // depending on any provider or production database.
+        for (let i = 1; i <= 30; i++) {
+            await prisma.job_postings.create({ data: {
+                source: 'synthetic', external_id: `e2e-inventory-old-${i}`, company_slug: `fixture-${i}`,
+                company_name: `Older Synthetic Company ${String(i).padStart(2, '0')}`,
+                job_title: `Synthetic Engineer ${String(i).padStart(2, '0')}`,
+                location: 'Remote', job_url: `https://synthetic.example/jobs/old-${i}`,
+                description: `Synthetic older listing ${i}.`,
+                score: 72, score_detail: null, pipeline_status: 'scored',
+                created_at: `2025-12-${String(31 - Math.floor((i - 1) / 1)).padStart(2, '0')}T00:00:00.000Z`,
+            } })
+        }
         for (const c of WATCHED_COMPANIES) await prisma.watched_companies.create({ data: c })
         for (const u of FEED_UNRESOLVED) await prisma.feed_unresolved.create({ data: u })
     } finally {

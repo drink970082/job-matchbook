@@ -23,7 +23,8 @@ import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
 import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/lib/score-detail'
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
-import type { JobBucket, DisqualifyCause, JobSort } from '@/lib/actions'
+import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/actions'
+import type { ScreenOutcome, ScreenSummary, LegacyScreenEvidence } from '@/lib/screen-summary'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
@@ -40,36 +41,52 @@ export interface JobPosting {
     pipeline_error?: string | null
     posted_at?: string | null
     created_at?: string | null
+    screen_summary?: ScreenSummary
+    legacy_screen_evidence?: LegacyScreenEvidence
 }
+
+export type JobTableFilters = JobViewScope & { sortExplicit: boolean }
 
 interface DiscoveredJobsTableProps {
     data: JobPosting[]
     total: number
     page: number
     size: number
+    filters: JobTableFilters
+    loading: boolean
+    loadError: boolean
     onPageChange: (page: number) => void
-    onFilterChange: (filters: {
-        bucket: JobBucket
-        search: string
-        minScore?: number
-        cause?: DisqualifyCause
-        sort: JobSort
-    }) => void
-    onMarkApplied: (id: number) => void
-    onDiscard: (id: number) => void
-    onReopen: (id: number) => void
-    onViewJD: (id: number) => void
-    onBulkRemove: (ids: number[]) => void
-    onBulkReopen: (ids: number[]) => void
-    onRemoveAllInView: (filter: { bucket: JobBucket; search: string; minScore?: number; cause?: DisqualifyCause }) => void
+    onFilterChange: (filters: JobTableFilters) => void
+    onMarkApplied: (id: number, scope: JobViewScope) => void
+    onDiscard: (id: number, scope: JobViewScope) => void
+    onReopen: (id: number, scope: JobViewScope) => void
+    onViewJD: (id: number, scope: JobViewScope) => void
+    onBulkRemove: (ids: number[], scope: JobViewScope) => void
+    onBulkReopen: (ids: number[], scope: JobViewScope) => void
+    onRemoveAllInView: (filter: JobViewScope) => void
 }
 
 const BUCKETS: { value: JobBucket; label: string }[] = [
+    { value: 'all', label: 'All jobs' },
     { value: 'matched', label: 'Matched' },
     { value: 'belowbar', label: 'Below bar' },
     { value: 'discarded', label: 'Discarded' },
     { value: 'failed', label: 'Failed' },
     { value: 'lowcontext', label: 'Low-context' },
+]
+
+const SCREEN_OUTCOMES: { value: 'all' | ScreenOutcome; label: string }[] = [
+    { value: 'all', label: 'All screen outcomes' },
+    { value: 'not_screened', label: 'Not screened' },
+    { value: 'provider_error', label: 'Provider error' },
+    { value: 'disqualified', label: 'Disqualified (advisory)' },
+    { value: 'no_disqualifier_found', label: 'No disqualifier found' },
+    { value: 'unknown', label: 'Unknown' },
+]
+
+const SEARCH_SCOPES: { value: JobSearchScope; label: string }[] = [
+    { value: 'metadata', label: 'Metadata' },
+    { value: 'all_text', label: 'All text, including JD' },
 ]
 
 // Disqualification-cause sub-filter for the Discarded bucket (mirrors DisqualifyCause).
@@ -237,11 +254,85 @@ function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; 
     return null
 }
 
+function screenOutcomeLabel(outcome?: ScreenOutcome): string {
+    switch (outcome) {
+        case 'not_screened': return 'Not screened'
+        case 'provider_error': return 'Provider error'
+        case 'disqualified': return 'Disqualified'
+        case 'no_disqualifier_found': return 'No disqualifier found'
+        default: return 'Unknown'
+    }
+}
+
+function ScreenCell({ job }: { job: JobPosting }) {
+    const summary = job.screen_summary
+    const label = screenOutcomeLabel(summary?.outcome)
+    const legacy = job.legacy_screen_evidence?.available
+    const provenance = [summary?.backend, summary?.model, summary?.effort]
+        .filter((value): value is string => !!value)
+    return (
+        <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
+            <Badge variant="outline" title="Advisory only; this does not establish universal eligibility">
+                Advisory · {label}
+            </Badge>
+            {summary?.reason && (
+                <span className="truncate text-muted-foreground" title={summary.reason}>
+                    {summary.reason}
+                </span>
+            )}
+            {legacy && (
+                <Badge variant="secondary" title="Older screen evidence stored with the fit result">
+                    Legacy screen evidence
+                </Badge>
+            )}
+            {(provenance.length > 0 || summary?.assessment_time) && (
+                <span className="text-muted-foreground">
+                    {[
+                        ...provenance,
+                        summary?.assessment_time ? `assessed ${summary.assessment_time}` : null,
+                    ].filter(Boolean).join(' · ')}
+                </span>
+            )}
+        </div>
+    )
+}
+
+function pipelineStatusLabel(status?: string): string {
+    const labels: Record<string, string> = {
+        new: 'New',
+        scored: 'Scored',
+        notified: 'Notified',
+        applied: 'Applied',
+        discarded: 'Discarded',
+        failed: 'Failed',
+        expired: 'Expired',
+        removed: 'Removed',
+    }
+    if (status && Object.prototype.hasOwnProperty.call(labels, status)) return labels[status]
+    return `Unknown status (${status || 'missing'})`
+}
+
+function descriptionLabel(description?: string | null): string | null {
+    if (description == null) return 'Description unavailable'
+    const length = description.trim().length
+    if (length === 0) return 'Description is empty'
+    if (length < LOW_CONTEXT_MAX_DESCRIPTION_LENGTH) return `Short JD (${length} chars)`
+    return null
+}
+
+function actionScope(filters: JobTableFilters): JobViewScope {
+    const { sortExplicit: _sortExplicit, ...scope } = filters
+    return scope
+}
+
 export function DiscoveredJobsTable({
     data,
     total,
     page,
     size,
+    filters,
+    loading,
+    loadError,
     onPageChange,
     onFilterChange,
     onMarkApplied,
@@ -252,13 +343,6 @@ export function DiscoveredJobsTable({
     onBulkReopen,
     onRemoveAllInView,
 }: DiscoveredJobsTableProps) {
-    const [search, setSearch] = useState('')
-    const [bucket, setBucket] = useState<JobBucket>('matched')
-    const [minScore, setMinScore] = useState('')
-    const [sort, setSort] = useState<JobSort>('score')
-    // Discarded-only sub-filter: which hard-constraint cause disqualified the row.
-    const [cause, setCause] = useState<'all' | DisqualifyCause>('all')
-
     const [selected, setSelected] = useState<Set<number>>(new Set())
     // Whenever the visible row set changes (page / filter / post-action refresh),
     // drop the selection — stale ids must never carry across views.
@@ -274,30 +358,39 @@ export function DiscoveredJobsTable({
         })
     const ids = () => [...selected]
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            onFilterChange({
-                search,
-                bucket,
-                minScore: minScore === '' ? undefined : Number(minScore),
-                cause: bucket === 'discarded' && cause !== 'all' ? cause : undefined,
-                sort,
-            })
-        }, 300)
-        return () => clearTimeout(timer)
-    }, [search, bucket, minScore, cause, sort, onFilterChange])
+    const bucket = filters.bucket
+    const search = filters.search ?? ''
+    const minScore = filters.minScore == null ? '' : String(filters.minScore)
+    const sort = filters.sort ?? (bucket === 'all' ? 'created' : 'score')
+    const cause = filters.cause ?? 'all'
+    const searchScope = filters.searchScope ?? 'metadata'
+    const screenOutcome = filters.screenOutcome ?? 'all'
+    const scope = actionScope(filters)
+
+    const updateFilters = (patch: Partial<JobTableFilters>) => {
+        const next: JobTableFilters = { ...filters, ...patch }
+        if (patch.bucket && patch.bucket !== bucket) {
+            if (!filters.sortExplicit) next.sort = patch.bucket === 'all' ? 'created' : 'score'
+            if (patch.bucket !== 'all') {
+                next.screenOutcome = undefined
+                next.searchScope = 'metadata'
+            }
+            if (patch.bucket !== 'discarded') next.cause = undefined
+        }
+        onFilterChange(next)
+    }
 
     return (
         <div className="space-y-4">
-            {selected.size > 0 && (
+            {bucket !== 'all' && selected.size > 0 && (
                 <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
                     <span className="font-medium">{selected.size} selected</span>
                     {bucket === 'discarded' && (
-                        <Button variant="outline" size="sm" onClick={() => onBulkReopen(ids())}>
+                        <Button variant="outline" size="sm" onClick={() => onBulkReopen(ids(), scope)}>
                             Reopen selected
                         </Button>
                     )}
-                    <Button variant="destructive" size="sm" onClick={() => onBulkRemove(ids())}>
+                    <Button variant="destructive" size="sm" onClick={() => onBulkRemove(ids(), scope)}>
                         Remove selected
                     </Button>
                 </div>
@@ -308,7 +401,7 @@ export function DiscoveredJobsTable({
                     <button
                         key={b.value}
                         type="button"
-                        onClick={() => setBucket(b.value)}
+                        onClick={() => updateFilters({ bucket: b.value })}
                         className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                             bucket === b.value
                                 ? 'bg-background shadow-sm text-foreground'
@@ -322,9 +415,12 @@ export function DiscoveredJobsTable({
             <div className="flex flex-row gap-3 items-center">
                 <div className="flex-1">
                     <Input
-                        placeholder="Search companies or job titles..."
+                        placeholder={bucket === 'all'
+                            ? 'Search companies, roles, or locations...'
+                            : 'Search companies or job titles...'}
+                        maxLength={200}
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => updateFilters({ search: e.target.value })}
                     />
                 </div>
                 <Input
@@ -333,22 +429,53 @@ export function DiscoveredJobsTable({
                     max={100}
                     placeholder="Min score"
                     value={minScore}
-                    onChange={(e) => setMinScore(e.target.value)}
+                    onChange={(e) => updateFilters({ minScore: e.target.value === '' ? undefined : Number(e.target.value) })}
                     className="w-[110px]"
                     aria-label="Minimum score"
                 />
-                <Select value={sort} onValueChange={(v) => setSort(v as JobSort)}>
+                <Select value={sort} onValueChange={(v) => updateFilters({ sort: v as JobSort, sortExplicit: true })}>
                     <SelectTrigger className="w-[150px]" aria-label="Sort by">
                         <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="created">Discovery recency</SelectItem>
                         <SelectItem value="score">Best match</SelectItem>
                         <SelectItem value="posted">Newest posted</SelectItem>
                     </SelectContent>
                 </Select>
+                {bucket === 'all' && (
+                    <>
+                        <Select
+                            value={screenOutcome}
+                            onValueChange={(value) => updateFilters({ screenOutcome: value === 'all' ? undefined : value as ScreenOutcome })}
+                        >
+                            <SelectTrigger className="w-[190px]" aria-label="Standalone screen outcome">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {SCREEN_OUTCOMES.map((outcome) => (
+                                    <SelectItem key={outcome.value} value={outcome.value}>{outcome.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select
+                            value={searchScope}
+                            onValueChange={(value) => updateFilters({ searchScope: value as JobSearchScope })}
+                        >
+                            <SelectTrigger className="w-[175px]" aria-label="Search scope">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {SEARCH_SCOPES.map((item) => (
+                                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </>
+                )}
                 {bucket === 'discarded' && (
                     <>
-                        <Select value={cause} onValueChange={(v) => setCause(v as 'all' | DisqualifyCause)}>
+                        <Select value={cause} onValueChange={(v) => updateFilters({ cause: v === 'all' ? undefined : v as DisqualifyCause })}>
                             <SelectTrigger className="w-[170px]" aria-label="Disqualification cause">
                                 <SelectValue />
                             </SelectTrigger>
@@ -361,12 +488,7 @@ export function DiscoveredJobsTable({
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => onRemoveAllInView({
-                                bucket,
-                                search,
-                                minScore: minScore === '' ? undefined : Number(minScore),
-                                cause: bucket === 'discarded' && cause !== 'all' ? cause : undefined,
-                            })}
+                            onClick={() => onRemoveAllInView(scope)}
                         >
                             Remove all in view
                         </Button>
@@ -378,43 +500,62 @@ export function DiscoveredJobsTable({
                 <Table className="table-fixed w-full">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[4%]">
-                                <input
-                                    type="checkbox"
-                                    aria-label="Select all"
-                                    checked={allSelected}
-                                    onChange={toggleAll}
-                                    className="h-4 w-4 align-middle"
-                                />
-                            </TableHead>
+                            {bucket !== 'all' && (
+                                <TableHead className="w-[4%]">
+                                    <input
+                                        type="checkbox"
+                                        aria-label="Select all"
+                                        checked={allSelected}
+                                        onChange={toggleAll}
+                                        className="h-4 w-4 align-middle"
+                                    />
+                                </TableHead>
+                            )}
                             <TableHead className="w-[22%] whitespace-normal">Company</TableHead>
                             <TableHead className="w-[34%] whitespace-normal">Role</TableHead>
-                            <TableHead className="w-[12%] whitespace-normal">Score</TableHead>
+                            <TableHead className="w-[12%] whitespace-normal">{bucket === 'all' ? 'Fit' : 'Score'}</TableHead>
                             <TableHead className="w-[12%] whitespace-normal">Dates</TableHead>
                             <TableHead className="w-[16%] whitespace-normal text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {data.length === 0 ? (
+                        {loading ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                                    No results.
+                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
+                                    Loading jobs…
+                                </TableCell>
+                            </TableRow>
+                        ) : loadError ? (
+                            <TableRow>
+                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
+                                    Could not load jobs. Change a filter to try again.
+                                </TableCell>
+                            </TableRow>
+                        ) : data.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={bucket === 'all' ? 5 : 6} className="h-24 text-center text-muted-foreground">
+                                    {bucket === 'all' && !search && screenOutcome === 'all' && minScore === ''
+                                        ? 'No jobs in inventory yet.'
+                                        : 'No jobs match these filters.'}
                                 </TableCell>
                             </TableRow>
                         ) : (
                             data.map((job) => {
                                 const detail = parseDetail(job.score_detail)
+                                const shortDescription = descriptionLabel(job.description)
                                 return (
                                 <TableRow key={job.id}>
-                                    <TableCell className="align-top">
-                                        <input
-                                            type="checkbox"
-                                            aria-label={`Select ${job.job_title}`}
-                                            checked={selected.has(job.id)}
-                                            onChange={() => toggleOne(job.id)}
-                                            className="h-4 w-4 align-middle"
-                                        />
-                                    </TableCell>
+                                    {bucket !== 'all' && (
+                                        <TableCell className="align-top">
+                                            <input
+                                                type="checkbox"
+                                                aria-label={`Select ${job.job_title}`}
+                                                checked={selected.has(job.id)}
+                                                onChange={() => toggleOne(job.id)}
+                                                className="h-4 w-4 align-middle"
+                                            />
+                                        </TableCell>
+                                    )}
                                     <TableCell className="whitespace-normal align-top">
                                         <div className="truncate text-sm font-medium" title={job.company_name}>
                                             {job.company_name}
@@ -427,6 +568,11 @@ export function DiscoveredJobsTable({
                                         <span className="mt-1 inline-block max-w-full truncate rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground">
                                             {job.source}
                                         </span>
+                                        {bucket === 'all' && (
+                                            <div className="mt-1">
+                                                <Badge variant="outline">{pipelineStatusLabel(job.pipeline_status)}</Badge>
+                                            </div>
+                                        )}
                                     </TableCell>
                                     <TableCell className="whitespace-normal align-top text-sm">
                                         <a
@@ -438,7 +584,21 @@ export function DiscoveredJobsTable({
                                         >
                                             {job.job_title}
                                         </a>
-                                        <WhyCell bucket={bucket} job={job} detail={detail} />
+                                        {bucket === 'all' ? (
+                                            <>
+                                                <ScreenCell job={job} />
+                                                {shortDescription && (
+                                                    <div className="mt-1 text-[11px] text-muted-foreground">{shortDescription}</div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <WhyCell bucket={bucket} job={job} detail={detail} />
+                                                {(job.screen_summary?.origin === 'job_screenings' || job.legacy_screen_evidence?.available) && (
+                                                    <ScreenCell job={job} />
+                                                )}
+                                            </>
+                                        )}
                                     </TableCell>
                                     <TableCell className="align-top">
                                         <Badge variant={scoreVariant(job.score)}>
@@ -462,42 +622,46 @@ export function DiscoveredJobsTable({
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                onClick={() => onViewJD(job.id)}
+                                                onClick={() => onViewJD(job.id, scope)}
                                                 title="View JD"
                                                 className="h-7 w-7"
                                             >
                                                 <FileText className="h-3.5 w-3.5" />
                                             </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => onMarkApplied(job.id)}
-                                                title="Mark Applied"
-                                                className="h-7 w-7 text-emerald-600 hover:text-emerald-600"
-                                            >
-                                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                            </Button>
+                                            {job.pipeline_status === 'applied' ? (
+                                                <Badge variant="secondary" className="mr-1">Applied</Badge>
+                                            ) : (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => onMarkApplied(job.id, scope)}
+                                                    title="Mark Applied"
+                                                    className="h-7 w-7 text-emerald-600 hover:text-emerald-600"
+                                                >
+                                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            )}
                                             {job.pipeline_status === 'discarded' ? (
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    onClick={() => onReopen(job.id)}
+                                                    onClick={() => onReopen(job.id, scope)}
                                                     title="Reopen"
                                                     className="h-7 w-7"
                                                 >
                                                     <RotateCcw className="h-3.5 w-3.5" />
                                                 </Button>
-                                            ) : (
+                                            ) : job.pipeline_status !== 'applied' ? (
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    onClick={() => onDiscard(job.id)}
+                                                    onClick={() => onDiscard(job.id, scope)}
                                                     title="Remove"
                                                     className="h-7 w-7 text-destructive hover:text-destructive"
                                                 >
                                                     <XCircle className="h-3.5 w-3.5" />
                                                 </Button>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </TableCell>
                                 </TableRow>

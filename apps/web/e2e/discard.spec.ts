@@ -8,6 +8,7 @@ test.beforeEach(async () => {
 test('discarding a posting removes it from the Matched view', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await page.getByRole('button', { name: 'Matched' }).click()
 
     // Globex (score 78) sits in the default Matched bucket; discard it from there.
     // (The row action is titled "Remove" — it writes pipeline_status='removed',
