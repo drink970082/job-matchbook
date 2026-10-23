@@ -8,12 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **`docs/issue-90-research-baseline` — issue #90.** The sanitized interactive ATS +
-  public-web run is recorded in the [research workflow baseline](reports/2026-10-22-ats-chatgpt-research-baseline.md).
-  MCP pagination, complete JD chunks and application URL comparison were exercised.
-  Scheduled access remains unverified and belongs to #94; this branch makes no
-  runtime or ATS data changes.
-
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
