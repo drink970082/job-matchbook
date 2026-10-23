@@ -148,7 +148,7 @@ describe('JobDetailModal score_detail rendering', () => {
                 screen_summary: {
                     outcome: 'provider_error',
                     is_advisory: true,
-                    reason: 'Screening provider failed; retry is pending.',
+                    reason: 'Screening provider failed.',
                     assessment_time: null,
                     backend: 'codex',
                     model: null,

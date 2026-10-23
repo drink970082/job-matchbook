@@ -129,7 +129,7 @@ export function standaloneScreenSummary(record: StandaloneScreenRecord | null | 
             reason = null
             break
         case 'provider_error':
-            reason = sanitizeReason(record?.error_message) || 'Screening provider failed; retry is pending.'
+            reason = sanitizeReason(record?.error_message) || 'Screening provider failed.'
             break
         case 'disqualified':
             reason = sanitizeReason(isRecord(parsed) ? parsed.disqualification_reason : null) ||
