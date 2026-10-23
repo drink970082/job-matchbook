@@ -32,7 +32,7 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 
 | Order | Deliverable | Dependencies / selection | Execution |
 |---|---|---|---|
-| Early, alongside batch 1 | [#90 Research workflow baseline](https://github.com/drink970082/job-matchbook/issues/90) | None | Orchestrator read-only workflow evidence |
+| Early, alongside batch 1 | [#90 Research workflow baseline](https://github.com/drink970082/job-matchbook/issues/90) ([report](reports/2026-10-22-ats-chatgpt-research-baseline.md)) | None | Orchestrator read-only workflow evidence |
 | Batch 1 | [#91 Research MCP queries](https://github.com/drink970082/job-matchbook/issues/91) | Scoped plan on main | Luna/max implementation, Astra/Sol acceptance |
 | Batch 2 | [#92 Visible job inventory](https://github.com/drink970082/job-matchbook/issues/92) | #91 accepted/merged | Luna/max implementation, Astra/Sol browser acceptance |
 | Next design | [#93 Source lifecycle](https://github.com/drink970082/job-matchbook/issues/93) | #91, #92; separate schema/policy design | Orchestrator designs before Luna assignment |
@@ -84,6 +84,11 @@ sources have identical closure signals.
 preferences, full JD reading, application-history deduplication without posting links,
 unknown sponsorship/pay and source failure reporting are required. Company/title similarity
 is a review signal, not verified requisition identity. No fixed ATS/web recommendation quota.
+
+The [interactive baseline](reports/2026-10-22-ats-chatgpt-research-baseline.md) exercised
+MCP pagination, complete JD chunks and application URL comparison. It does not establish
+the source freshness cutoff or unattended ChatGPT access; #94 must verify those against
+the deployed tunnel and an actual scheduled run.
 
 At 20:00 America/New_York disclose the evidence cutoff; the worker pass starting then is
 not guaranteed complete. Confirm product/account capabilities in the actual environment.
