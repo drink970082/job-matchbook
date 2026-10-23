@@ -8,11 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **`feat/mcp-research-queries` — issue #91 implementation**. Add advisory standalone
-  screen summaries/filters, literal all-text search, assessment update windows, accurate
-  eligible-screen counts and persistence-time clock sampling to the read-only MCP. Follow
-  the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md); synthetic data
-  only. No MCP writes, live inference, deployment or issue #92 UI scope.
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
