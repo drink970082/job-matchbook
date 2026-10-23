@@ -84,6 +84,16 @@ Effort levels are in [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md).
   branch/PR rules and the authority split — is
   [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md) §7.
 
+## Pivot delivery roles
+
+Astra/Sol owns docs, architecture, boundaries, issue planning and acceptance; it does not
+write implementation or fix review findings. All implementation goes to Luna at **max**
+effort, including tests and corrective patches. This is separate from the deployed
+Luna/**medium** screener. Follow [DEVELOPMENT](docs/DEVELOPMENT.md#agent-ownership-and-handoff)
+for branch/PR/review handoff. Issues own deliverable status/dependencies, ROADMAP owns
+order, PROGRESS owns branch claims. Conditional scorer work is last priority and may
+remain unused if scheduled ChatGPT handles the workload.
+
 ## What this is
 
 A ChatGPT-first job-source, evidence and tracking system with optional screening and

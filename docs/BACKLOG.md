@@ -25,6 +25,13 @@ session boot path. Revalidate an entry against current code and data before sele
   requisitions, schema migration strategy and excluded web integration coverage remain
   scoped maintenance questions, not reasons to alter application history in this pivot.
 
+## Issue ownership
+
+Selected deliverables and conditional extensions are linked in ROADMAP: #90–#96.
+Their status/dependencies live on GitHub; this file retains background and unselected
+ideas. Fit pre-ranking (#96) is last priority and may never be enabled if scheduled
+ChatGPT meets the need. Recommendation history (#95) is conditional on observed repeats.
+
 ## Optional scorer work
 
 - Keep screening and fit code, prompts, adapters and hermetic tests. Do not delete them

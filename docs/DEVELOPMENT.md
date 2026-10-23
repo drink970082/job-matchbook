@@ -48,6 +48,8 @@ early as context insurance produces exactly such drafts).
 
 ## 4. Implement
 
+Implementation belongs to Luna at max effort under the ownership contract below.
+
 - Test-first (red → green → refactor); one focused commit per green step where
   practical. Product order comes from ROADMAP, branch claims from PROGRESS; consult
   ARCHITECTURE before implementing target boundaries. EVALUATION scopes model checks:
@@ -198,12 +200,40 @@ If no subagent capability is available in the session, the merge goes to the ope
 "CI is green" is not a review: CI proves the suite passes, which is a claim about the
 tests, not about whether the change is right.
 
-### Issues: deliberately not used as the queue
+### Issues and repository documents
 
-[`ROADMAP.md`](./ROADMAP.md) sets product order; `PROGRESS.md` owns branch claims
-and selected work; [`BACKLOG.md`](./BACKLOG.md) triages residuals. Together they form the queue — in-repo, versioned, greppable, and it arrives in context with the code. GitHub issues would duplicate it and drift, and a session would have to
-fetch them to know what is open. Use issues only for externally-reported bugs that
-arrive that way; the moment one is picked up, it becomes a PROGRESS entry.
+GitHub issues own deliverable scope, dependencies, acceptance checklists and open/closed
+status. ROADMAP owns product order and links issues; PROGRESS owns active branch claims
+and current implementation limitations; BACKLOG owns unselected ideas, linking a ticket
+rather than duplicating its status. Plans own execution detail. Shipped behavior belongs
+in SPEC and completion history in CHANGELOG.
+
+Only assign an issue when its dependencies and scoped plan are ready. `enhancement` and
+`documentation` classify issues; neither label means ready to execute. Conditional issues
+remain deferred until their stated selection/design gate is met. An implementation PR
+references its issue; close it only after the orchestrator accepts the deliverable.
+Planning/documentation PRs must not auto-close future implementation tickets.
+
+## Agent ownership and handoff
+
+- **Astra/Sol orchestrator:** owns documentation, architecture, issue decomposition,
+  contracts, scope decisions, acceptance and merge coordination. It may inspect code and
+  run checks, but does not implement production code/tests or patch review findings.
+- **Luna, max effort:** owns all implementation and corrective patches. Start from current
+  main in an isolated branch/worktree, execute one selected issue and its approved plan,
+  run relevant checks, update shipped-behavior docs and open a PR. Do not self-merge or
+  deploy. Implementation model/effort is distinct from the runtime Luna/medium screener.
+- The orchestrator supplies the issue, plan revision, dependency state, allowed changes,
+  forbidden side effects, acceptance cases and required evidence. Luna reports actual
+  commands/results, remaining risks and deviations; unresolved design changes return to
+  Astra/Sol. Findings go back to Luna for fixes, then to acceptance again.
+- A fresh Astra/Sol reviewer checks the exact PR head against the contract and evidence;
+  the author is not its own reviewer. Green CI plus acceptance allows orchestrator merge
+  under §7. Deployments and live model workloads need separately established scope.
+- The selected implementation issue may run in goal mode as requested by the operator;
+  the goal is the bounded issue/PR deliverable, not all roadmap items. A goal is created
+  only for an explicitly assigned goal-mode run. Never interpret a remaining backlog as
+  permission to start another issue, change models, spend evaluation quota or clean data.
 
 ## Session kickoff template
 
@@ -229,8 +259,6 @@ Non-negotiables:
 - Your final report must state what you did NOT verify.
 ```
 
-*Effort, not model:* Claude Opus 5 runs every task type here — the dial is **effort**,
-not model size. `xhigh` for design-gate work and multi-file implementation; `low`/
-`medium` for maintenance, doc edits, and review passes, where quality holds at a
-fraction of the tokens. Sweep effort on a real task before trusting a default carried
-over from an older model.
+Agent assignment follows the ownership contract above. Astra/Sol handles orchestration;
+Luna at max effort handles implementation. This overrides older model-agnostic or
+Claude-specific implementation defaults for the pivot workstream.

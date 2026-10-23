@@ -58,7 +58,10 @@ assessments. Query eligibility must not depend on having a score. Existing fetch
 candidate/title filtering must be inventoried before moving preferences to ChatGPT;
 changing the scorer alone does not restore jobs excluded during intake.
 
-**Optional assistance.** Keep both screening and fit-scoring capabilities. Luna/medium
+**Optional assistance.** Keep both screening and fit-scoring capabilities. Fit pre-ranking
+is the last optional step, selected only if actual scheduled ChatGPT retrieval/judgment
+cannot handle the relevant volume. Successful scheduled handling can make it unnecessary;
+retention of code is not a commitment to run it. Luna/medium
 is the preferred low-cost assistance direction because the operator already pays for a
 ChatGPT subscription (approximately US$20/month in the operator's context). Subscription
 inference still consumes allowance; no unlimited or zero-cost-per-request guarantee is
@@ -89,6 +92,19 @@ America/New_York, so a 20:00 brief must disclose its data cutoff rather than pro
 new pass is finished. Reliable cross-day recommendation history needs persistent records;
 read-only MCP currently has none. Preserve application history as the source of truth even
 when postings lack application links.
+
+## Planned implementation sequence
+
+The first two implementation batches are [MCP research queries](superpowers/plans/2026-10-22-batch-1-mcp-research.md)
+and [visible inventory](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
+A manual research baseline runs alongside them; scheduled acceptance starts once the
+queries/UI are usable, while lifecycle work can proceed independently. See ROADMAP for
+issue dependencies and DEVELOPMENT for Astra/Sol orchestration versus Luna/max execution.
+
+Target lifecycle design separates source availability, assessment state and user action.
+Do not rewrite pipeline_status wholesale in batches 1–2. Content revision/hash and stale
+assessment linkage belong to the separately designed source-lifecycle slice. Before it
+ships, response time is not evidence freshness and stored jobs need official-page checks.
 
 ## Extension seams
 

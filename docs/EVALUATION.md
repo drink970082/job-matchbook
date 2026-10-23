@@ -23,6 +23,14 @@ No eval run is implied by this policy: obtain the operator's workload/budget aut
 before spending subscription allowance or money. No provider/key is needed for hermetic
 checks. A corpus-dependent selftest can still need private local data.
 
+## Selection gate for fit experiments
+
+[Issue #96](https://github.com/drink970082/job-matchbook/issues/96) is conditional and
+last-priority. First establish whether scheduled ChatGPT can handle the useful inventory.
+Only a measured gap selects a scoped pre-ranking experiment. If the workflow suffices,
+retain scorer compatibility without new fit inference or evaluation. Astra/Sol defines
+contracts and acceptance; Luna/max implements. Runtime model/effort remains unchanged.
+
 ## Retained tools and their scope
 
 | Tool / target | Use | Status |

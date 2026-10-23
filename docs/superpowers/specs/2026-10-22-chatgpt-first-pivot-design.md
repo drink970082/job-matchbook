@@ -15,6 +15,17 @@ The shipped Luna/medium configuration is standalone screening. Existing fit defa
 model guards, private inputs and eval contracts remain unchanged. This decision does not
 assert that Luna/medium is already validated or enabled for fit.
 
+## Delivery decision
+
+The operator approves issue-based delivery, with Astra/Sol owning documentation,
+architecture, boundaries and acceptance, and Luna at max effort owning implementation
+and fixes. First implement research MCP queries, then unscored inventory UI. Run a manual
+workflow baseline early and validate scheduled ChatGPT before selecting optional fit
+pre-ranking. Fit is last priority and may remain unused if scheduled judgment suffices.
+
+The [batch contract](2026-10-22-research-inventory-design.md) and its two plans define
+bounded implementation work; future lifecycle/write/model decisions need their own design.
+
 ## Scope
 
 This change records the direction and reorganizes documentation, roadmap, feature

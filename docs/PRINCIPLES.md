@@ -158,7 +158,8 @@ external APIs; rebuildable beats migratable.
 graded honestly.
 - *Why:* an unwritten rejection gets relitigated from scratch (or worse, silently
   reversed) by the next session.
-- *In this repo:* ROADMAP orders product work, PROGRESS preserves unfinished claims
+- *In this repo:* ROADMAP orders product work, linked issues own deliverable status and
+  dependencies, PROGRESS preserves unfinished claims
   and BACKLOG records deferred scope; iCIMS/ByteDance carry their recon evidence; dropped items
   (embed-token, SuccessFactors) state why.
 - *Smell:* a feature quietly scoped out with no PROGRESS line; "we'll do it later"
