@@ -14,11 +14,11 @@ def _screen_result(*, disqualified=False):
     }
 
 
-def _run(conn, screen_fn, *, now=NOW, candidate=None, limit=40, extract=object()):
+def _run(conn, screen_fn, *, now=NOW, candidate=None, limit=40, extract=object(), clock=None):
     return pipeline.run_screen(
         conn, now=now, screen_fn=screen_fn, extract=extract, candidate=candidate,
         backend="codex", model="gpt-5.6-luna", effort="medium", limit=limit,
-        screen_workers=1,
+        screen_workers=1, clock=clock,
     )
 
 
@@ -73,9 +73,30 @@ def test_screen_results_cache_and_leave_fit_lifecycle_unchanged(tmp_path):
         assert json.loads(saved["result_json"]) == _screen_result()
         assert tuple(saved)[2:] == (
             "codex", "gpt-5.6-luna", "medium", pipeline.SCREEN_EVALUATOR_VERSION)
+        original_updated_at = conn.execute(
+            "SELECT job_screenings.updated_at FROM job_screenings JOIN job_postings "
+            "ON job_postings.id=job_screenings.job_posting_id WHERE external_id='new'"
+        ).fetchone()[0]
 
         # The older never-screened row is reached next; the successful row stays cached.
-        _run(conn, screen_fn, candidate={"highest_degree": "bachelor"}, limit=1)
+        later_timestamp = "2026-06-04T10:00:00.000Z"
+        clock_samples = []
+
+        def later_clock():
+            clock_samples.append(later_timestamp)
+            return later_timestamp
+
+        _run(conn, screen_fn, candidate={"highest_degree": "bachelor"}, limit=1,
+             clock=later_clock)
+        assert clock_samples == [later_timestamp]
+        assert conn.execute(
+            "SELECT job_screenings.updated_at FROM job_screenings JOIN job_postings "
+            "ON job_postings.id=job_screenings.job_posting_id WHERE external_id='new'"
+        ).fetchone()[0] == original_updated_at
+        assert conn.execute(
+            "SELECT job_screenings.updated_at FROM job_screenings JOIN job_postings "
+            "ON job_postings.id=job_screenings.job_posting_id WHERE external_id='old'"
+        ).fetchone()[0] == later_timestamp
         _run(conn, screen_fn, candidate={"highest_degree": "bachelor"}, limit=1)
         assert calls == ["new", "old"]
     finally:
@@ -233,6 +254,45 @@ def test_screen_provider_cap_preserves_existing_deprioritized_queue(db_path):
         assert attempted == ['older-priority']
         _run(conn, screen, candidate={'highest_degree': 'bachelor'}, limit=1)
         assert attempted == ['older-priority', 'newer-demoted']
+    finally:
+        conn.close()
+
+
+def test_screen_saves_sample_clock_after_each_result_on_the_db_thread(db_path):
+    import threading
+
+    conn = db.connect(db_path)
+    try:
+        db.upsert_postings(conn, [make_posting("first"), make_posting("second")], now=NOW)
+        current_time = ["2026-06-04T08:00:00.000Z"]
+        finished = []
+        sampled = []
+        db_thread = threading.get_ident()
+
+        def screen(posting):
+            if posting["external_id"] == "second":
+                current_time[0] = "2026-06-04T08:30:00.000Z"
+            else:
+                current_time[0] = "2026-06-04T09:05:00.000Z"
+            finished.append(posting["external_id"])
+            return _screen_result()
+
+        def clock():
+            sampled.append((current_time[0], tuple(finished), threading.get_ident()))
+            return current_time[0]
+
+        _run(conn, screen, candidate={"highest_degree": "bachelor"}, clock=clock)
+        rows = conn.execute(
+            "SELECT p.external_id,s.last_attempted_at,s.completed_at,s.created_at,s.updated_at "
+            "FROM job_screenings s JOIN job_postings p ON p.id=s.job_posting_id"
+        ).fetchall()
+        persisted = {row[0]: tuple(row[1:]) for row in rows}
+        assert persisted["second"] == ("2026-06-04T08:30:00.000Z",) * 4
+        assert persisted["first"] == ("2026-06-04T09:05:00.000Z",) * 4
+        assert sampled == [
+            ("2026-06-04T08:30:00.000Z", ("second",), db_thread),
+            ("2026-06-04T09:05:00.000Z", ("second", "first"), db_thread),
+        ]
     finally:
         conn.close()
 

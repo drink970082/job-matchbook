@@ -384,7 +384,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
                 candidate=candidate, backend=screen_backend, model=effective_model,
                 effort=effective_effort, limit=screen_limit,
-                screen_workers=screen_workers or 1)
+                screen_workers=screen_workers or 1, clock=_now)
             return
 
         # Operator-only escape hatch from the terminal 'discarded' state: after a

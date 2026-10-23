@@ -34,6 +34,7 @@ Stage gating:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -625,7 +626,7 @@ def _screen_error_category(exc: Exception | None) -> str:
 
 def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: str,
                model: str | None, effort: str | None, limit: int | None = 40,
-               screen_workers: int = 1) -> dict:
+               screen_workers: int = 1, clock: Callable[[], str] | None = None) -> dict:
     """Persist standalone screening without touching fit or posting lifecycle state.
 
     Fresh eligible postings run newest-first. Provider errors are retried oldest-first
@@ -683,10 +684,11 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
                     has_verdict = any(isinstance(check, dict) and "pass" in check
                                       for check in checks)
                     tally["passed" if has_verdict else "unknown"] += 1
+        saved_at = clock() if clock is not None else now
         saved = db.save_screening(
             conn, int(row["id"]), state=state, result=stored,
             error_category=category, backend=backend, model=model, effort=effort,
-            evaluator_version=SCREEN_EVALUATOR_VERSION, now=now,
+            evaluator_version=SCREEN_EVALUATOR_VERSION, now=saved_at,
         )
         tally["saved" if saved else "changed"] += 1
 

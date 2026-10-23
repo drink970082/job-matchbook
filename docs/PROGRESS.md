@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **`feat/mcp-research-queries` — issue #91 implementation**. Add advisory standalone
+  screen summaries/filters, literal all-text search, assessment update windows, accurate
+  eligible-screen counts and persistence-time clock sampling to the read-only MCP. Follow
+  the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md); synthetic data
+  only. No MCP writes, live inference, deployment or issue #92 UI scope.
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -51,10 +56,6 @@ The current runtime Luna/medium screening configuration is a separate concern.
 
 - The web Discovered Jobs view remains fit-bucket oriented; standalone screen/new jobs
   are not fully represented by Matched. Restarting web does not implement R1.
-- MCP has no screen-verdict filter or completed-since query. Creation-date-only daily
-  retrieval misses older rows whose screening finishes later.
-- Eligible screen work is `pipeline_status='new'` with no screening or a provider error;
-  total postings minus complete screens is not the eligible backlog.
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.
 - Liveness rechecks select scored/notified rows for supported detail adapters; a stored

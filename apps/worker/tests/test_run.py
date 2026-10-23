@@ -217,6 +217,7 @@ def test_run_once_screen_only_defaults_codex_to_luna_medium(monkeypatch, tmp_pat
     assert captured["run_screen"]["effort"] == "medium"
     assert captured["run_screen"]["limit"] == 40
     assert captured["run_screen"]["screen_workers"] == 1
+    assert captured["run_screen"]["clock"] is run._now
 
 
 def test_run_once_without_telegram_skips_notify(monkeypatch, capsys):

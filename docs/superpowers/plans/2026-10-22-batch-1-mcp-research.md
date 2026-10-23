@@ -1,8 +1,8 @@
 # Batch 1 — research-ready read-only MCP
 
-**Status:** implementation plan; selected scope, not shipped. Execute only on explicit
-issue assignment after this plan lands on main. Owner: Luna at max effort. Orchestrator
-and acceptance: Astra/Sol. [Issue #91](https://github.com/drink970082/job-matchbook/issues/91).
+**Status:** implementation complete for issue #91; ready for Astra/Sol acceptance. Deployment
+remains separate. Owner: Luna at max effort. Orchestrator and acceptance: Astra/Sol.
+[Issue #91](https://github.com/drink970082/job-matchbook/issues/91).
 
 ## Goal and inputs
 
@@ -14,7 +14,8 @@ Use current main, not an old runtime checkout or somebody else's dirty worktree.
 
 Dependencies: none in code; [baseline #90](https://github.com/drink970082/job-matchbook/issues/90)
 can run alongside. One issue, one branch `feat/mcp-research-queries`, one PR targeting main.
-Claim the branch in PROGRESS. Do not implement batch 2 in this PR.
+The branch claim remains in PROGRESS while the PR is under review. Do not implement batch 2
+in this PR.
 
 ## Starting points to inspect
 

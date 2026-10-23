@@ -844,6 +844,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   posting is still `new`; a provider call interrupted before commit can be repeated on
   a later pass (at-least-once external execution).
 
+  Each standalone result's persistence timestamp is sampled after its provider call on
+  the DB thread through the clock injected by `run.py`. This records when the worker is
+  ready to save the result, not an exact transaction commit time; existing rows are not
+  backfilled.
+
   Whichever backend is picked, the call only fires when a non-empty `candidate` is
   supplied, and — with **no résumé in the prompt** — extracts each requirement
   (degree, work authorization, clearance) as a JOB fact *semantically*.
@@ -1570,6 +1575,29 @@ it simply waits for an unbounded pass. **The `new` queue is read
   withheld because they cannot be safely parsed. Tool errors contain actionable
   repository messages but never a database path or driver text. Server instructions
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
+  `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
+  matching over title, company, location and description; `%`, `_` and `!` are escaped,
+  and description bodies remain available only through the chunk tool. Its optional
+  standalone `screen_outcome` filter and bounded summary use only `job_screenings`:
+  outcomes distinguish `not_screened`, `provider_error`, `disqualified`,
+  `no_disqualifier_found` and `unknown`. The positive outcome is advisory and does not
+  establish full qualification; legacy `score_detail.screen` is reported separately and
+  never creates a standalone result or assessment time. Optional offset-aware RFC3339
+  `screening_updated_from` (inclusive) and `screening_updated_to` (exclusive) filter
+  `job_screenings.updated_at`, including provider errors. UTC-equivalent values are
+  normalized; stored offset-bearing T/t or space forms are supported. A
+  `disqualified` outcome requires explicit top-level `disqualified=true` plus at least
+  one typed failing check; an unsubstantiated true flag is `unknown`, as is a false flag
+  paired with a failing check. Offsetless or otherwise unparseable stored assessment
+  times do not match dated windows, count as unknown, and are summarized as null rather
+  than interpreted as UTC. `get_ats_overview` reports disjoint standalone outcome counts
+  over all postings, fresh/retry-eligible screen backlog counts for
+  `pipeline_status=new`, unknown assessment-time count, and a query response timestamp
+  that is not source freshness. Job list traversals carry a first-page maximum-id
+  ceiling, but later requests still read current row state rather than a snapshot; an
+  assessment may enter or leave a filter between pages. Callers rerun overlapping
+  windows, deduplicate by source/external_id and assessment time, and periodically
+  reconcile. Overlap cannot recover arbitrary backdated writes or every transition.
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
 ### 7.2 Web (`apps/web/src/`)
@@ -2393,7 +2421,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
 | MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |
 | MCP repository uses SQLite `mode=ro` + `query_only`, fails without creating/incompletely accepting a DB, returns current WAL commits, and exposes only bounded, allowlisted, parameter-bound model reads with scoped cursors, chunked text, secret redaction, approved settings, and unknown/orphan data preserved | `tests/test_mcp_repository.py` (`test_database_is_opened_read_only_and_query_only`, `test_each_query_opens_a_live_connection_that_sees_committed_wal_writes`, `test_missing_or_incomplete_database_fails_safely_without_creating_file`, `test_cursor_is_bounded_and_does_not_store_filter_text`, `test_all_ats_entities_are_allowlisted_and_json_is_reported`, `test_malformed_recipe_is_withheld_without_leaking_raw_value`, `test_valid_json_that_is_not_a_recipe_object_is_withheld`, `test_entity_input_cannot_select_arbitrary_sql`) |
-| MCP protocol advertises only read-only/closed-world tools, returns structured data and safe errors, leaves application rows unchanged, and serves the stdio transport without non-protocol stdout | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`); CI installs `requirements-mcp.txt` so these cannot skip there |
+| MCP advisory standalone outcomes agree across filtering, list summaries, detail summaries and overview counts, keep legacy evidence separate, preserve unknown/contradictory cases, and bound/redact summary reasons | `tests/test_mcp_repository.py` (`test_standalone_screen_outcomes_share_synthetic_contract_fixture`, `test_screen_summaries_bound_and_redact_untrusted_reasons`, `test_assessment_time_unknowns_and_eligible_screen_counts_are_explicit`) |
+| MCP metadata/all-text search, escaped literal metacharacters, UTC assessment windows (including fractional precision), filter-scoped cursors, first-page id ceiling, current-state traversal and payload bounds behave as specified | `tests/test_mcp_repository.py` (`test_all_text_search_is_opt_in_literal_and_keeps_descriptions_chunk_only`, `test_screening_windows_use_utc_instants_and_id_ceiling`, `test_screening_windows_preserve_fractional_precision_beyond_microseconds`, `test_job_cursor_ceiling_and_live_pages_make_no_snapshot_claim`, `test_screening_change_behind_cursor_is_found_by_reconciliation`, `test_large_generated_all_text_search_filters_before_limit_and_bounds_payload`) |
+| MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
+| Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 

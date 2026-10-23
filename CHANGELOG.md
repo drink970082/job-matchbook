@@ -93,6 +93,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Extend the read-only MCP for research without fit scoring: `list_jobs` can filter
+  advisory standalone screen outcomes and assessment update windows, opt into literal
+  full-text JD search, and returns bounded standalone summaries with legacy fit evidence
+  kept separate. Overview counts now report disjoint standalone outcomes, the actual
+  fresh/retry-eligible screening backlog and unknown assessment times. Persisted screen
+  timestamps are sampled after each provider result on the DB thread. The ten tools,
+  read-only database boundary, metadata search default, description chunking and schema
+  remain unchanged; retrieval is live current state, not a snapshot or event log.
+
 - **A standalone `--screen-only` worker pass with durable hard-requirement results.**
   The pass keeps the existing fetch/expiry rules, screens eligible `new` postings and
   exits before legacy fit retry, fit scoring, quota refresh or notification. Successful
