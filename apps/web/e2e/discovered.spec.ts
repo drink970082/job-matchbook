@@ -36,6 +36,10 @@ test('All jobs starts with recent unscored work, supports full-text search, page
     await search.fill('inventory-long-jd-keyword')
     await expect(recent).toBeVisible()
     await expect(page.getByText('Showing 1–1 of 1')).toBeVisible()
+    await page.getByRole('button', { name: /^Applications$/i }).click()
+    await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await expect(search).toHaveValue('inventory-long-jd-keyword')
+    await expect(page.getByRole('combobox', { name: 'Search scope' })).toContainText('All text, including JD')
 
     // Clearing search restores the frozen 34-row fixture and allows page changes.
     await search.fill('')

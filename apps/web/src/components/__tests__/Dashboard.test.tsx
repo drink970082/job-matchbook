@@ -65,6 +65,21 @@ test('switching to the Discovered Jobs tab shows the discovered view', async () 
     expect(screen.getByRole('button', { name: 'All jobs' })).toHaveClass('bg-background')
 })
 
+test('selected legacy bucket and filters survive switching away from Discovered Jobs', async () => {
+    const user = userEvent.setup()
+    render(<Dashboard {...props} />)
+    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+    await user.click(screen.getByRole('button', { name: 'Discarded' }))
+    const search = screen.getByPlaceholderText(/search companies or job titles/i)
+    fireEvent.change(search, { target: { value: 'kept selection' } })
+
+    await user.click(screen.getByRole('button', { name: /^Applications$/i }))
+    await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
+
+    expect(screen.getByRole('button', { name: 'Discarded' })).toHaveClass('bg-background')
+    expect(screen.getByPlaceholderText(/search companies or job titles/i)).toHaveValue('kept selection')
+})
+
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
     const first = deferred<{ data: any[]; total: number }>()
     const second = deferred<{ data: any[]; total: number }>()
