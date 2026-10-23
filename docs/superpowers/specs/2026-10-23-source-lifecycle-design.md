@@ -152,6 +152,19 @@ In particular, do not use **posted_at** as freshness: it can be the scrape-day f
 and the original board-date provenance is absent on legacy rows. This slice leaves that
 field and all intake defaults unchanged.
 
+### First-pilot recommendation
+
+Recommend **SmartRecruiters** for the first adapter pilot, pending operator approval. A
+read-only live inventory check found a **new** row that meets the proposed technical
+eligibility predicate, with a complete stored description, no fit assessment, and no
+application relation. The adapter's per-listing response includes its posting ID, so
+the refresh can compare the returned
+identity with the requested **(source, external_id)** before writing. Recheck candidate
+eligibility immediately before rollout; this inventory observation is not a durable
+claim that the row remains eligible. The check did not establish SmartRecruiters-specific
+404/410 closure semantics, so the implementation must verify those semantics before
+classifying either status as **closed**; otherwise treat it as inconclusive.
+
 ### Retention and protected records
 
 Source closure is not a retention policy. The protected identity is the posting row plus
@@ -190,8 +203,8 @@ Approve or revise these decisions before implementation:
    observation-history table in this issue.
 2. Keep source closure distinct from **pipeline_status**; only verified per-adapter 404/410
    results can close a source in the first slice.
-3. Start with one explicitly selected **DETAIL_SOURCES** adapter and no more than 25 exact
-   unscored rows per pass; expand only after reviewing the pilot.
+3. Start with the recommended **SmartRecruiters** adapter (or the operator's replacement)
+   and no more than 25 exact unscored rows per pass; expand only after reviewing the pilot.
 4. Show source state and assessment freshness in both the tracker and read-only MCP,
    preserving current screen/fit distinctions.
 

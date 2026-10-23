@@ -15,9 +15,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   plan: [design](superpowers/specs/2026-10-23-source-lifecycle-design.md) and
   [plan](superpowers/plans/2026-10-23-source-lifecycle.md). The design keeps source
   availability separate from pipeline/application state and assessment freshness,
-  records changed evidence without model reruns, and leaves retention and intake policy
-  alone. It is a draft, not implementation authorization; issue #93's dependencies #91
-  and #92 are merged.
+  records changed evidence without model reruns, recommends SmartRecruiters for the
+  first pilot from the live unscored inventory, and leaves retention and intake policy
+  alone. Reconfirm pilot eligibility before rollout. It is a draft, not implementation
+  authorization; issue #93's dependencies #91 and #92 are merged.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

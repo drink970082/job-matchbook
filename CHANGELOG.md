@@ -11,7 +11,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Draft a bounded source-lifecycle contract and implementation plan for issue #93. The
   proposal separates source availability and content revisions from assessments and
-  application history; implementation waits for operator approval.
+  application history, recommends a SmartRecruiters first pilot from the live unscored
+  inventory, and waits for operator approval before implementation.
 
 ### Changed
 
