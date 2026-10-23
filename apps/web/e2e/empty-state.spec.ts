@@ -10,5 +10,5 @@ test.beforeEach(async () => {
 test('the discovered queue shows an empty state when there are no postings', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
-    await expect(page.getByText('No results.')).toBeVisible()
+    await expect(page.getByText('No jobs in inventory yet.')).toBeVisible()
 })

@@ -1629,13 +1629,25 @@ it simply waits for an unbounded pass. **The `new` queue is read
     remaining history), `getKPIs`.
   - *Charts:* `getStatusFlow` (Sankey transitions), `getTimelineData` (heatmap),
     `getCategoryData` (donut).
-  - *Discovered jobs:* `getJobPostings` (score-aware `bucket` ∈ matched/belowbar/
-    discarded/lowcontext/failed, default matched; sort `JobSort` ∈ score/posted, default
-    score; paginated `page`/`size`; optional `minScore` filter and, for the discarded
-    bucket, a disqualification-`cause` ∈ authorization/location/degree/clearance/internship
-    sub-filter). `discardJobPosting`,
-    `reopenJobPosting`, `bulkRemove(ids)` (terminal `removed`, UI-only hide, worker-inert),
-    `bulkReopen(ids)`, `removeAllInView(bucket, filters)`, `markJobApplied(id, category)`
+  - *Discovered jobs:* `getJobPostings` defaults to `bucket=all`, a direct inventory
+    list/count that excludes only terminal `removed` rows and orders by
+    `created_at desc, id desc`. Metadata search is the default; opt-in `all_text` includes
+    descriptions with literal `%`, `_` and `!` matching. Screen outcome filters use the
+    standalone screening row and shared five-value contract, with reasons/provenance
+    summarized separately from legacy fit-record evidence. Inventory search and outcome
+    predicates stay in bound SQL and do not materialize fit-derived ID lists. Standalone
+    screening result JSON is projected into the bounded summary rather than returned;
+    full JD text is not rendered in the table and remains available to the detail modal
+    through the stored description, without a provider call. The
+    score-aware `matched`/`belowbar`/`discarded`/`lowcontext`/`failed` buckets and their
+    existing membership remain available; their default sort is score. All views support
+    paginated `page`/`size`; optional `minScore` and the discarded-bucket
+    disqualification-`cause` ∈ authorization/location/degree/clearance/internship
+    sub-filter remain. Per-row actions validate current view scope; bulk lifecycle actions
+    are rejected for All jobs and are confined to legacy buckets. `discardJobPosting`,
+    `reopenJobPosting`, `bulkRemove(ids, scope)` (terminal `removed`, UI-only hide,
+    worker-inert), `bulkReopen(ids, scope)`, `removeAllInView(bucket, filters)`,
+    `markJobApplied(id, category, scope)`
     (category chosen at apply time from the user-configured vocabulary — free-form,
     default `Others` when blank), `getCategories`/`setCategories` (the user-editable
     category list, stored in `app_settings`).
@@ -1673,16 +1685,22 @@ it simply waits for an unbounded pass. **The `new` queue is read
   `db.get_notifiable`), not a score cutoff; the fit score is display/ranking only.
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
-  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (bucket tabs on their
-  own row — Matched/Below-bar/Discarded/Failed/Low-context — above a filter row of sort
-  toggle Best match/Newest posted + score/disqualification-cause filters; a bucket-aware
-  per-row "why" subline (a shared `VerdictShortfall` — seniority/domain verdict pills +
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (All jobs first and
+  selected by default, with Matched/Below-bar/Discarded/Failed/Low-context buckets
+  retained; filters are controlled by `Dashboard` and survive tab unmount/remount, while
+  request-version checks discard stale responses and pending/error states hide old rows;
+  All jobs offers literal metadata/all-text search, standalone outcome filters, discovery
+  recency/score/posted sorting, lifecycle labels and no bulk controls; row actions carry
+  the exact active filter scope. Screen summaries show advisory outcome, bounded reason,
+  backend/model/effort and assessment time when present, separately from legacy fit-record
+  screen evidence. A bucket-aware per-row "why" subline (a shared `VerdictShortfall` —
+  seniority/domain verdict pills +
   top missing must-have — for below-bar AND for the fit-reject half of discarded, falling
   back to the legacy one-line `reasoning` for pre-S2.1 rows; the keyed disqualification
   reason when there is one; **which** low-context rule caught the row — a short body
   ("Thin JD (N chars)") vs the scorer's own `insufficient_context` flag on a full-length
   JD; pipeline error); a `recommended_resume` label under the score;
-  folded Company/location/source and Posted/Fetched date columns + bulk
+  folded Company/location/source and Posted/Fetched date columns + legacy-bucket bulk
   Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
   `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
   (category picker on Mark Applied), `WatchlistTable`
@@ -1877,6 +1895,8 @@ expire:  scored|notified, detail source, board 404/410 → expired
 fetch/score, on exception         → failed         (pipeline_error set; batch continues)
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
+
+- **All jobs inventory view.** The default Discovered Jobs view lists every posting except terminal `removed`, including `new`, `applied`, expired and unrecognized lifecycle values; unknown statuses are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Default order is `created_at desc, id desc`; optional score/posted sorts retain an id tie-breaker. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Per-row apply/discard/reopen actions revalidate the exact current view/filter scope at the server boundary. Apply retains duplicate protection and transaction behavior. All jobs has no bulk controls or bulk lifecycle action path; supported legacy buckets keep their validated bulk flows. Pending or failed list requests do not display a previous page as though it matched the current filters.
 
 - **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
@@ -2414,6 +2434,9 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_score.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py` (`test_a_failed_quota_capture_is_announced_not_swallowed`) |
 | `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
+| All jobs inventory directly queries/counts every non-removed lifecycle without fit-bucket scans, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, scopes per-row actions and rejects All bulk mutations | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
+| Inventory filter/page requests hide stale rows, retain the selected view across tabs, and discard an older response after a newer request resolves | `web/src/components/__tests__/Dashboard.test.tsx` (`overlapping inventory requests never show stale rows under newer filters`), `web/e2e/discovered.spec.ts` |
+| Synthetic browser flow: newest unscored job, full JD, all-text search, second page, retained Matched details and All-jobs application workflow | `web/e2e/discovered.spec.ts`, `apply-loop.spec.ts` |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
 | Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker and fit/notify isolation; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`) |

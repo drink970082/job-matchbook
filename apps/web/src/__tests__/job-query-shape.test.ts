@@ -216,11 +216,17 @@ describe('pipeline status mutations', () => {
     ] as const
 
     it.each(cases)('%s writes its status and stamps updated_at', async (_n, fn, status) => {
+        primeIdSets()
+        mockPrisma.job_postings.count.mockResolvedValue(2)
         mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 2 } as any)
-        const res = await fn([1, 2])
+        const scope = status === 'scored' ? { bucket: 'discarded' as const } : { bucket: 'matched' as const }
+        const res = await fn([1, 2], scope)
 
         const call = mockPrisma.job_postings.updateMany.mock.calls[0][0] as any
-        expect(call.where).toEqual({ id: { in: [1, 2] } })
+        expect(JSON.stringify(call.where)).toContain('"in":[1,2]')
+        expect(mockPrisma.job_postings.count).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ AND: expect.any(Array) }),
+        }))
         expect(call.data.pipeline_status).toBe(status)
         expect(call.data.updated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
         expect(res).toEqual({ success: true, count: 2 })
@@ -230,18 +236,23 @@ describe('pipeline status mutations', () => {
         ['discardJobPosting', discardJobPosting, 'removed'],
         ['reopenJobPosting', reopenJobPosting, 'scored'],
     ] as const)('%s writes its status for one row', async (_n, fn, status) => {
-        mockPrisma.job_postings.update.mockResolvedValue({} as any)
-        const res = await fn(42)
+        mockPrisma.$queryRaw.mockResolvedValue([{ id: 42 }] as any)
+        mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma))
+        mockPrisma.job_postings.findUnique.mockResolvedValue({ id: 42, pipeline_status: 'discarded' } as any)
+        mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
+        const res = await fn(42, { bucket: 'all' })
 
-        const call = mockPrisma.job_postings.update.mock.calls[0][0] as any
-        expect(call.where).toEqual({ id: 42 })
+        const call = mockPrisma.job_postings.updateMany.mock.calls[0][0] as any
+        expect(call.where.AND).toContainEqual({ id: 42 })
         expect(call.data.pipeline_status).toBe(status)
         expect(res).toEqual({ success: true })
     })
 
     it('reports the driver error rather than throwing', async () => {
+        primeIdSets()
+        mockPrisma.job_postings.count.mockResolvedValue(1)
         mockPrisma.job_postings.updateMany.mockRejectedValue(new Error('db is gone'))
-        expect(await bulkRemove([1])).toEqual({ success: false, error: 'db is gone' })
+        expect(await bulkRemove([1], { bucket: 'matched' })).toEqual({ success: false, error: 'db is gone' })
     })
 })
 
@@ -252,25 +263,18 @@ describe('removeAllInView query shape', () => {
         await removeAllInView({ bucket: 'discarded', cause: 'degree' })
 
         const call = mockPrisma.job_postings.updateMany.mock.calls[0][0] as any
-        expect(call.where.AND).toHaveLength(5)
-        expect(call.where.AND[3]).toEqual({ id: { in: CAUSE_IDS } })
-        expect(call.where.AND[4]).toEqual({ id: { notIn: LOW_IDS } })
+        const listWhere = call.where.AND[0]
+        expect(listWhere.AND).toHaveLength(5)
+        expect(listWhere.AND[3]).toEqual({ id: { in: CAUSE_IDS } })
+        expect(listWhere.AND[4]).toEqual({ id: { notIn: LOW_IDS } })
         expect(call.data.pipeline_status).toBe('removed')
     })
 
-    // The asymmetry this used to pin: removeAllInView had no lowcontext branch, so
-    // buildJobWhere fell through to its `matched` default and a bulk remove on that
-    // bucket would have swept the MATCHED rows. Both callers now share
-    // jobWhereForBucket, so the sweep is the low-context id set -- the same where
-    // getJobPostings builds for that bucket, asserted above. Unreachable today (the
-    // button renders only on the discarded bucket, DiscoveredJobsTable.tsx:347); this
-    // asserts it stays harmless if it is ever shown elsewhere.
-    it('lowcontext sweeps the low-context rows, NOT the matched ones', async () => {
-        primeIdSets()
-        mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 0 } as any)
-        await removeAllInView({ bucket: 'lowcontext' })
-
-        const call = mockPrisma.job_postings.updateMany.mock.calls[0][0] as any
-        expect(call.where).toEqual({ AND: [{ id: { in: LOW_IDS } }, {}, {}] })
+    it('rejects remove-all for a legacy view without a supported bulk action', async () => {
+        await expect(removeAllInView({ bucket: 'lowcontext' })).resolves.toMatchObject({
+            success: false,
+            error: expect.stringMatching(/only supported in the Discarded view/i),
+        })
+        expect(mockPrisma.job_postings.updateMany).not.toHaveBeenCalled()
     })
 })

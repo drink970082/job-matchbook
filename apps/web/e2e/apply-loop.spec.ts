@@ -5,22 +5,22 @@ test.beforeEach(async () => {
     await seed()
 })
 
-test('marking a discovered job applied moves it into Applications', async ({ page }) => {
+test('marking an All jobs row applied keeps it visibly applied and adds it to Applications', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
 
-    const acme = page.locator('tr', { hasText: 'Acme Robotics' })
-    await acme.getByTitle('Mark Applied').click()
+    const recent = page.locator('tr', { hasText: 'Recent Synthetic Systems' })
+    await recent.getByTitle('Mark Applied').click()
 
     // Confirm in the category dialog (defaults to the first category). Scope to the
     // dialog: the row's icon button also has the accessible name "Mark Applied".
     await page.getByRole('dialog').getByRole('button', { name: 'Mark Applied' }).click()
 
-    // It leaves the actionable queue...
-    await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(0)
+    // All jobs keeps the row visible with its applied lifecycle status.
+    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toContainText('Applied')
 
     // ...and shows up under Applications.
     await page.getByRole('button', { name: /^Applications$/i }).click()
-    await page.getByPlaceholder(/Search companies/i).fill('Acme Robotics')
-    await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(1)
+    await page.getByPlaceholder(/Search companies/i).fill('Recent Synthetic Systems')
+    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toHaveCount(1)
 })

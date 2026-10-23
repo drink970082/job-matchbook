@@ -78,7 +78,7 @@ test('markJobApplied creates the application and links the posting', async () =>
     const jp = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'm1', company_name: 'Acme', job_title: 'Eng' }),
     })
-    const res = await markJobApplied(jp.id, 'MLE')
+    const res = await markJobApplied(jp.id, 'MLE', { bucket: 'all' })
     expect(res.success).toBe(true)
 
     const apps = await prisma.applications.findMany()
@@ -96,7 +96,7 @@ test('markJobApplied rolls back when a matching application already exists', asy
     await prisma.applications.create({ data: makeApplication({ company_name: 'Dup', job_title: 'Eng' }) })
     const before = await prisma.applications.count()
 
-    const res = await markJobApplied(jp.id)
+    const res = await markJobApplied(jp.id, undefined, { bucket: 'all' })
     expect(res.success).toBe(false)
     expect(await prisma.applications.count()).toBe(before)        // no new app (rolled back)
     const after = await prisma.job_postings.findUnique({ where: { id: jp.id } })
@@ -105,7 +105,7 @@ test('markJobApplied rolls back when a matching application already exists', asy
 })
 
 test('markJobApplied returns not-found for a missing id', async () => {
-    expect(await markJobApplied(99999)).toEqual({ success: false, error: 'Job posting not found' })
+    expect(await markJobApplied(99999, undefined, { bucket: 'all' })).toEqual({ success: false, error: 'Job posting not found' })
 })
 
 
@@ -554,15 +554,15 @@ test('exportApplicationsCSV neutralizes formula-injection cells', async () => {
 test('bulkRemove hides rows from every bucket', async () => {
     const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b1', score: 90, pipeline_status: 'scored' }) })
     const b = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'b2', score: 85, pipeline_status: 'notified' }) })
-    const res = await bulkRemove([a.id, b.id])
+    const res = await bulkRemove([a.id, b.id], { bucket: 'discarded' })
     expect(res).toEqual({ success: true, count: 2 })
     expect((await getJobPostings({ bucket: 'matched' })).data).toHaveLength(0)
     expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('removed')
 })
 
 test('bulkReopen sends discarded rows back to scored', async () => {
-    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'r1', score: 90, pipeline_status: 'discarded' }) })
-    const res = await bulkReopen([a.id])
+    const a = await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'r1', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true }) }) })
+    const res = await bulkReopen([a.id], { bucket: 'discarded' })
     expect(res).toEqual({ success: true, count: 1 })
     expect((await prisma.job_postings.findUnique({ where: { id: a.id } }))!.pipeline_status).toBe('scored')
 })

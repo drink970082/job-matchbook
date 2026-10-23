@@ -14,6 +14,7 @@ import { safeHref } from '@/lib/utils'
 import { verdictClass, safeParseDetail, parseAssessment } from '@/lib/score-detail'
 import type { Assessment } from '@/lib/score-detail'
 import type { JobPosting } from './DiscoveredJobsTable'
+import type { ScreenOutcome } from '@/lib/screen-summary'
 
 interface JobDetailModalProps {
     isOpen: boolean
@@ -25,7 +26,7 @@ interface JobDetailModalProps {
 }
 
 interface ScreenVerdict {
-    pass: boolean
+    pass: boolean | null
     note: string
 }
 
@@ -51,10 +52,10 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
     const p = safeParseDetail(raw)
     if (!p) return null
     const screen: [string, ScreenVerdict][] =
-        p.screen && typeof p.screen === 'object'
+        p.screen && typeof p.screen === 'object' && !Array.isArray(p.screen)
             ? Object.entries(p.screen).map(([k, v]: [string, any]) => [
                   k,
-                  { pass: v?.pass !== false, note: String(v?.note ?? '') },
+                  { pass: typeof v?.pass === 'boolean' ? v.pass : null, note: String(v?.note ?? '') },
               ])
             : []
     return {
@@ -67,6 +68,16 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
         recommendedResume:
             typeof p.recommended_resume === 'string' ? p.recommended_resume : '',
         screen,
+    }
+}
+
+function standaloneOutcomeLabel(outcome?: ScreenOutcome): string {
+    switch (outcome) {
+        case 'not_screened': return 'Not screened'
+        case 'provider_error': return 'Provider error'
+        case 'disqualified': return 'Disqualified'
+        case 'no_disqualifier_found': return 'No disqualifier found'
+        default: return 'Unknown'
     }
 }
 
@@ -123,18 +134,42 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                         </div>
                     )}
 
-                    {/* Hard-requirement gate breakdown — which requirement passed/failed */}
+                    <div className="rounded-md border p-3 space-y-1.5">
+                        <div className="text-xs font-semibold text-muted-foreground">Standalone advisory screen</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline">Advisory · {standaloneOutcomeLabel(job.screen_summary?.outcome)}</Badge>
+                            {job.screen_summary?.reason && (
+                                <span className="text-sm text-muted-foreground">{job.screen_summary.reason}</span>
+                            )}
+                        </div>
+                        {job.screen_summary?.origin === 'none' && (
+                            <p className="text-xs text-muted-foreground">No standalone screen record exists.</p>
+                        )}
+                        {(job.screen_summary?.backend || job.screen_summary?.model || job.screen_summary?.effort || job.screen_summary?.assessment_time) && (
+                            <p className="text-xs text-muted-foreground">
+                                {[job.screen_summary.backend, job.screen_summary.model, job.screen_summary.effort,
+                                    job.screen_summary.assessment_time && `assessed ${job.screen_summary.assessment_time}`]
+                                    .filter(Boolean).join(' · ')}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Older fit-pipeline evidence remains distinct from the standalone result above. */}
                     {detail && detail.screen.length > 0 && (
                         <div className="rounded-md border p-3 space-y-1.5">
-                            <div className="text-xs font-semibold text-muted-foreground mb-1">Screening</div>
+                            <div className="text-xs font-semibold text-muted-foreground mb-1">Legacy screen evidence in fit record</div>
+                            <p className="text-xs text-muted-foreground">This evidence is separate from the standalone advisory result above.</p>
                             {detail.screen.map(([key, v]) => (
                                 <div key={key} className="flex items-start gap-2 text-sm">
-                                    {v.pass ? (
+                                    {v.pass === true ? (
                                         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                                    ) : (
+                                    ) : v.pass === false ? (
                                         <XCircle className="h-3.5 w-3.5 text-red-600 mt-0.5 shrink-0" />
+                                    ) : (
+                                        <span className="h-3.5 w-3.5 text-muted-foreground">?</span>
                                     )}
                                     <span className="capitalize font-medium">{key}</span>
+                                    <span className="text-muted-foreground">{v.pass === null ? 'Unknown' : v.pass ? 'Passed' : 'Failed'}</span>
                                     {v.note && <span className="text-muted-foreground">— {v.note}</span>}
                                 </div>
                             ))}
@@ -253,7 +288,11 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                         <h4 className="font-medium text-sm">Job Description</h4>
                         <div className="border rounded-md p-4 max-h-[260px] overflow-y-auto">
                             <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                                {job.description || 'No description available.'}
+                                {job.description == null
+                                    ? 'Description unavailable.'
+                                    : job.description.length === 0
+                                        ? 'Description is empty.'
+                                        : job.description}
                             </p>
                         </div>
                     </div>
@@ -266,10 +305,14 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                             </a>
                         </Button>
                         <div className="flex-1" />
-                        <Button size="sm" onClick={() => onMarkApplied(job.id)}>
-                            <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Applied
-                        </Button>
-                        {isDiscarded ? (
+                        {job.pipeline_status !== 'applied' && (
+                            <Button size="sm" onClick={() => onMarkApplied(job.id)}>
+                                <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Applied
+                            </Button>
+                        )}
+                        {job.pipeline_status === 'applied' ? (
+                            <Badge variant="secondary">Applied</Badge>
+                        ) : isDiscarded ? (
                             <Button variant="ghost" size="sm" onClick={() => onReopen(job.id)}>
                                 <RotateCcw className="mr-2 h-4 w-4" /> Reopen
                             </Button>

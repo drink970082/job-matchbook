@@ -251,7 +251,7 @@ describe('Backend Actions', () => {
       expect(JSON.stringify(where)).toContain('"in":[3,5]')
     })
 
-    it('should default to the matched bucket (actionable + verdict id set), score desc then id', async () => {
+    it('keeps the explicit Matched bucket on its verdict id set, score desc then id', async () => {
       // getJobPostings derives lowIds then matchIds via Promise.all([lowContextIds(),
       // matchedIds()]) — both hit $queryRaw in that order. Queue: low-context = [] (no
       // notIn), matched-verdict = [11, 22] (the id IN set).
@@ -260,7 +260,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      const result = await getJobPostings({})
+      const result = await getJobPostings({ bucket: 'matched' })
 
       expect(result.total).toBe(0)
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
@@ -374,7 +374,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ page: 2, size: 10 })
+      await getJobPostings({ bucket: 'matched', page: 2, size: 10 })
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 20, take: 10 })
@@ -385,7 +385,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ page: -5, size: 99999 })
+      await getJobPostings({ bucket: 'matched', page: -5, size: 99999 })
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 0, take: 100 })
@@ -396,7 +396,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ minScore: 60 })
+      await getJobPostings({ bucket: 'matched', minScore: 60 })
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -430,7 +430,7 @@ describe('Backend Actions', () => {
       mockPrisma.job_postings.findMany.mockResolvedValue([])
       mockPrisma.job_postings.count.mockResolvedValue(0)
 
-      await getJobPostings({ search: 'acme' })
+      await getJobPostings({ bucket: 'matched', search: 'acme' })
 
       expect(mockPrisma.job_postings.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -451,14 +451,17 @@ describe('Backend Actions', () => {
 
   describe('discardJobPosting', () => {
     it('should set pipeline_status to removed (hidden, not the disqualified-only discarded bucket)', async () => {
-      mockPrisma.job_postings.update.mockResolvedValue({ id: 1 } as any)
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 1 }] as any)
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma))
+      mockPrisma.job_postings.findUnique.mockResolvedValue({ id: 1, pipeline_status: 'new' } as any)
+      mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
-      const result = await discardJobPosting(1)
+      const result = await discardJobPosting(1, { bucket: 'all' })
 
       expect(result.success).toBe(true)
-      expect(mockPrisma.job_postings.update).toHaveBeenCalledWith(
+      expect(mockPrisma.job_postings.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 1 },
+          where: expect.objectContaining({ AND: expect.arrayContaining([{ id: 1 }]) }),
           data: expect.objectContaining({ pipeline_status: 'removed' }),
         })
       )
@@ -467,14 +470,17 @@ describe('Backend Actions', () => {
 
   describe('reopenJobPosting', () => {
     it('should set pipeline_status back to scored', async () => {
-      mockPrisma.job_postings.update.mockResolvedValue({ id: 1 } as any)
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 1 }] as any)
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma))
+      mockPrisma.job_postings.findUnique.mockResolvedValue({ id: 1, pipeline_status: 'discarded' } as any)
+      mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
-      const result = await reopenJobPosting(1)
+      const result = await reopenJobPosting(1, { bucket: 'all' })
 
       expect(result.success).toBe(true)
-      expect(mockPrisma.job_postings.update).toHaveBeenCalledWith(
+      expect(mockPrisma.job_postings.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 1 },
+          where: expect.objectContaining({ AND: expect.arrayContaining([{ id: 1 }]) }),
           data: expect.objectContaining({ pipeline_status: 'scored' }),
         })
       )
@@ -486,9 +492,12 @@ describe('Backend Actions', () => {
     ['discardJobPosting', discardJobPosting],
     ['reopenJobPosting', reopenJobPosting],
   ] as const)('%s returns { success: false, error } when the update throws', async (_name, fn) => {
-    mockPrisma.job_postings.update.mockRejectedValue(new Error('boom'))
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: 99 }] as any)
+    mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma))
+    mockPrisma.job_postings.findUnique.mockResolvedValue({ id: 99, pipeline_status: 'discarded' } as any)
+    mockPrisma.job_postings.updateMany.mockRejectedValue(new Error('boom'))
 
-    const result = await fn(99)
+    const result = await fn(99, { bucket: 'all' })
 
     expect(result.success).toBe(false)
     expect(result.error).toBe('boom')
@@ -503,14 +512,15 @@ describe('Backend Actions', () => {
         job_url: 'https://acme.example/jobs/7',
         pipeline_status: 'scored',
       }
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }] as any)
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       // markJobApplied wraps create + backfill in a $transaction
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 42, company_name: 'Acme', job_title: 'Backend Engineer' } as any)
-      mockPrisma.job_postings.update.mockResolvedValue({ ...posting, pipeline_status: 'applied', application_id: 42 } as any)
+      mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
-      const result = await markJobApplied(7)
+      const result = await markJobApplied(7, undefined, { bucket: 'all' })
 
       expect(result.success).toBe(true)
       expect(mockPrisma.$transaction).toHaveBeenCalled()
@@ -524,9 +534,9 @@ describe('Backend Actions', () => {
           }),
         })
       )
-      expect(mockPrisma.job_postings.update).toHaveBeenCalledWith(
+      expect(mockPrisma.job_postings.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 7 },
+          where: expect.objectContaining({ id: 7 }),
           data: expect.objectContaining({
             pipeline_status: 'applied',
             application_id: 42,
@@ -537,19 +547,20 @@ describe('Backend Actions', () => {
 
     it('keeps the chosen category, defaulting a blank one to Others', async () => {
       const posting = { id: 7, company_name: 'Acme', job_title: 'Backend Engineer', job_url: 'u', pipeline_status: 'scored' }
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }] as any)
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue(null)
       mockPrisma.applications.create.mockResolvedValue({ id: 42 } as any)
-      mockPrisma.job_postings.update.mockResolvedValue({} as any)
+      mockPrisma.job_postings.updateMany.mockResolvedValue({ count: 1 } as any)
 
-      await markJobApplied(7, 'MLE')
+      await markJobApplied(7, 'MLE', { bucket: 'all' })
       expect(mockPrisma.applications.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ category: 'MLE' }) })
       )
 
       mockPrisma.applications.create.mockClear()
-      await markJobApplied(7, '   ')
+      await markJobApplied(7, '   ', { bucket: 'all' })
       expect(mockPrisma.applications.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ category: 'Others' }) })
       )
@@ -563,23 +574,26 @@ describe('Backend Actions', () => {
         job_url: 'https://acme.example/jobs/7',
         pipeline_status: 'scored',
       }
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 7 }] as any)
       mockPrisma.job_postings.findUnique.mockResolvedValue(posting as any)
       mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma))
       mockPrisma.applications.findFirst.mockResolvedValue({ id: 1 } as any) // duplicate
 
-      const result = await markJobApplied(7)
+      const result = await markJobApplied(7, undefined, { bucket: 'all' })
 
       expect(result.success).toBe(false)
-      expect(mockPrisma.job_postings.update).not.toHaveBeenCalled()
+      expect(mockPrisma.job_postings.updateMany).not.toHaveBeenCalled()
     })
 
     it('should fail when the posting does not exist', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([] as any)
+      mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma))
       mockPrisma.job_postings.findUnique.mockResolvedValue(null)
 
-      const result = await markJobApplied(123)
+      const result = await markJobApplied(123, undefined, { bucket: 'all' })
 
       expect(result.success).toBe(false)
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+      expect(mockPrisma.$transaction).toHaveBeenCalled()
     })
   })
 })
