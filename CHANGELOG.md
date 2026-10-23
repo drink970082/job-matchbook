@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add public example instructions and an acceptance record for the scheduled Daily
+  Brief. They distinguish interactive tool access from an actual unattended run and
+  require visible failures, full-JD evidence, source cutoffs, and conservative
+  application deduplication.
+
 - Add an All jobs inventory view as the Discovered Jobs default, with a direct non-removed
   list/count query, stable discovery-recency order, literal metadata/all-text filters,
   shared advisory screen summaries and separate legacy screen evidence. Keep the existing

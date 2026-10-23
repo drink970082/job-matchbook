@@ -24,6 +24,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
+- **Daily Brief instructions for issue #94 — unattended acceptance remains open**
+  [ORCH · M · branch docs/issue-94-daily-brief]. Public example instructions and a run
+  record are in [the Daily Brief guide](reports/2026-10-23-daily-brief-instructions.md).
+  The current Codex session can read the ATS MCP tunnel interactively, but exposes no
+  Scheduled management interface; issue #94 still needs a task created in ChatGPT web
+  or desktop and one observed unattended run. Interactive access is not acceptance.
+
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.
