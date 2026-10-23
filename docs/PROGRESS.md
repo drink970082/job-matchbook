@@ -8,6 +8,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Source lifecycle for unscored inventory — design draft awaiting operator approval**
+  [FETCH · M · branch docs/issue-93-source-lifecycle; issue #93]. The current expiry
+  check only covers scored/notified rows and discards successful detail responses;
+  duplicate intake rows do not refresh source evidence. Proposed contract and execution
+  plan: [design](superpowers/specs/2026-10-23-source-lifecycle-design.md) and
+  [plan](superpowers/plans/2026-10-23-source-lifecycle.md). The design keeps source
+  availability separate from pipeline/application state and assessment freshness,
+  records changed evidence without model reruns, and leaves retention and intake policy
+  alone. It is a draft, not implementation authorization; issue #93's dependencies #91
+  and #92 are merged.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

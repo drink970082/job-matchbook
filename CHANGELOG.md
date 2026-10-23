@@ -7,6 +7,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- Draft a bounded source-lifecycle contract and implementation plan for issue #93. The
+  proposal separates source availability and content revisions from assessments and
+  application history; implementation waits for operator approval.
+
 ### Changed
 
 - Add an All jobs inventory view as the Discovered Jobs default, with a direct non-removed
