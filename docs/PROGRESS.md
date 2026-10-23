@@ -8,11 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **`feat/job-inventory-view` — Batch 2 inventory UI (#92), PR #100 awaiting review;
-  unmerged**. It is based on fresh `origin/main` after Batch 1 (#91) merged as PR #99;
-  the plan and shared contract are
-  [`2026-10-22-batch-2-job-inventory.md`](superpowers/plans/2026-10-22-batch-2-job-inventory.md)
-  and [`2026-10-22-research-inventory-design.md`](superpowers/specs/2026-10-22-research-inventory-design.md).
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

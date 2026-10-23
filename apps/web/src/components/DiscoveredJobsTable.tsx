@@ -308,7 +308,8 @@ function pipelineStatusLabel(status?: string): string {
         expired: 'Expired',
         removed: 'Removed',
     }
-    return status && labels[status] ? labels[status] : `Unknown status (${status || 'missing'})`
+    if (status && Object.prototype.hasOwnProperty.call(labels, status)) return labels[status]
+    return `Unknown status (${status || 'missing'})`
 }
 
 function descriptionLabel(description?: string | null): string | null {

@@ -16,7 +16,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   server-side and expose no bulk action in All jobs. Lift inventory filters into Dashboard
   state, hide previous rows during pending/error loads, and ignore stale responses. Add
   shared-fixture parity, >1k-row parameter-bound, action-scope and synthetic Playwright
-  coverage.
+  coverage. Guard inherited-property lifecycle names and validate calendar dates before
+  displaying assessment times, with shared Python/web timestamp regression fixtures.
 
 - Define issue-based delivery for the ChatGPT-first pivot and link seven bounded
   deliverables. Add first-batch MCP research and second-batch inventory UI plans;

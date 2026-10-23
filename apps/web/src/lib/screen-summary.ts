@@ -40,6 +40,7 @@ export interface LegacyScreenEvidence {
 const MAX_REASON_CHARS = 300
 const MAX_PROVENANCE_CHARS = 120
 const MAX_TIMESTAMP_CHARS = 40
+const DAYS_BEFORE_MONTH = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
 const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/gi
 const SECRET_QUERY_KEYS = new Set([
     'token', 'accesstoken', 'authtoken', 'auth', 'authorization', 'apikey', 'key',
@@ -84,8 +85,42 @@ function bounded(value: string | null | undefined): string | null {
 
 function assessmentTime(value: string | null | undefined): string | null {
     if (!value || value.length > MAX_TIMESTAMP_CHARS) return null
-    const match = /^(\d{4}-\d{2}-\d{2})[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/.exec(value)
-    if (!match || Number.isNaN(Date.parse(value.replace('t', 'T').replace(' ', 'T')))) return null
+    const match = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|([+-])(\d{2}):(\d{2}))$/.exec(value)
+    if (!match || match[0] !== value) return null
+
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const hour = Number(match[4])
+    const minute = Number(match[5])
+    const second = Number(match[6])
+    if (year === 0 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return null
+
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+    const daysInMonth = month === 2 ? (leapYear ? 29 : 28) :
+        [4, 6, 9, 11].includes(month) ? 30 : 31
+    if (day < 1 || day > daysInMonth) return null
+
+    const offsetHours = Number(match[9] ?? 0)
+    const offsetMinutes = Number(match[10] ?? 0)
+    let offsetTotalMinutes = offsetHours * 60 + offsetMinutes
+    // datetime.fromisoformat accepts minute fields above 59 and normalizes them, as
+    // long as the resulting UTC offset is still strictly less than 24 hours.
+    if (offsetTotalMinutes >= 24 * 60) return null
+    if (match[8] === '-') offsetTotalMinutes *= -1
+
+    // Python's UTC conversion rejects a timestamp whose offset would cross its
+    // supported year range (0001 through 9999), even when its local fields are valid.
+    const daysBeforeYear = (value: number) => {
+        const prior = value - 1
+        return prior * 365 + Math.floor(prior / 4) - Math.floor(prior / 100) + Math.floor(prior / 400)
+    }
+    const dayOfYear = DAYS_BEFORE_MONTH[month - 1] + day - 1 + (month > 2 && leapYear ? 1 : 0)
+    const localDay = daysBeforeYear(year) + dayOfYear
+    const utcDay = Math.floor((localDay * 24 * 60 + hour * 60 + minute - offsetTotalMinutes) / (24 * 60))
+    const lastSupportedUtcDay = daysBeforeYear(10_000) - 1
+    if (utcDay < 0 || utcDay > lastSupportedUtcDay) return null
+
     return value
 }
 

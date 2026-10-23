@@ -442,6 +442,19 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getAllByTitle(/remove/i)).toHaveLength(1)
   })
 
+  it.each(['__proto__', 'constructor', 'toString', 'valueOf'])(
+    'renders inherited-property lifecycle status %s as unknown text',
+    (status) => {
+      renderTable({
+        filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },
+        data: [{ ...mockJobs[0], pipeline_status: status }],
+        total: 1,
+      })
+
+      expect(screen.getByText(`Unknown status (${status})`)).toBeInTheDocument()
+    },
+  )
+
   it('distinguishes null, empty, and thin job descriptions without showing JD text in the table', () => {
     renderTable({
       filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },

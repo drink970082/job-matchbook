@@ -611,6 +611,27 @@ def test_assessment_time_unknowns_and_eligible_screen_counts_are_explicit(db_pat
     assert fresh != retry
 
 
+def test_assessment_time_contract_cases_use_strict_timestamp_semantics(db_path):
+    contract = json.loads((FIXTURES / "standalone_screen_contract.json").read_text())
+    with sqlite3.connect(db_path) as conn:
+        for case in contract["assessment_time_cases"]:
+            job_id = _job(conn, title=case["name"])
+            _insert_screen(
+                conn,
+                job_id,
+                state="provider_error",
+                result_json=None,
+                updated_at=case["stored_updated_at"],
+            )
+
+    repo = ReadOnlyATSRepository(db_path)
+    by_title = {item["job_title"]: item for item in repo.list_jobs(limit=100)["items"]}
+    for case in contract["assessment_time_cases"]:
+        summary_time = by_title[case["name"]]["screen_summary"]["assessment_time"]
+        assert summary_time == case["expected_summary_time"]
+        assert (summary_time is not None) is case["expected_known"]
+
+
 def test_job_cursor_ceiling_and_live_pages_make_no_snapshot_claim(db_path):
     with sqlite3.connect(db_path) as conn:
         ids = [_job(conn, title=f"row-{i}") for i in range(4)]
