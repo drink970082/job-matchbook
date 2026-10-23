@@ -8,7 +8,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **`feat/job-inventory-view` — Batch 2 inventory UI (#92), ready for focused PR review;
+- **`feat/job-inventory-view` — Batch 2 inventory UI (#92), PR #100 awaiting review;
   unmerged**. It is based on fresh `origin/main` after Batch 1 (#91) merged as PR #99;
   the plan and shared contract are
   [`2026-10-22-batch-2-job-inventory.md`](superpowers/plans/2026-10-22-batch-2-job-inventory.md)

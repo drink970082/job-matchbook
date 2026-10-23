@@ -1,7 +1,8 @@
 # Batch 2 — browse the inventory without fit scoring
 
-**Status:** Issue #91 is accepted and merged as PR #99. The #92 implementation is on
-`feat/job-inventory-view` for focused review and remains unmerged until acceptance.
+**Status:** Issue #91 is accepted and merged as PR #99. The #92 implementation is in
+[PR #100](https://github.com/drink970082/job-matchbook/pull/100) on
+`feat/job-inventory-view`; review is pending and it remains unmerged.
 Owner: Luna at max effort. Orchestrator and acceptance: Astra/Sol.
 [Issue #92](https://github.com/drink970082/job-matchbook/issues/92).
 
