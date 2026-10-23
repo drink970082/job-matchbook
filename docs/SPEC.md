@@ -1685,7 +1685,11 @@ it simply waits for an unbounded pass. **The `new` queue is read
   folded Company/location/source and Posted/Fetched date columns + bulk
   Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
   `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
-  (category picker on Mark Applied), `WatchlistTable`
+  (category picker on Mark Applied), `ImportCSVDialog` (drag-and-drop or browse file
+  picker behind the Import CSV button, with the column contract — required columns,
+  `YYYY-MM-DD` dates, the exact `status` vocabulary, dedup-skips-never-overwrites —
+  stated inline; guards on the `.csv` extension, not the MIME type, since Excel on
+  Windows reports a CSV as `application/vnd.ms-excel`), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
   backlog), `ScorerUsageBar` (fit-backend quota bar on the Discovered Jobs view — polls

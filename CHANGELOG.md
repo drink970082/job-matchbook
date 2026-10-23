@@ -7,6 +7,18 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- **A real import dialog, so the CSV contract is visible before the file is picked.**
+  Import CSV opened a bare OS file chooser: the required columns, the date format and the
+  exact `status` vocabulary lived only in `actions.ts`, so the first sign of a wrong header
+  was a rejected import. `ImportCSVDialog` is a drop zone (drag-and-drop or click to
+  browse) with that contract stated inline and an expandable sample row, and it keeps
+  itself open on failure with the file still loaded, so fixing a header is one re-try
+  rather than a re-pick. It guards on the `.csv` extension rather than the MIME type,
+  because Excel on Windows reports a CSV as `application/vnd.ms-excel` and a type check
+  would reject real exports.
+
 ### Changed
 
 - Define issue-based delivery for the ChatGPT-first pivot and link seven bounded

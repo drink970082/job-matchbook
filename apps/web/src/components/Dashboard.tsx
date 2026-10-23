@@ -1,7 +1,7 @@
 
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
     getApplications,
     addApplication,
@@ -39,6 +39,7 @@ import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
 import { StatusHistoryModal } from './StatusHistoryModal'
 import { CategoriesDialog } from './CategoriesDialog'
+import { ImportCSVDialog } from './ImportCSVDialog'
 import { Button } from '@/components/ui/button'
 import { Download, Upload, Tags } from 'lucide-react'
 import { toast } from 'sonner'
@@ -106,7 +107,7 @@ export function Dashboard({
     const [selectedApp, setSelectedApp] = useState<any>(null)
     const [historyData, setHistoryData] = useState<any[]>([])
     const [isHistoryOpen, setIsHistoryOpen] = useState(false)
-    const fileInputRef = useRef<HTMLInputElement>(null)
+    const [importDialogOpen, setImportDialogOpen] = useState(false)
 
     // Light tier: apps + KPIs + status flow only. A status edit can't move
     // date_applied or category, so re-fetching the timeline/category charts on
@@ -263,16 +264,13 @@ export function Dashboard({
         toast.success(`Exported ${result.count} application${result.count === 1 ? '' : 's'}`)
     }
 
-    const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        e.target.value = ''
-        if (!file) return
-
-        const text = await file.text()
+    // Returns false so ImportCSVDialog stays open on failure (the file is still loaded,
+    // so a re-try after fixing the header is one click).
+    const handleImportCSV = async (text: string) => {
         const result = await importApplicationsCSV(text)
         if (!result.success) {
             toast.error(result.error || 'Import failed')
-            return
+            return false
         }
 
         const added = result.added ?? 0
@@ -286,6 +284,7 @@ export function Dashboard({
             console.warn('CSV import errors:', errors)
         }
         refreshData()
+        return true
     }
 
     const refreshJobPostings = async (filters = jobFilters, page = jobPage) => {
@@ -476,16 +475,9 @@ export function Dashboard({
                         <Button variant="outline" size="sm" onClick={handleExportCSV}>
                             <Download className="mr-2 h-4 w-4" /> Export CSV
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                        <Button variant="outline" size="sm" onClick={() => setImportDialogOpen(true)}>
                             <Upload className="mr-2 h-4 w-4" /> Import CSV
                         </Button>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".csv,text/csv"
-                            onChange={handleImportCSV}
-                            className="hidden"
-                        />
                     </div>
                 </div>
                 <KPIGrid stats={kpis} />
@@ -651,6 +643,13 @@ export function Dashboard({
                     setCategoryOptions(list)
                     setCategoriesConfigured(true)
                 }}
+            />
+
+            {/* CSV import: drag-and-drop / browse, with the column contract inline */}
+            <ImportCSVDialog
+                open={importDialogOpen}
+                onOpenChange={setImportDialogOpen}
+                onImport={handleImportCSV}
             />
         </div>
     )
