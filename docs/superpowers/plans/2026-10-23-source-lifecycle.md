@@ -45,27 +45,52 @@ and builds **external_id** from the response's **id** field. Its existing test c
 the requested ID and one parsed detail response, but not identity mismatch or lifecycle
 classification. The [official endpoint guide](https://developers.smartrecruiters.com/docs/endpoints)
 describes the company listing as active postings and the detail endpoint as lookup by
-posting ID; the [detail API reference](https://developers.smartrecruiters.com/reference/v1getposting)
-does not establish that HTTP 404/410 means an unpublished requisition. Therefore a 404
-or 410 is **inconclusive by default** for this pilot. Before any source state can become
-**closed**, confirm the adapter-specific terminal signal from an authoritative source
-contract. If none is available, select a source with a verified terminal signal before
-implementation rather than inventing one.
+posting ID. The [official PostingDetails schema](https://developers.smartrecruiters.com/docs/objects#postingdetails)
+defines `active` as whether the posting is live or unpublished. Use an exact returned
+ID plus `active: false` as the SmartRecruiters terminal signal; keep HTTP 404/410
+**inconclusive**, since the [detail API reference](https://developers.smartrecruiters.com/reference/v1getposting)
+does not define those responses as unpublishing.
+
+A bounded read-only request against one eligible stored posting confirmed the current
+endpoint returns the matching `id`, a boolean `active`, and JD sections. This verifies
+the live response shape for an active posting; it does not prove that an inactive posting
+will return `active: false`, which remains grounded in the published schema and must be
+covered by the synthetic closure fixture.
+
+Keep adapter status outside canonical **POSTING_FIELDS** so normal feed ingestion does
+not persist source-specific metadata. Add a small refresh-only adapter seam that returns
+the canonical posting and its source-state signal from the same HTTP response; do not
+issue a second detail request. The seam is injected into the refresh module and exercised
+by synthetic adapter/lifecycle fixtures. Concretely, keep existing `fetch_one` unchanged
+for feed ingestion and add a pilot-only `fetch_one_observation` result with the canonical
+posting plus a small `available | closed | unknown` signal; leave transport exceptions
+for the refresh module's safe error classification. A matching `active: true` response
+is available only when the returned ID matches, a returned company identifier agrees
+with the requested slug when present, the title is non-empty, and
+`jobAd.sections.jobDescription.text` is non-empty. Qualifications and additional
+information are optional sections and are included when present. Missing or malformed
+`active`, identity/company mismatch, or incomplete live content is inconclusive. An
+exact-ID `active: false` may confirm closure even when JD sections are absent; preserve
+the stored JD, hash, revision, assessment, and application history.
 
 After approval, extend the synthetic adapter/lifecycle fixtures to cover:
 
-- Exact returned **(source, external_id)**, non-empty title and complete JD: update
-  source check/seen timestamps; unchanged assessment inputs do not increment revision.
+- Exact returned **(source, external_id)** with `active: true`, matching company
+  identifier when present, non-empty title, and non-empty job-description section:
+  update source check/seen timestamps; unchanged assessment inputs do not increment
+  revision.
 - Exact identity with a changed title, location, or JD: update those inputs, increment
   the content revision, mark older captured assessments stale, and make zero model calls.
-- Different returned ID/source, missing identity, `None`, blank/partial JD, malformed
-  JSON, or an HTML/interstitial response: record an inconclusive safe category and
-  preserve the prior complete JD, hash, revision, and confirmed source state.
+- Exact returned ID with `active: false`: confirm closure and update check time without
+  replacing the prior content or changing pipeline/application state.
+- Different returned ID/source/company, missing identity or `active`, `active: true`
+  with a blank/partial core JD, `None`, malformed JSON, or an HTML/interstitial response:
+  record an inconclusive safe category and preserve the prior complete JD, hash, revision,
+  and confirmed source state.
 - Timeout/connection failure, 403, 429, and 5xx: record an inconclusive attempt without
   advancing the conclusive check time or changing confirmed availability.
-- 404/410: remain inconclusive unless the adapter-specific terminal contract above has
-  been verified; only then add a confirmed-closure fixture and reopen-on-later-valid-hit
-  coverage.
+- 404/410: remain inconclusive; a later exact-ID `active: true` result reopens a prior
+  `active: false` closure without resetting pipeline or user state.
 - Application/status changes between fetch and write: the transaction skips the stale
   result. Existing application, note, and status-history fixtures remain intact.
 

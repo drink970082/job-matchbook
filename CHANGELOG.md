@@ -12,8 +12,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - Draft a bounded source-lifecycle contract and implementation plan for issue #93. The
   proposal separates source availability and content revisions from assessments and
   application history, recommends a SmartRecruiters first pilot from the live unscored
-  inventory, leaves its closure signal unverified, and waits for operator approval
-  before implementation.
+  inventory, uses its documented `active: false` field as the source closure signal,
+  keeps HTTP 404/410 inconclusive, records a bounded live response-shape check, and
+  waits for operator approval before implementation.
 
 ### Changed
 

@@ -17,10 +17,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   availability separate from pipeline/application state and assessment freshness,
   records changed evidence without model reruns, recommends SmartRecruiters for the
   first pilot from the live unscored inventory, and leaves retention and intake policy
-  alone. Reconfirm pilot eligibility before rollout; SmartRecruiters 404/410 closure
-  semantics remain unverified and those results stay inconclusive until verified. It is
-  a draft, not implementation authorization; issue #93's dependencies #91 and #92 are
-  merged.
+  alone. A bounded read-only request confirmed SmartRecruiters returns matching ID,
+  `active: true`, and JD sections. Its official `active: false` field is the closure
+  signal; HTTP 404/410 stay inconclusive, and other adapters need their own verified
+  signal. Reconfirm pilot eligibility before rollout. It is a draft, not implementation
+  authorization; issue #93's dependencies #91 and #92 are merged.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

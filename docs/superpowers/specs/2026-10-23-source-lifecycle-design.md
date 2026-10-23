@@ -72,10 +72,25 @@ list/feed observation can set it and advance **source_last_seen_at**; absence fr
 board list cannot confirm closure. **source_last_checked_at** and
 **source_last_check_outcome** describe the exact-ID detail refresh only. **closed** is
 reserved for a source-specific closure signal that has been verified for that adapter.
-For the first slice, the candidate signal is that adapter's HTTP 404/410 response.
-HTTP 200 with a blank/partial body, an unrecognized page, login/CAPTCHA/bot wall,
-redirect to a generic board, timeout, 403, 429, 5xx, and parse failure are inconclusive.
-They never create a confirmed closure.
+For the recommended SmartRecruiters pilot, the official
+[PostingDetails schema](https://developers.smartrecruiters.com/docs/objects#postingdetails)
+defines **active: false** as an unpublished posting. A schema-valid detail response with
+the exact requested ID, a matching **company.identifier** when present, and
+**active: false** confirms closure: advance
+**source_last_checked_at**, leave **source_last_seen_at** and all content/assessment
+fields intact, set outcome **confirmed_closed**, and clear the prior error category. A
+matching **active: true** response confirms availability only when the canonical content
+also passes validation: require a non-empty title and
+**jobAd.sections.jobDescription.text**; include qualifications and additional information
+when present. Then advance seen/checked time and clear the prior error category.
+Missing/wrong-type **active**, identity/company mismatch, or an incomplete live payload
+is inconclusive and preserves the prior state and content. HTTP 404/410 remain
+inconclusive for SmartRecruiters because the current detail reference does not define
+either as an unpublished-posting signal. Other adapters need their own verified terminal
+signal; do not generalize SmartRecruiters' field. HTTP 200 with a blank/partial body, an
+unrecognized page, login/CAPTCHA/bot wall, redirect to a generic board, timeout, 403,
+429, 5xx, and parse failure are inconclusive unless the exact-ID **active: false**
+signal above is valid.
 
 An inconclusive retry records its attempt and safe error category, leaves the last
 confirmed state and **source_last_checked_at** intact, and leaves an initially unknown row
@@ -161,11 +176,12 @@ application relation. The adapter's per-listing response includes its posting ID
 the refresh can compare the returned
 identity with the requested **(source, external_id)** before writing. Recheck candidate
 eligibility immediately before rollout; this inventory observation is not a durable
-claim that the row remains eligible. The check did not establish SmartRecruiters-specific
-404/410 closure semantics, so the implementation must verify those semantics before
-classifying either status as **closed**; otherwise treat it as inconclusive. The
-adapter-specific fixture and closure-verification brief is in the linked implementation
-plan.
+claim that the row remains eligible. SmartRecruiters' published PostingDetails schema
+provides an exact-ID **active** boolean to distinguish live from unpublished postings;
+a bounded read-only detail request confirmed that the current endpoint returns the
+matching ID, **active: true**, and JD content. No database write or model call was made.
+HTTP 404/410 remain inconclusive. The adapter-specific observation seam and
+fixture brief is in the linked implementation plan.
 
 ### Retention and protected records
 
@@ -203,8 +219,9 @@ Approve or revise these decisions before implementation:
 
 1. Use the additive current-state snapshot and revision model above; do not introduce an
    observation-history table in this issue.
-2. Keep source closure distinct from **pipeline_status**; only verified per-adapter 404/410
-   results can close a source in the first slice.
+2. Keep source closure distinct from **pipeline_status**; for SmartRecruiters, only an
+   exact-ID detail with **active: false** can close a source. HTTP 404/410 remain
+   inconclusive unless separately verified for another adapter.
 3. Start with the recommended **SmartRecruiters** adapter (or the operator's replacement)
    and no more than 25 exact unscored rows per pass; expand only after reviewing the pilot.
 4. Show source state and assessment freshness in both the tracker and read-only MCP,
