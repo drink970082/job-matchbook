@@ -8,10 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **`docs/pivot-implementation-roadmap` — planning/documentation in progress**.
-  Issue decomposition, orchestrator/implementer boundaries and first two batch plans;
-  no runtime implementation or model runs.
-
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -42,8 +38,9 @@ before changing them. No older research authorization schedules new provider cal
    using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
 4. Orchestrator scopes source lifecycle (#93) and performs scheduled Brief acceptance
    (#94); #94 need not wait for all of #93 if official pages and freshness limits are checked.
-5. Delivery ledger (#95) and finally fit pre-ranking (#96) require measured need and a
-   separate design. If scheduled ChatGPT suffices, scorer rollout is unnecessary.
+5. Two independent conditional branches after #94: delivery ledger (#95) for observed
+   repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
+   separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.

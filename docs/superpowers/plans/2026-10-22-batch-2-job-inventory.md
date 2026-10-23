@@ -31,7 +31,9 @@ No MCP dependency at web runtime: Prisma reads the same database directly.
 
 1. **Establish All jobs query tests.** Include all non-removed pipeline states, particularly
    new with no fit. Preserve every legacy bucket's existing membership. Handle unknown
-   stored states visibly. Tests use synthetic applications and assert preserved associations.
+   stored states visibly. All jobs queries/counts must bypass matchedIds/belowBarIds/
+   lowContextIds fit-derived scans; malformed legacy score_detail cannot break inventory.
+   Tests use synthetic applications and assert preserved associations.
 2. **Add standalone summary projection.** Parse result JSON defensively, use the shared
    outcome cases and distinguish standalone from legacy screen/fit evidence. Display model,
    effort and assessment time only when available. Never infer source freshness/open status
@@ -41,13 +43,18 @@ No MCP dependency at web runtime: Prisma reads the same database directly.
    sorting. Reset page appropriately on filter/search changes and prevent stale responses
    from replacing newer selections. Keep null/empty description behavior meaningful.
 4. **Make inventory the default UI.** Default to All jobs only without an explicit existing
-   view selection. Preserve explicit selections where supported. Keep Matched/Below bar/
+   view selection. Default its sort to created_at descending then id descending, so recent
+   unscored jobs precede older scored rows; preserve explicit sort choices and existing fit-
+   view defaults. Include more than a page of older scored rows in the initial-view test.
+   Preserve explicit selections where supported. Keep Matched/Below bar/
    Discarded/Failed/Low context accessible as compatibility views; do not remove their
    evidence or useful actions. An empty inventory explains the result without saying all
    jobs are unsuitable or encouraging an automatic rescore.
 5. **Audit action boundaries.** Existing supported actions use the same server-side scope
    as the list, including new filters, or reject unsupported filter combinations. Do not
-   rely only on hidden buttons. No new bulk destructive actions for All jobs. Per-row
+   rely only on hidden buttons. Existing table-wide bulk selection/actions must not leak
+   into All jobs: suppress them and pass sufficient view/filter context to reject unsupported
+   new-view mutations server-side. Preserve validated existing-view bulk flows. Per-row
    mark-applied/discard/reopen follows existing eligibility and transaction rules; do not
    delete or overwrite application/history records.
 6. **Drive the browser and update docs.** Demonstrate initial view, filter/search, changing
@@ -59,7 +66,8 @@ No MCP dependency at web runtime: Prisma reads the same database directly.
 
 | Fixture/action | Expected result |
 |---|---|
-| new + no screening + no fit | Visible in initial All jobs; full JD opens |
+| Recent new/unscored job plus >1 page of older scored jobs | On the first All jobs page by discovery recency; full JD opens |
+| Malformed legacy score_detail on any row | All jobs query/count still works without fit-derived ID scans |
 | new + complete disqualified | Visible with explicit advisory reason, no lifecycle mutation |
 | provider error / malformed / missing checks | Error or unknown label, never a positive eligibility badge |
 | legacy score_detail without standalone row | Legacy evidence shown separately, standalone remains not_screened |

@@ -89,6 +89,11 @@ No long-lived read transaction, snapshot table or append-only event schema in th
 Add All jobs inventory as the default only when no explicit view selection exists.
 Include all non-removed stored pipeline states, including discarded/applied/unknown;
 label them accurately. This is not an assertion that all are open or recommended.
+Default All jobs ordering is discovery recency (created_at descending, then id descending),
+not fit score or posted_at. Preserve explicitly selected sorts; legacy fit views keep their
+existing defaults. A recent unscored job must be on the first page even when more than one
+page of old scored jobs exists. All jobs queries/counts bypass fit-derived bucket ID scans;
+malformed legacy score_detail must not prevent inventory retrieval.
 Keep legacy Matched/Below bar/Discarded/Failed/Low context views accessible. Existing
 explicit view selections remain respected where the app supports them.
 
@@ -100,7 +105,10 @@ and test parity; do not introduce a cross-service request just to reuse code.
 
 Preserve existing per-row actions and application/history behavior. Hidden removed rows
 remain hidden by default. Do not add bulk deletion or bulk lifecycle changes to new
-inventory views. For any already-supported bulk action reachable with new filters, reuse
+inventory views: suppress bulk selection/action controls there, including existing controls
+that currently render for every bucket. Mutation requests must carry sufficient view/filter
+scope to reject unsupported new-view combinations server-side; hiding controls alone is
+insufficient. Preserve legitimate existing-view actions with scope validation. For any already-supported bulk action reachable with new filters, reuse
 the exact list predicate server-side. If a filter is unsupported by a mutation, reject it
 explicitly rather than dropping it. Tests cover this even if a button is hidden.
 
