@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Define issue-based delivery for the ChatGPT-first pivot and link seven bounded
+  deliverables. Add first-batch MCP research and second-batch inventory UI plans;
+  establish Astra/Sol orchestration/acceptance and Luna/max implementation ownership.
+  Move workflow validation earlier and make fit pre-ranking the final conditional option
+  if scheduled ChatGPT cannot handle the useful inventory. No runtime behavior changes.
+
 - Record the ChatGPT-first pivot: ATS supplies job sources, evidence, tracking and
   collaboration tools; ChatGPT owns primary personal judgment and recommendation
   delivery. Keep screen and fit scoring as optional low-cost assistance, including

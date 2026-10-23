@@ -24,82 +24,90 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
 | JEV/System One assistance | Not implemented in ATS | Optional experiment, after a measured need |
 
+## Delivery sequence and issues
+
+Issues own scope, dependencies and status; this document owns product order. Labels
+classify work, not execution readiness. Astra/Sol owns architecture/docs/acceptance;
+Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPMENT.md#agent-ownership-and-handoff).
+
+| Order | Deliverable | Dependencies / selection | Execution |
+|---|---|---|---|
+| Early, alongside batch 1 | [#90 Research workflow baseline](https://github.com/drink970082/job-matchbook/issues/90) | None | Orchestrator read-only workflow evidence |
+| Batch 1 | [#91 Research MCP queries](https://github.com/drink970082/job-matchbook/issues/91) | Scoped plan on main | Luna/max implementation, Astra/Sol acceptance |
+| Batch 2 | [#92 Visible job inventory](https://github.com/drink970082/job-matchbook/issues/92) | #91 accepted/merged | Luna/max implementation, Astra/Sol browser acceptance |
+| Next design | [#93 Source lifecycle](https://github.com/drink970082/job-matchbook/issues/93) | #91, #92; separate schema/policy design | Orchestrator designs before Luna assignment |
+| Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | #90, #91, #92; need not wait for all #93 | Orchestrator verifies actual unattended access |
+| Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
+| Final optional capability | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | #94; demonstrated throughput gap | Deferred; unnecessary if scheduled ChatGPT suffices |
+
+#93 and #94 may progress alongside each other. Until lifecycle improvements ship, the
+Brief verifies official pages and discloses freshness limits. #95 and #96 are independent
+conditional branches after #94, not mandatory stages. Model experimentation remains last
+priority; retaining scorer code does not schedule its deployment or a corpus rebuild.
+
 ## R1 — Research queries and visible job inventory
 
-Build a small, read-only slice first:
+The first two implementation batches share an [approved scope and contract](superpowers/specs/2026-10-22-research-inventory-design.md):
 
-- Add explicit screen verdict summaries/filters, including unknown, without treating
-  `complete` or `disqualified=false` as universal qualification.
-- Support incremental completed/changed assessment queries with defined timestamps,
-  stable pagination and overlapping windows; do not select solely by job creation date.
-- Expose eligible screen backlog, pass/disqualification/error counts and data cutoff.
-- Let the web UI browse unscored jobs and inspect standalone results independently
-  of the Matched fit view. Preserve application actions and existing result access.
-- Improve title/company/location/JD search without requiring an external search service.
+- [Batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md): bounded screen
+  summaries/outcome filters, opt-in literal full-JD search, screen update windows, eligible
+  backlog counts and per-result timestamp correction. Existing read-only tools/defaults
+  remain compatible. Current-state pagination uses overlap/reconciliation, not a claim
+  of exact event delivery or cross-request snapshots.
+- [Batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md): default inventory
+  without fit prerequisites, standalone screen labels, retained fit views and safe existing
+  application actions. No new bulk destructive actions for new inventory views.
 
-**Acceptance:** an older posting completed today can be found; pages neither repeat nor
-skip rows under the declared traversal contract; provider errors remain visible; a new
-unscored posting is reachable in UI and MCP; 39 or any other live application count is
-never hard-coded into tests. Use isolated fixtures for state and pagination boundaries.
+Acceptance includes an older posting assessed today, frozen-dataset pagination, concurrent
+update limitations, visible provider errors, new unscored jobs and identical list/action
+scope. Use synthetic data; never hard-code live application counts. Local checks do not
+claim deployment or unattended ChatGPT verification.
 
 ## R2 — Source quality and collection policy
 
-- Separate documented collection scope from personal eligibility/ranking preferences.
-  Inventory fetch/title/location gates before changing any of them. Retain reviewable
-  exclusions or queryable tags where policy requires them; do not silently broaden intake.
-- Define and implement content refresh, last-seen and closure semantics independent of
-  fit state. Reuse existing adapters and verified source signals.
-- Retain full JD/provenance and identify thin, missing, unknown and fallback-date data.
-- Define age retention independently from closure; preserve applications and associated
-  evidence. Past one-off cleanup is not an automatic retention policy.
+#93 requires a separate scoped design. Inventory fetch/title/location gates before any
+change; separate collection scope from personal judgment without silently broadening intake.
+Define last-seen/check/content revision and availability independently of assessments and
+user actions. Mark old judgments stale after JD changes rather than rerunning all models.
+Keep age retention separate from closure, protect applications and associated evidence,
+and preserve thin/missing/fallback-date information. Do not revive old mass backfills.
 
-**Acceptance:** an unscored job is rechecked; a changed JD is distinguishable from its
-previous assessment input; timeout/blocked/ambiguous pages do not become definite closure;
-application/history rows and protected associations survive lifecycle maintenance.
+Acceptance: supported unscored jobs can refresh; changed JD and stale assessment are
+recognizable; timeout/blocked/ambiguous responses are not confirmed closure; application
+history remains intact. Expand adapter coverage deliberately rather than claiming all
+sources have identical closure signals.
 
 ## R3 — ChatGPT workflow acceptance
 
-- Prepare user-controlled background/preferences and a durable Daily Brief instruction set.
-- Use ATS candidates plus supplemental web search; fetch full JD before final judgment.
-- Compare applications even when `application_id`/`linked_job_count` is empty. Use source
-  requisition identity and normalized official URLs; company/title similarity is a review
-  signal, not permission to merge distinct requisitions.
-- Run an unattended task through the ATS tunnel, including multiple list pages, JD chunks,
-  source failure and empty-result cases. At 20:00 America/New_York disclose the data cutoff.
-- State honestly that cross-day recommendation deduplication is best-effort until a
-  persistent delivery ledger exists; task context is not that ledger.
+#90 starts early with a small manual ATS+web research sample and records tool friction.
+#94 validates an actual unattended task after the retrieval/UI batches. Durable private
+preferences, full JD reading, application-history deduplication without posting links,
+unknown sponsorship/pay and source failure reporting are required. Company/title similarity
+is a review signal, not verified requisition identity. No fixed ATS/web recommendation quota.
 
-**Acceptance:** each actual recommendation has an official URL and evidence-based
-eligibility/fit reasoning, excludes verified prior applications, identifies unknown
-sponsorship/pay facts, and reports unavailable sources without claiming an empty market.
-No fixed ATS/web quotas or requirement to analyze every stored JD.
+At 20:00 America/New_York disclose the evidence cutoff; the worker pass starting then is
+not guaranteed complete. Confirm product/account capabilities in the actual environment.
+An interactive chat does not prove unattended tunnel access. If scheduling is unavailable,
+record the blocker and manual fallback; do not silently introduce paid API orchestration.
+Cross-day recommendation dedup remains best-effort without #95's separately approved ledger.
 
-## R4 — Optional scorer maintenance
+## R4 — Scorer as the final optional capability
 
-Keep the existing screen and fit adapters, result contracts, tests and manual eval tools.
-Do not make a full fit-corpus rebuild a prerequisite for R1–R3. Preserve isolation from
-fetch-only/screen-only and from primary ChatGPT recommendations.
+Screen/fit adapters, result contracts, tests and manual eval tools remain supported.
+The deployed Luna/medium configuration is standalone screening; fit is not enabled by
+these plans. First observe whether scheduled ChatGPT can retrieve and judge useful
+candidates at the needed volume. If yes, #96 need not produce any scorer rollout.
 
-A request to change the fit model/rubric, make Luna/medium the fit backend, or let a
-classification hide jobs gets a scoped design and representative evaluation. Existing
-screen results do not validate Luna fit ranking. See [EVALUATION](EVALUATION.md).
-Retire redundant documentation and obsolete universal eval obligations, not useful
-coverage or the scorer itself. No new automatic Telegram rollout is part of this roadmap.
+Only a demonstrated bottleneck selects a bounded pre-ranking experiment. Astra/Sol defines
+representative evidence-supported cases and recall/top-of-list usefulness criteria; Luna/max
+implements after scope/workload approval. Existing model guards/rubric stay intact until
+separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or
+Telegram rollout is required for R1–R3. See [EVALUATION](EVALUATION.md).
 
-## Deferred extensions
+## Deferred extensions and pick rule
 
-- Durable brief delivery/assessment history and narrow write tools.
-- Web-discovered job import, official-page refresh and fetch tooling for agents.
-- Standard `search`/`fetch` compatibility for research clients that require that schema.
-- JEV/System One fact classification or review prioritization, shadow-tested before gating.
-- Additional model/provider coverage only for a demonstrated operator need.
-
-These are candidates, not approved schemas, dependencies, budget allocations or scheduled
-paid runs. Select one bounded feature and design its failure/authorization contract first.
-
-## Pick rule
-
-Prioritize discoverability, freshness, retrieval and successful user workflows. Spend
-model allowance where it improves decisions, with an explicit model/effort/workload.
-Do not cut useful discovery merely to drain an old fit backlog, and do not rerun old
-Sol/Terra/caching experiments without a new question the existing evidence cannot answer.
+#95 may precede any model work if repeated recommendations become the actual bottleneck.
+Web-job import, agent-invoked refresh, standard search/fetch compatibility and JEV/System
+One remain unselected ideas, not scheduled dependencies. Writes need explicit provenance,
+authorization and lifecycle contracts. Prefer source quality, retrieval and verified user
+workflows; choose further inference only when those observations justify it.

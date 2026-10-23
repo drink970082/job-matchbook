@@ -8,7 +8,9 @@
 Job Matchbook collects jobs from official company boards, stores their descriptions,
 and tracks applications in a self-hosted SQLite database. Its read-only MCP tools let
 ChatGPT inspect jobs and application history for personal analysis and a Daily Job Brief.
-Screening and résumé-fit scoring remain available as **optional assistance**.
+Screening and résumé-fit scoring remain available as **optional assistance**. Fit
+pre-ranking is a last-priority option for a demonstrated volume bottleneck; if scheduled
+ChatGPT handles the workload, no fit rollout is needed.
 
 > **Collect and preserve job evidence → query with ChatGPT → review and apply by hand → track.**
 

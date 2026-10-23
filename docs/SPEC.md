@@ -25,7 +25,9 @@
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
-supported optional assistance.** The operator values Luna/medium within an existing
+supported optional assistance.** Fit pre-ranking is last-priority and conditional on a
+measured scheduled-ChatGPT throughput gap; keeping it does not require turning it on.
+The operator values Luna/medium within an existing
 subscription; inclusion does not remove allowance limits. The shipped Luna/medium
 configuration is standalone screening, not a fit-model change.
 

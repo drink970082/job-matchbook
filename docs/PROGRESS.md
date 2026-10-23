@@ -8,6 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **`docs/pivot-implementation-roadmap` — planning/documentation in progress**.
+  Issue decomposition, orchestrator/implementer boundaries and first two batch plans;
+  no runtime implementation or model runs.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -30,17 +34,21 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. **R1: research queries and visible inventory.** Screen verdict/time filters and queue
-   counts, browsable unscored jobs and full-JD search. [Acceptance](ROADMAP.md#r1--research-queries-and-visible-job-inventory).
-2. **R2: source freshness and collection policy.** Recheck unscored jobs, refresh evidence
-   and separate intake scope from personal preferences. [Acceptance](ROADMAP.md#r2--source-quality-and-collection-policy).
-3. **R3: ChatGPT workflow acceptance.** Durable preferences, ATS+web retrieval,
-   application-history deduplication and an actual unattended Daily Brief run.
-4. **R4: optional scorer maintenance**, selected only for a concrete quality or cost issue.
-   Retain Luna/medium assistance; no mandatory corpus rebuild or model downgrade.
+1. Orchestrator establishes [workflow baseline #90](https://github.com/drink970082/job-matchbook/issues/90)
+   alongside the first implementation batch.
+2. Luna/max executes [MCP research queries #91](https://github.com/drink970082/job-matchbook/issues/91)
+   using the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md).
+3. After batch 1 acceptance, Luna/max executes [inventory UI #92](https://github.com/drink970082/job-matchbook/issues/92)
+   using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
+4. Orchestrator scopes source lifecycle (#93) and performs scheduled Brief acceptance
+   (#94); #94 need not wait for all of #93 if official pages and freshness limits are checked.
+5. Delivery ledger (#95) and finally fit pre-ranking (#96) require measured need and a
+   separate design. If scheduled ChatGPT suffices, scorer rollout is unnecessary.
 
-Each item needs a scoped implementation design/claim before code changes. The product
-pivot is approved; proposed schemas, defaults and write tools are not pre-approved.
+[ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
+owns active branch claims. Documentation plans do not launch agents or deploy services.
+Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna/max.
+The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
 
