@@ -42,11 +42,17 @@ Scheduled view and run history.
     ATS retrieval
     - Start with get_ats_overview. If it fails, report ATS access as failed; never
       translate a tool error into zero jobs.
-    - Retrieve candidate postings with list_jobs using a rolling 72-hour overlap for
-      created postings and standalone screening updates. Include eligible unscored
-      postings and advisory screening outcomes; screening is not fit or a
+    - Inspect the connected list_jobs schema. Retrieve candidate postings with a
+      rolling 72-hour overlap for created postings and standalone screening updates
+      when both dimensions are queryable. Date-only filters are a superset: follow all
+      pages and apply the exact cutoff to returned timestamps. Include eligible
+      unscored postings and advisory screening outcomes; screening is not fit or a
       recommendation. Follow every next_cursor for each filter set and report when
-      pagination is incomplete.
+      pagination is incomplete. The interactive tool contract checked on 2026-10-23
+      had inclusive YYYY-MM-DD created/posted filters, but no standalone-screen update
+      window filter and no source-freshness timestamp in list results. If the Scheduled
+      task has the same contract, state that screen-update coverage is unavailable and
+      freshness is unknown; do not claim complete 72-hour incremental coverage.
     - Also retrieve and paginate application records. Use linked posting identity or
       exact official URL equality to confirm a prior application. Without a link or
       exact URL, company/title similarity is only a probable duplicate: flag it for
@@ -124,6 +130,26 @@ failed, or not exercised:
   pass beginning at 20:00 has completed.
 - No application state, ATS data, worker, service, or paid model evaluation changed as
   a side effect.
+
+## Interactive preflight (2026-10-23; not Scheduled acceptance)
+
+- The connected ATS overview succeeded. A filtered postings query followed two keyset
+  pages through exhaustion; a separate broad query still had more rows after page two,
+  so it was correctly left marked incomplete. Application listing returned its only
+  page, including records without posting links.
+- The literal **__daily_brief_empty_probe__** returned zero rows and no next cursor.
+- A full ATS description was read through multiple chunks to its reported end, and the
+  corresponding official employer page was checked. Application comparison included
+  rows without posting links; exact URL equality was the confirmation rule, while
+  company/title similarity remained only a probable signal. No application IDs, notes,
+  résumé text, or full job description are recorded here.
+- The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
+  was treated as an access failure, not an empty result or closure.
+- The connected tool lacks the screening-update query window and source-freshness field
+  noted above. The exact recent-screening slice and source check time therefore remain
+  unknown in this interactive preflight.
+- No Scheduled task or unattended run was created or observed. This preflight is not
+  acceptance for issue #94; use the task's own run history to complete the checklist.
 
 ## Run record
 
