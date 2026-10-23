@@ -163,7 +163,9 @@ identity with the requested **(source, external_id)** before writing. Recheck ca
 eligibility immediately before rollout; this inventory observation is not a durable
 claim that the row remains eligible. The check did not establish SmartRecruiters-specific
 404/410 closure semantics, so the implementation must verify those semantics before
-classifying either status as **closed**; otherwise treat it as inconclusive.
+classifying either status as **closed**; otherwise treat it as inconclusive. The
+adapter-specific fixture and closure-verification brief is in the linked implementation
+plan.
 
 ### Retention and protected records
 

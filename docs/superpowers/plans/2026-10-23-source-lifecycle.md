@@ -4,9 +4,9 @@
 
 **Issue:** [#93](https://github.com/drink970082/job-matchbook/issues/93)
 
-This plan is for Luna/max after the operator approves the design and selects the pilot
-source. It does not authorize a production refresh, broad backfill, data cleanup, model
-call, service restart, or deployment.
+This plan is for Luna/max after the operator approves the design and accepts or replaces
+the recommended **SmartRecruiters** pilot. It does not authorize a production refresh,
+broad backfill, data cleanup, model call, service restart, or deployment.
 
 ## Sequence
 
@@ -35,6 +35,44 @@ call, service restart, or deployment.
    selected adapter against at most 25 existing unscored rows. Record counts for
    found/unchanged, changed, confirmed closed, inconclusive, and skipped. Do not run an
    unrestricted backfill.
+
+## SmartRecruiters pilot contract
+
+This is an adapter-specific implementation brief contingent on design approval, not
+implementation authorization. The existing adapter requests
+`GET https://api.smartrecruiters.com/v1/companies/{companyIdentifier}/postings/{postingId}`
+and builds **external_id** from the response's **id** field. Its existing test covers
+the requested ID and one parsed detail response, but not identity mismatch or lifecycle
+classification. The [official endpoint guide](https://developers.smartrecruiters.com/docs/endpoints)
+describes the company listing as active postings and the detail endpoint as lookup by
+posting ID; the [detail API reference](https://developers.smartrecruiters.com/reference/v1getposting)
+does not establish that HTTP 404/410 means an unpublished requisition. Therefore a 404
+or 410 is **inconclusive by default** for this pilot. Before any source state can become
+**closed**, confirm the adapter-specific terminal signal from an authoritative source
+contract. If none is available, select a source with a verified terminal signal before
+implementation rather than inventing one.
+
+After approval, extend the synthetic adapter/lifecycle fixtures to cover:
+
+- Exact returned **(source, external_id)**, non-empty title and complete JD: update
+  source check/seen timestamps; unchanged assessment inputs do not increment revision.
+- Exact identity with a changed title, location, or JD: update those inputs, increment
+  the content revision, mark older captured assessments stale, and make zero model calls.
+- Different returned ID/source, missing identity, `None`, blank/partial JD, malformed
+  JSON, or an HTML/interstitial response: record an inconclusive safe category and
+  preserve the prior complete JD, hash, revision, and confirmed source state.
+- Timeout/connection failure, 403, 429, and 5xx: record an inconclusive attempt without
+  advancing the conclusive check time or changing confirmed availability.
+- 404/410: remain inconclusive unless the adapter-specific terminal contract above has
+  been verified; only then add a confirmed-closure fixture and reopen-on-later-valid-hit
+  coverage.
+- Application/status changes between fetch and write: the transaction skips the stale
+  result. Existing application, note, and status-history fixtures remain intact.
+
+The current adapter uses a response with **id** from the requested detail endpoint. The
+refresh must still compare it with the row key and reject a mismatch before writing;
+the endpoint URL alone is not proof that the response body belongs to the requested
+posting.
 
 ## Acceptance evidence
 
