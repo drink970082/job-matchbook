@@ -57,13 +57,13 @@ Scheduled view and run history.
       pages and apply the exact cutoff to returned timestamps. Include eligible
       unscored postings and advisory screening outcomes; screening is not fit or a
       recommendation. Follow every next_cursor for each filter set and report when
-      pagination is incomplete. The connected tool schema rechecked on 2026-10-25 had
-      inclusive YYYY-MM-DD created/posted filters, but no standalone-screen update window
-      filter. A live row returned in that session also had no source-lifecycle summary or
-      source-check timestamp, despite the source-lifecycle code now being merged in the
-      repo. If the Scheduled task has the same contract, state that screen-update coverage
-      is unavailable and source freshness is unknown; do not claim complete 72-hour
-      incremental coverage.
+      pagination is incomplete. The deployed MCP supports
+      screen_outcome, search_scope, screening_updated_from (inclusive) and
+      screening_updated_to (exclusive), and returns source_lifecycle with source-check
+      timestamps. Inspect the actual Scheduled connection: if its schema omits those
+      fields, report the coverage gap and refresh/reconnect its tool discovery. Legacy
+      rows without valid source evidence still have unknown freshness. Never claim
+      complete incremental coverage from created/posted dates alone.
     - Also retrieve and paginate application records. Use linked posting identity or
       exact official URL equality to confirm a prior application. Without a link or
       exact URL, company/title similarity is only a probable duplicate: flag it for
@@ -167,11 +167,14 @@ failed, or not exercised:
   exact linked identity or official URL and mark title/company similarity as probable.
 - The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
   was treated as a source failure, not an empty result or confirmed closure.
-- The connected `list_jobs` schema has no standalone-screen update-time filter. A live
-  posting row returned after PR #101 merged still had no source-lifecycle summary or
-  source-check timestamp. The connected tunnel therefore does not currently expose the
-  source-freshness fields in the merged repo implementation; report freshness as unknown
-  until the actual Scheduled connection returns those fields.
+
+## Deployed MCP verification (2026-10-26 UTC; not Scheduled acceptance)
+
+- The deployed MCP exposes standalone-screen update windows and bounded source-lifecycle
+  summaries. Local stdio and remote connected checks cover all ten tools, pagination,
+  advanced outcome/full-text/update-window queries and invalid-window rejection. Tool
+  discovery in a preexisting chat can retain older parameter metadata; verify the actual
+  Scheduled connection. Legacy source evidence remains unknown until observed.
 - This Codex CLI session has read-only ATS MCP tools but no Scheduled management
   interface. The [official Scheduled tasks guide](https://learn.chatgpt.com/docs/automations)
   says to create and manage tasks in ChatGPT web or desktop. No Scheduled task or
