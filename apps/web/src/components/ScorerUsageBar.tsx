@@ -16,6 +16,7 @@ export interface UsageLimit {
     resets_at: number | null // epoch seconds
 }
 export interface Usage {
+    auth_required?: boolean
     backend: string | null
     plan_type: string | null
     limits: UsageLimit[]
@@ -75,6 +76,15 @@ export function ScorerUsageBar({ pollMs = 60000 }: { pollMs?: number }) {
         const t = setInterval(load, pollMs)
         return () => { alive = false; clearInterval(t) }
     }, [pollMs])
+
+    if (usage?.backend === 'codex' && usage.auth_required) {
+        return (
+            <div role="status" className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p>Codex login needs attention. Re-login to resume ATS screening and scoring:</p>
+                <code className="mt-2 block overflow-x-auto text-xs">{'CODEX_HOME="$HOME/.codex-ats" codex login --device-auth'}</code>
+            </div>
+        )
+    }
 
     if (!usage || usage.limits.length === 0) {
         return <div className="text-xs text-muted-foreground">No scorer usage recorded yet.</div>

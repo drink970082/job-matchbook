@@ -8,6 +8,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Codex login notice — `feat/codex-login-notice`, implemented, unmerged**: missing credentials/HTTP 401 publish a usage-bar re-login notice, including standalone screening passes. Worker/web/integration/browser checks pass. Independent pre-merge review remains pending: the reviewer could not start because its Codex refresh token was invalid.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
