@@ -137,6 +137,24 @@ def test_run_once_fetch_only_stops_before_score(monkeypatch):
     assert order == ["run_fetch", "run_expire", "run_retry"]  # no score, no notify
 
 
+def test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode(db_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(run.pipeline, "run_unscored_refresh",
+                        lambda conn, **kwargs: calls.append(kwargs) or {})
+    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
+        monkeypatch.setattr(run.pipeline, stage,
+                            lambda *a, _stage=stage, **k: pytest.fail(f"unexpected {_stage}"))
+    cfg = cfgmod.load_config("companies: []\n")
+    run.run_once(
+        cfg, db_path=db_path, resumes={}, env={}, refresh_unscored=True,
+        refresh_source="smartrecruiters", refresh_limit=3,
+    )
+    assert len(calls) == 1
+    assert calls[0]["source"] == "smartrecruiters"
+    assert calls[0]["limit"] == 3
+    assert callable(calls[0]["observation_fn"])
+
+
 def test_run_once_score_only_skips_ingest(monkeypatch):
     # --score-only must skip the network ingest (fetch/feed/expire) and go straight
     # to retry -> score -> notify over the existing backlog.
@@ -808,6 +826,25 @@ def test_rescreen_screened_requires_one_shot(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         run.main(["--screen-only", "--rescreen-screened", "--config", "unused.yaml",
                   "--env", str(env_file), "--db", str(tmp_path / "db.sqlite")])
+
+
+@pytest.mark.parametrize("mode_args", [
+    ["--refresh-unscored", "--refresh-source", "smartrecruiters"],
+    ["--once", "--refresh-unscored"],
+    ["--once", "--refresh-unscored", "--refresh-source", "smartrecruiters",
+     "--refresh-limit", "26"],
+    ["--once", "--refresh-unscored", "--refresh-source", "smartrecruiters",
+     "--fetch-only"],
+])
+def test_unscored_refresh_invalid_combinations_fail_before_config_or_db(
+        mode_args, tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    monkeypatch.setattr(run.config_mod, "load_config",
+                        lambda _path: pytest.fail("config must not load"))
+    with pytest.raises(SystemExit):
+        run.main([*mode_args, "--config", "unused.yaml", "--env", str(env_file),
+                  "--db", str(tmp_path / "db.sqlite")])
 
 
 def test_make_screener_claude_code_wires_model(monkeypatch):

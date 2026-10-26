@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
+from ..source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_freshness,
+                                has_embedded_screen, has_fit_assessment)
+
 
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 DEFAULT_PAGE_SIZE = 25
@@ -236,6 +239,93 @@ def _screen_summary(row: dict[str, Any]) -> dict[str, Any]:
         "evaluator_version": bounded_provenance("screening_evaluator_version"),
         "origin": "job_screenings" if row.get("screening_id") is not None else "none",
     }
+
+
+def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | None = None
+                              ) -> dict[str, Any]:
+    """Return bounded source-state and separate fit/screen freshness metadata."""
+    state = row.get("source_state")
+    if state not in {"unknown", "available", "closed"}:
+        state = "unknown"
+    outcome = row.get("source_last_check_outcome")
+    if outcome not in {"not_checked", "found", "confirmed_closed", "inconclusive"}:
+        outcome = "not_checked"
+    current = row.get("source_content_revision")
+    if type(current) is not int or current <= 0:
+        current = None
+
+    detail = row.get("score_detail_parsed")
+    fit_assessed = (bool(row.get("fit_assessment_available"))
+                    if "fit_assessment_available" in row
+                    else has_fit_assessment(row.get("score_detail")))
+    fit_revision = row.get("fit_content_revision")
+    if fit_revision is None and isinstance(detail, dict):
+        fit_revision = detail.get("source_content_revision")
+    if type(fit_revision) is not int or fit_revision <= 0:
+        fit_revision = None
+
+    screen_state = ((screening or {}).get("state") or row.get("screening_state"))
+    screen_revision = ((screening or {}).get("source_content_revision")
+                       if screening is not None else row.get("screening_source_content_revision"))
+    standalone_exists = screening is not None or row.get("screening_id") is not None
+    legacy_screen = (bool(row.get("legacy_screen_evidence_available"))
+                     or has_embedded_screen(row.get("score_detail"))
+                     or (isinstance(detail, dict)
+                         and isinstance(detail.get("screen"), dict)))
+    if standalone_exists:
+        if screen_state == "provider_error":
+            screen_freshness = "provider_error"
+        elif screen_state == "complete":
+            screen_freshness = assessment_freshness(
+                assessed=True,
+                captured_revision=screen_revision if type(screen_revision) is int else None,
+                current_revision=current,
+            )
+        else:
+            screen_freshness = "unknown"
+    else:
+        screen_freshness = "not_assessed"
+
+    category = row.get("source_last_check_error_category")
+    if category not in SOURCE_ERROR_CATEGORIES:
+        category = None
+
+    def safe_time(field: str) -> str | None:
+        value = row.get(field)
+        if isinstance(value, str) and _timestamp_key(value) is not None:
+            return value[:MAX_RFC3339_CHARS]
+        return None
+
+    return {
+        "state": state,
+        "last_seen_at": safe_time("source_last_seen_at"),
+        "last_check_attempted_at": safe_time("source_last_check_attempted_at"),
+        "last_checked_at": safe_time("source_last_checked_at"),
+        "last_check_outcome": outcome,
+        "last_check_error_category": category,
+        "content_revision": current,
+        "fit_freshness": assessment_freshness(
+            assessed=fit_assessed, captured_revision=fit_revision,
+            current_revision=current),
+        "screen_freshness": screen_freshness,
+        "combined_screen_freshness": assessment_freshness(
+            assessed=legacy_screen, captured_revision=fit_revision,
+            current_revision=current),
+    }
+
+
+_SOURCE_LIFECYCLE_FIELDS = (
+    "source_state", "source_last_seen_at", "source_last_check_attempted_at",
+    "source_last_checked_at", "source_last_check_outcome",
+    "source_last_check_error_category", "source_content_hash",
+    "source_content_revision", "source_content_changed_at",
+)
+
+
+def _strip_source_lifecycle_fields(record: dict[str, Any]) -> None:
+    """Expose lifecycle metadata only through its validated bounded summary."""
+    for field in _SOURCE_LIFECYCLE_FIELDS:
+        record.pop(field, None)
 
 
 class RepositoryError(Exception):
@@ -786,12 +876,24 @@ class ReadOnlyATSRepository:
                 "p.location,p.job_url,p.score,p.pipeline_status,p.pipeline_error,p.attempts,"
                 "p.notify_attempts,p.application_id,p.created_at,p.updated_at,p.posted_at,"
                 "p.deprioritized_at,length(p.description) AS description_chars,"
+                "p.source_state,p.source_last_seen_at,p.source_last_check_attempted_at,"
+                "p.source_last_checked_at,p.source_last_check_outcome,"
+                "p.source_last_check_error_category,p.source_content_revision,"
+                "CASE WHEN json_valid(p.score_detail) AND "
+                "json_type(p.score_detail,'$.assessment')='object' AND "
+                "length(json_extract(p.score_detail,'$.assessment'))>2 THEN 1 ELSE 0 END "
+                "AS fit_assessment_available,"
+                "CASE WHEN json_valid(p.score_detail) AND "
+                "json_type(p.score_detail,'$.source_content_revision')='integer' "
+                "THEN json_extract(p.score_detail,'$.source_content_revision') ELSE NULL END "
+                "AS fit_content_revision,"
                 "s.id AS screening_id,s.state AS screening_state,s.backend AS screening_backend,"
                 "s.model AS screening_model,s.effort AS screening_effort,"
                 "s.evaluator_version AS screening_evaluator_version,"
                 "s.error_message AS screening_error_message,s.updated_at AS screening_updated_at,"
                 "s.last_attempted_at AS screening_last_attempted_at,"
                 "s.completed_at AS screening_completed_at,"
+                "s.source_content_revision AS screening_source_content_revision,"
                 f"{_screen_outcome_sql()} AS screen_outcome,"
                 f"CASE WHEN json_valid(s.result_json) THEN CASE "
                 f"WHEN json_type(s.result_json,'$.disqualification_reason')='text' "
@@ -810,6 +912,8 @@ class ReadOnlyATSRepository:
             row["pipeline_error"] = redact_url(row["pipeline_error"]) if row["pipeline_error"] else None
             row["description_is_null"] = row["description_chars"] is None
             row["screen_summary"] = _screen_summary(row)
+            row["source_lifecycle"] = _source_lifecycle_summary(row)
+            _strip_source_lifecycle_fields(row)
             legacy_available = bool(row.pop("legacy_screen_evidence_available"))
             row["legacy_screen_evidence"] = {
                 "available": legacy_available,
@@ -820,6 +924,9 @@ class ReadOnlyATSRepository:
             row.pop("screening_updated_at", None)
             row.pop("screening_reason", None)
             row.pop("screening_error_message", None)
+            row.pop("screening_source_content_revision", None)
+            row.pop("fit_assessment_available", None)
+            row.pop("fit_content_revision", None)
         page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
         page["traversal"] = {
             "id_ceiling": ceiling,
@@ -846,6 +953,7 @@ class ReadOnlyATSRepository:
                 "SELECT s.*,s.id AS screening_id,s.updated_at AS screening_updated_at,"
                 "s.backend AS screening_backend,s.model AS screening_model,"
                 "s.effort AS screening_effort,s.evaluator_version AS screening_evaluator_version,"
+                "s.source_content_revision AS screening_source_content_revision,"
                 "s.error_message AS screening_error_message," + _screen_outcome_sql() + " AS screen_outcome,"
                 "CASE WHEN json_valid(s.result_json) THEN CASE "
                 "WHEN json_type(s.result_json,'$.disqualification_reason')='text' "
@@ -861,9 +969,11 @@ class ReadOnlyATSRepository:
                 }
                 result["screening"] = _safe_full_record("job_screenings", stored_screening)
                 result["screen_summary"] = _screen_summary(screening_row)
+                lifecycle_screen = stored_screening
             else:
                 result["screening"] = None
                 result["screen_summary"] = _screen_summary({"screen_outcome": "not_screened"})
+                lifecycle_screen = None
             legacy_available = isinstance(result.get("score_detail_parsed"), dict) and isinstance(
                 result["score_detail_parsed"].get("screen"), dict)
             result["legacy_screen_evidence"] = {
@@ -871,6 +981,8 @@ class ReadOnlyATSRepository:
                 "origin": "job_postings.score_detail.screen" if legacy_available else None,
                 "read_tool": "get_job" if legacy_available else None,
             }
+            result["source_lifecycle"] = _source_lifecycle_summary(result, lifecycle_screen)
+            _strip_source_lifecycle_fields(result)
             return result
 
     def get_job_description(self, job_id: int, *, offset: int = 0,

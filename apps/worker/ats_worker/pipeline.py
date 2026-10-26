@@ -44,6 +44,8 @@ from .fetch import (DETAIL_SOURCES, STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES,
                     prefilter_postings)
 from .feed import prefilter as _prefilter
 from .feed import resolve as _resolve
+from .source_lifecycle import (assessment_input_hash,
+                               observation_error_category)
 
 
 # --- fetch ----------------------------------------------------------------
@@ -461,6 +463,56 @@ def run_expire(conn, *, now, detail_fetch_fn, detail_sources=DETAIL_SOURCES,
         # the back of the queue so the next pass checks different rows.
         db.touch(conn, row["id"], now=now)
     return expired
+
+
+UNSCORED_REFRESH_MAX = 25
+
+
+def run_unscored_refresh(conn, *, source: str, limit: int, now: str,
+                         observation_fn) -> dict:
+    """Refresh a bounded, explicitly selected slice of unscored source evidence.
+
+    This stage only performs source GETs and conditional SQLite writes. It does not
+    change pipeline/application state and never invokes a screen or fit provider.
+    """
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("unscored refresh requires an explicit source")
+    if not 1 <= limit <= UNSCORED_REFRESH_MAX:
+        raise ValueError(f"unscored refresh limit must be between 1 and {UNSCORED_REFRESH_MAX}")
+    if observation_fn is None:
+        raise ValueError("run_unscored_refresh requires an injected observation_fn")
+
+    rows = db.get_unscored_refresh_candidates(conn, source, limit)
+    tally = {"selected": len(rows), "found": 0, "changed": 0, "closed": 0,
+             "inconclusive": 0,
+             "skipped": db.count_unknown_refresh_statuses(conn, source)}
+    for row in rows:
+        try:
+            observation = observation_fn(row["source"], row["company_slug"] or "",
+                                         row["external_id"], row["company_name"])
+        except Exception as exc:  # noqa: BLE001 — one source failure never aborts the batch
+            observation = {"state": "unknown",
+                           "error_category": observation_error_category(exc)}
+        before_hash = row["source_content_hash"] or assessment_input_hash(dict(row))
+        after_hash = None
+        if isinstance(observation, dict) and observation.get("state") == "available":
+            after_hash = assessment_input_hash(observation.get("posting") or {})
+        saved = db.save_source_observation(
+            conn, int(row["id"]), expected_source=source,
+            expected_external_id=row["external_id"], observation=observation, now=now,
+        )
+        if not saved:
+            tally["skipped"] += 1
+        elif isinstance(observation, dict) and observation.get("state") == "closed":
+            tally["closed"] += 1
+        elif isinstance(observation, dict) and observation.get("state") == "available" \
+                and after_hash is not None:
+            tally["found"] += 1
+            tally["changed"] += before_hash != after_hash
+        else:
+            tally["inconclusive"] += 1
+    print("[source-refresh] " + ", ".join(f"{key}={value}" for key, value in tally.items()))
+    return tally
 
 
 # --- score ----------------------------------------------------------------

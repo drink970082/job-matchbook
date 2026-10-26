@@ -7,6 +7,16 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Added
+
+- Add a one-shot, source-only refresh for up to 25 eligible unscored SmartRecruiters
+  postings. Record source availability/check outcomes separately from pipeline and
+  application state; version company/title/location/JD content and capture the version
+  used by fit and standalone-screen assessments. Exact-ID `active: false` confirms
+  closure, while timeouts, HTTP 404/410 and partial/mismatched responses stay
+  inconclusive. Show source state and independent fit/screen freshness in the tracker
+  and read-only MCP. Content changes do not rerun models or delete evidence.
+
 ### Changed
 
 - Add public instructions, interactive preflight evidence, and an unattended acceptance

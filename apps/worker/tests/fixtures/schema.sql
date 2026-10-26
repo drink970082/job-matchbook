@@ -36,6 +36,15 @@ CREATE TABLE "job_postings" (
     "updated_at" TEXT,
     "posted_at" TEXT,
     "deprioritized_at" TEXT,
+    "source_state" TEXT NOT NULL DEFAULT 'unknown',
+    "source_last_seen_at" TEXT,
+    "source_last_check_attempted_at" TEXT,
+    "source_last_checked_at" TEXT,
+    "source_last_check_outcome" TEXT NOT NULL DEFAULT 'not_checked',
+    "source_last_check_error_category" TEXT,
+    "source_content_hash" TEXT,
+    "source_content_revision" INTEGER,
+    "source_content_changed_at" TEXT,
     CONSTRAINT "job_postings_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "applications" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -52,6 +61,7 @@ CREATE TABLE "job_screenings" (
     "evaluator_version" TEXT NOT NULL,
     "last_attempted_at" TEXT NOT NULL,
     "completed_at" TEXT,
+    "source_content_revision" INTEGER,
     "created_at" TEXT NOT NULL,
     "updated_at" TEXT,
     CONSTRAINT "job_screenings_job_posting_id_fkey" FOREIGN KEY ("job_posting_id") REFERENCES "job_postings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -100,6 +110,7 @@ CREATE TABLE "app_settings" (
 );
 
 CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_status");
+CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");
 CREATE INDEX "job_screenings_state_last_attempted_at_idx" ON "job_screenings"("state", "last_attempted_at");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");

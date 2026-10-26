@@ -59,9 +59,10 @@ DETAIL = {
 
 
 class _Resp:
-    def __init__(self, data, *, raise_exc=None):
+    def __init__(self, data, *, raise_exc=None, status_code=None):
         self._data = data
         self._raise_exc = raise_exc
+        self.status_code = status_code
 
     def raise_for_status(self):
         if self._raise_exc is not None:
@@ -124,6 +125,69 @@ def test_parse_job_builds_canonical():
     assert "5 years experience" in p["description"]
     assert "Visa sponsorship" in p["description"]
     assert "<" not in p["description"] and ">" not in p["description"]
+
+
+class _ObservationSession:
+    def __init__(self, payload, *, status_code=None):
+        self.payload = payload
+        self.status_code = status_code
+        self.gets = []
+
+    def get(self, url, timeout=None, allow_redirects=None):
+        self.gets.append((url, timeout, allow_redirects))
+        return _Resp(self.payload, status_code=self.status_code)
+
+
+def test_lifecycle_observation_validates_exact_identity_and_content_in_one_get():
+    payload = {
+        **DETAIL["abc-111"],
+        "active": True,
+        "company": {"identifier": "Acme"},
+    }
+    session = _ObservationSession(payload)
+    result = sr.fetch_one_observation("Acme", "abc-111", "Acme Corp", session=session)
+    assert result["state"] == "available"
+    assert result["posting"]["external_id"] == "abc-111"
+    assert session.gets == [(
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings/abc-111", 20, False
+    )]
+
+
+def test_lifecycle_observation_does_not_follow_redirects_past_request_cap():
+    session = _ObservationSession(None, status_code=302)
+    result = sr.fetch_one_observation("Acme", "abc-111", "Acme Corp", session=session)
+    assert result == {"state": "unknown", "error_category": "http_error"}
+    assert session.gets == [(
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings/abc-111", 20, False
+    )]
+
+
+@pytest.mark.parametrize(("changes", "category"), [
+    ({"id": "different"}, "identity_mismatch"),
+    ({"company": {"identifier": "Elsewhere"}}, "company_mismatch"),
+    ({"active": "true"}, "invalid_active"),
+    ({"active": True, "jobAd": {"sections": {
+        "jobDescription": {"text": " "},
+        "qualifications": {"text": "Qualifications do not replace the core JD."},
+    }}}, "incomplete_content"),
+    ({"active": True, "jobAd": {"sections": {
+        "jobDescription": {"text": "<p></p>"},
+        "qualifications": {"text": "Qualifications do not replace the core JD."},
+    }}}, "incomplete_content"),
+])
+def test_lifecycle_observation_keeps_ambiguous_responses_inconclusive(changes, category):
+    payload = {**DETAIL["abc-111"], "active": True, **changes}
+    result = sr.fetch_one_observation(
+        "Acme", "abc-111", "Acme Corp", session=_ObservationSession(payload))
+    assert result == {"state": "unknown", "error_category": category}
+
+
+def test_lifecycle_observation_confirms_only_exact_inactive_posting():
+    result = sr.fetch_one_observation(
+        "Acme", "abc-111", "Acme Corp",
+        session=_ObservationSession({"id": "abc-111", "active": False}),
+    )
+    assert result == {"state": "closed", "error_category": None}
 
 
 def test_parse_job_partial_location_and_sections():

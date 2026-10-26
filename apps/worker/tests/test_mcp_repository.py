@@ -439,6 +439,67 @@ def test_standalone_screen_outcomes_share_synthetic_contract_fixture(db_path):
     }
 
 
+def test_source_lifecycle_separates_state_from_fit_and_screen_freshness(db_path):
+    with sqlite3.connect(db_path) as conn:
+        job_id = _job(conn, description="A sufficiently complete job description.")
+        conn.execute(
+            "UPDATE job_postings SET source_state='available',source_last_seen_at=?,"
+            "source_last_check_attempted_at=?,source_last_checked_at=?,"
+            "source_last_check_outcome='inconclusive',"
+            "source_last_check_error_category='timeout',source_content_revision=2,"
+            "score_detail=? WHERE id=?",
+            ("2026-10-22T10:00:00Z", "2026-10-23T10:00:00Z",
+             "2026-10-22T09:00:00Z",
+             json.dumps({"assessment": {"domain": {"verdict": "match"}},
+                         "screen": {"degree": {"pass": True}},
+                         "source_content_revision": 1}), job_id),
+        )
+        _insert_screen(conn, job_id, state="complete", result_json='{"screen": {}}',
+                       updated_at="2026-10-22T11:00:00Z")
+        conn.execute("UPDATE job_screenings SET source_content_revision=2 "
+                     "WHERE job_posting_id=?", (job_id,))
+
+    repo = ReadOnlyATSRepository(db_path)
+    item = repo.list_jobs()["items"][0]
+    expected = {
+        "state": "available",
+        "last_seen_at": "2026-10-22T10:00:00Z",
+        "last_check_attempted_at": "2026-10-23T10:00:00Z",
+        "last_checked_at": "2026-10-22T09:00:00Z",
+        "last_check_outcome": "inconclusive",
+        "last_check_error_category": "timeout",
+        "content_revision": 2,
+        "fit_freshness": "stale",
+        "screen_freshness": "current",
+        "combined_screen_freshness": "stale",
+    }
+    assert item["source_lifecycle"] == expected
+    lifecycle_fields = {
+        "source_state", "source_last_seen_at", "source_last_check_attempted_at",
+        "source_last_checked_at", "source_last_check_outcome",
+        "source_last_check_error_category", "source_content_hash",
+        "source_content_revision", "source_content_changed_at",
+    }
+    detail = repo.get_job(job_id)
+    assert detail["source_lifecycle"] == expected
+    assert lifecycle_fields.isdisjoint(item)
+    assert lifecycle_fields.isdisjoint(detail)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE job_postings SET source_last_check_error_category=? WHERE id=?",
+            ("raw provider error with token=synthetic-secret", job_id),
+        )
+    poisoned_list_item = repo.list_jobs()["items"][0]
+    poisoned_detail = repo.get_job(job_id)
+    assert poisoned_list_item["source_lifecycle"]["last_check_error_category"] is None
+    assert poisoned_detail["source_lifecycle"]["last_check_error_category"] is None
+    assert lifecycle_fields.isdisjoint(poisoned_list_item)
+    assert lifecycle_fields.isdisjoint(poisoned_detail)
+    assert "synthetic-secret" not in json.dumps(poisoned_list_item)
+    assert "synthetic-secret" not in json.dumps(poisoned_detail)
+
+
 def test_screen_summaries_bound_and_redact_untrusted_reasons(db_path):
     secret_url = "https://example.test/role?token=synthetic-secret"
     reason = secret_url + " " + "x" * 500

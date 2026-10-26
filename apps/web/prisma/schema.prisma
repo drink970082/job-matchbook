@@ -51,9 +51,19 @@ model job_postings {
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
   deprioritized_at String? // set by the FREE seniority pre-ordering (score/seniority.py) when the JD states a bar this candidate does not clear: the row stays 'new' and searchable but sorts to the BACK of the score queue. NOT a discard -- the labels behind it are the strong scorer's verdicts, not human ones. Clearing the column un-demotes, row for row.
+  source_state                    String  @default("unknown") // unknown | available | closed; independent of pipeline_status
+  source_last_seen_at             String? // latest exact identity seen in a listing or detail response
+  source_last_check_attempted_at  String? // latest selected detail refresh attempt
+  source_last_checked_at          String? // latest conclusive exact-ID detail check
+  source_last_check_outcome        String  @default("not_checked") // not_checked | found | confirmed_closed | inconclusive
+  source_last_check_error_category String? // safe fixed category; never raw provider output
+  source_content_hash              String? // SHA-256 over company/title/location/description
+  source_content_revision           Int? // revision of those assessment inputs
+  source_content_changed_at         String? // time the current assessment inputs were observed
 
   @@unique([source, external_id]) // dedup key
   @@index([pipeline_status])
+  @@index([source, source_last_check_attempted_at])
 }
 
 // Latest standalone hard-requirements screen result. This lifecycle is separate from
@@ -72,6 +82,7 @@ model job_screenings {
   evaluator_version String
   last_attempted_at String
   completed_at      String?
+  source_content_revision Int? // posting content revision used by this completed screen
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)

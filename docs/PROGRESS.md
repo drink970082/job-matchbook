@@ -49,8 +49,8 @@ before changing them. No older research authorization schedules new provider cal
    using the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md).
 3. After batch 1 acceptance, Luna/max executes [inventory UI #92](https://github.com/drink970082/job-matchbook/issues/92)
    using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
-4. Orchestrator scopes source lifecycle (#93) and performs scheduled Brief acceptance
-   (#94); #94 need not wait for all of #93 if official pages and freshness limits are checked.
+4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
+   lifecycle if official pages and freshness limits are checked.
 5. Two independent conditional branches after #94: delivery ledger (#95) for observed
    repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
    separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.
