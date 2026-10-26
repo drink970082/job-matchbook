@@ -11,7 +11,7 @@ all uncertain jobs automatically consume final-review capacity, or quietly equat
 lower priority with a hard eligibility rejection.
 
 The observed 24-hour production window ending 2026-10-26 22:07 UTC contains 205 new
-stored postings: 89 rule rejections, 5 standalone screening rejections and 111 retained
+stored postings: 90 rule rejections, 4 standalone screening rejections and 111 retained
 candidates. A later read of those 111 candidate bodies totals 522,601 characters. This
 is a workload measurement, not a forecast or proof that Scheduled ChatGPT cannot cope.
 The manual Daily Brief read five full ATS JDs; actual Scheduled acceptance (#94) remains
