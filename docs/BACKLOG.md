@@ -7,15 +7,14 @@ session boot path. Revalidate an entry against current code and data before sele
 
 ## Relevant to the source/tool product
 
-- **Source freshness and closure:** current expiry coverage excludes unscored jobs;
-  distinguish definite closure from transport/blocked/unknown. Part of R2.
+- **Source lifecycle adapter coverage:** the bounded one-shot refresh supports
+  SmartRecruiters; other boards need verified source-specific identity and closure
+  signals before they can be refreshed safely. No broad backfill is selected.
 - **JD quality:** thin/bodyless Microsoft and recipe rows, detail-fetch failures and
   date fallbacks need per-source observation. Full-JD quality is useful to ChatGPT even
   when no scorer runs. Large legacy backfill counts require fresh dry-runs.
 - **Intake policy:** inspect title/location/age gates before moving preferences to
   ChatGPT. Cutting discovery to match the old fit budget is not the product priority.
-- **Visibility:** show unscored jobs, standalone screen evidence and unknown/provider
-  error states; expose queue counts and source/assessment freshness. Part of R1.
 - **Usage telemetry:** the generic combined pipeline still has best-effort HTTP snapshot
   capture with intermittent 403 failures; screen-only bypasses it. Host-only monitoring
   must not be mistaken for a shipped generic telemetry fix or a hard spend limit.
@@ -27,7 +26,7 @@ session boot path. Revalidate an entry against current code and data before sele
 
 ## Issue ownership
 
-Selected deliverables and conditional extensions are linked in ROADMAP: #90–#96.
+The open workflow gate and conditional extensions are linked in ROADMAP.
 Their status/dependencies live on GitHub; this file retains background and unselected
 ideas. Fit pre-ranking (#96) is last priority and may never be enabled if scheduled
 ChatGPT meets the need. Recommendation history (#95) is conditional on observed repeats.
