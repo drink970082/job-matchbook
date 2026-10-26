@@ -30,6 +30,12 @@ source lifecycle or stored pipeline state. No new database columns or migrations
   unsupported legacy evidence, terminal/manual state inconsistent with candidate,
   or unknown lifecycle. Preserve a bounded explanatory reason; do not silently reject
   or promote. Current standalone evidence takes precedence over legacy embedded data.
+- Duplicate object members at the supported evidence root, screen map, or check object
+  make that evidence ambiguous and therefore `needs_review`.
+- Legacy `source_content_revision` may be absent or null. When non-null, accept only a
+  mathematically integral JSON number from 1 through JavaScript's maximum safe integer;
+  decimal and exponent notation such as `3.0` and `3e0` are valid when the value is an
+  integer. Booleans, fractions, non-positive and unsafe values are unsupported.
 
 Expose a bounded provenance/reason with triage status, without raw JSON/JD/errors.
 Overview counts must partition every stored posting, with scope explicit. Filtering

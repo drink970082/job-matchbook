@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -214,6 +215,10 @@ def _triage_check_shape_sql(result: str, supported_checks: frozenset[str]) -> st
     checks = ",".join(f"'{key}'" for key in sorted(supported_checks))
     return f"""json_type({result}, '$.screen')='object'
         AND NOT EXISTS (
+            SELECT screen_member.key FROM json_each({result}, '$.screen') AS screen_member
+            GROUP BY screen_member.key HAVING COUNT(*)>1
+        )
+        AND NOT EXISTS (
             SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
             WHERE triage_check.type!='object'
                OR triage_check.key NOT IN ({checks})
@@ -228,6 +233,10 @@ def _triage_check_shape_sql(result: str, supported_checks: frozenset[str]) -> st
                     SELECT 1 FROM json_each(triage_check.value) AS triage_field
                     WHERE triage_field.key NOT IN ('pass','note')
                ) ELSE 0 END
+               OR CASE WHEN triage_check.type='object' THEN EXISTS (
+                    SELECT triage_field.key FROM json_each(triage_check.value) AS triage_field
+                    GROUP BY triage_field.key HAVING COUNT(*)>1
+               ) ELSE 0 END
         )"""
 
 
@@ -236,6 +245,10 @@ def _triage_valid_result_sql(result: str, disqualified: bool) -> str:
     check_shape = _triage_check_shape_sql(result, _SUPPORTED_SCREEN_CHECKS)
     root_shape = f"""(json_type({result}, '$.disqualification_reason') IS NULL
             OR json_type({result}, '$.disqualification_reason')='text')
+        AND NOT EXISTS (
+            SELECT triage_root_field.key FROM json_each({result}) AS triage_root_field
+            GROUP BY triage_root_field.key HAVING COUNT(*)>1
+        )
         AND NOT EXISTS (SELECT 1 FROM json_each({result}) AS triage_root_field
                         WHERE triage_root_field.key NOT IN
                             ('screen','disqualified','disqualification_reason'))"""
@@ -274,6 +287,7 @@ def _triage_status_sql() -> str:
     """Status predicate shared by filters and overview counts; runs before paging."""
     result = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
     legacy = "CASE WHEN json_valid(p.score_detail) THEN p.score_detail ELSE '{}' END"
+    legacy_revision = f"json_extract({legacy}, '$.source_content_revision')"
     valid_screen_disqualified = _triage_valid_result_sql(result, True)
     valid_candidate = _triage_valid_result_sql(result, False)
     standalone_rule = _triage_rule_only_sql(result)
@@ -286,8 +300,14 @@ def _triage_status_sql() -> str:
              OR json_type({legacy}, '$.disqualification_reason')='text')
         AND (json_type({legacy}, '$.source_content_revision') IS NULL
              OR json_type({legacy}, '$.source_content_revision')='null'
-             OR (json_type({legacy}, '$.source_content_revision')='integer'
-                 AND json_extract({legacy}, '$.source_content_revision')>0))
+             OR (json_type({legacy}, '$.source_content_revision') IN ('integer','real')
+                 AND {legacy_revision}>0
+                 AND {legacy_revision}<={MAX_SAFE_REVISION}
+                 AND {legacy_revision}=CAST({legacy_revision} AS INTEGER)))
+        AND NOT EXISTS (
+            SELECT legacy_field.key FROM json_each({legacy}) AS legacy_field
+            GROUP BY legacy_field.key HAVING COUNT(*)>1
+        )
         AND NOT EXISTS (SELECT 1 FROM json_each({legacy}) AS legacy_field
                         WHERE legacy_field.key NOT IN
                             ('screen','disqualified','disqualification_reason','source_content_revision'))"""
@@ -309,9 +329,18 @@ def _triage_status_sql() -> str:
 def _parse_json_object(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, str):
         return None
+
+    def reject_duplicate_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        parsed: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in parsed:
+                raise ValueError("duplicate JSON object member")
+            parsed[key] = item
+        return parsed
+
     try:
-        parsed = json.loads(value)
-    except (TypeError, json.JSONDecodeError):
+        parsed = json.loads(value, object_pairs_hook=reject_duplicate_members)
+    except (TypeError, json.JSONDecodeError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -374,11 +403,20 @@ def _legacy_rule_disqualification(pipeline_status: Any, score_detail: Any) -> bo
     if "disqualification_reason" in detail and not isinstance(reason, str):
         return False
     revision = detail.get("source_content_revision")
-    if revision is not None and (type(revision) is not int or revision <= 0):
+    if revision is not None and not _positive_safe_json_integer(revision):
         return False
     valid, has_failure, _ = _triage_checks(
         detail.get("screen"), _DETERMINISTIC_SCREEN_CHECKS)
     return valid and has_failure
+
+
+def _positive_safe_json_integer(value: Any) -> bool:
+    """Accept positive integral JSON numbers that JavaScript can represent safely."""
+    if type(value) is int:
+        return 0 < value <= MAX_SAFE_REVISION
+    if type(value) is float:
+        return math.isfinite(value) and value.is_integer() and 0 < value <= MAX_SAFE_REVISION
+    return False
 
 
 def job_triage_summary(pipeline_status: Any, score_detail: Any,

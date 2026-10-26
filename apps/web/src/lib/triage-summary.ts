@@ -34,16 +34,105 @@ const SUPPORTED_SCREEN_CHECKS = new Set([
 ])
 const DETERMINISTIC_SCREEN_CHECKS = new Set(['location', 'internships'])
 const MAX_TRIAGE_REASON_CHARS = 300
+const MAX_SAFE_JSON_REVISION = Number.MAX_SAFE_INTEGER
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasDuplicateObjectKeys(raw: string): boolean {
+    let offset = 0
+    const skipWhitespace = () => {
+        while (/\s/.test(raw[offset] ?? '')) offset += 1
+    }
+    const readString = (): string => {
+        const start = offset
+        offset += 1
+        while (offset < raw.length) {
+            const character = raw[offset]
+            if (character === '\\') {
+                offset += 2
+                continue
+            }
+            offset += 1
+            if (character === '"') return JSON.parse(raw.slice(start, offset)) as string
+        }
+        throw new Error('Invalid JSON string')
+    }
+    const scanValue = (): boolean => {
+        skipWhitespace()
+        if (raw[offset] === '{') {
+            offset += 1
+            skipWhitespace()
+            const keys = new Set<string>()
+            if (raw[offset] === '}') {
+                offset += 1
+                return false
+            }
+            while (offset < raw.length) {
+                skipWhitespace()
+                const key = readString()
+                if (keys.has(key)) return true
+                keys.add(key)
+                skipWhitespace()
+                offset += 1 // colon; JSON.parse has already validated the token
+                if (scanValue()) return true
+                skipWhitespace()
+                if (raw[offset] === ',') {
+                    offset += 1
+                    continue
+                }
+                if (raw[offset] === '}') {
+                    offset += 1
+                    return false
+                }
+                throw new Error('Invalid JSON object')
+            }
+            throw new Error('Invalid JSON object')
+        }
+        if (raw[offset] === '[') {
+            offset += 1
+            skipWhitespace()
+            if (raw[offset] === ']') {
+                offset += 1
+                return false
+            }
+            while (offset < raw.length) {
+                if (scanValue()) return true
+                skipWhitespace()
+                if (raw[offset] === ',') {
+                    offset += 1
+                    continue
+                }
+                if (raw[offset] === ']') {
+                    offset += 1
+                    return false
+                }
+                throw new Error('Invalid JSON array')
+            }
+            throw new Error('Invalid JSON array')
+        }
+        if (raw[offset] === '"') {
+            readString()
+            return false
+        }
+        while (offset < raw.length && !/[,\]}\s]/.test(raw[offset])) offset += 1
+        return false
+    }
+
+    try {
+        return scanValue()
+    } catch {
+        // JSON.parse validated this input first; a scanner limit fails closed.
+        return true
+    }
 }
 
 function parseObject(raw: unknown): Record<string, unknown> | null {
     if (typeof raw !== 'string') return null
     try {
         const parsed: unknown = JSON.parse(raw)
-        return isRecord(parsed) ? parsed : null
+        return isRecord(parsed) && !hasDuplicateObjectKeys(raw) ? parsed : null
     } catch {
         return null
     }
@@ -118,7 +207,9 @@ function legacyRuleDisqualification(pipelineStatus: string | null | undefined, s
     }
     if ('source_content_revision' in detail && detail.source_content_revision !== null &&
         (typeof detail.source_content_revision !== 'number' ||
-            !Number.isSafeInteger(detail.source_content_revision) || detail.source_content_revision <= 0)) {
+            !Number.isSafeInteger(detail.source_content_revision) ||
+            detail.source_content_revision <= 0 ||
+            detail.source_content_revision > MAX_SAFE_JSON_REVISION)) {
         return false
     }
     const checks = checkShape(detail.screen, DETERMINISTIC_SCREEN_CHECKS)

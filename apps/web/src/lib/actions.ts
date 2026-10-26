@@ -226,9 +226,14 @@ const SUPPORTED_SCREEN_CHECKS_SQL = ['location', 'internships', 'degree', 'autho
     .map((check) => `'${check}'`).join(',')
 const DETERMINISTIC_SCREEN_CHECKS_SQL = ['location', 'internships']
     .map((check) => `'${check}'`).join(',')
+const MAX_SAFE_JSON_REVISION_SQL = '9007199254740991'
 
 function triageCheckShapeSql(result: string, supportedChecks: string): string {
     return `json_type(${result}, '$.screen')='object'
+        AND NOT EXISTS (
+            SELECT screen_member.key FROM json_each(${result}, '$.screen') AS screen_member
+            GROUP BY screen_member.key HAVING COUNT(*)>1
+        )
         AND NOT EXISTS (
             SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
             WHERE triage_check.type!='object'
@@ -243,6 +248,10 @@ function triageCheckShapeSql(result: string, supportedChecks: string): string {
                OR CASE WHEN triage_check.type='object' THEN EXISTS (
                     SELECT 1 FROM json_each(triage_check.value) AS triage_field
                     WHERE triage_field.key NOT IN ('pass','note')
+               ) ELSE 0 END
+               OR CASE WHEN triage_check.type='object' THEN EXISTS (
+                    SELECT triage_field.key FROM json_each(triage_check.value) AS triage_field
+                    GROUP BY triage_field.key HAVING COUNT(*)>1
                ) ELSE 0 END
         )`
 }
@@ -262,6 +271,10 @@ function triageValidResultSql(result: string, disqualified: boolean): string {
         AND json_type(${result}, '$.disqualified')=${flag}
         AND (json_type(${result}, '$.disqualification_reason') IS NULL
              OR json_type(${result}, '$.disqualification_reason')='text')
+        AND NOT EXISTS (
+            SELECT triage_root_field.key FROM json_each(${result}) AS triage_root_field
+            GROUP BY triage_root_field.key HAVING COUNT(*)>1
+        )
         AND NOT EXISTS (SELECT 1 FROM json_each(${result}) AS triage_root_field
                         WHERE triage_root_field.key NOT IN
                             ('screen','disqualified','disqualification_reason'))
@@ -295,8 +308,15 @@ const TRIAGE_STATUS_SQL = (() => {
              OR json_type(${legacy}, '$.disqualification_reason')='text')
         AND (json_type(${legacy}, '$.source_content_revision') IS NULL
              OR json_type(${legacy}, '$.source_content_revision')='null'
-             OR (json_type(${legacy}, '$.source_content_revision')='integer'
-                 AND json_extract(${legacy}, '$.source_content_revision')>0))
+             OR (json_type(${legacy}, '$.source_content_revision') IN ('integer','real')
+                 AND json_extract(${legacy}, '$.source_content_revision')>0
+                 AND json_extract(${legacy}, '$.source_content_revision')<=${MAX_SAFE_JSON_REVISION_SQL}
+                 AND json_extract(${legacy}, '$.source_content_revision')=
+                     CAST(json_extract(${legacy}, '$.source_content_revision') AS INTEGER)))
+        AND NOT EXISTS (
+            SELECT legacy_field.key FROM json_each(${legacy}) AS legacy_field
+            GROUP BY legacy_field.key HAVING COUNT(*)>1
+        )
         AND NOT EXISTS (SELECT 1 FROM json_each(${legacy}) AS legacy_field
                         WHERE legacy_field.key NOT IN
                             ('screen','disqualified','disqualification_reason','source_content_revision'))`

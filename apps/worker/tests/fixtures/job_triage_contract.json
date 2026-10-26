@@ -334,6 +334,194 @@
       "screening": null,
       "expected_status": "needs_review",
       "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "standalone_duplicate_root_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false,\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_screen_check_key",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":false},\"degree\":{\"pass\":true}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_nested_pass_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"pass\":false}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_nested_note_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"note\":\"first\",\"note\":\"second\"}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "legacy_duplicate_root_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"disqualified\":false}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_screen_check_key",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false},\"location\":{\"pass\":true}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_nested_pass_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":true,\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_nested_note_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"first\",\"note\":\"second\"}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_integer_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_decimal_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3.0}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_exponent_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3e0}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_max_safe_integer",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9007199254740991}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_max_safe_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9.007199254740991e15}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unsafe_integer",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9007199254740992}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unsafe_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9.007199254740992e15}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_fractional_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3.0000000000000004e0}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unbounded_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":1e309}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_boolean",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_null",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":null}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_negative",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":-3}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_zero",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":0}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_missing",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
     }
   ]
 }

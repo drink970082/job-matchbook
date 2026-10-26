@@ -69,6 +69,9 @@ def test_job_triage_filter_summary_and_overview_share_one_partition(db_path):
 
     assert by_id[job_ids["standalone_unrecognized_check"]]["screen_summary"]["outcome"] == "disqualified"
     assert by_id[job_ids["no_assessment_evidence"]]["screen_summary"]["outcome"] == "not_screened"
+    # Triage rejects ambiguous duplicate members while the established raw screen outcome
+    # retains its existing SQLite JSON-path interpretation.
+    assert by_id[job_ids["standalone_duplicate_root_member"]]["screen_summary"]["outcome"] == "no_disqualifier_found"
 
     for status in {case["expected_status"] for case in fixture["cases"]}:
         expected_ids = {
@@ -90,10 +93,8 @@ def test_job_triage_filter_summary_and_overview_share_one_partition(db_path):
     assert overview["scope"] == "all job_postings"
     assert sum(counts.values()) == len(fixture["cases"])
     assert counts == {
-        "rule_disqualified": 4,
-        "screen_disqualified": 2,
-        "candidate": 3,
-        "needs_review": len(fixture["cases"]) - 9,
+        status: sum(case["expected_status"] == status for case in fixture["cases"])
+        for status in ("rule_disqualified", "screen_disqualified", "candidate", "needs_review")
     }
 
     with pytest.raises(QueryInputError, match="triage_status"):

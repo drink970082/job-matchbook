@@ -186,6 +186,8 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
     }
     expect(byId.get(expectedIds.get('standalone_unrecognized_check')!)?.screen_summary.outcome)
         .toBe('disqualified')
+    expect(byId.get(expectedIds.get('standalone_duplicate_root_member')!)?.screen_summary.outcome)
+        .toBe('unknown')
     expect(byId.get(expectedIds.get('no_assessment_evidence')!)?.screen_summary.outcome)
         .toBe('not_screened')
 
@@ -203,7 +205,9 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
 
     const candidatePage = await getJobPostings({ bucket: 'all', triageStatus: 'candidate', size: 1 })
     expect(candidatePage.data[0].id).toBe(expectedIds.get('standalone_candidate_notified'))
-    expect(candidatePage.total).toBe(3)
+    expect(candidatePage.total).toBe(statuses.includes('candidate')
+        ? triageFixture.cases.filter((item: any) => item.expected_status === 'candidate').length
+        : 0)
     await expect(getJobPostings({ bucket: 'matched', triageStatus: 'candidate' }))
         .rejects.toThrow(/only supported in all jobs/i)
 })
