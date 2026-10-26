@@ -1,6 +1,6 @@
 # Source lifecycle for the unscored inventory
 
-**Status:** implemented
+**Status:** shipped 2026-10-25
 
 **Issue:** [#93 Keep unscored job evidence fresh without losing application history](https://github.com/drink970082/job-matchbook/issues/93)
 

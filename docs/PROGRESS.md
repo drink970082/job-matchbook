@@ -8,17 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Source lifecycle for unscored inventory — implementation review**
-  [FETCH · M · branch docs/issue-93-source-lifecycle; issue #93]. The worker supports
-  one-shot SmartRecruiters refreshes capped at 25 requests, with exact-ID validation,
-  separate source state and content revisions, and no model calls or retention changes.
-  The tracker and read-only MCP expose confirmed source state, latest attempt, and
-  independent fit/screen freshness. The [design](superpowers/specs/2026-10-23-source-lifecycle-design.md)
-  and [implementation plan](superpowers/plans/2026-10-23-source-lifecycle.md) record
-  the source-specific contract. Review the bounded refresh tests and run the
-  integration/schema gates before landing; no live inventory refresh is part of this
-  implementation.
-
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -47,8 +36,8 @@ before changing them. No older research authorization schedules new provider cal
    using the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md).
 3. After batch 1 acceptance, Luna/max executes [inventory UI #92](https://github.com/drink970082/job-matchbook/issues/92)
    using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
-4. Orchestrator scopes source lifecycle (#93) and performs scheduled Brief acceptance
-   (#94); #94 need not wait for all of #93 if official pages and freshness limits are checked.
+4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
+   lifecycle if official pages and freshness limits are checked.
 5. Two independent conditional branches after #94: delivery ledger (#95) for observed
    repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
    separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.

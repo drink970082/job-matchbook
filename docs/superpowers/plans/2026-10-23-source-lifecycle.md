@@ -1,6 +1,6 @@
 # Source lifecycle implementation plan
 
-**Status:** implemented
+**Status:** shipped 2026-10-25
 
 **Issue:** [#93](https://github.com/drink970082/job-matchbook/issues/93)
 
