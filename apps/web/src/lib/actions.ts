@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
+import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
 
 export async function getApplications(params: {
     page?: number
@@ -498,6 +499,7 @@ type ScreenedJobPosting = Prisma.job_postingsGetPayload<{}> & {
         effort: string | null
         evaluator_version: string
         updated_at: string | null
+        source_content_revision: number | null
     } | null
 }
 
@@ -511,6 +513,7 @@ type RawInventoryPosting = Prisma.job_postingsGetPayload<{}> & {
     screening_effort: string | null
     screening_evaluator_version: string | null
     screening_updated_at: string | null
+    screening_source_content_revision: number | null
 }
 
 function enrichJobPosting(posting: ScreenedJobPosting) {
@@ -520,6 +523,7 @@ function enrichJobPosting(posting: ScreenedJobPosting) {
         score_detail,
         screen_summary: standaloneScreenSummary(job_screening),
         legacy_screen_evidence: legacyScreenEvidence(score_detail),
+        source_lifecycle: sourceLifecycleSummary({ ...job, score_detail }, job_screening),
     }
 }
 
@@ -542,7 +546,8 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
                    s.model AS screening_model,
                    s.effort AS screening_effort,
                    s.evaluator_version AS screening_evaluator_version,
-                   s.updated_at AS screening_updated_at
+                   s.updated_at AS screening_updated_at,
+                   s.source_content_revision AS screening_source_content_revision
             FROM job_postings p
             LEFT JOIN job_screenings s ON s.job_posting_id=p.id
             WHERE ${where}
@@ -567,6 +572,7 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
             screening_effort,
             screening_evaluator_version,
             screening_updated_at,
+            screening_source_content_revision,
             score_detail,
             ...posting
         } = row
@@ -580,12 +586,14 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
             effort: screening_effort,
             evaluator_version: screening_evaluator_version ?? '',
             updated_at: screening_updated_at,
+            source_content_revision: screening_source_content_revision,
         }
         return {
             ...posting,
             score_detail,
             screen_summary: standaloneScreenSummary(screening),
             legacy_screen_evidence: legacyScreenEvidence(score_detail),
+            source_lifecycle: sourceLifecycleSummary({ ...posting, score_detail }, screening),
         }
     })
     return { data, total: Number(countRows[0]?.total ?? 0) }
@@ -624,6 +632,7 @@ export async function getJobPostings(params: JobPostingsFilter = {}) {
                         effort: true,
                         evaluator_version: true,
                         updated_at: true,
+                        source_content_revision: true,
                     },
                 },
             },

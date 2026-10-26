@@ -1,24 +1,24 @@
 # Source lifecycle implementation plan
 
-**Status:** draft — execution waits for approval of [the source-lifecycle design](../specs/2026-10-23-source-lifecycle-design.md).
+**Status:** implemented
 
 **Issue:** [#93](https://github.com/drink970082/job-matchbook/issues/93)
 
-This plan is for Luna/max after the operator approves the design and accepts or replaces
-the recommended **SmartRecruiters** pilot. It does not authorize a production refresh,
-broad backfill, data cleanup, model call, service restart, or deployment.
+This plan records the shipped **SmartRecruiters** source-refresh contract. A production
+refresh, broad backfill, data cleanup, model call, service restart, or deployment is
+outside its scope.
 
 ## Sequence
 
-1. **Reconfirm boundaries.** Inspect current intake gates and the **posted_at** fallback
+1. **Keep the boundary.** The current intake gates and **posted_at** fallback
    path in the selected branch. The first release updates only already-stored postings
    without a fit assessment, link to an application, or an applied/removed/scored/notified
    state. It does not change gate defaults or date interpretation.
-2. **Add the persisted contract.** Add the selected source snapshot/revision fields to
+2. **Persist source and assessment revisions.** Add the source snapshot/revision fields to
    **apps/web/prisma/schema.prisma**. Keep the worker fixture schema synchronized through
    the repo's schema guard; the worker issues no DDL. Back up any local database before
    applying schema changes.
-3. **Implement bounded refresh.** Add pure candidate selection and result
+3. **Refresh within a hard bound.** Use pure candidate selection and result
    classification, with clock/fetch dependencies injected. Validate exact
    **(source, external_id)** identity before any write. Keep request work per-item isolated
    and all SQLite writes on the main thread.
@@ -31,15 +31,13 @@ broad backfill, data cleanup, model call, service restart, or deployment.
    tracker and read-only MCP results. Unknown, stale, provider error, and confirmed
    closed must remain distinguishable. Never expose raw exception text or full JD text
    in list summaries.
-6. **Roll out narrowly.** After merge/deployment is separately authorized, run one
-   selected adapter against at most 25 existing unscored rows. Record counts for
-   found/unchanged, changed, confirmed closed, inconclusive, and skipped. Do not run an
-   unrestricted backfill.
+6. **Keep operation explicit.** The CLI requires one selected adapter and accepts at
+   most 25 requests. The implementation does not run a live refresh or unrestricted
+   backfill by itself.
 
 ## SmartRecruiters pilot contract
 
-This is an adapter-specific implementation brief contingent on design approval, not
-implementation authorization. The existing adapter requests
+This adapter-specific brief documents the implemented pilot. The existing adapter requests
 `GET https://api.smartrecruiters.com/v1/companies/{companyIdentifier}/postings/{postingId}`
 and builds **external_id** from the response's **id** field. Its existing test covers
 the requested ID and one parsed detail response, but not identity mismatch or lifecycle
@@ -73,7 +71,7 @@ information are optional sections and are included when present. Missing or malf
 exact-ID `active: false` may confirm closure even when JD sections are absent; preserve
 the stored JD, hash, revision, assessment, and application history.
 
-After approval, extend the synthetic adapter/lifecycle fixtures to cover:
+The synthetic adapter/lifecycle fixtures cover:
 
 - Exact returned **(source, external_id)** with `active: true`, matching company
   identifier when present, non-empty title, and non-empty job-description section:
@@ -126,8 +124,8 @@ posting.
 Use synthetic fixtures for these cases. A live board fetch, live database write, or
 production scheduling run is a separate, explicitly bounded acceptance action.
 
-## Required documentation on implementation
+## Documentation contract
 
-Update the shipped source/assessment contract and its SPEC §9 invariant-to-test row only
-when code is accepted. Remove this draft claim from PROGRESS when the work lands and add
-the shipped behavior to SPEC and CHANGELOG in that implementation PR.
+`SPEC.md` describes the current source/assessment behavior and maps it to the synthetic
+adapter, worker, web, and MCP tests. `PROGRESS.md` tracks the active implementation PR;
+`CHANGELOG.md` records this behavior under Unreleased until release.

@@ -16,7 +16,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-22 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-25 · **License:** MIT
 
 ---
 
@@ -451,6 +451,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
   `--score-max-id N` (score only `new` rows with `id <= N`, 0 = no bound — the selector
   to `--score-limit`'s budget, applied first; **requires `--once`**, see §9),
+  `--refresh-unscored --refresh-source smartrecruiters --refresh-limit N` (standalone,
+  source-only refresh of eligible existing unscored rows; requires `--once`, an explicit
+  adapter, and a limit from 1 through 25; does not run intake, screening, fit, retry,
+  quota, or notification),
   `--rescreen-discarded` (return every `discarded` row to `new` before this pass so it
   is re-screened under the current candidate hard requirements — **requires `--once`**,
   see §9),
@@ -741,7 +745,13 @@ worker modules are pure and dependency-injected; real services are wired only in
     `get_redirect_safe` guards the `custom` recipe fetch; the `browser` executor validates
     each navigation URL and discards a render whose post-redirect `page.url` is non-public.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
-  (dedup on `(source, external_id)`; persists `company_slug`), `get_by_status`
+  (dedup on `(source, external_id)`; persists `company_slug`; new complete source
+  records start at content revision 1, while repeated exact identities update only
+  source availability/last-seen time), `get_unscored_refresh_candidates` (known
+  unscored states, no fit assessment or application link, oldest attempted first),
+  `save_source_observation` (transactionally rechecks eligibility and exact identity;
+  records inconclusive/closed/available outcomes; changes assessment inputs only after
+  validation), `get_by_status`
   (selects rows by pipeline status), `get_notifiable` (the notify gate: `scored`
   rows whose `score_detail` verdicts read `seniority=match AND domain=match AND
   NOT insufficient_context`, via `json_extract`, **and** whose trimmed
@@ -1530,7 +1540,19 @@ it simply waits for an unbounded pass. **The `new` queue is read
   treated as alive, because wrongly expiring a live match costs the operator a job
   while a missed dead link costs one stale row. A successful check rewrites
   `updated_at`, which rotates the row to the back of the queue — that's the whole
-  scheduling mechanism, no extra column.
+  scheduling mechanism, no extra column. This is unchanged for scored/notified rows.
+  The separate `run_unscored_refresh` mode accepts only the explicit
+  `smartrecruiters` adapter and 1–25 requests. It selects `new`, `failed`, `discarded`,
+  or `expired` rows without a fit assessment or application link, least recently
+  attempted first. SmartRecruiters must return the exact ID, a matching company
+  identifier when present, a boolean `active`, and complete core JD content when active.
+  Exact-ID `active=false` confirms source closure; 404/410, timeouts, access blocks,
+  malformed or incomplete responses are inconclusive. A valid response updates the
+  current source content/hash/revision and the source timestamps, without changing
+  pipeline/application state or calling a model. The write transaction rechecks source
+  identity and eligibility. A later valid observation reopens only source availability.
+  This one-shot mode does not run normal fetch, expiry, retry, screen, fit, quota, or
+  notify stages.
   `run_retry` requeues every `failed` row with `attempts < RETRY_MAX_ATTEMPTS` (3)
   **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3) back to `new` — one bulk
   `db.requeue_failed` UPDATE, run **after** the fetch/feed ingest and **before**
@@ -1598,6 +1620,10 @@ it simply waits for an unbounded pass. **The `new` queue is read
   assessment may enter or leave a filter between pages. Callers rerun overlapping
   windows, deduplicate by source/external_id and assessment time, and periodically
   reconcile. Overlap cannot recover arbitrary backdated writes or every transition.
+  `list_jobs` and `get_job` also expose a bounded `source_lifecycle` summary with the
+  confirmed source state, seen/attempt/check times, safe error category, content revision,
+  and independent fit/screen freshness (`not_assessed`, `current`, `stale`, `unknown`, or
+  `provider_error`). A failed newer attempt does not replace the last conclusive check.
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
 ### 7.2 Web (`apps/web/src/`)
@@ -1652,6 +1678,9 @@ it simply waits for an unbounded pass. **The `new` queue is read
     default `Others` when blank), `getCategories`/`setCategories` (the user-editable
     category list, stored in `app_settings`).
     Bucket definitions and `removed` semantics in §9.
+    Each row also carries a source-lifecycle summary: source state, last seen/check times,
+    safe inconclusive category, current content revision, and independent fit/screen
+    freshness. Unknown legacy revisions and provider errors stay explicitly unknown/error.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
@@ -1777,9 +1806,19 @@ model job_postings {
   created_at      String
   updated_at      String?
   posted_at       String?       // board posting date YYYY-MM-DD; scrape-date fallback for dateless boards; null on legacy pre-backfill rows
+  source_state                    String  @default("unknown") // unknown|available|closed
+  source_last_seen_at             String? // latest exact identity in a list or detail response
+  source_last_check_attempted_at  String? // latest detail refresh attempt, including errors
+  source_last_checked_at          String? // latest conclusive detail refresh
+  source_last_check_outcome        String  @default("not_checked") // not_checked|found|confirmed_closed|inconclusive
+  source_last_check_error_category String? // fixed safe category; never raw provider output
+  source_content_hash              String? // SHA-256 of company/title/location/description
+  source_content_revision           Int?    // version used by fit and standalone screens
+  source_content_changed_at         String? // when the current revision replaced prior inputs
 
   @@unique([source, external_id])  // dedup key
   @@index([pipeline_status])
+  @@index([source, source_last_check_attempted_at])
 }
 
 model job_screenings {
@@ -1795,6 +1834,7 @@ model job_screenings {
   evaluator_version String
   last_attempted_at String
   completed_at      String?
+  source_content_revision Int? // posting revision used by this completed screen
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
@@ -1844,6 +1884,25 @@ model app_settings {             // web-only key-value prefs (worker never reads
 Relationships: deleting an application **cascades** to its `status_history` and
 **nulls** the `application_id` on any linked `job_postings`. A posting is deduped
 on `(source, external_id)`.
+
+`job_postings.source_state` is `unknown`, `available`, or `closed` and is independent
+of `pipeline_status`. New exact source listings begin `available` with a source-seen
+time; legacy/manual rows begin `unknown`. The last-seen time may advance from an exact
+listing or detail observation. Detail-check attempt time advances on every refresh;
+the conclusive-check time advances only for a verified `found` or `confirmed_closed`
+result. Inconclusive errors preserve the last confirmed state/time and use a fixed safe
+error category. `source_content_hash` is SHA-256 over stable JSON containing only
+company, title, location, and description. A complete new posting starts at revision 1;
+an incomplete JD has no revision until complete content is observed. A refresh changes
+the stored assessment inputs and increments the revision only when that hash changes.
+Fit assessment revision lives in `score_detail.source_content_revision`; completed
+standalone screening revision lives in `job_screenings.source_content_revision`.
+Freshness is derived per assessment: no assessment → `not_assessed`, matching revision
+→ `current`, older revision → `stale`, missing revision → `unknown`. Provider errors
+remain `provider_error` and do not claim a screen verdict. The tracker separates the
+current positive source observation and its last-seen time from the last conclusive
+exact-ID detail-check time; a newer inconclusive attempt shows its attempt time without
+assigning the older detail-check time to a possibly newer list-based source state.
 
 **Enums** (single source: `apps/web/src/lib/constants.ts`):
 
@@ -1896,7 +1955,17 @@ fetch/score, on exception         → failed         (pipeline_error set; batch 
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
-- **All jobs inventory view.** The default Discovered Jobs view lists every posting except terminal `removed`, including `new`, `applied`, expired and unrecognized lifecycle values; unknown statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Default order is `created_at desc, id desc`; optional score/posted sorts retain an id tie-breaker. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Per-row apply/discard/reopen actions revalidate the exact current view/filter scope at the server boundary. Apply retains duplicate protection and transaction behavior. All jobs has no bulk controls or bulk lifecycle action path; supported legacy buckets keep their validated bulk flows. Pending or failed list requests do not display a previous page as though it matched the current filters.
+Source refresh is a separate one-shot observation, not a pipeline transition. It selects
+only `smartrecruiters` rows in `new`, `failed`, `discarded`, or `expired`, with no fit
+assessment and no application link; `--refresh-limit` bounds the request count to 25.
+Only a matching SmartRecruiters ID with `active=false` confirms source closure. A valid
+active payload can update company/title/location/JD and the content revision; a changed
+revision leaves existing assessments intact and visible as stale. Timeouts, blocks,
+404/410, malformed payloads, and incomplete content are inconclusive. Every source write
+rechecks identity and eligibility in a transaction. Refresh does not change
+`pipeline_status`, applications, notes, status history, or retention, and calls no model.
+
+- **All jobs inventory view.** The default Discovered Jobs view lists every posting except terminal `removed`, including `new`, `applied`, expired and unrecognized lifecycle values; unknown statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Default order is `created_at desc, id desc`; optional score/posted sorts retain an id tie-breaker. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. The table and detail modal show source state/check timing and separate fit/screen freshness; a failed latest attempt does not overwrite the last confirmed state/time. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Per-row apply/discard/reopen actions revalidate the exact current view/filter scope at the server boundary. Apply retains duplicate protection and transaction behavior. All jobs has no bulk controls or bulk lifecycle action path; supported legacy buckets keep their validated bulk flows. Pending or failed list requests do not display a previous page as though it matched the current filters.
 
 - **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
@@ -2440,6 +2509,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Synthetic browser flow: newest unscored job, full JD, all-text search, second page, retained Matched details and All-jobs application workflow | `web/e2e/discovered.spec.ts`, `apply-loop.spec.ts` |
 | Integration-harness self-check (real Prisma round-trip on the temp DB) | `web/src/__tests__/harness.int.test.ts` |
 | Dead-link sweep: 404/410 → `expired`, every other error leaves the row live, queue rotation | `test_pipeline.py` (`run_expire`) |
+| Explicit one-shot source refresh stays within 1–25 SmartRecruiters requests without following redirects, selects only unscored/unlinked rows without fit assessment, validates identity and visible core JD content, preserves state on inconclusive/closed results, reopens source availability without relabeling detail-check time, and skips concurrent eligibility changes | `test_source_lifecycle.py`, `test_run.py::test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode`, `test_smartrecruiters.py` |
+| Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content makes old screen evidence stale without a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
+| Tracker shows confirmed source state, inconclusive attempt and separate fit/screen freshness in list and detail views; legacy/malformed assessments remain unknown | `web/src/lib/__tests__/source-lifecycle.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
+| Read-only MCP job list/detail exposes bounded source state and freshness summaries without leaking raw errors or JD text | `tests/test_mcp_repository.py::test_source_lifecycle_separates_state_from_fit_and_screen_freshness` |
 | Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker and fit/notify isolation; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`) |
 | Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
 | Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |

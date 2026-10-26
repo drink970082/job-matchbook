@@ -9,12 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
-- Draft a bounded source-lifecycle contract and implementation plan for issue #93. The
-  proposal separates source availability and content revisions from assessments and
-  application history, recommends a SmartRecruiters first pilot from the live unscored
-  inventory, uses its documented `active: false` field as the source closure signal,
-  keeps HTTP 404/410 inconclusive, records a bounded live response-shape check, and
-  waits for operator approval before implementation.
+- Add a one-shot, source-only refresh for up to 25 eligible unscored SmartRecruiters
+  postings. Record source availability/check outcomes separately from pipeline and
+  application state; version company/title/location/JD content and capture the version
+  used by fit and standalone-screen assessments. Exact-ID `active: false` confirms
+  closure, while timeouts, HTTP 404/410 and partial/mismatched responses stay
+  inconclusive. Show source state and independent fit/screen freshness in the tracker
+  and read-only MCP. Content changes do not rerun models or delete evidence.
 
 ### Changed
 

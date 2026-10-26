@@ -1,10 +1,10 @@
 # Source lifecycle for the unscored inventory
 
-**Status:** draft — awaiting operator approval
+**Status:** implemented
 
 **Issue:** [#93 Keep unscored job evidence fresh without losing application history](https://github.com/drink970082/job-matchbook/issues/93)
 
-**Decision owner:** Astra/Sol prepares the boundary and evidence; the operator approves the design; Luna/max implements only after approval.
+**Decision owner:** The operator selects the source and request limit for each one-shot refresh. This implementation supports SmartRecruiters only.
 
 ## Purpose
 
@@ -13,7 +13,7 @@ the source was seen, when it was checked, whether its assessment inputs changed,
 whether the source is known to have closed. Keep source availability separate from
 screening, fit, application status, and retention.
 
-This proposal does not broaden intake, backfill old rows, rerun models, or delete
+The implementation does not broaden intake, backfill old rows, rerun models, or delete
 postings. It leaves the existing scorer and screen defaults alone.
 
 ## Current state and evidence
@@ -37,7 +37,7 @@ postings. It leaves the existing scorer and screen defaults alone.
   (jobvite, oracle, smartrecruiters, and workday). Membership is derived from
   **fetch_one**; this design adds no capability registry.
 
-## Proposed contract
+## Implemented contract
 
 ### Identity and source state
 
@@ -167,10 +167,10 @@ In particular, do not use **posted_at** as freshness: it can be the scrape-day f
 and the original board-date provenance is absent on legacy rows. This slice leaves that
 field and all intake defaults unchanged.
 
-### First-pilot recommendation
+### Pilot scope
 
-Recommend **SmartRecruiters** for the first adapter pilot, pending operator approval. A
-read-only live inventory check found a **new** row that meets the proposed technical
+**SmartRecruiters** is the only supported refresh adapter. A read-only live inventory
+check found a **new** row that met the technical
 eligibility predicate, with a complete stored description, no fit assessment, and no
 application relation. The adapter's per-listing response includes its posting ID, so
 the refresh can compare the returned
@@ -213,20 +213,10 @@ separate protected-identity contract and cannot use source closure as deletion a
 - **12 and 13:** no private profile/JD data enters fixtures or docs; keep the design single-user and local.
 - **14:** defer event history, broader adapter support, retention, and automatic re-scoring with the reasons above.
 
-## Approval requested
+## Operational boundary
 
-Approve or revise these decisions before implementation:
-
-1. Use the additive current-state snapshot and revision model above; do not introduce an
-   observation-history table in this issue.
-2. Keep source closure distinct from **pipeline_status**; for SmartRecruiters, only an
-   exact-ID detail with **active: false** can close a source. HTTP 404/410 remain
-   inconclusive unless separately verified for another adapter.
-3. Start with the recommended **SmartRecruiters** adapter (or the operator's replacement)
-   and no more than 25 exact unscored rows per pass; expand only after reviewing the pilot.
-4. Show source state and assessment freshness in both the tracker and read-only MCP,
-   preserving current screen/fit distinctions.
-
-After approval, the implementation brief must name the pilot adapter from the live
-eligible inventory, include exact fixtures for its success/closure/error contract, and
-keep retention, broad intake, model reruns, and deployment outside its scope.
+Each run requires `--once --refresh-unscored --refresh-source smartrecruiters`; the
+request limit is explicit and cannot exceed 25. The mode performs no normal fetch,
+screen, fit, retry, notification, retention, or database cleanup work. Real inventory
+refresh and deployment are separate operator actions. Other adapters remain unsupported
+until their exact-ID closure semantics are verified and tested.

@@ -27,7 +27,8 @@ import requests
 from . import config as config_mod
 from . import db, pipeline
 from . import prompts as prompts_mod
-from .fetch import fetch_company, fetch_one_company, prefilter_postings
+from .fetch import (fetch_company, fetch_one_company, prefilter_postings,
+                    smartrecruiters)
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
 from .score import (capture_usage, make_claude_cli_scorer, make_claude_scorer,
@@ -265,7 +266,8 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
              fetch_only: bool = False, score_only: bool = False,
              score_limit: int = 0, score_max_id: int = 0, screen_workers: int = 0,
              score_workers: int = 4, rescreen_discarded: bool = False,
-             no_notify: bool = False) -> None:
+             no_notify: bool = False, refresh_unscored: bool = False,
+             refresh_source: str | None = None, refresh_limit: int = 25) -> None:
     """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
     {label: text} dict of resume versions; `profile` is optional candidate
     context — both are baked into the fit scorer (the Ollama SCREEN never
@@ -276,9 +278,28 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         raise ValueError("screen-only cannot be combined with rescreen-discarded")
     if screen_only and screen_limit is not None and screen_limit <= 0:
         raise ValueError("screen-only requires a positive --screen-limit")
+    if refresh_unscored:
+        if (fetch_only or score_only or screen_only or rescreen_discarded
+                or rescreen_screened or score_limit or score_max_id or no_notify):
+            raise ValueError("unscored refresh is a standalone worker mode")
+        if refresh_source != "smartrecruiters":
+            raise ValueError("unscored refresh requires --refresh-source smartrecruiters")
+        if not 1 <= refresh_limit <= pipeline.UNSCORED_REFRESH_MAX:
+            raise ValueError("unscored refresh limit must be between 1 and 25")
+    elif refresh_source is not None:
+        raise ValueError("--refresh-source requires --refresh-unscored")
     conn = db.connect(db_path)
     try:
         now = _now()
+        if refresh_unscored:
+            pipeline.run_unscored_refresh(
+                conn, source=refresh_source, limit=refresh_limit, now=now,
+                observation_fn=lambda source, slug, external_id, company_name:
+                    smartrecruiters.fetch_one_observation(
+                        slug, external_id, company_name,
+                        session=_feed_session(), timeout=_FEED_TIMEOUT),
+            )
+            return
         # The watchlist is DB-owned. Seed it once from config.yaml `companies:`
         # when the table is empty; thereafter the DB (web-managed) is authoritative.
         if db.count_watchlist(conn) == 0 and cfg.companies:
@@ -864,6 +885,14 @@ def main(argv=None) -> None:
     parser.add_argument("--score-only", action="store_true",
                         help="skip the network ingest (fetch/feed/expire) and score "
                              "the existing 'new' backlog — inverse of --fetch-only")
+    parser.add_argument("--refresh-unscored", action="store_true",
+                        help="one-shot source-only refresh for existing unscored jobs; "
+                             "requires --once and an explicit --refresh-source")
+    parser.add_argument("--refresh-source", choices=("smartrecruiters",),
+                        help="source adapter for --refresh-unscored (currently "
+                             "SmartRecruiters only)")
+    parser.add_argument("--refresh-limit", type=int, default=25,
+                        help="maximum source requests for --refresh-unscored (1-25)")
     parser.add_argument("--score-limit", type=int, default=0,
                         help="cap 'new' rows scored this pass (0 = no cap); bounds "
                              "the paid fit scorer on a large fresh intake")
@@ -980,8 +1009,21 @@ def main(argv=None) -> None:
         parser.error("--run-now is for daemon mode: it runs one pass and then STAYS on "
                      "the schedule. For a single pass that exits, use --once alone.")
 
-    if sum((args.fetch_only, args.score_only, args.screen_only)) > 1:
-        parser.error("--fetch-only, --score-only and --screen-only are mutually exclusive")
+    if sum((args.fetch_only, args.score_only, args.screen_only, args.refresh_unscored)) > 1:
+        parser.error("--fetch-only, --score-only, --screen-only and --refresh-unscored "
+                     "are mutually exclusive")
+    if args.refresh_unscored:
+        if not args.once:
+            parser.error("--refresh-unscored is one-shot: pass --once")
+        if args.refresh_source is None:
+            parser.error("--refresh-unscored requires --refresh-source smartrecruiters")
+        if not 1 <= args.refresh_limit <= pipeline.UNSCORED_REFRESH_MAX:
+            parser.error("--refresh-limit must be between 1 and 25")
+        if (args.score_limit or args.score_max_id or args.rescreen_discarded
+                or args.rescreen_screened or args.no_notify):
+            parser.error("--refresh-unscored is a standalone worker mode")
+    elif args.refresh_source is not None:
+        parser.error("--refresh-source requires --refresh-unscored")
     if args.screen_only and args.rescreen_discarded:
         parser.error("--screen-only cannot be combined with --rescreen-discarded")
     if args.screen_unlimited:
@@ -1047,7 +1089,7 @@ def main(argv=None) -> None:
         print(f"imported {seeded} companies into the watchlist")
         return
 
-    if args.fetch_only or args.screen_only:
+    if args.fetch_only or args.screen_only or args.refresh_unscored:
         resumes, profile = {}, ""
     else:
         resumes, profile = load_resumes(args.resume_dir)
@@ -1086,7 +1128,10 @@ def main(argv=None) -> None:
                          screen_workers=args.screen_workers,
                          score_workers=args.score_workers,
                          rescreen_discarded=args.rescreen_discarded,
-                         no_notify=args.no_notify)
+                         no_notify=args.no_notify,
+                         refresh_unscored=args.refresh_unscored,
+                         refresh_source=args.refresh_source,
+                         refresh_limit=args.refresh_limit)
         except PassInProgress as exc:
             # A hand run exits non-zero so a wrapper script sees the refusal; a
             # scheduled firing skips this slot and waits for the next one. Neither

@@ -204,6 +204,29 @@ describe('JobDetailModal score_detail rendering', () => {
     })
 })
 
+describe('JobDetailModal source lifecycle', () => {
+    it('shows confirmed source state, failed retry, and separate assessment freshness', () => {
+        render(<JobDetailModal {...props} job={{
+            ...workerShapedJob,
+            source_lifecycle: {
+                state: 'available',
+                last_seen_at: '2026-10-24T10:00:00Z',
+                last_check_attempted_at: '2026-10-25T10:00:00Z',
+                last_checked_at: '2026-10-22T09:00:00Z',
+                last_check_outcome: 'inconclusive',
+                last_check_error_category: 'timeout',
+                content_revision: 2,
+                fit_freshness: 'stale',
+                screen_freshness: 'provider_error',
+            },
+        }} />)
+        expect(screen.getByText('Available at source')).toBeInTheDocument()
+        expect(screen.getByText(/Latest detail attempt inconclusive \(timeout\).*Attempted 2026-10-25.*Last conclusive detail check 2026-10-22.*Last seen 2026-10-24/)).toBeInTheDocument()
+        expect(screen.getByText(/Fit freshness: Stale/)).toBeInTheDocument()
+        expect(screen.getByText(/Standalone screen: Provider error/)).toBeInTheDocument()
+    })
+})
+
 describe('JobDetailModal actions', () => {
     it('calls onMarkApplied with the job id when Mark Applied is clicked', async () => {
         const user = userEvent.setup()

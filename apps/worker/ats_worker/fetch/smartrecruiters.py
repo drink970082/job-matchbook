@@ -83,6 +83,64 @@ def fetch_one(slug: str, external_id: str, company_name: str,
     return parse_job(resp.json(), slug, company_name)
 
 
+def fetch_one_observation(slug: str, external_id: str, company_name: str,
+                          session: requests.Session | None = None,
+                          timeout: int = 20) -> dict:
+    """Fetch and classify one exact-ID source observation for the lifecycle pilot.
+
+    This intentionally remains separate from ``fetch_one``: normal feed ingestion
+    keeps its canonical shape and does not persist source-specific API metadata. The
+    lifecycle caller gets the state and canonical content from this same response.
+    Transport and JSON decoding errors are allowed through for safe classification by
+    the refresh stage.
+    """
+    http = session or requests
+    if not slug or not external_id:
+        return {"state": "unknown", "error_category": "invalid_request"}
+    resp = http.get(f"{API.format(slug=slug)}/{external_id}", timeout=timeout,
+                    allow_redirects=False)
+    status = getattr(resp, "status_code", None)
+    if isinstance(status, int) and 300 <= status < 400:
+        return {"state": "unknown", "error_category": "http_error"}
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict):
+        return {"state": "unknown", "error_category": "malformed_response"}
+
+    returned_id = payload.get("id")
+    if not isinstance(returned_id, (str, int)) or str(returned_id) != str(external_id):
+        return {"state": "unknown", "error_category": "identity_mismatch"}
+    company = payload.get("company")
+    if isinstance(company, dict) and company.get("identifier") is not None:
+        identifier = company.get("identifier")
+        if not isinstance(identifier, str) or identifier != slug:
+            return {"state": "unknown", "error_category": "company_mismatch"}
+    elif company is not None and not isinstance(company, dict):
+        return {"state": "unknown", "error_category": "malformed_response"}
+
+    active = payload.get("active")
+    if not isinstance(active, bool):
+        return {"state": "unknown", "error_category": "invalid_active"}
+    if active is False:
+        return {"state": "closed", "error_category": None}
+
+    job_ad = payload.get("jobAd")
+    sections = job_ad.get("sections") if isinstance(job_ad, dict) else None
+    description_section = sections.get("jobDescription") if isinstance(sections, dict) else None
+    core_description = (description_section.get("text")
+                        if isinstance(description_section, dict) else None)
+    if (not isinstance(payload.get("name"), str) or not payload["name"].strip()
+            or not isinstance(core_description, str) or not core_description.strip()):
+        return {"state": "unknown", "error_category": "incomplete_content"}
+    if not html_to_text(core_description).strip():
+        return {"state": "unknown", "error_category": "incomplete_content"}
+
+    posting = parse_job(payload, slug, company_name)
+    if not posting["job_title"].strip() or not posting["description"].strip():
+        return {"state": "unknown", "error_category": "incomplete_content"}
+    return {"state": "available", "posting": posting, "error_category": None}
+
+
 def fetch(slug: str, company_name: str, session: requests.Session | None = None,
           timeout: int = 20) -> list[dict]:
     base = API.format(slug=slug)

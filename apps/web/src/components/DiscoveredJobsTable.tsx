@@ -25,6 +25,7 @@ import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/actions'
 import type { ScreenOutcome, ScreenSummary, LegacyScreenEvidence } from '@/lib/screen-summary'
+import type { SourceLifecycleSummary, SourceFreshness } from '@/lib/source-lifecycle'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
 export interface JobPosting {
@@ -43,6 +44,7 @@ export interface JobPosting {
     created_at?: string | null
     screen_summary?: ScreenSummary
     legacy_screen_evidence?: LegacyScreenEvidence
+    source_lifecycle?: SourceLifecycleSummary
 }
 
 export type JobTableFilters = JobViewScope & { sortExplicit: boolean }
@@ -291,6 +293,53 @@ function ScreenCell({ job }: { job: JobPosting }) {
                         ...provenance,
                         summary?.assessment_time ? `assessed ${summary.assessment_time}` : null,
                     ].filter(Boolean).join(' · ')}
+                </span>
+            )}
+        </div>
+    )
+}
+
+function freshnessLabel(value: SourceFreshness): string {
+    switch (value) {
+        case 'current': return 'current'
+        case 'stale': return 'stale'
+        case 'unknown': return 'unknown freshness'
+        case 'provider_error': return 'provider error'
+        default: return 'not assessed'
+    }
+}
+
+function SourceCell({ job }: { job: JobPosting }) {
+    const source = job.source_lifecycle
+    if (!source) return null
+    const stateLabel = source.state === 'available' ? 'Available'
+        : source.state === 'closed' ? 'Closed' : 'Unknown'
+    const attemptNote = source.last_check_outcome === 'inconclusive'
+        ? `Latest detail attempt inconclusive${source.last_check_error_category ? ` (${source.last_check_error_category})` : ''}` +
+            (source.last_check_attempted_at
+                ? ` · attempted ${fmtDate(source.last_check_attempted_at)}` : '') +
+            (source.last_checked_at
+                ? ` · last conclusive detail check ${fmtDate(source.last_checked_at)}`
+                : ' · no prior conclusive detail check')
+        : source.last_checked_at
+            ? `Last conclusive detail check ${fmtDate(source.last_checked_at)}`
+            : 'No conclusive detail check'
+    const seenNote = source.last_seen_at ? `Last seen ${fmtDate(source.last_seen_at)}` : null
+    const fit = source.fit_freshness !== 'not_assessed'
+        ? `Fit ${freshnessLabel(source.fit_freshness)}` : null
+    const screen = source.screen_freshness !== 'not_assessed'
+        ? `Standalone screen ${freshnessLabel(source.screen_freshness)}` : null
+    const combinedScreen = job.legacy_screen_evidence?.available &&
+        source.combined_screen_freshness !== 'not_assessed'
+        ? `Fit-pipeline screen ${freshnessLabel(source.combined_screen_freshness)}` : null
+    return (
+        <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]" title="Source availability and assessment freshness are separate from pipeline status">
+            <Badge variant="outline">Source · {stateLabel}</Badge>
+            {attemptNote && <span className="text-muted-foreground">{attemptNote}</span>}
+            {seenNote && <span className="text-muted-foreground">{seenNote}</span>}
+            {(fit || screen || combinedScreen) && (
+                <span className="text-muted-foreground">
+                    {[fit, screen, combinedScreen].filter(Boolean).join(' · ')}
                 </span>
             )}
         </div>
@@ -587,6 +636,7 @@ export function DiscoveredJobsTable({
                                         {bucket === 'all' ? (
                                             <>
                                                 <ScreenCell job={job} />
+                                                <SourceCell job={job} />
                                                 {shortDescription && (
                                                     <div className="mt-1 text-[11px] text-muted-foreground">{shortDescription}</div>
                                                 )}
@@ -594,6 +644,7 @@ export function DiscoveredJobsTable({
                                         ) : (
                                             <>
                                                 <WhyCell bucket={bucket} job={job} detail={detail} />
+                                                <SourceCell job={job} />
                                                 {(job.screen_summary?.origin === 'job_screenings' || job.legacy_screen_evidence?.available) && (
                                                     <ScreenCell job={job} />
                                                 )}
