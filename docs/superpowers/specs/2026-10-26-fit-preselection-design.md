@@ -24,8 +24,9 @@ open. This design can be reviewed independently; #96 runtime activation remains 
    assessment against versioned, operator-approved preferences and candidate facts.
 3. Persist independent dimensions, evidence/input provenance and priority; do not mutate
    pipeline_status or overwrite legacy fit scores, screenings, source or application state.
-4. Daily Brief queries a bounded high-priority set and fully reads the original JDs,
-   checks applications and source evidence, and makes final recommendations.
+4. Build an eligible, deduplicated review pool before allocating deep-read slots. Daily
+   Brief fully reads selected original JDs, rechecks applications and source evidence,
+   and makes final recommendations; invalid selections can receive bounded replacements.
 5. Reserve capacity for low-priority audits and unresolved evidence. Deferred jobs remain
    visible with their age and reason; a retained row never silently disappears.
 
@@ -70,7 +71,7 @@ incomplete coverage and route visibly; do not silently truncate a job into a low
 
 ## Persistence and daily retrieval requirements
 
-Assess each unique JD/candidate-profile/rubric/model version once, with retries explicitly
+Assess each unique content/candidate-profile/rubric/provider/resolved-model version once, with retries explicitly
 bounded. Cache reuse is by input identity, not posting ID alone. Changed content or
 preferences makes the assessment stale, while old evidence stays inspectable. Extraction
 and ranking have separate provenance so an error can be located at its actual stage.
@@ -89,12 +90,17 @@ missing sponsorship, incomplete evidence and plausible stretch roles. Strong-mod
 judgments can assist review but are not independent human truth. Follow EVALUATION;
 do not revive unsupported old ID-only labels or the deferred corpus rebuild.
 
-A bounded pilot can freeze one full day's candidates, capped at 120 unique jobs, and
+A mechanics/cost pilot can freeze one full day's candidates, capped at 120 unique jobs, and
 compare both variants: at most 120 extraction calls and 240 initial JEV calls. A repeated
 subset of at most 20 jobs with two additional draws per variant adds at most 80 JEV
 calls. Reference-model and human-label workload and monetary/subscription budgets must
 be specified separately before authorizing the pilot; these bounds authorize nothing.
 Provider/version, model/effort, data sent, and resolved model identity must be explicit.
+These are total attempt ceilings, including retries and replacement/repair requests,
+not successful-job targets. Reserve retry capacity inside them or stop visibly when
+exhausted. A day above 120 requires a declared reproducible sample and coverage report;
+it is not a complete-day recall experiment. A larger acceptance campaign needs its own
+approved workload, not an automatic extension of this pilot.
 
 Report jointly:
 - Worth-reviewing recall at several final deep-read budgets, with labeled-set coverage
@@ -109,6 +115,122 @@ maximum acceptable missed opportunities before observing the held-out results. M
 keeping jobs retrievable does not eliminate workflow false negatives. Start with shadow
 assessments; promotion to daily selection requires measured acceptance and operator
 approval. Keep rollback to unranked candidate retrieval.
+
+## Daily selection contract to settle before runtime implementation
+
+The following are proposed requirements for the decision issue, not deployed behavior.
+The decision record must resolve named policy values before dependent work starts.
+
+- Define each run with a UTC half-open interval and cutoff, normally 24 elapsed hours;
+  local delivery time and DST do not silently change interval semantics. An interrupted
+  run resumes its own batch; a later run reconciles since the last successful cutoff.
+- The pool is the union of newly retained candidates, newly completed/current rankings,
+  pending deferred work and due retries. Old pending rows remain eligible even with no
+  recent timestamp change. Initial historic inventory is a separate, explicitly bounded
+  backfill choice; never rank all 3,851 stored candidates implicitly.
+- Before slot allocation, exclude confirmed prior applications, explicit manual terminal
+  decisions and confirmed closed sources. Preserve reasons/counts without rewriting the
+  posting. Unknown source state is not closed. Stale/unknown screening or incomplete JD
+  goes to visible unresolved routing, never inherits a current eligibility claim.
+- Deduplicate exact source/requisition identities before selection. Cross-source matching
+  needs corroborated identity; company/title similarity alone marks a possible duplicate,
+  not an exclusion. Preserve all provenance and application records without posting links.
+- Define a total deep-read budget K, with explicit ranked, low-rank audit and unresolved
+  allocations summing to K. Specify multi-role coverage, deterministic tie breaks and
+  unused-slot redistribution. Audit samples use a recorded random seed and known sampling
+  probabilities. Include confident low-ranked cases, not only uncertain results.
+- Define bounded replacements when post-selection application/source checks invalidate a
+  row. Report slots selected, actually read, invalidated and unfilled separately. Tool,
+  token/time and monetary ceilings include validation and replacement work; K is not a
+  promise that unlimited calls will fill it.
+- Define deferred aging, retry due times, maximum waiting-time alert thresholds and what
+  happens when arrivals exceed capacity. Age must participate in service allocation;
+  displaying age alone does not prevent starvation. No claim that every row is eventually
+  read unless a capacity/queue policy actually supports it.
+- Use a persisted fixed selection batch (ordered identities plus assessment/input versions)
+  for stable pagination and same-batch resume; live score changes cannot reorder its pages.
+  Before recommendation, revalidate current content, source and application state. A
+  changed row is stale/review-needed, not silently replaced with a different JD version.
+- A selection batch records selection, not reading or delivery. Without a consumer
+  acknowledgement/delivery ledger, another day's run may repeat selected jobs; do not
+  permanently suppress jobs merely because they were offered. Same-run deduplication is
+  required. Persistent cross-day reviewed/delivered suppression belongs to #95 or a
+  separately approved minimal acknowledgement design; do not add MCP writes implicitly.
+  Rollout must either accept measured repetition explicitly or resolve that dependency.
+
+## Assessment identity, failures and isolation
+
+- Identity covers company/title/location/JD, approved candidate facts/preferences,
+  extractor/prompt/schema versions where applicable, question/rubric/weight versions,
+  provider and resolved model. Changing weights can recombine cached dimensions only
+  when their semantics/inputs are unchanged. Missing identity cannot claim cache validity.
+- Capture versions before a call and compare them before publishing a current result.
+  A delayed old result remains inspectable but cannot overwrite a newer current result.
+  Duplicate completion/resume is idempotent. Source/application closure independently
+  affects selection even when the content hash has not changed.
+- Validate exact question IDs, cardinality, allowed answers, finite score ranges and
+  model identity. Missing, duplicated or unknown answers are integrity failures, not
+  zero scores or implicit passes. Untrusted JD instructions cannot alter the rubric,
+  call tools or obtain private files; send only approved minimized candidate facts.
+- Opportunity ambiguity routes to review/defer. Malformed evidence fails visibly per
+  item. Authentication/configuration/model mismatch circuits break the batch. Timeouts,
+  429 and transient failures use bounded backoff within total attempt/cost/time limits.
+  Resume must not reset these counters or duplicate paid calls already recorded complete.
+- Partial responses and ambiguous delivery count as spent attempts even if no usable
+  score returns. Unknown actual provider cost is reported explicitly and stops further
+  calls when the remaining approved budget cannot be established safely.
+- Providers and clocks are injected. SQLite writes stay on the owning thread with short
+  transactions, WAL and busy timeout; never hold a transaction across network inference.
+  Prisma owns any new schema. Default-off isolation and unranked MCP access survive
+  missing credentials, provider failures and rollback.
+
+## Evaluation phases and promotion evidence
+
+The 120-row pilot checks mechanics, input coverage, cost and initial failure modes; it
+cannot authorize deployment. Runtime acceptance is a separate multi-day campaign.
+
+1. Freeze source/profile versions and a labeling guide before judging variants. Labels
+   answer whether the original JD deserves deep review, with positive/negative/unresolved
+   evidence and an adjudication process. Labelers are blind to rank/provider output.
+2. Compare direct JEV and extraction-plus-JEV against deterministic recency/role-coverage
+   selection and the actual current GPT workflow under the same final-review budget.
+   Measure end-to-end useful recommendations, misses and total cost, not only cheap scores.
+3. Use development and untouched held-out days, grouping duplicate/near-duplicate
+   requisitions and shared templates to avoid leakage. Report removed overlaps. Preserve
+   complete daily candidate pools for recall@K; do not calculate deployment recall on a
+   small randomly split subset with artificially easier competition for K slots.
+4. For acceptance, label the full daily pools or predeclare a probability sample with
+   inclusion probabilities, weighted estimates and confidence intervals. Top-K plus
+   convenience audits cannot establish population recall. Report unresolved labels,
+   denominators, positive counts, rare-role coverage and days above the reading budget.
+5. Lock thresholds, allocations and the miss tolerance before held-out results. Repeated
+   draws include cutoff-near, confident-low, long-JD and hybrid cases; do not select the
+   best draw. If intervals/sample size cannot establish the target, report inconclusive,
+   not PASS. Include per-field errors and existing applicable hard-invariant gates.
+6. Gate promotion on useful-opportunity recall, source/eligibility safety, total resource
+   savings and unattended workflow acceptance. Specify monitoring intervals, drift/miss
+   triggers and rollback to bounded unranked retrieval; rollback does not delete evidence.
+
+## Delivery sequence and assignment gates
+
+Each child issue carries its own acceptance cases and blocking dependencies. No issue
+creation grants provider spend, production activation or approval of unresolved design.
+
+1. Orchestrator locks the contracts, candidate-fact source, rubric, provider/model,
+   schema ownership, allocations and campaign budgets. Scoped offline-tool approval may
+   precede model choice; remaining dependent slices stay blocked explicitly.
+2. Luna builds a provider-free frozen-pool evaluation/replay path, with synthetic fixtures,
+   baseline selection, grouped splits, label validation and coverage/cost reports.
+3. Luna adds an isolated default-off shadow assessment path with direct/extracted variants,
+   identity validation, durable attempt limits and fake-provider failure/resume tests.
+4. Orchestrator runs only explicitly authorized pilots/campaigns and records go/no-go.
+   A rejected or inconclusive approach stops dependent production implementation.
+5. If selected, Luna delivers versioned assessment persistence through read-only MCP and
+   UI, with stale-result protection; no live provider activation is implied.
+6. Luna delivers bounded daily selection batches through MCP/UI, queue aging, application
+   deduplication, replacement accounting and cross-day limitation visibility.
+7. Orchestrator accepts unattended shadow operation, monitoring and rollback, then seeks
+   the separately scoped runtime activation decision. This does not auto-close #94/#96.
 
 ## Principles, alternatives and open decisions
 
@@ -126,6 +248,21 @@ Fantasy adapter's task accuracy or thresholds as ATS evidence.
 Open for operator approval: provider and pinned model, input variant, exact rubric and
 candidate-fact source, recall/miss tolerance, deep-read allocation, experiment budget and
 runtime scheduling. No new API dependency, paid experiment or production mode is enabled.
+
+## Implementation issue map
+
+Issue bodies own readiness and acceptance; this table records dependency order.
+All implementation slices require their scoped design approval first.
+
+| Issue | Owner | Dependencies |
+|---|---|---|
+| [#109: Lock preselection contracts and scoped implementation gates](https://github.com/drink970082/job-matchbook/issues/109) | Orchestrator | None (planning only) |
+| [#110: Build an offline preselection evaluation and daily-pool replay path](https://github.com/drink970082/job-matchbook/issues/110) | Luna/max | #109 |
+| [#111: Add an isolated bounded JEV shadow assessment workflow](https://github.com/drink970082/job-matchbook/issues/111) | Luna/max | #109, #110 |
+| [#112: Evaluate preselection in shadow and record a go/no-go decision](https://github.com/drink970082/job-matchbook/issues/112) | Orchestrator | #109, #110, #111; #94 live gate |
+| [#113: Expose versioned preselection assessments through MCP and inventory UI](https://github.com/drink970082/job-matchbook/issues/113) | Luna/max | #109, #112 GO |
+| [#114: Deliver bounded daily review batches with deferred-queue coverage](https://github.com/drink970082/job-matchbook/issues/114) | Luna/max | #109, #113 |
+| [#115: Accept unattended preselection rollout and bounded rollback](https://github.com/drink970082/job-matchbook/issues/115) | Orchestrator | #112, #113, #114; #94 |
 
 ## Primary references
 

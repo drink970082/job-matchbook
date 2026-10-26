@@ -12,6 +12,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Define aggressive role classification and optional JEV ranking before deep Daily
   Brief review, with recall audits and bounded evaluation. No model calls or rollout
   selected; provider, rubric, acceptance targets and experiment budget remain open.
+  The design specifies daily pool/queue boundaries, version races, bounded failures
+  and separate pilot/held-out acceptance gates. [Contract gate #109](https://github.com/drink970082/job-matchbook/issues/109)
+  precedes implementation/evaluation slices #110–#115; their issue bodies own readiness.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
