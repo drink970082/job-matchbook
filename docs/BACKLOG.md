@@ -15,8 +15,6 @@ session boot path. Revalidate an entry against current code and data before sele
   when no scorer runs. Large legacy backfill counts require fresh dry-runs.
 - **Intake policy:** inspect title/location/age gates before moving preferences to
   ChatGPT. Cutting discovery to match the old fit budget is not the product priority.
-- **Visibility:** show unscored jobs, standalone screen evidence and unknown/provider
-  error states; expose queue counts and source/assessment freshness. Part of R1.
 - **Usage telemetry:** the generic combined pipeline still has best-effort HTTP snapshot
   capture with intermittent 403 failures; screen-only bypasses it. Host-only monitoring
   must not be mistaken for a shipped generic telemetry fix or a hard spend limit.

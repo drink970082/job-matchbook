@@ -73,7 +73,6 @@ fields before a Brief can report source freshness from stored data.
 
 ## R3 — ChatGPT workflow acceptance
 
-#90 starts early with a small manual ATS+web research sample and records tool friction.
 #94 validates an actual unattended task after the retrieval/UI batches. Durable private
 preferences, full JD reading, application-history deduplication without posting links,
 unknown sponsorship/pay and source failure reporting are required. Company/title similarity
