@@ -32,7 +32,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Scheduled management interface; issue #94 still needs a task created in ChatGPT web
   or desktop and one observed unattended run. The current tool contract also lacks a
   standalone-screen update window and source-freshness timestamp, so that coverage must
-  be reported unavailable unless the Scheduled task exposes a newer contract.
+  be reported unavailable unless the Scheduled task exposes a newer contract. Create
+  the task from a regular chat rather than a Project so it can access the attached
+  private preference and résumé files; exact 20:00 delivery depends on account eligibility.
   Interactive access is not acceptance.
 
 These references reserve unfinished work; they do not claim the branches are currently

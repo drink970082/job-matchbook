@@ -10,16 +10,21 @@ Scheduled view and run history.
 
 1. In ChatGPT web or the desktop app, open Scheduled and create a daily task at
    **20:00 America/New_York**. Confirm the displayed timezone and next run in the
-   Scheduled view; keep the timezone aligned through daylight-saving changes.
+   Scheduled view; keep the timezone aligned through daylight-saving changes. Exact
+   delivery times depend on plan and account availability. If 20:00 cannot be selected,
+   record that criterion as unavailable rather than substituting an approximate time.
 2. Use a regular ChatGPT chat first to exercise the prompt and connected tools. The
    ATS MCP tunnel and web search must both be available to the eventual scheduled chat.
    A successful interactive run does not prove the task can reach either source.
-3. Attach the private candidate-preferences file and the chosen résumé version to the
-   task, or put the same private material in the task's private instructions. Do not
-   commit those materials or paste them into a public report. A Scheduled web task can
-   use files uploaded to the chat and connected tools, but it cannot read a local folder;
-   see the [official Scheduled tasks guide](https://learn.chatgpt.com/docs/automations).
-4. Keep the task read-only. Do not enable a write tool, submit an application, contact
+3. Create the task from a regular chat, not inside a Project. Scheduled tasks created in
+   a Project cannot access files uploaded to that Project or files stored there. Attach
+   the private candidate-preferences file and the chosen résumé version to the regular
+   task chat. Do not commit those materials or paste them into a public report. The task
+   cannot read a local folder; see the [official Scheduled tasks guide](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt).
+4. Confirm the actual scheduled run can use the read-only ATS MCP connection and web
+   search. Connected-app support depends on account and workspace permissions; an
+   interactive run does not establish scheduled access.
+5. Keep the task read-only. Do not enable a write tool, submit an application, contact
    an employer, change the watchlist, or save a recommendation ledger.
 
 ## Example task instructions
@@ -131,25 +136,30 @@ failed, or not exercised:
 - No application state, ATS data, worker, service, or paid model evaluation changed as
   a side effect.
 
-## Interactive preflight (2026-10-23; not Scheduled acceptance)
+## Interactive preflight (2026-10-25; not Scheduled acceptance)
 
-- The connected ATS overview succeeded. A filtered postings query followed two keyset
-  pages through exhaustion; a separate broad query still had more rows after page two,
-  so it was correctly left marked incomplete. Application listing returned its only
-  page, including records without posting links.
-- The literal **__daily_brief_empty_probe__** returned zero rows and no next cursor.
-- A full ATS description was read through multiple chunks to its reported end, and the
-  corresponding official employer page was checked. Application comparison included
-  rows without posting links; exact URL equality was the confirmation rule, while
-  company/title similarity remained only a probable signal. No application IDs, notes,
-  résumé text, or full job description are recorded here.
+- `get_ats_overview` succeeded and reported live counts of 7,615 postings and 39
+  applications. The literal **__daily_brief_empty_probe__** returned zero rows and no
+  next cursor; this is only an empty-result probe, not evidence that the ATS has no jobs.
+- An unfiltered `list_jobs` query returned 100 rows on each of its first two pages. The
+  second page was requested with the exact `next_cursor` from the first, and it still
+  reported more rows. The traversal was left explicitly incomplete; no completeness
+  claim is made for the inventory.
+- A long posting description was read in two chunks (16,000 and 10,615 characters) to
+  the server's reported end. No job ID or description text is recorded here.
+- The application list returned 39 rows in one page with no next cursor. This run did
+  not repeat application-to-posting identity comparisons; the task must still compare
+  exact linked identity or official URL and mark title/company similarity as probable.
 - The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
-  was treated as an access failure, not an empty result or closure.
-- The connected tool lacks the screening-update query window and source-freshness field
-  noted above. The exact recent-screening slice and source check time therefore remain
-  unknown in this interactive preflight.
-- No Scheduled task or unattended run was created or observed. This preflight is not
-  acceptance for issue #94; use the task's own run history to complete the checklist.
+  was treated as a source failure, not an empty result or confirmed closure.
+- The current `list_jobs` contract has no standalone-screen update-time filter or source
+  freshness summary. A returned posting has no source-check timestamp. Recent screen
+  coverage and source freshness must therefore be reported unavailable/unknown unless
+  the Scheduled task exposes a newer contract.
+- This Codex toolset has read-only ATS MCP tools but no ChatGPT Scheduled task manager.
+  No Scheduled task or unattended run was created or observed. This preflight is not
+  acceptance for issue #94; create the task in ChatGPT and complete the checklist from
+  its own run history.
 
 ## Run record
 
