@@ -211,6 +211,15 @@ cannot authorize deployment. Runtime acceptance is a separate multi-day campaign
    savings and unattended workflow acceptance. Specify monitoring intervals, drift/miss
    triggers and rollback to bounded unranked retrieval; rollback does not delete evidence.
 
+## Candidate data prerequisite
+
+Before #109 starts, the operator prepares and approves the private six-file
+[candidate input package](2026-10-26-candidate-input-package.md) in ChatGPT web.
+JEV receives a later versioned projection of unified facts and current preferences;
+downstream ChatGPT chooses between the two preserved semi-customized resumes. Legacy
+profile/config are reviewed inputs, not automatically active policy. This preparation
+provides candidate inputs only, not evaluation labels, a selected model or spend approval.
+
 ## Delivery sequence and assignment gates
 
 Each child issue carries its own acceptance cases and blocking dependencies. No issue
