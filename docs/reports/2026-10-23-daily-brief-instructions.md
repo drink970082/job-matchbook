@@ -16,11 +16,14 @@ Scheduled view and run history.
 2. Use a regular ChatGPT chat first to exercise the prompt and connected tools. The
    ATS MCP tunnel and web search must both be available to the eventual scheduled chat.
    A successful interactive run does not prove the task can reach either source.
-3. Create the task from a regular chat, not inside a Project. Scheduled tasks created in
-   a Project cannot access files uploaded to that Project or files stored there. Attach
-   the private candidate-preferences file and the chosen résumé version to the regular
-   task chat. Do not commit those materials or paste them into a public report. The task
-   cannot read a local folder; see the [official Scheduled tasks guide](https://help.openai.com/en/articles/10291617-scheduled-tasks-in-chatgpt).
+3. Put the private candidate preferences and chosen résumé where the scheduled context
+   can access them. ChatGPT web Scheduled tasks can use uploaded files and connected
+   tools available to that chat; attach the private files to the task or use an accessible
+   connected source. Web tasks cannot read a local folder. The ChatGPT desktop app can run
+   scheduled tasks in a local project directory or isolated worktree; the computer and app
+   must remain available. Verify file access in the actual scheduled context. Do not commit
+   the private materials or paste them into a public report. See the [official Scheduled
+   tasks guide](https://learn.chatgpt.com/docs/automations).
 4. Confirm the actual scheduled run can use the read-only ATS MCP connection and web
    search. Connected-app support depends on account and workspace permissions; an
    interactive run does not establish scheduled access.
@@ -53,11 +56,13 @@ Scheduled view and run history.
       pages and apply the exact cutoff to returned timestamps. Include eligible
       unscored postings and advisory screening outcomes; screening is not fit or a
       recommendation. Follow every next_cursor for each filter set and report when
-      pagination is incomplete. The interactive tool contract checked on 2026-10-23
-      had inclusive YYYY-MM-DD created/posted filters, but no standalone-screen update
-      window filter and no source-freshness timestamp in list results. If the Scheduled
-      task has the same contract, state that screen-update coverage is unavailable and
-      freshness is unknown; do not claim complete 72-hour incremental coverage.
+      pagination is incomplete. The connected tool schema rechecked on 2026-10-25 had
+      inclusive YYYY-MM-DD created/posted filters, but no standalone-screen update window
+      filter. A live row returned in that session also had no source-lifecycle summary or
+      source-check timestamp, despite the source-lifecycle code now being merged in the
+      repo. If the Scheduled task has the same contract, state that screen-update coverage
+      is unavailable and source freshness is unknown; do not claim complete 72-hour
+      incremental coverage.
     - Also retrieve and paginate application records. Use linked posting identity or
       exact official URL equality to confirm a prior application. Without a link or
       exact URL, company/title similarity is only a probable duplicate: flag it for
@@ -152,14 +157,16 @@ failed, or not exercised:
   exact linked identity or official URL and mark title/company similarity as probable.
 - The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
   was treated as a source failure, not an empty result or confirmed closure.
-- The current `list_jobs` contract has no standalone-screen update-time filter or source
-  freshness summary. A returned posting has no source-check timestamp. Recent screen
-  coverage and source freshness must therefore be reported unavailable/unknown unless
-  the Scheduled task exposes a newer contract.
-- This Codex toolset has read-only ATS MCP tools but no ChatGPT Scheduled task manager.
-  No Scheduled task or unattended run was created or observed. This preflight is not
-  acceptance for issue #94; create the task in ChatGPT and complete the checklist from
-  its own run history.
+- The connected `list_jobs` schema has no standalone-screen update-time filter. A live
+  posting row returned after PR #101 merged still had no source-lifecycle summary or
+  source-check timestamp. The connected tunnel therefore does not currently expose the
+  source-freshness fields in the merged repo implementation; report freshness as unknown
+  until the actual Scheduled connection returns those fields.
+- This Codex CLI session has read-only ATS MCP tools but no Scheduled management
+  interface. The [official Scheduled tasks guide](https://learn.chatgpt.com/docs/automations)
+  says to create and manage tasks in ChatGPT web or desktop. No Scheduled task or
+  unattended run was created or observed here. This preflight is not acceptance for issue
+  #94; use the actual Scheduled run history to complete the checklist.
 
 ## Run record
 

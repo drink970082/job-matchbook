@@ -21,9 +21,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Add public instructions, interactive preflight evidence, and an unattended acceptance
   checklist for the scheduled Daily Brief. They distinguish interactive access from an
-  actual run and document the current ATS tool gap for screen-update windows and source
-  freshness, alongside requirements for full-JD evidence, visible failures, cutoffs,
-  and conservative application deduplication.
+  actual run, use current ChatGPT Scheduled guidance for uploaded files and connected
+  tools, and document that the connected ATS tunnel still lacks a screen-update window
+  and source-lifecycle summary after the repository implementation merged. The checklist
+  covers full-JD evidence, visible failures, cutoffs, and conservative application
+  deduplication.
 
 - Add an All jobs inventory view as the Discovered Jobs default, with a direct non-removed
   list/count query, stable discovery-recency order, literal metadata/all-text filters,
