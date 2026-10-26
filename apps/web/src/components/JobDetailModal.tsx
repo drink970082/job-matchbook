@@ -15,6 +15,7 @@ import { verdictClass, safeParseDetail, parseAssessment } from '@/lib/score-deta
 import type { Assessment } from '@/lib/score-detail'
 import type { JobPosting } from './DiscoveredJobsTable'
 import type { ScreenOutcome } from '@/lib/screen-summary'
+import { TRIAGE_STATUS_LABELS } from '@/lib/triage-summary'
 
 interface JobDetailModalProps {
     isOpen: boolean
@@ -73,7 +74,7 @@ function parseScoreDetail(raw?: string | null): ScoreDetail | null {
 
 function standaloneOutcomeLabel(outcome?: ScreenOutcome): string {
     switch (outcome) {
-        case 'not_screened': return 'Not screened'
+        case 'not_screened': return 'No standalone record'
         case 'provider_error': return 'Provider error'
         case 'disqualified': return 'Disqualified'
         case 'no_disqualifier_found': return 'No disqualifier found'
@@ -185,6 +186,21 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                         </div>
                     )}
 
+                    {job.triage_summary && (
+                        <div className="rounded-md border p-3 space-y-1.5">
+                            <div className="text-xs font-semibold text-muted-foreground">Job triage</div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="secondary">
+                                    {TRIAGE_STATUS_LABELS[job.triage_summary.status]}
+                                </Badge>
+                                <span className="text-sm text-muted-foreground">{job.triage_summary.reason}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Evidence: {job.triage_summary.provenance}. Candidate status means retained for fit research, not qualified.
+                            </p>
+                        </div>
+                    )}
+
                     <div className="rounded-md border p-3 space-y-1.5">
                         <div className="text-xs font-semibold text-muted-foreground">Standalone advisory screen</div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -194,7 +210,7 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                             )}
                         </div>
                         {job.screen_summary?.origin === 'none' && (
-                            <p className="text-xs text-muted-foreground">No standalone screen record exists.</p>
+                            <p className="text-xs text-muted-foreground">No standalone record.</p>
                         )}
                         {(job.screen_summary?.backend || job.screen_summary?.model || job.screen_summary?.effort || job.screen_summary?.assessment_time) && (
                             <p className="text-xs text-muted-foreground">

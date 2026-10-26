@@ -1,0 +1,527 @@
+{
+  "cases": [
+    {
+      "name": "standalone_rule_location_on_new_row",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"Synthetic location mismatch\"}},\"disqualified\":true,\"disqualification_reason\":\"location: synthetic mismatch\"}"
+      },
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_rule_internship_on_new_row",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"internships\":{\"pass\":false,\"note\":\"internship/co-op role\"}},\"disqualified\":true}"
+      },
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_model_rejection",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"authorization\":{\"pass\":false,\"note\":\"Synthetic sponsorship check\"}},\"disqualified\":true}"
+      },
+      "expected_status": "screen_disqualified",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_rule_plus_model_rejection",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"Synthetic location mismatch\"},\"degree\":{\"pass\":true,\"note\":\"Synthetic degree check\"}},\"disqualified\":true}"
+      },
+      "expected_status": "screen_disqualified",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_candidate_new",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"note\":\"Synthetic check\"}},\"disqualified\":false}"
+      },
+      "expected_status": "candidate",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_candidate_scored_with_fit_record",
+      "pipeline_status": "scored",
+      "score_detail_raw": "{\"assessment\":{\"seniority\":{\"verdict\":\"match\"}},\"backend\":\"synthetic-fit\",\"model\":\"fixture-model\",\"scorer_version\":\"fixture-v1\"}",
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "candidate",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_candidate_notified",
+      "pipeline_status": "notified",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "candidate",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_candidate_after_manual_apply",
+      "pipeline_status": "applied",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_candidate_failed_lifecycle",
+      "pipeline_status": "failed",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_provider_error",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "provider_error",
+        "result_json_raw": null,
+        "error_message": "Synthetic private error text must not be exposed"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_malformed_json",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{malformed"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_screen_is_array",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":[{\"pass\":false}],\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_boolean_is_string",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":\"false\"}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_missing_pass_mixed_with_valid_check",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true},\"clearance\":{}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_null_pass_mixed_with_valid_check",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true},\"clearance\":{\"pass\":null}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_string_pass_mixed_with_valid_check",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true},\"clearance\":{\"pass\":\"true\"}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_scalar_check_value",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":true},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_disqualified_false_with_failure",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":false}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_unrecognized_check",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"future_requirement\":{\"pass\":false}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_current_pass_over_legacy_rule_on_terminal_row",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"Synthetic legacy failure\"}},\"disqualified\":true,\"disqualification_reason\":\"location: synthetic failure\"}",
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_error_over_legacy_rule",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"internships\":{\"pass\":false}},\"disqualified\":true}",
+      "screening": {
+        "state": "provider_error",
+        "result_json_raw": null,
+        "error_message": "Synthetic private error text must not be exposed"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "legacy_rule_location",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"Synthetic location mismatch\"}},\"disqualified\":true,\"disqualification_reason\":\"location: synthetic mismatch\"}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_rule_internship_with_source_revision",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"internships\":{\"pass\":false,\"note\":\"internship/co-op role\"}},\"disqualified\":true,\"disqualification_reason\":\"internship/co-op role\",\"source_content_revision\":3}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_model_rejection",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"degree\":{\"pass\":false,\"note\":\"Synthetic degree check\"}},\"disqualified\":true,\"disqualification_reason\":\"Synthetic model rejection\"}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_rule_with_fit_assessment",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"assessment\":{\"seniority\":{\"verdict\":\"too_senior\"}}}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_rule_with_fit_provenance",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"backend\":\"synthetic-fit\",\"model\":\"fixture-model\",\"scorer_version\":\"fixture-v1\"}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "discarded_without_screen_evidence",
+      "pipeline_status": "discarded",
+      "score_detail_raw": null,
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "pipeline_status"
+    },
+    {
+      "name": "fit_candidate_without_standalone_screen",
+      "pipeline_status": "scored",
+      "score_detail_raw": "{\"assessment\":{\"seniority\":{\"verdict\":\"match\"}},\"backend\":\"synthetic-fit\",\"model\":\"fixture-model\",\"scorer_version\":\"fixture-v1\"}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "no_assessment_evidence",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "none"
+    },
+    {
+      "name": "discarded_legacy_rule_outside_terminal_state",
+      "pipeline_status": "new",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "unknown_pipeline_status_with_candidate_evidence",
+      "pipeline_status": "future_status",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "unknown_pipeline_status_with_standalone_rule_evidence",
+      "pipeline_status": "future_status",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "unknown_pipeline_status_with_legacy_rule_evidence",
+      "pipeline_status": "future_status",
+      "score_detail_raw": "{\"screen\":{\"internships\":{\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "standalone_duplicate_root_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true}},\"disqualified\":false,\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_screen_check_key",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":false},\"degree\":{\"pass\":true}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_nested_pass_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"pass\":false}},\"disqualified\":true}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "standalone_duplicate_nested_note_member",
+      "pipeline_status": "new",
+      "score_detail_raw": null,
+      "screening": {
+        "state": "complete",
+        "result_json_raw": "{\"screen\":{\"degree\":{\"pass\":true,\"note\":\"first\",\"note\":\"second\"}},\"disqualified\":false}"
+      },
+      "expected_status": "needs_review",
+      "expected_provenance": "job_screenings"
+    },
+    {
+      "name": "legacy_duplicate_root_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"disqualified\":false}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_screen_check_key",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false},\"location\":{\"pass\":true}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_nested_pass_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":true,\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_duplicate_nested_note_member",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false,\"note\":\"first\",\"note\":\"second\"}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_integer_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_decimal_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3.0}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_exponent_three",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3e0}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_max_safe_integer",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9007199254740991}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_max_safe_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9.007199254740991e15}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unsafe_integer",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9007199254740992}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unsafe_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":9.007199254740992e15}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_fractional_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":3.0000000000000004e0}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_unbounded_exponent",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":1e309}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_boolean",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":true}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_null",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":null}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_negative",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":-3}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_zero",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true,\"source_content_revision\":0}",
+      "screening": null,
+      "expected_status": "needs_review",
+      "expected_provenance": "job_postings.score_detail"
+    },
+    {
+      "name": "legacy_revision_missing",
+      "pipeline_status": "discarded",
+      "score_detail_raw": "{\"screen\":{\"location\":{\"pass\":false}},\"disqualified\":true}",
+      "screening": null,
+      "expected_status": "rule_disqualified",
+      "expected_provenance": "job_postings.score_detail"
+    }
+  ]
+}

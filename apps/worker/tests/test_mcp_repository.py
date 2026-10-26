@@ -14,8 +14,91 @@ from ats_worker.mcp.read_repository import (
     QueryInputError,
     ReadOnlyATSRepository,
     RecordNotFound,
+    job_triage_summary,
 )
 from tests._helpers import FIXTURES, bootstrap_db
+
+
+def test_job_triage_contract_fixture():
+    fixture = json.loads((FIXTURES / "job_triage_contract.json").read_text())
+    for case in fixture["cases"]:
+        screening = case["screening"]
+        if screening is not None:
+            screening = {
+                "id": 1,
+                "state": screening["state"],
+                "result_json": screening["result_json_raw"],
+                "error_message": screening.get("error_message"),
+            }
+        summary = job_triage_summary(
+            case["pipeline_status"], case["score_detail_raw"], screening)
+        assert summary["status"] == case["expected_status"], case["name"]
+        assert summary["provenance"] == case["expected_provenance"], case["name"]
+        assert isinstance(summary["reason"], str) and len(summary["reason"]) <= 300
+        assert "Synthetic private error text" not in summary["reason"]
+
+
+def test_job_triage_filter_summary_and_overview_share_one_partition(db_path):
+    fixture = json.loads((FIXTURES / "job_triage_contract.json").read_text())
+    job_ids = {}
+    with sqlite3.connect(db_path) as conn:
+        for case in fixture["cases"]:
+            job_id = _job(conn, title=case["name"], status=case["pipeline_status"])
+            job_ids[case["name"]] = job_id
+            if case["score_detail_raw"] is not None:
+                conn.execute("UPDATE job_postings SET score_detail=? WHERE id=?",
+                             (case["score_detail_raw"], job_id))
+            screening = case["screening"]
+            if screening is not None:
+                _insert_screen(
+                    conn, job_id, state=screening["state"],
+                    result_json=screening["result_json_raw"],
+                    updated_at="2026-10-22T10:20:30.000Z",
+                )
+
+    repo = ReadOnlyATSRepository(db_path)
+    listing = repo.list_jobs(limit=100)
+    by_id = {item["id"]: item for item in listing["items"]}
+    for case in fixture["cases"]:
+        item = by_id[job_ids[case["name"]]]
+        expected = case["expected_status"]
+        assert item["triage_summary"]["status"] == expected, case["name"]
+        assert item["triage_summary"]["provenance"] == case["expected_provenance"]
+        detail = repo.get_job(job_ids[case["name"]])
+        assert detail["triage_summary"] == item["triage_summary"]
+
+    assert by_id[job_ids["standalone_unrecognized_check"]]["screen_summary"]["outcome"] == "disqualified"
+    assert by_id[job_ids["no_assessment_evidence"]]["screen_summary"]["outcome"] == "not_screened"
+    # Triage rejects ambiguous duplicate members while the established raw screen outcome
+    # retains its existing SQLite JSON-path interpretation.
+    assert by_id[job_ids["standalone_duplicate_root_member"]]["screen_summary"]["outcome"] == "no_disqualifier_found"
+
+    for status in {case["expected_status"] for case in fixture["cases"]}:
+        expected_ids = {
+            job_ids[case["name"]] for case in fixture["cases"]
+            if case["expected_status"] == status
+        }
+        filtered = repo.list_jobs(triage_status=status, limit=100)
+        assert {row["id"] for row in filtered["items"]} == expected_ids
+
+    # Later needs-review rows exist above candidate rows in the normal DESC order.
+    # This proves the SQL triage predicate runs before keyset LIMIT.
+    candidate_page = repo.list_jobs(triage_status="candidate", limit=1)
+    assert candidate_page["items"][0]["id"] == job_ids["standalone_candidate_notified"]
+    assert candidate_page["has_more"] is True
+    assert len(repo.list_jobs(triage_status="candidate", limit=100)["items"]) == 3
+
+    overview = repo.get_ats_overview()["job_triage_counts"]
+    counts = {row["status"]: row["count"] for row in overview["counts"]}
+    assert overview["scope"] == "all job_postings"
+    assert sum(counts.values()) == len(fixture["cases"])
+    assert counts == {
+        status: sum(case["expected_status"] == status for case in fixture["cases"])
+        for status in ("rule_disqualified", "screen_disqualified", "candidate", "needs_review")
+    }
+
+    with pytest.raises(QueryInputError, match="triage_status"):
+        repo.list_jobs(triage_status="not_screened")
 
 
 def _job(conn, *, title="Engineer", company="Acme", status="new", description="JD",
