@@ -81,6 +81,18 @@ function standaloneOutcomeLabel(outcome?: ScreenOutcome): string {
     }
 }
 
+function sourceFreshnessLabel(value?: string): string {
+    if (value === 'current') return 'Current'
+    if (value === 'stale') return 'Stale: assessment uses older source content'
+    if (value === 'unknown') return 'Unknown: source revision was not recorded'
+    if (value === 'provider_error') return 'Provider error'
+    return 'Not assessed'
+}
+
+function sourceDate(value?: string | null): string | null {
+    return value ? value.slice(0, 10) : null
+}
+
 export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard, onReopen }: JobDetailModalProps) {
     const [showDetails, setShowDetails] = useState(false)
     const detail = parseScoreDetail(job.score_detail)
@@ -131,6 +143,45 @@ export function JobDetailModal({ isOpen, onClose, job, onMarkApplied, onDiscard,
                                 Recommended resume
                             </span>
                             <Badge variant="secondary">{detail.recommendedResume}</Badge>
+                        </div>
+                    )}
+
+                    {job.source_lifecycle && (
+                        <div className="rounded-md border p-3 space-y-1.5">
+                            <div className="text-xs font-semibold text-muted-foreground">Source evidence</div>
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                                <Badge variant="outline">{job.source_lifecycle.state === 'available'
+                                    ? 'Available at source'
+                                    : job.source_lifecycle.state === 'closed' ? 'Confirmed closed' : 'Source state unknown'}</Badge>
+                                {job.source_lifecycle.content_revision != null && (
+                                    <span className="text-xs text-muted-foreground">
+                                        Content revision {job.source_lifecycle.content_revision}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                {job.source_lifecycle.last_check_outcome === 'inconclusive'
+                                    ? `Latest detail attempt inconclusive${job.source_lifecycle.last_check_error_category
+                                        ? ` (${job.source_lifecycle.last_check_error_category})` : ''}` +
+                                        (job.source_lifecycle.last_check_attempted_at
+                                            ? ` · Attempted ${sourceDate(job.source_lifecycle.last_check_attempted_at)}` : '') +
+                                        (job.source_lifecycle.last_checked_at
+                                            ? ` · Last conclusive detail check ${sourceDate(job.source_lifecycle.last_checked_at)}`
+                                            : ' · no prior conclusive detail check')
+                                    : job.source_lifecycle.last_checked_at
+                                        ? `Last conclusive detail check ${sourceDate(job.source_lifecycle.last_checked_at)}`
+                                        : 'No conclusive detail check'}
+                                {job.source_lifecycle.last_seen_at &&
+                                    ` · Last seen ${sourceDate(job.source_lifecycle.last_seen_at)}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Fit freshness: {sourceFreshnessLabel(job.source_lifecycle.fit_freshness)}
+                                {' · '}Standalone screen: {sourceFreshnessLabel(job.source_lifecycle.screen_freshness)}
+                                {job.legacy_screen_evidence?.available && (
+                                    <> · Fit-pipeline screen: {sourceFreshnessLabel(
+                                        job.source_lifecycle.combined_screen_freshness)}</>
+                                )}
+                            </p>
                         </div>
                     )}
 

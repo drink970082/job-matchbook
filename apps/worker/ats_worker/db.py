@@ -14,6 +14,8 @@ import json
 import sqlite3
 
 from .config import RECIPE_SOURCES
+from .source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_input_hash,
+                               has_embedded_screen, has_fit_assessment)
 
 # A JD shorter than this is "low-context": too thin to trust a fit verdict on.
 # Hand-synced with apps/web/src/lib/constants.ts (LOW_CONTEXT_MAX_DESCRIPTION_LENGTH).
@@ -42,18 +44,21 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, posted_at, score_detail, pipeline_status, attempts, created_at)
+     description, posted_at, score_detail, pipeline_status, attempts, created_at,
+     source_state, source_last_seen_at, source_content_hash, source_content_revision)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, :posted_at, :score_detail, :pipeline_status, 0, :created_at)
+     :description, :posted_at, :score_detail, :pipeline_status, 0, :created_at,
+     'available', :created_at, :source_content_hash, :source_content_revision)
 ON CONFLICT(source, external_id) DO NOTHING
 """
 
 
 def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
     """Insert new postings, ignoring any whose (source, external_id) already
-    exists. Returns the number of rows actually inserted. Existing rows are
-    left untouched (we never clobber a posting mid-pipeline).
+    exists. Returns the number of rows actually inserted. Existing content and
+    pipeline state stay untouched; a repeated exact identity advances only its
+    positive source-seen timestamp/state.
     """
     inserted = 0
     for p in postings:
@@ -78,9 +83,19 @@ def upsert_postings(conn: sqlite3.Connection, postings, *, now: str) -> int:
                 "score_detail": (
                     json.dumps(p["score_detail"]) if p.get("score_detail") is not None else None
                 ),
+                "source_content_hash": assessment_input_hash(p),
+                "source_content_revision": 1 if assessment_input_hash(p) else None,
             },
         )
         inserted += cur.rowcount
+        if cur.rowcount == 0:
+            # A repeated exact identity is a positive source observation, but its
+            # content remains immutable here; refresh owns content replacement.
+            conn.execute(
+                "UPDATE job_postings SET source_state='available',source_last_seen_at=? "
+                "WHERE source=? AND external_id=?",
+                (now, p["source"], p["external_id"]),
+            )
     conn.commit()
     return inserted
 
@@ -294,7 +309,8 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
     try:
         conn.execute("BEGIN IMMEDIATE")
         eligible = conn.execute(
-            "SELECT 1 FROM job_postings WHERE id=? AND pipeline_status='new'",
+            "SELECT source_content_revision FROM job_postings "
+            "WHERE id=? AND pipeline_status='new'",
             (posting_id,),
         ).fetchone()
         if eligible is None:
@@ -303,17 +319,21 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
         conn.execute(
             "INSERT INTO job_screenings "
             "(job_posting_id,state,result_json,error_category,error_message,backend,model,"
-            "effort,evaluator_version,last_attempted_at,completed_at,created_at,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "effort,evaluator_version,last_attempted_at,completed_at,source_content_revision,"
+            "created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(job_posting_id) DO UPDATE SET "
             "state=excluded.state,result_json=excluded.result_json,"
             "error_category=excluded.error_category,error_message=excluded.error_message,"
             "backend=excluded.backend,model=excluded.model,effort=excluded.effort,"
             "evaluator_version=excluded.evaluator_version,"
             "last_attempted_at=excluded.last_attempted_at,"
-            "completed_at=excluded.completed_at,updated_at=excluded.updated_at",
+            "completed_at=excluded.completed_at,"
+            "source_content_revision=excluded.source_content_revision,"
+            "updated_at=excluded.updated_at",
             (posting_id, state, result_json, safe_category, error_message, backend, model,
              effort, evaluator_version, now, now if state == "complete" else None,
+             eligible["source_content_revision"] if state == "complete" else None,
              now, now),
         )
         conn.commit()
@@ -337,6 +357,162 @@ def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
         "ORDER BY COALESCE(updated_at,'') ASC, id ASC LIMIT ?",
         [*sources, limit],
     ).fetchall()
+
+
+_UNSCORED_REFRESH_STATES = ("new", "failed", "discarded", "expired")
+_KNOWN_PIPELINE_STATES = ("new", "scored", "notified", "applied", "discarded",
+                          "failed", "removed", "expired")
+
+
+def get_unscored_refresh_candidates(conn: sqlite3.Connection, source: str, limit: int):
+    """Return eligible unscored rows, oldest refresh attempt first.
+
+    Assessment presence is decoded in Python so malformed or legacy score_detail JSON
+    cannot crash a SQLite JSON query or masquerade as a fit assessment.
+    """
+    if not source or limit <= 0:
+        return []
+    placeholders = ",".join("?" for _ in _UNSCORED_REFRESH_STATES)
+    rows = conn.execute(
+        "SELECT * FROM job_postings WHERE source=? AND application_id IS NULL "
+        f"AND pipeline_status IN ({placeholders}) "
+        "ORDER BY COALESCE(source_last_check_attempted_at,'') ASC, id ASC",
+        [source, *_UNSCORED_REFRESH_STATES],
+    ).fetchall()
+    selected = []
+    for row in rows:
+        if has_fit_assessment(row["score_detail"]):
+            continue
+        selected.append(row)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def count_unknown_refresh_statuses(conn: sqlite3.Connection, source: str) -> int:
+    """Count source rows with lifecycle values outside the known state vocabulary."""
+    placeholders = ",".join("?" for _ in _KNOWN_PIPELINE_STATES)
+    return conn.execute(
+        f"SELECT COUNT(*) FROM job_postings WHERE source=? "
+        f"AND pipeline_status NOT IN ({placeholders})",
+        [source, *_KNOWN_PIPELINE_STATES],
+    ).fetchone()[0]
+
+
+def _source_refresh_eligible(row, expected_source: str) -> bool:
+    return (row is not None and row["source"] == expected_source
+            and row["pipeline_status"] in _UNSCORED_REFRESH_STATES
+            and row["application_id"] is None
+            and not has_fit_assessment(row["score_detail"]))
+
+
+def _attribute_legacy_assessments(conn: sqlite3.Connection, row, revision: int) -> None:
+    """Stamp unversioned existing assessments with the provable pre-change revision."""
+    if (has_fit_assessment(row["score_detail"])
+            or has_embedded_screen(row["score_detail"])):
+        try:
+            detail = json.loads(row["score_detail"])
+        except (TypeError, json.JSONDecodeError):
+            detail = None
+        if isinstance(detail, dict) and detail.get("source_content_revision") is None:
+            detail["source_content_revision"] = revision
+            conn.execute("UPDATE job_postings SET score_detail=? WHERE id=?",
+                         (json.dumps(detail, ensure_ascii=False), row["id"]))
+    screening = conn.execute(
+        "SELECT id FROM job_screenings WHERE job_posting_id=? AND state='complete' "
+        "AND source_content_revision IS NULL", (row["id"],),
+    ).fetchone()
+    if screening:
+        conn.execute("UPDATE job_screenings SET source_content_revision=? WHERE id=?",
+                     (revision, screening["id"]))
+
+
+def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
+                            expected_source: str, expected_external_id: str,
+                            observation: dict, now: str) -> bool:
+    """Apply one refresh result only while the stored row remains eligible.
+
+    The identity and eligibility checks share the write transaction. Returns False
+    when a concurrent user/status/application change made the fetched result stale.
+    """
+    state = observation.get("state") if isinstance(observation, dict) else None
+    if state not in {"available", "closed", "unknown"}:
+        state = "unknown"
+        observation = {"state": state, "error_category": "malformed_response"}
+    category = observation.get("error_category")
+    if category not in SOURCE_ERROR_CATEGORIES:
+        category = "refresh_error" if state == "unknown" else None
+    posting = observation.get("posting") if state == "available" else None
+    if state == "available":
+        identity_ok = (isinstance(posting, dict)
+                       and posting.get("source") == expected_source
+                       and str(posting.get("external_id") or "") == expected_external_id
+                       and assessment_input_hash(posting) is not None
+                       and isinstance(posting.get("job_url"), str)
+                       and bool(posting["job_url"].strip()))
+        if not identity_ok:
+            state, category, posting = "unknown", "identity_mismatch", None
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM job_postings WHERE id=?", (posting_id,)).fetchone()
+        if (not _source_refresh_eligible(row, expected_source)
+                or row["source"] != expected_source
+                or row["external_id"] != expected_external_id):
+            conn.rollback()
+            return False
+
+        if state == "unknown":
+            conn.execute(
+                "UPDATE job_postings SET source_last_check_attempted_at=?,"
+                "source_last_check_outcome='inconclusive',"
+                "source_last_check_error_category=? WHERE id=?",
+                (now, category, posting_id),
+            )
+        elif state == "closed":
+            conn.execute(
+                "UPDATE job_postings SET source_state='closed',"
+                "source_last_check_attempted_at=?,source_last_checked_at=?,"
+                "source_last_check_outcome='confirmed_closed',"
+                "source_last_check_error_category=NULL WHERE id=?",
+                (now, now, posting_id),
+            )
+        else:
+            old_values = {
+                "company_name": row["company_name"], "job_title": row["job_title"],
+                "location": row["location"], "description": row["description"],
+            }
+            old_hash = row["source_content_hash"] or assessment_input_hash(old_values)
+            new_hash = assessment_input_hash(posting)
+            old_revision = row["source_content_revision"]
+            old_revision = int(old_revision) if old_revision is not None else (1 if old_hash else None)
+            if old_hash and old_hash == new_hash:
+                revision = old_revision or 1
+                changed_at = row["source_content_changed_at"]
+            elif old_hash:
+                revision = (old_revision or 1) + 1
+                changed_at = now
+                _attribute_legacy_assessments(conn, row, old_revision or 1)
+            else:
+                revision = (old_revision or 0) + 1
+                changed_at = now
+
+            conn.execute(
+                "UPDATE job_postings SET company_name=?,job_title=?,location=?,job_url=?,"
+                "description=?,source_state='available',source_last_seen_at=?,"
+                "source_last_check_attempted_at=?,source_last_checked_at=?,"
+                "source_last_check_outcome='found',source_last_check_error_category=NULL,"
+                "source_content_hash=?,source_content_revision=?,source_content_changed_at=? "
+                "WHERE id=?",
+                (posting["company_name"], posting["job_title"], posting.get("location"),
+                 posting["job_url"], posting["description"], now, now, now, new_hash,
+                 revision, changed_at, posting_id),
+            )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def get_notifiable(conn: sqlite3.Connection):
@@ -393,9 +569,16 @@ def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
     # recovered from a prior score failure (e.g. via a run_retry requeue)
     # doesn't carry a stale error string — mirrors mark_notified's clear on
     # the notify side.
+    detail = dict(score_detail)
+    row = conn.execute(
+        "SELECT source_content_revision FROM job_postings WHERE id=?", (posting_id,)
+    ).fetchone()
+    if ((has_fit_assessment(json.dumps(detail)) or isinstance(detail.get("screen"), dict))
+            and row is not None and row["source_content_revision"] is not None):
+        detail["source_content_revision"] = row["source_content_revision"]
     _update(conn, posting_id, {
         "score": score,
-        "score_detail": json.dumps(score_detail),
+        "score_detail": json.dumps(detail, ensure_ascii=False),
         "pipeline_status": status,
         "pipeline_error": None,
         "updated_at": now,

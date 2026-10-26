@@ -77,6 +77,10 @@ recognizable; timeout/blocked/ambiguous responses are not confirmed closure; app
 history remains intact. Expand adapter coverage deliberately rather than claiming all
 sources have identical closure signals.
 
+The [source-lifecycle design](superpowers/specs/2026-10-23-source-lifecycle-design.md)
+and [implementation plan](superpowers/plans/2026-10-23-source-lifecycle.md) are drafts
+awaiting operator approval; no production implementation has started.
+
 ## R3 — ChatGPT workflow acceptance
 
 #90 starts early with a small manual ATS+web research sample and records tool friction.

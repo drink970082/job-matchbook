@@ -412,6 +412,18 @@ describe('DiscoveredJobsTable', () => {
           origin: 'job_screenings',
         },
         legacy_screen_evidence: { available: true, origin: 'job_postings.score_detail.screen' },
+        source_lifecycle: {
+          state: 'available',
+          last_seen_at: '2026-10-24T10:00:00Z',
+          last_check_attempted_at: '2026-10-25T10:00:00Z',
+          last_checked_at: '2026-10-22T09:00:00Z',
+          last_check_outcome: 'inconclusive',
+          last_check_error_category: 'timeout',
+          content_revision: 2,
+          fit_freshness: 'stale',
+          screen_freshness: 'current',
+          combined_screen_freshness: 'current',
+        },
       }],
       total: 1,
     })
@@ -420,6 +432,10 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.getByText('Advisory · No disqualifier found')).toBeInTheDocument()
     expect(screen.getByText(/assessed 2026-10-22T10:20:30Z/)).toBeInTheDocument()
     expect(screen.getByText('Legacy screen evidence')).toBeInTheDocument()
+    expect(screen.getByText('Source · Available')).toBeInTheDocument()
+    expect(screen.getByText(/Latest detail attempt inconclusive \(timeout\).*attempted 2026-10-25.*last conclusive detail check 2026-10-22/)).toBeInTheDocument()
+    expect(screen.getByText('Last seen 2026-10-24')).toBeInTheDocument()
+    expect(screen.getByText('Fit stale · Standalone screen current · Fit-pipeline screen current')).toBeInTheDocument()
     expect(screen.getByText('New')).toBeInTheDocument()
     expect(screen.queryByLabelText(/select all/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /remove selected/i })).not.toBeInTheDocument()

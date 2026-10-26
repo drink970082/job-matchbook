@@ -1853,14 +1853,15 @@ def test_run_score_stamps_provenance_only_on_fit_scored_rows(db_path):
 
 def test_run_score_omits_provenance_when_no_scorer_meta(db_path):
     # scorer_meta is optional (the pipeline stays pure + injected): with none passed,
-    # score_detail keeps its pre-provenance shape byte for byte.
+    # source lifecycle still records its input revision, without scorer/model metadata.
     conn = db.connect(db_path)
     _seed_new(conn, ["1"])
     pipeline.run_score(conn, now=NOW,
                        screen_fn=lambda p: {"disqualified": False},
                        fit_fn=lambda ps: [_card() for _ in ps])
     detail = _json.loads(conn.execute("SELECT * FROM job_postings").fetchone()["score_detail"])
-    assert set(detail) == {"assessment"}
+    assert set(detail) == {"assessment", "source_content_revision"}
+    assert detail["source_content_revision"] == 1
 
 
 def test_run_score_stamps_provenance_on_fallback_disqualified_rows(db_path):
