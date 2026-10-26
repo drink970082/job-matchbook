@@ -77,8 +77,9 @@ class _FakeSession:
     advanced past totalFound) returns an empty page; detail GETs are keyed by id.
     `bad_ids` makes that posting's detail GET raise (failure isolation)."""
 
-    def __init__(self, *, bad_ids=()):
+    def __init__(self, *, bad_ids=(), inactive_ids=()):
         self._bad = set(bad_ids)
+        self._inactive = set(inactive_ids)
         self.gets = []
 
     def get(self, url, params=None, timeout=None):
@@ -91,7 +92,10 @@ class _FakeSession:
         pid = url.rsplit("/", 1)[-1]  # detail endpoint
         if pid in self._bad:
             return _Resp(None, raise_exc=requests.HTTPError("boom"))
-        return _Resp(DETAIL[pid])
+        payload = DETAIL[pid]
+        if pid in self._inactive:
+            payload = {**payload, "active": False}
+        return _Resp(payload)
 
 
 # --- parse_listing --------------------------------------------------------
@@ -224,6 +228,12 @@ def test_fetch_one_missing_id_returns_none_without_fetching():
     assert sess.gets == []
 
 
+def test_fetch_one_rejects_an_explicitly_inactive_detail():
+    sess = _FakeSession(inactive_ids=["abc-111"])
+    assert sr.fetch_one("Acme", "abc-111", "Acme Corp", session=sess) is None
+    assert len(sess.gets) == 1
+
+
 # --- fetch (two-step) -----------------------------------------------------
 
 def test_fetch_pages_and_enriches_via_detail():
@@ -242,6 +252,14 @@ def test_fetch_pages_and_enriches_via_detail():
     # a detail GET was made per posting
     detail_gets = [u for (u, _) in sess.gets if u.endswith(("abc-111", "def-222"))]
     assert len(detail_gets) == 2
+
+
+def test_fetch_skips_explicitly_inactive_detail_but_keeps_missing_active_compatibility():
+    sess = _FakeSession(inactive_ids=["abc-111"])
+    out = sr.fetch("Acme", "Acme Corp", session=sess)
+
+    assert [posting["external_id"] for posting in out] == ["def-222"]
+    assert set(out[0]) == set(POSTING_FIELDS)
 
 
 def test_fetch_isolates_a_bad_detail():

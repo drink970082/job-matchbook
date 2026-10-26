@@ -69,7 +69,12 @@ backfill the inventory.
 **unknown** means there is no conclusive source result yet; it does not mean open or
 closed. **available** means a valid response identified the exact posting. A positive
 list/feed observation can set it and advance **source_last_seen_at**; absence from a
-board list cannot confirm closure. **source_last_checked_at** and
+board list cannot confirm closure. Normal SmartRecruiters feed and watchlist ingestion
+drops a detail response with explicit **active: false** before source upsert, preserving
+the canonical **POSTING_FIELDS** shape and leaving existing source state untouched.
+Missing **active** remains accepted on normal ingest for compatibility. This is not a
+closure write and is not generalized to other adapters.
+**source_last_checked_at** and
 **source_last_check_outcome** describe the exact-ID detail refresh only. **closed** is
 reserved for a source-specific closure signal that has been verified for that adapter.
 For the recommended SmartRecruiters pilot, the official
@@ -96,6 +101,8 @@ An inconclusive retry records its attempt and safe error category, leaves the la
 confirmed state and **source_last_checked_at** intact, and leaves an initially unknown row
 unknown. The UI and MCP must show both the last confirmed state/time and a newer failed
 attempt when both exist; a stale **closed** result must not look like a recent check.
+Their summaries require strict offset-aware calendar timestamps and positive integer
+assessment revisions; invalid timestamps are null and invalid revisions are unknown.
 
 When a later valid response finds a previously closed identity, set **source_state** to
 **available** and update **source_last_seen_at**. This reopens source availability only. It does not change
@@ -116,8 +123,10 @@ Capture the revision used by each future assessment:
 - standalone screening stores it beside the **job_screenings** result;
 - fit/combined screening stores it beside the corresponding data in **score_detail**.
 
-Freshness is derived for each assessment: matching revisions are current; an older
-captured revision is stale; a missing revision is unknown. Existing assessment payloads
+Freshness is derived for each assessment: matching positive JavaScript-safe integer
+revisions are current; an older positive JavaScript-safe integer revision is stale; a
+missing, non-positive, non-integer, unsafe, or boolean captured revision is unknown.
+Existing assessment payloads
 remain available for review. A content update makes a previously versioned assessment
 stale immediately, without silently rerunning it. On a changed refresh of a legacy row,
 the transaction attributes any existing unversioned assessment to the pre-refresh

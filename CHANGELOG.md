@@ -19,6 +19,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Filter SmartRecruiters detail responses with explicit `active: false` out of normal
+  feed and watchlist ingestion without changing the canonical posting shape or recording
+  closure. Keep missing `active` compatible. Validate Web source timestamps with the
+  shared strict calendar/offset parser and treat invalid MCP screening revisions as
+  unknown, matching Web.
+
 - Add public instructions, interactive preflight evidence, and an unattended acceptance
   checklist for the scheduled Daily Brief. They distinguish interactive access from an
   actual run, use current ChatGPT Scheduled guidance for uploaded files and connected

@@ -68,6 +68,11 @@ def parse_job(detail_payload: dict, slug: str, company_name: str) -> dict:
     }
 
 
+def _explicitly_inactive(detail_payload: object) -> bool:
+    """Whether the detail response explicitly marks this posting inactive."""
+    return isinstance(detail_payload, dict) and detail_payload.get("active") is False
+
+
 def fetch_one(slug: str, external_id: str, company_name: str,
               session: requests.Session | None = None,
               timeout: int = 20) -> dict | None:
@@ -80,7 +85,10 @@ def fetch_one(slug: str, external_id: str, company_name: str,
         return None
     resp = http.get(f"{API.format(slug=slug)}/{external_id}", timeout=timeout)
     resp.raise_for_status()
-    return parse_job(resp.json(), slug, company_name)
+    payload = resp.json()
+    if _explicitly_inactive(payload):
+        return None
+    return parse_job(payload, slug, company_name)
 
 
 def fetch_one_observation(slug: str, external_id: str, company_name: str,
@@ -158,7 +166,10 @@ def fetch(slug: str, company_name: str, session: requests.Session | None = None,
         try:
             detail = http.get(f"{base}/{pid}", timeout=timeout)
             detail.raise_for_status()
-            return parse_job(detail.json(), slug, company_name)
+            payload = detail.json()
+            if _explicitly_inactive(payload):
+                return None
+            return parse_job(payload, slug, company_name)
         except Exception:
             return None  # skip one bad posting, don't abort the company
 

@@ -11,6 +11,7 @@ import json
 import pytest
 
 from ats_worker import db, pipeline
+from ats_worker.fetch import fetch_company, fetch_one_company
 from tests._helpers import NOW, FIXTURES, make_posting as _posting
 
 # Boards the fake adapter "serves": each returns the surfaced id + an extra one
@@ -264,6 +265,112 @@ def test_run_feed_detail_skips_none_result(db_path):
     rows = conn.execute("SELECT host, reason FROM feed_unresolved").fetchall()
     assert [(r["host"], r["reason"]) for r in rows] == [
         ("jobs.jobvite.com", "detail_fetch_failed")]
+
+
+def test_run_feed_does_not_insert_smartrecruiters_explicitly_inactive_detail(db_path):
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "id": "inactive-1",
+                "name": "Software Engineer",
+                "active": False,
+                "jobAd": {"sections": {
+                    "jobDescription": {"text": "Build production software."},
+                }},
+            }
+
+    class Session:
+        def __init__(self):
+            self.gets = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            return Response()
+
+    conn = db.connect(db_path)
+    session = Session()
+    listing = {
+        "url": "https://jobs.smartrecruiters.com/Acme/inactive-1",
+        "company_name": "Acme", "title": "Software Engineer",
+        "category": "Software", "sponsorship": "Other", "active": True,
+    }
+    inserted = pipeline.run_feed(
+        conn, now=NOW, feed_fn=lambda: [listing], keep_categories=["Software"],
+        fetch_fn=_make_fetch_fn([]),
+        detail_fetch_fn=lambda source, slug, external_id, name: fetch_one_company(
+            source, slug, external_id, name, session=session),
+    )
+
+    assert inserted == 0
+    assert conn.execute("SELECT COUNT(*) FROM job_postings").fetchone()[0] == 0
+    assert session.gets == [
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings/inactive-1"
+    ]
+
+
+def test_run_fetch_does_not_reopen_closed_smartrecruiters_row_from_inactive_detail(db_path):
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class Session:
+        def __init__(self):
+            self.gets = []
+
+        def get(self, url, params=None, **kwargs):
+            self.gets.append(url)
+            base = "https://api.smartrecruiters.com/v1/companies/Acme/postings"
+            if url == base:
+                if (params or {}).get("offset", 0) == 0:
+                    return Response({"totalFound": 1, "content": [{"id": "inactive-1"}]})
+                return Response({"totalFound": 1, "content": []})
+            return Response({
+                "id": "inactive-1",
+                "name": "Software Engineer",
+                "active": False,
+                "jobAd": {"sections": {
+                    "jobDescription": {"text": "Build production software."},
+                }},
+            })
+
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("inactive-1", source="smartrecruiters")], now=NOW)
+    conn.execute(
+        "UPDATE job_postings SET source_state='closed', source_last_seen_at=? "
+        "WHERE source='smartrecruiters' AND external_id='inactive-1'",
+        ("2026-10-20T08:00:00Z",),
+    )
+    session = Session()
+    inserted = pipeline.run_fetch(
+        conn, [{"source": "smartrecruiters", "slug": "Acme", "name": "Acme Corp"}],
+        None, now=NOW,
+        fetch_fn=lambda source, slug, name, **kwargs: fetch_company(
+            source, slug, name, session=session, **kwargs),
+    )
+
+    row = conn.execute(
+        "SELECT source_state, source_last_seen_at FROM job_postings "
+        "WHERE source='smartrecruiters' AND external_id='inactive-1'"
+    ).fetchone()
+    assert inserted == 0
+    assert tuple(row) == ("closed", "2026-10-20T08:00:00Z")
+    assert session.gets == [
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings",
+        "https://api.smartrecruiters.com/v1/companies/Acme/postings/inactive-1",
+    ]
 
 
 def test_run_feed_detail_records_invalid_posting(db_path):
