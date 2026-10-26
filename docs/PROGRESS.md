@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Issue #96 preselection design — `docs/issue-96-preselection`** [ORCH · design draft].
+  Define aggressive role classification and optional JEV ranking before deep Daily
+  Brief review, with recall audits and bounded evaluation. No model calls or rollout
+  selected; provider, rubric, acceptance targets and experiment budget remain open.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
