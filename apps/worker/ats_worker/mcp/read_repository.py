@@ -99,6 +99,16 @@ SCREEN_OUTCOMES = (
     "not_screened", "provider_error", "disqualified", "no_disqualifier_found", "unknown",
 )
 _SCREEN_OUTCOME_SET = frozenset(SCREEN_OUTCOMES)
+TRIAGE_STATUSES = (
+    "rule_disqualified", "screen_disqualified", "candidate", "needs_review",
+)
+_TRIAGE_STATUS_SET = frozenset(TRIAGE_STATUSES)
+_KNOWN_PIPELINE_STATUSES = frozenset(PIPELINE_STATUSES)
+_ACTIVE_CANDIDATE_STATUSES = frozenset({"new", "scored", "notified"})
+_SUPPORTED_SCREEN_CHECKS = frozenset({
+    "location", "internships", "degree", "authorization", "clearance",
+})
+_DETERMINISTIC_SCREEN_CHECKS = frozenset({"location", "internships"})
 _UTC_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _SAFE_SCREEN_JSON_SQL = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
 _MAX_TIMESTAMP_CHARS = MAX_RFC3339_CHARS
@@ -197,6 +207,230 @@ def _screen_outcome_sql() -> str:
             THEN 'no_disqualifier_found'
         ELSE 'unknown'
         END"""
+
+
+def _triage_check_shape_sql(result: str, supported_checks: frozenset[str]) -> str:
+    """Whether every stored check is a supported, typed `{pass, note?}` record."""
+    checks = ",".join(f"'{key}'" for key in sorted(supported_checks))
+    return f"""json_type({result}, '$.screen')='object'
+        AND NOT EXISTS (
+            SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
+            WHERE triage_check.type!='object'
+               OR triage_check.key NOT IN ({checks})
+               OR CASE WHEN triage_check.type='object'
+                       THEN COALESCE(json_type(triage_check.value, '$.pass'),'missing')
+                            NOT IN ('true','false') ELSE 0 END
+               OR CASE WHEN triage_check.type='object'
+                       THEN (json_type(triage_check.value, '$.note') IS NOT NULL
+                             AND json_type(triage_check.value, '$.note')!='text')
+                       ELSE 0 END
+               OR CASE WHEN triage_check.type='object' THEN EXISTS (
+                    SELECT 1 FROM json_each(triage_check.value) AS triage_field
+                    WHERE triage_field.key NOT IN ('pass','note')
+               ) ELSE 0 END
+        )"""
+
+
+def _triage_valid_result_sql(result: str, disqualified: bool) -> str:
+    """Validate current standalone evidence without changing screen_outcome semantics."""
+    check_shape = _triage_check_shape_sql(result, _SUPPORTED_SCREEN_CHECKS)
+    root_shape = f"""(json_type({result}, '$.disqualification_reason') IS NULL
+            OR json_type({result}, '$.disqualification_reason')='text')
+        AND NOT EXISTS (SELECT 1 FROM json_each({result}) AS triage_root_field
+                        WHERE triage_root_field.key NOT IN
+                            ('screen','disqualified','disqualification_reason'))"""
+    if disqualified:
+        check = "json_type(triage_check.value, '$.pass')='false'"
+        flag = "'true'"
+        no_failure = "1=1"
+    else:
+        check = "json_type(triage_check.value, '$.pass')='true'"
+        flag = "'false'"
+        no_failure = (
+            f"NOT EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check "
+            "WHERE CASE WHEN triage_check.type='object' "
+            "THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"
+        )
+    return f"""s.state='complete' AND json_valid(s.result_json)=1
+        AND json_type({result}, '$')='object'
+        AND json_type({result}, '$.disqualified')={flag}
+        AND {root_shape}
+        AND {check_shape}
+        AND EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
+                    WHERE CASE WHEN triage_check.type='object' THEN {check} ELSE 0 END)
+        AND {no_failure}"""
+
+
+def _triage_rule_only_sql(result: str) -> str:
+    rule_shape = _triage_check_shape_sql(result, _DETERMINISTIC_SCREEN_CHECKS)
+    return f"""{rule_shape}
+        AND json_type({result}, '$.disqualified')='true'
+        AND EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
+                    WHERE CASE WHEN triage_check.type='object'
+                               THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"""
+
+
+def _triage_status_sql() -> str:
+    """Status predicate shared by filters and overview counts; runs before paging."""
+    result = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
+    legacy = "CASE WHEN json_valid(p.score_detail) THEN p.score_detail ELSE '{}' END"
+    valid_screen_disqualified = _triage_valid_result_sql(result, True)
+    valid_candidate = _triage_valid_result_sql(result, False)
+    standalone_rule = _triage_rule_only_sql(result)
+    legacy_rule = _triage_rule_only_sql(legacy)
+    known_statuses = ",".join(f"'{status}'" for status in sorted(_KNOWN_PIPELINE_STATUSES))
+    candidate_statuses = ",".join(f"'{status}'" for status in sorted(_ACTIVE_CANDIDATE_STATUSES))
+    legacy_root_shape = f"""json_type({legacy}, '$')='object'
+        AND json_type({legacy}, '$.disqualified')='true'
+        AND (json_type({legacy}, '$.disqualification_reason') IS NULL
+             OR json_type({legacy}, '$.disqualification_reason')='text')
+        AND (json_type({legacy}, '$.source_content_revision') IS NULL
+             OR json_type({legacy}, '$.source_content_revision')='null'
+             OR (json_type({legacy}, '$.source_content_revision')='integer'
+                 AND json_extract({legacy}, '$.source_content_revision')>0))
+        AND NOT EXISTS (SELECT 1 FROM json_each({legacy}) AS legacy_field
+                        WHERE legacy_field.key NOT IN
+                            ('screen','disqualified','disqualification_reason','source_content_revision'))"""
+    return f"""CASE
+        WHEN p.pipeline_status IS NULL OR p.pipeline_status NOT IN ({known_statuses})
+            THEN 'needs_review'
+        WHEN s.id IS NOT NULL AND ({valid_screen_disqualified})
+             AND ({standalone_rule}) THEN 'rule_disqualified'
+        WHEN s.id IS NOT NULL AND ({valid_screen_disqualified}) THEN 'screen_disqualified'
+        WHEN s.id IS NOT NULL AND ({valid_candidate})
+             AND p.pipeline_status IN ({candidate_statuses}) THEN 'candidate'
+        WHEN s.id IS NULL AND p.pipeline_status='discarded'
+             AND json_valid(p.score_detail)=1 AND ({legacy_root_shape})
+             AND ({legacy_rule}) THEN 'rule_disqualified'
+        ELSE 'needs_review'
+    END"""
+
+
+def _parse_json_object(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _triage_checks(screen: Any, supported: frozenset[str]) -> tuple[bool, bool, bool]:
+    """Return (valid, has_failure, has_pass) for a typed supported screen object."""
+    if not isinstance(screen, dict) or not screen:
+        return False, False, False
+    has_failure = False
+    has_pass = False
+    for key, check in screen.items():
+        if key not in supported or not isinstance(check, dict):
+            return False, False, False
+        if type(check.get("pass")) is not bool:
+            return False, False, False
+        if set(check) - {"pass", "note"}:
+            return False, False, False
+        if "note" in check and not isinstance(check["note"], str):
+            return False, False, False
+        has_failure |= check["pass"] is False
+        has_pass |= check["pass"] is True
+    return True, has_failure, has_pass
+
+
+def _standalone_triage_result(raw: Any) -> tuple[str, frozenset[str]]:
+    result = _parse_json_object(raw)
+    if result is None or set(result) - {"screen", "disqualified", "disqualification_reason"}:
+        return "unknown", frozenset()
+    if type(result.get("disqualified")) is not bool:
+        return "unknown", frozenset()
+    reason = result.get("disqualification_reason")
+    if "disqualification_reason" in result and not isinstance(reason, str):
+        return "unknown", frozenset()
+    valid, has_failure, has_pass = _triage_checks(
+        result.get("screen"), _SUPPORTED_SCREEN_CHECKS)
+    if not valid:
+        return "unknown", frozenset()
+    if result["disqualified"] is True and has_failure:
+        failing = frozenset(
+            key for key, check in result["screen"].items() if check["pass"] is False)
+        if set(result["screen"]).issubset(_DETERMINISTIC_SCREEN_CHECKS):
+            return "rule_disqualified", failing
+        return "disqualified", failing
+    if result["disqualified"] is False and has_pass and not has_failure:
+        return "candidate", frozenset()
+    return "unknown", frozenset()
+
+
+def _legacy_rule_disqualification(pipeline_status: Any, score_detail: Any) -> bool:
+    if pipeline_status != "discarded":
+        return False
+    detail = _parse_json_object(score_detail)
+    if detail is None or set(detail) - {
+        "screen", "disqualified", "disqualification_reason", "source_content_revision",
+    }:
+        return False
+    if detail.get("disqualified") is not True:
+        return False
+    reason = detail.get("disqualification_reason")
+    if "disqualification_reason" in detail and not isinstance(reason, str):
+        return False
+    revision = detail.get("source_content_revision")
+    if revision is not None and (type(revision) is not int or revision <= 0):
+        return False
+    valid, has_failure, _ = _triage_checks(
+        detail.get("screen"), _DETERMINISTIC_SCREEN_CHECKS)
+    return valid and has_failure
+
+
+def job_triage_summary(pipeline_status: Any, score_detail: Any,
+                       screening: dict[str, Any] | None) -> dict[str, str]:
+    """Derive a bounded evidence-stage summary without changing stored screen outcomes."""
+    if screening is not None:
+        provenance = "job_screenings"
+    elif score_detail is not None:
+        provenance = "job_postings.score_detail"
+    elif pipeline_status == "discarded":
+        provenance = "pipeline_status"
+    else:
+        provenance = "none"
+
+    def summary(status: str, reason: str) -> dict[str, str]:
+        return {"status": status, "reason": reason[:MAX_SCREEN_REASON_CHARS],
+                "provenance": provenance}
+
+    if pipeline_status not in _KNOWN_PIPELINE_STATUSES:
+        return summary("needs_review", "Stored lifecycle state is unrecognized.")
+
+    if screening is not None:
+        if screening.get("state") != "complete":
+            return summary("needs_review", "Standalone screening did not complete successfully.")
+        result_type, failing_checks = _standalone_triage_result(screening.get("result_json"))
+        if result_type in {"rule_disqualified", "disqualified"}:
+            if result_type == "rule_disqualified":
+                failed_labels = sorted(failing_checks)
+                names = " and ".join(failed_labels)
+                return summary("rule_disqualified", f"Deterministic {names} rule rejected this posting.")
+            return summary("screen_disqualified", "Standalone screening recorded a supported failing requirement.")
+        if result_type == "candidate":
+            if pipeline_status in _ACTIVE_CANDIDATE_STATUSES:
+                return summary("candidate", "Standalone screening found no disqualifier; retained for fit research, not qualified.")
+            return summary("needs_review", "A standalone pass conflicts with the stored lifecycle state.")
+        return summary("needs_review", "Stored standalone assessment is malformed, contradictory, or unsupported.")
+
+    if _legacy_rule_disqualification(pipeline_status, score_detail):
+        detail = _parse_json_object(score_detail) or {}
+        failed = sorted(key for key, check in detail["screen"].items() if check["pass"] is False)
+        return summary("rule_disqualified", f"Legacy deterministic {' and '.join(failed)} rule rejected this posting.")
+
+    detail = _parse_json_object(score_detail)
+    if pipeline_status == "discarded":
+        if detail is not None:
+            return summary("needs_review", "Legacy fit evidence does not meet the rule-rejection contract.")
+        return summary("needs_review", "Discarded lifecycle state alone does not establish a rule rejection.")
+    if detail is not None:
+        return summary("needs_review", "Legacy fit evidence does not establish current triage status.")
+    if score_detail is not None:
+        return summary("needs_review", "Stored legacy evidence is malformed or unsupported.")
+    return summary("needs_review", "No standalone record or supported legacy rule rejection is stored.")
 
 
 def _screen_summary(row: dict[str, Any]) -> dict[str, Any]:
@@ -721,6 +955,13 @@ class ReadOnlyATSRepository:
             ).fetchall()
             outcome_count_map = {row["outcome"]: int(row["count"])
                                  for row in outcome_counts_rows}
+            triage_count_rows = conn.execute(
+                f"SELECT {_triage_status_sql()} AS status,COUNT(*) AS count "
+                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
+                "GROUP BY status"
+            ).fetchall()
+            triage_count_map = {row["status"]: int(row["count"])
+                                for row in triage_count_rows}
             screening_records = self._group_counts(conn, "job_screenings", "state")
             pipeline_counts = self._group_counts(conn, "job_postings", "pipeline_status")
             application_counts = self._group_counts(conn, "applications", "status")
@@ -754,6 +995,13 @@ class ReadOnlyATSRepository:
                         for outcome in SCREEN_OUTCOMES
                     ],
                 },
+                "job_triage_counts": {
+                    "scope": "all job_postings",
+                    "counts": [
+                        {"status": status, "count": triage_count_map.get(status, 0)}
+                        for status in TRIAGE_STATUSES
+                    ],
+                },
                 "eligible_screen_backlog": {
                     "scope": "pipeline_status=new",
                     "fresh": int(eligible_counts["fresh"] or 0),
@@ -771,7 +1019,8 @@ class ReadOnlyATSRepository:
 
     def list_jobs(self, *, search: str | None = None, source: str | None = None,
                   pipeline_status: str | None = None, screen_state: str | None = None,
-                  screen_outcome: str | None = None, search_scope: str = "metadata",
+                  screen_outcome: str | None = None, triage_status: str | None = None,
+                  search_scope: str = "metadata",
                   created_from: str | None = None, created_to: str | None = None,
                   posted_from: str | None = None, posted_to: str | None = None,
                   screening_updated_from: str | None = None,
@@ -786,6 +1035,9 @@ class ReadOnlyATSRepository:
         screen_outcome = _bounded_text(screen_outcome, "screen_outcome", MAX_FILTER_CHARS)
         if screen_outcome is not None and screen_outcome not in _SCREEN_OUTCOME_SET:
             raise QueryInputError("screen_outcome must be one of the supported outcomes")
+        triage_status = _bounded_text(triage_status, "triage_status", MAX_FILTER_CHARS)
+        if triage_status is not None and triage_status not in _TRIAGE_STATUS_SET:
+            raise QueryInputError("triage_status must be one of the supported statuses")
         search_scope = _bounded_text(search_scope, "search_scope", MAX_FILTER_CHARS,
                                      allow_empty=False) or ""
         if search_scope not in {"metadata", "all_text"}:
@@ -809,6 +1061,7 @@ class ReadOnlyATSRepository:
 
         filters = {"search": search, "source": source, "pipeline_status": pipeline_status,
                    "screen_state": screen_state, "screen_outcome": screen_outcome,
+                   "triage_status": triage_status,
                    "search_scope": search_scope,
                    "screening_updated_from": screening_updated_from,
                    "screening_updated_to": screening_updated_to,
@@ -838,6 +1091,9 @@ class ReadOnlyATSRepository:
         if screen_outcome is not None:
             clauses.append(f"({_screen_outcome_sql()}) = ?")
             params.append(screen_outcome)
+        if triage_status is not None:
+            clauses.append(f"({_triage_status_sql()}) = ?")
+            params.append(triage_status)
         if screening_updated_from is not None:
             clauses.append("ats_instant_cmp(s.updated_at, ?) >= 0")
             params.append(screening_updated_from)
@@ -880,6 +1136,7 @@ class ReadOnlyATSRepository:
                 "p.source_state,p.source_last_seen_at,p.source_last_check_attempted_at,"
                 "p.source_last_checked_at,p.source_last_check_outcome,"
                 "p.source_last_check_error_category,p.source_content_revision,"
+                "p.score_detail,"
                 "CASE WHEN json_valid(p.score_detail) AND "
                 "json_type(p.score_detail,'$.assessment')='object' AND "
                 "length(json_extract(p.score_detail,'$.assessment'))>2 THEN 1 ELSE 0 END "
@@ -889,6 +1146,7 @@ class ReadOnlyATSRepository:
                 "THEN json_extract(p.score_detail,'$.source_content_revision') ELSE NULL END "
                 "AS fit_content_revision,"
                 "s.id AS screening_id,s.state AS screening_state,s.backend AS screening_backend,"
+                "s.result_json AS screening_result_json,"
                 "s.model AS screening_model,s.effort AS screening_effort,"
                 "s.evaluator_version AS screening_evaluator_version,"
                 "s.error_message AS screening_error_message,s.updated_at AS screening_updated_at,"
@@ -913,6 +1171,12 @@ class ReadOnlyATSRepository:
             row["pipeline_error"] = redact_url(row["pipeline_error"]) if row["pipeline_error"] else None
             row["description_is_null"] = row["description_chars"] is None
             row["screen_summary"] = _screen_summary(row)
+            screening = ({"id": row.get("screening_id"),
+                          "state": row.get("screening_state"),
+                          "result_json": row.get("screening_result_json")}
+                         if row.get("screening_id") is not None else None)
+            row["triage_summary"] = job_triage_summary(
+                row.get("pipeline_status"), row.get("score_detail"), screening)
             row["source_lifecycle"] = _source_lifecycle_summary(row)
             _strip_source_lifecycle_fields(row)
             legacy_available = bool(row.pop("legacy_screen_evidence_available"))
@@ -923,11 +1187,13 @@ class ReadOnlyATSRepository:
                 "read_tool": "get_job" if legacy_available else None,
             }
             row.pop("screening_updated_at", None)
+            row.pop("screening_result_json", None)
             row.pop("screening_reason", None)
             row.pop("screening_error_message", None)
             row.pop("screening_source_content_revision", None)
             row.pop("fit_assessment_available", None)
             row.pop("fit_content_revision", None)
+            row.pop("score_detail", None)
         page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
         page["traversal"] = {
             "id_ceiling": ceiling,
@@ -970,11 +1236,15 @@ class ReadOnlyATSRepository:
                 }
                 result["screening"] = _safe_full_record("job_screenings", stored_screening)
                 result["screen_summary"] = _screen_summary(screening_row)
+                triage_screening = stored_screening
                 lifecycle_screen = stored_screening
             else:
                 result["screening"] = None
                 result["screen_summary"] = _screen_summary({"screen_outcome": "not_screened"})
+                triage_screening = None
                 lifecycle_screen = None
+            result["triage_summary"] = job_triage_summary(
+                result.get("pipeline_status"), result.get("score_detail"), triage_screening)
             legacy_available = isinstance(result.get("score_detail_parsed"), dict) and isinstance(
                 result["score_detail_parsed"].get("screen"), dict)
             result["legacy_screen_evidence"] = {

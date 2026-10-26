@@ -8,11 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Job triage classification — `fix/job-triage-classification`** [ORCH/FETCH · M].
-  Align Web/MCP presentation and filtering with rule-based rejection, standalone
-  screening rejection and retained candidates; preserve unresolved evidence separately.
-  No judgment changes, model calls, data cleanup or runtime mode changes.
-
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

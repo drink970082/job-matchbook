@@ -442,6 +442,45 @@ describe('DiscoveredJobsTable', () => {
     expect(screen.queryByRole('button', { name: /remove all in view/i })).not.toBeInTheDocument()
   })
 
+  it('shows triage filtering separately and labels a missing standalone record precisely', () => {
+    const allFilters = {
+      bucket: 'all' as const,
+      search: '',
+      searchScope: 'metadata' as const,
+      sort: 'created' as const,
+      sortExplicit: false,
+    }
+    renderTable({
+      filters: allFilters,
+      data: [{
+        ...mockJobs[0],
+        pipeline_status: 'new',
+        screen_summary: {
+          outcome: 'not_screened',
+          is_advisory: true,
+          reason: null,
+          assessment_time: null,
+          backend: null,
+          model: null,
+          effort: null,
+          evaluator_version: null,
+          origin: 'none',
+        },
+        triage_summary: {
+          status: 'needs_review',
+          reason: 'No standalone record or supported legacy rule rejection is stored.',
+          provenance: 'none',
+        },
+      }],
+      total: 1,
+    })
+
+    expect(screen.getByRole('combobox', { name: 'Job triage status' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Standalone screen outcome' })).toBeInTheDocument()
+    expect(screen.getByText('Advisory · No standalone record')).toBeInTheDocument()
+    expect(screen.getByText('Triage · Needs review')).toBeInTheDocument()
+  })
+
   it('labels applied and unknown lifecycle states honestly and disables actions on applied rows', () => {
     renderTable({
       filters: { bucket: 'all', search: '', searchScope: 'metadata', sort: 'created', sortExplicit: false },

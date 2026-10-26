@@ -6,6 +6,7 @@ import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEX
 import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
+import { jobTriageSummary, TRIAGE_STATUSES, type TriageStatus } from '@/lib/triage-summary'
 
 export async function getApplications(params: {
     page?: number
@@ -119,7 +120,7 @@ const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
 const DISQUALIFY_CAUSES: readonly DisqualifyCause[] = [
     'authorization', 'location', 'degree', 'clearance', 'internship', 'prefilter',
 ]
-const JOB_FILTER_KEYS = new Set(['bucket', 'search', 'searchScope', 'screenOutcome', 'page', 'size', 'minScore', 'cause', 'sort'])
+const JOB_FILTER_KEYS = new Set(['bucket', 'search', 'searchScope', 'screenOutcome', 'triageStatus', 'page', 'size', 'minScore', 'cause', 'sort'])
 
 function validateJobPostingsFilter(filter: unknown, requireBucket = false, allowPaging = true): asserts filter is JobPostingsFilter {
     if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
@@ -149,6 +150,9 @@ function validateJobPostingsFilter(filter: unknown, requireBucket = false, allow
     if (value.screenOutcome !== undefined && !(SCREEN_OUTCOMES as readonly unknown[]).includes(value.screenOutcome)) {
         throw new Error('Unsupported standalone screen outcome')
     }
+    if (value.triageStatus !== undefined && !(TRIAGE_STATUSES as readonly unknown[]).includes(value.triageStatus)) {
+        throw new Error('Unsupported job triage status')
+    }
     if (value.cause !== undefined && (typeof value.cause !== 'string' || !DISQUALIFY_CAUSES.includes(value.cause as DisqualifyCause))) {
         throw new Error('Unsupported disqualification cause')
     }
@@ -172,6 +176,7 @@ export interface JobPostingsFilter {
     search?: string
     searchScope?: JobSearchScope
     screenOutcome?: ScreenOutcome
+    triageStatus?: TriageStatus
     page?: number
     size?: number
     minScore?: number
@@ -213,6 +218,104 @@ const SCREEN_OUTCOME_SQL = `CASE
     ELSE 'unknown'
 END`
 
+const KNOWN_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified', 'applied', 'discarded', 'failed', 'removed', 'expired']
+    .map((status) => `'${status}'`).join(',')
+const CANDIDATE_PIPELINE_STATUSES_SQL = ['new', 'scored', 'notified']
+    .map((status) => `'${status}'`).join(',')
+const SUPPORTED_SCREEN_CHECKS_SQL = ['location', 'internships', 'degree', 'authorization', 'clearance']
+    .map((check) => `'${check}'`).join(',')
+const DETERMINISTIC_SCREEN_CHECKS_SQL = ['location', 'internships']
+    .map((check) => `'${check}'`).join(',')
+
+function triageCheckShapeSql(result: string, supportedChecks: string): string {
+    return `json_type(${result}, '$.screen')='object'
+        AND NOT EXISTS (
+            SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
+            WHERE triage_check.type!='object'
+               OR triage_check.key NOT IN (${supportedChecks})
+               OR CASE WHEN triage_check.type='object'
+                       THEN COALESCE(json_type(triage_check.value, '$.pass'),'missing')
+                            NOT IN ('true','false') ELSE 0 END
+               OR CASE WHEN triage_check.type='object'
+                       THEN (json_type(triage_check.value, '$.note') IS NOT NULL
+                             AND json_type(triage_check.value, '$.note')!='text')
+                       ELSE 0 END
+               OR CASE WHEN triage_check.type='object' THEN EXISTS (
+                    SELECT 1 FROM json_each(triage_check.value) AS triage_field
+                    WHERE triage_field.key NOT IN ('pass','note')
+               ) ELSE 0 END
+        )`
+}
+
+function triageValidResultSql(result: string, disqualified: boolean): string {
+    const flag = disqualified ? "'true'" : "'false'"
+    const passCheck = disqualified ? "json_type(triage_check.value, '$.pass')='false'"
+        : "json_type(triage_check.value, '$.pass')='true'"
+    const allChecks = triageCheckShapeSql(result, SUPPORTED_SCREEN_CHECKS_SQL)
+    const noFailure = disqualified ? '1=1' : `NOT EXISTS (
+        SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
+        WHERE CASE WHEN triage_check.type='object'
+                   THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END
+    )`
+    return `s.state='complete' AND json_valid(s.result_json)=1
+        AND json_type(${result}, '$')='object'
+        AND json_type(${result}, '$.disqualified')=${flag}
+        AND (json_type(${result}, '$.disqualification_reason') IS NULL
+             OR json_type(${result}, '$.disqualification_reason')='text')
+        AND NOT EXISTS (SELECT 1 FROM json_each(${result}) AS triage_root_field
+                        WHERE triage_root_field.key NOT IN
+                            ('screen','disqualified','disqualification_reason'))
+        AND ${allChecks}
+        AND EXISTS (SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
+                    WHERE CASE WHEN triage_check.type='object' THEN ${passCheck} ELSE 0 END)
+        AND ${noFailure}`
+}
+
+function triageRuleOnlySql(result: string): string {
+    return `${triageCheckShapeSql(result, DETERMINISTIC_SCREEN_CHECKS_SQL)}
+        AND json_type(${result}, '$.disqualified')='true'
+        AND EXISTS (SELECT 1 FROM json_each(${result}, '$.screen') AS triage_check
+                    WHERE CASE WHEN triage_check.type='object'
+                               THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)`
+}
+
+// This SQL expression is the query-time counterpart of jobTriageSummary. Keep all
+// JSON validation here so unsupported rows remain visible as needs_review and the
+// filter/count run before LIMIT/OFFSET.
+const TRIAGE_STATUS_SQL = (() => {
+    const result = "CASE WHEN json_valid(s.result_json) THEN s.result_json ELSE '{}' END"
+    const legacy = "CASE WHEN json_valid(p.score_detail) THEN p.score_detail ELSE '{}' END"
+    const standaloneDisqualified = triageValidResultSql(result, true)
+    const standaloneCandidate = triageValidResultSql(result, false)
+    const ruleOnly = triageRuleOnlySql(result)
+    const legacyRuleOnly = triageRuleOnlySql(legacy)
+    const legacyRootShape = `json_type(${legacy}, '$')='object'
+        AND json_type(${legacy}, '$.disqualified')='true'
+        AND (json_type(${legacy}, '$.disqualification_reason') IS NULL
+             OR json_type(${legacy}, '$.disqualification_reason')='text')
+        AND (json_type(${legacy}, '$.source_content_revision') IS NULL
+             OR json_type(${legacy}, '$.source_content_revision')='null'
+             OR (json_type(${legacy}, '$.source_content_revision')='integer'
+                 AND json_extract(${legacy}, '$.source_content_revision')>0))
+        AND NOT EXISTS (SELECT 1 FROM json_each(${legacy}) AS legacy_field
+                        WHERE legacy_field.key NOT IN
+                            ('screen','disqualified','disqualification_reason','source_content_revision'))`
+    return `CASE
+        WHEN p.pipeline_status IS NULL OR p.pipeline_status NOT IN (${KNOWN_PIPELINE_STATUSES_SQL})
+            THEN 'needs_review'
+        WHEN s.id IS NOT NULL AND (${standaloneDisqualified}) AND (${ruleOnly})
+            THEN 'rule_disqualified'
+        WHEN s.id IS NOT NULL AND (${standaloneDisqualified})
+            THEN 'screen_disqualified'
+        WHEN s.id IS NOT NULL AND (${standaloneCandidate})
+             AND p.pipeline_status IN (${CANDIDATE_PIPELINE_STATUSES_SQL}) THEN 'candidate'
+        WHEN s.id IS NULL AND p.pipeline_status='discarded'
+             AND json_valid(p.score_detail)=1 AND (${legacyRootShape})
+             AND (${legacyRuleOnly}) THEN 'rule_disqualified'
+        ELSE 'needs_review'
+    END`
+})()
+
 function escapeLikeLiteral(value: string): string {
     return `%${value.replace(/[!%_]/g, (char) => `!${char}`)}%`
 }
@@ -241,6 +344,7 @@ function allJobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
         throw new Error('Search scope must be metadata or all_text')
     }
     const screenOutcome = checkedScreenOutcome(filter.screenOutcome)
+    const triageStatus = filter.triageStatus
     const clauses: Prisma.Sql[] = [Prisma.sql`p.pipeline_status <> 'removed'`]
     if (filter.minScore != null) clauses.push(Prisma.sql`p.score >= ${filter.minScore}`)
     if (search) {
@@ -257,6 +361,9 @@ function allJobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     }
     if (screenOutcome) {
         clauses.push(Prisma.sql`(${Prisma.raw(SCREEN_OUTCOME_SQL)}) = ${screenOutcome}`)
+    }
+    if (triageStatus) {
+        clauses.push(Prisma.sql`(${Prisma.raw(TRIAGE_STATUS_SQL)}) = ${triageStatus}`)
     }
     return Prisma.join(clauses, ' AND ')
 }
@@ -397,6 +504,9 @@ async function jobWhereForFilter(filter: JobPostingsFilter): Promise<Prisma.job_
     if (filter.screenOutcome) {
         throw new Error('Standalone screen outcome filters are only supported in All jobs')
     }
+    if (filter.triageStatus) {
+        throw new Error('Job triage filters are only supported in All jobs')
+    }
     if (filter.searchScope === 'all_text') {
         throw new Error('All-text search is only supported in All jobs')
     }
@@ -523,6 +633,7 @@ function enrichJobPosting(posting: ScreenedJobPosting) {
         score_detail,
         screen_summary: standaloneScreenSummary(job_screening),
         legacy_screen_evidence: legacyScreenEvidence(score_detail),
+        triage_summary: jobTriageSummary(job.pipeline_status, score_detail, job_screening),
         source_lifecycle: sourceLifecycleSummary({ ...job, score_detail }, job_screening),
     }
 }
@@ -593,6 +704,7 @@ async function getAllJobPostings(params: JobPostingsFilter, page: number, size: 
             score_detail,
             screen_summary: standaloneScreenSummary(screening),
             legacy_screen_evidence: legacyScreenEvidence(score_detail),
+            triage_summary: jobTriageSummary(posting.pipeline_status, score_detail, screening),
             source_lifecycle: sourceLifecycleSummary({ ...posting, score_detail }, screening),
         }
     })

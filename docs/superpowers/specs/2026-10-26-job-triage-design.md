@@ -1,6 +1,6 @@
 # Job triage classification
 
-**Status:** approved
+**Status:** implemented
 
 The operator requests Web/MCP distinguish rule-based rejection, standalone screening
 rejection and retained candidates. This approval covers presentation/query correction,

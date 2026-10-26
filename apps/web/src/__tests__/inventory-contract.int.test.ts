@@ -15,6 +15,10 @@ const sharedFixture = JSON.parse(readFileSync(
     resolve(__dirname, '../../../worker/tests/fixtures/standalone_screen_contract.json'),
     'utf8',
 ))
+const triageFixture = JSON.parse(readFileSync(
+    resolve(__dirname, '../../../worker/tests/fixtures/job_triage_contract.json'),
+    'utf8',
+))
 
 beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
@@ -155,6 +159,55 @@ test('web standalone summaries and filters match the shared worker contract fixt
     })
 })
 
+test('web triage summaries, SQL filters, counts, and detail match the shared worker fixture', async () => {
+    const expectedIds = new Map<string, number>()
+    for (const item of triageFixture.cases) {
+        const posting = await createScreenedPosting(
+            item.name,
+            item.screening?.state ?? null,
+            item.screening?.result_json_raw ?? null,
+            {
+                pipeline_status: item.pipeline_status,
+                score_detail: item.score_detail_raw,
+                created_at: '2026-10-22T12:00:00.000Z',
+            },
+        )
+        expectedIds.set(item.name, posting.id)
+    }
+
+    const all = await getJobPostings({ bucket: 'all', size: 100 })
+    const byId = new Map(all.data.map((row) => [row.id, row]))
+    expect(all.total).toBe(triageFixture.cases.length)
+    for (const item of triageFixture.cases) {
+        const row = byId.get(expectedIds.get(item.name)!)!
+        expect(row.triage_summary.status).toBe(item.expected_status)
+        expect(row.triage_summary.provenance).toBe(item.expected_provenance)
+        expect(row.triage_summary.reason).not.toContain('Synthetic private error text')
+    }
+    expect(byId.get(expectedIds.get('standalone_unrecognized_check')!)?.screen_summary.outcome)
+        .toBe('disqualified')
+    expect(byId.get(expectedIds.get('no_assessment_evidence')!)?.screen_summary.outcome)
+        .toBe('not_screened')
+
+    const statuses = [...new Set<string>(triageFixture.cases.map((item: any) => item.expected_status))] as
+        Array<'rule_disqualified' | 'screen_disqualified' | 'candidate' | 'needs_review'>
+    for (const status of statuses) {
+        const expected = triageFixture.cases
+            .filter((item: any) => item.expected_status === status)
+            .map((item: any) => expectedIds.get(item.name))
+        const filtered = await getJobPostings({ bucket: 'all', triageStatus: status, size: 100 })
+        expect(filtered.data.map((row) => row.id).sort((a, b) => a - b))
+            .toEqual(expected.sort((a: number, b: number) => a - b))
+        expect(filtered.total).toBe(expected.length)
+    }
+
+    const candidatePage = await getJobPostings({ bucket: 'all', triageStatus: 'candidate', size: 1 })
+    expect(candidatePage.data[0].id).toBe(expectedIds.get('standalone_candidate_notified'))
+    expect(candidatePage.total).toBe(3)
+    await expect(getJobPostings({ bucket: 'matched', triageStatus: 'candidate' }))
+        .rejects.toThrow(/only supported in all jobs/i)
+})
+
 test('All jobs all-text search treats LIKE metacharacters literally and scopes description explicitly', async () => {
     const literalPercent = await prisma.job_postings.create({
         data: makeJobPosting({ external_id: 'literal-percent', pipeline_status: 'new', description: 'coverage 100% guarantee' }),
@@ -233,6 +286,8 @@ test('server actions reject unknown inventory scopes instead of falling through 
     await expect(getJobPostings({ bucket: 'future-bucket' as any })).rejects.toThrow(/bucket/i)
     await expect(getJobPostings({ bucket: 'all', searchScope: 'everything' as any })).rejects.toThrow(/search scope/i)
     await expect(getJobPostings({ bucket: 'all', screenOutcome: '' as any })).rejects.toThrow(/screen outcome/i)
+    await expect(getJobPostings({ bucket: 'all', triageStatus: 'not_screened' as any })).rejects.toThrow(/triage status/i)
+    await expect(getJobPostings({ bucket: 'matched', triageStatus: 'candidate' })).rejects.toThrow(/only supported in all jobs/i)
 })
 
 test('mutation entrypoints reject paging and unsupported filters before changing a row', async () => {
@@ -242,6 +297,8 @@ test('mutation entrypoints reject paging and unsupported filters before changing
 
     expect(await bulkRemove([posting.id], { bucket: 'matched', page: 0 } as any)).toMatchObject({ success: false })
     expect(await bulkRemove([posting.id], { bucket: 'matched', screenOutcome: 'provider_error' } as any))
+        .toMatchObject({ success: false })
+    expect(await bulkRemove([posting.id], { bucket: 'matched', triageStatus: 'candidate' } as any))
         .toMatchObject({ success: false })
     expect((await prisma.job_postings.findUnique({ where: { id: posting.id } }))?.pipeline_status).toBe('new')
 })

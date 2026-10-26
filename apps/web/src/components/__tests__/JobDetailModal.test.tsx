@@ -164,6 +164,36 @@ describe('JobDetailModal score_detail rendering', () => {
         expect(screen.queryByText(/assessed/)).not.toBeInTheDocument()
     })
 
+    it('shows triage status independently and explains candidate means retained, not qualified', () => {
+        const candidate = {
+            ...props,
+            job: {
+                ...workerShapedJob,
+                screen_summary: {
+                    outcome: 'not_screened',
+                    is_advisory: true,
+                    reason: null,
+                    assessment_time: null,
+                    backend: null,
+                    model: null,
+                    effort: null,
+                    evaluator_version: null,
+                    origin: 'none',
+                },
+                triage_summary: {
+                    status: 'candidate',
+                    reason: 'Standalone screening found no disqualifier; retained for fit research, not qualified.',
+                    provenance: 'job_screenings',
+                },
+            },
+        }
+        render(<JobDetailModal {...candidate} />)
+        expect(screen.getByText('Job triage')).toBeInTheDocument()
+        expect(screen.getByText('Candidate · retained for fit research')).toBeInTheDocument()
+        expect(screen.getByText(/Candidate status means retained for fit research, not qualified/i)).toBeInTheDocument()
+        expect(screen.getByText(/Advisory · No standalone record/)).toBeInTheDocument()
+    })
+
     it('renders malformed legacy check values as unknown', () => {
         const malformed = {
             ...props,

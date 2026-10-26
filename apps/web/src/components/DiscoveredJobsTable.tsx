@@ -25,6 +25,8 @@ import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/actions'
 import type { ScreenOutcome, ScreenSummary, LegacyScreenEvidence } from '@/lib/screen-summary'
+import { TRIAGE_STATUS_LABELS } from '@/lib/triage-summary'
+import type { JobTriageSummary, TriageStatus } from '@/lib/triage-summary'
 import type { SourceLifecycleSummary, SourceFreshness } from '@/lib/source-lifecycle'
 import { FileText, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 
@@ -44,6 +46,7 @@ export interface JobPosting {
     created_at?: string | null
     screen_summary?: ScreenSummary
     legacy_screen_evidence?: LegacyScreenEvidence
+    triage_summary?: JobTriageSummary
     source_lifecycle?: SourceLifecycleSummary
 }
 
@@ -79,11 +82,19 @@ const BUCKETS: { value: JobBucket; label: string }[] = [
 
 const SCREEN_OUTCOMES: { value: 'all' | ScreenOutcome; label: string }[] = [
     { value: 'all', label: 'All screen outcomes' },
-    { value: 'not_screened', label: 'Not screened' },
+    { value: 'not_screened', label: 'No standalone record' },
     { value: 'provider_error', label: 'Provider error' },
     { value: 'disqualified', label: 'Disqualified (advisory)' },
     { value: 'no_disqualifier_found', label: 'No disqualifier found' },
     { value: 'unknown', label: 'Unknown' },
+]
+
+const TRIAGE_FILTERS: { value: 'all' | TriageStatus; label: string }[] = [
+    { value: 'all', label: 'All triage statuses' },
+    ...Object.entries(TRIAGE_STATUS_LABELS).map(([value, label]) => ({
+        value: value as TriageStatus,
+        label,
+    })),
 ]
 
 const SEARCH_SCOPES: { value: JobSearchScope; label: string }[] = [
@@ -258,7 +269,7 @@ function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; 
 
 function screenOutcomeLabel(outcome?: ScreenOutcome): string {
     switch (outcome) {
-        case 'not_screened': return 'Not screened'
+        case 'not_screened': return 'No standalone record'
         case 'provider_error': return 'Provider error'
         case 'disqualified': return 'Disqualified'
         case 'no_disqualifier_found': return 'No disqualifier found'
@@ -266,7 +277,7 @@ function screenOutcomeLabel(outcome?: ScreenOutcome): string {
     }
 }
 
-function ScreenCell({ job }: { job: JobPosting }) {
+function ScreenCell({ job, includeTriage = false }: { job: JobPosting; includeTriage?: boolean }) {
     const summary = job.screen_summary
     const label = screenOutcomeLabel(summary?.outcome)
     const legacy = job.legacy_screen_evidence?.available
@@ -277,6 +288,14 @@ function ScreenCell({ job }: { job: JobPosting }) {
             <Badge variant="outline" title="Advisory only; this does not establish universal eligibility">
                 Advisory · {label}
             </Badge>
+            {includeTriage && job.triage_summary && (
+                <Badge
+                    variant="secondary"
+                    title={`${job.triage_summary.reason} · Evidence: ${job.triage_summary.provenance}`}
+                >
+                    Triage · {TRIAGE_STATUS_LABELS[job.triage_summary.status]}
+                </Badge>
+            )}
             {summary?.reason && (
                 <span className="truncate text-muted-foreground" title={summary.reason}>
                     {summary.reason}
@@ -414,6 +433,7 @@ export function DiscoveredJobsTable({
     const cause = filters.cause ?? 'all'
     const searchScope = filters.searchScope ?? 'metadata'
     const screenOutcome = filters.screenOutcome ?? 'all'
+    const triageStatus = filters.triageStatus ?? 'all'
     const scope = actionScope(filters)
 
     const updateFilters = (patch: Partial<JobTableFilters>) => {
@@ -422,6 +442,7 @@ export function DiscoveredJobsTable({
             if (!filters.sortExplicit) next.sort = patch.bucket === 'all' ? 'created' : 'score'
             if (patch.bucket !== 'all') {
                 next.screenOutcome = undefined
+                next.triageStatus = undefined
                 next.searchScope = 'metadata'
             }
             if (patch.bucket !== 'discarded') next.cause = undefined
@@ -494,6 +515,19 @@ export function DiscoveredJobsTable({
                 </Select>
                 {bucket === 'all' && (
                     <>
+                        <Select
+                            value={triageStatus}
+                            onValueChange={(value) => updateFilters({ triageStatus: value === 'all' ? undefined : value as TriageStatus })}
+                        >
+                            <SelectTrigger className="w-[210px]" aria-label="Job triage status">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {TRIAGE_FILTERS.map((status) => (
+                                    <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Select
                             value={screenOutcome}
                             onValueChange={(value) => updateFilters({ screenOutcome: value === 'all' ? undefined : value as ScreenOutcome })}
@@ -635,7 +669,7 @@ export function DiscoveredJobsTable({
                                         </a>
                                         {bucket === 'all' ? (
                                             <>
-                                                <ScreenCell job={job} />
+                                                <ScreenCell job={job} includeTriage />
                                                 <SourceCell job={job} />
                                                 {shortDescription && (
                                                     <div className="mt-1 text-[11px] text-muted-foreground">{shortDescription}</div>

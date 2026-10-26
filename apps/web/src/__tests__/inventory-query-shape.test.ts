@@ -61,4 +61,30 @@ describe('All jobs direct query', () => {
         }
         expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([20, 10]) })
     })
+
+    it('filters derived triage in SQL before pagination and count without fit ID scans', async () => {
+        mockPrisma.$queryRaw
+            .mockResolvedValueOnce([] as any)
+            .mockResolvedValueOnce([{ total: 0 }] as any)
+
+        await getJobPostings({ bucket: 'all', triageStatus: 'rule_disqualified', page: 1, size: 10 })
+
+        const calls = mockPrisma.$queryRaw.mock.calls
+        expect(calls).toHaveLength(2)
+        for (const [query] of calls) {
+            const sql = (query as any).sql as string
+            const values = (query as any).values as unknown[]
+            expect(sql).toContain("p.pipeline_status NOT IN")
+            expect(sql).toContain('json_each')
+            expect(sql).toContain('p.score_detail')
+            expect(sql).toContain('s.result_json')
+            expect(sql).toContain("'screen_disqualified'")
+            expect(sql).toContain("'candidate'")
+            expect(sql).toContain("'needs_review'")
+            expect(sql).not.toContain('matchedIds')
+            expect(sql).not.toContain('id IN (')
+            expect(values).toContain('rule_disqualified')
+        }
+        expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([10, 10]) })
+    })
 })

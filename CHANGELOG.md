@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add derived Web/MCP job-triage summaries, filters and partition counts for supported
+  deterministic rejections, standalone screening rejections, retained candidates and
+  unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
+  lifecycle state; share a synthetic Web/Python contract fixture.
+
 - Add a one-shot, source-only refresh for up to 25 eligible unscored SmartRecruiters
   postings. Record source availability/check outcomes separately from pipeline and
   application state; version company/title/location/JD content and capture the version

@@ -19,14 +19,16 @@ test('All jobs starts with recent unscored work, supports full-text search, page
     const recent = page.locator('tr', { hasText: 'Recent Synthetic Systems' })
     await expect(recent).toBeVisible()
     await expect(page.locator('tr').nth(1)).toContainText('Recent Synthetic Systems')
-    await expect(recent).toContainText('Not screened')
+    await expect(recent).toContainText('No standalone record')
+    await expect(recent).toContainText('Needs review')
     await expect(page.getByLabel('Select all')).toHaveCount(0)
 
     // Open and inspect the full synthetic JD, including text omitted from the table.
     await recent.getByTitle('View JD').click()
     const newDialog = page.getByRole('dialog')
     await expect(newDialog).toContainText('SYNTHETIC FULL JD END.')
-    await expect(newDialog).toContainText('Not screened')
+    await expect(newDialog).toContainText('No standalone record')
+    await expect(newDialog).toContainText('Needs review')
     await page.keyboard.press('Escape')
 
     // Search the long description explicitly; metadata-only remains the default.
