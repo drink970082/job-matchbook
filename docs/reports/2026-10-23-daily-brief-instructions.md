@@ -12,7 +12,8 @@ Scheduled view and run history.
    **20:00 America/New_York**. Confirm the displayed timezone and next run in the
    Scheduled view; keep the timezone aligned through daylight-saving changes. Exact
    delivery times depend on plan and account availability. If 20:00 cannot be selected,
-   record that criterion as unavailable rather than substituting an approximate time.
+   record that criterion as unavailable rather than substituting an approximate time or
+   paid API-based scheduling.
 2. Use a regular ChatGPT chat first to exercise the prompt and connected tools. The
    ATS MCP tunnel and web search must both be available to the eventual scheduled chat.
    A successful interactive run does not prove the task can reach either source.
@@ -66,7 +67,8 @@ Scheduled view and run history.
     - Also retrieve and paginate application records. Use linked posting identity or
       exact official URL equality to confirm a prior application. Without a link or
       exact URL, company/title similarity is only a probable duplicate: flag it for
-      review and do not silently suppress it.
+      review and do not silently suppress it. Exclude every confirmed prior application
+      from the recommendation list.
     - Deduplicate postings inside this run by source plus external ID.
     - For each candidate posting, retrieve get_job_description chunks until the
       server reports no next chunk. Record whether the full description was complete.
@@ -90,6 +92,8 @@ Scheduled view and run history.
       unknown when the source does not say. Do not infer sponsorship from silence.
     - Mark a probable prior-application duplicate separately from a confirmed
       requisition identity. Similar company/title alone is never a confirmed match.
+    - Never recommend a posting with a confirmed application match. Keep probable
+      matches visible with a review label instead of presenting them as confirmed.
     - Do not promise cross-day deduplication. There is no saved recommendation
       ledger; repeats across different days are best-effort only.
 
@@ -99,6 +103,9 @@ Scheduled view and run history.
     - If a successful, fully paginated ATS query returns no candidates, say no
       matching ATS postings were found in that query window. Do not imply there are
       no jobs elsewhere or no jobs in the full database.
+    - If Scheduled task creation or ATS access is unavailable, report that limitation
+      and leave unattended acceptance unsatisfied. Do not substitute paid API
+      orchestration.
     - Keep unknown, provider error, incomplete JD, source failure, and confirmed
       closure distinct. Never turn missing or stale stored evidence into a positive
       eligibility claim.
@@ -135,7 +142,10 @@ failed, or not exercised:
 - Every recommendation has an official URL, full-JD-grounded rationale, explicit
   unknown material facts, and an evidence cutoff.
 - Application dedup distinguishes exact identity from probable title/company matches,
-  including applications with no linked posting.
+  including applications with no linked posting; confirmed prior applications are
+  excluded from recommendations and probable matches are flagged for review.
+- If ChatGPT Scheduled or its ATS connection is unavailable, the task reports that
+  limitation; no paid API scheduler substitutes for the required product capability.
 - The task uses America/New_York across DST, and the output does not assume the worker
   pass beginning at 20:00 has completed.
 - No application state, ATS data, worker, service, or paid model evaluation changed as

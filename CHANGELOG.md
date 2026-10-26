@@ -24,8 +24,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   actual run, use current ChatGPT Scheduled guidance for uploaded files and connected
   tools, and document that the connected ATS tunnel still lacks a screen-update window
   and source-lifecycle summary after the repository implementation merged. The checklist
-  covers full-JD evidence, visible failures, cutoffs, and conservative application
-  deduplication.
+  covers full-JD evidence, visible failures, cutoffs, exclusion of confirmed prior
+  applications, and review labels for probable duplicates.
 
 - Add an All jobs inventory view as the Discovered Jobs default, with a direct non-removed
   list/count query, stable discovery-recency order, literal metadata/all-text filters,

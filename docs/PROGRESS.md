@@ -36,7 +36,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Web Scheduled tasks can use uploaded files and connected tools; desktop tasks can run in
   a local project directory or worktree. Verify the actual task can access the private
   preference and résumé files. Exact 20:00 delivery depends on account eligibility.
-  Interactive access is not acceptance.
+  The guide excludes confirmed prior applications and keeps probable duplicates flagged
+  for review. Interactive access is not acceptance.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
