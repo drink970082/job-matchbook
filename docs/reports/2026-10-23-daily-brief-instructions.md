@@ -151,7 +151,7 @@ failed, or not exercised:
 - No application state, ATS data, worker, service, or paid model evaluation changed as
   a side effect.
 
-## Interactive preflight (not Scheduled acceptance)
+## Interactive preflight (2026-10-25; not Scheduled acceptance)
 
 - `get_ats_overview` succeeded and reported live counts of 7,615 postings and 39
   applications. The literal **__daily_brief_empty_probe__** returned zero rows and no
@@ -167,6 +167,9 @@ failed, or not exercised:
   exact linked identity or official URL and mark title/company similarity as probable.
 - The Two Sigma official-page probe returned HTTP 406 in the interactive web reader. It
   was treated as a source failure, not an empty result or confirmed closure.
+
+## Deployed MCP verification (2026-10-26 UTC; not Scheduled acceptance)
+
 - The deployed MCP exposes standalone-screen update windows and bounded source-lifecycle
   summaries. Local stdio and remote connected checks cover all ten tools, pagination,
   advanced outcome/full-text/update-window queries and invalid-window rejection. Tool
