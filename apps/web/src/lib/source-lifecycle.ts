@@ -1,3 +1,5 @@
+import { validOffsetTimestamp } from './screen-summary'
+
 export type SourceFreshness = 'not_assessed' | 'current' | 'stale' | 'unknown' | 'provider_error'
 
 export interface SourceLifecycleSummary {
@@ -66,10 +68,6 @@ function parseScoreEvidence(raw: unknown): {
     }
 }
 
-function timestamp(value: unknown): string | null {
-    return typeof value === 'string' && value.length <= 40 ? value : null
-}
-
 const ERROR_CATEGORIES = new Set([
     'invalid_request', 'malformed_response', 'identity_mismatch', 'company_mismatch',
     'invalid_active', 'incomplete_content', 'timeout', 'connection_error', 'http_403',
@@ -94,9 +92,9 @@ export function sourceLifecycleSummary(
 
     return {
         state: state === 'available' || state === 'closed' ? state : 'unknown',
-        last_seen_at: timestamp(posting.source_last_seen_at),
-        last_check_attempted_at: timestamp(posting.source_last_check_attempted_at),
-        last_checked_at: timestamp(posting.source_last_checked_at),
+        last_seen_at: validOffsetTimestamp(posting.source_last_seen_at),
+        last_check_attempted_at: validOffsetTimestamp(posting.source_last_check_attempted_at),
+        last_checked_at: validOffsetTimestamp(posting.source_last_checked_at),
         last_check_outcome: outcome === 'found' || outcome === 'confirmed_closed' || outcome === 'inconclusive'
             ? outcome : 'not_checked',
         last_check_error_category: typeof errorCategory === 'string' && ERROR_CATEGORIES.has(errorCategory)

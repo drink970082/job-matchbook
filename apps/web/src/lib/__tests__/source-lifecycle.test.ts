@@ -1,4 +1,17 @@
 import { sourceLifecycleSummary } from '../source-lifecycle'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const timestampContract: {
+    assessment_time_cases: Array<{
+        name: string
+        stored_updated_at: string
+        expected_summary_time: string | null
+    }>
+} = JSON.parse(readFileSync(
+    resolve(__dirname, '../../../../worker/tests/fixtures/standalone_screen_contract.json'),
+    'utf8',
+))
 
 describe('source lifecycle summary', () => {
     const posting = {
@@ -50,5 +63,42 @@ describe('source lifecycle summary', () => {
         expect(sourceLifecycleSummary({
             ...posting, score_detail: '{"assessment":{}}',
         }).fit_freshness).toBe('not_assessed')
+    })
+
+    it.each(timestampContract.assessment_time_cases)(
+        'validates source timestamp with the shared calendar/offset contract: $name',
+        (timeCase) => {
+            expect(sourceLifecycleSummary({
+                ...posting,
+                source_last_seen_at: timeCase.stored_updated_at,
+                source_last_check_attempted_at: timeCase.stored_updated_at,
+                source_last_checked_at: timeCase.stored_updated_at,
+            })).toMatchObject({
+                last_seen_at: timeCase.expected_summary_time,
+                last_check_attempted_at: timeCase.expected_summary_time,
+                last_checked_at: timeCase.expected_summary_time,
+            })
+        },
+    )
+
+    it.each([0, -1, true, Number.MAX_SAFE_INTEGER + 1])(
+        'treats invalid standalone screen revision %p as unknown',
+        (screenRevision) => {
+            expect(sourceLifecycleSummary(posting, {
+                state: 'complete', source_content_revision: screenRevision,
+            }).screen_freshness).toBe('unknown')
+        },
+    )
+
+    it('treats an unsafe current posting revision as unknown for every assessment', () => {
+        expect(sourceLifecycleSummary({
+            ...posting,
+            source_content_revision: Number.MAX_SAFE_INTEGER + 1,
+        }, { state: 'complete', source_content_revision: 1 })).toMatchObject({
+            content_revision: null,
+            fit_freshness: 'unknown',
+            screen_freshness: 'unknown',
+            combined_screen_freshness: 'unknown',
+        })
     })
 })

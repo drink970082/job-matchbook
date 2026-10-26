@@ -56,13 +56,15 @@ will return `active: false`, which remains grounded in the published schema and 
 covered by the synthetic closure fixture.
 
 Keep adapter status outside canonical **POSTING_FIELDS** so normal feed ingestion does
-not persist source-specific metadata. Add a small refresh-only adapter seam that returns
-the canonical posting and its source-state signal from the same HTTP response; do not
-issue a second detail request. The seam is injected into the refresh module and exercised
-by synthetic adapter/lifecycle fixtures. Concretely, keep existing `fetch_one` unchanged
-for feed ingestion and add a pilot-only `fetch_one_observation` result with the canonical
-posting plus a small `available | closed | unknown` signal; leave transport exceptions
-for the refresh module's safe error classification. A matching `active: true` response
+not persist source-specific metadata. Normal SmartRecruiters detail ingestion drops a
+response whose **active** field is explicitly **false** in both the feed **fetch_one**
+path and the watchlist detail path. It does not mutate source state; a missing **active**
+field remains compatible with normal ingestion. Add a small refresh-only adapter seam
+that returns the canonical posting and its source-state signal from the same HTTP response;
+do not issue a second detail request. The seam is injected into the refresh module and
+exercised by synthetic adapter/lifecycle fixtures. **fetch_one_observation** returns the
+canonical posting plus a small **available | closed | unknown** signal; leave transport
+exceptions for the refresh module's safe error classification. A matching **active: true** response
 is available only when the returned ID matches, a returned company identifier agrees
 with the requested slug when present, the title is non-empty, and
 `jobAd.sections.jobDescription.text` is non-empty. Qualifications and additional
@@ -81,6 +83,9 @@ The synthetic adapter/lifecycle fixtures cover:
   the content revision, mark older captured assessments stale, and make zero model calls.
 - Exact returned ID with `active: false`: confirm closure and update check time without
   replacing the prior content or changing pipeline/application state.
+- Explicit `active: false` in normal feed/watchlist detail ingestion: skip the posting
+  without inserting/reopening source availability or recording closure; missing `active`
+  remains accepted by normal ingestion.
 - Different returned ID/source/company, missing identity or `active`, `active: true`
   with a blank/partial core JD, `None`, malformed JSON, or an HTML/interstitial response:
   record an inconclusive safe category and preserve the prior complete JD, hash, revision,

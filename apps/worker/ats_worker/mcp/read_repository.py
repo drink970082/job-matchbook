@@ -31,6 +31,7 @@ MAX_RFC3339_CHARS = 40
 MAX_SCREEN_REASON_CHARS = 300
 MAX_SCREEN_PROVENANCE_CHARS = 120
 MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807
+MAX_SAFE_REVISION = 9_007_199_254_740_991
 
 REQUIRED_TABLES = frozenset({
     "applications",
@@ -241,6 +242,11 @@ def _screen_summary(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _positive_revision(value: Any) -> int | None:
+    """Normalize positive JS-safe integer revisions; booleans and other values are unknown."""
+    return value if type(value) is int and 0 < value <= MAX_SAFE_REVISION else None
+
+
 def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | None = None
                               ) -> dict[str, Any]:
     """Return bounded source-state and separate fit/screen freshness metadata."""
@@ -250,9 +256,7 @@ def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | N
     outcome = row.get("source_last_check_outcome")
     if outcome not in {"not_checked", "found", "confirmed_closed", "inconclusive"}:
         outcome = "not_checked"
-    current = row.get("source_content_revision")
-    if type(current) is not int or current <= 0:
-        current = None
+    current = _positive_revision(row.get("source_content_revision"))
 
     detail = row.get("score_detail_parsed")
     fit_assessed = (bool(row.get("fit_assessment_available"))
@@ -261,12 +265,12 @@ def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | N
     fit_revision = row.get("fit_content_revision")
     if fit_revision is None and isinstance(detail, dict):
         fit_revision = detail.get("source_content_revision")
-    if type(fit_revision) is not int or fit_revision <= 0:
-        fit_revision = None
+    fit_revision = _positive_revision(fit_revision)
 
     screen_state = ((screening or {}).get("state") or row.get("screening_state"))
     screen_revision = ((screening or {}).get("source_content_revision")
                        if screening is not None else row.get("screening_source_content_revision"))
+    screen_revision = _positive_revision(screen_revision)
     standalone_exists = screening is not None or row.get("screening_id") is not None
     legacy_screen = (bool(row.get("legacy_screen_evidence_available"))
                      or has_embedded_screen(row.get("score_detail"))
@@ -277,8 +281,7 @@ def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | N
             screen_freshness = "provider_error"
         elif screen_state == "complete":
             screen_freshness = assessment_freshness(
-                assessed=True,
-                captured_revision=screen_revision if type(screen_revision) is int else None,
+                assessed=True, captured_revision=screen_revision,
                 current_revision=current,
             )
         else:
@@ -312,8 +315,6 @@ def _source_lifecycle_summary(row: dict[str, Any], screening: dict[str, Any] | N
             assessed=legacy_screen, captured_revision=fit_revision,
             current_revision=current),
     }
-
-
 _SOURCE_LIFECYCLE_FIELDS = (
     "source_state", "source_last_seen_at", "source_last_check_attempted_at",
     "source_last_checked_at", "source_last_check_outcome",

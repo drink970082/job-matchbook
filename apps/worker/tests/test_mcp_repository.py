@@ -500,6 +500,78 @@ def test_source_lifecycle_separates_state_from_fit_and_screen_freshness(db_path)
     assert "synthetic-secret" not in json.dumps(poisoned_detail)
 
 
+@pytest.mark.parametrize("invalid_revision", [0, -1, 9_007_199_254_740_992])
+def test_source_lifecycle_invalid_screen_revisions_are_unknown_in_list_and_detail(
+        db_path, invalid_revision):
+    with sqlite3.connect(db_path) as conn:
+        job_id = _job(conn, description="A sufficiently complete job description.")
+        conn.execute(
+            "UPDATE job_postings SET source_state='available',source_content_revision=2 "
+            "WHERE id=?", (job_id,),
+        )
+        _insert_screen(conn, job_id, state="complete", result_json='{"screen":{}}',
+                       updated_at="2026-10-22T10:20:30Z")
+        conn.execute(
+            "UPDATE job_screenings SET source_content_revision=? WHERE job_posting_id=?",
+            (invalid_revision, job_id),
+        )
+
+    repo = ReadOnlyATSRepository(db_path)
+    listing = next(item for item in repo.list_jobs()["items"] if item["id"] == job_id)
+    detail = repo.get_job(job_id)
+    assert listing["source_lifecycle"]["screen_freshness"] == "unknown"
+    assert detail["source_lifecycle"]["screen_freshness"] == "unknown"
+
+
+@pytest.mark.parametrize("invalid_revision", [True, False])
+def test_source_lifecycle_rejects_boolean_screen_revisions(invalid_revision):
+    from ats_worker.mcp.read_repository import _source_lifecycle_summary
+
+    summary = _source_lifecycle_summary(
+        {"source_state": "available", "source_content_revision": 2, "screening_id": 1},
+        {"state": "complete", "source_content_revision": invalid_revision},
+    )
+    assert summary["screen_freshness"] == "unknown"
+
+
+def test_source_lifecycle_rejects_unsafe_current_fit_and_screen_revisions():
+    from ats_worker.mcp.read_repository import _source_lifecycle_summary
+
+    unsafe_revision = 9_007_199_254_740_992
+    summary = _source_lifecycle_summary(
+        {
+            "source_state": "available",
+            "source_content_revision": unsafe_revision,
+            "fit_assessment_available": True,
+            "fit_content_revision": unsafe_revision,
+            "screening_id": 1,
+        },
+        {"state": "complete", "source_content_revision": unsafe_revision},
+    )
+    assert summary["content_revision"] is None
+    assert summary["fit_freshness"] == "unknown"
+    assert summary["screen_freshness"] == "unknown"
+
+
+def test_source_lifecycle_accepts_maximum_safe_revision():
+    from ats_worker.mcp.read_repository import _source_lifecycle_summary
+
+    max_safe_revision = 9_007_199_254_740_991
+    summary = _source_lifecycle_summary(
+        {
+            "source_state": "available",
+            "source_content_revision": max_safe_revision,
+            "fit_assessment_available": True,
+            "fit_content_revision": max_safe_revision,
+            "screening_id": 1,
+        },
+        {"state": "complete", "source_content_revision": max_safe_revision},
+    )
+    assert summary["content_revision"] == max_safe_revision
+    assert summary["fit_freshness"] == "current"
+    assert summary["screen_freshness"] == "current"
+
+
 def test_screen_summaries_bound_and_redact_untrusted_reasons(db_path):
     secret_url = "https://example.test/role?token=synthetic-secret"
     reason = secret_url + " " + "x" * 500

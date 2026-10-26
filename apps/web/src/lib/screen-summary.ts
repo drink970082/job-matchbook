@@ -83,8 +83,8 @@ function bounded(value: string | null | undefined): string | null {
     return typeof value === 'string' ? value.slice(0, MAX_PROVENANCE_CHARS) : null
 }
 
-function assessmentTime(value: string | null | undefined): string | null {
-    if (!value || value.length > MAX_TIMESTAMP_CHARS) return null
+export function validOffsetTimestamp(value: unknown): string | null {
+    if (typeof value !== 'string' || !value || value.length > MAX_TIMESTAMP_CHARS) return null
     const match = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|([+-])(\d{2}):(\d{2}))$/.exec(value)
     if (!match || match[0] !== value) return null
 
@@ -181,7 +181,7 @@ export function standaloneScreenSummary(record: StandaloneScreenRecord | null | 
         outcome,
         is_advisory: true,
         reason,
-        assessment_time: assessmentTime(record?.updated_at),
+        assessment_time: validOffsetTimestamp(record?.updated_at),
         backend: bounded(record?.backend),
         model: bounded(record?.model),
         effort: bounded(record?.effort),
