@@ -475,8 +475,8 @@ def run_unscored_refresh(conn, *, source: str, limit: int, now: str,
     This stage only performs source GETs and conditional SQLite writes. It does not
     change pipeline/application state and never invokes a screen or fit provider.
     """
-    if source != "smartrecruiters":
-        raise ValueError("unscored refresh currently supports smartrecruiters only")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("unscored refresh requires an explicit source")
     if not 1 <= limit <= UNSCORED_REFRESH_MAX:
         raise ValueError(f"unscored refresh limit must be between 1 and {UNSCORED_REFRESH_MAX}")
     if observation_fn is None:

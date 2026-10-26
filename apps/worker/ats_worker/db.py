@@ -399,8 +399,8 @@ def count_unknown_refresh_statuses(conn: sqlite3.Connection, source: str) -> int
     ).fetchone()[0]
 
 
-def _source_refresh_eligible(row) -> bool:
-    return (row is not None and row["source"] == "smartrecruiters"
+def _source_refresh_eligible(row, expected_source: str) -> bool:
+    return (row is not None and row["source"] == expected_source
             and row["pipeline_status"] in _UNSCORED_REFRESH_STATES
             and row["application_id"] is None
             and not has_fit_assessment(row["score_detail"]))
@@ -456,7 +456,7 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
     try:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM job_postings WHERE id=?", (posting_id,)).fetchone()
-        if (not _source_refresh_eligible(row)
+        if (not _source_refresh_eligible(row, expected_source)
                 or row["source"] != expected_source
                 or row["external_id"] != expected_external_id):
             conn.rollback()
@@ -570,24 +570,19 @@ def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
     # doesn't carry a stale error string — mirrors mark_notified's clear on
     # the notify side.
     detail = dict(score_detail)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT source_content_revision FROM job_postings WHERE id=?", (posting_id,)
-        ).fetchone()
-        if ((has_fit_assessment(json.dumps(detail))
-             or isinstance(detail.get("screen"), dict)) and row is not None):
-            if row["source_content_revision"] is not None:
-                detail["source_content_revision"] = row["source_content_revision"]
-        conn.execute(
-            "UPDATE job_postings SET score=?,score_detail=?,pipeline_status=?,"
-            "pipeline_error=NULL,updated_at=? WHERE id=?",
-            (score, json.dumps(detail, ensure_ascii=False), status, now, posting_id),
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    row = conn.execute(
+        "SELECT source_content_revision FROM job_postings WHERE id=?", (posting_id,)
+    ).fetchone()
+    if ((has_fit_assessment(json.dumps(detail)) or isinstance(detail.get("screen"), dict))
+            and row is not None and row["source_content_revision"] is not None):
+        detail["source_content_revision"] = row["source_content_revision"]
+    _update(conn, posting_id, {
+        "score": score,
+        "score_detail": json.dumps(detail, ensure_ascii=False),
+        "pipeline_status": status,
+        "pipeline_error": None,
+        "updated_at": now,
+    })
 
 
 def mark_notified(conn, posting_id: int, *, now: str) -> None:
