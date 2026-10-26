@@ -168,6 +168,8 @@ def _get_json_once(url: str, headers: dict):
         # answer while a pass waits. Everything else (403, 429, 5xx) gets another go on
         # the growing schedule above, which is sized for a short-lived limiter as much as
         # for a transient blip precisely because the two are not distinguishable here.
+        if url == CODEX_USAGE_URL and exc.code == 401:
+            return {"auth_required": True}, False
         return None, exc.code not in (401, 404)
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
         # http.client.HTTPException is in the tuple deliberately: IncompleteRead and
@@ -225,7 +227,7 @@ def fetch_codex_usage() -> dict | None:
     if not auth:
         home = os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")
         print(f"[quota] codex: not logged in (no readable tokens in {home}/auth.json)")
-        return None
+        return {**_snapshot("codex", None, []), "auth_required": True}
     token, account = auth
     data = _get_json(CODEX_USAGE_URL, {
         "Authorization": f"Bearer {token}",
@@ -237,6 +239,8 @@ def fetch_codex_usage() -> dict | None:
         if data is not None:            # _get_json already spoke for a None
             print(f"[quota] codex: 200 but body is {type(data).__name__}, not an object")
         return None
+    if data.get("auth_required") is True:
+        return {**_snapshot("codex", None, []), "auth_required": True}
     rate = data.get("rate_limit")
     if not isinstance(rate, dict):
         print(f"[quota] codex: 200 but no rate_limit object: {str(data)[:160]}")
@@ -352,8 +356,9 @@ def capture_usage(path: str, backend: str) -> bool:
     `path`. Returns whether a snapshot was written. Never raises — telemetry must not
     fail a scoring pass, and a stale snapshot beats an aborted run.
 
-    A failed fetch leaves the PREVIOUS snapshot in place rather than truncating it: a
-    transient 429 or an expired token should dim the bar's freshness (the web reads
+    A transient failed fetch leaves the PREVIOUS snapshot in place. Missing Codex
+    credentials or a 401 publish auth_required while retaining previous quota values.
+    A transient 429 should dim the bar's freshness (the web reads
     the file mtime as `as_of`), not blank it. That is exactly why the write stamps
     `as_of` INTO the snapshot as well: a stale reading and a fresh one are otherwise
     indistinguishable to anyone reading the file (a `cat`, a CLI, an agent), and a
@@ -371,6 +376,10 @@ def capture_usage(path: str, backend: str) -> bool:
         snapshot = fetch()
         if not snapshot:
             return False                 # the fetcher already said why
+        if snapshot.get("auth_required"):
+            previous = _read_json(path)
+            if isinstance(previous, dict) and previous.get("backend") == "codex":
+                snapshot = {**previous, "auth_required": True}
         snapshot["as_of"] = datetime.now().astimezone().isoformat(timespec="seconds")
         tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:

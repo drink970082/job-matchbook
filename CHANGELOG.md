@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Show a Codex re-login command in the usage bar when worker credentials are missing
+  or rejected (HTTP 401); refresh usage after standalone Codex screening passes.
+
 - Add a one-shot, source-only refresh for up to 25 eligible unscored SmartRecruiters
   postings. Record source availability/check outcomes separately from pipeline and
   application state; version company/title/location/JD content and capture the version

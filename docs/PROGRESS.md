@@ -8,6 +8,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Codex login notice — `feat/codex-login-notice`**: expose missing/rejected worker login in the usage bar, including standalone screening passes.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

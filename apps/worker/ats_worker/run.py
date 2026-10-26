@@ -406,6 +406,9 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 candidate=candidate, backend=screen_backend, model=effective_model,
                 effort=effective_effort, limit=screen_limit,
                 screen_workers=screen_workers or 1, clock=_now)
+            if screen_backend == "codex":
+                capture_usage(os.path.join(
+                    os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json"), "codex")
             return
 
         # Operator-only escape hatch from the terminal 'discarded' state: after a
