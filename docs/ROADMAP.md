@@ -83,6 +83,10 @@ MCP pagination, complete JD chunks and application URL comparison. It does not e
 the source freshness cutoff or unattended ChatGPT access; #94 must verify those against
 the deployed tunnel and an actual scheduled run.
 
+Use the [Daily Brief task instructions](reports/2026-10-23-daily-brief-instructions.md)
+to prepare and accept the scheduled workflow. They are an example, not evidence that the
+operator's ChatGPT account has the required scheduling and connected-tool access.
+
 At 20:00 America/New_York disclose the evidence cutoff; the worker pass starting then is
 not guaranteed complete. Confirm product/account capabilities in the actual environment.
 An interactive chat does not prove unattended tunnel access. If scheduling is unavailable,

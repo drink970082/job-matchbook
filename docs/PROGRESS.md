@@ -24,6 +24,21 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
+- **Daily Brief instructions for issue #94 — unattended acceptance remains open**
+  [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
+  preflight record, and an unattended acceptance checklist are in [the Daily Brief
+  guide](reports/2026-10-23-daily-brief-instructions.md).
+  The current Codex CLI session can read the ATS MCP tunnel interactively, but has no
+  Scheduled management interface; issue #94 still needs a task created in ChatGPT web
+  or desktop and one observed unattended run. The current live tool contract lacks a
+  standalone-screen update window, source-lifecycle summary, and source-check timestamp,
+  so report those gaps unless the actual Scheduled connection exposes a newer contract.
+  Web Scheduled tasks can use uploaded files and connected tools; desktop tasks can run in
+  a local project directory or worktree. Verify the actual task can access the private
+  preference and résumé files. Exact 20:00 delivery depends on account eligibility.
+  The guide excludes confirmed prior applications and keeps probable duplicates flagged
+  for review. Interactive access is not acceptance.
+
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.
