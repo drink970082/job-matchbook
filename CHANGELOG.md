@@ -19,6 +19,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Deploy the research/inventory and source-lifecycle changes through #105 to production
+  on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the
+  Prisma schema upgrade. Exercise all ten local/remote read-only MCP tools, advanced
+  queries and production inventory/detail panels. Preserve the worker scheduling mode;
+  record the preexisting React hydration warnings and leave Scheduled acceptance open.
+
 - Filter SmartRecruiters detail responses with explicit `active: false` out of normal
   feed and watchlist ingestion without changing the canonical posting shape or recording
   closure. Keep missing `active` compatible. Validate Web source timestamps with the

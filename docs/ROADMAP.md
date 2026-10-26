@@ -36,9 +36,9 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
 | Final optional capability | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | #94; demonstrated throughput gap | Deferred; unnecessary if scheduled ChatGPT suffices |
 
-The source-lifecycle contract is in [SPEC](SPEC.md). The connected read-only MCP response
-checked on 2026-10-25 still had no source-check timestamp, so the #94 Brief must report
-freshness as unknown and verify availability against official pages. #95 and #96 are
+The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
+source state and check timestamps. Legacy rows without source evidence still require
+unknown freshness and official-page availability checks in the #94 Brief. #95 and #96 are
 independent conditional branches after #94, not mandatory stages. Model experimentation
 remains last priority; retaining scorer code does not schedule its deployment or a corpus
 rebuild.
@@ -68,8 +68,8 @@ SmartRecruiters rows can be refreshed with 1–25 exact-ID requests, content cha
 invalidate prior assessment freshness, and ambiguous responses do not confirm closure.
 Other adapters remain outside the supported refresh contract because their identity and
 terminal signals differ. The source-only refresh does not change collection gates,
-retention, or application history. The connected MCP still needs to expose the lifecycle
-fields before a Brief can report source freshness from stored data.
+retention, or application history. The deployed MCP exposes lifecycle fields; a Brief can report stored source freshness
+only when those fields contain valid evidence.
 
 ## R3 — ChatGPT workflow acceptance
 

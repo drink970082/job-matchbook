@@ -30,9 +30,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   guide](reports/2026-10-23-daily-brief-instructions.md).
   The current Codex CLI session can read the ATS MCP tunnel interactively, but has no
   Scheduled management interface; issue #94 still needs a task created in ChatGPT web
-  or desktop and one observed unattended run. The current live tool contract lacks a
-  standalone-screen update window, source-lifecycle summary, and source-check timestamp,
-  so report those gaps unless the actual Scheduled connection exposes a newer contract.
+  or desktop and one observed unattended run. The deployed MCP supports standalone-screen update windows and source-lifecycle
+  summaries/check timestamps. Verify that the actual Scheduled connection discovers
+  that schema; legacy postings without source evidence still have unknown freshness.
   Web Scheduled tasks can use uploaded files and connected tools; desktop tasks can run in
   a local project directory or worktree. Verify the actual task can access the private
   preference and résumé files. Exact 20:00 delivery depends on account eligibility.
@@ -63,6 +63,10 @@ Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna
 The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
+
+- The production landing page emits React hydration errors 418/423 before recovering
+  on the client. The inventory/detail flow works; the same six errors reproduce with
+  the previous production image against the same database.
 
 - Fetch applies candidate/title gates before the agent sees the data. Existing dedup
   ignores repeated source/external IDs rather than generally refreshing their JDs.

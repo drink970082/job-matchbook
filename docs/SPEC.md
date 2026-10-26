@@ -270,6 +270,15 @@ Local stdio verification covers all eight models, pagination and full multi-chun
 The operator confirms ChatGPT overview execution, and the connected ATS plugin passes
 19 remote tool calls exercising all ten tools: all eight models, `new` and `discarded`
 job details, application notes/history, non-overlapping pages and a full two-chunk JD.
+The deployed Web includes the default job inventory and source evidence in job details.
+The deployed MCP supports advisory outcome/full-text queries, screening-update windows,
+and source-lifecycle summaries. Local stdio and connected remote checks exercise all ten
+read-only tools, pagination, detail/text retrieval and the advanced query inputs. A
+SQLite backup and before/after original-column digests verify schema-upgrade preservation
+across all eight tables. Legacy rows retain unknown source state/revision until evidence
+is observed; no source refresh or model pass is triggered by deployment. Browser checks
+exercise inventory and source/screen detail panels; the landing page retains the same
+React hydration errors 418/423 observed with the preceding production image.
 These deployment choices do not change CLI defaults.
 
 The worker is **not containerized** (the `ats-worker` service was removed 2026-07-16):
