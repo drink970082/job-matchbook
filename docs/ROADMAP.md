@@ -18,8 +18,8 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Read-only MCP and full-text chunks | Shipped | Core; improve research-oriented queries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
 | Fit scorer and Telegram notifications | Shipped; bypassed by operator's screen-only mode | Retain opt-in compatibility; no automatic retirement |
-| Browsing unscored jobs in the UI | Fit buckets limit visibility | Priority feature |
-| JD refresh and liveness for unscored rows | Incomplete | Priority data-quality work |
+| Browsing unscored jobs in the UI | All-jobs inventory and advisory screening are available | Preserve the safe inventory and application-action boundaries |
+| Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
 | Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
 | JEV/System One assistance | Not implemented in ATS | Optional experiment, after a measured need |
@@ -32,18 +32,16 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 
 | Order | Deliverable | Dependencies / selection | Execution |
 |---|---|---|---|
-| Early, alongside batch 1 | [#90 Research workflow baseline](https://github.com/drink970082/job-matchbook/issues/90) ([report](reports/2026-10-22-ats-chatgpt-research-baseline.md)) | None | Orchestrator read-only workflow evidence |
-| Batch 1 | [#91 Research MCP queries](https://github.com/drink970082/job-matchbook/issues/91) | Scoped plan on main | Luna/max implementation, Astra/Sol acceptance |
-| Batch 2 | [#92 Visible job inventory](https://github.com/drink970082/job-matchbook/issues/92) | #91 accepted/merged | Luna/max implementation, Astra/Sol browser acceptance |
-| Next design | [#93 Source lifecycle](https://github.com/drink970082/job-matchbook/issues/93) | #91, #92; separate schema/policy design | Orchestrator designs before Luna assignment |
-| Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | #90, #91, #92; need not wait for all #93 | Orchestrator verifies actual unattended access |
+| Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
 | Final optional capability | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | #94; demonstrated throughput gap | Deferred; unnecessary if scheduled ChatGPT suffices |
 
-#93 and #94 may progress alongside each other. Until lifecycle improvements ship, the
-Brief verifies official pages and discloses freshness limits. #95 and #96 are independent
-conditional branches after #94, not mandatory stages. Model experimentation remains last
-priority; retaining scorer code does not schedule its deployment or a corpus rebuild.
+The source-lifecycle contract is in [SPEC](SPEC.md). The connected read-only MCP response
+checked on 2026-10-25 still had no source-check timestamp, so the #94 Brief must report
+freshness as unknown and verify availability against official pages. #95 and #96 are
+independent conditional branches after #94, not mandatory stages. Model experimentation
+remains last priority; retaining scorer code does not schedule its deployment or a corpus
+rebuild.
 
 ## R1 — Research queries and visible job inventory
 
@@ -65,21 +63,13 @@ claim deployment or unattended ChatGPT verification.
 
 ## R2 — Source quality and collection policy
 
-#93 requires a separate scoped design. Inventory fetch/title/location gates before any
-change; separate collection scope from personal judgment without silently broadening intake.
-Define last-seen/check/content revision and availability independently of assessments and
-user actions. Mark old judgments stale after JD changes rather than rerunning all models.
-Keep age retention separate from closure, protect applications and associated evidence,
-and preserve thin/missing/fallback-date information. Do not revive old mass backfills.
-
-Acceptance: supported unscored jobs can refresh; changed JD and stale assessment are
-recognizable; timeout/blocked/ambiguous responses are not confirmed closure; application
-history remains intact. Expand adapter coverage deliberately rather than claiming all
-sources have identical closure signals.
-
-The [source-lifecycle design](superpowers/specs/2026-10-23-source-lifecycle-design.md)
-and [implementation plan](superpowers/plans/2026-10-23-source-lifecycle.md) are drafts
-awaiting operator approval; no production implementation has started.
+The bounded source-lifecycle behavior is specified in [SPEC](SPEC.md): eligible unscored
+SmartRecruiters rows can be refreshed with 1–25 exact-ID requests, content changes
+invalidate prior assessment freshness, and ambiguous responses do not confirm closure.
+Other adapters remain outside the supported refresh contract because their identity and
+terminal signals differ. The source-only refresh does not change collection gates,
+retention, or application history. The connected MCP still needs to expose the lifecycle
+fields before a Brief can report source freshness from stored data.
 
 ## R3 — ChatGPT workflow acceptance
 
