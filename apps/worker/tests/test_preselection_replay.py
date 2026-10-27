@@ -206,6 +206,7 @@ def test_synthetic_yoe_truth_table_covers_required_boundaries_without_policy_cod
         "preferred-lower-does-not-cancel",
     } <= set(by_id)
     assert by_id["required-two-plus"] == "exclude"
-    assert by_id["lower-yoe-alternative"] == "do_not_exclude"
-    assert by_id["degree-duration"] == "do_not_exclude"
+    assert by_id["lower-yoe-alternative"] == "not_excluded"
+    assert by_id["ambiguous-two"] == "unresolved"
+    assert by_id["degree-duration"] == "not_excluded"
     assert by_id["preferred-lower-does-not-cancel"] == "exclude"

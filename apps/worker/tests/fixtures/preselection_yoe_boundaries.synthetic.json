@@ -1,16 +1,304 @@
 [
-  {"id": "required-two-plus", "statement": "Requires 2+ years of professional backend engineering experience.", "expected": "exclude"},
-  {"id": "required-at-least-two", "statement": "At least 2 years of professional product experience are required.", "expected": "exclude"},
-  {"id": "required-range-two-four", "statement": "Requires 2-4 years of professional data engineering experience.", "expected": "exclude"},
-  {"id": "range-zero-two", "statement": "0-2 years of relevant experience.", "expected": "do_not_exclude"},
-  {"id": "range-one-three", "statement": "1-3 years of relevant experience.", "expected": "do_not_exclude"},
-  {"id": "up-to-two", "statement": "Up to 2 years of relevant experience.", "expected": "do_not_exclude"},
-  {"id": "two-preferred", "statement": "2 years of experience preferred.", "expected": "do_not_exclude"},
-  {"id": "unstated", "statement": "No experience duration is stated.", "expected": "do_not_exclude"},
-  {"id": "ambiguous-two", "statement": "2 years of experience.", "expected": "do_not_exclude"},
-  {"id": "lower-yoe-alternative", "statement": "Requires 4 years, or accepts a relevant degree and 1 year of experience.", "expected": "do_not_exclude"},
-  {"id": "skill-specific-professional", "statement": "Requires at least 2 years of professional Python experience.", "expected": "exclude"},
-  {"id": "degree-duration", "statement": "A four-year degree is required; no professional experience floor is stated.", "expected": "do_not_exclude"},
-  {"id": "unrelated-years", "statement": "Requires 5 years of unrelated facilities experience.", "expected": "do_not_exclude"},
-  {"id": "preferred-lower-does-not-cancel", "statement": "Requires 2+ years of professional engineering experience; 1 year is preferred for a second skill.", "expected": "exclude"}
+  {
+    "id": "required-two-plus",
+    "statement": "Requires 2+ years of professional backend engineering experience.",
+    "expected": "exclude",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires 2+ years of professional backend engineering experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "required-at-least-two",
+    "statement": "At least 2 years of professional product experience are required.",
+    "expected": "exclude",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "At least 2 years of professional product experience are required.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "required-range-two-four",
+    "statement": "Requires 2-4 years of professional data engineering experience.",
+    "expected": "exclude",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires 2-4 years of professional data engineering experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": 4,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "range-zero-two",
+    "statement": "0-2 years of relevant experience.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "0-2 years of relevant experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 0,
+        "maximum_years": 2,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "range-one-three",
+    "statement": "1-3 years of relevant experience.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "1-3 years of relevant experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 1,
+        "maximum_years": 3,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "up-to-two",
+    "statement": "Up to 2 years of relevant experience.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Up to 2 years of relevant experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": null,
+        "maximum_years": 2,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "two-preferred",
+    "statement": "2 years of experience preferred.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "2 years of experience preferred.",
+        "category": "experience",
+        "strength": "preferred",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "unstated",
+    "statement": "No experience duration is stated.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "ambiguous-two",
+    "statement": "2 years of experience.",
+    "expected": "unresolved",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "2 years of experience.",
+        "category": "experience",
+        "strength": "ambiguous",
+        "experience_kind": "professional_relevant",
+        "minimum_years": null,
+        "maximum_years": 2,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "lower-yoe-alternative",
+    "statement": "Requires 4 years, or accepts a relevant degree and 1 year of experience.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires 4 years, or accepts a relevant degree and 1 year of experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 4,
+        "maximum_years": null,
+        "alternative_group_id": "lower-path"
+      },
+      {
+        "id": "fact-2",
+        "quote": "Requires 4 years, or accepts a relevant degree and 1 year of experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 1,
+        "maximum_years": null,
+        "alternative_group_id": "lower-path"
+      }
+    ],
+    "alternative_groups": [
+      {
+        "id": "lower-path",
+        "fact_ids": [
+          "fact-1",
+          "fact-2"
+        ]
+      }
+    ],
+    "alternative_applicability": {
+      "lower-path": {
+        "status": "lower_yoe_path_applicable",
+        "candidate_fact_ids": ["work-scope"]
+      }
+    }
+  },
+  {
+    "id": "skill-specific-professional",
+    "statement": "Requires at least 2 years of professional Python experience.",
+    "expected": "exclude",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires at least 2 years of professional Python experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "degree-duration",
+    "statement": "A four-year degree is required; no professional experience floor is stated.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "A four-year degree is required; no professional experience floor is stated.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "degree_duration",
+        "minimum_years": 4,
+        "maximum_years": 4,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "unrelated-years",
+    "statement": "Requires 5 years of unrelated facilities experience.",
+    "expected": "not_excluded",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires 5 years of unrelated facilities experience.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "unrelated_professional",
+        "minimum_years": 5,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  },
+  {
+    "id": "preferred-lower-does-not-cancel",
+    "statement": "Requires 2+ years of professional engineering experience; 1 year is preferred for a second skill.",
+    "expected": "exclude",
+    "coverage": "complete",
+    "facts": [
+      {
+        "id": "fact-1",
+        "quote": "Requires 2+ years of professional engineering experience; 1 year is preferred for a second skill.",
+        "category": "experience",
+        "strength": "required",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 2,
+        "maximum_years": null,
+        "alternative_group_id": null
+      },
+      {
+        "id": "fact-2",
+        "quote": "Requires 2+ years of professional engineering experience; 1 year is preferred for a second skill.",
+        "category": "experience",
+        "strength": "preferred",
+        "experience_kind": "professional_relevant",
+        "minimum_years": 1,
+        "maximum_years": null,
+        "alternative_group_id": null
+      }
+    ],
+    "alternative_groups": [],
+    "alternative_applicability": {}
+  }
 ]

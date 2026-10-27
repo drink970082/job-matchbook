@@ -2916,6 +2916,33 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   fixtures cover rendering, grouped splits, labels and required-YOE boundaries. This
   tooling is not imported into the worker pipeline, does not use the legacy scorer/eval
   engine, and does not select a provider, rubric, quality threshold or runtime policy.
+- **Typed preselection and provider-neutral shadow contracts — default-off.**
+  `preselection/questions.py` validates caller-versioned independent typed questions and
+  exact answer/evidence contracts without a weighted total. `extraction.py` accepts only
+  a full JD, validates exact source spans, required/preferred status, experience ranges
+  and alternatives, then exposes an explicit threshold/version YOE policy. Missing or
+  ambiguous scope and unknown alternative applicability stay unresolved; only existing
+  candidate-background block IDs can support an applicable lower-YOE path. This is
+  separate from advisory assessment and returns `not_excluded`, not qualification.
+  `shadow.py` has no provider implementation or runtime wiring. Calls require explicit
+  enablement, an approved candidate profile for assessment, injected transport and exact
+  provider/requested/resolved model identity. Direct assessment sends one full job with
+  the rendered candidate context; extraction sees only JD/schema, and extracted
+  assessment receives validated facts without the original JD. Input identities include
+  prompt/schema/question/profile/model/work-item versions, and assessment draws have
+  separate identities.
+
+  The explicit local attempt journal is atomically written with private file permissions.
+  It records each started, completed, retryable, failed, ambiguous and integrity attempt,
+  token usage, actual/estimated/unknown charge details, source-rate metadata, latency,
+  retry linkage and caller cost reserve. Resume reuses validated successes, refuses
+  ambiguous delivery, accepts retries only after a retryable not-sent failure, preserves
+  the original elapsed-time and budget identity, and stops when charges are unknown or a
+  provider/model circuit breaker is open. Aggregate reports include run, hashed work
+  item, successful assessment, request, variant, draw and extraction-stage accounting;
+  shared extraction cost is included once in each extracted work-item arm. Only synthetic
+  fake transports exercise this path. No provider/model, question rubric, YOE threshold,
+  price, live evaluation or production policy is selected here.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

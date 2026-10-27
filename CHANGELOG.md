@@ -9,6 +9,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add provider-neutral preselection contracts for strict typed assessment questions,
+  JD-only extraction with exact source-span validation, and explicit evidence-based
+  required-YOE alternatives. Add a default-off injected shadow transport with separate
+  direct/extracted/draw identities, a private resumable attempt journal, retry and
+  elapsed/attempt/cost limits, and aggregate accounting by run, work item, assessment,
+  arm, draw and stage. Synthetic fake-provider tests cover restart, ambiguity, unknown
+  charges and model mismatch. No provider, pricing, rubric, live evaluation, database or
+  runtime wiring is selected.
+
 - Add offline candidate-profile validation and exact context rendering, plus a
   provider-free frozen-pool replay with grouped development/held-out splits, explicit
   unresolved labels and aggregate recency/role-coverage baselines. Synthetic fixtures
