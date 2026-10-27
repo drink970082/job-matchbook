@@ -1,0 +1,16 @@
+[
+  {"id": "required-two-plus", "statement": "Requires 2+ years of professional backend engineering experience.", "expected": "exclude"},
+  {"id": "required-at-least-two", "statement": "At least 2 years of professional product experience are required.", "expected": "exclude"},
+  {"id": "required-range-two-four", "statement": "Requires 2-4 years of professional data engineering experience.", "expected": "exclude"},
+  {"id": "range-zero-two", "statement": "0-2 years of relevant experience.", "expected": "do_not_exclude"},
+  {"id": "range-one-three", "statement": "1-3 years of relevant experience.", "expected": "do_not_exclude"},
+  {"id": "up-to-two", "statement": "Up to 2 years of relevant experience.", "expected": "do_not_exclude"},
+  {"id": "two-preferred", "statement": "2 years of experience preferred.", "expected": "do_not_exclude"},
+  {"id": "unstated", "statement": "No experience duration is stated.", "expected": "do_not_exclude"},
+  {"id": "ambiguous-two", "statement": "2 years of experience.", "expected": "do_not_exclude"},
+  {"id": "lower-yoe-alternative", "statement": "Requires 4 years, or accepts a relevant degree and 1 year of experience.", "expected": "do_not_exclude"},
+  {"id": "skill-specific-professional", "statement": "Requires at least 2 years of professional Python experience.", "expected": "exclude"},
+  {"id": "degree-duration", "statement": "A four-year degree is required; no professional experience floor is stated.", "expected": "do_not_exclude"},
+  {"id": "unrelated-years", "statement": "Requires 5 years of unrelated facilities experience.", "expected": "do_not_exclude"},
+  {"id": "preferred-lower-does-not-cancel", "statement": "Requires 2+ years of professional engineering experience; 1 year is preferred for a second skill.", "expected": "exclude"}
+]

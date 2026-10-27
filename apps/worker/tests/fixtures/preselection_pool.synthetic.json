@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "pool_id": "synthetic-pool-v1",
+  "items": [
+    {"id": "synthetic-001", "group_id": "template-a", "observed_at": "2026-01-01T09:00:00Z", "role_families": ["engineering"], "label": "positive"},
+    {"id": "synthetic-002", "group_id": "template-b", "observed_at": "2026-01-01T10:00:00Z", "role_families": ["product"], "label": "negative"},
+    {"id": "synthetic-003", "group_id": "template-a", "observed_at": "2026-01-01T11:00:00Z", "role_families": ["engineering", "product"], "label": "unresolved"},
+    {"id": "synthetic-004", "group_id": "template-c", "observed_at": "2026-01-02T09:00:00Z", "role_families": ["data"], "label": "positive"},
+    {"id": "synthetic-005", "group_id": "template-d", "observed_at": "2026-01-02T10:00:00Z", "role_families": ["engineering"], "label": "positive"},
+    {"id": "synthetic-006", "group_id": "template-e", "observed_at": "2026-01-03T09:00:00Z", "role_families": ["product", "data"], "label": "negative"},
+    {"id": "synthetic-007", "group_id": "shared-template", "observed_at": "2026-01-03T10:00:00Z", "role_families": ["engineering"], "label": "positive"},
+    {"id": "synthetic-008", "group_id": "template-f", "observed_at": "2026-01-04T09:00:00Z", "role_families": ["data"], "label": "unresolved"},
+    {"id": "synthetic-009", "group_id": "shared-template", "observed_at": "2026-01-04T10:00:00Z", "role_families": ["engineering", "data"], "label": "positive"},
+    {"id": "synthetic-010", "group_id": "template-g", "observed_at": "2026-01-05T09:00:00Z", "role_families": ["product"], "label": "negative"},
+    {"id": "synthetic-011", "group_id": "template-h", "observed_at": "2026-01-05T10:00:00Z", "role_families": ["engineering", "product"], "label": "positive"},
+    {"id": "synthetic-012", "group_id": "template-i", "observed_at": "2026-01-06T09:00:00Z", "role_families": ["data"], "label": "positive"}
+  ]
+}

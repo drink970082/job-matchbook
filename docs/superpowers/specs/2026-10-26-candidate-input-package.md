@@ -179,8 +179,8 @@ old files or six old preparation outputs as runtime dependencies. Resolve ambigu
 cross-family priority before giving it numeric weights; otherwise leave that dimension
 neutral. Provisionally retained salary/eligibility ambiguity is not a confirmed positive.
 
-A production renderer/validator, privacy-safe fixtures, request construction and cache
-integration belong to Luna's selected implementation slice, not this data preparation.
-Relevant schema and DI/Prisma rules still apply to persisted assessments. #109 still
-owns rubric/model, selection policies and experiment budgets; representative JD pools,
-independent labels and #94 unattended acceptance remain separate prerequisites.
+The offline profile validator/renderer and synthetic replay fixtures live in #110;
+request construction and cache integration remain unselected. Relevant schema and
+DI/Prisma rules still apply to persisted assessments. #109 still owns rubric/model,
+selection policies and experiment budgets; representative JD pools, independent labels
+and #94 unattended acceptance remain separate prerequisites.

@@ -2899,6 +2899,23 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.
+- **Candidate profile and frozen-pool replay — offline tooling only.**
+  `ats_worker/preselection/profile.py` validates the closed schema-1 profile, stable
+  block IDs, version/date/status and one-paragraph text, then renders every background
+  and preference block in declared order with the exact context template. It exposes a
+  profile identity hash and an injected-tokenizer measurement against a soft budget;
+  overflow is reported without truncation. `tools/preselection_profile.py` reads only
+  an explicitly supplied profile and reports hashes/counts without printing profile
+  text; exact rendered-file comparison is available for local checks. `replay.py` and
+  `tools/preselection_replay.py` accept only pseudonymous IDs/group IDs, UTC timestamps,
+  role-family labels and explicit positive/negative/unresolved labels. They keep UTC
+  days and shared duplicate/template groups in one deterministic development/held-out
+  split, then report aggregate recency and greedy role-coverage baseline metrics at
+  caller-specified budgets. Reports omit row/group IDs, include label and role-family
+  coverage, and identify that no provider call or inference cost applies. Synthetic
+  fixtures cover rendering, grouped splits, labels and required-YOE boundaries. This
+  tooling is not imported into the worker pipeline, does not use the legacy scorer/eval
+  engine, and does not select a provider, rubric, quality threshold or runtime policy.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

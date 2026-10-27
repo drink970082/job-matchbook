@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add offline candidate-profile validation and exact context rendering, plus a
+  provider-free frozen-pool replay with grouped development/held-out splits, explicit
+  unresolved labels and aggregate recency/role-coverage baselines. Synthetic fixtures
+  cover context preservation and required-YOE boundaries. No real job pool, provider
+  call, quality claim or runtime selection is part of this tooling.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored

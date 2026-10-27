@@ -26,6 +26,19 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   prerequisite diffs. No scorer deletion or runtime cutover.
 - **Issue #116 active-screen isolation prefactor** — `feat/screening-isolation-prefactor`, stacked on the current design branch at `87b2f3b` and locally observed `origin/main` at `670f596`. The live screen engine, prompt/schema, location rules and screen transports are isolated in `ats_worker/screening/`; legacy `score.*` exports remain compatible and fit imports are deferred from screen-only mode. Screen-only skips only legacy `fit_profile` validation while retaining operational config checks. Fresh-process screen-only and explicit legacy-fit demos pass; worker coverage is 92.32%, integration/schema checks pass, and the tracked-path privacy audit passes (the Node wrapper is sandbox-blocked by child-process EPERM). No new preselection/provider behavior, scorer deletion or runtime cutover is included. Keep the dependent slice draft and disclose the planning prerequisite diff.
 
+- **Issue #110 offline profile/replay path** — `feat/profile-replay-input`, stacked on
+  the locally passing #116 boundary. The allowlisted candidate profile validator and
+  exact renderer are isolated from legacy scorer/profile/resume imports. The offline
+  replay validates frozen-pool labels, groups UTC days and shared templates for a
+  deterministic split, and compares recency/role-coverage baselines through aggregate
+  reports. Synthetic compression and YOE boundary fixtures are included. No real job
+  pool, model call, evaluation claim, provider choice or runtime selection is included;
+  the profile remains draft. Worker tests pass (1,228 passed, 1 skipped; 92.20%
+  coverage), focused integration passes (4 passed, 1 skipped), and schema, privacy
+  self-test and 372-path tracked-file audits pass. The full Node privacy wrapper remains
+  blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
+  Keep the dependent slice draft and disclose prerequisite diffs.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

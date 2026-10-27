@@ -1,6 +1,8 @@
 # Candidate preselection before Daily Brief deep review
 
-**Status:** draft — operator review required before implementation or live evaluation
+**Status:** runtime policy/evaluation remain draft. The scoped offline profile and replay
+tooling is implemented on a local draft branch; operator review, live evaluation and any
+runtime selection remain separate gates.
 
 ## Objective and scope
 
