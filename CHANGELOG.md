@@ -67,6 +67,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   per-pass elapsed duration before each pass. Incomplete revalidation exposes no current
   candidates and leaves affected slots visibly unverified.
 
+- Extract active hard-requirement screening into the provider-neutral `ats_worker/screening/`
+  package and keep legacy `score.*` exports lazy. Exception and screen compatibility
+  imports no longer load legacy fit prompts or fit backends; accessing a fit factory still
+  resolves the existing legacy path. Screen-only mode skips only legacy `fit_profile`
+  validation, while operational checks and explicit legacy validation remain.
+
 - Deploy the research/inventory and source-lifecycle changes through #105 to production
   on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the
   Prisma schema upgrade. Exercise all ten local/remote read-only MCP tools, advanced
