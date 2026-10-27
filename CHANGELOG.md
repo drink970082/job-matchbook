@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Record a draft #114 bounded review-batch scope covering stable pagination, deferred
+  aging, eligibility revalidation, replacement/resource accounting, and cross-day
+  acknowledgement limits. Capacity policy and batch persistence remain open; no runtime
+  or database behavior changes.
+
 - Record a draft #113 assessment-exposure scope covering the MCP/Web read boundaries,
   stale-result precedence, privacy, and acceptance cases. The Prisma persistence shape
   and response contract remain open; no runtime or database behavior changes.

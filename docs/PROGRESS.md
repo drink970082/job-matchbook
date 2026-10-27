@@ -83,6 +83,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked on an operator GO in #112 and a reviewed persistence design; remote review and
   PR creation remain unavailable while GitHub DNS/token access is blocked.
 
+- **Issue #114 bounded review-batch scope** — `docs/preselection-review-batches-design`,
+  stacked on local #113 `8d9d574`; see the [design-only
+  scope](superpowers/specs/2026-10-27-bounded-preselection-review-batches-design.md).
+  It records the candidate-pool, fixed-page, aging, revalidation, replacement, resource,
+  and cross-day contracts while leaving all policy values and physical batch storage
+  open. No implementation, database, provider, scheduling, or delivery behavior changes.
+  Implementation remains blocked on #112 GO and #113's approved persistence/read
+  contract; remote review and PR creation remain blocked by GitHub DNS/token access.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
