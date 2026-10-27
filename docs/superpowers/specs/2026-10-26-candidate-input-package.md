@@ -116,6 +116,52 @@ synchronization never gates new confirmed facts. Existing operational config and
 legacy scorer remain their own compatibility path; this contract does not migrate,
 remove or reconfigure the deployed worker or grant new hard-filter authority.
 
+
+## Required-experience policy and authorization context
+
+The new search input can declare a hard exclusion for an explicit mandatory professional
+experience floor. Apply the configured threshold to supported JD facts, not a fit score,
+candidate-years-plus-margin formula or seniority title. With a synthetic threshold of 2:
+`2+`, `at least 2` and required `2-4` exclude; `0-2`, `1-3`, `up to 2`, `2 preferred`,
+unstated/ambiguous years and an applicable lower-YOE alternative do not. Skill-specific
+required professional experience counts; degree duration and unrelated year figures do
+not. A lower preferred requirement cannot cancel a higher mandatory one. Qualification
+alternatives must be preserved and matched to supported candidate facts; unknown pathway
+applicability stays unresolved. Record the exact JD evidence, required/preferred status,
+range/alternative structure and policy version. Never reuse the old scorer's global
+minimum-of-all-numbers heuristic as a new hard filter.
+
+This exclusion is explicit operator policy, separate from advisory JEV priority. It
+requires a new scoped extraction/validation plus deterministic comparison in Luna's
+implementation; the current standalone screen has no equivalent YOE exclusion. Existing
+legacy seniority assistance only reorders fit work and is not the implementation of this
+contract. Preserve rejected rows/evidence and basic inventory access, and report exclusion
+separately from a low ranking. No deployed screening verdict or triage label changes are
+implied by editing this profile.
+
+Authorization facts must distinguish current permission, candidate-reported eligibility
+for an extension, approved extension, maximum total duration and remaining duration.
+Record only supplied facts. A potential extension is conditional, not already granted;
+never derive remaining time without actual dates. Unknown employer sponsorship remains
+unknown. Do not request or publish private authorization documents for these fixtures.
+
+## JEV price evidence
+
+Acceptance records the provider/resolved model, price currency, billing unit and effective
+rate date/version; retain the actual quoted/billed price source used by the run. Per
+attempt record request identity, input/output and cached usage where available, reported
+charge, status, latency and retry linkage. Include failed/timeout/repaired attempts and
+any additional provider fees. Keep provider-billed charges distinct from token-rate
+estimates; missing cost is unknown, never zero. Non-token pricing uses its actual unit.
+
+Aggregate cost per unique job, successful assessment, direct/extracted arm, repeated draw
+and full run, including extraction/escalation. Report actual batch/day cost and only
+explicitly labeled daily-volume projections. Compare against quality/recall and total
+workflow cost. A cheap average cannot hide expensive failures or exceed the approved
+attempt/time/money limits. Fake-provider tests cover partial usage, missing prices,
+retries and resume without double counting. No price is hardcoded from an old provider
+or assumed from a local tokenizer; actual provider pricing is checked at run time.
+
 ## #109 acceptance boundary
 
 Validate the new JSON, exact rendered text, English content, IDs, scope/unknown handling,

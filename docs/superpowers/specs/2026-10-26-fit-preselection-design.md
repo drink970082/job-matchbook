@@ -20,7 +20,9 @@ open. This design can be reviewed independently; #96 runtime activation remains 
 ## Proposed flow
 
 1. Preserve the existing rule and standalone-screen stages and their separate evidence.
-2. Each retained candidate receives role-family classification and an advisory priority
+2. Apply the new explicit required-YOE search policy to evidence-supported JD facts;
+   preserve unknowns/valid lower-YOE alternatives and do not reactivate old fit ordering.
+   Each retained candidate receives role-family classification and an advisory priority
    assessment against versioned, operator-approved preferences and candidate facts.
 3. Persist independent dimensions, evidence/input provenance and priority; do not mutate
    pipeline_status or overwrite legacy fit scores, screenings, source or application state.
@@ -108,7 +110,9 @@ Report jointly:
 - Misses by role family, experience level, extraction stage and missing-evidence pattern.
 - Low-priority audit results, including randomly sampled confident negative decisions.
 - Repeated-draw rank/route stability, input completeness, errors, wall time and total cost
-  including extraction, ranking, escalation and final ChatGPT work. Compare compact
+  including extraction, ranking, escalation and final ChatGPT work. Record actual provider
+  pricing/rate dates, attempt-level usage/charges and per-job/per-arm/run totals, with
+  estimates and unknowns distinguished from billed cost. Compare compact
   profile judgments against richer evidence during adjudication to expose compression misses.
 
 Tune on a development split and accept on held-out labels. Agree the minimum recall and

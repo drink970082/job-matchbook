@@ -17,6 +17,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   validates the English private [pivot input contract](superpowers/specs/2026-10-26-candidate-input-package.md),
   before implementation/evaluation slices #110–#115; their issue bodies own readiness.
   New context excludes runtime reads of legacy profile/config/Registry; evidence remains local.
+  The input contract includes required-YOE exclusion boundaries, conditional authorization
+  extension context and attempt-level JEV price evidence; implementation remains separate.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
