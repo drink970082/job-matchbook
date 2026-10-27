@@ -2562,6 +2562,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
+| Screen, neutral model-error and legacy facade imports do not load fit backends or read fit prompts until an explicit fit factory is requested; existing fit callers retain their compatibility exports | `tests/test_screening_boundary.py` (`test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes`, `test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path`, `test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads`) |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
@@ -2682,6 +2683,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
+| Frozen replay recomputes profile/context/source hashes, versions, counts and exact daily membership from supplied artifacts; allocates K per UTC day, keeps unresolved rows in the pool with null recall, and emits only aggregate metrics and hashes; legacy ID-only replay is explicitly inconclusive | `apps/worker/tests/test_preselection_profile.py` (`test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted`), `apps/worker/tests/test_preselection_replay.py` (`test_k_is_allocated_once_per_complete_utc_day_inside_each_split`, `test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance`, `test_snapshot_rejects_actual_input_or_manifest_tampering`, `test_snapshot_rejects_profile_change_even_when_context_is_rerendered`, `test_unknown_labels_remain_in_pool_and_make_recall_inconclusive_without_denominator_shrink`, `test_replay_cli_emits_only_report_and_no_source_identifiers`) |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
@@ -3006,6 +3008,26 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.
+- **Candidate profile and frozen replay — offline tooling only.**
+  `ats_worker/preselection/profile.py` validates the closed schema-1 profile, stable
+  block IDs, version/date/status and one-paragraph text, then renders every background
+  and preference block in declared order with the exact context template. It exposes a
+  profile identity hash and an injected-tokenizer measurement against a soft budget;
+  overflow is reported without truncation. `tools/preselection_profile.py` reads only
+  an explicitly supplied profile and reports hashes/counts without printing profile
+  text; exact rendered-file comparison is byte-for-byte and mismatch exits nonzero.
+  Acceptance-grade offline replay requires `tools/preselection_replay.py --snapshot`
+  and a closed bundle containing the profile, exact rendered context, normalized source
+  payload for every row, and manifest. Validation recomputes renderer/input versions,
+  hashes, total and label counts, and exact UTC-day membership from those actual inputs;
+  a digest alone is not accepted as proof. The deterministic split keeps complete days
+  and shared duplicate/template groups together. Each caller-specified K is allocated
+  independently to every complete UTC-day pool. Positive, negative and unresolved labels
+  remain explicit; unresolved rows stay in counts and make recall inconclusive. Reports
+  contain only aggregate metrics and hashes, with no row/group IDs or source/profile
+  text. The legacy ID-only pool remains available for exploration and is always marked
+  inconclusive. No provider, database, legacy scorer/eval engine, runtime selection,
+  quality threshold or acceptance GO is involved.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

@@ -10,10 +10,22 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Issue #116 screen-isolation repair** — `fix/preselection-screen-isolation`, based on
   current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
-  carried forward with a lazy `score` compatibility facade. Fresh-process regression now
-  covers exception/screen imports, legacy prompt reads, fit-backend loading and explicit
-  fit-factory access. Full worker, coverage, integration and boundary review remain in
-  progress; no provider inference or production wiring is involved.
+  carried forward with a lazy `score` compatibility facade. Fresh-process regressions
+  cover screen/error imports, prompt reads, fit-backend loading and explicit fit-factory
+  access; the focused worker selection passes. Full worker, coverage, integration,
+  schema/privacy checks and fresh-context review remain required. No provider inference
+  or production wiring is involved.
+
+- **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
+  on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
+  context, normalized source payloads, versioned hashes, counts and actual UTC-day
+  membership before replay. Budgets are allocated per day; rendered-context mismatch is
+  an error; unresolved labels preserve rows and make recall inconclusive. The older
+  ID-only pool remains exploratory and explicitly inconclusive. Synthetic profile and
+  posting fixtures only; no real candidate/job data, model call, quality claim, runtime
+  selection or acceptance GO. Focused replay/profile tests pass; full worker, coverage,
+  integration, schema/privacy checks and fresh-context review remain required. Disclose
+  the #116 prerequisite range in the dependent draft PR.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -52,11 +64,10 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Finish the provider-free #116 facade correction, then repair #110 daily allocation,
-   rendered-context exit status and frozen-input provenance. Keep both issues open until
-   their exact heads pass independent review. Only then revalidate the #111/#112 repair
-   stack against those prerequisites. These corrections use fabricated data and authorize
-   no live inference.
+1. Complete all checks and independent review for the #116 and #110 repair heads, then
+   revalidate the #111/#112 repair stack against those exact prerequisites. Keep the
+   issues open until their acceptance gates pass. These corrections use fabricated data
+   and authorize no live inference.
 2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
    before any upstream stack merge. Existing green suites do not establish acceptance.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)

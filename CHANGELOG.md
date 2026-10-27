@@ -29,6 +29,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   preparation (#117–#119). Preserve live evaluation, schema, integration and activation
   gates.
 
+- Add offline candidate-profile validation and exact context rendering, plus a
+  provider-free frozen-snapshot replay. The full input contract binds the profile,
+  rendered context, normalized source payloads, versioned hashes, counts and daily
+  membership; the legacy ID-only pool remains exploratory and inconclusive. Synthetic
+  fixtures cover daily budgets, split integrity, unknown labels and tamper rejection.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
@@ -45,6 +51,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and read-only MCP. Content changes do not rerun models or delete evidence.
 
 ### Changed
+
+- Keep screen imports and neutral model errors independent of fit backends and prompt
+  reads until a legacy fit export is explicitly requested. Allocate each replay budget
+  per complete UTC-day pool, fail rendered-context mismatches, and mark label-unknown
+  evidence inconclusive without shrinking its item count.
 
 - Consolidate the accepted offline preparation and its execution contract, remove
   completed preparation claims from the active queue, and define a provider-free
