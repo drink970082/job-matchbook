@@ -780,7 +780,10 @@ def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypa
     env_file = tmp_path / ".env"
     env_file.write_text("")
     captured = {}
-    monkeypatch.setattr(run.config_mod, "load_config", lambda _path: object())
+    def load_screen_config(_path, **kwargs):
+        captured["config_options"] = kwargs
+        return object()
+    monkeypatch.setattr(run.config_mod, "load_config", load_screen_config)
     monkeypatch.setattr(run, "run_once",
                         lambda _cfg, **kwargs: captured.update(kwargs))
 
@@ -793,6 +796,7 @@ def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypa
 
     assert captured["resumes"] == {}
     assert captured["profile"] == ""
+    assert captured["config_options"] == {"validate_fit_profile": False}
     assert captured["screen_only"] is True
     assert captured["screen_limit"] == 40
 
@@ -1667,8 +1671,12 @@ def test_screen_unlimited_cli_overrides_environment_limit(tmp_path, monkeypatch,
     env_file = tmp_path / ".env"
     env_file.write_text("")
     captured = {}
-    monkeypatch.setattr(run.config_mod, "load_config", lambda _: object())
+    def load_screen_config(_path, **kwargs):
+        captured["config_options"] = kwargs
+        return object()
+    monkeypatch.setattr(run.config_mod, "load_config", load_screen_config)
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: captured.update(kw))
     run.main(["--once", "--screen-only", "--screen-unlimited", "--env", str(env_file),
               "--db", str(tmp_path / "db.sqlite")])
     assert captured["screen_limit"] is None
+    assert captured["config_options"] == {"validate_fit_profile": False}

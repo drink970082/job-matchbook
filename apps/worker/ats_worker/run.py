@@ -26,22 +26,15 @@ import requests
 
 from . import config as config_mod
 from . import db, pipeline
-from . import prompts as prompts_mod
 from .fetch import (fetch_company, fetch_one_company, prefilter_postings,
                     smartrecruiters)
 from .feed import embedded_gh, simplify
 from .notify import notify_posting
-from .score import (capture_usage, make_claude_cli_scorer, make_claude_scorer,
-                    make_codex_scorer,
-                    make_ollama_extract, screen_posting)
-from .score import seniority
-from .score.backends_screen import (DEFAULT_CLAUDE_SCREEN_MODEL,
-                                    DEFAULT_CODEX_SCREEN_MODEL,
-                                    DEFAULT_OPENAI_SCREEN_MODEL,
-                                    make_claude_api_extract,
-                                    make_claude_code_extract,
-                                    make_codex_extract,
-                                    make_openai_api_extract)
+from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
+                        DEFAULT_OPENAI_SCREEN_MODEL, make_claude_api_extract,
+                        make_claude_code_extract, make_codex_extract,
+                        make_ollama_extract, make_openai_api_extract,
+                        screen_posting)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
 # ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
@@ -123,6 +116,27 @@ _ENV_ARGPARSE_KEYS = frozenset({
 })
 
 
+def make_codex_scorer(*args, **kwargs):
+    """Load the legacy fit backend only when a fit run builds its scorer."""
+    from .score import make_codex_scorer as build
+    return build(*args, **kwargs)
+
+
+def make_claude_cli_scorer(*args, **kwargs):
+    from .score import make_claude_cli_scorer as build
+    return build(*args, **kwargs)
+
+
+def make_claude_scorer(*args, **kwargs):
+    from .score import make_claude_scorer as build
+    return build(*args, **kwargs)
+
+
+def capture_usage(*args, **kwargs):
+    from .score import capture_usage as capture
+    return capture(*args, **kwargs)
+
+
 def make_scorer(backend: str, *, env, profile="",
                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
@@ -161,10 +175,11 @@ def _scorer_meta(backend: str, *,
               "claude-api": anthropic_score_model}
     if backend not in models:
         raise ValueError(f"unknown score backend: {backend!r} (want one of {SCORE_BACKENDS})")
+    from .prompts import SCORER_VERSION
     return {
         "backend": backend,
         "model": models[backend],
-        "scorer_version": prompts_mod.SCORER_VERSION,
+        "scorer_version": SCORER_VERSION,
     }
 
 # The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
@@ -462,6 +477,7 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
         # not asked for their queue to be re-ordered around a seniority bar.
         seniority_fn = None
         if screen_backend == "ollama" and screen_extract is not None and candidate:
+            from .score import seniority
             # SAY WHAT BAR IS BEING APPLIED. `years_experience` defaults to 0, and no
             # existing config.yaml carries the key — so without this line a ten-year
             # engineer's entire senior queue would be demoted on a new-grad assumption
@@ -1075,7 +1091,8 @@ def main(argv=None) -> None:
                      "the schedule it would bound every future pass, so nothing newer "
                      f"than id {args.score_max_id} would ever be scored")
 
-    cfg = config_mod.load_config(args.config)
+    cfg = (config_mod.load_config(args.config, validate_fit_profile=False)
+           if args.screen_only else config_mod.load_config(args.config))
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
     # push newly-added config companies into the table; the normal run also

@@ -155,12 +155,13 @@ def _looks_like_yaml_text(value) -> bool:
 _LEGAL_SCHEDULE_HOURS = (1, 2, 3, 4, 6, 8, 12, 24)
 
 
-def load_config(source) -> Config:
+def load_config(source, *, validate_fit_profile: bool = True) -> Config:
     """Parse a Config from a path (str/PathLike) or a raw YAML string.
 
     Defaults are applied for any omitted top-level key; empty filters/companies
     are allowed. Raises ConfigError on an unknown company source or a company
-    entry missing a required field.
+    entry missing a required field. Screen-only callers can skip the independent
+    legacy fit-profile parser while retaining all operational config validation.
     """
     if hasattr(source, "read_text"):  # pathlib.Path
         text = source.read_text()
@@ -183,12 +184,15 @@ def load_config(source) -> Config:
             "removed — use `candidate.locations` for geography. See config.yaml.example."
         )
     _reject_unknown_keys(data, Config, "top-level config")
-    # Imported here, not at module level: `fit_profile` raises this module's ConfigError,
-    # so a top-level import in both directions would be a cycle. It deliberately lives in
-    # `ats_worker/` rather than `ats_worker/score/` — importing the score package would
-    # execute `score/__init__.py` and pull `location.py` -> `pycountry` into every config
-    # load, which is the same weight problem the VALID_SOURCES comment above avoids.
-    from ats_worker.fit_profile import parse_fit_profile
+    fit_profile = None
+    if validate_fit_profile:
+        # Imported here, not at module level: `fit_profile` raises this module's
+        # ConfigError, so a top-level import in both directions would be a cycle. It
+        # deliberately lives in `ats_worker/` rather than `ats_worker/score/` — importing
+        # the score package would execute `score/__init__.py` and pull `pycountry` into
+        # every config load.
+        from ats_worker.fit_profile import parse_fit_profile
+        fit_profile = parse_fit_profile(data.get("fit_profile"))
 
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
@@ -225,7 +229,7 @@ def load_config(source) -> Config:
         title_exclude=_parse_title_filter(data.get("title_exclude") or []),
         max_age_days=_int_field(data, "max_age_days", 0),
         candidate=candidate,
-        fit_profile=parse_fit_profile(data.get("fit_profile")),
+        fit_profile=fit_profile,
         feeds=feeds,
         schedule_hours=schedule_hours,
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),

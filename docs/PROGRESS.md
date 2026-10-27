@@ -21,7 +21,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   extension context and attempt-level JEV price evidence; implementation remains separate.
   [Scorer boundary inventory](superpowers/specs/2026-10-26-legacy-scorer-boundary.md)
   assigns live screen vs legacy fit/research ownership. [Prefactor #116](https://github.com/drink970082/job-matchbook/issues/116)
-  follows scoped #109 acceptance and blocks #110/#111 implementation; no scorer deletion or runtime cutover.
+  follows offline #109 input validation and establishes the screen boundary before #110/#111.
+  Stacked local preparation follows passing #116 checks; dependent PRs stay draft and disclose
+  prerequisite diffs. No scorer deletion or runtime cutover.
+- **Issue #116 active-screen isolation prefactor** — `feat/screening-isolation-prefactor`, stacked on the current design branch at `87b2f3b` and locally observed `origin/main` at `670f596`. The live screen engine, prompt/schema, location rules and screen transports are isolated in `ats_worker/screening/`; legacy `score.*` exports remain compatible and fit imports are deferred from screen-only mode. Screen-only skips only legacy `fit_profile` validation while retaining operational config checks. Fresh-process screen-only and explicit legacy-fit demos pass; worker coverage is 92.32%, integration/schema checks pass, and the tracked-path privacy audit passes (the Node wrapper is sandbox-blocked by child-process EPERM). No new preselection/provider behavior, scorer deletion or runtime cutover is included. Keep the dependent slice draft and disclose the planning prerequisite diff.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

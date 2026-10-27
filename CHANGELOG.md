@@ -26,6 +26,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Extract active hard-requirement screening into the provider-neutral `ats_worker/screening/`
+  package while retaining legacy `score.*` compatibility exports. Screen-only mode defers
+  legacy fit/profile/prompt imports and skips only legacy `fit_profile` validation; normal
+  operational configuration validation and the default legacy validation path remain.
+
 - Deploy the research/inventory and source-lifecycle changes through #105 to production
   on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the
   Prisma schema upgrade. Exercise all ten local/remote read-only MCP tools, advanced

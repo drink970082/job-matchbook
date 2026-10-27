@@ -1,5 +1,6 @@
-"""ScoreError — raised when fit-scoring backends return unparseable output."""
+"""Legacy name for the neutral model-response error."""
+from ats_worker.model_errors import ModelResponseError
 
+ScoreError = ModelResponseError
 
-class ScoreError(RuntimeError):
-    """The model returned output we could not parse into a valid score."""
+__all__ = ["ScoreError"]
