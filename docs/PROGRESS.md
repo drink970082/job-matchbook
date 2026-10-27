@@ -72,6 +72,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   remain open. Remote reconciliation and PR creation are unavailable while GitHub
   DNS/token access is blocked.
 
+- **Issue #113 assessment exposure scope** — `docs/preselection-assessments-design`,
+  stacked on local #112 `5f04208`; see the [design-only
+  scope](superpowers/specs/2026-10-27-versioned-preselection-assessment-exposure-design.md).
+  This is docs-only preparation: it maps MCP/Web read seams and specifies stale-result,
+  integrity, privacy, and compatibility acceptance.
+  It deliberately leaves the Prisma record/history shape and exact MCP response contract
+  open; `job_screenings`, `score_detail`, and `pipeline_status` are not JEV storage.
+  No behavior, schema, provider call, or runtime wiring is changed. Implementation stays
+  blocked on an operator GO in #112 and a reviewed persistence design; remote review and
+  PR creation remain unavailable while GitHub DNS/token access is blocked.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

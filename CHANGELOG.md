@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Record a draft #113 assessment-exposure scope covering the MCP/Web read boundaries,
+  stale-result precedence, privacy, and acceptance cases. The Prisma persistence shape
+  and response contract remain open; no runtime or database behavior changes.
+
 - Add a provider-free #112 evaluation-manifest validator and aggregate report tool. It
   cross-checks blinded label provenance, complete daily pools, per-item draw plans,
   same-pool baselines, reported answers and ranks against the private shadow-attempt
