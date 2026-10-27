@@ -108,14 +108,19 @@ ships, response time is not evidence freshness and stored jobs need official-pag
 
 ## Screen and scorer separation
 
-The existing `score/` package mixes active screening and optional legacy fit/research;
-its current facade and shared prompt loader eagerly load all prompt families. The
-[scorer boundary plan](superpowers/specs/2026-10-26-legacy-scorer-boundary.md) and
-[prefactor #116](https://github.com/drink970082/job-matchbook/issues/116) isolate live
-screening while retaining explicit legacy compatibility. New preselection owns its
-profile, prompts, typed answers, freshness and price accounting; it does not inherit old
-fit context, score_detail writes, seniority ordering or corpora. This is a planned seam,
-not a claim that code has already moved or that fit compatibility can be deleted.
+The live hard-requirement screen lives in `ats_worker/screening/`, which owns its
+engine, prompt/schema, location resolver and screen transports. `score/` retains optional
+fit/research code; its screen modules re-export the neutral APIs for existing callers.
+`run.py` and `pipeline.py` import active screening directly and defer legacy fit imports
+to explicit combined fit paths. `--screen-only` avoids `score/`, `fit_profile.py`, root
+legacy prompts and resume reads; it skips only legacy fit-profile validation while
+retaining operational, candidate and intake config checks. The combined legacy path
+continues to use its validated compatibility layer.
+
+New preselection owns its profile, prompts, typed answers, freshness and price accounting;
+it does not inherit old fit context, `score_detail` writes, seniority ordering or corpora.
+The screening extraction preserves fit compatibility and does not change deployed defaults
+or activate preselection.
 
 ## Extension seams
 
