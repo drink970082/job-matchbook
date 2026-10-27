@@ -9,6 +9,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add a provider-free #112 evaluation-manifest validator and aggregate report tool. It
+  cross-checks blinded label provenance, complete daily pools, per-item draw plans,
+  same-pool baselines, reported answers and ranks against the private shadow-attempt
+  journal; separates full-pool recall from repeated-subset diagnostics and actual,
+  estimated and unknown charges. Synthetic fixtures cover matching, failure/missing
+  accounting, cost attribution, baselines and report privacy. No live evaluation,
+  threshold, GO decision or provider choice is selected.
+
 - Add provider-neutral preselection contracts for strict typed assessment questions,
   JD-only extraction with exact source-span validation, and explicit evidence-based
   required-YOE alternatives. Add a default-off injected shadow transport with separate

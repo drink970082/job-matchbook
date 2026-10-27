@@ -13,6 +13,7 @@ verification for code changes.
 | Screen/scorer boundary prefactor with unchanged prompt/schema/model/verdict | Hermetic import/file-read isolation, screen payload/verdict parity, mode-specific operational versus fit config validation and explicit legacy compatibility; no automatic live model run |
 | Offline candidate profile/replay tooling | Exact allowlisted rendering, no-truncation measurement, grouped split integrity, explicit label coverage, aggregate-only synthetic baseline reports; no provider calls |
 | Provider-neutral preselection shadow contracts | Synthetic fake-provider direct/extracted paths, JD-only extractor payload, closed typed answers, evidence-based YOE boundaries, restart-safe retry/time/cost limits, identity and aggregate accounting; no live calls or provider choice |
+| Offline preselection evaluation report | Strict manifest/journal identity and answer joins, full-pool versus repeated-subset scope, blinded label provenance, matched per-pool baselines, missing/failed-positive recall, field/YOE errors and actual/estimate/unknown cost separation; synthetic inputs only, no live evaluation or GO |
 | Documentation/roadmap only | Relative links, accurate current/target distinctions and privacy/diff checks; no model run |
 | Fetch/MCP/UI with unchanged judgment | Applicable hermetic worker/web/integration tests and runtime behavior; no live fit eval merely because the repo has a scorer |
 | Screen model, effort, prompt or verdict policy | Representative screen facts, repeated draws, false-disqualification and recall report, explicit backend/model/effort/version |
@@ -46,6 +47,7 @@ contracts and acceptance; Luna/max implements. Runtime model/effort remains unch
 | `pick_frame.py`, `extract_shadow.py` | Frozen-input extraction research | Deferred research; not wired into production scoring |
 | `preselection_profile.py`, `preselection_replay.py` | Allowlisted profile rendering and provider-free grouped replay with recency/role-coverage baselines | Offline tooling only; synthetic fixtures; no runtime selection or quality claim |
 | `ats_worker/preselection/questions.py`, `extraction.py`, `shadow.py` | Typed independent questions, JD-only fact extraction, explicit required-YOE policy and default-off injected shadow transport/accounting | Synthetic fake-only contracts; no provider implementation, live evaluation or runtime wiring |
+| `preselection_evaluation.py` | Validate a frozen human-label/outcome manifest against the private #111 attempt journal and report per-pool metrics plus deterministic/optional Daily Brief baselines | Prepared offline report contract; synthetic-only fixture; #94, profile approval, budgets, provider/policy and GO remain open |
 | `backfill_descriptions.py` | Explicit JD hydration maintenance | Data-quality tool, not an instruction to rescore or mutate applications |
 
 Tool paths are relative to `apps/worker/tools`. Do not delete these scripts, their

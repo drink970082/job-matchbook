@@ -16,7 +16,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-26 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-27 · **License:** MIT
 
 ---
 
@@ -2942,7 +2942,22 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   item, successful assessment, request, variant, draw and extraction-stage accounting;
   shared extraction cost is included once in each extracted work-item arm. Only synthetic
   fake transports exercise this path. No provider/model, question rubric, YOE threshold,
-  price, live evaluation or production policy is selected here.
+  price, live evaluation or production policy is selected here. `preselection/evaluation.py`
+  and `tools/preselection_evaluation.py` validate a closed local evaluation manifest
+  against the strict attempt journal and produce aggregate metrics without provider
+  calls. The manifest carries blinded human labels, full daily-pool identities, recency
+  and role-coverage baseline orders, optional Daily Brief selections, per-item planned
+  draws, ranks and reference answer values. Completed answer values must match the
+  journal's successful response. Reports cover label/source coverage, per-pool recall
+  and misses at fixed budgets, with unselected label/reason counts and descriptive Wilson
+  intervals; precision on resolved selections, role-family recall, per-field and
+  required-YOE errors, repeated-subset stability, and attempt/usage/charge totals by run,
+  arm, success, draw and stage. Daily
+  Brief resource costs remain external; unknown price is reported separately, never
+  zero. Reports omit work-item/group IDs and answer values, identify synthetic-only
+  labels, hash the canonical manifest and source journal, and always leave promotion
+  `not_recorded`. This tooling neither runs an evaluation nor selects a threshold,
+  provider, price or rollout policy.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

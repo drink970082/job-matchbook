@@ -55,6 +55,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   evaluation or runtime wiring is selected. Keep the dependent slice draft and disclose
   prerequisite diffs.
 
+- **Issue #112 offline evaluation procedure/report** — `docs/preselection-evaluation`,
+  based on local #111 `f49e95b`. The manifest validator and aggregate report join
+  pseudonymous blinded-label inputs, daily-pool baseline orders and draw-planned
+  assessments to the strict private attempt journal. It checks reported answers against
+  successful journal payloads; treats missing/failed positives as misses; separates
+  full-pool results from repeated-subset diagnostics; and reports per-arm/draw/stage and
+  per-work-item cost distributions with actual, estimated and unknown charges distinct.
+  The procedure records the open approvals and proposed caps without authorizing them.
+  Synthetic-only targeted tests pass (26); the worker suite passes (1,304 passed, 1
+  skipped; 89.51% coverage), integration passes (4 passed, 1 skipped), and the fresh
+  import/screen-boundary checks, schema-drift guard, privacy self-test, 395-path
+  tracked/untracked audit, compile and diff checks pass. No live evaluation, provider
+  call, cost evidence, threshold or GO decision is made. #94 unattended acceptance,
+  candidate-profile approval, provider/policy/budget choices and independent review
+  remain open. Remote reconciliation and PR creation are unavailable while GitHub
+  DNS/token access is blocked.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
