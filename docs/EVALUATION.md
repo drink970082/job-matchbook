@@ -10,6 +10,7 @@ verification for code changes.
 
 | Change | Required evidence |
 |---|---|
+| Screen/scorer boundary prefactor with unchanged prompt/schema/model/verdict | Hermetic import/file-read isolation, screen payload/verdict parity, mode-specific operational versus fit config validation and explicit legacy compatibility; no automatic live model run |
 | Documentation/roadmap only | Relative links, accurate current/target distinctions and privacy/diff checks; no model run |
 | Fetch/MCP/UI with unchanged judgment | Applicable hermetic worker/web/integration tests and runtime behavior; no live fit eval merely because the repo has a scorer |
 | Screen model, effort, prompt or verdict policy | Representative screen facts, repeated draws, false-disqualification and recall report, explicit backend/model/effort/version |
@@ -97,3 +98,12 @@ Detailed evidence stays in [SCORING §8](SCORING.md#8-measured-history---do-not-
 [REJECTED](REJECTED.md), and the
 [quota ledger](superpowers/notes/2026-07-31-quota-ledger.md). These constrain experiments;
 they do not select the next product feature.
+
+## Scorer context boundary
+
+The [scorer boundary inventory](superpowers/specs/2026-10-26-legacy-scorer-boundary.md)
+assigns current modules and tests. #116 isolates shared screen support before new pivot
+implementation. Old fit/card/eval tools remain manual compatibility, not JEV engines,
+new candidate context or accepted labels. Generic evidence/identity principles survive;
+old schemas, numeric thresholds, model defaults and corpus outputs do not transfer.
+New YOE policy and JEV inference retain their own scoped evaluation/price evidence.
