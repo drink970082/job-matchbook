@@ -8,6 +8,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Private preselection source archive privacy guard** — `fix/private-profile-input-ignore` ([#109](https://github.com/drink970082/job-matchbook/issues/109)). Ignore the root-level profile/evidence preparation archive and include it in the repository privacy gate. Profile/package validation is offline; profile confirmation, role-family weights, provider/rubric, recall tolerance and live-evaluation budget remain open.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

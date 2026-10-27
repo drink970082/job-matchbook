@@ -21,6 +21,9 @@ db/
 !.env.example
 apps/worker/.venv
 apps/worker/config.yaml
+# Private profile-preparation archives contain source evidence and candidate inputs.
+# They are local audit material, never repository content. The privacy gate checks it too.
+/job_search_profile_*_with_evidence/
 # Ignore the CONTENTS of resume/ (not the dir itself, so the re-includes below
 # work — a dir-level ignore would suppress them).
 apps/worker/resume/*

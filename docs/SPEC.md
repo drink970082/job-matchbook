@@ -2633,7 +2633,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 ## 11. Non-functional requirements
 
 - **Privacy:** resume (`apps/worker/resume/`), secrets (`apps/worker/.env`),
-  config (`config.yaml`), and the database (`db/`) are gitignored. The repo ships
+  config (`config.yaml`), the database (`db/`), and local
+  `job_search_profile_*_with_evidence/` source archives are gitignored. The repo ships
   only `*.example` templates; real resume files are untracked, so no extra git
   steps are needed for *new* work (see `CONTRIBUTING.md`). **Closed:** `resume.txt`
   and the real `config.yaml` were committed 2026-06-05 and untracked 2026-06-08;
@@ -2884,7 +2885,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   `.local`, `.production`; `.gitignore` matches `.env*` for the same reason, since a
   literal rule left a backup both unignored and unchecked), `config.yaml`, `db/` or any `*.db`,
   `apps/worker/resume/` (bar `README.md` / `*.example`), `apps/worker/eval/`,
-  `resumes/`. `.gitignore` only guards the default path; this catches `git add -f`,
+  `resumes/`, and root-level `job_search_profile_*_with_evidence/` source archives.
+  `.gitignore` only guards the default path; this catches `git add -f`,
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.

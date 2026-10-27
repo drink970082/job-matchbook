@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Ignore local `job_search_profile_*_with_evidence/` source archives and extend the
+  privacy gate's path checks and self-test to cover candidate-profile source evidence.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
