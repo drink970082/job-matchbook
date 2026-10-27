@@ -36,7 +36,7 @@ quality and the requested budget cannot both be met, report the tradeoff.
 
 ## Two input variants to compare
 
-- **Direct JEV:** complete stored JD plus compact, versioned candidate facts/preferences
+- **Direct JEV:** complete stored JD plus the compact, versioned English candidate context
   are the state. Ask narrow classification and Score questions, then combine dimensions
   in code. This avoids a separate extractor's omission risk and inference cost.
 - **Extract then JEV:** a cheap tool-free extractor emits structured duties, required
@@ -108,7 +108,8 @@ Report jointly:
 - Misses by role family, experience level, extraction stage and missing-evidence pattern.
 - Low-priority audit results, including randomly sampled confident negative decisions.
 - Repeated-draw rank/route stability, input completeness, errors, wall time and total cost
-  including extraction, ranking, escalation and final ChatGPT work.
+  including extraction, ranking, escalation and final ChatGPT work. Compare compact
+  profile judgments against richer evidence during adjudication to expose compression misses.
 
 Tune on a development split and accept on held-out labels. Agree the minimum recall and
 maximum acceptable missed opportunities before observing the held-out results. Merely
@@ -211,14 +212,15 @@ cannot authorize deployment. Runtime acceptance is a separate multi-day campaign
    savings and unattended workflow acceptance. Specify monitoring intervals, drift/miss
    triggers and rollback to bounded unranked retrieval; rollback does not delete evidence.
 
-## Candidate data prerequisite
+## Candidate input boundary
 
-Before #109 starts, the operator prepares and approves the private six-file
-[candidate input package](2026-10-26-candidate-input-package.md) in ChatGPT web.
-JEV receives a later versioned projection of unified facts and current preferences;
-downstream ChatGPT chooses between the two preserved semi-customized resumes. Legacy
-profile/config are reviewed inputs, not automatically active policy. This preparation
-provides candidate inputs only, not evaluation labels, a selected model or spend approval.
+The [pivot input contract](2026-10-26-candidate-input-package.md) defines a single
+English candidate/search profile and its deterministic compact text view. #109 validates
+that new profile and its private evidence; it does not require old profile/config or
+Registry access. Original evidence and both resume variants remain outside routine JEV
+requests. Downstream ChatGPT reads resume variants on demand after full JD review.
+Compression correctness, total request tokens and profile-version identity are acceptance
+criteria; old scorer prompts, fit tiers and corpus labels are not new-system inputs.
 
 ## Delivery sequence and assignment gates
 

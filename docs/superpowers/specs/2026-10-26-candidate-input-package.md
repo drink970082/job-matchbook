@@ -1,119 +1,131 @@
-# Candidate input package for preselection and Daily Brief
+# Pivot input contract
 
-**Status:** preparation contract — operator prepares and approves private contents in
-ChatGPT web before #109 begins. This is not an implemented runtime schema or approval
-of model/rubric/spend. #109 must validate the returned package and pin its adapter/schema.
+**Status:** selected input boundary. Private profile contents remain draft until operator
+confirmation. This document defines preparation and #109 requirements, not deployed code,
+a chosen provider/rubric, approved evaluation spend or a changed screening policy.
 
-## Source inputs
+## Single source of active personal context
 
-The operator supplies two semi-customized presentations of the same candidate:
-`resume_quant_dev.txt` and `resume_swe.txt`. Preserve both as separate downstream
-resume choices; neither is globally more authoritative. `personal_profile.txt` and
-`config.yaml` are legacy evidence to review, not current policy to inherit automatically.
-No contents were inspected to define this package. Before uploading config, remove
-credentials, tokens, webhook/connection URLs and unrelated operational settings. Retain
-relevant candidate facts/preferences with their original key paths as source locators.
-Do not replace the live config or legacy profile as part of this preparation.
+`candidate_profile.json` is the sole editable source for the new pivot. It contains
+English background evidence and current search preferences. `candidate_context.txt` is
+a deterministic, concise rendering of that file, regenerated on edits. It is not a
+second manually maintained profile. The private draft package lives under ignored
+`apps/worker/resume/pivot/`; no personal content is committed to this repository.
 
-## Six-file private deliverable
+The profile schema is deliberately small:
 
-| File | Format | Consumer and authority |
+```json
+{
+  "schema": 1,
+  "version": "operator-controlled",
+  "as_of": "YYYY-MM-DD",
+  "status": "draft",
+  "background": [{"id": "stable-id", "text": "English facts with scope limits."}],
+  "preferences": [{"id": "stable-id", "text": "English preference and unknown policy."}]
+}
+```
+
+Status is `draft` or `approved`. Each ID is unique. Date precision is not invented.
+Work/internship/academic/open-source contexts, chronology, ownership, relevant tools and
+material caveats remain explicit in text. Unsupported skills are unknown, not absent.
+Do not strip caveats because they are not positive scoring evidence. Preference strength,
+exceptions and unconfirmed decisions remain explicit, rather than inferred from a label.
+A profile does not contain rubric weights, thresholds, provider configuration or scores.
+
+Offline `provenance.json` maps block IDs to evidence IDs and exact source hashes. It is
+for audits and editing, not a model input. Original evidence remains unmodified. Import
+is a one-time editorial operation, not runtime fallback or a permanent dependency on an
+older file format. The new profile owns subsequent updates and versioning.
+
+## Exact inputs by stage
+
+| Stage | Model input | Not included in that request |
 |---|---|---|
-| `candidate_facts.json` | strict UTF-8 JSON | Canonical deduplicated evidence; ranking gets only approved relevant facts through a later deterministic projection |
-| `search_preferences.yaml` | safe, simple UTF-8 YAML | Operator-confirmed current preferences; separate from experience facts and old scoring instructions |
-| `resume_quant_dev.txt` | original UTF-8 plain text | Original role-oriented resume for downstream ChatGPT; no silent rewriting |
-| `resume_swe.txt` | original UTF-8 plain text | Original role-oriented resume for downstream ChatGPT; no silent rewriting |
-| `resume_selection_guide.md` | Markdown | Downstream comparison, unique emphases, limitations and hybrid-role handling; advisory, never an eligibility gate |
-| `input_review.md` | Markdown | Provenance inventory, coverage audit, migration decisions, unresolved questions and actual operator approval record |
+| JD extractor experiment | One full JD plus extraction schema/instructions | Candidate profile, preferences, resumes, evidence archive |
+| JEV direct experiment | Candidate context + company/title/location/full JD + narrow typed questions | Both resumes, provenance/review/manifest, raw old inputs, other jobs |
+| JEV extracted experiment | Same candidate context + company/title/location/validated JD facts + same questions | Extractor boilerplate, entire evidence archive, other jobs |
+| Daily Brief | Candidate context once per run + compact resume guide + bounded ATS metadata, application/source evidence and full selected JDs | Bulk evidence archive, legacy profile/config, repeated candidate context per job |
+| Resume choice/tailoring | Read the relevant original resume(s) on demand after full JD review | Do not send both resumes with every JEV call |
+| Human labeling | Same frozen candidate context + original full JD + label guide; richer evidence available for adjudication | JEV ranks/answers hidden from blind labelers |
 
-All files are private artifacts, not repository fixtures. A suggested eventual location
-is ignored `apps/worker/resume/preselection/`; #109 verifies ignore coverage before any
-import. Keep original sources intact. Public docs contain schemas/examples only.
+For extracted input, missing coverage is explicit; invalid/incomplete content cannot
+become a low score by omission. The stored original JD remains available to final review.
+Metadata already present elsewhere in an envelope is not repeated in prose. Posting IDs,
+URLs, hashes, timestamps, cache versions and delivery state stay outside JEV state unless
+a specific question actually needs them. Preserve these values in local provenance and
+Daily Brief where they support identity/source checks. Never remove original source text
+from storage to save inference tokens.
 
-## candidate_facts.json contract
+## Generated text and token discipline
 
-Top level: `schema_version` (initial `1`), `profile_version` (operator-controlled string),
-`as_of` (ISO date), `approval_status` (`draft` or `approved`), `sources`, `education`,
-`experiences`, `projects`, `skills`, `constraints`, `unresolved_questions`.
-Arrays are empty only when no supported entries exist, not to conceal extraction gaps.
+Render exactly:
 
-- `sources`: stable source ID, filename, source version/date if known (otherwise null).
-  No fabricated hashes; tooling computes actual file hashes after import.
-- Every evidence-bearing entry: stable `id`, factual statement/structured values,
-  `source_refs`, `verification_status` (`source_supported`, `user_confirmed`, `unresolved`)
-  and `use_for_ranking` boolean. Approval of the package does not prove a resume claim
-  externally; provenance must retain that distinction.
-- `source_refs`: source ID, stable section/item locator, minimal verbatim supporting
-  excerpt. A user clarification uses a recorded clarification ID and exact confirmation.
-- `education`: degree/field, institution, status, start/end dates with precision recorded.
-- `experiences`: organization, title, kind (full_time/internship/part_time/research/other),
-  dates and date precision, duties, achievements and technologies. Nested independent
-  claims need their own evidence when the parent citation does not support them all.
-- `projects`: context (work/academic/personal/other), personal contribution, techniques,
-  outcome and scope; link an experience ID if this is the same work, rather than adding
-  a second period of employment.
-- `skills`: name and supporting experience/project claim IDs, nature of use and caveats.
-  Do not infer proficiency, years or production-scale experience from mere mentions.
-- `constraints`: factual limitations/corrections on claims, linked to affected IDs;
-  these are not employer eligibility decisions or preference weights.
-- Unknown fields are null with an unresolved reason. Unresolved/conflicting claims are
-  excluded from ranking until resolved; their absence is not negative skill evidence.
-  Record partial dates explicitly; never invent day-level precision or double-count
-  overlapping employment. Do not use a generic confidence number as evidence.
+```text
+AS OF <as_of>
+BACKGROUND
+<background text, in declared order, one paragraph per block>
+SEARCH
+<preference text, in declared order, one paragraph per block>
+```
 
-This is a detailed evidence store, not the full provider payload. #109 defines a
-versioned deterministic projection; avoid another independently edited summary file.
-Both resume variants contribute facts equally. Duplicate claims retain both sources;
-conflicting claims retain alternatives pending operator resolution.
+Schema/version/status/block IDs are validated and recorded locally, not repeated in the
+model state. Use ordinary concise English; paragraph text carries meaning without large
+repeated JSON keys, source quotes or explanatory boilerplate. No per-call generated
+personal summary, obscure abbreviations or lossy truncation. Model data remains separate
+from fixed task instructions and JD text is untrusted data.
 
-## search_preferences.yaml contract
+The initial candidate-context target is about 2,000 tokens or less, measured using the
+selected provider tokenizer before live evaluation. This is a review budget, not a hard
+truncate rule or a claim about model capacity. Overflow needs an explicit edit/review;
+never silently drop unique experience, ownership boundaries or opportunity uncertainty.
+Measure the actual complete request, including question definitions, extraction cost
+and provider overhead, before comparing strategies. Local alternate-tokenizer counts
+are labeled proxies, not JEV billing. Cache discounts are not assumed.
 
-Top level: `schema_version`, `preferences_version`, `as_of`, `approval_status`, `items`,
-`unresolved_questions`. Each item has a stable `id`, `dimension`, `value`,
-`strength` (`must_have`, `prefer`, `avoid`, `flexible`, `unknown`), `rationale`,
-`source_refs`, `verification_status` (`user_confirmed`, `unresolved`) and
-`use_for_ranking`. YAML must use safe plain mappings/lists/scalars, no tags/anchors,
-quoted dates/ambiguous strings and no duplicate keys. Null is not false or a refusal.
+Freeze questions, profile and JD identities independently. Stable context can precede
+variable JD state if the provider supports that shape; cache effects need measurement.
+Do not add a separate classification request per job solely for architectural neatness:
+independent role and dimensional questions can share one per-job request when supported.
+This is distinct from rejected multi-posting inference batches.
 
-Cover target and excluded role families, actual desired duties, location/remote/onsite,
-relocation, role level, stretch tolerance, full-time/internship preferences, start date,
-compensation when specified, work authorization/sponsorship and other operator constraints.
-Work-authorization facts and desired employer support are different fields. Do not infer
-legal status or eligibility. Unknown employer sponsorship remains unknown even if support
-is a must-have. User confirmation is required before old config preferences become active.
-No model names, score thresholds, weights, provider settings, watchlists or credentials.
-Missing mandatory preference decisions block readiness; optional unknowns may remain if
-explicitly acknowledged and conservatively handled.
+Compression is an evaluated transform. Compare selection on the compact profile against
+richer evidence during development/adjudication, especially for hybrid and less prominent
+experience. Shorter input alone is not a recall or cost success. A profile change can
+change ranking even if it only looks editorial; version/hash it and revalidate affected
+assessments before calling them current.
 
-## Guide and review requirements
+## Private files and authority
 
-`resume_selection_guide.md` compares the two actual resumes: explicit unique emphases,
-shared evidence, likely job-duty matches, unsupported claims not to make, and what to do
-for hybrid jobs. Selection follows full JD duties, not title alone. It recommends an
-existing resume variant or manual tailoring; it does not rewrite the originals or feed
-back into JEV as a hard role filter.
+- `candidate_profile.json`: editable English facts/preferences; authoritative new input.
+- `candidate_context.txt`: generated provider/Brief view; never edit independently.
+- `resume_quant_dev.txt`, `resume_swe.txt`: current resume variants, English, preserved
+  from the operator-supplied newer source; not assumed identical to old repository copies.
+- `resume_selection_guide.md`: concise English downstream presentation advice only.
+- `provenance.json`, `input_review.md`, `token_report.json`: local audit, unresolved
+  decisions, actual approval and measured size; never sent as routine ranking context.
 
-`input_review.md` contains:
-1. Input/output inventory and versions, missing/incomplete upload detection.
-2. Source-to-output coverage table for every material unique claim; explain exclusions.
-3. Legacy profile/config items classified as fact, current preference requiring
-   confirmation, obsolete scoring policy, operational setting to preserve, or sensitive
-   content excluded. Refer to sensitive key names only, never reproduce values.
-4. Conflicts, deduplication and corrections with actual user decisions.
-5. Blocking questions versus explicitly accepted optional unknowns.
-6. Approval record for named output versions, approved only after the operator explicitly
-   confirms. Changes after approval reopen approval of the changed versions.
+The source evidence archive may retain original-language quotations. Active profile,
+guide and review are English. Translated confirmations are not represented as verbatim
+English originals; source IDs preserve where their meaning came from. Rewriting historic
+quotes is not required to make runtime input English.
 
-No old scores or screening outputs become ground-truth labels. No JD/eval corpus, labels,
-API key or model call is required for this preparation. Actual representative JD pools,
-independent human labels, rubric, evaluation thresholds and experiment budgets remain
-separate #109/#112 responsibilities; having this package does not complete those gates.
+No new pivot reader loads legacy `personal_profile.txt`, `config.yaml`, a Registry,
+old `fit_profile`, score tiers, prompts or eval corpora to fill profile gaps. A missing
+new profile is a visible configuration error, not permission to fall back. Old Registry
+synchronization never gates new confirmed facts. Existing operational config and optional
+legacy scorer remain their own compatibility path; this contract does not migrate,
+remove or reconfigure the deployed worker or grant new hard-filter authority.
 
-## Handoff acceptance
+## #109 acceptance boundary
 
-ChatGPT web checks JSON parsing/YAML structure if tools are available, cross-references,
-claim coverage, no invented facts and preservation of both original resumes. If a check
-cannot be run, report it as unverified. After return, #109 verifies parsing, privacy,
-ignore coverage, hash identity and actual source/consumer compatibility before declaring
-any runtime input ready. No unattended import, overwrite, production migration or schema
-compatibility claim follows merely from generating these files.
+Validate the new JSON, exact rendered text, English content, IDs, scope/unknown handling,
+provenance links/hashes, file privacy and version-scoped operator approval. Do not require
+old files or six old preparation outputs as runtime dependencies. Resolve ambiguous
+cross-family priority before giving it numeric weights; otherwise leave that dimension
+neutral. Provisionally retained salary/eligibility ambiguity is not a confirmed positive.
+
+A production renderer/validator, privacy-safe fixtures, request construction and cache
+integration belong to Luna's selected implementation slice, not this data preparation.
+Relevant schema and DI/Prisma rules still apply to persisted assessments. #109 still
+owns rubric/model, selection policies and experiment budgets; representative JD pools,
+independent labels and #94 unattended acceptance remain separate prerequisites.
