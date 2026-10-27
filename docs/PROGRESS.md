@@ -92,6 +92,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Implementation remains blocked on #112 GO and #113's approved persistence/read
   contract; remote review and PR creation remain blocked by GitHub DNS/token access.
 
+- **Issue #115/#94 unattended-acceptance handoff** — `docs/preselection-unattended-handoff`,
+  stacked on local #114 `f476893`; see the [current gate and evidence
+  handoff](reports/2026-10-27-preselection-unattended-handoff.md). No Scheduled task/run,
+  #112 GO, #113/#114 implementation, rollout, or delivery success is recorded. The
+  handoff identifies the actual acceptance evidence and operator steps; implementation/
+  review remain blocked on prerequisites and remote GitHub access.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

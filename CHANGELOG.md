@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Record the current #115/#94 unattended-acceptance handoff, separating interactive
+  preflight from actual Scheduled evidence and listing missing #112–#114 gates. No task,
+  live evaluation, GO decision, rollout, or delivery success is claimed.
+
 - Record a draft #114 bounded review-batch scope covering stable pagination, deferred
   aging, eligibility revalidation, replacement/resource accounting, and cross-day
   acknowledgement limits. Capacity policy and batch persistence remain open; no runtime
