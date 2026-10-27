@@ -19,6 +19,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   New context excludes runtime reads of legacy profile/config/Registry; evidence remains local.
   The input contract includes required-YOE exclusion boundaries, conditional authorization
   extension context and attempt-level JEV price evidence; implementation remains separate.
+  [Scorer boundary inventory](superpowers/specs/2026-10-26-legacy-scorer-boundary.md)
+  assigns live screen vs legacy fit/research ownership. [Prefactor #116](https://github.com/drink970082/job-matchbook/issues/116)
+  follows scoped #109 acceptance and blocks #110/#111 implementation; no scorer deletion or runtime cutover.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

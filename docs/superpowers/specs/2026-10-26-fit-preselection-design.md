@@ -226,6 +226,20 @@ requests. Downstream ChatGPT reads resume variants on demand after full JD revie
 Compression correctness, total request tokens and profile-version identity are acceptance
 criteria; old scorer prompts, fit tiers and corpus labels are not new-system inputs.
 
+## Scorer ownership and permitted reuse
+
+The [legacy scorer boundary inventory](2026-10-26-legacy-scorer-boundary.md) owns the
+file/symbol disposition, target import direction, allowed files per slice and executable
+boundary cases. Live screening in score/ is not retired wholesale. Old fit context,
+normalization, fallback, seniority ordering, research extractors and quota-based accounting
+are retired from the new pivot but kept behind explicit compatibility/manual entrypoints.
+
+#116 extracts the active screen seam and isolates eager legacy imports/resources before
+new implementation. It does not select a model, edit screen prompts/verdicts, add YOE or
+change production config. #109 may accept this provider-independent prefactor separately;
+#110 then implements the new profile/replay path, and #111 the new shadow inference path.
+No new code uses load_resumes, old fit_profile or old score schemas as convenient helpers.
+
 ## Delivery sequence and assignment gates
 
 Each child issue carries its own acceptance cases and blocking dependencies. No issue
@@ -234,7 +248,7 @@ creation grants provider spend, production activation or approval of unresolved 
 1. Orchestrator locks the contracts, candidate-fact source, rubric, provider/model,
    schema ownership, allocations and campaign budgets. Scoped offline-tool approval may
    precede model choice; remaining dependent slices stay blocked explicitly.
-2. Luna builds a provider-free frozen-pool evaluation/replay path, with synthetic fixtures,
+2. Luna completes boundary prefactor #116, then builds a provider-free frozen-pool evaluation/replay path, with synthetic fixtures,
    baseline selection, grouped splits, label validation and coverage/cost reports.
 3. Luna adds an isolated default-off shadow assessment path with direct/extracted variants,
    identity validation, durable attempt limits and fake-provider failure/resume tests.
@@ -272,8 +286,9 @@ All implementation slices require their scoped design approval first.
 | Issue | Owner | Dependencies |
 |---|---|---|
 | [#109: Lock preselection contracts and scoped implementation gates](https://github.com/drink970082/job-matchbook/issues/109) | Orchestrator | None (planning only) |
-| [#110: Build an offline preselection evaluation and daily-pool replay path](https://github.com/drink970082/job-matchbook/issues/110) | Luna/max | #109 |
-| [#111: Add an isolated bounded JEV shadow assessment workflow](https://github.com/drink970082/job-matchbook/issues/111) | Luna/max | #109, #110 |
+| [#116: Isolate active screening from legacy fit imports and prompts](https://github.com/drink970082/job-matchbook/issues/116) | Luna/max | #109 scoped boundary approval |
+| [#110: Build an offline preselection evaluation and daily-pool replay path](https://github.com/drink970082/job-matchbook/issues/110) | Luna/max | #109, #116 |
+| [#111: Add an isolated bounded JEV shadow assessment workflow](https://github.com/drink970082/job-matchbook/issues/111) | Luna/max | #109, #110, #116 |
 | [#112: Evaluate preselection in shadow and record a go/no-go decision](https://github.com/drink970082/job-matchbook/issues/112) | Orchestrator | #109, #110, #111; #94 live gate |
 | [#113: Expose versioned preselection assessments through MCP and inventory UI](https://github.com/drink970082/job-matchbook/issues/113) | Luna/max | #109, #112 GO |
 | [#114: Deliver bounded daily review batches with deferred-queue coverage](https://github.com/drink970082/job-matchbook/issues/114) | Luna/max | #109, #113 |

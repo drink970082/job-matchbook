@@ -162,6 +162,15 @@ attempt/time/money limits. Fake-provider tests cover partial usage, missing pric
 retries and resume without double counting. No price is hardcoded from an old provider
 or assumed from a local tokenizer; actual provider pricing is checked at run time.
 
+## Scorer isolation prerequisite
+
+The [scorer boundary inventory](2026-10-26-legacy-scorer-boundary.md) and #116 separate
+active screen support from old fit/research imports before new pivot implementation.
+Do not reuse the old glob-based resume loader, system-prefix builder, fit schema,
+SCORER_VERSION, fit_profile hashes or extraction/corpus tools for this profile. Existing
+operational config still owns deployed intake/screening until a separately selected
+cutover; it is not a fallback source for the new profile.
+
 ## #109 acceptance boundary
 
 Validate the new JSON, exact rendered text, English content, IDs, scope/unknown handling,
