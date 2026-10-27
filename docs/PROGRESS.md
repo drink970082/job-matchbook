@@ -8,6 +8,21 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Issue #96 preselection design — `docs/issue-96-preselection`** [ORCH · design draft].
+  Define aggressive role classification and optional JEV ranking before deep Daily
+  Brief review, with recall audits and bounded evaluation. No model calls or rollout
+  selected; provider, rubric, acceptance targets and experiment budget remain open.
+  The design specifies daily pool/queue boundaries, version races, bounded failures
+  and separate pilot/held-out acceptance gates. [Contract gate #109](https://github.com/drink970082/job-matchbook/issues/109)
+  validates the English private [pivot input contract](superpowers/specs/2026-10-26-candidate-input-package.md),
+  before implementation/evaluation slices #110–#115; their issue bodies own readiness.
+  New context excludes runtime reads of legacy profile/config/Registry; evidence remains local.
+  The input contract includes required-YOE exclusion boundaries, conditional authorization
+  extension context and attempt-level JEV price evidence; implementation remains separate.
+  [Scorer boundary inventory](superpowers/specs/2026-10-26-legacy-scorer-boundary.md)
+  assigns live screen vs legacy fit/research ownership. [Prefactor #116](https://github.com/drink970082/job-matchbook/issues/116)
+  follows scoped #109 acceptance and blocks #110/#111 implementation; no scorer deletion or runtime cutover.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains

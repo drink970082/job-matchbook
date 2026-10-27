@@ -106,6 +106,17 @@ Do not rewrite pipeline_status wholesale in batches 1–2. Content revision/hash
 assessment linkage belong to the separately designed source-lifecycle slice. Before it
 ships, response time is not evidence freshness and stored jobs need official-page checks.
 
+## Screen and scorer separation
+
+The existing `score/` package mixes active screening and optional legacy fit/research;
+its current facade and shared prompt loader eagerly load all prompt families. The
+[scorer boundary plan](superpowers/specs/2026-10-26-legacy-scorer-boundary.md) and
+[prefactor #116](https://github.com/drink970082/job-matchbook/issues/116) isolate live
+screening while retaining explicit legacy compatibility. New preselection owns its
+profile, prompts, typed answers, freshness and price accounting; it does not inherit old
+fit context, score_detail writes, seniority ordering or corpora. This is a planned seam,
+not a claim that code has already moved or that fit compatibility can be deleted.
+
 ## Extension seams
 
 Use the existing fetch adapters/recipes, repository queries and dependency-injected
