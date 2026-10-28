@@ -8,11 +8,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Preselection next-session planning — `docs/luna-next-session-plan`** [ORCH · docs only].
+- **Preselection next-session plan — `docs/luna-next-session-plan`** [ORCH · docs review pending].
   The operator selects pre-ranking for an approximately 200-posting daily workload.
+  [Draft PR #120](https://github.com/drink970082/job-matchbook/pull/120) contains the
+  [execution plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
   Ready preparatory issues are #117/#118, then #119 after their contracts. The Luna/max
-  implementation handoff is being prepared; this session changes documentation/issues only. The [execution plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
-  separates preparatory contracts/simulations from live evaluation and production gates.
+  prompt/handoff is prepared. This slice changes documentation/issues only and keeps
+  live evaluation, production integration and activation gated.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
