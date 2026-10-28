@@ -8,6 +8,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Preselection next-session planning — `docs/luna-next-session-plan`** [ORCH · docs only].
+  The operator selects pre-ranking for an approximately 200-posting daily workload.
+  Ready preparatory issues are #117/#118, then #119 after their contracts. The Luna/max
+  implementation handoff is being prepared; this session changes documentation/issues only. The [execution plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
+  separates preparatory contracts/simulations from live evaluation and production gates.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -53,9 +59,12 @@ before changing them. No older research authorization schedules new provider cal
    using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
 4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
    lifecycle if official pages and freshness limits are checked.
-5. Two independent conditional branches after #94: delivery ledger (#95) for observed
-   repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
-   separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.
+5. The operator selects pre-ranking (#96) for an approximately 200-posting daily load.
+   Luna/max can execute [#117 assessment-view preparation](https://github.com/drink970082/job-matchbook/issues/117)
+   and [#118 batch replay](https://github.com/drink970082/job-matchbook/issues/118) independently,
+   then [#119 synthetic rehearsal](https://github.com/drink970082/job-matchbook/issues/119).
+   These bounded scopes do not wait for #94 or #112 GO. Live evaluation, production
+   persistence/MCP/UI integration and rollout retain their gates. #95 remains deferred.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.

@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Record the operator-selected pre-ranking need and a Luna/max execution plan for
+  independent #113 assessment-view, #114 batch-replay and #115 synthetic-rehearsal
+  preparation (#117–#119). Preserve live evaluation, schema, integration and activation
+  gates; no implementation or corrective patch is included.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
