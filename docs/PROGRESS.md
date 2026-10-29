@@ -31,15 +31,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   source or seed Unicode fails as bounded input validation. The older ID-only pool remains
   exploratory and explicitly inconclusive. Synthetic profile
   and posting fixtures only; no real candidate/job data, model call, quality claim,
-  runtime selection or acceptance GO. The current focused replay/profile suite passes
-  (53 tests); full worker, coverage, integration and schema/privacy checks remain pending
-  on this head. The #124/#125 rehearsal retains #125's `RunBinding` and schema-4 journal;
-  worker/web integration passes (4 passed, 1 skipped; 74 passed). Full worker tests in
-  that combined stack pass (1,406 passed, 1 skipped), but total coverage is 84.78%, below
-  the 85% gate due to the unmerged stack additions. Schema, compilation and privacy
-  self-test pass; the full privacy target's subprocess wrapper is blocked by sandbox
-  `spawnSync git EPERM`, while the equivalent tracked-path audit passes. Fresh
-  current code checks and fresh-context review are pending. Draft PR
+  runtime selection or acceptance GO. The focused replay/profile suite passes (53 tests).
+  Full worker/web coverage passes (1,303 worker tests, 1 skipped, 88.64%; 420 web tests
+  across 35 suites). Worker/web integration passes (4 worker tests, 1 skipped; 74 web
+  tests), and schema/privacy checks pass. The isolated #124/#125 rehearsal retains #125's
+  `RunBinding` and schema-4 journal; its worker/web integration passes (4 passed, 1
+  skipped; 74 passed), while combined worker coverage is 84.78%, below the 85% gate due to
+  the unmerged stack additions. Fresh review of the current PR head remains pending. Draft PR
   [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
   remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
   range. No live input, policy or GO is accepted by these synthetic results.
