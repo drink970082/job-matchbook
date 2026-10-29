@@ -39,36 +39,27 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 shadow deadline and retry repair — local branch
-  `repair/111-deadline-cancellation`, commit `08e3453`.** The repair extends the
-  unaccepted #111 source at `f49e95ba` with a supervised POSIX process-group transport
-  boundary, one deadline across extraction/assessment/backoff, persisted bounded retry
-  state and timeout ambiguity accounting. A blocking fake call is killed and reaped before
-  return; ambiguous delivery retains unknown usage/charge and cannot replay. Synthetic
-  focused tests pass (21). No provider, production policy, runtime wiring or evaluation
-  is selected. Remote draft-PR publication and issue-status update are blocked: the GitHub
-  integration returns HTTP 403 (`Resource not accessible by integration`) for blob,
-  branch-ref and issue writes. Prerequisite acceptance and full feature merge remain open.
+- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
+  `repair/111-deadline-cancellation`, code commit `08e3453`.** The supervised deadline,
+  cancellation/reaping, persisted bounded backoff and ambiguous-delivery accounting are
+  covered by 21 focused fake-transport tests. The baseline blocking fake exceeded its
+  10 ms cap at about 160 ms; baseline retry skipped backoff. PR #124 targets main and
+  includes the unmerged #110/#116/design prerequisite ancestry; none is accepted here.
 
-- **Issue #112 evaluation provenance and workload identities — local branch
-  `repair/112-evaluation-provenance`, commit `6ab7e75`, stacked on local #111 repair
-  commit `21274a7`.** The validator recomputes pool/split declarations from frozen items
-  and binds run, approved profile, questions, pools and splits into the journal before
-  attempts; each attempt carries that digest. Daily pool occurrences count independently
-  in workload metrics while stable work identity counts shared inference/cache and actual
-  cost once. Incomplete, failed or ambiguous extraction can be reported against its
-  extraction request without inventing an assessment attempt. Fake-provider composition
-  exercises direct, complete extracted, incomplete, failed and ambiguous paths through the
-  real #111 journal and #112 report. `make test-worker` passes (1,319 passed, 1 skipped);
-  worker coverage passes at 88.74%; worker integration passes (4 passed, 1 skipped);
-  fresh-process CLI/import checks, compile, schema drift, privacy self-test and a 396-path
-  tracked privacy audit pass. The Node privacy wrapper is blocked by sandbox
-  `spawnSync git EPERM`; its rule self-test and equivalent tracked-path audit pass. No
-  live provider or model inference, price choice, threshold, GO decision or runtime wiring
-  is included. The GitHub integration returns HTTP 403 for blob, branch-ref and issue
-  writes, so neither a reviewable remote PR nor an issue-status update exists yet.
-  #110/#116/design prerequisites, #94 acceptance, profile/provider/policy selection and
-  independent review remain open.
+- **Issue #112 evaluation provenance and workload identities — [draft PR #125](https://github.com/drink970082/job-matchbook/pull/125), branch
+  `repair/112-evaluation-provenance`, behavior fix `6ab7e75`.** The branch replays the
+  #111 repair in `21274a7` on the unmerged #112 source and composes its actual output
+  through the report. It binds run/profile/question/pool/split evidence, handles
+  incomplete/failed/ambiguous extraction without invented assessment calls, and counts
+  daily occurrences separately from stable inference/cost identity. The six #112 baseline
+  repro cases fail on source `5f04208`; regression and real fake-provider composition
+  tests pass. Worker suite: 1,319 passed, 1 skipped; coverage: 88.74% (85% gate); worker
+  integration: 4 passed, 1 skipped; fresh-process CLI/import: 3 passed; compile and schema
+  drift checks pass. Privacy self-test and equivalent 396-path tracked audit pass; the
+  Node privacy wrapper is blocked by sandbox `spawnSync git EPERM`. No live provider or
+  model inference, private inputs, price/policy choice, GO decision or runtime wiring is
+  included. Both drafts target main and disclose the unmerged #110/#116/design stack;
+  #94 acceptance, real-input/provider/policy selection and independent review remain open.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
