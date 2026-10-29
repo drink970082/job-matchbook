@@ -3,10 +3,11 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
-import signal
+import resource
 import stat
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -165,59 +166,61 @@ class LargePlainReplyTransport:
         return reply(ASSESSOR, {"large": "x" * self.size})
 
 
-class DetachedChildTransport:
-    def __init__(self, marker_path, *, block=False, double_fork=False):
+class ProcessBoundaryProbeTransport:
+    def __init__(self, marker_path, child_marker_path):
         self.marker_path = str(marker_path)
-        self.block = block
-        self.double_fork = double_fork
+        self.child_marker_path = str(child_marker_path)
 
     def complete(self, invocation):
-        if self.double_fork:
-            child_code = f"""\
-import os, time
-first = os.fork()
-if first == 0:
-    os.setsid()
-    second = os.fork()
-    if second == 0:
-        open({self.marker_path!r}, "w").write(str(os.getpid()))
-        time.sleep(10)
-        os._exit(0)
-    os._exit(0)
-os.waitpid(first, 0)
-"""
-            child = subprocess.Popen([sys.executable, "-c", child_code], start_new_session=True)
-            child.wait(timeout=2)
-            deadline = time.monotonic() + 2
-            while not Path(self.marker_path).exists() and time.monotonic() < deadline:
-                time.sleep(0.005)
-            if not Path(self.marker_path).exists():
-                raise AssertionError("double-forked child did not publish its pid")
+        attempts = {}
+        try:
+            child_pid = os.fork()
+        except OSError as exc:
+            attempts["fork"] = f"blocked:{exc.errno}"
         else:
+            if child_pid == 0:
+                os._exit(0)
+            os.waitpid(child_pid, 0)
+            attempts["fork"] = "spawned"
+        try:
             child = subprocess.Popen(
                 [sys.executable, "-c", "import time;time.sleep(10)"], start_new_session=True
             )
-            Path(self.marker_path).write_text(str(child.pid), encoding="utf-8")
-        if self.block:
-            while True:
-                time.sleep(1)
-        return reply(ASSESSOR, assessment_payload())
-
-
-def _pid_is_present(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
-def _kill_test_pid(pid):
-    if _pid_is_present(pid):
+        except OSError as exc:
+            attempts["popen"] = f"blocked:{exc.errno}"
+        else:
+            Path(self.child_marker_path).write_text(str(child.pid), encoding="utf-8")
+            child.kill()
+            child.wait(timeout=2)
+            attempts["popen"] = "spawned"
         try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+            thread = threading.Thread(target=lambda: None)
+            thread.start()
+            thread.join(timeout=2)
+            attempts["thread"] = "spawned"
+        except RuntimeError:
+            attempts["thread"] = "blocked"
+        current_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+        hard_limit = current_limits[1]
+        if hard_limit == resource.RLIM_INFINITY:
+            attempts["raise_limit"] = "unbounded"
+        else:
+            try:
+                resource.setrlimit(resource.RLIMIT_NPROC, (hard_limit + 1, hard_limit + 1))
+            except (OSError, ValueError) as exc:
+                attempts["raise_limit"] = f"blocked:{type(exc).__name__}"
+            else:
+                attempts["raise_limit"] = "raised"
+        status = {}
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key in {"Uid", "CapEff", "CapPrm", "CapInh", "CapAmb", "NoNewPrivs"}:
+                status[key] = value.strip()
+        Path(self.marker_path).write_text(
+            json.dumps({"attempts": attempts, "limits": current_limits, "status": status}),
+            encoding="utf-8",
+        )
+        return reply(ASSESSOR, assessment_payload())
 
 
 def _sleep_and_write_marker(marker_path):
@@ -765,103 +768,163 @@ def test_parent_wire_decode_is_checked_against_the_remaining_deadline(monkeypatc
     assert journal.records[0].delivery == "unknown"
 
 
-def test_readiness_timeout_after_transport_started_is_ambiguous(tmp_path, monkeypatch):
-    from multiprocessing.synchronize import Event
+def test_provider_worker_process_boundary_blocks_processes_and_threads(tmp_path):
+    marker = tmp_path / "boundary-evidence.json"
+    child_marker = tmp_path / "unexpected-child.pid"
+    parent_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+    parent_no_new_privs = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
+    existing_children = set(multiprocessing.active_children())
+    result = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        ProcessBoundaryProbeTransport(marker, child_marker),
+        AttemptJournal.empty(),
+        limits(),
+        SystemClock(),
+        lambda current: None,
+        enabled=True,
+    )
+    evidence = json.loads(marker.read_text(encoding="utf-8"))
+    assert result is not None
+    assert evidence["limits"] == [0, 0]
+    assert evidence["attempts"]["fork"].startswith("blocked:")
+    assert evidence["attempts"]["popen"].startswith("blocked:")
+    assert evidence["attempts"]["thread"] == "blocked"
+    assert evidence["attempts"]["raise_limit"].startswith("blocked:")
+    uid_values = [int(value) for value in evidence["status"]["Uid"].split()]
+    assert uid_values[0] != 0 and len(set(uid_values[:3])) == 1
+    for capability in ("CapEff", "CapPrm", "CapInh", "CapAmb"):
+        assert int(evidence["status"][capability], 16) == 0
+    assert evidence["status"]["NoNewPrivs"] == "1"
+    assert not child_marker.exists()
+    assert resource.getrlimit(resource.RLIMIT_NPROC) == parent_limits
+    assert set(multiprocessing.active_children()) == existing_children
+    current_parent_no_new_privs = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
+    assert current_parent_no_new_privs == parent_no_new_privs
 
-    original_wait = Event.wait
 
-    def preempt_after_readiness(event, timeout=None):
-        signaled = original_wait(event, timeout)
-        if signaled:
-            # The caller is descheduled after readiness but before it records timeout.
-            time.sleep(0.08)
-            return False
-        return False
-
-    monkeypatch.setattr(Event, "wait", preempt_after_readiness)
-    marker = tmp_path / "race-detached-child.pid"
+def test_cached_response_validator_runs_inside_the_same_process_boundary(tmp_path, monkeypatch):
+    clock = FakeClock()
     journal = AttemptJournal.empty()
-    started = time.monotonic()
-    error = None
-    try:
+    first_transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
+    run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        first_transport,
+        journal,
+        limits(),
+        clock,
+        lambda current: None,
+        enabled=True,
+    )
+
+    original_validate = shadow_module.validate_assessment_payload
+    spawn_marker = tmp_path / "cached-validator-popen.txt"
+    child_marker = tmp_path / "cached-validator-child.pid"
+    fork_marker = tmp_path / "cached-validator-fork.txt"
+    thread_marker = tmp_path / "cached-validator-thread.txt"
+
+    def validate_with_spawn_probe(payload, question_set, **kwargs):
+        try:
+            child_pid = os.fork()
+        except OSError as exc:
+            fork_marker.write_text(f"blocked:{exc.errno}", encoding="utf-8")
+        else:
+            if child_pid == 0:
+                os._exit(0)
+            os.waitpid(child_pid, 0)
+            fork_marker.write_text("spawned", encoding="utf-8")
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import time;time.sleep(10)"], start_new_session=True
+            )
+        except OSError as exc:
+            spawn_marker.write_text(f"blocked:{exc.errno}", encoding="utf-8")
+        else:
+            child_marker.write_text(str(child.pid), encoding="utf-8")
+            child.kill()
+            child.wait(timeout=2)
+            spawn_marker.write_text("spawned", encoding="utf-8")
+        try:
+            thread = threading.Thread(target=lambda: None)
+            thread.start()
+            thread.join(timeout=2)
+            thread_marker.write_text("spawned", encoding="utf-8")
+        except RuntimeError:
+            thread_marker.write_text("blocked", encoding="utf-8")
+        return original_validate(payload, question_set, **kwargs)
+
+    monkeypatch.setattr(shadow_module, "validate_assessment_payload", validate_with_spawn_probe)
+    cached = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        FakeTransport([], clock),
+        journal,
+        limits(),
+        clock,
+        lambda current: None,
+        enabled=True,
+    )
+    assert cached.assessment_from_cache is True
+    assert fork_marker.read_text(encoding="utf-8").startswith("blocked:")
+    assert spawn_marker.read_text(encoding="utf-8").startswith("blocked:")
+    assert thread_marker.read_text(encoding="utf-8") == "blocked"
+    assert not child_marker.exists()
+
+
+def test_unsupported_worker_credentials_fail_before_transport(tmp_path, monkeypatch):
+    marker = tmp_path / "unsupported-credentials-provider-called"
+    journal = AttemptJournal.empty()
+    monkeypatch.setattr(
+        shadow_module,
+        "_worker_credentials_supported",
+        lambda: False,
+        raising=False,
+    )
+    with pytest.raises(ShadowIntegrityError, match="worker boundary"):
         run_shadow_assessment(
             job(),
             approved_profile(),
             questions(),
             "direct",
             ASSESSOR,
-            DetachedChildTransport(marker, block=True),
+            ProcessBoundaryProbeTransport(marker, tmp_path / "child.pid"),
             journal,
-            limits(max_elapsed_seconds=0.04),
+            limits(),
             SystemClock(),
             lambda current: None,
             enabled=True,
         )
-    except Exception as exc:
-        error = exc
-
-    assert marker.exists(), "the provider boundary should have started before parent preemption"
-    child_pid = int(marker.read_text(encoding="utf-8"))
-    child_was_still_present = _pid_is_present(child_pid)
-    _kill_test_pid(child_pid)
-    assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout classification: {error!r}"
-    assert journal.records[0].status == "ambiguous"
-    assert journal.records[0].delivery == "unknown"
-    assert child_was_still_present is False
-    assert time.monotonic() - started < 1.0
+    assert not marker.exists()
+    assert journal.records == []
 
 
-@pytest.mark.parametrize("double_fork", [False, True])
-@pytest.mark.parametrize("block", [False, True])
-def test_supervisor_cleans_detached_descendants_before_return(tmp_path, double_fork, block):
-    marker = tmp_path / f"detached-{double_fork}-{block}.pid"
-    transport = DetachedChildTransport(marker, block=block, double_fork=double_fork)
+def test_worker_process_limit_install_failure_prevents_transport(tmp_path, monkeypatch):
+    marker = tmp_path / "boundary-install-provider-called"
     journal = AttemptJournal.empty()
-    started = time.monotonic()
-    error = None
-    result = None
-    try:
-        result = run_shadow_assessment(
-            job(),
-            approved_profile(),
-            questions(),
-            "direct",
-            ASSESSOR,
-            transport,
-            journal,
-            limits(max_elapsed_seconds=0.15 if block else 3.0),
-            SystemClock(),
-            lambda current: None,
-            enabled=True,
-        )
-    except Exception as exc:
-        error = exc
-
-    assert marker.exists(), "detached process should publish its pid before provider completion"
-    child_pid = int(marker.read_text(encoding="utf-8"))
-    child_was_still_present = _pid_is_present(child_pid)
-    _kill_test_pid(child_pid)
-    assert child_was_still_present is False, f"detached descendant {child_pid} survived supervisor cleanup"
-    if block:
-        assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout result: {error!r}"
-        assert journal.records[0].status == "ambiguous"
-        assert journal.records[0].delivery == "unknown"
-    else:
-        assert error is None, f"successful provider call unexpectedly failed: {error!r}"
-        assert result is not None
-        assert journal.records[0].status == "succeeded"
-    assert time.monotonic() - started < 4.0
-
-
-def test_subreaper_boundary_failure_prevents_provider_execution(tmp_path, monkeypatch):
-    marker = tmp_path / "must-not-call-provider"
     monkeypatch.setattr(
         shadow_module,
-        "_enable_child_subreaper",
+        "_install_worker_process_boundary",
         lambda: False,
         raising=False,
     )
-    journal = AttemptJournal.empty()
     with pytest.raises(ShadowResumeAmbiguous, match="unknown delivery"):
         run_shadow_assessment(
             job(),
@@ -869,7 +932,7 @@ def test_subreaper_boundary_failure_prevents_provider_execution(tmp_path, monkey
             questions(),
             "direct",
             ASSESSOR,
-            DetachedChildTransport(marker),
+            ProcessBoundaryProbeTransport(marker, tmp_path / "child.pid"),
             journal,
             limits(),
             SystemClock(),
@@ -881,98 +944,60 @@ def test_subreaper_boundary_failure_prevents_provider_execution(tmp_path, monkey
     assert journal.records[0].delivery == "unknown"
 
 
-def test_supervisor_repeats_child_scan_for_descendant_created_during_cleanup(tmp_path, monkeypatch):
-    original_child_pids = shadow_module._direct_supervisor_child_pids
-    grandchild_marker = tmp_path / "spawned-during-cleanup.pid"
-    injected = False
+def test_parent_preemption_after_provider_start_stays_ambiguous(tmp_path, monkeypatch):
+    from multiprocessing.process import BaseProcess
 
-    def child_list_then_fork():
-        nonlocal injected
-        child_pids = original_child_pids()
-        if not injected:
-            injected = True
-            helper_pid = os.fork()
-            if helper_pid == 0:
-                grandchild_pid = os.fork()
-                if grandchild_pid == 0:
-                    Path(grandchild_marker).write_text(str(os.getpid()), encoding="utf-8")
-                    time.sleep(10)
-                    os._exit(0)
-                os._exit(0)
-        return child_pids
+    original_join = BaseProcess.join
+    delayed = False
 
-    monkeypatch.setattr(shadow_module, "_direct_supervisor_child_pids", child_list_then_fork)
-    marker = tmp_path / "provider-detached-child.pid"
-    result = run_shadow_assessment(
-        job(),
-        approved_profile(),
-        questions(),
-        "direct",
-        ASSESSOR,
-        DetachedChildTransport(marker),
-        AttemptJournal.empty(),
-        limits(),
-        SystemClock(),
-        lambda current: None,
-        enabled=True,
-    )
-    assert result is not None
-    assert grandchild_marker.exists()
-    grandchild_pid = int(grandchild_marker.read_text(encoding="utf-8"))
-    grandchild_was_still_present = _pid_is_present(grandchild_pid)
-    _kill_test_pid(grandchild_pid)
-    assert grandchild_was_still_present is False
+    def preempt_after_provider_start(process, timeout=None):
+        nonlocal delayed
+        original_join(process, timeout)
+        if process.is_alive() and not delayed:
+            # The caller is descheduled after the provider marker but before timeout accounting.
+            delayed = True
+            time.sleep(0.08)
 
-
-def test_unconfirmed_cleanup_returns_unknown_without_killing_supervisor(monkeypatch):
-    context = multiprocessing.get_context("fork")
-    cleanup_started = context.Event()
-    allow_proof = context.Event()
-    original_reap = shadow_module._reap_supervisor_children_until
-
-    def withhold_cleanup_proof(cleanup_deadline):
-        cleanup_started.set()
-        while not allow_proof.is_set() and time.monotonic() < cleanup_deadline:
-            time.sleep(0.005)
-        if allow_proof.is_set():
-            return original_reap(cleanup_deadline)
-        return False
-
-    monkeypatch.setattr(shadow_module, "_reap_supervisor_children_until", withhold_cleanup_proof)
+    monkeypatch.setattr(BaseProcess, "join", preempt_after_provider_start)
+    marker = tmp_path / "race-worker.pid"
     journal = AttemptJournal.empty()
-    existing_children = set(multiprocessing.active_children())
-    with pytest.raises(ShadowResumeAmbiguous, match="unknown delivery"):
+    started = time.monotonic()
+    error = None
+    try:
         run_shadow_assessment(
             job(),
             approved_profile(),
             questions(),
             "direct",
             ASSESSOR,
-            FakeTransport([reply(ASSESSOR, assessment_payload())]),
+            NonReturningTransport(marker),
             journal,
-            limits(max_elapsed_seconds=0.05),
+            limits(max_elapsed_seconds=0.04),
             SystemClock(),
             lambda current: None,
             enabled=True,
         )
+    except Exception as exc:
+        error = exc
 
-    assert cleanup_started.is_set()
+    assert marker.exists(), "the provider call should have started before parent preemption"
+    worker_pid = int(marker.read_text(encoding="utf-8"))
+    assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout classification: {error!r}"
     assert journal.records[0].status == "ambiguous"
     assert journal.records[0].delivery == "unknown"
-    remaining_supervisors = [
-        child for child in multiprocessing.active_children() if child not in existing_children
-    ]
-    assert len(remaining_supervisors) == 1
-    supervisor = remaining_supervisors[0]
-    assert supervisor.is_alive()
-    allow_proof.set()
-    supervisor.join(timeout=1)
-    assert not supervisor.is_alive()
+    with pytest.raises(ProcessLookupError):
+        os.kill(worker_pid, 0)
+    assert time.monotonic() - started < 1.0
 
 
-def test_supervisor_does_not_kill_unrelated_sibling(tmp_path):
+def test_worker_boundary_does_not_change_parent_or_unrelated_process(tmp_path):
     sibling = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(10)"])
-    marker = tmp_path / "unrelated-sibling-child.pid"
+    parent_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+    parent_nnp = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
     try:
         result = run_shadow_assessment(
             job(),
@@ -980,7 +1005,7 @@ def test_supervisor_does_not_kill_unrelated_sibling(tmp_path):
             questions(),
             "direct",
             ASSESSOR,
-            DetachedChildTransport(marker),
+            FakeTransport([reply(ASSESSOR, assessment_payload())]),
             AttemptJournal.empty(),
             limits(),
             SystemClock(),
@@ -989,10 +1014,18 @@ def test_supervisor_does_not_kill_unrelated_sibling(tmp_path):
         )
         assert result is not None
         assert sibling.poll() is None
-        assert _pid_is_present(sibling.pid)
+        assert resource.getrlimit(resource.RLIMIT_NPROC) == parent_limits
+        current_nnp = next(
+            line.split(":", 1)[1].strip()
+            for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+            if line.startswith("NoNewPrivs:")
+        )
+        assert current_nnp == parent_nnp
     finally:
         sibling.kill()
         sibling.wait(timeout=2)
+
+
 def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):
     clock = FakeClock()
     journal = AttemptJournal.empty()

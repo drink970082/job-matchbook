@@ -41,17 +41,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
   `repair/111-deadline-cancellation`.** The local branch extends the unaccepted
-  `f49e95ba` source with bounded JSON normalization and validation inside a supervised
-  Linux worker. A dedicated per-call supervisor enables and verifies subreaper mode before
-  it starts provider code; its worker has a separate session. On success and timeout it
-  repeatedly kills/reaps adopted descendants until `ECHILD` and only then publishes an
-  outcome. The caller waits up to a 1.5-second cleanup reserve; if cleanup is not proven,
-  delivery remains unknown and the supervisor stays alive to continue cleanup. Provider
-  output crosses shared memory as capped primitives, never pickle; the parent checks the
-  deadline around the bounded decode. Readiness races and timeouts after execution may
-  start stay ambiguous with unknown usage/charge and cannot be replayed; completed
-  oversized/schema-invalid replies retain safely decoded accounting. The focused shadow
-  suite passes (34 tests). PR #124 remains at its prior published head `61952ef` and does
+  `f49e95ba` source with bounded JSON normalization and validation in one Linux worker.
+  Before provider or cached-validator code runs, the worker verifies matching non-root
+  real/effective/saved UIDs, empty effective/permitted/inheritable/ambient capability sets,
+  and `PR_SET_NO_NEW_PRIVS`, then verifies
+  `RLIMIT_NPROC` soft/hard limits of zero. This prohibits provider-created processes and
+  threads; transports must be synchronous and cannot spawn subprocesses or background
+  threads. The parent directly kills and reaps the one worker on timeout. Provider output
+  crosses shared memory as capped primitives, never pickle; the parent checks the deadline
+  around bounded decoding. Readiness races and timeouts after execution may start stay
+  ambiguous with unknown usage/charge and cannot be replayed; completed oversized/schema-
+  invalid replies retain safely decoded accounting. The focused shadow suite has 31 tests.
+  PR #124 remains at its prior published head `61952ef` and does
   not yet include these local corrections. Its #110/#116/design prerequisite ancestry
   remains unaccepted; this repair selects no live provider, production policy, runtime
   wiring or evaluation.

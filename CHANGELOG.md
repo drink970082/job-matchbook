@@ -133,12 +133,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
-- Put each shadow provider worker under a dedicated Linux subreaper that verifies
-  `PR_SET_CHILD_SUBREAPER` before provider execution, then kills and reaps detached and
-  double-fork descendants after success or timeout before publishing a result. Treat
-  readiness timeout races as ambiguous. If cleanup cannot be proven within the 1.5-second
-  caller reserve, preserve unknown delivery and leave the dedicated supervisor alive to
-  continue cleanup.
+- Put each shadow provider call and validator inside a direct Linux worker whose
+  non-root credentials/capabilities are checked before execution, which verifies
+  `PR_SET_NO_NEW_PRIVS` and sets `RLIMIT_NPROC` soft/hard limits to zero. Process and thread
+  creation are disabled, including detached `Popen` descendants. Treat readiness timeout
+  races as ambiguous, and kill/reap the direct worker on deadline expiry. Unsupported or
+  privileged environments fail closed before provider code.
 
 - Standalone screen preserves the existing deprioritized job order under its call cap.
   Conflicting direct worker modes and invalid screen caps fail before database access.
