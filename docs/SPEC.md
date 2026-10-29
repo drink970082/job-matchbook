@@ -16,7 +16,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-27 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-29 · **License:** MIT
 
 ---
 
@@ -2466,6 +2466,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Default-off shadow extraction and assessment share one enforced deadline; a blocking transport is killed and reaped, started timeouts remain ambiguous/unknown and are never replayed, and retryable not-sent failures use persisted bounded backoff inside attempt/time/cost limits | `worker/tests/test_preselection_shadow.py` (`test_public_entrypoint_kills_and_reaps_a_nonreturning_transport`, `test_ambiguous_delivery_after_restart_is_not_retried`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`, `test_backoff_exhaustion_does_not_start_an_attempt_after_deadline`, `test_nonretryable_and_policy_exhausted_errors_do_not_sleep_or_replay`, `test_resume_completes_persisted_backoff_before_retry`) |
+| Evaluation declarations bind to pre-attempt run provenance and per-attempt digests; daily occurrences are separate metric rows from stable inference/cost identities; extraction can stop unresolved before assessment while retaining actual usage and charge | `worker/tests/test_preselection_evaluation.py`, `worker/tests/test_preselection_shadow_evaluation_integration.py` |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
@@ -2958,17 +2959,33 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   stay in the original limits and denominators. Resume reuses validated successes,
   refuses ambiguous delivery, preserves the original elapsed-time and combined limits /
   retry-policy identity, and stops when charges are unknown or a provider/model circuit
-  breaker is open. Journal schema 3 adds this retry state. Aggregate reports include run,
-  hashed work item, successful assessment, request, variant, draw and extraction-stage
-  accounting; shared extraction cost is included once in each extracted work-item arm.
+  breaker is open. Journal schema 4 adds retry state and a pre-attempt run binding. The
+  binding records the normalized run declaration plus profile, question-set, pool
+  fingerprint and split-manifest hashes. When an evaluation binding is supplied,
+  `run_shadow_assessment` checks the approved profile and question set against those hashes
+  before transport; each attempt records the binding digest. The evaluation validator
+  recomputes pool and split digests from validated frozen items, including groups and pool
+  membership. These hashes detect
+  inconsistent editable artifacts; they do not authenticate them or act as signatures.
+  Aggregate reports include run, hashed work item, successful assessment, request, variant,
+  draw and extraction-stage accounting; shared extraction cost is included once in each
+  extracted work-item arm.
   Only synthetic fake transports exercise this path. No provider/model, question rubric,
   YOE threshold, price, live evaluation or production policy is selected here.
   `preselection/evaluation.py` and `tools/preselection_evaluation.py` validate a closed
   local evaluation manifest against the strict attempt journal and produce aggregate
-  metrics without provider calls. The manifest carries blinded human labels, full daily-pool
-  identities, recency and role-coverage baseline orders, optional Daily Brief selections,
-  per-item planned draws, ranks and reference answer values. Completed answer values must
-  match the journal's successful response. Reports cover label/source coverage, per-pool
+  metrics without provider calls. A pool-occurrence identity is derived from the stable
+  work-item identity plus its daily-pool identity. Repeated daily occurrences count
+  separately in workload, baseline, recall, field and stability metrics; stable work-item
+  identity remains the inference/cache and actual attempt/cost identity, so shared requests
+  are counted once. A stable item and all of its occurrences must remain in one split.
+  The manifest carries blinded human labels, full daily-pool identities, recency and
+  role-coverage baseline orders, optional Daily Brief selections, per-occurrence planned
+  draws, ranks and reference answer values. Completed answer values must match the
+  journal's successful response. An incomplete, failed or ambiguous extraction may produce
+  an unresolved or failed extracted-arm outcome linked to its `extract_jd` request before
+  any assessment record exists; usage and charges remain in attempt accounting. Reports
+  cover label/source coverage, per-pool
   recall and misses at fixed budgets, with unselected label/reason counts and descriptive
   Wilson intervals; precision on resolved selections, role-family recall, per-field and
   required-YOE errors, repeated-subset stability, and attempt/usage/charge totals by run,

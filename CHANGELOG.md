@@ -10,12 +10,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 ### Added
 
 - Add a provider-free #112 evaluation-manifest validator and aggregate report tool. It
-  cross-checks blinded label provenance, complete daily pools, per-item draw plans,
-  same-pool baselines, reported answers and ranks against the private shadow-attempt
-  journal; separates full-pool recall from repeated-subset diagnostics and actual,
-  estimated and unknown charges. Synthetic fixtures cover matching, failure/missing
-  accounting, cost attribution, baselines and report privacy. No live evaluation,
-  threshold, GO decision or provider choice is selected.
+  recomputes pool/split declarations, binds actual profile/question hashes and the
+  normalized run declaration to the private journal before attempts, and verifies the
+  binding on each attempt. Separate daily pool occurrences from stable inference/cache
+  identity so repeated postings count in each day's workload while actual requests/costs
+  count once. Unresolved extraction-stage outcomes can link to incomplete, failed or
+  ambiguous extraction without inventing an assessment attempt; usage and charges remain
+  accounted. Synthetic fake-provider composition covers direct, extracted and pre-assess
+  failure paths. Journal schema 4 carries provenance. No live evaluation, threshold, GO
+  decision or provider choice is selected.
 
 - Add provider-neutral preselection contracts for strict typed assessment questions,
   JD-only extraction with exact source-span validation, and explicit evidence-based

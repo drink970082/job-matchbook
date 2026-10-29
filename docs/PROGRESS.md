@@ -39,30 +39,30 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 shadow deadline and retry repair — `repair/111-deadline-cancellation`, in
-  progress.** Extends the unaccepted #111 source at `f49e95ba` with a supervised
-  cancellable transport boundary, one deadline across extraction/assessment/backoff,
-  persisted bounded retry state and timeout ambiguity accounting. Synthetic tests use
-  fake transports and prices only. The repair branch carries unmerged #110/#116/design
-  prerequisites and remains a draft-review deliverable; none is accepted by this work.
-  No live provider, production policy, runtime wiring or evaluation is selected.
+- **Issue #111 shadow deadline and retry repair — `repair/111-deadline-cancellation`.**
+  The repair extends the unaccepted #111 source at `f49e95ba` with a supervised POSIX
+  process-group transport boundary, one deadline across extraction/assessment/backoff,
+  persisted bounded retry state and timeout ambiguity accounting. A blocking fake call is
+  killed and reaped before return; ambiguous delivery retains unknown usage/charge and
+  cannot replay. Synthetic focused tests pass (21). No provider, production policy,
+  runtime wiring or evaluation is selected.
 
-- **Issue #112 offline evaluation procedure/report** — `docs/preselection-evaluation`,
-  based on local #111 `f49e95b`. The manifest validator and aggregate report join
-  pseudonymous blinded-label inputs, daily-pool baseline orders and draw-planned
-  assessments to the strict private attempt journal. It checks reported answers against
-  successful journal payloads; treats missing/failed positives as misses; separates
-  full-pool results from repeated-subset diagnostics; and reports per-arm/draw/stage and
-  per-work-item cost distributions with actual, estimated and unknown charges distinct.
-  The procedure records the open approvals and proposed caps without authorizing them.
-  Synthetic-only targeted tests pass (26); the worker suite passes (1,304 passed, 1
-  skipped; 89.51% coverage), integration passes (4 passed, 1 skipped), and the fresh
-  import/screen-boundary checks, schema-drift guard, privacy self-test, 395-path
-  tracked/untracked audit, compile and diff checks pass. No live evaluation, provider
-  call, cost evidence, threshold or GO decision is made. #94 unattended acceptance,
-  candidate-profile approval, provider/policy/budget choices and independent review
-  remain open. Remote reconciliation and PR creation are unavailable while GitHub
-  DNS/token access is blocked.
+- **Issue #112 evaluation provenance and workload identities —
+  `repair/112-evaluation-provenance`, stacked on the #111 repair.** The validator
+  recomputes pool/split declarations from frozen items and binds run, approved profile,
+  questions, pools and splits into the journal before attempts; each attempt carries that
+  digest. Daily pool occurrences count independently in workload metrics while stable work
+  identity counts shared inference/cache and actual cost once. Incomplete, failed or
+  ambiguous extraction can be reported against its extraction request without inventing an
+  assessment attempt. The fake-provider composition exercises direct, complete extracted,
+  incomplete, failed and ambiguous paths through the real #111 journal and #112 report.
+  `make test-worker` passes (1,319 passed, 1 skipped); worker coverage passes at 88.74%;
+  worker integration passes (4 passed, 1 skipped); fresh-process CLI/import checks,
+  compile, schema drift, privacy self-test and a 395-path tracked privacy audit pass. The
+  Node privacy wrapper is blocked by sandbox `spawnSync git EPERM`; its rule self-test and
+  equivalent tracked-path audit pass. No live provider or model inference, price choice,
+  threshold, GO decision or runtime wiring is included. #110/#116/design prerequisites,
+  #94 acceptance, profile/provider/policy selection and independent review remain open.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

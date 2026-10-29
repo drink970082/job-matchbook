@@ -17,7 +17,7 @@ import re
 import statistics
 from typing import Any
 
-from ats_worker.preselection.shadow import AttemptJournal, AttemptRecord
+from ats_worker.preselection.shadow import AttemptJournal, AttemptRecord, RunBinding
 
 
 class EvaluationValidationError(ValueError):
@@ -66,9 +66,11 @@ _ITEM_KEYS = {
 }
 _OUTCOME_KEYS = {
     "work_item_identity_sha256",
+    "pool_occurrence_identity_sha256",
     "variant",
     "draw_number",
     "status",
+    "request_stage",
     "request_identity_sha256",
     "priority_rank",
     "answers",
@@ -80,6 +82,7 @@ _TOP_KEYS = {"schema", "run", "items", "baseline_orders", "assessments"}
 @dataclass(frozen=True)
 class EvaluationItem:
     work_item_identity_sha256: str
+    pool_occurrence_identity_sha256: str
     pool_id_sha256: str
     group_id: str
     split: str
@@ -96,9 +99,11 @@ class EvaluationItem:
 @dataclass(frozen=True)
 class AssessmentOutcome:
     work_item_identity_sha256: str
+    pool_occurrence_identity_sha256: str
     variant: str
     draw_number: int
     status: str
+    request_stage: str
     request_identity_sha256: str | None
     priority_rank: int | None
     answers: dict[str, Any]
@@ -112,6 +117,7 @@ class EvaluationInput:
     baseline_ranks: dict[str, dict[str, dict[str, int]]]
     assessments: tuple[AssessmentOutcome, ...]
     manifest_sha256: str
+    run_binding: RunBinding
 
 
 def _object(value: Any, keys: set[str], path: str) -> dict[str, Any]:
@@ -135,6 +141,17 @@ def _sha256(value: Any, path: str) -> str:
     if not isinstance(value, str) or _HASH_RE.fullmatch(value) is None:
         raise EvaluationValidationError(f"{path} must be a lowercase SHA-256 digest")
     return value
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _pool_occurrence_identity(pool_id: str, work_item: str) -> str:
+    return _canonical_sha256(
+        {"pool_id_sha256": pool_id, "work_item_identity_sha256": work_item}
+    )
 
 
 def _timestamp(value: Any, path: str) -> datetime:
@@ -258,23 +275,26 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     if not isinstance(raw_items, list) or not raw_items:
         raise EvaluationValidationError("evaluation.items must be a non-empty array")
     items: list[EvaluationItem] = []
-    seen_work_items: set[str] = set()
+    seen_occurrences: set[str] = set()
     group_splits: dict[str, set[str]] = {}
     pool_splits: dict[str, set[str]] = {}
+    work_item_splits: dict[str, set[str]] = {}
     for index, raw_item in enumerate(raw_items):
         path = f"evaluation.items[{index}]"
         row = _object(raw_item, _ITEM_KEYS, path)
         work_item = _sha256(row["work_item_identity_sha256"], f"{path}.work_item_identity_sha256")
         pool_id = _sha256(row["pool_id_sha256"], f"{path}.pool_id_sha256")
-        if work_item in seen_work_items:
-            raise EvaluationValidationError("evaluation work-item identities must be unique")
-        seen_work_items.add(work_item)
+        occurrence = _pool_occurrence_identity(pool_id, work_item)
+        if occurrence in seen_occurrences:
+            raise EvaluationValidationError("evaluation pool-occurrence identities must be unique")
+        seen_occurrences.add(occurrence)
         group_id = _text(row["group_id"], f"{path}.group_id")
         split = row["split"]
         if not isinstance(split, str) or split not in _SPLITS:
             raise EvaluationValidationError(f"{path}.split is invalid")
         group_splits.setdefault(group_id, set()).add(split)
         pool_splits.setdefault(pool_id, set()).add(split)
+        work_item_splits.setdefault(work_item, set()).add(split)
         item_draws = positive_integers(row["draw_numbers"], f"{path}.draw_numbers")
         if not set(item_draws) <= set(run["draw_numbers"]) or run["draw_numbers"][0] not in item_draws:
             raise EvaluationValidationError(f"{path}.draw_numbers must include the initial draw and use declared draws")
@@ -317,6 +337,7 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         items.append(
             EvaluationItem(
                 work_item,
+                occurrence,
                 pool_id,
                 group_id,
                 split,
@@ -334,6 +355,8 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         raise EvaluationValidationError("a shared group cannot cross development and held-out splits")
     if any(len(splits) > 1 for splits in pool_splits.values()):
         raise EvaluationValidationError("a complete daily pool cannot cross development and held-out splits")
+    if any(len(splits) > 1 for splits in work_item_splits.values()):
+        raise EvaluationValidationError("a stable work item cannot cross development and held-out splits")
     label_sources = {item.label_source for item in items}
     if "synthetic_fixture" in label_sources:
         if label_sources != {"synthetic_fixture"} or run["labeling_blinded"]:
@@ -341,10 +364,60 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     elif not run["labeling_blinded"]:
         raise EvaluationValidationError("human labels must be attested as blind to assessment outputs")
 
-    items_by_hash = {item.work_item_identity_sha256: item for item in items}
+    frozen_items = [
+        {
+            "work_item_identity_sha256": item.work_item_identity_sha256,
+            "pool_occurrence_identity_sha256": item.pool_occurrence_identity_sha256,
+            "pool_id_sha256": item.pool_id_sha256,
+            "group_id": item.group_id,
+            "split": item.split,
+            "draw_numbers": list(item.draw_numbers),
+            "observed_at": item.observed_at.isoformat().replace("+00:00", "Z"),
+            "label": item.label,
+            "label_source": item.label_source,
+            "label_evidence_sha256": item.label_evidence_sha256,
+            "role_families": list(item.role_families),
+            "field_labels": item.field_labels,
+            "yoe_expected_action": item.yoe_expected_action,
+        }
+        for item in sorted(items, key=lambda row: row.pool_occurrence_identity_sha256)
+    ]
+    computed_pool_fingerprint = _canonical_sha256(frozen_items)
+    computed_split_manifest = _canonical_sha256(
+        {
+            "split_algorithm": run["split_algorithm"],
+            "split_seed": run["split_seed"],
+            "occurrences": [
+                {
+                    "pool_occurrence_identity_sha256": item["pool_occurrence_identity_sha256"],
+                    "pool_id_sha256": item["pool_id_sha256"],
+                    "group_id": item["group_id"],
+                    "split": item["split"],
+                }
+                for item in frozen_items
+            ],
+        }
+    )
+    if run["pool_fingerprint_sha256"] != computed_pool_fingerprint:
+        raise EvaluationValidationError("run pool fingerprint differs from validated frozen items")
+    if run["split_manifest_sha256"] != computed_split_manifest:
+        raise EvaluationValidationError("run split manifest differs from validated frozen groups and pools")
+    declaration = dict(run)
+    for key in ("variants", "draw_numbers", "budgets", "field_ids"):
+        declaration[key] = list(declaration[key])
+    run_binding = RunBinding(
+        run_id=run["run_id"],
+        run_declaration_sha256=_canonical_sha256(declaration),
+        profile_sha256=run["profile_sha256"],
+        question_set_sha256=run["question_set_sha256"],
+        pool_fingerprint_sha256=computed_pool_fingerprint,
+        split_manifest_sha256=computed_split_manifest,
+    )
+
+    items_by_occurrence = {item.pool_occurrence_identity_sha256: item for item in items}
     pool_work_items: dict[str, set[str]] = {}
     for item in items:
-        pool_work_items.setdefault(item.pool_id_sha256, set()).add(item.work_item_identity_sha256)
+        pool_work_items.setdefault(item.pool_id_sha256, set()).add(item.pool_occurrence_identity_sha256)
     raw_baseline_orders = payload["baseline_orders"]
     if not isinstance(raw_baseline_orders, list) or not raw_baseline_orders:
         raise EvaluationValidationError("evaluation.baseline_orders must cover the frozen daily pools")
@@ -367,15 +440,15 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
             order = raw_order[name]
             if not isinstance(order, list):
                 raise EvaluationValidationError(f"{path}.{name} must be an array of pseudonymous item hashes")
-            checked_order = [_sha256(work_item, f"{path}.{name}[{row_index}]") for row_index, work_item in enumerate(order)]
+            checked_order = [_sha256(occurrence, f"{path}.{name}[{row_index}]") for row_index, occurrence in enumerate(order)]
             if len(set(checked_order)) != len(checked_order) or not set(checked_order) <= expected_items:
-                raise EvaluationValidationError(f"{path}.{name} contains duplicate or foreign work items")
+                raise EvaluationValidationError(f"{path}.{name} contains duplicate or foreign pool occurrences")
             if name in {"recency", "role_coverage"} and set(checked_order) != expected_items:
-                raise EvaluationValidationError(f"{path}.{name} must rank every item in the complete daily pool")
+                raise EvaluationValidationError(f"{path}.{name} must rank every occurrence in the complete daily pool")
             if name == "daily_brief":
                 daily_brief_pools.add(pool_id)
             baseline_ranks[pool_id][name] = {
-                work_item: rank for rank, work_item in enumerate(checked_order, start=1)
+                occurrence: rank for rank, occurrence in enumerate(checked_order, start=1)
             }
     if set(baseline_ranks) != set(pool_work_items):
         raise EvaluationValidationError("baseline orders must cover every frozen daily pool")
@@ -387,9 +460,9 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     for pool_id, pool_items in items_by_pool.items():
         recency_order = sorted(
             pool_items,
-            key=lambda item: (-item.observed_at.timestamp(), item.work_item_identity_sha256),
+            key=lambda item: (-item.observed_at.timestamp(), item.pool_occurrence_identity_sha256),
         )
-        expected_recency = [item.work_item_identity_sha256 for item in recency_order]
+        expected_recency = [item.pool_occurrence_identity_sha256 for item in recency_order]
         supplied_recency = sorted(
             baseline_ranks[pool_id]["recency"], key=baseline_ranks[pool_id]["recency"].get
         )
@@ -404,10 +477,10 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
                 key=lambda item: (
                     -len(remaining.intersection(item.role_families)),
                     -item.observed_at.timestamp(),
-                    item.work_item_identity_sha256,
+                    item.pool_occurrence_identity_sha256,
                 ),
             )
-            expected_role_coverage.append(chosen.work_item_identity_sha256)
+            expected_role_coverage.append(chosen.pool_occurrence_identity_sha256)
             remaining.difference_update(chosen.role_families)
             pending.remove(chosen)
         supplied_role_coverage = sorted(
@@ -422,37 +495,50 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         raise EvaluationValidationError("evaluation.assessments must be an array")
     assessments: list[AssessmentOutcome] = []
     seen_outcomes: set[tuple[str, str, int]] = set()
-    known_work_items = set(items_by_hash)
+    known_occurrences = set(items_by_occurrence)
     for index, raw_outcome in enumerate(raw_assessments):
         path = f"evaluation.assessments[{index}]"
         row = _object(raw_outcome, _OUTCOME_KEYS, path)
         work_item = _sha256(row["work_item_identity_sha256"], f"{path}.work_item_identity_sha256")
+        occurrence = _sha256(
+            row["pool_occurrence_identity_sha256"], f"{path}.pool_occurrence_identity_sha256"
+        )
+        item = items_by_occurrence.get(occurrence)
         variant = row["variant"]
         draw = row["draw_number"]
         if (
-            work_item not in known_work_items
+            occurrence not in known_occurrences
+            or item is None
+            or item.work_item_identity_sha256 != work_item
             or not isinstance(variant, str)
             or variant not in variants
             or type(draw) is not int
             or draw not in run["draw_numbers"]
         ):
             raise EvaluationValidationError(f"{path} references an undeclared item, variant or draw")
-        if draw not in items_by_hash[work_item].draw_numbers:
-            raise EvaluationValidationError(f"{path} references a draw not planned for this work item")
-        unique_key = (work_item, variant, draw)
+        if draw not in item.draw_numbers:
+            raise EvaluationValidationError(f"{path} references a draw not planned for this pool occurrence")
+        unique_key = (occurrence, variant, draw)
         if unique_key in seen_outcomes:
-            raise EvaluationValidationError("duplicate assessment outcome for an item, variant and draw")
+            raise EvaluationValidationError("duplicate assessment outcome for a pool occurrence, variant and draw")
         seen_outcomes.add(unique_key)
         status = row["status"]
         if not isinstance(status, str) or status not in {"completed", "unresolved", "failed"}:
             raise EvaluationValidationError(f"{path}.status is invalid")
+        request_stage = row["request_stage"]
+        if not isinstance(request_stage, str) or request_stage not in {"assess", "extract_jd"}:
+            raise EvaluationValidationError(f"{path}.request_stage is invalid")
+        if request_stage == "extract_jd" and (variant != "extracted" or status == "completed"):
+            raise EvaluationValidationError(f"{path} extraction-stage outcome must be unresolved or failed in the extracted arm")
         request_identity = row["request_identity_sha256"]
         if request_identity is not None:
             request_identity = _sha256(request_identity, f"{path}.request_identity_sha256")
+        else:
+            raise EvaluationValidationError(f"{path} outcome requires a journal request identity")
         rank = row["priority_rank"]
         answers = row["answers"]
         if status == "completed":
-            if request_identity is None or type(rank) is not int or rank <= 0 or rank > len(items):
+            if request_stage != "assess" or type(rank) is not int or rank <= 0:
                 raise EvaluationValidationError(f"{path} completed result lacks request identity or valid rank")
             if not isinstance(answers, dict) or set(answers) != set(field_ids):
                 raise EvaluationValidationError(f"{path}.answers must exactly match declared field IDs")
@@ -470,19 +556,30 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         if status != "completed" and yoe_action not in {None, "unresolved"}:
             raise EvaluationValidationError(f"{path} unresolved/failed result cannot assert a YOE action")
         assessments.append(
-            AssessmentOutcome(work_item, variant, draw, status, request_identity, rank, checked_answers, yoe_action)
+            AssessmentOutcome(
+                work_item,
+                occurrence,
+                variant,
+                draw,
+                status,
+                request_stage,
+                request_identity,
+                rank,
+                checked_answers,
+                yoe_action,
+            )
         )
 
     pool_sizes: dict[str, int] = {}
-    item_by_work: dict[str, EvaluationItem] = {}
+    item_by_occurrence: dict[str, EvaluationItem] = {}
     for item in items:
         pool_sizes[item.pool_id_sha256] = pool_sizes.get(item.pool_id_sha256, 0) + 1
-        item_by_work[item.work_item_identity_sha256] = item
+        item_by_occurrence[item.pool_occurrence_identity_sha256] = item
     ranks_by_arm: dict[tuple[str, str, int], set[int]] = {}
     for outcome in assessments:
         if outcome.priority_rank is None:
             continue
-        item = item_by_work[outcome.work_item_identity_sha256]
+        item = item_by_occurrence[outcome.pool_occurrence_identity_sha256]
         if outcome.priority_rank > pool_sizes[item.pool_id_sha256]:
             raise EvaluationValidationError("priority rank exceeds its frozen daily-pool size")
         ranks = ranks_by_arm.setdefault((item.pool_id_sha256, outcome.variant, outcome.draw_number), set())
@@ -494,7 +591,7 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     if run["phase"] == "development" and not any(item.split == "development" for item in items):
         raise EvaluationValidationError("development phase requires a development cohort")
 
-    return EvaluationInput(run, tuple(items), baseline_ranks, tuple(assessments), manifest_sha256)
+    return EvaluationInput(run, tuple(items), baseline_ranks, tuple(assessments), manifest_sha256, run_binding)
 
 
 def load_evaluation_text(source: str) -> EvaluationInput:
@@ -549,12 +646,12 @@ def _label_source_counts(items: list[EvaluationItem]) -> dict[str, int]:
 def _role_metrics(items: list[EvaluationItem], selected: list[EvaluationItem]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     roles = sorted({role for item in items for role in item.role_families})
-    selected_hashes = {item.work_item_identity_sha256 for item in selected}
+    selected_hashes = {item.pool_occurrence_identity_sha256 for item in selected}
     for role in roles:
         role_items = [item for item in items if role in item.role_families]
         positive = sum(item.label == "positive" for item in role_items)
         selected_positive = sum(
-            item.label == "positive" and item.work_item_identity_sha256 in selected_hashes
+            item.label == "positive" and item.pool_occurrence_identity_sha256 in selected_hashes
             for item in role_items
         )
         result[role] = {
@@ -577,14 +674,14 @@ def _budget_metrics(
         selected = [
             item
             for item in items
-            if (outcome := outcome_by_item.get(item.work_item_identity_sha256)) is not None
+            if (outcome := outcome_by_item.get(item.pool_occurrence_identity_sha256)) is not None
             and outcome.status == "completed"
             and outcome.priority_rank is not None
             and outcome.priority_rank <= budget
         ]
         labels = _label_counts(selected)
-        selected_work_items = {item.work_item_identity_sha256 for item in selected}
-        unselected_items = [item for item in items if item.work_item_identity_sha256 not in selected_work_items]
+        selected_occurrences = {item.pool_occurrence_identity_sha256 for item in selected}
+        unselected_items = [item for item in items if item.pool_occurrence_identity_sha256 not in selected_occurrences]
         unselected_reasons = {
             "ranked_beyond_budget": 0,
             "unresolved_assessment": 0,
@@ -592,7 +689,7 @@ def _budget_metrics(
             "missing_outcome": 0,
         }
         for item in unselected_items:
-            outcome = outcome_by_item.get(item.work_item_identity_sha256)
+            outcome = outcome_by_item.get(item.pool_occurrence_identity_sha256)
             if outcome is None:
                 unselected_reasons["missing_outcome"] += 1
             elif outcome.status == "unresolved":
@@ -634,13 +731,13 @@ def _baseline_budget_metrics(
         selected = [
             item
             for item in items
-            if ranks_by_pool.get(item.pool_id_sha256, {}).get(item.work_item_identity_sha256, budget + 1)
+            if ranks_by_pool.get(item.pool_id_sha256, {}).get(item.pool_occurrence_identity_sha256, budget + 1)
             <= budget
         ]
         labels = _label_counts(selected)
-        selected_ids = {item.work_item_identity_sha256 for item in selected}
+        selected_ids = {item.pool_occurrence_identity_sha256 for item in selected}
         unselected_labels = _label_counts(
-            [item for item in items if item.work_item_identity_sha256 not in selected_ids]
+            [item for item in items if item.pool_occurrence_identity_sha256 not in selected_ids]
         )
         resolved_selected = labels["positive"] + labels["negative"]
         rows.append(
@@ -672,7 +769,7 @@ def _field_metrics(
         answered = 0
         missing = 0
         for item in labeled:
-            outcome = outcome_by_item.get(item.work_item_identity_sha256)
+            outcome = outcome_by_item.get(item.pool_occurrence_identity_sha256)
             if outcome is None or outcome.status != "completed" or field_id not in outcome.answers:
                 missing += 1
             else:
@@ -699,7 +796,7 @@ def _yoe_metrics(
     false_exclusions = 0
     answered = 0
     for item in labeled:
-        outcome = outcome_by_item.get(item.work_item_identity_sha256)
+        outcome = outcome_by_item.get(item.pool_occurrence_identity_sha256)
         if outcome is None or outcome.status != "completed" or outcome.yoe_action is None:
             continue
         answered += 1
@@ -735,7 +832,7 @@ def _stability_metrics(
         for left_draw, right_draw in itertools.combinations(sorted(outcomes_by_draw), 2):
             for pool_id in sorted({item.pool_id_sha256 for item in items}):
                 pool_items = {
-                    item.work_item_identity_sha256
+                    item.pool_occurrence_identity_sha256
                     for item in items
                     if item.pool_id_sha256 == pool_id
                     and left_draw in item.draw_numbers
@@ -746,9 +843,9 @@ def _stability_metrics(
 
                 def selected(draw: int) -> set[str]:
                     return {
-                        work_item
-                        for work_item, outcome in outcomes_by_draw[draw].items()
-                        if work_item in pool_items
+                    occurrence
+                        for occurrence, outcome in outcomes_by_draw[draw].items()
+                        if occurrence in pool_items
                         and outcome.status == "completed"
                         and outcome.priority_rank is not None
                         and outcome.priority_rank <= budget
@@ -937,6 +1034,8 @@ def _attempt_accounting(dataset: EvaluationInput, journal: AttemptJournal) -> di
         record.work_item_identity_sha256
         for record in extraction_records
         if record.status == "succeeded"
+        and isinstance(record.response_payload, dict)
+        and record.response_payload.get("coverage") == "complete"
     }
     per_success = {
         variant: [
@@ -954,7 +1053,10 @@ def _attempt_accounting(dataset: EvaluationInput, journal: AttemptJournal) -> di
             "work_items_with_extraction_attempts": len(extracted_work_items),
             "work_items_with_successful_extraction": len(successful_extraction_items),
             "failed_or_incomplete_extraction_attempts": sum(
-                record.status != "succeeded" for record in extraction_records
+                record.status != "succeeded"
+                or not isinstance(record.response_payload, dict)
+                or record.response_payload.get("coverage") != "complete"
+                for record in extraction_records
             ),
         },
         "per_arm_including_extraction": {
@@ -1023,19 +1125,23 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
     run = dataset.run
     if journal.limits_identity_sha256 != run["attempt_limits_identity_sha256"]:
         raise EvaluationValidationError("attempt journal limits identity differs from the frozen run")
+    if journal.run_binding != dataset.run_binding:
+        raise EvaluationValidationError("attempt journal run provenance differs from the frozen declarations")
 
-    items_by_hash = {item.work_item_identity_sha256: item for item in dataset.items}
+    work_item_hashes = {item.work_item_identity_sha256 for item in dataset.items}
     outcomes = {
-        (outcome.work_item_identity_sha256, outcome.variant, outcome.draw_number): outcome
+        (outcome.pool_occurrence_identity_sha256, outcome.variant, outcome.draw_number): outcome
         for outcome in dataset.assessments
     }
     assessment_requests_by_slot: dict[tuple[str, str, int], set[str]] = {}
     records_by_request: dict[tuple[str, str], list[AttemptRecord]] = {}
     extraction_requests_by_item: dict[str, set[str]] = {}
-    successful_extractions: set[str] = set()
+    complete_extractions: set[str] = set()
     for record in journal.records:
-        if record.work_item_identity_sha256 not in items_by_hash:
+        if record.work_item_identity_sha256 not in work_item_hashes:
             raise EvaluationValidationError("attempt journal contains a work item outside the frozen cohort")
+        if record.run_binding_sha256 != dataset.run_binding.identity_sha256:
+            raise EvaluationValidationError("attempt journal contains an attempt from a different frozen run")
         expected_variant = record.variant
         if record.variant == "extract":
             if "extracted" not in run["variants"]:
@@ -1057,42 +1163,79 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
                 raise EvaluationValidationError("attempt journal contains an undeclared assessment draw")
             slot = (record.work_item_identity_sha256, record.variant, record.draw_number)
             assessment_requests_by_slot.setdefault(slot, set()).add(record.request_identity)
-            records_by_request.setdefault((record.request_identity, record.stage), []).append(record)
         elif record.stage == "extract_jd" and record.variant != "extract":
             raise EvaluationValidationError("attempt journal extraction stage has an invalid variant")
+        records_by_request.setdefault((record.request_identity, record.stage), []).append(record)
         if record.stage == "extract_jd":
             extraction_requests_by_item.setdefault(record.work_item_identity_sha256, set()).add(record.request_identity)
-            if record.status == "succeeded":
-                successful_extractions.add(record.work_item_identity_sha256)
+            if (
+                record.status == "succeeded"
+                and isinstance(record.response_payload, dict)
+                and record.response_payload.get("coverage") == "complete"
+            ):
+                complete_extractions.add(record.work_item_identity_sha256)
     if any(len(requests) != 1 for requests in assessment_requests_by_slot.values()):
         raise EvaluationValidationError("a frozen item, arm and draw has more than one assessment identity")
     if any(len(requests) != 1 for requests in extraction_requests_by_item.values()):
         raise EvaluationValidationError("a frozen item has more than one extraction identity")
     if any(
-        record.variant == "extracted" and record.work_item_identity_sha256 not in successful_extractions
+        record.variant == "extracted" and record.work_item_identity_sha256 not in complete_extractions
         for record in journal.records
         if record.stage == "assess"
     ):
         raise EvaluationValidationError("an extracted assessment has no successful shared JD extraction")
     for outcome in dataset.assessments:
-        if outcome.request_identity_sha256 is None:
-            raise EvaluationValidationError("an explicit assessment outcome requires a request identity")
-        matching = records_by_request.get((outcome.request_identity_sha256, "assess"), [])
+        matching = records_by_request.get(
+            (outcome.request_identity_sha256, outcome.request_stage), []
+        )
+        expected_variant = "extract" if outcome.request_stage == "extract_jd" else outcome.variant
+        expected_draw = None if outcome.request_stage == "extract_jd" else outcome.draw_number
         if not matching or any(
             record.work_item_identity_sha256 != outcome.work_item_identity_sha256
-            or record.variant != outcome.variant
-            or record.draw_number != outcome.draw_number
+            or record.variant != expected_variant
+            or record.draw_number != expected_draw
             for record in matching
         ):
-            raise EvaluationValidationError("assessment outcome does not match its journal request identity")
+            raise EvaluationValidationError("evaluation outcome does not match its journal request identity")
         final_status = matching[-1].status
+        if outcome.request_stage == "extract_jd":
+            final = matching[-1]
+            if outcome.status == "completed":
+                raise EvaluationValidationError("extraction-stage outcome cannot claim completed assessment")
+            if final.status == "succeeded":
+                coverage = (
+                    final.response_payload.get("coverage")
+                    if isinstance(final.response_payload, dict)
+                    else None
+                )
+                if coverage in {None, "complete"}:
+                    raise EvaluationValidationError("extraction-stage outcome requires incomplete extraction")
+                if outcome.status != "unresolved":
+                    raise EvaluationValidationError("incomplete extraction must remain unresolved")
+            elif outcome.status == "unresolved" and final_status not in {
+                "started",
+                "ambiguous",
+                "retryable_failure",
+                "failed",
+                "integrity_failure",
+                "budget_stop",
+            }:
+                raise EvaluationValidationError("unresolved extraction outcome has no terminal journal evidence")
+            elif outcome.status == "failed" and final_status not in {
+                "failed",
+                "integrity_failure",
+                "budget_stop",
+                "retryable_failure",
+            }:
+                raise EvaluationValidationError("failed extraction outcome does not match its journal attempt")
+            continue
         if outcome.status == "completed" and final_status != "succeeded":
             raise EvaluationValidationError("completed outcome has no final successful attempt")
         if outcome.status == "completed":
             recorded = _recorded_answer_values(matching[-1], run["field_ids"])
             if any(_canonical(recorded[key]) != _canonical(outcome.answers[key]) for key in run["field_ids"]):
                 raise EvaluationValidationError("evaluation answers differ from the successful attempt response")
-        if outcome.status == "unresolved" and final_status not in {"succeeded", "ambiguous"}:
+        if outcome.status == "unresolved" and final_status not in {"started", "succeeded", "ambiguous"}:
             raise EvaluationValidationError("unresolved outcome must link to a success or ambiguous delivery")
         if outcome.status == "failed" and final_status not in {
             "failed",
@@ -1124,9 +1267,9 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
                     split_items,
                     {
                         pool_id: {
-                            work_item: rank
-                            for work_item, rank in dataset.baseline_ranks[pool_id][baseline_name].items()
-                            if work_item in {item.work_item_identity_sha256 for item in split_items}
+                            occurrence: rank
+                            for occurrence, rank in dataset.baseline_ranks[pool_id][baseline_name].items()
+                            if occurrence in {item.pool_occurrence_identity_sha256 for item in split_items}
                         }
                         for pool_id in pool_ids
                     },
@@ -1139,17 +1282,17 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             outcomes_by_draw: dict[int, dict[str, AssessmentOutcome]] = {}
             for draw in run["draw_numbers"]:
                 planned_items = [item for item in split_items if draw in item.draw_numbers]
-                planned_hashes = {item.work_item_identity_sha256 for item in planned_items}
+                planned_hashes = {item.pool_occurrence_identity_sha256 for item in planned_items}
                 full_pool_plan = all(
                     all(draw in item.draw_numbers for item in split_items if item.pool_id_sha256 == pool_id)
                     for pool_id in {item.pool_id_sha256 for item in split_items}
                 )
                 current = {
-                    work_item: outcome
-                    for (work_item, result_variant, result_draw), outcome in outcomes.items()
+                    occurrence: outcome
+                    for (occurrence, result_variant, result_draw), outcome in outcomes.items()
                     if result_variant == variant
                     and result_draw == draw
-                    and work_item in planned_hashes
+                    and occurrence in planned_hashes
                 }
                 outcomes_by_draw[draw] = current
                 status_counts = {
@@ -1200,6 +1343,7 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             "selection_policy_version": run["selection_policy_version"],
             "labeling_blinded": run["labeling_blinded"],
             "attempt_limits_identity_sha256": run["attempt_limits_identity_sha256"],
+            "run_binding_sha256": dataset.run_binding.identity_sha256,
             "evaluation_manifest_sha256": dataset.manifest_sha256,
             "attempt_journal_sha256": hashlib.sha256(journal.to_json().encode("utf-8")).hexdigest(),
             "model_identities": run["model_identities"],
@@ -1227,9 +1371,12 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             "precision_denominator": "positive plus negative labels among selected items; unresolved selected labels are excluded and counted separately",
             "confidence_interval": "descriptive two-sided 95% Wilson interval, unadjusted for grouped or repeated observations",
             "decision_rule": "this report contains no promotion threshold and never records GO",
+            "workload_identity": "pool_occurrence_identity_sha256 defines per-pool metric rows; stable work-item identity defines cached requests and provider-attempt cost",
         },
         "cohort": {
             "items": len(dataset.items),
+            "pool_occurrences": len(dataset.items),
+            "unique_work_items": len({item.work_item_identity_sha256 for item in dataset.items}),
             "groups": len({item.group_id for item in dataset.items}),
             "label_counts": _label_counts(list(dataset.items)),
             "label_source_counts": _label_source_counts(list(dataset.items)),

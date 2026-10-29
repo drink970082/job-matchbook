@@ -321,6 +321,38 @@ class Invocation:
 
 
 @dataclass(frozen=True)
+class RunBinding:
+    """Hashes captured from the validated, frozen evaluation inputs before attempts."""
+
+    run_id: str
+    run_declaration_sha256: str
+    profile_sha256: str
+    question_set_sha256: str
+    pool_fingerprint_sha256: str
+    split_manifest_sha256: str
+
+    def validate(self) -> None:
+        if not isinstance(self.run_id, str) or not self.run_id or self.run_id.strip() != self.run_id:
+            raise ShadowIntegrityError("run binding requires a trimmed run ID")
+        for name in (
+            "run_declaration_sha256",
+            "profile_sha256",
+            "question_set_sha256",
+            "pool_fingerprint_sha256",
+            "split_manifest_sha256",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+                raise ShadowIntegrityError(f"run binding {name} must be a lowercase SHA-256 digest")
+
+    @property
+    def identity_sha256(self) -> str:
+        self.validate()
+        encoded = json.dumps(asdict(self), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
 class ProviderReply:
     model_identity: ModelIdentity
     payload: dict[str, Any]
@@ -359,6 +391,7 @@ class AttemptRecord:
     variant: str
     request_identity: str
     work_item_identity_sha256: str
+    run_binding_sha256: str | None
     draw_number: int | None
     attempt_number: int
     retry_of: int | None
@@ -385,16 +418,29 @@ class AttemptJournal:
     records: list[AttemptRecord]
     run_started_at: str | None = None
     limits_identity_sha256: str | None = None
+    run_binding: RunBinding | None = None
 
     @classmethod
     def empty(cls) -> "AttemptJournal":
         return cls([], None)
 
+    def bind_run(self, binding: RunBinding) -> bool:
+        """Freeze evaluation provenance once, before the first provider attempt."""
+        binding.validate()
+        if self.records and self.run_binding is None:
+            raise ShadowIntegrityError("cannot attach run provenance after an attempt has started")
+        if self.run_binding is not None and self.run_binding != binding:
+            raise ShadowIntegrityError("attempt journal is already bound to a different frozen run")
+        changed = self.run_binding is None
+        self.run_binding = binding
+        return changed
+
     def to_json(self) -> str:
         payload = {
-            "schema": 3,
+            "schema": 4,
             "run_started_at": self.run_started_at,
             "limits_identity_sha256": self.limits_identity_sha256,
+            "run_binding": asdict(self.run_binding) if self.run_binding else None,
             "records": [asdict(record) for record in self.records],
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -419,12 +465,13 @@ class AttemptJournal:
             "schema",
             "run_started_at",
             "limits_identity_sha256",
+            "run_binding",
             "records",
         }:
             raise ShadowIntegrityError("journal has an invalid envelope")
         schema = payload["schema"]
-        if type(schema) is not int or schema != 3:
-            raise ShadowIntegrityError("journal schema must equal integer 3")
+        if type(schema) is not int or schema != 4:
+            raise ShadowIntegrityError("journal schema must equal integer 4")
         if not isinstance(payload["records"], list):
             raise ShadowIntegrityError("journal records must be an array")
         if payload["run_started_at"] is not None:
@@ -437,6 +484,17 @@ class AttemptJournal:
             raise ShadowIntegrityError("journal limits identity is invalid")
         if payload["records"] and (payload["run_started_at"] is None or limits_identity is None):
             raise ShadowIntegrityError("attempt records require their run clock and budget identity")
+        raw_binding = payload["run_binding"]
+        if raw_binding is None:
+            run_binding = None
+        else:
+            if not isinstance(raw_binding, dict) or set(raw_binding) != set(RunBinding.__dataclass_fields__):
+                raise ShadowIntegrityError("journal run binding has an invalid shape")
+            try:
+                run_binding = RunBinding(**raw_binding)
+                run_binding.validate()
+            except (TypeError, ValueError) as exc:
+                raise ShadowIntegrityError("journal run binding is invalid") from exc
         records: list[AttemptRecord] = []
         attempts_by_request: dict[tuple[str, str], int] = {}
         latest_by_request: dict[tuple[str, str], AttemptRecord] = {}
@@ -453,6 +511,10 @@ class AttemptJournal:
                     or re.fullmatch(r"[0-9a-f]{64}", record.request_identity) is None
                     or not isinstance(record.work_item_identity_sha256, str)
                     or re.fullmatch(r"[0-9a-f]{64}", record.work_item_identity_sha256) is None
+                    or (
+                        record.run_binding_sha256 is not None
+                        and re.fullmatch(r"[0-9a-f]{64}", record.run_binding_sha256) is None
+                    )
                     or record.stage not in {"extract_jd", "assess"}
                     or record.variant not in {"extract", "direct", "extracted"}
                     or record.status not in {
@@ -466,6 +528,8 @@ class AttemptJournal:
                     }
                 ):
                     raise ShadowIntegrityError("journal record metadata is invalid")
+                if record.run_binding_sha256 != (run_binding.identity_sha256 if run_binding else None):
+                    raise ShadowIntegrityError("attempt run binding differs from its journal header")
                 if (record.stage == "extract_jd") != (record.variant == "extract"):
                     raise ShadowIntegrityError("journal stage and variant are inconsistent")
                 if (record.stage == "extract_jd") != (record.draw_number is None):
@@ -595,7 +659,7 @@ class AttemptJournal:
             records.append(record)
         if [record.attempt_id for record in records] != list(range(1, len(records) + 1)):
             raise ShadowIntegrityError("journal attempt IDs are not sequential")
-        return cls(records, payload["run_started_at"], limits_identity)
+        return cls(records, payload["run_started_at"], limits_identity, run_binding)
 
     @classmethod
     def load(cls, path: str | Path) -> "AttemptJournal":
@@ -1344,6 +1408,7 @@ def _run_invocation(
             variant=invocation.variant,
             request_identity=invocation.request_identity,
             work_item_identity_sha256=invocation.work_item_identity_sha256,
+            run_binding_sha256=journal.run_binding.identity_sha256 if journal.run_binding else None,
             draw_number=invocation.draw_number,
             attempt_number=attempt_number,
             retry_of=prior[-1].attempt_id if prior else None,
@@ -1636,6 +1701,7 @@ def run_shadow_assessment(
     draw_number: int = 1,
     retry_policy: RetryPolicy | None = None,
     sleeper: Sleeper | None = None,
+    run_binding: RunBinding | None = None,
 ) -> ShadowResult:
     """Run one direct or extracted assessment; this function is not wired to runtime."""
     _require_enabled(enabled)
@@ -1644,6 +1710,14 @@ def run_shadow_assessment(
         raise ShadowIntegrityError("draw_number must be a positive integer")
     if profile.status != "approved":
         raise ShadowIntegrityError("shadow assessment requires an approved candidate profile")
+    if run_binding is not None:
+        run_binding.validate()
+        if profile.identity_sha256 != run_binding.profile_sha256:
+            raise ShadowIntegrityError("candidate profile differs from the frozen run binding")
+        if questions.sha256 != run_binding.question_set_sha256:
+            raise ShadowIntegrityError("question set differs from the frozen run binding")
+        if journal.bind_run(run_binding):
+            persist(journal)
     policy = retry_policy or RetryPolicy()
     active_sleeper = sleeper or SystemSleeper()
     policy.validate()

@@ -4,13 +4,13 @@
     "run_id": "synthetic-report-run-v1",
     "protocol_version": "synthetic-eval-protocol-v1",
     "phase": "development",
-    "pool_fingerprint_sha256": "ac8935f3ff01b6868d8c6323102118dc0529c7a408cfbe704513ed84a808df18",
+    "pool_fingerprint_sha256": "b1f8ef371ef47e9bc12c5b1cd5441a6c0b67337b2052b244ac20f05311a63e3c",
     "split_algorithm": "utc-day-and-group-connected-components-v1",
     "split_seed": "synthetic-seed-v1",
     "profile_sha256": "d11e81bc8942960c211bce52582136c6852e1131625828cefe5c9b5412062d07",
     "question_set_sha256": "3eb711a3165ff53f21d9557e984847a857111af1b73dd65cc62c6cb8e86150f9",
     "label_guide_sha256": "ea5c51a2c0771265e29748ff591709a12fc7770e7333f1163b8bb1c630f3783c",
-    "split_manifest_sha256": "e9a1ee4354389502a79d1ee3fca02a9f5c6b8ed40df13c8997b24dcc8f667958",
+    "split_manifest_sha256": "8822475a0b6675f820d622b33d6e6aa6395cc20c72c27c36382ea804d513e1ef",
     "selection_policy_version": "synthetic-selection-v1",
     "attempt_limits_identity_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "model_identities": {
@@ -164,7 +164,9 @@
         "work_alignment": "high",
         "dimension_example": 2
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
@@ -181,7 +183,9 @@
         "work_alignment": "low",
         "dimension_example": 1
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
@@ -198,7 +202,9 @@
         "work_alignment": "high",
         "dimension_example": 3
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
@@ -214,7 +220,9 @@
         "work_alignment": "unknown",
         "dimension_example": 0
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
@@ -230,7 +238,9 @@
         "work_alignment": "moderate",
         "dimension_example": 2
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
@@ -247,7 +257,9 @@
         "work_alignment": "low",
         "dimension_example": 1
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
@@ -257,7 +269,9 @@
       "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ef",
       "priority_rank": null,
       "answers": {},
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
@@ -273,7 +287,9 @@
         "work_alignment": "unknown",
         "dimension_example": 0
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
@@ -289,7 +305,9 @@
         "work_alignment": "high",
         "dimension_example": 2
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
@@ -306,7 +324,9 @@
         "work_alignment": "low",
         "dimension_example": 1
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
@@ -323,7 +343,9 @@
         "work_alignment": "high",
         "dimension_example": 3
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
@@ -339,7 +361,9 @@
         "work_alignment": "unknown",
         "dimension_example": 0
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
@@ -355,7 +379,9 @@
         "work_alignment": "high",
         "dimension_example": 2
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
@@ -372,7 +398,9 @@
         "work_alignment": "low",
         "dimension_example": 1
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
@@ -389,7 +417,9 @@
         "work_alignment": "high",
         "dimension_example": 3
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
     },
     {
       "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
@@ -405,30 +435,32 @@
         "work_alignment": "unknown",
         "dimension_example": 0
       },
-      "yoe_action": null
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
     }
   ],
   "baseline_orders": [
     {
       "pool_id_sha256": "a6d9cacb6d819d8988032aa770d40fafa17cf3f1f3d026688300fad438b90a5d",
       "recency": [
-        "0000000000000000000000000000000000000000000000000000000000000001",
-        "0000000000000000000000000000000000000000000000000000000000000002"
+        "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+        "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731"
       ],
       "role_coverage": [
-        "0000000000000000000000000000000000000000000000000000000000000002",
-        "0000000000000000000000000000000000000000000000000000000000000001"
+        "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+        "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9"
       ]
     },
     {
       "pool_id_sha256": "b90d6f4bc9e05df0ecd05f247d1e8a74da36bab5da79b6c410131deb9771f279",
       "recency": [
-        "0000000000000000000000000000000000000000000000000000000000000004",
-        "0000000000000000000000000000000000000000000000000000000000000003"
+        "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+        "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c"
       ],
       "role_coverage": [
-        "0000000000000000000000000000000000000000000000000000000000000003",
-        "0000000000000000000000000000000000000000000000000000000000000004"
+        "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+        "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658"
       ]
     }
   ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -21,6 +22,61 @@ from ats_worker.preselection.shadow import AttemptJournal, AttemptRecord, Shadow
 FIXTURE = Path(__file__).parent / "fixtures" / "preselection_evaluation.synthetic.json"
 TOOLS = Path(__file__).parents[1] / "tools"
 EPOCH = "2026-10-27T00:00:00+00:00"
+
+
+def _canonical_sha256(value: object) -> str:
+    source = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
+def _occurrence(pool_id: str, work_item: str) -> str:
+    return _canonical_sha256({"pool_id_sha256": pool_id, "work_item_identity_sha256": work_item})
+
+
+def _refresh_run_fingerprints(value: dict) -> None:
+    frozen_items = []
+    for item in value["items"]:
+        observed = datetime.fromisoformat(item["observed_at"].replace("Z", "+00:00")).astimezone(timezone.utc)
+        frozen_items.append(
+            {
+                "work_item_identity_sha256": item["work_item_identity_sha256"],
+                "pool_occurrence_identity_sha256": _occurrence(
+                    item["pool_id_sha256"], item["work_item_identity_sha256"]
+                ),
+                "pool_id_sha256": item["pool_id_sha256"],
+                "group_id": item["group_id"],
+                "split": item["split"],
+                "draw_numbers": item["draw_numbers"],
+                "observed_at": observed.isoformat().replace("+00:00", "Z"),
+                "label": item["label"],
+                "label_source": item["label_source"],
+                "label_evidence_sha256": item["label_evidence_sha256"],
+                "role_families": item["role_families"],
+                "field_labels": item["field_labels"],
+                "yoe_expected_action": item["yoe_expected_action"],
+            }
+        )
+    frozen_items.sort(key=lambda item: item["pool_occurrence_identity_sha256"])
+    run = value["run"]
+    run["pool_fingerprint_sha256"] = _canonical_sha256(frozen_items)
+    run["split_manifest_sha256"] = _canonical_sha256(
+        {
+            "split_algorithm": run["split_algorithm"],
+            "split_seed": run["split_seed"],
+            "occurrences": [
+                {
+                    key: item[key]
+                    for key in (
+                        "pool_occurrence_identity_sha256",
+                        "pool_id_sha256",
+                        "group_id",
+                        "split",
+                    )
+                }
+                for item in frozen_items
+            ],
+        }
+    )
 
 
 def evaluation_value() -> dict:
@@ -49,6 +105,7 @@ def _charge(kind: str, amount: str | None) -> dict[str, str | None]:
 
 def journal_for(value: dict | None = None) -> AttemptJournal:
     payload = value or evaluation_value()
+    binding = evaluation_from_value(payload).run_binding
     run = payload["run"]
     models = run["model_identities"]
     rows: list[AttemptRecord] = []
@@ -77,6 +134,7 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
                 variant=variant,
                 request_identity=request,
                 work_item_identity_sha256=work_item,
+                run_binding_sha256=binding.identity_sha256,
                 draw_number=draw,
                 attempt_number=2 if retry_of is not None else 1,
                 retry_of=retry_of,
@@ -98,12 +156,18 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
                 error_code=None if success else "synthetic_failure",
                 delivery="completed" if success else ("not_sent" if status == "retryable_failure" else "unknown"),
                 circuit_breaker=False,
+                retry_delay_seconds=0.05 if status == "retryable_failure" else None,
+                retry_backoff_completed=status == "retryable_failure",
             )
         )
 
     # One shared extraction per work item. It is charged once to the extracted arm.
+    seen_extractions: set[str] = set()
     for item in payload["items"]:
         work_item = item["work_item_identity_sha256"]
+        if work_item in seen_extractions:
+            continue
+        seen_extractions.add(work_item)
         request = hashlib.sha256(f"extract:{work_item}".encode()).hexdigest()
         add(
             stage="extract_jd",
@@ -114,9 +178,12 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
             status="succeeded",
             model_key="extract",
             amount="0.02",
+            response_payload={"coverage": "complete"},
         )
 
     for outcome in payload["assessments"]:
+        if outcome.get("request_stage", "assess") == "extract_jd":
+            continue
         variant = outcome["variant"]
         model_key = variant
         request = outcome["request_identity_sha256"]
@@ -163,6 +230,7 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
         rows,
         run_started_at=EPOCH,
         limits_identity_sha256=run["attempt_limits_identity_sha256"],
+        run_binding=binding,
     )
     return AttemptJournal.from_json(journal.to_json())
 
@@ -226,6 +294,84 @@ def test_synthetic_report_counts_recall_failures_fields_and_draw_stability_witho
     ).hexdigest()
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["profile_sha256", "question_set_sha256", "pool_fingerprint_sha256", "split_manifest_sha256"],
+)
+def test_changed_frozen_run_declaration_is_rejected_by_unchanged_journal(field):
+    original = evaluation_value()
+    journal = journal_for(original)
+    changed = deepcopy(original)
+    changed["run"][field] = "0" * 64
+    with pytest.raises(EvaluationValidationError):
+        build_evaluation_report(evaluation_from_value(changed), journal)
+
+
+def test_stable_work_item_can_have_multiple_daily_occurrences_without_duplicate_cost():
+    value = evaluation_value()
+    repeated = deepcopy(value["items"][2])
+    repeated["pool_id_sha256"] = "f" * 64
+    repeated["observed_at"] = "2026-10-24T11:00:00Z"
+    value["items"].append(repeated)
+    occurrence = _occurrence(repeated["pool_id_sha256"], repeated["work_item_identity_sha256"])
+    value["baseline_orders"].append(
+        {"pool_id_sha256": repeated["pool_id_sha256"], "recency": [occurrence], "role_coverage": [occurrence]}
+    )
+    _refresh_run_fingerprints(value)
+
+    original_journal = journal_for(evaluation_value())
+    journal = journal_for(value)
+    report = build_evaluation_report(evaluation_from_value(value), journal)
+
+    assert report["cohort"]["pool_occurrences"] == 5
+    assert report["cohort"]["unique_work_items"] == 4
+    assert report["splits"]["held_out"]["items"] == 3
+    assert report["splits"]["held_out"]["arms"]["direct"]["draws"]["1"]["outcome_status_counts"]["missing"] == 1
+    assert report["attempt_accounting"]["run"]["attempts"] == len(original_journal.records)
+
+
+def test_incomplete_extraction_outcome_links_to_extraction_attempt_without_assessment():
+    value = evaluation_value()
+    item = value["items"][0]
+    work_item = item["work_item_identity_sha256"]
+    occurrence = _occurrence(item["pool_id_sha256"], work_item)
+    value["assessments"] = [
+        row
+        for row in value["assessments"]
+        if not (row["pool_occurrence_identity_sha256"] == occurrence and row["variant"] == "extracted")
+    ]
+    value["assessments"].append(
+        {
+            "work_item_identity_sha256": work_item,
+            "pool_occurrence_identity_sha256": occurrence,
+            "variant": "extracted",
+            "draw_number": 1,
+            "status": "unresolved",
+            "request_stage": "extract_jd",
+            "request_identity_sha256": hashlib.sha256(f"extract:{work_item}".encode()).hexdigest(),
+            "priority_rank": None,
+            "answers": {},
+            "yoe_action": "unresolved",
+        }
+    )
+    journal = journal_for(value)
+    extraction = next(
+        record for record in journal.records
+        if record.stage == "extract_jd" and record.work_item_identity_sha256 == work_item
+    )
+    extraction.response_payload = {"coverage": "incomplete"}
+    journal = AttemptJournal.from_json(journal.to_json())
+    report = build_evaluation_report(evaluation_from_value(value), journal)
+
+    draw = report["splits"]["development"]["arms"]["extracted"]["draws"]["1"]
+    assert draw["outcome_status_counts"]["unresolved"] == 1
+    assert not any(
+        record.stage == "assess" and record.variant == "extracted" and record.work_item_identity_sha256 == work_item
+        for record in journal.records
+    )
+    assert report["attempt_accounting"]["extraction_coverage"]["failed_or_incomplete_extraction_attempts"] == 1
+
+
 def test_cli_reads_only_explicit_synthetic_files_and_emits_aggregate_report(tmp_path):
     value = evaluation_value()
     journal_path = tmp_path / "attempts.json"
@@ -275,6 +421,7 @@ def test_human_labels_require_blinding_attestation_and_synthetic_labels_are_mark
     value["run"]["labeling_blinded"] = True
     for item in value["items"]:
         item["label_source"] = "human_unresolved" if item["label"] == "unresolved" else "human_adjudicated"
+    _refresh_run_fingerprints(value)
     dataset = evaluation_from_value(value)
     report = build_evaluation_report(dataset, journal_for(value))
     assert report["cohort"]["label_evidence_status"] == "human_labels_blinded_to_assessments"
@@ -366,6 +513,7 @@ def test_repeated_draw_subset_is_not_mislabeled_as_population_recall():
     value = evaluation_value()
     subset_item = value["items"][3]["work_item_identity_sha256"]
     value["items"][3]["draw_numbers"] = [1]
+    _refresh_run_fingerprints(value)
     value["assessments"] = [
         row
         for row in value["assessments"]
@@ -415,7 +563,8 @@ def test_observation_timestamps_must_include_a_timezone_and_outcomes_must_be_pla
 
     value = evaluation_value()
     value["items"][3]["draw_numbers"] = [1]
-    with pytest.raises(EvaluationValidationError, match="not planned for this work item"):
+    _refresh_run_fingerprints(value)
+    with pytest.raises(EvaluationValidationError, match="not planned for this pool occurrence"):
         evaluation_from_value(value)
 
 
