@@ -29,6 +29,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   assessment view and review-batch modules through a fixture-only consumer and fallback
   report; no live provider, MCP, schedule, database, or runtime access.
 
+- **Review-batch replay — `feat/review-batch-replay`, implementation in progress
+  (#118 provider-free preparation).** This branch builds a pure synthetic pool/policy
+  engine and explicit local replay CLI; it does not add runtime, persistence, provider,
+  or production policy wiring.
+
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
   preflight record, and an unattended acceptance checklist are in [the Daily Brief
