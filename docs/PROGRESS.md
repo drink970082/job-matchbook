@@ -37,7 +37,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   tests), and schema/privacy checks pass. The isolated #124/#125 rehearsal retains #125's
   `RunBinding` and schema-4 journal; its worker/web integration passes (4 passed, 1
   skipped; 74 passed), while combined worker coverage is 84.78%, below the 85% gate due to
-  the unmerged stack additions. Fresh review of the current PR head remains pending. Draft PR
+  the unmerged stack additions. Draft PR
   [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
   remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
   range. No live input, policy or GO is accepted by these synthetic results.
