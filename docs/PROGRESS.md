@@ -39,21 +39,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 provider-neutral shadow contracts** — `feat/preselection-shadow-provider-neutral`,
-  based on the local #110 commit. Typed independent questions and strict evidence
-  validation, JD-only extraction with exact source spans, required-YOE alternatives,
-  direct/extracted default-off fake transport, model/work-item/draw identities and a
-  private resumable attempt journal are implemented. Retry links, elapsed/attempt/cost
-  limits survive restart; unknown charges and provider/model circuit breakers stop more
-  calls. Reports aggregate per run, work item, success, variant, draw and extraction
-  stage. Worker coverage passes (1,278 passed, 1 skipped; 90.02%), integration passes
-  (4 passed, 1 skipped), and schema drift, privacy self-test, 390-path tracked/untracked
-  audit, fresh-process preselection import audit and screen-only/legacy boundary checks
-  pass. The full Node privacy wrapper remains blocked by sandbox `spawnSync git EPERM`;
-  `make lint` cannot find `next` in this worktree, and web files are unchanged. Independent
-  review and remote PR creation remain pending. No provider, rubric, monetary price, live
-  evaluation or runtime wiring is selected. Keep the dependent slice draft and disclose
-  prerequisite diffs.
+- **Issue #111 shadow deadline and retry repair — `repair/111-deadline-cancellation`, in
+  progress.** Extends the unaccepted #111 source at `f49e95ba` with a supervised
+  cancellable transport boundary, one deadline across extraction/assessment/backoff,
+  persisted bounded retry state and timeout ambiguity accounting. Synthetic tests use
+  fake transports and prices only. The repair branch carries unmerged #110/#116/design
+  prerequisites and remains a draft-review deliverable; none is accepted by this work.
+  No live provider, production policy, runtime wiring or evaluation is selected.
 
 - **Issue #112 offline evaluation procedure/report** — `docs/preselection-evaluation`,
   based on local #111 `f49e95b`. The manifest validator and aggregate report join
