@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add an offline synthetic review-batch engine and explicit local replay CLI. Require
+  caller-supplied policy, UTC window, seed and work caps; freeze deterministic paging,
+  audit sampling, revalidation and bounded replacements without database/runtime wiring.
+  The named policy recipe is synthetic and does not set production selection defaults.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored

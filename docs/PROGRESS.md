@@ -24,6 +24,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
+- **Review-batch replay — `feat/review-batch-replay`, implementation in progress
+  (#118 provider-free preparation).** This branch builds a pure synthetic pool/policy
+  engine and explicit local replay CLI; it does not add runtime, persistence, provider,
+  or production policy wiring.
+
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
   preflight record, and an unattended acceptance checklist are in [the Daily Brief

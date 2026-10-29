@@ -1,0 +1,370 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "pool_id": "synthetic-daily-pool-2026-10-28",
+  "now": "2026-10-28T12:00:00Z",
+  "window": {
+    "resume_from": "2026-10-28T10:00:00Z",
+    "cutoff_at": "2026-10-28T12:00:00Z",
+    "include_historic_backfill": false
+  },
+  "policy": {
+    "version": "synthetic-review-policy-v1",
+    "recipe_id": "synthetic_age_service_redistribute_v1",
+    "ranked_slots": 2,
+    "audit_slots": 1,
+    "unresolved_slots": 1,
+    "tie_rule": "priority_then_occurrence_id",
+    "seed": 17,
+    "page_size": 2,
+    "service_age_hours": 4,
+    "service_slots": 1,
+    "role_coverage_slots": 1,
+    "overload_threshold": 2,
+    "max_candidate_count": 300,
+    "max_replacements": 1,
+    "max_revalidation_work": 20,
+    "max_elapsed_seconds": 10,
+    "redistribution_order": [
+      "ranked",
+      "audit",
+      "unresolved"
+    ],
+    "retry_max_overdue_hours": 72,
+    "k": 4
+  },
+  "candidates": [
+    {
+      "candidate_id": "current",
+      "source_id": "board-a",
+      "posting_identity": "posting-current",
+      "requisition_id": "req-current",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-current-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 1,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-current"
+      ]
+    },
+    {
+      "candidate_id": "deferred",
+      "source_id": "board-a",
+      "posting_identity": "posting-deferred",
+      "requisition_id": "req-deferred",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-deferred-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "deferred",
+      "first_eligible_at": "2026-10-27T08:00:00Z",
+      "deferred_at": "2026-10-27T12:00:00Z",
+      "retry_due_at": null,
+      "priority_order": 8,
+      "role_family_ids": [
+        "data"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-deferred"
+      ]
+    },
+    {
+      "candidate_id": "unknown-source",
+      "source_id": "board-a",
+      "posting_identity": "posting-unknown-source",
+      "requisition_id": "req-unknown-source",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-unknown-source-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "unknown",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 3,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-unknown-source"
+      ]
+    },
+    {
+      "candidate_id": "applied-unlinked",
+      "source_id": "board-a",
+      "posting_identity": "posting-applied-unlinked",
+      "requisition_id": "req-already-applied",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-applied-unlinked-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 4,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-applied-unlinked"
+      ]
+    },
+    {
+      "candidate_id": "exact-a",
+      "source_id": "board-exact",
+      "posting_identity": "posting-exact-a",
+      "requisition_id": "req-exact",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-exact-a-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 5,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [
+        "split-a"
+      ],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-exact-a"
+      ]
+    },
+    {
+      "candidate_id": "exact-b",
+      "source_id": "board-exact",
+      "posting_identity": "posting-exact-b",
+      "requisition_id": "req-exact",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-exact-b-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 6,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [
+        "split-b"
+      ],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-exact-b"
+      ]
+    },
+    {
+      "candidate_id": "cross-a",
+      "source_id": "board-cross-a",
+      "posting_identity": "cross-a",
+      "requisition_id": "req-cross-a",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-cross-a-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 7,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-cross-a"
+      ]
+    },
+    {
+      "candidate_id": "cross-b",
+      "source_id": "board-cross-b",
+      "posting_identity": "cross-b",
+      "requisition_id": "req-cross-b",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-cross-b-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 9,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "source-row-cross-b"
+      ]
+    },
+    {
+      "candidate_id": "similar-a",
+      "source_id": "board-a",
+      "posting_identity": "posting-similar-a",
+      "requisition_id": "req-similar-a",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-similar-a-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 10,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Staff Engineer",
+      "company": "Acme",
+      "provenance": [
+        "source-row-similar-a"
+      ]
+    },
+    {
+      "candidate_id": "similar-b",
+      "source_id": "board-a",
+      "posting_identity": "posting-similar-b",
+      "requisition_id": "req-similar-b",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "content-similar-b-v1",
+      "assessment_version": "assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "newly_retained",
+      "first_eligible_at": "2026-10-28T10:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": null,
+      "priority_order": 11,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Staff Engineer",
+      "company": "Acme",
+      "provenance": [
+        "source-row-similar-b"
+      ]
+    }
+  ],
+  "applications": [
+    {
+      "application_id": "synthetic-unlinked-app",
+      "confirmed": true,
+      "posting_id": null,
+      "requisition_id": "req-already-applied"
+    }
+  ],
+  "duplicate_evidence": [
+    {
+      "kind": "cross_source_corroboration",
+      "evidence_id": "synthetic-corroboration-1",
+      "candidate_ids": [
+        "cross-a",
+        "cross-b"
+      ]
+    }
+  ]
+}

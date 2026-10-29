@@ -753,6 +753,16 @@ worker modules are pure and dependency-injected; real services are wired only in
     to an internal target is refused mid-chain (→ unresolvable/`None`). Same
     `get_redirect_safe` guards the `custom` recipe fetch; the `browser` executor validates
     each navigation URL and discards a render whose post-redirect `page.url` is non-public.
+- **`review_batch.py` / `review_batch_cli.py` — offline fixed-batch preparation.** Consume
+  only an explicitly marked synthetic pool, injected cutoff/resume window and complete
+  caller policy. The pure engine filters confirmed applications/manual terminal actions
+  and confirmed source closure, routes unknown/stale evidence to unresolved work, collapses
+  exact and explicitly corroborated duplicates, freezes a ranked/audit/unresolved batch,
+  and supports scoped cursor paging and capped revalidation/replacements. Its named
+  age-service/role-coverage/audit recipe is synthetic, not the operator's production
+  policy. The CLI requires an explicit fixture and local state path; it opens no database,
+  profile, config, provider or runtime. Read/delivery and downstream resource cost remain
+  unknown without acknowledgements.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`; new complete source
   records start at content revision 1, while repeated exact identities update only
@@ -2409,6 +2419,24 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `_run_scheduler` installs the handler that record wants (`basicConfig`, INFO,
   timestamped) in the daemon branch only, so a bare import still configures nothing.
 
+**Provider-free review-batch replay.** The offline `review_batch.py` path accepts only
+an explicit synthetic schema-1 pool. Its policy requires K and allocations whose sum is
+K, a deterministic tie rule, seed, role/age/retry/overload parameters, and candidate,
+replacement, work and time caps. New arrivals use an explicit UTC half-open
+resume/cutoff interval; deferred and due-retry rows are separate inputs, and historical
+backfill requires an explicit flag. Occurrences use pool + stable posting identity +
+source revision, independently of content/assessment versions. Confirmed unlinked
+applications are matched by requisition identity; title/company similarity only raises a
+review flag. The synthetic recipe combines caller priority order, oldest-first age service,
+greedy coverage of supplied role IDs, a seeded uniform sample over a frozen low-rank
+frame, and explicit unused-slot redistribution. A batch freezes order and input versions;
+cursors bind its batch, snapshot and page scope. Revalidation marks changed content/source
+or application evidence, rejects a changed policy identity, and only annotates
+same-category replacements within the declared caps. Reported reading, delivery and
+downstream resource cost remain unknown.
+The fixture CLI writes state only to an explicitly named local JSON path; this contract
+does not add production policy, database, MCP, scheduler or worker-runtime wiring.
+
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
@@ -2444,6 +2472,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 |-----------|---------|
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
+| Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from daily occurrence, preserve exclusion/duplicate reasons, freeze order/cursors/audit frame, and bound revalidation/replacements | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_audit_frame_is_frozen_and_probability_uses_actual_frame_size`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
