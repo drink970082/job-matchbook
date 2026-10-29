@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import subprocess
 import sys
@@ -7,8 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker.preselection_rehearsal import RehearsalError, run_synthetic_rehearsal
+from ats_worker.preselection_rehearsal import (
+    FixtureReadAdapter,
+    RehearsalError,
+    _assessment_fixture_contract,
+    _scenario_contract,
+    run_synthetic_rehearsal,
+)
 from ats_worker.preselection_rehearsal_cli import main as rehearsal_cli_main
+from ats_worker.review_batch import ReviewBatchError, build_review_batch
 
 
 WORKER = Path(__file__).resolve().parents[1]
@@ -22,6 +30,27 @@ def _fixtures():
     return tuple(json.loads(path.read_text(encoding="utf-8")) for path in (
         SCENARIO_PATH, ASSESSMENT_PATH, POOL_PATH,
     ))
+
+
+def _run_cli_with_fixtures(tmp_path, scenario, assessments, pool):
+    scenario_path = tmp_path / "scenario.json"
+    assessment_path = tmp_path / "assessments.json"
+    pool_path = tmp_path / "pool.json"
+    output_path = tmp_path / "report.json"
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+    assessment_path.write_text(json.dumps(assessments), encoding="utf-8")
+    pool_path.write_text(json.dumps(pool), encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "ats_worker.preselection_rehearsal_cli",
+            "--scenario", str(scenario_path),
+            "--assessment-fixture", str(assessment_path),
+            "--pool-fixture", str(pool_path),
+            "--output", str(output_path),
+        ],
+        cwd=WORKER, text=True, capture_output=True, check=False,
+    )
+    return result, output_path
 
 
 def test_explicit_cli_composes_real_assessment_and_batch_modules(tmp_path):
@@ -87,7 +116,7 @@ def test_explicit_cli_composes_real_assessment_and_batch_modules(tmp_path):
     assert repeated["first_occurrence_id"] != repeated["next_occurrence_id"]
     fallback = report["observations"]["fallback"]
     assert fallback["ranking_enabled"] is False
-    assert fallback["limit"] == 3 and len(fallback["candidates"]) <= 3
+    assert fallback["limit"] == 10 and len(fallback["candidates"]) <= 10
     assert [item["candidate_id"] for item in fallback["candidates"]] == sorted(
         item["candidate_id"] for item in fallback["candidates"]
     )
@@ -95,6 +124,30 @@ def test_explicit_cli_composes_real_assessment_and_batch_modules(tmp_path):
                for item in fallback["candidates"])
     assert all("batch_evidence" in item for item in fallback["candidates"])
     assert {item["certainty"] for item in fallback["application_evidence"]} == {"exact", "probable"}
+    fallback_by_id = {item["candidate_id"]: item for item in fallback["candidates"]}
+    assert "current" not in fallback_by_id
+    assert "applied-unlinked" not in fallback_by_id
+    assert fallback["validation_status"] == "validated_current_state"
+    assert fallback["recommendations_ready"] is True
+    assert fallback_by_id["cross-a"]["assessment_state"] == "current"
+    assert fallback_by_id["deferred"]["assessment_state"] == "stale"
+    deferred_evidence = fallback_by_id["deferred"]["batch_evidence"]
+    assert deferred_evidence["bucket"] == "unresolved"
+    assert deferred_evidence["reason"] == "assessment_content_mismatch"
+    assert deferred_evidence["source_revision"] == 1
+    assert deferred_evidence["content_revision"] == 2
+    assert deferred_evidence["content_identity"] == "synthetic-content-deferred-v2"
+    assert deferred_evidence["selected_categories"] == ["ranked"]
+    assert deferred_evidence["was_selected"] is True
+    assert deferred_evidence["is_active_slot_candidate"] is False
+    assert deferred_evidence["invalidation_reasons"] == ["content_changed"]
+    assert fallback_by_id["unknown-source"]["source_state"] == "unknown"
+    assert fallback_by_id["unknown-source"]["batch_evidence"]["bucket"] == "unresolved"
+    excluded_by_id = {item["candidate_id"]: item for item in fallback["excluded_evidence"]}
+    assert excluded_by_id["current"]["reason"] == "source_closed"
+    assert excluded_by_id["current"]["source_state"] == "closed"
+    assert excluded_by_id["applied-unlinked"]["reason"] == "confirmed_application"
+    assert excluded_by_id["applied-unlinked"]["confirmed_application"] is True
 
     cases = {item["name"]: item["status"] for item in report["cases"]}
     assert cases["multi_page_multi_chunk"] == "passed"
@@ -106,6 +159,17 @@ def test_explicit_cli_composes_real_assessment_and_batch_modules(tmp_path):
     assert report["live_gates"]["assessment_go"] == "not_exercised"
     assert report["observations"]["resource_status"]["actual_provider_cost"] == "unknown"
     assert "max_provider_cost_credits" in report["monitoring"]["unknown_limits"]
+    assert set(report["monitoring"]["limits"]) <= {
+        "max_tool_calls", "max_read_chars", "max_jd_chunks", "max_unranked_candidates",
+        "max_elapsed_seconds", "max_replacements", "max_queue_age_hours",
+        "max_overload_count", "max_provider_cost_credits",
+    }
+    description_reads = report["observations"]["job_description_reads"]
+    assert description_reads["selected_candidate_count"] == 4
+    assert description_reads["complete_candidate_count"] == 4
+    assert description_reads["error_count"] == 0
+    assert all(item["complete"] and item["read_complete"]
+               for item in description_reads["by_candidate"])
     serialized = json.dumps(report)
     assert "SYNTHETIC_PRIVATE_" not in serialized
     assert "Fabricated description" not in serialized
@@ -121,6 +185,124 @@ def test_missing_monitoring_limit_is_reported_unknown_without_a_default():
     assert "max_queue_age_hours" in report["monitoring"]["unknown_limits"]
     assert "queue_age_limit_exceeded" not in report["monitoring_breaches"]
     assert report["observations"]["queue"]["oldest_age_hours"] > 0
+
+
+def test_unknown_monitoring_value_is_not_echoed_by_the_cli(tmp_path, capsys):
+    scenario, assessments, pool = _fixtures()
+    secret = "SYNTHETIC_PRIVATE_CONTEXT_DO_NOT_ECHO"
+    scenario["monitoring"]["limits"]["raw_response"] = {"nested": secret}
+
+    with pytest.raises(RehearsalError):
+        run_synthetic_rehearsal(scenario, assessments, pool)
+
+    result, output_path = _run_cli_with_fixtures(tmp_path, scenario, assessments, pool)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == "invalid synthetic rehearsal input or output\n"
+    assert secret not in result.stdout + result.stderr
+    assert not output_path.exists()
+
+
+def test_malformed_pool_candidate_fails_through_bounded_cli_validation(tmp_path):
+    scenario, assessments, pool = _fixtures()
+    pool["candidates"].append({})
+
+    with pytest.raises(ReviewBatchError, match="candidate record is incomplete"):
+        run_synthetic_rehearsal(scenario, assessments, pool)
+
+    result, output_path = _run_cli_with_fixtures(tmp_path, scenario, assessments, pool)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == "invalid synthetic rehearsal input or output\n"
+    assert "Traceback" not in result.stderr
+    assert str(tmp_path) not in result.stderr
+    assert not output_path.exists()
+
+
+def test_unscoped_requisition_evidence_stays_ambiguous_across_sources():
+    scenario, assessments, pool = _fixtures()
+    del pool["applications"][0]["source_id"]
+    other_source = deepcopy(next(
+        candidate for candidate in pool["candidates"]
+        if candidate["candidate_id"] == "applied-unlinked"
+    ))
+    other_source.update({
+        "candidate_id": "other-source-same-req",
+        "source_id": "board-other",
+        "posting_identity": "posting-other-source-same-req",
+        "content_identity": "content-other-source-same-req-v1",
+        "provenance": ["source-row-other-source-same-req"],
+    })
+    pool["candidates"].append(other_source)
+    batch = build_review_batch(pool)
+    adapter = FixtureReadAdapter(
+        _scenario_contract(scenario), _assessment_fixture_contract(assessments), pool, batch,
+    )
+
+    record_by_id = {item["candidate_id"]: item for item in batch["candidate_records"]}
+    for candidate_id in ("applied-unlinked", "other-source-same-req"):
+        assert record_by_id[candidate_id]["bucket"] == "unresolved"
+        assert record_by_id[candidate_id]["reason"] == "application_identity_ambiguous"
+        evidence = adapter.list_applications(candidate_id)
+        assert evidence[0]["certainty"] == "ambiguous"
+        assert evidence[0]["suppresses_candidate"] is False
+
+
+def test_fallback_fails_closed_when_current_revalidation_is_incomplete():
+    scenario, assessments, pool = _fixtures()
+    pool["policy"]["max_revalidation_work"] = 1
+
+    report = run_synthetic_rehearsal(scenario, assessments, pool)
+
+    fallback = report["observations"]["fallback"]
+    assert fallback["validation_status"] == "unverified"
+    assert fallback["recommendations_ready"] is False
+    assert fallback["candidates"] == []
+    assert fallback["excluded_evidence"] == []
+    cases = {item["name"]: item["status"] for item in report["cases"]}
+    assert cases["local_unranked_fallback"] == "failed"
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_status", "expected_source_present", "expected_read_complete", "expected_error"),
+    [
+        ("missing", "missing", False, False, "fixture_missing"),
+        ("empty", "empty", True, True, None),
+        ("partial", "incomplete", True, False, "timeout"),
+    ],
+)
+def test_selected_job_description_completeness_is_per_candidate_and_visible(
+    tmp_path, state, expected_status, expected_source_present, expected_read_complete, expected_error,
+):
+    scenario, assessments, pool = _fixtures()
+    scenario["job_description_chunk_size"] = 32
+    if state == "missing":
+        del scenario["job_descriptions"]["similar-b"]
+    elif state == "empty":
+        scenario["job_descriptions"]["similar-b"] = ""
+    else:
+        scenario["job_description_read_failures"] = {
+            "similar-b": {"after_chunks": 1, "error_category": "timeout"},
+        }
+
+    result, output_path = _run_cli_with_fixtures(tmp_path, scenario, assessments, pool)
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    evidence = {
+        item["candidate_id"]: item
+        for item in report["observations"]["job_description_reads"]["by_candidate"]
+    }["similar-b"]
+    assert evidence["status"] == expected_status
+    assert evidence["source_present"] is expected_source_present
+    assert evidence["read_complete"] is expected_read_complete
+    assert evidence["complete"] is False
+    assert evidence["error_category"] == expected_error
+    cases = {item["name"]: item["status"] for item in report["cases"]}
+    assert cases["multi_page_multi_chunk"] == "failed"
+    assert any(status == "failed" for status in cases.values())
 
 
 def test_rehearsal_cli_requires_distinct_explicit_output_path(tmp_path):

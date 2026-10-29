@@ -91,7 +91,8 @@ def _scenario_contract(value: Any) -> dict[str, Any]:
             or not _integer(monitoring.get("cadence_seconds"), minimum=1, maximum=86_400)):
         raise RehearsalError("invalid synthetic monitoring contract")
     limits = monitoring.get("limits")
-    if not _record(limits) or not _REQUIRED_RUN_LIMITS.issubset(limits):
+    if (not _record(limits) or not _REQUIRED_RUN_LIMITS.issubset(limits)
+            or not set(limits).issubset(_REQUIRED_RUN_LIMITS | _OPTIONAL_MONITORING_LIMITS)):
         raise RehearsalError("explicit rehearsal bounds are required")
     limit_ranges = {
         "max_tool_calls": (1, 500), "max_read_chars": (1, 1_000_000),
@@ -118,6 +119,15 @@ def _scenario_contract(value: Any) -> dict[str, Any]:
     if any(not _identifier(candidate_id) or not _safe_text(text)
            for candidate_id, text in descriptions.items()):
         raise RehearsalError("invalid synthetic job description")
+    read_failures = value.get("job_description_read_failures", {})
+    if not _record(read_failures) or len(read_failures) > 128:
+        raise RehearsalError("invalid synthetic job-description read failures")
+    for candidate_id, failure in read_failures.items():
+        if (not _identifier(candidate_id) or not _record(failure)
+                or not _integer(failure.get("after_chunks"), maximum=1000)
+                or not isinstance(failure.get("error_category"), str)
+                or failure.get("error_category") not in _ERROR_CATEGORIES):
+            raise RehearsalError("invalid synthetic job-description read failure")
     chunk_size = value.get("job_description_chunk_size")
     if not _integer(chunk_size, minimum=1, maximum=MAX_JD_CHUNK_SIZE):
         raise RehearsalError("invalid synthetic chunk size")
@@ -200,6 +210,7 @@ class FixtureReadAdapter:
         self.jd_chunks = 0
         self.multi_chunk_candidates = 0
         self._chunk_counts: dict[str, int] = {}
+        self.description_evidence: dict[str, dict[str, Any]] = {}
         self.assessment_views: dict[str, dict[str, Any]] = {}
         self._case_by_name = {
             case["name"]: case for case in assessment_fixture["cases"]
@@ -218,13 +229,35 @@ class FixtureReadAdapter:
         self._count("list_jobs")
         return page_review_batch(self._batch, cursor)
 
-    def get_assessment(self, candidate_id: str) -> dict[str, Any]:
+    def get_assessment(self, candidate_id: str, *, candidate: dict[str, Any] | None = None,
+                       bind_expected_identity: bool = False) -> dict[str, Any]:
         self._count("get_assessment")
         case_name = self._scenario["assessment_bindings"].get(candidate_id, "current_success")
         case = self._case_by_name.get(case_name)
         if case is None:
             raise RehearsalError("assessment fixture case is missing")
-        view = project_assessment_view(case.get("snapshot"))
+        snapshot = deepcopy(case.get("snapshot"))
+        view = project_assessment_view(snapshot)
+        if (bind_expected_identity and candidate is not None and _record(snapshot)
+                and view["assessment_state"] in {"current", "stale"}):
+            expected = snapshot.get("expected_identity")
+            success = snapshot.get("last_success")
+            captured = success.get("captured_identity") if _record(success) else None
+            baseline = self._candidates_by_id.get(candidate_id)
+            candidate_bound_cases = {
+                "current_success", "current_success_with_newer_provider_error",
+                "deferred_bound_success_with_newer_provider_error",
+            }
+            if (_record(expected) and _record(captured) and baseline is not None
+                    and case_name in candidate_bound_cases):
+                expected["source_revision"] = baseline["source_revision"]
+                expected["content_digest"] = baseline["content_identity"]
+                captured["source_revision"] = baseline["source_revision"]
+                captured["content_digest"] = baseline["content_identity"]
+            if _record(expected):
+                expected["source_revision"] = candidate["source_revision"]
+                expected["content_digest"] = candidate["content_identity"]
+                view = project_assessment_view(snapshot)
         self.assessment_views[candidate_id] = view
         latest = view["latest_attempt"]
         return {
@@ -232,13 +265,39 @@ class FixtureReadAdapter:
             "case_name": case_name,
             "assessment_state": view["assessment_state"],
             "assessment_reason": view["assessment_reason"],
+            "assessment_source_revision": (candidate["source_revision"]
+                                            if bind_expected_identity and candidate is not None
+                                            else None),
+            "assessment_content_identity": (candidate["content_identity"]
+                                             if bind_expected_identity and candidate is not None
+                                             else None),
             "latest_attempt_state": latest["state"],
             "error_category": latest["error_category"],
         }
 
     def get_job_description(self, candidate_id: str, offset: int) -> dict[str, Any]:
         self._count("get_job_description")
-        text = self._scenario["job_descriptions"].get(candidate_id, "")
+        descriptions = self._scenario["job_descriptions"]
+        source_present = candidate_id in descriptions
+        text = descriptions.get(candidate_id, "")
+        evidence = self.description_evidence.setdefault(candidate_id, {
+            "candidate_id": candidate_id,
+            "source_present": source_present,
+            "status": "reading" if source_present else "missing",
+            "complete": False,
+            "error_category": None if source_present else "fixture_missing",
+            "chunk_count": 0,
+            "characters_read": 0,
+            "read_complete": False,
+        })
+        failure = self._scenario.get("job_description_read_failures", {}).get(candidate_id)
+        if (source_present and failure is not None
+                and evidence["chunk_count"] >= failure["after_chunks"]
+                and offset < len(text)):
+            evidence["status"] = "incomplete"
+            evidence["error_category"] = failure["error_category"]
+            evidence["_read_failed"] = True
+            return {"chunk": "", "next_offset": offset, "has_more": False}
         size = self._scenario["job_description_chunk_size"]
         chunk = text[offset:offset + size]
         if self.read_characters + len(chunk) > self._limits["max_read_chars"]:
@@ -247,9 +306,12 @@ class FixtureReadAdapter:
             self.read_characters += len(chunk)
             self.jd_chunks += 1
             self._chunk_counts[candidate_id] = self._chunk_counts.get(candidate_id, 0) + 1
+            evidence["chunk_count"] += 1
+            evidence["characters_read"] += len(chunk)
             if self.jd_chunks > self._limits["max_jd_chunks"]:
                 raise RehearsalError("synthetic JD chunk bound exceeded")
         next_offset = offset + len(chunk)
+        evidence["_has_more"] = next_offset < len(text)
         return {
             "chunk": chunk,
             "next_offset": next_offset,
@@ -257,29 +319,76 @@ class FixtureReadAdapter:
         }
 
     def finish_description_reads(self) -> None:
-        self.multi_chunk_candidates = sum(count > 1 for count in self._chunk_counts.values())
+        self.multi_chunk_candidates = 0
+        for evidence in self.description_evidence.values():
+            if not evidence["source_present"]:
+                evidence["status"] = "missing"
+                evidence["complete"] = False
+                evidence["read_complete"] = False
+                evidence["error_category"] = "fixture_missing"
+                continue
+            if evidence.get("_read_failed"):
+                evidence["status"] = "incomplete"
+                evidence["complete"] = False
+                evidence["read_complete"] = False
+                continue
+            read_complete = not evidence.get("_has_more", False)
+            evidence["read_complete"] = read_complete
+            complete = read_complete and evidence["characters_read"] > 0
+            evidence["complete"] = complete
+            evidence["status"] = (
+                "empty" if read_complete and evidence["characters_read"] == 0
+                else "complete" if complete
+                else "incomplete"
+            )
+            if not read_complete:
+                evidence["error_category"] = "invalid_response"
+            if complete and evidence["chunk_count"] > 1:
+                self.multi_chunk_candidates += 1
+            evidence.pop("_has_more", None)
+            evidence.pop("_read_failed", None)
 
-    def list_applications(self, candidate_id: str) -> list[dict[str, Any]]:
+    def list_applications(self, candidate_id: str, *,
+                          pool_fixture: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         self._count("list_applications")
-        candidate = self._candidates_by_id.get(candidate_id)
+        current_pool = pool_fixture or self._pool_fixture
+        current_candidates = {
+            item["candidate_id"]: item for item in current_pool["candidates"]
+        }
+        candidate = current_candidates.get(candidate_id)
         if candidate is None:
             candidate = next((item for item in self._scenario.get("additional_candidates", [])
                               if item.get("candidate_id") == candidate_id), None)
         if candidate is None:
             return []
         exact: list[dict[str, Any]] = []
-        for application in self._pool_fixture.get("applications", []):
-            if (application.get("confirmed") is True and (
-                    application.get("posting_id") is not None
-                    and application["posting_id"] == candidate.get("posting_identity")
-                    or application.get("requisition_id") is not None
-                    and application["requisition_id"] == candidate.get("requisition_id"))):
+        for application in current_pool.get("applications", []):
+            if application.get("confirmed") is not True:
+                continue
+            posting_match = (
+                application.get("posting_id") is not None
+                and application["posting_id"] == candidate.get("posting_identity")
+            )
+            requisition_match = (
+                application.get("requisition_id") is not None
+                and application["requisition_id"] == candidate.get("requisition_id")
+            )
+            source_match = application.get("source_id") == candidate.get("source_id")
+            if posting_match or (requisition_match and source_match):
                 exact.append({
                     "candidate_id": candidate_id,
                     "application_id": application["application_id"],
                     "certainty": "exact",
                     "confirmed": True,
                     "suppresses_candidate": True,
+                })
+            elif requisition_match and application.get("source_id") is None:
+                exact.append({
+                    "candidate_id": candidate_id,
+                    "application_id": application["application_id"],
+                    "certainty": "ambiguous",
+                    "confirmed": True,
+                    "suppresses_candidate": False,
                 })
         probable = [
             {
@@ -303,9 +412,14 @@ class FixtureReadAdapter:
             "synthetic": True,
         }
 
-    def list_unranked_candidates(self, limit: int) -> list[dict[str, Any]]:
+    def list_unranked_candidates(self, limit: int, *,
+                                 batch: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         self._count("list_unranked_candidates")
-        rows = sorted(self._batch["candidate_records"], key=lambda row: row["candidate_id"])
+        current_batch = batch or self._batch
+        if (current_batch.get("current_validation_status", "complete") != "complete"
+                or not current_batch.get("report", {}).get("revalidation_complete", True)):
+            return []
+        rows = sorted(current_batch["candidate_records"], key=lambda row: row["candidate_id"])
         return rows[:limit]
 
 
@@ -376,11 +490,12 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
     case_names = {case["name"] for case in assessment_fixture["cases"]}
     if any(case_name not in case_names for case_name in scenario["assessment_bindings"].values()):
         raise RehearsalError("assessment fixture binding is missing")
-    if any(item["candidate_id"] not in {row["candidate_id"] for row in pool_fixture["candidates"]}
+    batch = build_review_batch(pool_fixture)
+    candidate_ids = {row["candidate_id"] for row in pool_fixture["candidates"]}
+    if any(item["candidate_id"] not in candidate_ids
            for item in scenario["probable_applications"]):
         raise RehearsalError("probable application candidate is missing")
 
-    batch = build_review_batch(pool_fixture)
     adapter = FixtureReadAdapter(scenario, assessment_fixture, pool_fixture, batch)
     pages: list[dict[str, Any]] = []
     page_items: list[dict[str, Any]] = []
@@ -410,6 +525,12 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
             if not chunk["has_more"]:
                 break
     adapter.finish_description_reads()
+    selected_candidate_ids = sorted({
+        item["candidate"]["candidate_id"] for item in page_items
+    })
+    description_evidence = {
+        item["candidate_id"]: item for item in adapter.description_evidence.values()
+    }
 
     application_candidate_ids = {item["candidate_id"] for item in pool_fixture["candidates"]}
     application_candidate_ids.update(item["candidate_id"] for item in scenario["probable_applications"])
@@ -441,31 +562,97 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
         raise RehearsalError("repeated day candidate is not in both fixture pools")
 
     fallback_limit = scenario["fallback_candidate_limit"]
-    fallback_rows = adapter.list_unranked_candidates(fallback_limit)
-    for row in fallback_rows:
-        candidate_id = row["candidate_id"]
-        if candidate_id not in assessments:
-            assessments[candidate_id] = adapter.get_assessment(candidate_id)
+    revalidation_complete = (
+        revalidated.get("current_validation_status", "complete") == "complete"
+        and revalidation_report.get("revalidation_complete", True)
+    )
+    fallback_rows = adapter.list_unranked_candidates(fallback_limit, batch=revalidated)
+    fallback_assessments = {
+        row["candidate_id"]: adapter.get_assessment(
+            row["candidate_id"], candidate=row, bind_expected_identity=True,
+        )
+        for row in fallback_rows
+    }
+    current_candidates = {
+        item["candidate_id"]: item for item in revalidation_pool["candidates"]
+    }
+    fallback_application_ids = {row["candidate_id"] for row in fallback_rows}
+    if revalidation_complete:
+        fallback_application_ids.update(
+            item["candidate_id"] for item in revalidated.get("excluded", [])
+        )
+    fallback_applications = [
+        evidence
+        for candidate_id in sorted(fallback_application_ids)
+        for evidence in adapter.list_applications(candidate_id, pool_fixture=revalidation_pool)
+    ]
     applications_by_candidate: dict[str, list[dict[str, Any]]] = {}
-    for evidence in applications:
+    for evidence in fallback_applications:
         applications_by_candidate.setdefault(evidence["candidate_id"], []).append(evidence)
     slots_by_candidate: dict[str, list[dict[str, Any]]] = {}
-    for slot in batch["slots"]:
-        slots_by_candidate.setdefault(slot["candidate_id"], []).append(slot)
+    for slot in revalidated["slots"]:
+        related_ids = {
+            slot["candidate_id"], slot.get("current_candidate_id"),
+            *(item.get("candidate_id") for item in slot.get("replacement_history", [])),
+        }
+        for candidate_id in related_ids - {None}:
+            slots_by_candidate.setdefault(candidate_id, []).append(slot)
+
+    fallback_excluded_evidence = []
+    if revalidation_complete:
+        for item in revalidated.get("excluded", []):
+            current = current_candidates.get(item["candidate_id"], {})
+            current_applications = applications_by_candidate.get(item["candidate_id"], [])
+            fallback_excluded_evidence.append({
+                "candidate_id": item["candidate_id"],
+                "reason": item["reason"],
+                "source_state": current.get("source_state", "unknown"),
+                "source_revision": current.get("source_revision"),
+                "content_revision": current.get("content_revision"),
+                "content_identity": current.get("content_identity"),
+                "confirmed_application": (
+                    current.get("confirmed_application") is True
+                    or any(evidence["certainty"] == "exact" and evidence["suppresses_candidate"]
+                           for evidence in current_applications)
+                ),
+                "manual_terminal": current.get("manual_terminal") is True,
+            })
+
     fallback_candidates = [
         {
             "candidate_id": row["candidate_id"],
-            "assessment_state": assessments[row["candidate_id"]]["assessment_state"],
+            "assessment_state": fallback_assessments[row["candidate_id"]]["assessment_state"],
+            "assessment_reason": fallback_assessments[row["candidate_id"]]["assessment_reason"],
+            "source_state": row["source_state"],
+            "confirmed_application": row["confirmed_application"],
+            "manual_terminal": row["manual_terminal"],
             "application_certainty": max(
                 (item["certainty"] for item in applications_by_candidate.get(row["candidate_id"], [])),
-                key=lambda certainty: {"none": 0, "probable": 1, "exact": 2}[certainty],
+                key=lambda certainty: {"none": 0, "ambiguous": 1, "probable": 2, "exact": 3}[certainty],
                 default="none",
             ),
             "batch_evidence": {
                 "occurrence_id": row["occurrence_id"],
+                "bucket": row["bucket"],
+                "reason": row["reason"],
+                "source_revision": row["source_revision"],
+                "content_revision": row["content_revision"],
+                "content_identity": row["content_identity"],
                 "selected_categories": sorted({slot["category"] for slot in
                                                 slots_by_candidate.get(row["candidate_id"], [])}),
-                "was_selected": row["candidate_id"] in slots_by_candidate,
+                "was_selected": any(slot["candidate_id"] == row["candidate_id"]
+                                     for slot in slots_by_candidate.get(row["candidate_id"], [])),
+                "is_active_slot_candidate": any(
+                    slot.get("current_candidate_id") == row["candidate_id"]
+                    and slot.get("unverified") is None
+                    for slot in slots_by_candidate.get(row["candidate_id"], [])
+                ),
+                "invalidation_reasons": sorted({
+                    event["reason"]
+                    for slot in slots_by_candidate.get(row["candidate_id"], [])
+                    for event in slot.get("invalidation_history", [])
+                    if event["candidate_id"] == row["candidate_id"]
+                }),
             },
         }
         for row in fallback_rows
@@ -509,10 +696,27 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
     empty_probe_seen = any(item["outcome"] == "empty" and item["error_category"] is None for item in probes)
     unavailable_probe_seen = any(item["outcome"] == "unavailable" and item["error_category"]
                                  for item in probes)
+    selected_jds_complete = bool(selected_candidate_ids) and all(
+        description_evidence.get(candidate_id, {}).get("status") == "complete"
+        and description_evidence[candidate_id].get("complete") is True
+        for candidate_id in selected_candidate_ids
+    )
+    fallback_by_id = {item["candidate_id"]: item for item in fallback_candidates}
+    fallback_excluded_by_id = {
+        item["candidate_id"]: item for item in fallback_excluded_evidence
+    }
+    deferred_fallback = fallback_by_id.get("deferred", {})
+    unknown_fallback = fallback_by_id.get("unknown-source", {})
     checks = [
-        _case("multi_page_multi_chunk", len(pages) >= 2 and adapter.multi_chunk_candidates >= 2, {
+        _case("multi_page_multi_chunk", len(pages) >= 2 and selected_jds_complete
+              and adapter.multi_chunk_candidates >= 2, {
             "pages": len(pages), "chunks": adapter.jd_chunks,
             "multi_chunk_candidates": adapter.multi_chunk_candidates,
+            "selected_candidate_count": len(selected_candidate_ids),
+            "incomplete_candidate_ids": [
+                candidate_id for candidate_id in selected_candidate_ids
+                if description_evidence.get(candidate_id, {}).get("status") != "complete"
+            ],
         }),
         _case("empty_vs_unavailable_source", empty_probe_seen and unavailable_probe_seen, {
             "empty_probe_count": sum(item["outcome"] == "empty" for item in probes),
@@ -542,10 +746,28 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
               and fault_config["private_input_access"] == "unavailable", {
             "simulation_only": True, "provider_call_count": 0, "private_input_read_attempted": False,
         }),
-        _case("local_unranked_fallback", len(fallback_candidates) <= fallback_limit
+        _case("local_unranked_fallback", revalidation_complete
+              and len(fallback_candidates) <= fallback_limit
               and [item["candidate_id"] for item in fallback_candidates]
-              == sorted(item["candidate_id"] for item in fallback_candidates), {
+              == sorted(item["candidate_id"] for item in fallback_candidates)
+              and "current" not in fallback_by_id
+              and "applied-unlinked" not in fallback_by_id
+              and fallback_excluded_by_id.get("current", {}).get("reason") == "source_closed"
+              and fallback_excluded_by_id.get("applied-unlinked", {}).get("reason")
+              == "confirmed_application"
+              and deferred_fallback.get("assessment_state") == "stale"
+              and deferred_fallback.get("batch_evidence", {}).get("bucket") == "unresolved"
+              and deferred_fallback.get("batch_evidence", {}).get("content_revision") == 2
+              and "content_changed" in deferred_fallback.get("batch_evidence", {}).get(
+                  "invalidation_reasons", [])
+              and unknown_fallback.get("batch_evidence", {}).get("bucket") == "unresolved"
+              and unknown_fallback.get("source_state") == "unknown", {
             "ranking_enabled": False, "candidate_count": len(fallback_candidates),
+            "revalidation_complete": revalidation_complete,
+            "closed_candidate_excluded": "current" in fallback_excluded_by_id,
+            "applied_candidate_excluded": "applied-unlinked" in fallback_excluded_by_id,
+            "stale_changed_candidate_visible": deferred_fallback.get("assessment_state") == "stale",
+            "unknown_candidate_visible": unknown_fallback.get("source_state") == "unknown",
         }),
         _case("repeated_day_occurrence_identity", first_row["occurrence_id"] != next_row["occurrence_id"]
               and first_row["source_revision"] == next_row["source_revision"]
@@ -558,6 +780,7 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
         category for category in (
             *(item.get("error_category") for item in probes),
             *(item.get("error_category") for item in assessments.values()),
+            *(item.get("error_category") for item in description_evidence.values()),
             fault_config.get("provider_error_category"), fault_config.get("private_input_error_category"),
         ) if category is not None
     }
@@ -565,6 +788,19 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
         name for name in _OPTIONAL_MONITORING_LIMITS
         if limits.get(name) is None
     )
+    reported_limits = {
+        name: limits[name]
+        for name in sorted(_REQUIRED_RUN_LIMITS | _OPTIONAL_MONITORING_LIMITS)
+        if name in limits
+    }
+    public_description_evidence = [
+        {
+            key: item[key]
+            for key in ("candidate_id", "source_present", "status", "complete",
+                        "read_complete", "error_category", "chunk_count", "characters_read")
+        }
+        for item in sorted(description_evidence.values(), key=lambda value: value["candidate_id"])
+    ]
 
     return {
         "schema_version": REHEARSAL_SCHEMA_VERSION,
@@ -590,7 +826,7 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
         },
         "monitoring": {
             "cadence_seconds": scenario["monitoring"]["cadence_seconds"],
-            "limits": deepcopy(limits),
+            "limits": reported_limits,
             "unknown_limits": unknown_limits,
             "breaches": list(monitoring_breaches),
         },
@@ -621,6 +857,11 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
                 "characters_read": adapter.read_characters,
                 "multi_chunk_count": adapter.multi_chunk_candidates,
                 "chunk_size": scenario["job_description_chunk_size"],
+                "selected_candidate_count": len(selected_candidate_ids),
+                "complete_candidate_count": sum(item["complete"] for item in public_description_evidence),
+                "error_count": sum(item["error_category"] is not None
+                                    for item in public_description_evidence),
+                "by_candidate": public_description_evidence,
             },
             "assessments": [assessments[key] for key in sorted(assessments)],
             "applications": sorted(applications, key=lambda item: (item["candidate_id"], item["certainty"])),
@@ -639,6 +880,9 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
                 "unfilled_slots": revalidation_report["unfilled_slots"],
                 "revalidation_work": revalidation_report["revalidation_work"],
                 "time_cap_reached": revalidation_report["time_cap_reached"],
+                "current_validation_status": revalidated.get("current_validation_status", "complete"),
+                "revalidation_complete": revalidation_complete,
+                "unverified_slots": revalidation_report.get("unverified_slots", 0),
                 "elapsed_seconds": scenario["revalidation_elapsed_seconds"],
                 "max_replacements": batch["policy"]["max_replacements"],
             },
@@ -667,9 +911,15 @@ def run_synthetic_rehearsal(scenario_value: Any, assessment_fixture_value: Any,
                 "ranking_enabled": False,
                 "order": "stable_candidate_id",
                 "limit": fallback_limit,
+                "validation_status": (
+                    "validated_current_state" if revalidation_complete else "unverified"
+                ),
+                "recommendations_ready": revalidation_complete,
                 "candidates": fallback_candidates,
+                "excluded_evidence": fallback_excluded_evidence,
                 "application_evidence": sorted(
-                    applications, key=lambda item: (item["candidate_id"], item["certainty"])
+                    fallback_applications,
+                    key=lambda item: (item["candidate_id"], item["certainty"]),
                 ),
             },
             "resource_status": {

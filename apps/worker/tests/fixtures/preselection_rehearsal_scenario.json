@@ -10,8 +10,8 @@
     "limits": {
       "max_tool_calls": 64,
       "max_read_chars": 1024,
-      "max_jd_chunks": 16,
-      "max_unranked_candidates": 3,
+      "max_jd_chunks": 32,
+      "max_unranked_candidates": 10,
       "max_elapsed_seconds": 30,
       "max_queue_age_hours": 24,
       "max_overload_count": 2,
@@ -19,7 +19,7 @@
     }
   },
   "assessment_bindings": {
-    "deferred": "current_success_with_newer_provider_error",
+    "deferred": "deferred_bound_success_with_newer_provider_error",
     "current": "late_result_for_older_content",
     "similar-b": "changed_content_revision",
     "unknown-source": "missing_expected_identity"
@@ -108,5 +108,5 @@
     "private_input_access": "unavailable",
     "private_input_error_category": "fixture_missing"
   },
-  "fallback_candidate_limit": 3
+  "fallback_candidate_limit": 10
 }

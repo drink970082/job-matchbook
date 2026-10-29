@@ -42,6 +42,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Harden synthetic preselection rehearsal output: reject unknown monitoring fields and
+  report only allowlisted limits; expose per-selected-job-description completeness and
+  error evidence; validate batch rows before associated identity lookups; scope
+  requisition evidence to source identity; and build fallback from current revalidated
+  candidates, preserving stale/unknown state and exclusion evidence while suppressing
+  recommendations when revalidation is incomplete.
+
 - Correct synthetic review-batch replay so application/manual exclusions survive exact
   and corroborated deduplication, source closure conflicts stay unresolved, requisition
   matches are source-scoped, and duplicate posting occurrences cannot enter an audit

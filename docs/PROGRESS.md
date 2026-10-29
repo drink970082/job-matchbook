@@ -27,8 +27,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **Synthetic preselection rehearsal — `feat/synthetic-preselection-rehearsal`, draft
   PR #123 open (#119 offline preparation).** The explicit fixture CLI composes the
   actual assessment projection and review-batch modules, records bounded monitoring
-  and simulated faults, and exercises a local unranked fallback. Scheduled access,
-  live provider evidence, read/delivery acknowledgements and production rollback
+  and simulated faults, reports completeness/errors for every selected JD, and derives
+  its unranked fallback from the current validated candidate set. Stale and unknown
+  candidates retain content/source/invalidation evidence, confirmed exclusions stay
+  visible, and incomplete revalidation suppresses fallback recommendations. Scheduled
+  access, live provider evidence, read/delivery acknowledgements and production rollback
   remain unexercised; parent #115 remains open.
 
 - **Review-batch replay — `feat/review-batch-replay`, draft PR #122 open
