@@ -39,36 +39,31 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
-  `repair/111-deadline-cancellation`.** The local branch extends the unaccepted
-  `f49e95ba` source with bounded JSON normalization and validation in one Linux worker.
-  Before provider or cached-validator code runs, the worker verifies matching non-root
-  real/effective/saved UIDs, empty effective/permitted/inheritable/ambient capability sets,
-  and `PR_SET_NO_NEW_PRIVS`, then verifies
-  `RLIMIT_NPROC` soft/hard limits of zero. This prohibits provider-created processes and
-  threads; transports must be synchronous and cannot spawn subprocesses or background
-  threads. The parent directly kills and reaps the one worker on timeout. Provider output
-  crosses shared memory as capped primitives, never pickle; the parent checks the deadline
-  around bounded decoding. Readiness races and timeouts after execution may start stay
-  ambiguous with unknown usage/charge and cannot be replayed; completed oversized/schema-
-  invalid replies retain safely decoded accounting. The focused shadow suite has 31 tests.
-  PR #124 remains at its prior published head `61952ef` and does
-  not yet include these local corrections. Its #110/#116/design prerequisite ancestry
-  remains unaccepted; this repair selects no live provider, production policy, runtime
-  wiring or evaluation.
+- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124),
+  branch `repair/111-deadline-cancellation`, corrective code `034d2ff`.** Provider work,
+  response normalization and validation run inside one directly supervised Linux worker.
+  Before execution it verifies unprivileged credentials, `NO_NEW_PRIVS` and hard/soft
+  `RLIMIT_NPROC=0`; unsupported environments fail closed. Transports and validators must
+  be synchronous and cannot create subprocesses or threads. Capped primitive JSON replaces
+  pickle; timeout/readiness races remain ambiguous, and the worker is killed and reaped
+  before return. The 31 focused shadow tests and independent adversarial review cover
+  oversized replies, slow validation, process/thread denial, unchanged parent state and
+  honest accounting. The draft retains unaccepted #110/#116/design ancestry and selects
+  no live provider or runtime behavior.
 
-- **Issue #112 evaluation provenance and workload identities — [draft PR #125](https://github.com/drink970082/job-matchbook/pull/125), branch
-  `repair/112-evaluation-provenance`. The local branch includes the #111 bounded-response
-  repair and derives the effective binding from either the explicit `run_binding` or the
-  already-bound journal. It rejects a changed approved profile or question set before
-  transport, attempt persistence or cache reuse, including after journal reload; an
-  unchanged run still resumes a cached success without repeating the binding argument.
-  The real fake-provider/report composition remains exercised. The focused evaluation
-  integration suite passes (10 tests). PR #125 remains at its published head `208e69e` and
-  does not include these local corrections. Full evaluation and live-use gates remain open;
-  there is no real provider inference, private input, price/policy selection, GO decision or
-  runtime wiring in this repair. The unmerged #110/#116/design prerequisite ancestry and
-  #94 acceptance remain separate orchestrator gates.
+- **Issue #112 evaluation provenance — [draft PR #125](https://github.com/drink970082/job-matchbook/pull/125),
+  branch `repair/112-evaluation-provenance`, binding correction `982fb6c`, composed
+  boundary correction `67f0650`.** An explicit binding or the journal's existing binding
+  must match actual profile/questions before transport, persistence or cache reuse;
+  unchanged bound runs still resume without repeating the argument. Actual fake-provider
+  composition covers successful and pre-assessment extraction outcomes. Final combined
+  checks pass: 136 preselection tests; worker 1,334 passed/1 skipped; coverage 86.31%
+  (85% gate); integration worker 4 passed/1 skipped and web 74 passed; fresh-process
+  import/CLI 3 passed; compile, schema drift, privacy guard (396 paths) and diff checks.
+  Independent review replays the prior bypass and execution-boundary repros with no
+  blocking finding. Both PRs target main; #110/#116/design acceptance, #94 evidence,
+  real-input/provider/policy/budget choices and GO remain separate gates. No real
+  inference, private input, runtime wiring, merge or deployment is included.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
