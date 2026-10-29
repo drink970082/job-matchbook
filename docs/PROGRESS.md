@@ -38,9 +38,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Full worker/web coverage passes (1,304 worker tests, 1 skipped, 88.63%; 420 web tests
   across 35 suites). Worker/web integration passes (4 worker tests, 1 skipped; 74 web
   tests); schema, privacy, and lint checks pass. The isolated #124/#125 rehearsal retains
-  #125's `RunBinding` and schema-4 journal; its worker/web integration passes (4 passed,
-  1 skipped; 74 passed), while combined worker coverage is 84.78%, below the 85% gate due
-  to the unmerged stack additions. Draft PR
+  #125's `RunBinding` and schema-4 journal. Its full worker suite passes (1,410 passed,
+  1 skipped) at 84.81% coverage, below the 85% gate; worker/web integration passes (4
+  passed, 1 skipped; 74 passed). Draft PR
   [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
   remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
   range. No live input, policy or GO is accepted by these synthetic results.
