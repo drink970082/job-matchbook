@@ -49,6 +49,28 @@ class ReviewBatchError(ValueError):
     """A malformed or unsupported synthetic batch contract."""
 
 
+class _WorkCapExceeded(Exception):
+    """Internal signal that a revalidation did not fit its declared work budget."""
+
+
+class _WorkMeter:
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.used = 0
+
+    def consume(self, count: int = 1) -> None:
+        if count < 0:
+            raise AssertionError("work count cannot be negative")
+        if self.used + count > self.limit:
+            raise _WorkCapExceeded
+        self.used += count
+
+
+def _consume(work: _WorkMeter | None, count: int = 1) -> None:
+    if work is not None:
+        work.consume(count)
+
+
 def _digest(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -150,7 +172,8 @@ def _safe_list(value: Any, *, limit: int, label: str) -> list[str]:
     return list(value)
 
 
-def _validate_candidate(value: Any) -> dict[str, Any]:
+def _validate_candidate(value: Any, work: _WorkMeter | None = None) -> dict[str, Any]:
+    _consume(work)
     if not _record(value) or not _CANDIDATE_REQUIRED.issubset(value):
         raise ReviewBatchError("candidate record is incomplete")
     if not _text(value["candidate_id"], limit=128) or not _text(value["source_id"], limit=128):
@@ -207,11 +230,12 @@ def _try_instant(value: Any) -> int | None:
         return None
 
 
-def _confirmed_applications(value: Any) -> list[dict[str, Any]]:
+def _confirmed_applications(value: Any, work: _WorkMeter | None = None) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) > 20_000:
         raise ReviewBatchError("application evidence is invalid")
     result = []
     for application in value:
+        _consume(work)
         if not _record(application) or not {"application_id", "confirmed", "posting_id", "requisition_id"}.issubset(application):
             raise ReviewBatchError("application evidence is invalid")
         if not _text(application["application_id"], limit=128) or type(application["confirmed"]) is not bool:
@@ -219,6 +243,8 @@ def _confirmed_applications(value: Any) -> list[dict[str, Any]]:
         for key in ("posting_id", "requisition_id"):
             if application[key] is not None and not _text(application[key], limit=256):
                 raise ReviewBatchError("application evidence is invalid")
+        if application.get("source_id") is not None and not _text(application["source_id"], limit=128):
+            raise ReviewBatchError("application evidence is invalid")
         result.append(application)
     return result
 
@@ -240,7 +266,7 @@ def _window(value: Any, now: int) -> dict[str, Any]:
     }
 
 
-def _fixture(value: Any) -> dict[str, Any]:
+def _fixture(value: Any, work: _WorkMeter | None = None) -> dict[str, Any]:
     if not _record(value) or value.get("schema_version") != SCHEMA_VERSION or type(value.get("schema_version")) is not int:
         raise ReviewBatchError("unsupported fixture schema")
     if value.get("synthetic") is not True:
@@ -253,23 +279,27 @@ def _fixture(value: Any) -> dict[str, Any]:
     candidates = value.get("candidates")
     if not isinstance(candidates, list) or len(candidates) > policy["max_candidate_count"]:
         raise ReviewBatchError("candidate pool exceeds explicit cap")
-    normalized = [_validate_candidate(item) for item in candidates]
+    normalized = [_validate_candidate(item, work) for item in candidates]
+    _consume(work, len(normalized) * 3)
     candidate_ids = [item["candidate_id"] for item in normalized]
     if len(set(candidate_ids)) != len(candidate_ids):
         raise ReviewBatchError("candidate IDs must be unique")
     candidate_id_set = set(candidate_ids)
     source_by_id = {item["candidate_id"]: item["source_id"] for item in normalized}
-    applications = _confirmed_applications(value.get("applications"))
+    applications = _confirmed_applications(value.get("applications"), work)
     duplicate_evidence = value.get("duplicate_evidence")
     if not isinstance(duplicate_evidence, list) or len(duplicate_evidence) > len(normalized) * 2:
         raise ReviewBatchError("duplicate evidence is invalid")
     for item in duplicate_evidence:
+        _consume(work)
         if (not _record(item) or item.get("kind") != "cross_source_corroboration" or
                 not _text(item.get("evidence_id"), limit=128)):
             raise ReviewBatchError("duplicate evidence is invalid")
         refs = item.get("candidate_ids")
-        if (not isinstance(refs, list) or len(refs) < 2 or len(refs) > 128 or
-                any(not isinstance(ref, str) or ref not in candidate_id_set for ref in refs) or
+        if not isinstance(refs, list) or len(refs) < 2 or len(refs) > 128:
+            raise ReviewBatchError("duplicate evidence is invalid")
+        _consume(work, len(refs))
+        if (any(not isinstance(ref, str) or ref not in candidate_id_set for ref in refs) or
                 len(set(refs)) != len(refs)):
             raise ReviewBatchError("duplicate evidence is invalid")
         sources = {source_by_id[ref] for ref in refs}
@@ -282,14 +312,29 @@ def _fixture(value: Any) -> dict[str, Any]:
     }
 
 
-def _application_matches(candidate: dict[str, Any], applications: list[dict[str, Any]]) -> bool:
-    return bool(candidate["confirmed_application"]) or any(
-        app["confirmed"] and (
-            app["posting_id"] is not None and app["posting_id"] == candidate["posting_identity"] or
-            app["requisition_id"] is not None and app["requisition_id"] == candidate["requisition_id"]
-        )
-        for app in applications
-    )
+def _application_match(candidate: dict[str, Any], applications: list[dict[str, Any]],
+                       work: _WorkMeter | None = None) -> tuple[bool, bool]:
+    """Return (confirmed match, ambiguous requisition-only match).
+
+    Posting identities are stable exact identifiers. A requisition is scoped to a source;
+    without that scope it remains visible uncertainty rather than excluding every board
+    that happens to reuse the same requisition string.
+    """
+    if candidate["confirmed_application"]:
+        return True, False
+    ambiguous = False
+    for app in applications:
+        _consume(work)
+        if not app["confirmed"]:
+            continue
+        if app["posting_id"] is not None and app["posting_id"] == candidate["posting_identity"]:
+            return True, False
+        if app["requisition_id"] is not None and app["requisition_id"] == candidate["requisition_id"]:
+            if app.get("source_id") == candidate["source_id"]:
+                return True, False
+            if app.get("source_id") is None:
+                ambiguous = True
+    return False, ambiguous
 
 
 def _occurrence_id(pool_id: str, candidate: dict[str, Any]) -> str:
@@ -310,7 +355,8 @@ def _captured_versions(candidate: dict[str, Any], application: bool) -> dict[str
             "manual_terminal": candidate["manual_terminal"]}
 
 
-def _classify(candidate: dict[str, Any], fixture: dict[str, Any]) -> tuple[str | None, str | None, bool]:
+def _classify(candidate: dict[str, Any], fixture: dict[str, Any],
+              application: bool = False, ambiguous_application: bool = False) -> tuple[str | None, str | None, bool]:
     window = fixture["window"]
     now = fixture["_now_instant"]
     cutoff = window["_cutoff_instant"]
@@ -348,13 +394,14 @@ def _classify(candidate: dict[str, Any], fixture: dict[str, Any]) -> tuple[str |
         if first >= cutoff:
             return None, "outside_cutoff_interval", True
 
-    application = _application_matches(candidate, fixture["applications"])
     if application:
         return None, "confirmed_application", True
     if candidate["manual_terminal"]:
         return None, "manual_terminal", True
     if candidate["source_state"] == "closed":
         return None, "source_closed", True
+    if ambiguous_application:
+        return "unresolved", "application_identity_ambiguous", False
 
     if candidate["source_state"] not in {"open", "closed", "unknown"}:
         return "unresolved", "unknown_source_state", False
@@ -428,6 +475,8 @@ def uniform_audit_sample(candidates: Iterable[dict[str, Any]], sample_size: int,
     if not _integer(sample_size, maximum=10_000) or not _integer(seed, maximum=2**31 - 1):
         raise ReviewBatchError("audit sample parameters are invalid")
     frame = [row["occurrence_id"] for row in rows]
+    if len(frame) != len(set(frame)):
+        raise ReviewBatchError("audit frame occurrence identity is not unique")
     size = min(sample_size, len(frame))
     sample = random.Random(seed).sample(frame, size) if size else []
     probability = (size / len(frame)) if frame else 0.0
@@ -463,7 +512,8 @@ def _candidate_view(candidate: dict[str, Any], bucket: str, reason: str | None, 
                     pool_id: str, duplicate_ids: list[str] | None = None,
                     duplicate_review_flags: list[str] | None = None,
                     duplicate_evidence_ids: list[str] | None = None,
-                    provenance: list[str] | None = None, group_ids: list[str] | None = None) -> dict[str, Any]:
+                    provenance: list[str] | None = None, group_ids: list[str] | None = None,
+                    duplicate_member_evidence: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     occurrence_id = _occurrence_id(pool_id, candidate)
     return {
         "candidate_id": candidate["candidate_id"],
@@ -493,28 +543,35 @@ def _candidate_view(candidate: dict[str, Any], bucket: str, reason: str | None, 
         "confirmed_application": application,
         "manual_terminal": candidate["manual_terminal"],
         "collapsed_candidate_ids": sorted(duplicate_ids or []),
+        "duplicate_member_evidence": list(duplicate_member_evidence or []),
         "duplicate_review_flags": sorted(set(duplicate_review_flags or [])),
         "duplicate_evidence_ids": sorted(set(duplicate_evidence_ids or [])),
         "captured_input_versions": _captured_versions(candidate, application),
     }
 
 
-def _similarity_flags(candidates: list[dict[str, Any]]) -> dict[str, set[str]]:
+def _similarity_flags(candidates: list[dict[str, Any]], work: _WorkMeter | None = None) -> dict[str, set[str]]:
+    _consume(work, len(candidates))
     flags: dict[str, set[str]] = {row["candidate_id"]: set() for row in candidates}
     normalized: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
+        _consume(work)
         title = " ".join((row.get("title") or "").lower().split())
         company = " ".join((row.get("company") or "").lower().split())
         if title and company:
             normalized.setdefault(title + "\0" + company, []).append(row)
     for group in normalized.values():
+        _consume(work)
         if len(group) > 1:
+            _consume(work, len(group))
             for row in group:
                 flags[row["candidate_id"]].add("title_company_similarity")
     return flags
 
 
-def _duplicate_groups(candidates: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def _duplicate_groups(candidates: list[dict[str, Any]], evidence: list[dict[str, Any]],
+                      work: _WorkMeter | None = None) -> list[list[dict[str, Any]]]:
+    _consume(work, len(candidates))
     parent = {row["candidate_id"]: row["candidate_id"] for row in candidates}
 
     def root(candidate_id: str) -> str:
@@ -531,60 +588,171 @@ def _duplicate_groups(candidates: list[dict[str, Any]], evidence: list[dict[str,
 
     exact: dict[tuple[str, str], list[str]] = {}
     for row in candidates:
+        _consume(work)
         requisition = row["requisition_id"]
         if requisition:
             exact.setdefault((row["source_id"], requisition), []).append(row["candidate_id"])
+        exact.setdefault(("posting_identity", row["posting_identity"] + "\0" + str(row["source_revision"])), []).append(
+            row["candidate_id"]
+        )
     for ids in exact.values():
         for other in ids[1:]:
+            _consume(work)
             join(ids[0], other)
     for item in evidence:
         ids = item["candidate_ids"]
         for other in ids[1:]:
+            _consume(work)
             join(ids[0], other)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in candidates:
+        _consume(work)
         grouped.setdefault(root(row["candidate_id"]), []).append(row)
-    return [sorted(group, key=lambda row: row["candidate_id"]) for group in grouped.values()]
+    result = []
+    for group in grouped.values():
+        _consume(work, len(group))
+        result.append(sorted(group, key=lambda row: row["candidate_id"]))
+    return result
 
 
-def _analyze(value: Any) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-    fixture = _fixture(value)
+def _analyze(value: Any, work: _WorkMeter | None = None) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    fixture = _fixture(value, work)
     excluded: list[dict[str, Any]] = []
-    classified: list[dict[str, Any]] = []
     application_flags: dict[str, bool] = {}
+    ambiguous_application_flags: dict[str, bool] = {}
+    classifications: dict[str, tuple[str | None, str | None, bool]] = {}
     for candidate in fixture["candidates"]:
-        application_flags[candidate["candidate_id"]] = _application_matches(candidate, fixture["applications"])
-        bucket, reason, omit = _classify(candidate, fixture)
-        if omit:
-            excluded.append({"candidate_id": candidate["candidate_id"], "reason": reason})
-            continue
-        classified.append((candidate, bucket, reason, application_flags[candidate["candidate_id"]]))
+        _consume(work)
+        candidate_id = candidate["candidate_id"]
+        matched, ambiguous = _application_match(candidate, fixture["applications"], work)
+        application_flags[candidate_id] = matched
+        ambiguous_application_flags[candidate_id] = ambiguous
+        classifications[candidate_id] = _classify(candidate, fixture, matched, ambiguous)
 
-    classified_by_id = {row[0]["candidate_id"]: row for row in classified}
-    candidates = [row[0] for row in classified]
-    flags = _similarity_flags(candidates)
+    candidates = fixture["candidates"]
+    flags = _similarity_flags(candidates, work)
+    evidence_by_candidate: dict[str, list[str]] = {}
+    for item in fixture["duplicate_evidence"]:
+        _consume(work)
+        for candidate_id in item["candidate_ids"]:
+            _consume(work)
+            evidence_by_candidate.setdefault(candidate_id, []).append(item["evidence_id"])
     records: list[dict[str, Any]] = []
-    for group in _duplicate_groups(candidates, fixture["duplicate_evidence"]):
-        representative = group[0]
-        buckets = {classified_by_id[row["candidate_id"]][1] for row in group}
-        if len(buckets) > 1:
+    for group in _duplicate_groups(candidates, fixture["duplicate_evidence"], work):
+        _consume(work, 1 + len(group) * 5)
+        member_ids = {row["candidate_id"] for row in group}
+        related_evidence = [
+            evidence_id for candidate_id in member_ids
+            for evidence_id in evidence_by_candidate.get(candidate_id, [])
+        ]
+        _consume(work, len(related_evidence))
+        evidence_ids = sorted(set(related_evidence))
+        provenance = sorted({item for row in group for item in row["provenance"]})
+        group_ids = sorted({item for row in group for item in row["group_ids"]})
+        member_evidence = [{
+            "candidate_id": row["candidate_id"],
+            "source_id": row["source_id"],
+            "source_state": row["source_state"],
+            "confirmed_application": application_flags[row["candidate_id"]],
+            "manual_terminal": row["manual_terminal"],
+            "captured_input_versions": _captured_versions(row, application_flags[row["candidate_id"]]),
+        } for row in group]
+
+        # Explicit application/manual evidence belongs to the deduplicated identity and
+        # must survive a sibling row being filtered or selected as representative.
+        if any(application_flags[row_id] for row_id in member_ids):
+            excluded.extend({
+                "candidate_id": row["candidate_id"], "reason": "confirmed_application",
+                "duplicate_group_candidate_ids": sorted(member_ids),
+                "duplicate_evidence_ids": sorted(evidence_ids),
+                "provenance": provenance,
+            } for row in group)
+            continue
+        if any(row["manual_terminal"] for row in group):
+            excluded.extend({
+                "candidate_id": row["candidate_id"], "reason": "manual_terminal",
+                "duplicate_group_candidate_ids": sorted(member_ids),
+                "duplicate_evidence_ids": sorted(evidence_ids),
+                "provenance": provenance,
+            } for row in group)
+            continue
+
+        source_states = {row["source_state"] for row in group}
+        if "closed" in source_states:
+            if source_states == {"closed"}:
+                excluded.extend({
+                    "candidate_id": row["candidate_id"], "reason": "source_closed",
+                    "duplicate_group_candidate_ids": sorted(member_ids),
+                    "duplicate_evidence_ids": sorted(evidence_ids),
+                    "provenance": provenance,
+                } for row in group)
+                continue
+            representative = group[0]
+            records.append(_candidate_view(
+                representative, "unresolved", "duplicate_source_state_conflict", False,
+                fixture["pool_id"], sorted(member_ids - {representative["candidate_id"]}),
+                ["duplicate_source_state_conflict"], evidence_ids, provenance, group_ids,
+                member_evidence,
+            ))
+            continue
+
+        if any(ambiguous_application_flags[row_id] for row_id in member_ids):
+            representative = group[0]
+            records.append(_candidate_view(
+                representative, "unresolved", "application_identity_ambiguous", False,
+                fixture["pool_id"], sorted(member_ids - {representative["candidate_id"]}),
+                ["application_identity_ambiguous"], evidence_ids, provenance, group_ids,
+                member_evidence,
+            ))
+            continue
+
+        classified = [(row, *classifications[row["candidate_id"]]) for row in group]
+        visible = [item for item in classified if not item[3]]
+        if not visible:
+            # Keep every filtered identity and its reason visible in the excluded ledger.
+            excluded.extend({
+                "candidate_id": row["candidate_id"], "reason": reason,
+                "duplicate_group_candidate_ids": sorted(member_ids),
+                "duplicate_evidence_ids": sorted(evidence_ids),
+                "provenance": provenance,
+            } for row, _bucket, reason, _omit in classified)
+            continue
+
+        representative, bucket, reason, _omit = min(
+            visible,
+            key=lambda item: (
+                item[0]["priority_order"] if item[0]["priority_order"] is not None else 2**31,
+                item[0]["candidate_id"],
+            ),
+        )
+        buckets = {item[1] for item in visible}
+        explicit_exclusions = {item[2] for item in classified if item[2] in {"yoe_excluded", "eligibility_excluded"}}
+        if len(buckets) > 1 or (explicit_exclusions and visible):
             bucket = "unresolved"
             reason = "duplicate_state_conflict"
         else:
             bucket = next(iter(buckets))
-            reason = classified_by_id[representative["candidate_id"]][2]
+            reason = next((item[2] for item in visible if item[2] is not None), None)
         member_ids = {row["candidate_id"] for row in group}
         merged_flags = set().union(*(flags[row_id] for row_id in member_ids))
-        evidence_ids = [item["evidence_id"] for item in fixture["duplicate_evidence"]
-                        if member_ids.intersection(item["candidate_ids"])]
-        provenance = sorted({item for row in group for item in row["provenance"]})
-        group_ids = sorted({item for row in group for item in row["group_ids"]})
         collapsed = sorted(member_ids - {representative["candidate_id"]})
+        merged_candidate = {
+            **representative,
+            "priority_order": min(
+                (row["priority_order"] for row in group if row["priority_order"] is not None),
+                default=None,
+            ),
+            "role_family_ids": sorted({role for row in group for role in row["role_family_ids"]}),
+        }
         records.append(_candidate_view(
-            representative, bucket, reason, application_flags[representative["candidate_id"]],
-            fixture["pool_id"], collapsed, list(merged_flags), evidence_ids, provenance, group_ids,
+            merged_candidate, bucket, reason, False, fixture["pool_id"], collapsed,
+            list(merged_flags), evidence_ids, provenance, group_ids, member_evidence,
         ))
+    _consume(work, len(records))
     records.sort(key=lambda row: row["occurrence_id"])
+    occurrence_ids = [row["occurrence_id"] for row in records]
+    if len(occurrence_ids) != len(set(occurrence_ids)):
+        raise ReviewBatchError("stable occurrence identity collision")
     return fixture, records, excluded
 
 
@@ -656,6 +824,10 @@ def build_review_batch(snapshot: Any) -> dict[str, Any]:
                 "occurrence_id": row["occurrence_id"],
                 "invalidated": None,
                 "replacement": None,
+                "replacement_history": [],
+                "invalidation_history": [],
+                "current_candidate_id": row["candidate_id"],
+                "unverified": None,
             })
     # The order is frozen once and never changes during paging or revalidation.
     ordered_slots = list(slots)
@@ -663,12 +835,22 @@ def build_review_batch(snapshot: Any) -> dict[str, Any]:
     policy_id = _digest(policy)
     public_window = {key: value for key, value in fixture["window"].items() if not key.startswith("_")}
     snapshot_id = _digest({
-        "pool_id": fixture["pool_id"], "window": public_window,
+        "pool_id": fixture["pool_id"], "now": fixture["now"], "window": public_window,
         "policy_id": policy_id,
-        "versions": sorted((row["candidate_id"], row["captured_input_versions"]) for row in records),
+        "candidate_inputs": fixture["candidates"],
+        "applications": fixture["applications"],
+        "duplicate_evidence": fixture["duplicate_evidence"],
+        "final_order": [(slot["slot_id"], slot["category"], slot["candidate_id"], slot["occurrence_id"])
+                        for slot in ordered_slots],
+        "audit_frame_ids": audit_frame_ids,
+        "audit_selected_ids": [row["occurrence_id"] for row in audit_selected],
     })
     batch_id = _digest({"pool_id": fixture["pool_id"], "snapshot_id": snapshot_id})[:32]
     initial_total = sum(initial.values())
+    excluded_duplicate_groups = {
+        tuple(row.get("duplicate_group_candidate_ids", []))
+        for row in excluded if len(row.get("duplicate_group_candidate_ids", [])) > 1
+    }
     report = {
         "input_candidate_count": len(fixture["candidates"]),
         "included_occurrence_count": len(records),
@@ -681,7 +863,10 @@ def build_review_batch(snapshot: Any) -> dict[str, Any]:
         },
         "deferred_count": sum(row["kind"] == "deferred" for row in records),
         "due_retry_count": sum(row["kind"] == "retry" for row in records),
-        "collapsed_duplicates": sum(len(row["collapsed_candidate_ids"]) for row in records),
+        "collapsed_duplicates": (
+            sum(len(row["collapsed_candidate_ids"]) for row in records) +
+            sum(len(group) - 1 for group in excluded_duplicate_groups)
+        ),
         "possible_duplicate_review_count": sum(bool(row["duplicate_review_flags"]) for row in records),
         "overloaded": len(eligible) + len(unresolved) > policy["overload_threshold"],
         "total_slots": policy["k"],
@@ -711,6 +896,7 @@ def build_review_batch(snapshot: Any) -> dict[str, Any]:
         "policy_id": policy_id,
         "batch_id": batch_id,
         "snapshot_id": snapshot_id,
+        "current_validation_status": "complete",
         "candidate_records": records,
         "entries": all_candidates,
         "excluded": sorted(excluded, key=lambda row: (row["reason"], row["candidate_id"])),
@@ -757,13 +943,24 @@ def page_review_batch(batch: Any, cursor: str | None = None) -> dict[str, Any]:
     entries = batch.get("entries", {})
     items = []
     for slot in batch["slots"][start:end]:
-        current = slot.get("replacement") or entries.get(slot.get("candidate_id"))
+        current = None
+        active_id = slot.get("current_candidate_id", slot.get("candidate_id"))
+        if active_id is not None and slot.get("unverified") is None:
+            if active_id == slot.get("candidate_id"):
+                current = entries.get(active_id)
+            else:
+                history = slot.get("replacement_history", [])
+                current = next((item for item in reversed(history)
+                                if item.get("candidate_id") == active_id), None)
+                if current is None and slot.get("replacement", {}).get("candidate_id") == active_id:
+                    current = slot["replacement"]
         items.append({
             "slot_id": slot["slot_id"],
             "category": slot["category"],
             "candidate": current,
             "invalidated": slot.get("invalidated"),
             "replacement": slot.get("replacement"),
+            "unverified": slot.get("unverified"),
         })
     next_cursor = _cursor(batch, end) if end < len(batch["slots"]) else None
     return {
@@ -772,6 +969,7 @@ def page_review_batch(batch: Any, cursor: str | None = None) -> dict[str, Any]:
         "synthetic": True,
         "batch_id": batch["batch_id"],
         "snapshot_id": batch["snapshot_id"],
+        "current_validation_status": batch.get("current_validation_status", "complete"),
         "page_scope": scope,
         "start": start,
         "end": end,
@@ -784,7 +982,8 @@ def page_review_batch(batch: Any, cursor: str | None = None) -> dict[str, Any]:
 
 
 def _invalidation_reason(original: dict[str, Any], current: dict[str, Any] | None,
-                         excluded_reason: str | None = None) -> str | None:
+                         excluded_reason: str | None = None,
+                         work: _WorkMeter | None = None) -> str | None:
     if current is None:
         if excluded_reason is not None:
             return excluded_reason
@@ -795,6 +994,8 @@ def _invalidation_reason(original: dict[str, Any], current: dict[str, Any] | Non
         return "source_revision_changed"
     if old["content_revision"] != new["content_revision"] or old["content_identity"] != new["content_identity"]:
         return "content_changed"
+    if current["bucket"] == "unresolved" and current.get("reason") == "duplicate_source_state_conflict":
+        return "duplicate_source_state_conflict"
     if current["source_state"] == "closed":
         return "source_closed"
     if current["confirmed_application"]:
@@ -803,97 +1004,274 @@ def _invalidation_reason(original: dict[str, Any], current: dict[str, Any] | Non
         return "manual_terminal"
     if current["bucket"] != original["bucket"]:
         return current.get("reason") or "eligibility_changed"
+    old_members = original.get("duplicate_member_evidence", [])
+    new_members = current.get("duplicate_member_evidence", [])
+    _consume(work, len(old_members) + len(new_members))
+    if old_members != new_members:
+        return "duplicate_members_changed"
     if old != new:
         return "captured_input_changed"
     return None
 
 
+def _slot_active_id(slot: dict[str, Any]) -> str | None:
+    return slot.get("current_candidate_id", slot.get("candidate_id"))
+
+
+def _slot_entry(batch: dict[str, Any], slot: dict[str, Any], candidate_id: str,
+                work: _WorkMeter | None = None) -> dict[str, Any] | None:
+    if candidate_id == slot.get("candidate_id"):
+        return batch.get("entries", {}).get(candidate_id)
+    for replacement in reversed(slot.get("replacement_history", [])):
+        _consume(work)
+        if replacement.get("candidate_id") == candidate_id:
+            return replacement
+    replacement = slot.get("replacement")
+    return replacement if replacement and replacement.get("candidate_id") == candidate_id else None
+
+
+def _fail_closed_revalidation(batch: dict[str, Any], *, elapsed_seconds: int, work_used: int,
+                              work_cap_reached: bool, time_cap_reached: bool) -> dict[str, Any]:
+    updated = dict(batch)
+    slots = []
+    for source in batch["slots"]:
+        slot = dict(source)
+        active_id = _slot_active_id(slot)
+        if active_id is not None:
+            slot["unverified"] = {
+                "candidate_id": active_id,
+                "reason": "revalidation_work_cap_reached" if work_cap_reached else "revalidation_time_cap_reached",
+            }
+        slots.append(slot)
+    updated["slots"] = slots
+    updated["candidate_records"] = []
+    updated["current_validation_status"] = "incomplete"
+    report = dict(batch["report"])
+    cumulative_work = report.get("revalidation_work", 0) + work_used
+    cumulative_elapsed = report.get("observed_elapsed_seconds", 0) + elapsed_seconds
+    active = sum(_slot_active_id(slot) is not None and slot.get("unverified") is None for slot in slots)
+    report.update({
+        "invalidations": report.get("invalidations", 0),
+        "replacement_entries": report.get("replacement_entries", 0),
+        "active_slots": active,
+        "unfilled_slots": report["total_slots"] - active,
+        "revalidation_work": cumulative_work,
+        "last_revalidation_work": work_used,
+        "work_cap_reached": work_cap_reached,
+        "time_cap_reached": time_cap_reached,
+        "revalidation_complete": False,
+        "unverified_slots": sum(slot.get("unverified") is not None for slot in slots),
+        "observed_elapsed_seconds": cumulative_elapsed,
+        "last_observed_elapsed_seconds": elapsed_seconds,
+        "revalidation_passes": report.get("revalidation_passes", 0) + 1,
+    })
+    updated["report"] = report
+    return updated
+
+
 def revalidate_review_batch(batch: Any, current_snapshot: Any, *, elapsed_seconds: int) -> dict[str, Any]:
-    """Invalidate changed frozen entries and annotate bounded same-category replacements."""
+    """Revalidate frozen entries and annotate bounded replacements.
+
+    ``elapsed_seconds`` is the injected duration for this pass; persisted state accumulates
+    these per-pass deltas against the synthetic time cap.
+    """
     if not _record(batch) or batch.get("scope") != BATCH_SCOPE or batch.get("synthetic") is not True:
         raise ReviewBatchError("invalid batch state")
     if not _integer(elapsed_seconds, maximum=24 * 60 * 60):
         raise ReviewBatchError("elapsed time is invalid")
-    current_fixture, current_records, current_excluded = _analyze(current_snapshot)
-    if current_fixture["pool_id"] != batch.get("pool_id") or _digest(current_fixture["policy"]) != batch.get("policy_id"):
+    if not _record(current_snapshot) or current_snapshot.get("synthetic") is not True:
+        raise ReviewBatchError("invalid current synthetic snapshot")
+    current_policy = _policy(current_snapshot.get("policy"))
+    if current_snapshot.get("pool_id") != batch.get("pool_id") or _digest(current_policy) != batch.get("policy_id"):
         raise ReviewBatchError("revalidation identity changed")
-    current_by_id = {row["candidate_id"]: row for row in current_records}
-    excluded_by_id = {row["candidate_id"]: row["reason"] for row in current_excluded}
-    entries = dict(batch["entries"])
-    slots = [dict(slot) for slot in batch["slots"]]
-    used_candidate_ids: set[str] = set()
-    invalidations = 0
-    replacement_count = 0
-    work = 0
-    cap_reached = elapsed_seconds > batch["policy"]["max_elapsed_seconds"]
-    invalidated_candidate_ids: set[str] = set()
+    report = batch.get("report", {})
+    previous_work = report.get("revalidation_work", 0)
+    previous_elapsed = report.get("observed_elapsed_seconds", 0)
+    cumulative_elapsed = previous_elapsed + elapsed_seconds
+    time_cap_reached = cumulative_elapsed > batch["policy"]["max_elapsed_seconds"]
+    remaining_work = max(0, batch["policy"]["max_revalidation_work"] - previous_work)
+    if time_cap_reached:
+        return _fail_closed_revalidation(
+            batch, elapsed_seconds=elapsed_seconds, work_used=0,
+            work_cap_reached=False, time_cap_reached=True,
+        )
+    if remaining_work == 0:
+        return _fail_closed_revalidation(
+            batch, elapsed_seconds=elapsed_seconds, work_used=0,
+            work_cap_reached=True, time_cap_reached=False,
+        )
 
-    for slot in slots:
-        original = entries.get(slot["candidate_id"])
-        current = current_by_id.get(slot["candidate_id"])
-        reason = _invalidation_reason(original or {}, current, excluded_by_id.get(slot["candidate_id"]))
-        if reason is None:
-            slot["invalidated"] = None
-            slot["replacement"] = None
+    work = _WorkMeter(remaining_work)
+    try:
+        _consume(work, len(batch["slots"]))
+        history_invalidation_count = sum(len(slot.get("invalidation_history", [])) for slot in batch["slots"])
+        _consume(work, history_invalidation_count)
+        prior_invalidations = max(report.get("invalidations", 0), history_invalidation_count)
+        current_fixture, current_records, current_excluded = _analyze(current_snapshot, work)
+        if (current_fixture["pool_id"] != batch.get("pool_id") or
+                _digest(current_fixture["policy"]) != batch.get("policy_id")):
+            raise ReviewBatchError("revalidation identity changed")
+
+        current_by_id: dict[str, dict[str, Any]] = {}
+        for row in current_records:
+            _consume(work)
+            current_by_id[row["candidate_id"]] = row
+            for alias in row["collapsed_candidate_ids"]:
+                _consume(work)
+                current_by_id[alias] = row
+        excluded_by_id: dict[str, str] = {}
+        for row in current_excluded:
+            _consume(work)
+            excluded_by_id[row["candidate_id"]] = row["reason"]
+
+        slots = []
+        new_invalidations = 0
+        for source in batch["slots"]:
+            _consume(work)
+            _consume(work, len(source.get("replacement_history", [])) + len(source.get("invalidation_history", [])))
+            slot = dict(source)
+            slot["replacement_history"] = list(source.get("replacement_history", []))
+            slot["invalidation_history"] = list(source.get("invalidation_history", []))
+            slot.setdefault("current_candidate_id", source["candidate_id"])
+            slot.setdefault("unverified", None)
+            active_id = _slot_active_id(slot)
+            if active_id is not None:
+                original = _slot_entry(batch, slot, active_id, work)
+                current = current_by_id.get(active_id)
+                reason = _invalidation_reason(
+                    original or {}, current, excluded_by_id.get(active_id), work
+                )
+                if reason is not None:
+                    new_invalidations += 1
+                    invalidation = {"candidate_id": active_id, "reason": reason}
+                    slot["invalidated"] = invalidation
+                    slot["invalidation_history"].append(invalidation)
+                    slot["current_candidate_id"] = None
+                    slot["replacement"] = None
+                    slot["unverified"] = None
+                else:
+                    slot["unverified"] = None
+                    if active_id != slot["candidate_id"]:
+                        slot["replacement"] = _slot_entry(batch, slot, active_id, work)
+            slots.append(slot)
+
+        used_candidate_ids: set[str] = set()
+        for slot in slots:
+            _consume(work)
+            _consume(work, len(slot.get("replacement_history", [])) + len(slot.get("invalidation_history", [])))
             used_candidate_ids.add(slot["candidate_id"])
-            continue
-        slot["invalidated"] = {"candidate_id": slot["candidate_id"], "reason": reason}
-        slot["replacement"] = None
-        invalidations += 1
-        invalidated_candidate_ids.add(slot["candidate_id"])
+            used_candidate_ids.update(
+                item["candidate_id"] for item in slot.get("replacement_history", [])
+            )
+            used_candidate_ids.update(
+                item["candidate_id"] for item in slot.get("invalidation_history", [])
+            )
+            active_id = _slot_active_id(slot)
+            if active_id is not None and slot.get("unverified") is None:
+                used_candidate_ids.add(active_id)
 
-        if cap_reached or replacement_count >= batch["policy"]["max_replacements"]:
-            continue
-        target_category = slot["category"]
-        candidate_bucket = "unresolved" if target_category == "unresolved" else "ranked"
-        candidates = [
-            row for row in current_records
-            if row["bucket"] == candidate_bucket and row["candidate_id"] not in used_candidate_ids and
-            row["candidate_id"] not in invalidated_candidate_ids and
-            row["candidate_id"] not in {other["candidate_id"] for other in slots if other["invalidated"] is None}
-        ]
-        if target_category == "audit":
-            frozen = set(batch["audit_frame_ids"])
-            candidates = [row for row in candidates if row["occurrence_id"] in frozen]
-            candidates.sort(key=lambda row: row["occurrence_id"])
-        elif target_category == "ranked":
-            candidates = priority_order(candidates)
-        else:
-            candidates = oldest_first(candidates)
-        replacement = None
-        for row in candidates:
-            if work >= batch["policy"]["max_revalidation_work"]:
-                break
-            work += 1
-            if row["candidate_id"] in used_candidate_ids:
+        prior_replacements = max(
+            report.get("replacement_entries", 0),
+            sum(len(slot.get("replacement_history", [])) for slot in slots),
+        )
+        _consume(work, sum(len(slot.get("replacement_history", [])) +
+                           len(slot.get("invalidation_history", [])) for slot in slots))
+        replacement_count = prior_replacements
+        replacement_cap_reached = False
+        _consume(work, len(batch.get("audit_frame_ids", [])))
+        frozen_audit = set(batch.get("audit_frame_ids", []))
+
+        for slot in slots:
+            _consume(work)
+            if _slot_active_id(slot) is not None:
                 continue
-            replacement = row
-            break
-        if replacement is not None and work <= batch["policy"]["max_revalidation_work"]:
-            slot["replacement"] = {
-                **replacement,
+            if replacement_count >= batch["policy"]["max_replacements"]:
+                replacement_cap_reached = True
+                continue
+            target_category = slot["category"]
+            candidate_bucket = "unresolved" if target_category == "unresolved" else "ranked"
+            candidates = []
+            for row in current_records:
+                _consume(work)
+                if row["bucket"] != candidate_bucket or row["candidate_id"] in used_candidate_ids:
+                    continue
+                if target_category == "audit" and row["occurrence_id"] not in frozen_audit:
+                    continue
+                candidates.append(row)
+            _consume(work, len(candidates))
+            if target_category == "audit":
+                candidates.sort(key=lambda row: row["occurrence_id"])
+            elif target_category == "ranked":
+                candidates = priority_order(candidates)
+            else:
+                candidates = oldest_first(candidates)
+            if not candidates:
+                continue
+            replacement = {
+                **candidates[0],
                 "replacement_for_slot_id": slot["slot_id"],
                 "replaces_occurrence_id": slot["occurrence_id"],
             }
+            slot["replacement"] = replacement
+            slot["replacement_history"].append(replacement)
+            slot["current_candidate_id"] = replacement["candidate_id"]
+            slot["unverified"] = None
             used_candidate_ids.add(replacement["candidate_id"])
             replacement_count += 1
 
-    updated = dict(batch)
-    updated["entries"] = entries
-    updated["slots"] = slots
-    report = dict(batch["report"])
-    report.update({
-        "invalidations": invalidations,
-        "replacement_entries": replacement_count,
-        "active_slots": sum(slot["replacement"] is not None or slot["invalidated"] is None for slot in slots),
-        "unfilled_slots": report["total_slots"] - sum(slot["replacement"] is not None or slot["invalidated"] is None for slot in slots),
-        "revalidation_work": work,
-        "work_cap_reached": work >= batch["policy"]["max_revalidation_work"] and invalidations > replacement_count,
-        "time_cap_reached": cap_reached,
-        "observed_elapsed_seconds": elapsed_seconds,
-    })
-    updated["report"] = report
-    return updated
+        updated = dict(batch)
+        updated["slots"] = slots
+        updated["candidate_records"] = current_records
+        updated["excluded"] = current_excluded
+        updated["current_validation_status"] = "complete"
+        _consume(work, len(current_records))
+        updated_entries = dict(batch.get("entries", {}))
+        updated_entries.update({row["candidate_id"]: row for row in current_records})
+        updated["entries"] = updated_entries
+        for slot in slots:
+            _consume(work)
+            active_id = _slot_active_id(slot)
+            if active_id is not None and active_id in current_by_id and active_id != slot["candidate_id"]:
+                current_entry = current_by_id[active_id]
+                replacement = {
+                    **current_entry,
+                    "replacement_for_slot_id": slot["slot_id"],
+                    "replaces_occurrence_id": slot["occurrence_id"],
+                }
+                history = slot["replacement_history"]
+                for index in range(len(history) - 1, -1, -1):
+                    _consume(work)
+                    if history[index]["candidate_id"] == active_id:
+                        history[index] = replacement
+                        break
+                slot["replacement"] = replacement
+        total_invalidations = prior_invalidations + new_invalidations
+        _consume(work, len(slots) * 2)
+        active = sum(_slot_active_id(slot) is not None and slot.get("unverified") is None for slot in slots)
+        report = dict(batch["report"])
+        report.update({
+            "invalidations": total_invalidations,
+            "replacement_entries": replacement_count,
+            "active_slots": active,
+            "unfilled_slots": report["total_slots"] - active,
+            "revalidation_work": previous_work + work.used,
+            "last_revalidation_work": work.used,
+            "work_cap_reached": False,
+            "time_cap_reached": False,
+            "replacement_cap_reached": replacement_cap_reached,
+            "revalidation_complete": True,
+            "unverified_slots": sum(slot.get("unverified") is not None for slot in slots),
+            "observed_elapsed_seconds": cumulative_elapsed,
+            "last_observed_elapsed_seconds": elapsed_seconds,
+            "revalidation_passes": report.get("revalidation_passes", 0) + 1,
+        })
+        updated["report"] = report
+        return updated
+    except _WorkCapExceeded:
+        return _fail_closed_revalidation(
+            batch, elapsed_seconds=elapsed_seconds, work_used=work.used,
+            work_cap_reached=True, time_cap_reached=False,
+        )
 
 
 def summary(batch: dict[str, Any]) -> dict[str, Any]:
@@ -902,6 +1280,21 @@ def summary(batch: dict[str, Any]) -> dict[str, Any]:
                        for category in _BUCKETS}
     invalidated = [slot for slot in batch["slots"] if slot["invalidated"]]
     replaced = [slot for slot in batch["slots"] if slot["replacement"]]
+    unverified = [slot for slot in batch["slots"] if slot.get("unverified")]
+    invalidation_history = [
+        {"slot_id": slot["slot_id"], **event}
+        for slot in batch["slots"] for event in slot.get("invalidation_history", [])
+    ]
+    replacement_history = [
+        {
+            "slot_id": slot["slot_id"],
+            "candidate_id": entry["candidate_id"],
+            "occurrence_id": entry["occurrence_id"],
+            "replacement_for_slot_id": entry["replacement_for_slot_id"],
+            "replaces_occurrence_id": entry["replaces_occurrence_id"],
+        }
+        for slot in batch["slots"] for entry in slot.get("replacement_history", [])
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "scope": BATCH_SCOPE,
@@ -913,6 +1306,7 @@ def summary(batch: dict[str, Any]) -> dict[str, Any]:
         "policy_id": batch["policy_id"],
         "batch_id": batch["batch_id"],
         "snapshot_id": batch["snapshot_id"],
+        "current_validation_status": batch.get("current_validation_status", "complete"),
         "report": batch["report"],
         "excluded_sample": batch["excluded"][:32],
         "excluded_sample_truncated": len(batch["excluded"]) > 32,
@@ -924,6 +1318,8 @@ def summary(batch: dict[str, Any]) -> dict[str, Any]:
             "reason": slot["invalidated"]["reason"],
         } for slot in invalidated[:32]],
         "invalidated_sample_truncated": len(invalidated) > 32,
+        "invalidation_history_sample": invalidation_history[:32],
+        "invalidation_history_sample_truncated": len(invalidation_history) > 32,
         "replacement_sample": [{
             "slot_id": slot["slot_id"],
             "candidate_id": slot["replacement"]["candidate_id"],
@@ -931,12 +1327,21 @@ def summary(batch: dict[str, Any]) -> dict[str, Any]:
             "replaces_occurrence_id": slot["replacement"]["replaces_occurrence_id"],
         } for slot in replaced[:32]],
         "replacement_sample_truncated": len(replaced) > 32,
+        "replacement_history_sample": replacement_history[:32],
+        "replacement_history_sample_truncated": len(replacement_history) > 32,
+        "unverified_sample": [{
+            "slot_id": slot["slot_id"],
+            "candidate_id": slot["unverified"]["candidate_id"],
+            "reason": slot["unverified"]["reason"],
+        } for slot in unverified[:32]],
+        "unverified_sample_truncated": len(unverified) > 32,
         "slot_preview": [{
             "slot_id": slot["slot_id"],
             "category": slot["category"],
             "candidate_id": slot["candidate_id"],
             "occurrence_id": slot["occurrence_id"],
             "invalidated": slot["invalidated"],
+            "unverified": slot.get("unverified"),
             "replacement": ({
                 "candidate_id": slot["replacement"]["candidate_id"],
                 "occurrence_id": slot["replacement"]["occurrence_id"],

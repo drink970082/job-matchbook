@@ -31,6 +31,15 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Correct synthetic review-batch replay so application/manual exclusions survive exact
+  and corroborated deduplication, source closure conflicts stay unresolved, requisition
+  matches are source-scoped, and duplicate posting occurrences cannot enter an audit
+  sample twice. Bind the injected clock and frozen order to snapshot/cursor identity;
+  preserve cumulative replacement/invalidation history, meter candidate/evidence scans
+  and replacement search against the persisted work cap, and check accumulated injected
+  per-pass elapsed duration before each pass. Incomplete revalidation exposes no current
+  candidates and leaves affected slots visibly unverified.
+
 - Deploy the research/inventory and source-lifecycle changes through #105 to production
   on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the
   Prisma schema upgrade. Exercise all ten local/remote read-only MCP tools, advanced

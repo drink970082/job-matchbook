@@ -16,6 +16,7 @@ from ats_worker.review_batch import (
     page_review_batch,
     priority_order,
     revalidate_review_batch,
+    summary,
     uniform_audit_sample,
 )
 
@@ -46,7 +47,7 @@ def policy(**changes):
         "retry_max_overdue_hours": 72,
         "max_candidate_count": 300,
         "max_replacements": 1,
-        "max_revalidation_work": 20,
+        "max_revalidation_work": 1000,
         "max_elapsed_seconds": 10,
         "redistribution_order": ["ranked", "audit", "unresolved"],
     }
@@ -236,6 +237,7 @@ def test_terminal_and_unlinked_application_exclusions_keep_reasons():
         "confirmed": True,
         "posting_id": None,
         "requisition_id": "req-applied",
+        "source_id": "board-a",
     }])
     batch = build_review_batch(value)
     reasons = {item["candidate_id"]: item["reason"] for item in batch["excluded"]}
@@ -280,6 +282,78 @@ def test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags():
     assert by_id["similar-2"]["duplicate_review_flags"] == ["title_company_similarity"]
 
 
+def test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping():
+    exact = [
+        candidate("exact-applied", requisition_id="req-shared", confirmed_application=True),
+        candidate("exact-open", requisition_id="req-shared"),
+    ]
+    corroborated = [
+        candidate("closed", source_id="board-a", posting_identity="cross-a", source_state="closed"),
+        candidate("open", source_id="board-b", posting_identity="cross-b"),
+    ]
+    value = fixture(exact + corroborated, duplicate_evidence=[{
+        "kind": "cross_source_corroboration",
+        "evidence_id": "cross-evidence",
+        "candidate_ids": ["closed", "open"],
+    }])
+    batch = build_review_batch(value)
+    reasons = {row["candidate_id"]: row["reason"] for row in batch["excluded"]}
+    records = {row["candidate_id"]: row for row in batch["candidate_records"]}
+    assert reasons["exact-applied"] == reasons["exact-open"] == "confirmed_application"
+    assert "closed" not in reasons and "open" not in reasons
+    assert records["closed"]["bucket"] == "unresolved"
+    assert records["closed"]["reason"] == "duplicate_source_state_conflict"
+    assert [row["source_state"] for row in records["closed"]["duplicate_member_evidence"]] == ["closed", "open"]
+    assert set(records["closed"]["collapsed_candidate_ids"]) == {"open"}
+
+    manual = build_review_batch(fixture([
+        candidate("manual-terminal", requisition_id="req-manual", manual_terminal=True),
+        candidate("manual-sibling", requisition_id="req-manual"),
+    ]))
+    manual_reasons = {row["candidate_id"]: row["reason"] for row in manual["excluded"]}
+    assert manual_reasons == {
+        "manual-terminal": "manual_terminal",
+        "manual-sibling": "manual_terminal",
+    }
+
+
+def test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous():
+    rows = [
+        candidate("board-a", source_id="board-a", requisition_id="req-collision"),
+        candidate("board-b", source_id="board-b", requisition_id="req-collision"),
+    ]
+    scoped = build_review_batch(fixture(rows, applications=[{
+        "application_id": "scoped-app", "confirmed": True, "posting_id": None,
+        "requisition_id": "req-collision", "source_id": "board-a",
+    }]))
+    excluded = {row["candidate_id"] for row in scoped["excluded"]}
+    assert excluded == {"board-a"}
+    assert {row["candidate_id"] for row in scoped["candidate_records"]} == {"board-b"}
+
+    ambiguous = build_review_batch(fixture(rows, applications=[{
+        "application_id": "ambiguous-app", "confirmed": True, "posting_id": None,
+        "requisition_id": "req-collision",
+    }]))
+    assert {row["reason"] for row in ambiguous["candidate_records"]} == {"application_identity_ambiguous"}
+    assert ambiguous["excluded"] == []
+
+
+def test_stable_posting_occurrences_are_unique_before_audit_sampling():
+    rows = [
+        candidate("a", posting_identity="same-posting", requisition_id=None),
+        candidate("b", posting_identity="same-posting", requisition_id=None),
+    ]
+    batch = build_review_batch(fixture(rows, policy=policy(
+        ranked_slots=0, audit_slots=2, unresolved_slots=0,
+        service_slots=0, role_coverage_slots=0,
+    )))
+    assert batch["report"]["included_occurrence_count"] == 1
+    assert len(batch["audit_frame_ids"]) == len(set(batch["audit_frame_ids"])) == 1
+    assert len(batch["audit_selected_ids"]) == 1
+    assert len({slot["occurrence_id"] for slot in batch["slots"]}) == len(batch["slots"])
+    assert batch["report"]["audit_inclusion_probability"] == 1.0
+
+
 def test_selection_helpers_are_deterministic_prioritize_age_and_cover_roles():
     rows = [
         {"candidate_id": "a", "occurrence_id": "occ-a", "priority_order": 3,
@@ -297,6 +371,8 @@ def test_selection_helpers_are_deterministic_prioritize_age_and_cover_roles():
     assert len(sample) == len(set(sample)) == 2
     assert probability == pytest.approx(2 / 3)
     assert uniform_audit_sample(rows, 2, seed=7)[1] == sample
+    with pytest.raises(ReviewBatchError, match="not unique"):
+        uniform_audit_sample([rows[0], dict(rows[0])], 2, seed=7)
 
 
 def test_age_service_fixed_allocations_redistribution_and_cursor_pages():
@@ -332,6 +408,29 @@ def test_age_service_fixed_allocations_redistribution_and_cursor_pages():
     ))
     with pytest.raises(ReviewBatchError, match="identity changed"):
         revalidate_review_batch(batch, changed_policy, elapsed_seconds=1)
+
+
+def test_clock_and_final_order_are_bound_to_batch_and_cursor_identity():
+    rows = [
+        candidate("old", kind="deferred", first_eligible_at="2026-10-28T09:00:00Z",
+                  deferred_at="2026-10-28T09:00:00Z", priority_order=99),
+        candidate("high", priority_order=1),
+        candidate("next", priority_order=2),
+    ]
+    scoped_policy = policy(
+        k=2, ranked_slots=2, audit_slots=0, unresolved_slots=0,
+        service_age_hours=4, service_slots=1, role_coverage_slots=0, page_size=1,
+    )
+    at_noon = build_review_batch(fixture(rows, policy=scoped_policy))
+    later = build_review_batch(fixture(
+        rows, policy=scoped_policy, now="2026-10-28T14:00:00Z"
+    ))
+    assert [slot["candidate_id"] for slot in at_noon["slots"]] == ["high", "next"]
+    assert [slot["candidate_id"] for slot in later["slots"]] == ["old", "high"]
+    assert at_noon["batch_id"] != later["batch_id"]
+    assert at_noon["snapshot_id"] != later["snapshot_id"]
+    with pytest.raises(ReviewBatchError, match="cursor"):
+        page_review_batch(later, page_review_batch(at_noon)["next_cursor"])
 
 
 def test_audit_frame_is_frozen_and_probability_uses_actual_frame_size():
@@ -390,6 +489,7 @@ def test_revalidation_reports_closure_and_application_reasons_and_honors_replace
             "confirmed": True,
             "posting_id": None,
             "requisition_id": "newly-applied",
+            "source_id": app_candidate["source_id"],
         }]),
         elapsed_seconds=1,
     )
@@ -414,11 +514,11 @@ def test_revalidation_reports_closure_and_application_reasons_and_honors_replace
     assert capped["report"]["unfilled_slots"] == 1
 
 
-def test_revalidation_work_cap_limits_replacement_search():
+def test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots():
     rows = [candidate(f"c{i}", priority_order=i) for i in range(5)]
     scoped_policy = policy(
         ranked_slots=2, audit_slots=0, unresolved_slots=0,
-        max_revalidation_work=1, max_replacements=2,
+        max_revalidation_work=2, max_replacements=2,
     )
     batch = build_review_batch(fixture(rows, policy=scoped_policy))
     changed = [dict(row) for row in rows]
@@ -431,10 +531,15 @@ def test_revalidation_work_cap_limits_replacement_search():
     updated = revalidate_review_batch(
         batch, fixture(changed, policy=scoped_policy), elapsed_seconds=1
     )
-    assert updated["report"]["revalidation_work"] == 1
-    assert updated["report"]["replacement_entries"] == 1
+    assert updated["report"]["revalidation_work"] == 2
+    assert updated["report"]["replacement_entries"] == 0
     assert updated["report"]["work_cap_reached"] is True
-    assert updated["report"]["unfilled_slots"] == 1
+    assert updated["report"]["revalidation_complete"] is False
+    assert updated["report"]["unverified_slots"] == 2
+    assert all(item["candidate"] is None for item in page_review_batch(updated)["items"])
+    assert {row["reason"] for row in summary(updated)["unverified_sample"]} == {
+        "revalidation_work_cap_reached"
+    }
 
 
 def test_audit_replacement_stays_inside_the_frozen_low_rank_frame():
@@ -457,6 +562,128 @@ def test_audit_replacement_stays_inside_the_frozen_low_rank_frame():
     updated_audit = next(slot for slot in updated["slots"] if slot["category"] == "audit")
     assert updated_audit["replacement"]["candidate_id"] != original_audit_id
     assert updated_audit["replacement"]["occurrence_id"] in batch["audit_frame_ids"]
+
+
+def test_revalidation_work_cap_counts_candidate_search_and_sorting():
+    rows = [candidate(f"c{i}", priority_order=i) for i in range(5)]
+    base_policy = policy(ranked_slots=2, audit_slots=0, unresolved_slots=0, max_revalidation_work=10_000)
+    baseline = build_review_batch(fixture(rows, policy=base_policy))
+    stable = revalidate_review_batch(
+        baseline, fixture(rows, policy=base_policy), elapsed_seconds=1
+    )
+    analysis_and_slot_cost = stable["report"]["revalidation_work"]
+
+    selected_id = baseline["slots"][0]["candidate_id"]
+    changed = [dict(row) for row in rows]
+    target = next(row for row in changed if row["candidate_id"] == selected_id)
+    target["source_state"] = "closed"
+    tight_policy = policy(
+        ranked_slots=2, audit_slots=0, unresolved_slots=0,
+        max_revalidation_work=analysis_and_slot_cost + 1,
+    )
+    tight_batch = build_review_batch(fixture(rows, policy=tight_policy))
+    limited = revalidate_review_batch(
+        tight_batch, fixture(changed, policy=tight_policy), elapsed_seconds=1
+    )
+    assert limited["report"]["work_cap_reached"] is True
+    assert limited["report"]["revalidation_work"] == analysis_and_slot_cost + 1
+    assert limited["report"]["revalidation_complete"] is False
+    assert limited["candidate_records"] == []
+    assert all(item["candidate"] is None for item in page_review_batch(limited)["items"])
+
+
+def test_revalidation_time_cap_short_circuits_before_candidate_validation(monkeypatch):
+    import ats_worker.review_batch as review_batch
+
+    scoped_policy = policy(
+        ranked_slots=1, audit_slots=0, unresolved_slots=0,
+        role_coverage_slots=0, service_slots=0,
+        max_revalidation_work=0, max_elapsed_seconds=0,
+    )
+    batch = build_review_batch(fixture([candidate("selected")], policy=scoped_policy))
+    calls = 0
+    real_validate = review_batch._validate_candidate
+
+    def counted(value, work=None):
+        nonlocal calls
+        calls += 1
+        return real_validate(value, work)
+
+    monkeypatch.setattr(review_batch, "_validate_candidate", counted)
+    failed = revalidate_review_batch(
+        batch, fixture([candidate("selected")], policy=scoped_policy), elapsed_seconds=1
+    )
+    assert calls == 0
+    assert failed["report"]["time_cap_reached"] is True
+    assert failed["report"]["revalidation_work"] == 0
+    assert failed["current_validation_status"] == "incomplete"
+    assert failed["candidate_records"] == []
+    assert page_review_batch(failed)["items"][0]["candidate"] is None
+
+
+def test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps(tmp_path):
+    worker_root = Path(__file__).parents[1]
+    env = {**os.environ, "PYTHONPATH": str(worker_root)}
+    rows = [candidate(name, priority_order=index) for index, name in enumerate(("a", "b", "c"))]
+    scoped_policy = policy(
+        ranked_slots=1, audit_slots=0, unresolved_slots=0,
+        service_slots=0, role_coverage_slots=0,
+        max_replacements=1, max_revalidation_work=1000,
+    )
+    fixture_path = tmp_path / "pool.json"
+    state_path = tmp_path / "state.json"
+
+    def write_fixture(candidates):
+        fixture_path.write_text(json.dumps(fixture(candidates, policy=scoped_policy)))
+
+    def run(action, elapsed=None):
+        args = [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", action,
+                "--state", str(state_path)]
+        if action in {"create", "revalidate"}:
+            args.extend(["--fixture", str(fixture_path)])
+        if elapsed is not None:
+            args.extend(["--elapsed-seconds", str(elapsed)])
+        completed = subprocess.run(args, cwd=worker_root, env=env, text=True,
+                                   capture_output=True, check=False)
+        assert completed.returncode == 0, completed.stderr
+        return json.loads(completed.stdout)
+
+    write_fixture(rows)
+    created = run("create")
+    original_id = created["first_page"]["items"][0]["candidate"]["candidate_id"]
+    first_rows = [dict(row) for row in rows]
+    next(row for row in first_rows if row["candidate_id"] == original_id)["source_state"] = "closed"
+    write_fixture(first_rows)
+    first = run("revalidate", elapsed=1)
+    first_state = json.loads(state_path.read_text())
+    first_slot = first_state["slots"][0]
+    replacement_id = first_slot["current_candidate_id"]
+    assert replacement_id != original_id
+    assert len(first_slot["replacement_history"]) == 1
+    assert first["report"]["invalidations"] == 1
+    assert first["report"]["replacement_entries"] == 1
+
+    second_rows = [dict(row) for row in rows]
+    for row in second_rows:
+        if row["candidate_id"] in {original_id, replacement_id}:
+            row["source_state"] = "closed"
+    write_fixture(second_rows)
+    second = run("revalidate", elapsed=1)
+    second_state = json.loads(state_path.read_text())
+    second_slot = second_state["slots"][0]
+    assert second["report"]["invalidations"] == 2
+    assert second["report"]["replacement_entries"] == 1
+    assert second["report"]["observed_elapsed_seconds"] == 2
+    assert second["report"]["last_observed_elapsed_seconds"] == 1
+    assert second["report"]["replacement_cap_reached"] is True
+    assert second_slot["current_candidate_id"] is None
+    assert [entry["candidate_id"] for entry in second_slot["replacement_history"]] == [replacement_id]
+    assert [event["candidate_id"] for event in second_slot["invalidation_history"]] == [original_id, replacement_id]
+    assert second["first_page"]["items"][0]["candidate"] is None
+    assert second["invalidation_history_sample"] == [
+        {"slot_id": second_slot["slot_id"], "candidate_id": original_id, "reason": "source_closed"},
+        {"slot_id": second_slot["slot_id"], "candidate_id": replacement_id, "reason": "source_closed"},
+    ]
 
 
 @pytest.mark.parametrize("count", [0, 1, 200, 201])
