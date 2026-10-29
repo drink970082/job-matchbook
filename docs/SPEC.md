@@ -25,8 +25,11 @@
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
-supported optional assistance.** Fit pre-ranking is last-priority and conditional on a
-measured scheduled-ChatGPT throughput gap; keeping it does not require turning it on.
+supported optional assistance.** The operator selects provider-free pre-ranking
+preparation for a reported approximately 200-posting daily workload. This preparation
+does not choose a model or policy, enable runtime use, or claim that scheduled ChatGPT
+has failed its live acceptance gate. Fit pre-ranking remains optional assistance, and
+production evaluation, persistence and activation retain their separate gates.
 The operator values Luna/medium within an existing
 subscription; inclusion does not remove allowance limits. The shipped Luna/medium
 configuration is standalone screening, not a fit-model change.
@@ -1644,6 +1647,15 @@ it simply waits for an unbounded pass. **The `new` queue is read
   These derived fields leave the existing `screen_outcome` and stored row values intact.
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
+- **Offline synthetic assessment projection** (`preselection_view.py`,
+  `preselection_view_cli.py`). Given an explicitly supplied, schema-1 synthetic snapshot,
+  project a bounded view with separate assessment and latest-attempt states. Compare
+  source revision/content identity, context, rubric/policy/question/prompt/schema, input
+  variant and provider/model identity; stale or incomplete evidence is never a
+  qualification result. Only typed component scores, safe version/model labels and
+  resolved JD-source excerpts leave the projection. The explicit fixture CLI has no
+  config/profile/database defaults and is not wired into `run.py`, inventory or MCP.
+
 ### 7.2 Web (`apps/web/src/`)
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
@@ -1771,6 +1783,11 @@ it simply waits for an unbounded pass. **The `new` queue is read
   spend the scorer actually bills), `JobDetailModal` (JD + score detail), and
   the four charts `TimelineHeatmap` /
   `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
+
+- **Offline assessment panel** (`lib/assessment-view.ts`,
+  `components/preselection/AssessmentPanel.tsx`) validates and renders only the bounded
+  synthetic projection. The panel is exercised by an isolated component test and is not
+  routed into inventory, Server Actions, MCP, or the deployed UI.
 
 ---
 
@@ -2435,6 +2452,15 @@ guarantee:
   Both are backed by the human in the loop (kept `disqualification_reason` +
   `reopenJobPosting`).
 
+**Offline synthetic assessment-view projection.** A version-1 snapshot must be marked
+synthetic and carry complete expected and captured identities. Matching identities yield
+`current`; any identity change, including a late result for older content, yields `stale`;
+absent success yields `not_assessed`; malformed, missing, oversized, or unsupported input
+yields `unknown` without component values. A later provider error is reported separately
+and never replaces a saved success. Invalid or unknown evidence never becomes a zero
+score, qualification badge, or private-context display; only allowlisted JD references
+are included. This contract runs through the explicit local fixture path only.
+
 ### Invariant → test traceability
 
 Grounds the "verifiable" claim. **(no test)** marks an invariant with **no** (or only indirect)
@@ -2564,6 +2590,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP metadata/all-text search, escaped literal metacharacters, UTC assessment windows (including fractional precision), filter-scoped cursors, first-page id ceiling, current-state traversal and payload bounds behave as specified | `tests/test_mcp_repository.py` (`test_all_text_search_is_opt_in_literal_and_keeps_descriptions_chunk_only`, `test_screening_windows_use_utc_instants_and_id_ceiling`, `test_screening_windows_preserve_fractional_precision_beyond_microseconds`, `test_job_cursor_ceiling_and_live_pages_make_no_snapshot_claim`, `test_screening_change_behind_cursor_is_found_by_reconciliation`, `test_large_generated_all_text_search_filters_before_limit_and_bounds_payload`) |
 | MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
+| Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after a failed attempt, bounds/redacts the view, and fails closed on malformed or unsupported input | `worker/tests/test_preselection_view.py`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
