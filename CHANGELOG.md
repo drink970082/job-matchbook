@@ -57,9 +57,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   per complete UTC-day pool, fail rendered-context mismatches, and mark label-unknown
   evidence inconclusive without shrinking its item count. Validate nullable normalized
   source fields without dropping required provenance, require non-empty source identity,
-  and keep repeated `(source, external_id)` postings in one split across days. Keep
-  submitted role labels out of reports, and return malformed source or seed Unicode as a
-  bounded replay-input error.
+  and keep repeated `(source, external_id)` postings in one split across days. Frozen
+  replay evidence remains inconclusive because the supplied artifacts have no independent
+  roster that can verify source-pool completeness. Keep submitted role labels out of
+  reports, and return malformed source or seed Unicode as a bounded replay-input error.
 
 - Consolidate the accepted offline preparation and its execution contract, remove
   completed preparation claims from the active queue, and define a provider-free

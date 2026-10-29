@@ -96,6 +96,7 @@ _SOURCE_REQUIRED_TEXT_FIELDS = {
 }
 _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS = {"location", "posted_at"}
 _SOURCE_REQUIRED_FIELDS = _SOURCE_REQUIRED_TEXT_FIELDS | _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS
+_SOURCE_POOL_COMPLETENESS_LIMITATION = "source_pool_completeness_not_independently_verifiable"
 _LABELS = {"positive", "negative", "unresolved"}
 
 
@@ -696,8 +697,10 @@ def build_snapshot_replay_report(
         budgets=normalized_budgets,
     )
     unresolved = any(item.label == "unresolved" for item in snapshot.pool.items)
-    report["evidence_status"] = "INCONCLUSIVE" if unresolved else "INPUTS_VALIDATED"
-    report["evidence_limitations"] = ["unresolved_labels"] if unresolved else []
+    report["evidence_status"] = "INCONCLUSIVE"
+    report["evidence_limitations"] = [_SOURCE_POOL_COMPLETENESS_LIMITATION]
+    if unresolved:
+        report["evidence_limitations"].append("unresolved_labels")
     report["provenance"] = {
         "profile_version": snapshot.profile.version,
         "profile_status": snapshot.profile.status,

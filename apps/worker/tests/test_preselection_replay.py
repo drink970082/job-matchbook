@@ -263,7 +263,10 @@ def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_pr
     report = json.loads(result.stdout)
     encoded = json.dumps(report, sort_keys=True)
 
-    assert report["evidence_status"] == "INPUTS_VALIDATED"
+    assert report["evidence_status"] == "INCONCLUSIVE"
+    assert "source_pool_completeness_not_independently_verifiable" in report[
+        "evidence_limitations"
+    ]
     assert report["acceptance_decision"] == "not_recorded"
     assert report["provider_calls"] == 0
     assert report["provenance"]["source_items"] == 8
@@ -299,6 +302,43 @@ def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_pr
         "production ownership stayed with the team",
     ):
         assert private_value not in encoded
+
+
+def test_snapshot_cli_marks_recomputed_partial_pool_inconclusive(tmp_path):
+    value = _snapshot_value()
+    value["source_pool"]["items"].pop()
+    value["manifest"] = build_snapshot_manifest(
+        value["profile"], value["rendered_context"], value["source_pool"]
+    )
+    path = tmp_path / "partial-synthetic-snapshot.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(path),
+            "--snapshot",
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.5",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["provenance"]["source_items"] == 7
+    assert report["evidence_status"] == "INCONCLUSIVE"
+    assert "source_pool_completeness_not_independently_verifiable" in report[
+        "evidence_limitations"
+    ]
 
 
 def test_full_snapshot_allows_nullable_normalized_source_fields():

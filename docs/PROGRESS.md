@@ -23,21 +23,24 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
   on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
   context, normalized source payloads, versioned hashes, counts and actual UTC-day
-  membership before replay. Source and external ID must be non-empty trimmed text, and
-  repeated `(source, external_id)` postings remain in one split across dates and groups.
+  membership before replay. This proves consistency of supplied artifacts, not whether a
+  row was omitted before freezing; without an independent source roster, every frozen
+  report marks its evidence inconclusive. Source and external ID must be non-empty trimmed
+  text, and repeated `(source, external_id)` postings remain in one split across dates and
+  groups.
   Other normalized source fields are required with nullable location and posting date;
   budgets are allocated per day; rendered-context mismatch is an error; unresolved labels
   preserve rows and make recall inconclusive. Reports use anonymous role keys and malformed
   source or seed Unicode fails as bounded input validation. The older ID-only pool remains
   exploratory and explicitly inconclusive. Synthetic profile
   and posting fixtures only; no real candidate/job data, model call, quality claim,
-  runtime selection or acceptance GO. The focused replay/profile suite passes (53 tests).
-  Full worker/web coverage passes (1,303 worker tests, 1 skipped, 88.64%; 420 web tests
+  runtime selection or acceptance GO. The focused replay/profile suite passes (54 tests).
+  Full worker/web coverage passes (1,304 worker tests, 1 skipped, 88.63%; 420 web tests
   across 35 suites). Worker/web integration passes (4 worker tests, 1 skipped; 74 web
-  tests), and schema/privacy checks pass. The isolated #124/#125 rehearsal retains #125's
-  `RunBinding` and schema-4 journal; its worker/web integration passes (4 passed, 1
-  skipped; 74 passed), while combined worker coverage is 84.78%, below the 85% gate due to
-  the unmerged stack additions. Draft PR
+  tests); schema, privacy, and lint checks pass. The isolated #124/#125 rehearsal retains
+  #125's `RunBinding` and schema-4 journal; its worker/web integration passes (4 passed,
+  1 skipped; 74 passed), while combined worker coverage is 84.78%, below the 85% gate due
+  to the unmerged stack additions. Draft PR
   [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
   remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
   range. No live input, policy or GO is accepted by these synthetic results.
