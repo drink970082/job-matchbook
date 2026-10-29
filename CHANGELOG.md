@@ -57,6 +57,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   inconclusive. Show source state and independent fit/screen freshness in the tracker
   and read-only MCP. Content changes do not rerun models or delete evidence.
 
+### Fixed
+
+- Derive a bound shadow run's effective provenance from the explicit run declaration or
+  the journal's existing binding. Validate the actual approved profile and question set
+  before starting or reusing an assessment, including after journal reload, even when the
+  caller omits the `run_binding` argument. Preserve valid cache reuse on resume.
+
 ### Changed
 
 - Bound preselection shadow response handling to the run deadline: the supervised worker

@@ -219,6 +219,16 @@ class FakeProvider:
         return ProviderReply(invocation.model_identity, payload, Usage(12, 7, None), PRICE)
 
 
+class MarkerFakeProvider(FakeProvider):
+    def __init__(self, profile: CandidateProfile, marker_path: Path):
+        super().__init__(profile, "complete")
+        self.marker_path = marker_path
+
+    def complete(self, invocation):
+        self.marker_path.write_text(str(invocation.request_identity), encoding="utf-8")
+        return super().complete(invocation)
+
+
 def _assessment_outcome(value: dict, variant: str, request_identity: str, status: str = "completed") -> dict:
     item = value["items"][0]
     occurrence = _hash(
@@ -439,3 +449,101 @@ def test_real_shadow_rejects_profile_or_questions_that_differ_from_bound_run_bef
     with pytest.raises(ShadowIntegrityError, match="question set differs"):
         _run_call(profile, changed_questions, provider, journal, limits, variant="extracted", run_binding=binding)
     assert journal.records == []
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("changed_input", ["profile", "questions"])
+def test_bound_journal_rejects_changed_inputs_when_binding_argument_is_omitted(
+    tmp_path, resume, changed_input
+):
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    journal = AttemptJournal.empty()
+    assert journal.bind_run(dataset.run_binding)
+
+    if resume:
+        _run_call(
+            profile,
+            questions,
+            FakeProvider(profile, "complete"),
+            journal,
+            limits,
+            variant="direct",
+            run_binding=None,
+        )
+        journal = AttemptJournal.from_json(journal.to_json())
+
+    if changed_input == "profile":
+        profile_value = json.loads((FIXTURES / "preselection_profile.synthetic.json").read_text())
+        profile_value["status"] = "approved"
+        profile_value["background"][0]["text"] = "A different fabricated backend-engineering career."
+        actual_profile = profile_from_value(profile_value)
+        actual_questions = questions
+        expected_message = "candidate profile differs"
+    else:
+        questions_value = json.loads((FIXTURES / "preselection_questions.synthetic.json").read_text())
+        questions_value["version"] = "synthetic-questions-v2"
+        actual_profile = profile
+        actual_questions = question_set_from_value(questions_value)
+        expected_message = "question set differs"
+
+    before = journal.to_json()
+    persisted: list[str] = []
+    marker = tmp_path / f"provider-called-{resume}-{changed_input}"
+    provider = MarkerFakeProvider(actual_profile, marker)
+    with pytest.raises(ShadowIntegrityError, match=expected_message):
+        run_shadow_assessment(
+            JobEnvelope("Synthetic Co", "Junior Engineer", "Remote", JD),
+            actual_profile,
+            actual_questions,
+            "direct",
+            ASSESSOR,
+            provider,
+            journal,
+            limits,
+            SystemClock(),
+            lambda current: persisted.append(current.to_json()),
+            enabled=True,
+        )
+
+    assert not marker.exists()
+    assert persisted == []
+    assert journal.to_json() == before
+
+
+def test_bound_journal_can_reuse_success_on_resume_without_binding_argument(tmp_path):
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    journal = AttemptJournal.empty()
+    journal.bind_run(dataset.run_binding)
+    first = _run_call(
+        profile,
+        questions,
+        FakeProvider(profile, "complete"),
+        journal,
+        limits,
+        variant="direct",
+        run_binding=None,
+    )
+    resumed_journal = AttemptJournal.from_json(journal.to_json())
+    marker = tmp_path / "must-not-call-provider"
+    provider = MarkerFakeProvider(profile, marker)
+
+    resumed = run_shadow_assessment(
+        JobEnvelope("Synthetic Co", "Junior Engineer", "Remote", JD),
+        profile,
+        questions,
+        "direct",
+        ASSESSOR,
+        provider,
+        resumed_journal,
+        limits,
+        SystemClock(),
+        lambda current: None,
+        enabled=True,
+    )
+
+    assert resumed.status == "completed"
+    assert resumed.assessment_from_cache is True
+    assert not marker.exists()
+    assert len(resumed_journal.records) == 1

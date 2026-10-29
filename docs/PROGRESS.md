@@ -52,19 +52,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   production policy, runtime wiring or evaluation.
 
 - **Issue #112 evaluation provenance and workload identities — [draft PR #125](https://github.com/drink970082/job-matchbook/pull/125), branch
-  `repair/112-evaluation-provenance`, behavior fix `6ab7e75`.** The branch replays the
-  #111 repair in `21274a7` on the unmerged #112 source and composes its actual output
-  through the report. It binds run/profile/question/pool/split evidence, handles
-  incomplete/failed/ambiguous extraction without invented assessment calls, and counts
-  daily occurrences separately from stable inference/cost identity. The six #112 baseline
-  repro cases fail on source `5f04208`; regression and real fake-provider composition
-  tests pass. Worker suite: 1,319 passed, 1 skipped; coverage: 88.74% (85% gate); worker
-  integration: 4 passed, 1 skipped; fresh-process CLI/import: 3 passed; compile and schema
-  drift checks pass. Privacy self-test and equivalent 396-path tracked audit pass; the
-  Node privacy wrapper is blocked by sandbox `spawnSync git EPERM`. No live provider or
-  model inference, private inputs, price/policy choice, GO decision or runtime wiring is
-  included. Both drafts target main and disclose the unmerged #110/#116/design stack;
-  #94 acceptance, real-input/provider/policy selection and independent review remain open.
+  `repair/112-evaluation-provenance`. The local branch includes the #111 bounded-response
+  repair and derives the effective binding from either the explicit `run_binding` or the
+  already-bound journal. It rejects a changed approved profile or question set before
+  transport, attempt persistence or cache reuse, including after journal reload; an
+  unchanged run still resumes a cached success without repeating the binding argument.
+  The real fake-provider/report composition remains exercised. The focused evaluation
+  integration suite passes (10 tests). PR #125 remains at its published head `208e69e` and
+  does not include these local corrections. Full evaluation and live-use gates remain open;
+  there is no real provider inference, private input, price/policy selection, GO decision or
+  runtime wiring in this repair. The unmerged #110/#116/design prerequisite ancestry and
+  #94 acceptance remain separate orchestrator gates.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

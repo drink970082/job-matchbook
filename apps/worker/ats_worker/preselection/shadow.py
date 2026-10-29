@@ -2249,13 +2249,14 @@ def run_shadow_assessment(
         raise ShadowIntegrityError("draw_number must be a positive integer")
     if profile.status != "approved":
         raise ShadowIntegrityError("shadow assessment requires an approved candidate profile")
-    if run_binding is not None:
-        run_binding.validate()
-        if profile.identity_sha256 != run_binding.profile_sha256:
+    effective_binding = run_binding if run_binding is not None else journal.run_binding
+    if effective_binding is not None:
+        effective_binding.validate()
+        if profile.identity_sha256 != effective_binding.profile_sha256:
             raise ShadowIntegrityError("candidate profile differs from the frozen run binding")
-        if questions.sha256 != run_binding.question_set_sha256:
+        if questions.sha256 != effective_binding.question_set_sha256:
             raise ShadowIntegrityError("question set differs from the frozen run binding")
-        if journal.bind_run(run_binding):
+        if journal.bind_run(effective_binding):
             persist(journal)
     policy = retry_policy or RetryPolicy()
     active_sleeper = sleeper or SystemSleeper()
