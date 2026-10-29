@@ -170,6 +170,7 @@ def test_replay_parameters_and_insufficient_group_components_fail_visibly():
     pool = load_pool_text(FIXTURE.read_text(encoding="utf-8"))
     for kwargs, message in [
         ({"seed": "", "heldout_fraction": 0.25, "budgets": (1,)}, "seed"),
+        ({"seed": "\udcff", "heldout_fraction": 0.25, "budgets": (1,)}, "seed"),
         ({"seed": "x", "heldout_fraction": 1.0, "budgets": (1,)}, "heldout_fraction"),
         ({"seed": "x", "heldout_fraction": 0.25, "budgets": ()}, "budgets"),
         ({"seed": "x", "heldout_fraction": 0.25, "budgets": (0,)}, "budgets"),
@@ -381,6 +382,31 @@ def test_snapshot_cli_reports_malformed_unicode_as_a_bounded_input_error(tmp_pat
     assert result.returncode == 2
     assert "Traceback" not in result.stderr
     assert "cannot replay frozen input" in result.stderr
+    assert "UnicodeEncodeError" not in result.stderr
+
+
+def test_snapshot_cli_reports_malformed_seed_unicode_as_a_bounded_input_error():
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(SNAPSHOT_FIXTURE),
+            "--snapshot",
+            "--seed",
+            "\udcff",
+            "--heldout-fraction",
+            "0.5",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert "cannot replay frozen input: seed" in result.stderr
     assert "UnicodeEncodeError" not in result.stderr
 
 

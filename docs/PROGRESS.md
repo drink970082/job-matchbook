@@ -15,7 +15,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   access; full worker, coverage, integration and schema checks pass. The privacy guard's
   subprocess wrapper is blocked by sandbox `spawnSync git EPERM`; its self-test and the
   equivalent tracked-path audit pass. Fresh-context review found no actionable issue.
-  No provider inference or production wiring is involved.
+  Its focused draft is local; remote branch/PR writes are currently blocked. No provider
+  inference or production wiring is involved.
 
 - **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
   on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
@@ -23,13 +24,19 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   membership before replay. Normalized source fields are required with nullable location
   and posting date; budgets are allocated per day; rendered-context mismatch is an error;
   unresolved labels preserve rows and make recall inconclusive. Reports use anonymous
-  role keys and malformed Unicode fails as bounded input validation. The older ID-only
-  pool remains exploratory and explicitly inconclusive. Synthetic profile and posting
-  fixtures only; no real candidate/job data, model call, quality claim, runtime selection
-  or acceptance GO. Focused replay/profile tests pass (49); worker coverage is 88.60% and
-  web coverage is 420 tests across 35 suites. Post-review integration/schema/privacy
-  checks and a fresh review of this final head remain. Disclose the #116 prerequisite
-  range in the dependent draft PR.
+  role keys and malformed source or seed Unicode fails as bounded input validation. The
+  older ID-only pool remains exploratory and explicitly inconclusive. Synthetic profile
+  and posting fixtures only; no real candidate/job data, model call, quality claim,
+  runtime selection or acceptance GO. Focused replay/profile tests pass (50); worker
+  coverage is 88.61% (1,300 passed, 1 skipped) and web coverage is 420 tests across 35
+  suites. The #124/#125 rehearsal retains #125's `RunBinding` and schema-4 journal;
+  worker/web integration passes (4 passed, 1 skipped; 74 passed). Full worker tests in
+  that combined stack pass (1,406 passed, 1 skipped), but total coverage is 84.78%, below
+  the 85% gate due to the unmerged stack additions. Schema, compilation and privacy
+  self-test pass; the full privacy target's subprocess wrapper is blocked by sandbox
+  `spawnSync git EPERM`, while the equivalent tracked-path audit passes. A final
+  independent review and focused remote draft publication remain. Disclose the #116
+  prerequisite range in the dependent draft PR.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -68,10 +75,10 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Complete all checks and independent review for the #116 and #110 repair heads, then
-   revalidate the #111/#112 repair stack against those exact prerequisites. Keep the
-   issues open until their acceptance gates pass. These corrections use fabricated data
-   and authorize no live inference.
+1. Complete independent review for the final #110 repair head, then publish the focused
+   #116/#110 draft PRs and revalidate the #111/#112 repair stack against those exact
+   prerequisites. Keep the issues open until their acceptance gates pass. These
+   corrections use fabricated data and authorize no live inference.
 2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
    before any upstream stack merge. Existing green suites do not establish acceptance.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)

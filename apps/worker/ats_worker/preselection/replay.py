@@ -388,6 +388,10 @@ def _stable_split(
     """Assign whole UTC days and duplicate/template groups to development or held-out."""
     if not isinstance(seed, str) or not seed.strip():
         raise ReplayValidationError("seed must be non-empty text")
+    try:
+        seed_bytes = seed.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ReplayValidationError("seed must be valid Unicode text") from None
     if isinstance(heldout_fraction, bool) or not isinstance(heldout_fraction, (int, float)):
         raise ReplayValidationError("heldout_fraction must be between 0 and 1")
     if not 0 < heldout_fraction < 1:
@@ -425,7 +429,9 @@ def _stable_split(
     components = list(rows_by_root)
     components.sort(
         key=lambda root: hashlib.sha256(
-            (seed + "\0" + json.dumps(sorted(nodes_by_root[root]), separators=(",", ":"))).encode()
+            seed_bytes
+            + b"\0"
+            + json.dumps(sorted(nodes_by_root[root]), separators=(",", ":")).encode("utf-8")
         ).hexdigest()
     )
     heldout_count = int(len(components) * float(heldout_fraction) + 0.5)
