@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Preparation closeout — `chore/preselection-prep-closeout`, integration in progress.**
+  Consolidate the accepted offline preparation and planning branches through PR #123,
+  reconcile current-state docs and issue dependencies, and prepare the #111/#112 repair
+  handoff. No live evaluation or deployment is selected.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
