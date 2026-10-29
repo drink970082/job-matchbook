@@ -11,6 +11,7 @@ import pytest
 from ats_worker.preselection.extraction import extraction_from_value
 from ats_worker.preselection.profile import profile_from_value, render_profile
 from ats_worker.preselection.questions import question_set_from_value
+from ats_worker.preselection import shadow as shadow_module
 from ats_worker.preselection.shadow import (
     AttemptJournal,
     Charge,
@@ -149,6 +150,29 @@ class NonReturningTransport:
         Path(self.marker_path).write_text(str(os.getpid()), encoding="utf-8")
         while True:
             time.sleep(1)
+
+
+class LargePlainReplyTransport:
+    def __init__(self, marker_path, size=100_000_000):
+        self.marker_path = str(marker_path)
+        self.size = size
+
+    def complete(self, invocation):
+        Path(self.marker_path).write_text(str(os.getpid()), encoding="utf-8")
+        return reply(ASSESSOR, {"large": "x" * self.size})
+
+
+def _sleep_and_write_marker(marker_path):
+    Path(marker_path).write_text("unpickled in parent", encoding="utf-8")
+    time.sleep(0.5)
+
+
+class SlowUnpickleValue:
+    def __init__(self, marker_path):
+        self.marker_path = str(marker_path)
+
+    def __reduce__(self):
+        return (_sleep_and_write_marker, (self.marker_path,))
 
 
 def extraction_payload(description=JD, coverage="complete"):
@@ -535,6 +559,151 @@ def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
             enabled=True,
         )
     assert resumed_transport.calls == []
+
+
+def test_reply_untrusted_objects_are_not_unpickled_in_parent(tmp_path):
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    marker = tmp_path / "parent-unpickle-marker"
+    payload = assessment_payload()
+    payload["untrusted"] = SlowUnpickleValue(marker)
+    transport = FakeTransport([reply(ASSESSOR, payload)], clock)
+
+    started = time.monotonic()
+    with pytest.raises(Exception):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.3),
+            clock,
+            lambda current: None,
+            enabled=True,
+        )
+
+    assert not marker.exists(), "provider output executed pickle code in the parent process"
+    assert time.monotonic() - started < 0.65
+    assert journal.records[0].status == "integrity_failure"
+    assert journal.records[0].delivery == "completed"
+    assert journal.records[0].charge["kind"] == "actual"
+
+
+def test_ordinary_oversized_reply_is_bounded_and_accounted(tmp_path):
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    marker = tmp_path / "large-reply-worker.pid"
+    transport = LargePlainReplyTransport(marker)
+
+    started = time.monotonic()
+    with pytest.raises((ShadowResumeAmbiguous, ShadowIntegrityError)):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.25),
+            clock,
+            lambda current: None,
+            enabled=True,
+        )
+
+    assert time.monotonic() - started < 0.65
+    assert marker.exists()
+    worker_pid = int(marker.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(worker_pid, 0)
+    record = journal.records[0]
+    assert record.status in {"ambiguous", "integrity_failure"}
+    if record.status == "ambiguous":
+        assert record.delivery == "unknown"
+        assert record.usage["input_tokens"] is None
+        assert record.charge["kind"] == "unknown"
+    else:
+        assert record.delivery == "completed"
+        assert record.usage["input_tokens"] == 12
+        assert record.charge["kind"] == "actual"
+
+
+def test_response_validation_is_inside_the_killable_deadline(tmp_path, monkeypatch):
+    original_validate = shadow_module.validate_assessment_payload
+    marker = tmp_path / "validator-process.pid"
+
+    def slow_validate(*args, **kwargs):
+        marker.write_text(str(os.getpid()), encoding="utf-8")
+        time.sleep(0.9)
+        return original_validate(*args, **kwargs)
+
+    monkeypatch.setattr(shadow_module, "validate_assessment_payload", slow_validate)
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
+
+    started = time.monotonic()
+    with pytest.raises(ShadowResumeAmbiguous, match="delivery and charge are unknown"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.4),
+            clock,
+            lambda current: None,
+            enabled=True,
+        )
+
+    assert time.monotonic() - started < 0.7
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert journal.records[0].usage == {"input_tokens": None, "output_tokens": None, "cached_input_tokens": None}
+    assert journal.records[0].charge["kind"] == "unknown"
+    worker_pid = int(marker.read_text(encoding="utf-8"))
+    assert worker_pid != os.getpid()
+    with pytest.raises(ProcessLookupError):
+        os.kill(worker_pid, 0)
+
+
+def test_parent_wire_decode_is_checked_against_the_remaining_deadline(monkeypatch):
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
+    original_loads = shadow_module.json.loads
+
+    def expire_during_decode(payload):
+        if type(payload) is bytes:
+            clock.advance(100)
+        return original_loads(payload)
+
+    monkeypatch.setattr(shadow_module.json, "loads", expire_during_decode)
+
+    with pytest.raises(ShadowResumeAmbiguous, match="delivery and charge are unknown"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.05),
+            clock,
+            lambda current: None,
+            enabled=True,
+        )
+
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert journal.records[0].charge["kind"] == "unknown"
+    assert journal.records[0].usage["input_tokens"] is None
 
 
 def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):
