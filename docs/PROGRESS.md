@@ -39,13 +39,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 shadow deadline and retry repair — `repair/111-deadline-cancellation`, in
-  progress.** Extends the unaccepted #111 source at `f49e95ba` with a supervised
-  cancellable transport boundary, one deadline across extraction/assessment/backoff,
-  persisted bounded retry state and timeout ambiguity accounting. Synthetic tests use
-  fake transports and prices only. The repair branch carries unmerged #110/#116/design
-  prerequisites and remains a draft-review deliverable; none is accepted by this work.
-  No live provider, production policy, runtime wiring or evaluation is selected.
+- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
+  `repair/111-deadline-cancellation`, code commit `08e3453`.** Extends the unaccepted
+  source at `f49e95ba` with a supervised cancellable transport boundary, one deadline
+  across extraction/assessment/backoff, persisted bounded retry state and timeout
+  ambiguity accounting. On the baseline, a blocking fake exceeded the 10 ms cap
+  (about 160 ms) and retry began without backoff; the repaired focused shadow suite passes
+  (21). The draft targets main and carries unmerged #110/#116/design prerequisite
+  ancestry; none is accepted by this work. No live provider, production policy, runtime
+  wiring or evaluation is selected.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
