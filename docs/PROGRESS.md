@@ -24,12 +24,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
-- **Synthetic preselection rehearsal — `feat/synthetic-preselection-rehearsal`
-  (#119 offline preparation).** The explicit fixture CLI composes the actual assessment
-  projection and review-batch modules, records bounded monitoring and simulated faults,
-  and exercises a local unranked fallback. Scheduled access, live provider evidence,
-  read/delivery acknowledgements and production rollback remain unexercised; parent #115
-  remains open.
+- **Synthetic preselection rehearsal — `feat/synthetic-preselection-rehearsal`, draft
+  PR #123 open (#119 offline preparation).** The explicit fixture CLI composes the
+  actual assessment projection and review-batch modules, records bounded monitoring
+  and simulated faults, and exercises a local unranked fallback. Scheduled access,
+  live provider evidence, read/delivery acknowledgements and production rollback
+  remain unexercised; parent #115 remains open.
 
 - **Review-batch replay — `feat/review-batch-replay`, draft PR #122 open
   (#118 provider-free preparation).** This branch builds a pure synthetic pool/policy
