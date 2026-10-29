@@ -39,23 +39,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   blocked by sandbox `spawnSync git EPERM`. Review and remote PR creation remain pending.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
-- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
-  `repair/111-deadline-cancellation`.** The local branch extends the unaccepted
-  `f49e95ba` source with bounded JSON normalization and validation in one Linux worker.
-  Before provider or cached-validator code runs, the worker verifies matching non-root
-  real/effective/saved UIDs, empty effective/permitted/inheritable/ambient capability sets,
-  and `PR_SET_NO_NEW_PRIVS`, then verifies
-  `RLIMIT_NPROC` soft/hard limits of zero. This prohibits provider-created processes and
-  threads; transports must be synchronous and cannot spawn subprocesses or background
-  threads. The parent directly kills and reaps the one worker on timeout. Provider output
-  crosses shared memory as capped primitives, never pickle; the parent checks the deadline
-  around bounded decoding. Readiness races and timeouts after execution may start stay
-  ambiguous with unknown usage/charge and cannot be replayed; completed oversized/schema-
-  invalid replies retain safely decoded accounting. The focused shadow suite has 31 tests.
-  PR #124 remains at its prior published head `61952ef` and does
-  not yet include these local corrections. Its #110/#116/design prerequisite ancestry
-  remains unaccepted; this repair selects no live provider, production policy, runtime
-  wiring or evaluation.
+- **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124),
+  branch `repair/111-deadline-cancellation`, corrective code `034d2ff`.** Provider work,
+  response normalization and validation run inside one directly supervised Linux worker.
+  Before execution it verifies unprivileged credentials, `NO_NEW_PRIVS` and hard/soft
+  `RLIMIT_NPROC=0`; unsupported environments fail closed. Transports and validators must
+  be synchronous and cannot create subprocesses or threads. Capped primitive JSON replaces
+  pickle; timeout/readiness races remain ambiguous, and the worker is killed and reaped
+  before return. The 31 focused shadow tests and independent adversarial review cover
+  oversized replies, slow validation, process/thread denial, unchanged parent state and
+  honest accounting. The draft retains unaccepted #110/#116/design ancestry and selects
+  no live provider or runtime behavior.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
