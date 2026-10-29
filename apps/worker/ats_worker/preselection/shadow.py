@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import signal
 import stat
+import sys
 import tempfile
 import time
 from typing import Any, Callable, Protocol
@@ -1046,21 +1047,31 @@ def _reserved_charge(ceiling: CostCeiling | None) -> dict[str, str] | None:
 
 
 def _execution_boundary_available(transport: Transport) -> None:
-    """Reject transports before an attempt unless a killable process boundary is available."""
+    """Require Linux process supervision with a per-call descendant reaper."""
     if (
-        os.name != "posix"
+        sys.platform != "linux"
+        or os.name != "posix"
+        or not hasattr(os, "fork")
         or not hasattr(os, "setsid")
         or not hasattr(os, "killpg")
         or not callable(getattr(transport, "complete", None))
     ):
         raise ShadowIntegrityError(
-            "a supervised POSIX transport boundary is required before provider execution"
+            "a Linux subreaper transport boundary is required before provider execution"
         )
     try:
         multiprocessing.get_context("fork")
+        getattr(__import__("ctypes").CDLL(None), "prctl")
+        children_path = Path(f"/proc/self/task/{os.getpid()}/children")
+        if not children_path.is_file():
+            raise OSError("the Linux direct-child list is unavailable")
     except (RuntimeError, ValueError) as exc:
         raise ShadowIntegrityError(
-            "a supervised POSIX transport boundary is required before provider execution"
+            "a Linux subreaper transport boundary is required before provider execution"
+        ) from exc
+    except (AttributeError, OSError) as exc:
+        raise ShadowIntegrityError(
+            "a Linux subreaper transport boundary is required before provider execution"
         ) from exc
 
 
@@ -1580,24 +1591,158 @@ def _validation_error_from_code(error_code: str) -> Exception:
     return exception_type(message)
 
 
-def _terminate_worker(process: Any, *, kill_group: bool) -> bool:
-    if process.pid is None:
-        return True
-    if kill_group:
+_SUPERVISOR_PENDING = 0
+_SUPERVISOR_COMPLETE = 1
+_SUPERVISOR_TIMED_OUT = 2
+_SUPERVISOR_BOUNDARY_UNAVAILABLE = 3
+_SUPERVISOR_CLEANUP_UNCONFIRMED = 4
+_SUPERVISOR_CLEANUP_RESERVE_SECONDS = 1.5
+_SUPERVISOR_POLL_SECONDS = 0.005
+
+
+def _enable_child_subreaper() -> bool:
+    """Enable and verify PR_SET_CHILD_SUBREAPER in the dedicated supervisor only."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.argtypes = (
+            ctypes.c_int,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        )
+        prctl.restype = ctypes.c_int
+        if prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+            return False
+        enabled = ctypes.c_ulong(0)
+        if prctl(37, ctypes.addressof(enabled), 0, 0, 0) != 0:  # PR_GET_CHILD_SUBREAPER
+            return False
+        return enabled.value == 1
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _direct_supervisor_child_pids() -> list[int]:
+    path = Path(f"/proc/self/task/{os.getpid()}/children")
+    contents = path.read_text(encoding="ascii").strip()
+    return [int(value) for value in contents.split()] if contents else []
+
+
+def _signal_supervisor_children() -> None:
+    try:
+        child_pids = _direct_supervisor_child_pids()
+    except (OSError, ValueError):
+        child_pids = []
+    for child_pid in child_pids:
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            os.kill(child_pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    elif process.is_alive():
+
+
+def _reap_supervisor_children_until(
+    cleanup_deadline: float,
+) -> bool:
+    """Kill and reap every adopted descendant; ECHILD is the completion proof."""
+    while True:
+        _signal_supervisor_children()
+        while True:
+            try:
+                child_pid, _status = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                return True
+            if child_pid == 0:
+                break
+        if time.monotonic() >= cleanup_deadline:
+            return False
+        time.sleep(_SUPERVISOR_POLL_SECONDS)
+
+
+def _supervisor_worker(
+    transport: Transport,
+    invocation: Invocation,
+    validator: Callable[[Any], Any],
+    result_buffer: Any,
+    result_size: Any,
+    ready: Any,
+    cancel_requested: Any,
+    supervisor_state: Any,
+    real_deadline: float,
+) -> None:
+    """Own one transport process tree and publish only after every child is reaped."""
+    try:
+        os.setsid()
+    except OSError:
+        supervisor_state.value = _SUPERVISOR_BOUNDARY_UNAVAILABLE
+        return
+    if not _enable_child_subreaper():
+        supervisor_state.value = _SUPERVISOR_BOUNDARY_UNAVAILABLE
+        return
+
+    try:
+        worker_pid = os.fork()
+    except OSError:
+        supervisor_state.value = _SUPERVISOR_BOUNDARY_UNAVAILABLE
+        return
+    if worker_pid == 0:
+        _transport_worker(transport, invocation, validator, result_buffer, result_size, ready)
+        os._exit(1)
+
+    worker_status: int | None = None
+    while worker_status is None:
         try:
-            process.kill()
+            finished_pid, status = os.waitpid(worker_pid, os.WNOHANG)
+        except ChildProcessError:
+            finished_pid, status = worker_pid, 1
+        if finished_pid == worker_pid:
+            worker_status = status
+            break
+        if cancel_requested.is_set() or time.monotonic() >= real_deadline:
+            break
+        time.sleep(_SUPERVISOR_POLL_SECONDS)
+
+    completed_before_deadline = (
+        worker_status is not None
+        and os.WIFEXITED(worker_status)
+        and os.WEXITSTATUS(worker_status) == 0
+        and not cancel_requested.is_set()
+        and time.monotonic() < real_deadline
+    )
+
+    if worker_status is None:
+        # The unreaped worker PID still pins its process-group id, so this cannot
+        # target a recycled, unrelated group. The subreaper loop also catches children
+        # that escaped with setsid or double-forking.
+        try:
+            os.killpg(worker_pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.join(timeout=0.1)
-        if process.is_alive():
-            process.kill()
-    process.join(timeout=0.1)
-    return not process.is_alive()
+        try:
+            os.kill(worker_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    # On normal completion the worker PID has already been reaped. Kill adopted
+    # descendants by their current PIDs below instead of risking a reused PGID.
+
+    clean = _reap_supervisor_children_until(
+        time.monotonic() + _SUPERVISOR_CLEANUP_RESERVE_SECONDS
+    )
+    if clean:
+        supervisor_state.value = (
+            _SUPERVISOR_COMPLETE if completed_before_deadline else _SUPERVISOR_TIMED_OUT
+        )
+        return
+
+    # Do not exit and orphan descendants after a bounded cleanup failure. The caller
+    # reports unknown delivery after its reserve; this supervisor keeps reaping until
+    # ECHILD, without changing process state outside this one invocation.
+    supervisor_state.value = _SUPERVISOR_CLEANUP_UNCONFIRMED
+    while not _reap_supervisor_children_until(time.monotonic() + 1.0):
+        pass
+    supervisor_state.value = _SUPERVISOR_TIMED_OUT
 
 
 def _supervised_complete(
@@ -1607,42 +1752,70 @@ def _supervised_complete(
     deadline: _RunDeadline,
     clock: Clock,
 ) -> _SupervisedOutcome:
-    """Run transport and validation under one killable deadline; receive bounded JSON only."""
+    """Run transport under a per-call subreaper; receive bounded JSON only."""
     context = multiprocessing.get_context("fork")
     result_buffer = context.RawArray("B", _MAX_WORKER_RESULT_BYTES)
     result_size = context.RawValue("I", 0)
     ready = context.Event()
+    cancel_requested = context.Event()
+    supervisor_state = context.RawValue("i", _SUPERVISOR_PENDING)
     process = context.Process(
-        target=_transport_worker,
-        args=(transport, invocation, validator, result_buffer, result_size, ready),
+        target=_supervisor_worker,
+        args=(
+            transport,
+            invocation,
+            validator,
+            result_buffer,
+            result_size,
+            ready,
+            cancel_requested,
+            supervisor_state,
+            deadline.real_deadline,
+        ),
     )
     try:
         process.start()
     except (OSError, RuntimeError) as exc:
         raise ShadowIntegrityError("could not start the supervised transport boundary") from exc
-    worker_cleaned = False
+
+    joined = False
     try:
-        remaining = deadline.remaining(clock)
-        if remaining <= 0 or not ready.wait(remaining):
-            worker_cleaned = _terminate_worker(process, kill_group=ready.is_set())
-            raise _SupervisedTimeout("not_sent")
-        remaining = deadline.remaining(clock)
-        if remaining <= 0:
-            worker_cleaned = _terminate_worker(process, kill_group=True)
-            if not worker_cleaned:
-                raise ShadowIntegrityError("timed-out transport worker could not be reaped")
-            raise _SupervisedTimeout("unknown")
-        process.join(timeout=remaining)
+        # Wait for transport readiness in short slices so an early supervisor failure
+        # (including unavailable prctl) fails closed without waiting for the full run.
+        while not ready.is_set() and process.is_alive():
+            remaining = deadline.remaining(clock)
+            if remaining <= 0:
+                break
+            ready.wait(min(remaining, _SUPERVISOR_POLL_SECONDS * 2))
+
+        while process.is_alive():
+            remaining = deadline.remaining(clock)
+            if remaining <= 0:
+                break
+            process.join(timeout=min(remaining, _SUPERVISOR_POLL_SECONDS * 2))
         if process.is_alive():
-            worker_cleaned = _terminate_worker(process, kill_group=True)
-            if not worker_cleaned:
-                raise ShadowIntegrityError("timed-out transport worker could not be reaped")
+            cancel_requested.set()
+            cleanup_deadline = time.monotonic() + _SUPERVISOR_CLEANUP_RESERVE_SECONDS
+            process.join(timeout=max(0.0, cleanup_deadline - time.monotonic()))
+        joined = not process.is_alive()
+        if not joined:
+            raise RuntimeError(
+                "transport descendant cleanup was not confirmed within its reserve; "
+                "the dedicated supervisor remains active"
+            )
+
+        state = supervisor_state.value
+        if state == _SUPERVISOR_BOUNDARY_UNAVAILABLE:
+            raise ShadowIntegrityError(
+                "the dedicated supervisor could not establish verified subreaper cleanup"
+            )
+        if state == _SUPERVISOR_CLEANUP_UNCONFIRMED:
+            raise RuntimeError("transport descendant cleanup could not be confirmed")
+        if state == _SUPERVISOR_TIMED_OUT or deadline.remaining(clock) <= 0:
             raise _SupervisedTimeout("unknown")
-        worker_cleaned = _terminate_worker(process, kill_group=True)
-        if not worker_cleaned:
-            raise ShadowIntegrityError("completed transport worker could not be reaped")
-        if deadline.remaining(clock) <= 0:
-            raise _SupervisedTimeout("unknown")
+        if state != _SUPERVISOR_COMPLETE:
+            raise RuntimeError("dedicated supervisor exited without a bounded outcome")
+
         size = result_size.value
         if type(size) is not int or not 0 < size <= _MAX_WORKER_RESULT_BYTES:
             raise RuntimeError("supervised worker exited without a bounded result")
@@ -1654,8 +1827,11 @@ def _supervised_complete(
             raise _SupervisedTimeout("unknown")
         return outcome
     finally:
-        if not worker_cleaned:
-            _terminate_worker(process, kill_group=ready.is_set())
+        if process.is_alive():
+            # Never kill the subreaper: it may still own detached descendants.
+            cancel_requested.set()
+        elif process.pid is not None and not joined:
+            process.join(timeout=0)
 
 
 def _new_run_deadline(journal: AttemptJournal, limits: ShadowLimits, clock: Clock) -> _RunDeadline:

@@ -133,6 +133,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- Put each shadow provider worker under a dedicated Linux subreaper that verifies
+  `PR_SET_CHILD_SUBREAPER` before provider execution, then kills and reaps detached and
+  double-fork descendants after success or timeout before publishing a result. Treat
+  readiness timeout races as ambiguous. If cleanup cannot be proven within the 1.5-second
+  caller reserve, preserve unknown delivery and leave the dedicated supervisor alive to
+  continue cleanup.
+
 - Standalone screen preserves the existing deprioritized job order under its call cap.
   Conflicting direct worker modes and invalid screen caps fail before database access.
   MCP URL redaction uses the same secret-key policy for valid and malformed URLs,

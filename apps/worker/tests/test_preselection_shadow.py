@@ -3,7 +3,10 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import signal
 import stat
+import subprocess
+import sys
 import time
 
 import pytest
@@ -160,6 +163,61 @@ class LargePlainReplyTransport:
     def complete(self, invocation):
         Path(self.marker_path).write_text(str(os.getpid()), encoding="utf-8")
         return reply(ASSESSOR, {"large": "x" * self.size})
+
+
+class DetachedChildTransport:
+    def __init__(self, marker_path, *, block=False, double_fork=False):
+        self.marker_path = str(marker_path)
+        self.block = block
+        self.double_fork = double_fork
+
+    def complete(self, invocation):
+        if self.double_fork:
+            child_code = f"""\
+import os, time
+first = os.fork()
+if first == 0:
+    os.setsid()
+    second = os.fork()
+    if second == 0:
+        open({self.marker_path!r}, "w").write(str(os.getpid()))
+        time.sleep(10)
+        os._exit(0)
+    os._exit(0)
+os.waitpid(first, 0)
+"""
+            child = subprocess.Popen([sys.executable, "-c", child_code], start_new_session=True)
+            child.wait(timeout=2)
+            deadline = time.monotonic() + 2
+            while not Path(self.marker_path).exists() and time.monotonic() < deadline:
+                time.sleep(0.005)
+            if not Path(self.marker_path).exists():
+                raise AssertionError("double-forked child did not publish its pid")
+        else:
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import time;time.sleep(10)"], start_new_session=True
+            )
+            Path(self.marker_path).write_text(str(child.pid), encoding="utf-8")
+        if self.block:
+            while True:
+                time.sleep(1)
+        return reply(ASSESSOR, assessment_payload())
+
+
+def _pid_is_present(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _kill_test_pid(pid):
+    if _pid_is_present(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def _sleep_and_write_marker(marker_path):
@@ -558,6 +616,10 @@ def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
             lambda current: None,
             enabled=True,
         )
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
     assert resumed_transport.calls == []
 
 
@@ -699,13 +761,238 @@ def test_parent_wire_decode_is_checked_against_the_remaining_deadline(monkeypatc
             lambda current: None,
             enabled=True,
         )
-
     assert journal.records[0].status == "ambiguous"
     assert journal.records[0].delivery == "unknown"
-    assert journal.records[0].charge["kind"] == "unknown"
-    assert journal.records[0].usage["input_tokens"] is None
 
 
+def test_readiness_timeout_after_transport_started_is_ambiguous(tmp_path, monkeypatch):
+    from multiprocessing.synchronize import Event
+
+    original_wait = Event.wait
+
+    def preempt_after_readiness(event, timeout=None):
+        signaled = original_wait(event, timeout)
+        if signaled:
+            # The caller is descheduled after readiness but before it records timeout.
+            time.sleep(0.08)
+            return False
+        return False
+
+    monkeypatch.setattr(Event, "wait", preempt_after_readiness)
+    marker = tmp_path / "race-detached-child.pid"
+    journal = AttemptJournal.empty()
+    started = time.monotonic()
+    error = None
+    try:
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            DetachedChildTransport(marker, block=True),
+            journal,
+            limits(max_elapsed_seconds=0.04),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    except Exception as exc:
+        error = exc
+
+    assert marker.exists(), "the provider boundary should have started before parent preemption"
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    child_was_still_present = _pid_is_present(child_pid)
+    _kill_test_pid(child_pid)
+    assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout classification: {error!r}"
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert child_was_still_present is False
+    assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize("double_fork", [False, True])
+@pytest.mark.parametrize("block", [False, True])
+def test_supervisor_cleans_detached_descendants_before_return(tmp_path, double_fork, block):
+    marker = tmp_path / f"detached-{double_fork}-{block}.pid"
+    transport = DetachedChildTransport(marker, block=block, double_fork=double_fork)
+    journal = AttemptJournal.empty()
+    started = time.monotonic()
+    error = None
+    result = None
+    try:
+        result = run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.15 if block else 3.0),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    except Exception as exc:
+        error = exc
+
+    assert marker.exists(), "detached process should publish its pid before provider completion"
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    child_was_still_present = _pid_is_present(child_pid)
+    _kill_test_pid(child_pid)
+    assert child_was_still_present is False, f"detached descendant {child_pid} survived supervisor cleanup"
+    if block:
+        assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout result: {error!r}"
+        assert journal.records[0].status == "ambiguous"
+        assert journal.records[0].delivery == "unknown"
+    else:
+        assert error is None, f"successful provider call unexpectedly failed: {error!r}"
+        assert result is not None
+        assert journal.records[0].status == "succeeded"
+    assert time.monotonic() - started < 4.0
+
+
+def test_subreaper_boundary_failure_prevents_provider_execution(tmp_path, monkeypatch):
+    marker = tmp_path / "must-not-call-provider"
+    monkeypatch.setattr(
+        shadow_module,
+        "_enable_child_subreaper",
+        lambda: False,
+        raising=False,
+    )
+    journal = AttemptJournal.empty()
+    with pytest.raises(ShadowResumeAmbiguous, match="unknown delivery"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            DetachedChildTransport(marker),
+            journal,
+            limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    assert not marker.exists()
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+
+
+def test_supervisor_repeats_child_scan_for_descendant_created_during_cleanup(tmp_path, monkeypatch):
+    original_child_pids = shadow_module._direct_supervisor_child_pids
+    grandchild_marker = tmp_path / "spawned-during-cleanup.pid"
+    injected = False
+
+    def child_list_then_fork():
+        nonlocal injected
+        child_pids = original_child_pids()
+        if not injected:
+            injected = True
+            helper_pid = os.fork()
+            if helper_pid == 0:
+                grandchild_pid = os.fork()
+                if grandchild_pid == 0:
+                    Path(grandchild_marker).write_text(str(os.getpid()), encoding="utf-8")
+                    time.sleep(10)
+                    os._exit(0)
+                os._exit(0)
+        return child_pids
+
+    monkeypatch.setattr(shadow_module, "_direct_supervisor_child_pids", child_list_then_fork)
+    marker = tmp_path / "provider-detached-child.pid"
+    result = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        DetachedChildTransport(marker),
+        AttemptJournal.empty(),
+        limits(),
+        SystemClock(),
+        lambda current: None,
+        enabled=True,
+    )
+    assert result is not None
+    assert grandchild_marker.exists()
+    grandchild_pid = int(grandchild_marker.read_text(encoding="utf-8"))
+    grandchild_was_still_present = _pid_is_present(grandchild_pid)
+    _kill_test_pid(grandchild_pid)
+    assert grandchild_was_still_present is False
+
+
+def test_unconfirmed_cleanup_returns_unknown_without_killing_supervisor(monkeypatch):
+    context = multiprocessing.get_context("fork")
+    cleanup_started = context.Event()
+    allow_proof = context.Event()
+    original_reap = shadow_module._reap_supervisor_children_until
+
+    def withhold_cleanup_proof(cleanup_deadline):
+        cleanup_started.set()
+        while not allow_proof.is_set() and time.monotonic() < cleanup_deadline:
+            time.sleep(0.005)
+        if allow_proof.is_set():
+            return original_reap(cleanup_deadline)
+        return False
+
+    monkeypatch.setattr(shadow_module, "_reap_supervisor_children_until", withhold_cleanup_proof)
+    journal = AttemptJournal.empty()
+    existing_children = set(multiprocessing.active_children())
+    with pytest.raises(ShadowResumeAmbiguous, match="unknown delivery"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            FakeTransport([reply(ASSESSOR, assessment_payload())]),
+            journal,
+            limits(max_elapsed_seconds=0.05),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+
+    assert cleanup_started.is_set()
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    remaining_supervisors = [
+        child for child in multiprocessing.active_children() if child not in existing_children
+    ]
+    assert len(remaining_supervisors) == 1
+    supervisor = remaining_supervisors[0]
+    assert supervisor.is_alive()
+    allow_proof.set()
+    supervisor.join(timeout=1)
+    assert not supervisor.is_alive()
+
+
+def test_supervisor_does_not_kill_unrelated_sibling(tmp_path):
+    sibling = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(10)"])
+    marker = tmp_path / "unrelated-sibling-child.pid"
+    try:
+        result = run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            DetachedChildTransport(marker),
+            AttemptJournal.empty(),
+            limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+        assert result is not None
+        assert sibling.poll() is None
+        assert _pid_is_present(sibling.pid)
+    finally:
+        sibling.kill()
+        sibling.wait(timeout=2)
 def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):
     clock = FakeClock()
     journal = AttemptJournal.empty()

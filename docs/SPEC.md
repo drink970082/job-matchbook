@@ -1999,11 +1999,20 @@ fetch/score, on exception         → failed         (pipeline_error set; batch 
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
-- **Default-off shadow execution has one enforceable run deadline.** Extraction,
-  assessment, provider-response normalization and validation, retry, and retry backoff share
-  an absolute monotonic deadline. Transport code, bounded JSON normalization and the domain
-  validator run inside a supervised POSIX process group; timeout kills and reaps the worker
-  and same-group children before returning. Provider output crosses back as JSON primitives
+- **Default-off shadow execution has one enforced run deadline and per-call Linux
+  supervision.** Extraction, assessment, provider-response normalization and validation,
+  retry, and retry backoff share an absolute monotonic deadline. Transport code, bounded
+  JSON normalization and the domain validator run in a worker owned by a dedicated Linux
+  subreaper supervisor; the supervisor enables and verifies `PR_SET_CHILD_SUBREAPER` before
+  starting the provider worker. The worker has its own session. On timeout and after normal
+  completion, the supervisor kills the worker group where it is still live, repeatedly
+  kills adopted descendants and reaps them until `waitpid` reports `ECHILD`; it publishes
+  an outcome only after that proof. The caller allows a 1.5-second cleanup reserve. If
+  cleanup is not proven in that reserve, delivery stays unknown and the supervisor remains
+  alive to continue cleanup; the caller never kills it and claims cleanup succeeded. This
+  bounded reserve does not promise a hard stop for an endlessly forking provider or a
+  process stuck in uninterruptible kernel sleep. Unsupported platforms or failed subreaper
+  setup fail closed before the provider call. Provider output crosses back as JSON primitives
   only, capped at 256 KiB, 8,192 values and depth 32; no provider-controlled object is
   unpickled in the parent. The parent checks the remaining deadline before and after decoding
   this fixed-size wire result. An oversized or schema-invalid completed provider reply is an
@@ -2471,7 +2480,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 |-----------|---------|
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
-| Default-off shadow extraction, assessment, bounded response transfer and validation share one enforced deadline; the worker is killed and reaped on expiry, no provider result is unpickled in the parent, completed oversized replies retain known accounting, started timeouts remain ambiguous/unknown and are never replayed, and retryable not-sent failures use persisted bounded backoff inside attempt/time/cost limits | `worker/tests/test_preselection_shadow.py` (`test_public_entrypoint_kills_and_reaps_a_nonreturning_transport`, `test_reply_untrusted_objects_are_not_unpickled_in_parent`, `test_ordinary_oversized_reply_is_bounded_and_accounted`, `test_response_validation_is_inside_the_killable_deadline`, `test_parent_wire_decode_is_checked_against_the_remaining_deadline`, `test_ambiguous_delivery_after_restart_is_not_retried`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`, `test_backoff_exhaustion_does_not_start_an_attempt_after_deadline`, `test_nonretryable_and_policy_exhausted_errors_do_not_sleep_or_replay`, `test_resume_completes_persisted_backoff_before_retry`) |
+| Default-off shadow extraction, assessment, bounded response transfer and validation share one enforced deadline; a verified per-call Linux subreaper cleans same-session, detached and double-fork descendants on success and timeout before publishing results, readiness races stay ambiguous, no provider result is unpickled in the parent, completed oversized replies retain known accounting, and retryable not-sent failures use persisted bounded backoff inside attempt/time/cost limits | `worker/tests/test_preselection_shadow.py` (`test_public_entrypoint_kills_and_reaps_a_nonreturning_transport`, `test_reply_untrusted_objects_are_not_unpickled_in_parent`, `test_ordinary_oversized_reply_is_bounded_and_accounted`, `test_response_validation_is_inside_the_killable_deadline`, `test_parent_wire_decode_is_checked_against_the_remaining_deadline`, `test_readiness_timeout_after_transport_started_is_ambiguous`, `test_supervisor_cleans_detached_descendants_before_return`, `test_subreaper_boundary_failure_prevents_provider_execution`, `test_supervisor_repeats_child_scan_for_descendant_created_during_cleanup`, `test_unconfirmed_cleanup_returns_unknown_without_killing_supervisor`, `test_supervisor_does_not_kill_unrelated_sibling`, `test_ambiguous_delivery_after_restart_is_not_retried`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`, `test_backoff_exhaustion_does_not_start_an_attempt_after_deadline`, `test_nonretryable_and_policy_exhausted_errors_do_not_sleep_or_replay`, `test_resume_completes_persisted_backoff_before_retry`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
@@ -2955,11 +2964,17 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   token usage, actual/estimated/unknown charge details, source-rate metadata, latency,
   retry linkage, bounded cost reserve and retry-backoff state. One absolute monotonic
   deadline covers extraction, assessment, response normalization/validation, retries and
-  backoff, including cached-result validation. Each transport call and its validator run in
-  a supervised POSIX process group; the worker returns only bounded JSON primitives through
+  backoff, including cached-result validation. Each call and its validator run in a worker
+  owned by a dedicated Linux subreaper supervisor that verifies `PR_SET_CHILD_SUBREAPER`
+  before starting provider code. The worker returns only bounded JSON primitives through
   shared memory, with no pickle IPC. The parent checks the deadline around decoding the
-  capped result. Timeout kills and reaps the worker and its same-group children before the
-  public call returns. Unsupported execution fails before a provider call. A timeout after
+  capped result. After success and timeout, the supervisor kills the worker's live process
+  group and repeatedly kills/reaps adopted descendants until `ECHILD`, before publishing an
+  outcome. The caller's cleanup reserve is 1.5 seconds. If cleanup cannot be proven within
+  it, delivery remains unknown and the supervisor stays alive to continue; the caller never
+  kills that reaper and reports success. This does not promise a hard stop for endless
+  forking or uninterruptible kernel sleep. Unsupported platforms or failed setup fail closed
+  before provider code. A timeout after
   execution starts remains ambiguous with unknown usage/charge and cannot be replayed on
   resume. Only an explicitly retryable `not_sent` failure can retry;
   its bounded injected backoff is persisted before waiting and marked complete before the
