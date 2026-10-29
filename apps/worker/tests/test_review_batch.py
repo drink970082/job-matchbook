@@ -514,6 +514,58 @@ def test_revalidation_reports_closure_and_application_reasons_and_honors_replace
     assert capped["report"]["unfilled_slots"] == 1
 
 
+def test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict(tmp_path):
+    worker_root = Path(__file__).parents[1]
+    env = {**os.environ, "PYTHONPATH": str(worker_root)}
+    scoped_policy = policy(
+        ranked_slots=0, audit_slots=0, unresolved_slots=1,
+        service_slots=0, role_coverage_slots=0, max_replacements=0,
+    )
+    fixture_path = tmp_path / "pool.json"
+    state_path = tmp_path / "state.json"
+    value = fixture(
+        [
+            candidate("closed", source_id="board-a", posting_identity="cross-a",
+                      source_state="closed"),
+            candidate("open", source_id="board-b", posting_identity="cross-b",
+                      source_state="open"),
+        ],
+        policy=scoped_policy,
+        duplicate_evidence=[{
+            "kind": "cross_source_corroboration",
+            "evidence_id": "cross-evidence",
+            "candidate_ids": ["closed", "open"],
+        }],
+    )
+    fixture_path.write_text(json.dumps(value))
+
+    def run(action):
+        completed = subprocess.run(
+            [sys.executable, "-m", "ats_worker.review_batch_cli", "--action", action,
+             "--state", str(state_path), "--fixture", str(fixture_path),
+             *(["--elapsed-seconds", "0"] if action == "revalidate" else [])],
+            cwd=worker_root, env=env, text=True, capture_output=True, check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return json.loads(completed.stdout)
+
+    created = run("create")
+    assert (
+        created["first_page"]["items"][0]["candidate"]["reason"] ==
+        "duplicate_source_state_conflict"
+    )
+
+    updated = run("revalidate")
+
+    assert updated["report"]["invalidations"] == 0
+    assert updated["report"]["active_slots"] == 1
+    assert updated["report"]["unfilled_slots"] == 0
+    candidate_view = updated["first_page"]["items"][0]["candidate"]
+    assert candidate_view["bucket"] == "unresolved"
+    assert candidate_view["reason"] == "duplicate_source_state_conflict"
+    assert updated["first_page"]["items"][0]["invalidated"] is None
+
+
 def test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots():
     rows = [candidate(f"c{i}", priority_order=i) for i in range(5)]
     scoped_policy = policy(

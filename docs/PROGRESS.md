@@ -36,7 +36,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   engine and explicit local replay CLI. It groups exact/corroborated identities before
   exclusions, scopes requisition-only application evidence, freezes clock/input/order
   identity, and preserves cumulative replay history with accounted work and injected-time
-  caps. It does not add runtime, persistence, provider, or production policy wiring.
+  caps. Byte-identical closed/open source conflicts remain active unresolved candidates
+  on revalidation. It does not add runtime, persistence, provider, or production policy
+  wiring.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive

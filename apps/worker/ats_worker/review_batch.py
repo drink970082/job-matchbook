@@ -994,9 +994,11 @@ def _invalidation_reason(original: dict[str, Any], current: dict[str, Any] | Non
         return "source_revision_changed"
     if old["content_revision"] != new["content_revision"] or old["content_identity"] != new["content_identity"]:
         return "content_changed"
-    if current["bucket"] == "unresolved" and current.get("reason") == "duplicate_source_state_conflict":
-        return "duplicate_source_state_conflict"
-    if current["source_state"] == "closed":
+    duplicate_state_conflict = (
+        current["bucket"] == "unresolved" and
+        current.get("reason") == "duplicate_source_state_conflict"
+    )
+    if current["source_state"] == "closed" and not duplicate_state_conflict:
         return "source_closed"
     if current["confirmed_application"]:
         return "confirmed_application"
