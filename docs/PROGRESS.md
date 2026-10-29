@@ -24,6 +24,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
+- **Synthetic preselection rehearsal — `feat/synthetic-preselection-rehearsal`,
+  implementation in progress (#119 offline preparation).** Compose the actual synthetic
+  assessment view and review-batch modules through a fixture-only consumer and fallback
+  report; no live provider, MCP, schedule, database, or runtime access.
+
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
   preflight record, and an unattended acceptance checklist are in [the Daily Brief
