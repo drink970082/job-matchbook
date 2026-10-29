@@ -10,33 +10,34 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Issue #116 screen-isolation repair** — `fix/preselection-screen-isolation`, based on
   current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
-  carried forward with a lazy `score` compatibility facade. Fresh-process regressions
-  cover screen/error imports, prompt reads, fit-backend loading and explicit fit-factory
-  access; full worker, coverage, integration and schema checks pass. The privacy guard's
-  subprocess wrapper is blocked by sandbox `spawnSync git EPERM`; its self-test and the
-  equivalent tracked-path audit pass. Fresh-context review found no actionable issue.
-  Draft PR [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`;
-  the issue remains open pending scoped acceptance. No provider inference or production
+  carried forward with a lazy `score` compatibility facade that preserves public module
+  attributes, including `score.usage`. Fresh-process regressions cover screen/error
+  imports, prompt reads, fit-backend loading, public module attributes and explicit
+  fit-factory access. Draft PR
+  [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`; the
+  issue remains open pending scoped acceptance. No provider inference or production
   wiring is involved.
 
 - **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
   on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
   context, normalized source payloads, versioned hashes, counts and actual UTC-day
-  membership before replay. Normalized source fields are required with nullable location
-  and posting date; budgets are allocated per day; rendered-context mismatch is an error;
-  unresolved labels preserve rows and make recall inconclusive. Reports use anonymous
-  role keys and malformed source or seed Unicode fails as bounded input validation. The
-  older ID-only pool remains exploratory and explicitly inconclusive. Synthetic profile
+  membership before replay. Source and external ID must be non-empty trimmed text, and
+  repeated `(source, external_id)` postings remain in one split across dates and groups.
+  Other normalized source fields are required with nullable location and posting date;
+  budgets are allocated per day; rendered-context mismatch is an error; unresolved labels
+  preserve rows and make recall inconclusive. Reports use anonymous role keys and malformed
+  source or seed Unicode fails as bounded input validation. The older ID-only pool remains
+  exploratory and explicitly inconclusive. Synthetic profile
   and posting fixtures only; no real candidate/job data, model call, quality claim,
-  runtime selection or acceptance GO. Focused replay/profile tests pass (50); worker
-  coverage is 88.61% (1,300 passed, 1 skipped) and web coverage is 420 tests across 35
-  suites. The #124/#125 rehearsal retains #125's `RunBinding` and schema-4 journal;
+  runtime selection or acceptance GO. The current focused replay/profile suite passes
+  (53 tests); full worker, coverage, integration and schema/privacy checks remain pending
+  on this head. The #124/#125 rehearsal retains #125's `RunBinding` and schema-4 journal;
   worker/web integration passes (4 passed, 1 skipped; 74 passed). Full worker tests in
   that combined stack pass (1,406 passed, 1 skipped), but total coverage is 84.78%, below
   the 85% gate due to the unmerged stack additions. Schema, compilation and privacy
   self-test pass; the full privacy target's subprocess wrapper is blocked by sandbox
   `spawnSync git EPERM`, while the equivalent tracked-path audit passes. Fresh
-  independent review of the final code head found no actionable findings. Draft PR
+  current code checks and fresh-context review are pending. Draft PR
   [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
   remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
   range. No live input, policy or GO is accepted by these synthetic results.

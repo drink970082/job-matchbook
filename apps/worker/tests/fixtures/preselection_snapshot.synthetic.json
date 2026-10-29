@@ -192,7 +192,7 @@
       "profile_schema": 1,
       "profile_renderer": "candidate-context-v1",
       "source_pool_schema": 1,
-      "replay_algorithm": "utc-day-and-group-connected-components-v1"
+      "replay_algorithm": "utc-day-group-and-source-identity-connected-components-v2"
     },
     "hashes": {
       "profile_sha256": "74e92eaa8f8b69401e1925be154c7a7ac16c04b3c3c11809df047f3e9b033509",

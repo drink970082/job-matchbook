@@ -32,7 +32,7 @@ class ReplayValidationError(ValueError):
 
 FROZEN_SNAPSHOT_SCHEMA = 1
 FROZEN_INPUT_VERSION = "preselection-frozen-input-v1"
-REPLAY_ALGORITHM_VERSION = "utc-day-and-group-connected-components-v1"
+REPLAY_ALGORITHM_VERSION = "utc-day-group-and-source-identity-connected-components-v2"
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class FrozenItem:
     observed_at: datetime
     role_families: tuple[str, ...]
     label: str
+    source_identity_sha256: str | None = None
 
     @property
     def utc_day(self) -> str:
@@ -215,6 +216,7 @@ def _validated_source_pool(value: Any) -> tuple[FrozenPool, str]:
         raise ReplayValidationError("source_pool.items must be a non-empty array")
 
     projected_items: list[dict[str, Any]] = []
+    identity_hashes: list[str] = []
     for index, raw in enumerate(raw_items):
         path = f"source_pool.items[{index}]"
         row = _expect_object(raw, _SOURCE_ITEM_KEYS, path)
@@ -235,12 +237,36 @@ def _validated_source_pool(value: Any) -> tuple[FrozenPool, str]:
         _canonical_json(source_payload, f"{path}.source_payload is not valid JSON data")
         projected_items.append({key: row[key] for key in _ITEM_KEYS})
 
+        source = _safe_key(source_payload["source"], f"{path}.source_payload.source")
+        external_id = _safe_key(
+            source_payload["external_id"], f"{path}.source_payload.external_id"
+        )
+        identity_json = _canonical_json(
+            [source, external_id], f"{path}.source_payload identity is invalid"
+        )
+        identity_hash = hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
+        identity_hashes.append(identity_hash)
+
     projected_pool = {
         "schema": raw_pool["schema"],
         "pool_id": raw_pool["pool_id"],
         "items": projected_items,
     }
     pool = pool_from_value(projected_pool)
+    pool = FrozenPool(
+        pool_id=pool.pool_id,
+        items=tuple(
+            FrozenItem(
+                id=item.id,
+                group_id=item.group_id,
+                observed_at=item.observed_at,
+                role_families=item.role_families,
+                label=item.label,
+                source_identity_sha256=identity_hash,
+            )
+            for item, identity_hash in zip(pool.items, identity_hashes, strict=True)
+        ),
+    )
     return pool, _canonical_sha256(raw_pool, "source_pool cannot be canonically encoded")
 
 
@@ -410,12 +436,16 @@ def _stable_split(
         if left_root != right_root:
             parent[max(left_root, right_root)] = min(left_root, right_root)
 
-    row_nodes: list[tuple[tuple[str, str], tuple[str, str]]] = []
+    row_nodes: list[tuple[tuple[str, str], ...]] = []
     for item in pool.items:
         day_node = ("day", item.utc_day)
         group_node = ("group", item.group_id)
-        union(day_node, group_node)
-        row_nodes.append((day_node, group_node))
+        nodes = [day_node, group_node]
+        if item.source_identity_sha256 is not None:
+            nodes.append(("source_identity", item.source_identity_sha256))
+        for node in nodes[1:]:
+            union(nodes[0], node)
+        row_nodes.append(tuple(nodes))
 
     rows_by_root: dict[tuple[str, str], list[int]] = {}
     nodes_by_root: dict[tuple[str, str], set[tuple[str, str]]] = {}

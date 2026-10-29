@@ -55,7 +55,9 @@ def test_replay_reports_aggregate_baselines_label_coverage_and_no_row_identifier
     assert report["item_count"] == 12
     assert report["provider_calls"] == 0
     assert report["inference_cost"] == "not_applicable_no_provider_calls"
-    assert report["split"]["algorithm"] == "utc-day-and-group-connected-components-v1"
+    assert report["split"]["algorithm"] == (
+        "utc-day-group-and-source-identity-connected-components-v2"
+    )
     assert "synthetic-001" not in encoded
     assert "shared-template" not in encoded
     assert "synthetic-pool-v1" not in encoded
@@ -291,6 +293,7 @@ def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_pr
     for private_value in (
         "synthetic-positive-01",
         "synthetic-group-positive-01",
+        "synthetic-board",
         "Fictional Company 01",
         "no real employer or vacancy",
         "production ownership stayed with the team",
@@ -309,6 +312,34 @@ def test_full_snapshot_allows_nullable_normalized_source_fields():
 
     snapshot = snapshot_from_value(value)
     assert len(snapshot.pool.items) == 8
+
+
+def test_full_snapshot_keeps_repeated_source_identity_in_one_split():
+    value = _snapshot_value()
+    rows = value["source_pool"]["items"]
+    first, repeated = rows[0], rows[4]
+    assert first["observed_at"][:10] != repeated["observed_at"][:10]
+    assert first["group_id"] != repeated["group_id"]
+    for row in (first, repeated):
+        row["source_payload"]["source"] = "shared-synthetic-board"
+        row["source_payload"]["external_id"] = "shared-synthetic-posting"
+    value["manifest"] = build_snapshot_manifest(
+        value["profile"], value["rendered_context"], value["source_pool"]
+    )
+
+    snapshot = snapshot_from_value(value)
+    assignments, _ = _stable_split(snapshot.pool, "identity-seed", 0.5)
+
+    assert assignments[first["id"]] == assignments[repeated["id"]]
+
+
+@pytest.mark.parametrize("field", ["source", "external_id"])
+def test_full_snapshot_requires_non_empty_source_identity_fields(field):
+    value = _snapshot_value()
+    value["source_pool"]["items"][0]["source_payload"][field] = ""
+
+    with pytest.raises(ReplayValidationError, match="non-empty trimmed text"):
+        build_snapshot_manifest(value["profile"], value["rendered_context"], value["source_pool"])
 
 
 def test_full_snapshot_requires_posted_at_even_if_the_manifest_is_recomputed():
