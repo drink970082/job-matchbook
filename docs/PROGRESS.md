@@ -44,7 +44,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   The guide excludes confirmed prior applications and keeps probable duplicates flagged
   for review. Interactive access is not acceptance.
 
-- **Synthetic assessment view — `feat/preselection-assessment-view`, draft review pending
+- **Synthetic assessment view — `feat/preselection-assessment-view`, draft PR #121 open
   (offline preparation for #113).** A fabricated snapshot flows through a pure Python
   projection, bounded JSON, TypeScript validation and an isolated React panel. This does
   not add production persistence, inventory/MCP wiring or a provider call.
