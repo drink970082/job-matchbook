@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 import json
+import multiprocessing
+import os
 from pathlib import Path
 import stat
+import time
 
 import pytest
 
@@ -16,6 +19,7 @@ from ats_worker.preselection.shadow import (
     ModelIdentity,
     ProviderFailure,
     ProviderReply,
+    RetryPolicy,
     ShadowBudgetExceeded,
     ShadowDisabledError,
     ShadowIntegrityError,
@@ -71,7 +75,11 @@ def limits(**overrides):
 
 class FakeClock:
     def __init__(self, elapsed_ms=0):
-        self.elapsed_ms = elapsed_ms
+        self._elapsed_ms = multiprocessing.get_context("fork").Value("d", float(elapsed_ms))
+
+    @property
+    def elapsed_ms(self):
+        return self._elapsed_ms.value
 
     def utc_now(self):
         return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(milliseconds=self.elapsed_ms)
@@ -80,27 +88,67 @@ class FakeClock:
         return self.elapsed_ms / 1000
 
     def advance(self, milliseconds=5):
-        self.elapsed_ms += milliseconds
+        with self._elapsed_ms.get_lock():
+            self._elapsed_ms.value += milliseconds
 
 
 class FakeTransport:
-    def __init__(self, outcomes, clock=None):
+    def __init__(self, outcomes, clock=None, clock_advance_ms=5):
         self.outcomes = list(outcomes)
-        self.calls = []
+        context = multiprocessing.get_context("fork")
+        self._next_outcome = context.Value("i", 0)
+        self._call_reader, self._call_writer = context.Pipe(duplex=False)
+        self._calls = []
         self.clock = clock
+        self.clock_advance_ms = clock_advance_ms
+
+    @property
+    def calls(self):
+        while self._call_reader.poll():
+            self._calls.append(self._call_reader.recv())
+        return self._calls
 
     def complete(self, invocation):
-        self.calls.append(invocation)
+        self._call_writer.send(invocation)
         if self.clock:
-            self.clock.advance()
-        if not self.outcomes:
+            self.clock.advance(self.clock_advance_ms)
+        with self._next_outcome.get_lock():
+            outcome_index = self._next_outcome.value
+            self._next_outcome.value += 1
+        if outcome_index >= len(self.outcomes):
             raise AssertionError("fake transport received an unexpected call")
-        outcome = self.outcomes.pop(0)
+        outcome = self.outcomes[outcome_index]
         if isinstance(outcome, Exception):
             raise outcome
         if callable(outcome):
             return outcome(invocation)
         return outcome
+
+
+class FakeSleeper:
+    def __init__(self, clock, advance_factor=1.0):
+        self.clock = clock
+        self.advance_factor = advance_factor
+        self.delays = []
+
+    def sleep(self, seconds):
+        self.delays.append(seconds)
+        self.clock.advance(seconds * self.advance_factor * 1000)
+
+
+class InterruptedSleeper:
+    def sleep(self, seconds):
+        raise RuntimeError("synthetic crash during backoff")
+
+
+class NonReturningTransport:
+    def __init__(self, marker_path):
+        self.marker_path = marker_path
+
+    def complete(self, invocation):
+        Path(self.marker_path).write_text(str(os.getpid()), encoding="utf-8")
+        while True:
+            time.sleep(1)
 
 
 def extraction_payload(description=JD, coverage="complete"):
@@ -387,6 +435,7 @@ def test_retry_is_counted_and_resume_reuses_success_without_duplicate_call(tmp_p
         charge=_charge(amount="0"),
     )
     transport = FakeTransport([failure, reply(ASSESSOR, assessment_payload())], clock)
+    sleeper = FakeSleeper(clock)
     arguments = (
         job(),
         approved_profile(),
@@ -399,11 +448,17 @@ def test_retry_is_counted_and_resume_reuses_success_without_duplicate_call(tmp_p
         clock,
         lambda current: current.save(journal_path),
     )
-    result = run_shadow_assessment(*arguments, enabled=True)
+    result = run_shadow_assessment(
+        *arguments,
+        enabled=True,
+        retry_policy=RetryPolicy(1, 0.02, 0.02, 1.0),
+        sleeper=sleeper,
+    )
     assert result.status == "completed"
     assert [record.status for record in journal.records] == ["retryable_failure", "succeeded"]
     assert [record.attempt_number for record in journal.records] == [1, 2]
     assert [record.retry_of for record in journal.records] == [None, 1]
+    assert sleeper.delays == [0.02]
     assert journal.aggregate()["reported_usage"]["input_tokens"]["unknown_attempts"] == 1
     assert len(journal.aggregate()["per_successful_assessment"]) == 1
     assert next(iter(journal.aggregate()["per_work_item"].values()))["attempts"] == 2
@@ -428,10 +483,194 @@ def test_retry_is_counted_and_resume_reuses_success_without_duplicate_call(tmp_p
         clock,
         lambda current: current.save(journal_path),
         enabled=True,
+        retry_policy=RetryPolicy(1, 0.02, 0.02, 1.0),
     )
     assert resumed.assessment_from_cache is True
     assert no_call_transport.calls == []
     assert len(resumed_journal.records) == 2
+
+
+def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
+    clock = FakeClock()
+    journal_path = tmp_path / "blocked-call.json"
+    journal = AttemptJournal.empty()
+    transport = NonReturningTransport(tmp_path / "worker.pid")
+    started = time.monotonic()
+    with pytest.raises(ShadowResumeAmbiguous, match="delivery and charge are unknown"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.05),
+            clock,
+            lambda current: current.save(journal_path),
+            enabled=True,
+        )
+    assert time.monotonic() - started < 0.5
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert journal.records[0].charge["kind"] == "unknown"
+    assert journal.records[0].elapsed_ms <= 150
+    worker_pid = int((tmp_path / "worker.pid").read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(worker_pid, 0)
+
+    resumed_transport = FakeTransport([])
+    with pytest.raises(ShadowResumeAmbiguous):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            resumed_transport,
+            AttemptJournal.load(journal_path),
+            limits(max_elapsed_seconds=0.05),
+            clock,
+            lambda current: None,
+            enabled=True,
+        )
+    assert resumed_transport.calls == []
+
+
+def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    failure = ProviderFailure(
+        error_code="rate_limited",
+        retryable=True,
+        delivery="not_sent",
+        model_identity=ASSESSOR,
+        usage=Usage(None, None, None),
+        charge=_charge(amount="0.25"),
+    )
+    transport = FakeTransport([failure, reply(ASSESSOR, assessment_payload())], clock, clock_advance_ms=0)
+    sleeper = FakeSleeper(clock)
+    with pytest.raises(ShadowBudgetExceeded, match="during retry backoff"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            transport,
+            journal,
+            limits(max_elapsed_seconds=0.1, max_attempts_per_request=2),
+            clock,
+            lambda current: current.save(tmp_path / "backoff-budget.json"),
+            enabled=True,
+            retry_policy=RetryPolicy(1, 0.2, 0.2, 1.0),
+            sleeper=sleeper,
+        )
+    assert len(sleeper.delays) == 1
+    assert 0 < sleeper.delays[0] < 0.2
+    assert len(transport.calls) == 1
+    assert len(journal.records) == 1
+    assert journal.records[0].status == "retryable_failure"
+    assert journal.aggregate()["actual_charges"] == [
+        {"currency": "SYNTHETIC-CREDIT", "billing_unit": "fake-call", "amount": "0.25"}
+    ]
+
+
+def test_nonretryable_and_policy_exhausted_errors_do_not_sleep_or_replay(tmp_path):
+    for retryable, max_retries, expected_status in (
+        (False, 1, "failed"),
+        (True, 0, "retryable_failure"),
+    ):
+        clock = FakeClock()
+        journal = AttemptJournal.empty()
+        failure = ProviderFailure(
+            error_code="terminal" if not retryable else "retry-disabled",
+            retryable=retryable,
+            delivery="not_sent",
+            model_identity=ASSESSOR,
+            usage=Usage(None, None, None),
+            charge=_charge(amount="0.25"),
+        )
+        transport = FakeTransport([failure, reply(ASSESSOR, assessment_payload())], clock)
+        sleeper = FakeSleeper(clock)
+        with pytest.raises(ShadowProviderFailure):
+            run_shadow_assessment(
+                job(),
+                approved_profile(),
+                questions(),
+                "direct",
+                ASSESSOR,
+                transport,
+                journal,
+                limits(),
+                clock,
+                lambda current: current.save(tmp_path / f"terminal-{retryable}.json"),
+                enabled=True,
+                retry_policy=RetryPolicy(max_retries, 0.02, 0.02, 1.0),
+                sleeper=sleeper,
+            )
+        assert len(transport.calls) == 1
+        assert sleeper.delays == []
+        assert journal.records[0].status == expected_status
+
+
+def test_resume_completes_persisted_backoff_before_retry(tmp_path):
+    clock = FakeClock()
+    journal_path = tmp_path / "pending-backoff.json"
+    journal = AttemptJournal.empty()
+    failure = ProviderFailure(
+        error_code="rate_limited",
+        retryable=True,
+        delivery="not_sent",
+        model_identity=ASSESSOR,
+        usage=Usage(None, None, None),
+        charge=_charge(amount="0.10"),
+    )
+    policy = RetryPolicy(1, 0.02, 0.02, 1.0)
+    first_transport = FakeTransport([failure, reply(ASSESSOR, assessment_payload())], clock)
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            first_transport,
+            journal,
+            limits(),
+            clock,
+            lambda current: current.save(journal_path),
+            enabled=True,
+            retry_policy=policy,
+            sleeper=InterruptedSleeper(),
+        )
+    assert len(first_transport.calls) == 1
+    assert journal.records[0].retry_delay_seconds == 0.02
+    assert journal.records[0].retry_backoff_completed is False
+
+    resumed_journal = AttemptJournal.load(journal_path)
+    resumed_transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
+    sleeper = FakeSleeper(clock)
+    result = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        resumed_transport,
+        resumed_journal,
+        limits(),
+        clock,
+        lambda current: current.save(journal_path),
+        enabled=True,
+        retry_policy=policy,
+        sleeper=sleeper,
+    )
+    assert result.status == "completed"
+    assert sleeper.delays == [0.02]
+    assert resumed_journal.records[0].retry_backoff_completed is True
+    assert resumed_journal.records[1].retry_of == resumed_journal.records[0].attempt_id
+    assert len(resumed_transport.calls) == 1
 
 
 def test_ambiguous_delivery_after_restart_is_not_retried(tmp_path):
@@ -475,7 +714,7 @@ def test_retry_resume_keeps_original_elapsed_budget_and_rejects_changed_limits(t
         usage=Usage(None, None, None),
         charge=_charge(amount="0"),
     )
-    with pytest.raises(ShadowBudgetExceeded, match="cumulative provider-call time"):
+    with pytest.raises(ShadowBudgetExceeded, match="run deadline"):
         run_shadow_assessment(
             job(),
             approved_profile(),
@@ -484,10 +723,11 @@ def test_retry_resume_keeps_original_elapsed_budget_and_rejects_changed_limits(t
             ASSESSOR,
             FakeTransport([failure], first_clock),
             journal,
-            limits(max_attempts_per_request=2, max_elapsed_seconds=0.001),
+            limits(max_attempts_per_request=2, max_elapsed_seconds=0.5),
             first_clock,
             lambda current: current.save(journal_path),
             enabled=True,
+            sleeper=FakeSleeper(first_clock, advance_factor=10),
         )
 
     resumed_clock = FakeClock(elapsed_ms=10)
@@ -518,7 +758,7 @@ def test_retry_resume_keeps_original_elapsed_budget_and_rejects_changed_limits(t
             ASSESSOR,
             resumed_transport,
             resumed_journal,
-            limits(max_attempts_per_request=2, max_elapsed_seconds=0.001),
+            limits(max_attempts_per_request=2, max_elapsed_seconds=0.5),
             FakeClock(elapsed_ms=-1),
             lambda current: current.save(journal_path),
             enabled=True,
@@ -526,7 +766,7 @@ def test_retry_resume_keeps_original_elapsed_budget_and_rejects_changed_limits(t
     assert resumed_transport.calls == []
 
     # Resume with the original limit and a clock beyond its persisted start time.
-    with pytest.raises(ShadowBudgetExceeded, match="cumulative provider-call time"):
+    with pytest.raises(ShadowBudgetExceeded, match="run deadline"):
         run_shadow_assessment(
             job(),
             approved_profile(),
@@ -535,8 +775,8 @@ def test_retry_resume_keeps_original_elapsed_budget_and_rejects_changed_limits(t
             ASSESSOR,
             resumed_transport,
             resumed_journal,
-            limits(max_attempts_per_request=2, max_elapsed_seconds=0.001),
-            FakeClock(elapsed_ms=10),
+            limits(max_attempts_per_request=2, max_elapsed_seconds=0.5),
+            FakeClock(elapsed_ms=1000),
             lambda current: current.save(journal_path),
             enabled=True,
         )
@@ -775,11 +1015,11 @@ def test_attempt_limits_and_explicit_cost_and_time_bounds_are_required(tmp_path)
 def test_journal_rejects_duplicate_json_members_and_bad_permissions(tmp_path):
     with pytest.raises(ShadowIntegrityError, match="duplicate journal JSON"):
         AttemptJournal.from_json(
-            '{"schema":2,"schema":2,"run_started_at":null,"limits_identity_sha256":null,"records":[]}'
+            '{"schema":3,"schema":3,"run_started_at":null,"limits_identity_sha256":null,"records":[]}'
         )
     path = tmp_path / "insecure.json"
     path.write_text(
-        '{"schema":2,"run_started_at":null,"limits_identity_sha256":null,"records":[]}'
+        '{"schema":3,"run_started_at":null,"limits_identity_sha256":null,"records":[]}'
     )
     path.chmod(0o644)
     with pytest.raises(ShadowIntegrityError, match="permissions"):

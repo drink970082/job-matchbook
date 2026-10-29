@@ -1999,6 +1999,17 @@ fetch/score, on exception         → failed         (pipeline_error set; batch 
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
 
+- **Default-off shadow execution has one enforceable run deadline.** Extraction,
+  assessment, retry and retry backoff share an absolute monotonic deadline. Transport code
+  runs only inside a supervised POSIX process group; timeout kills and reaps the worker and
+  same-group children before returning. Unsupported boundaries fail before the provider
+  call. Once execution may have started, timeout is recorded as ambiguous with unknown
+  usage and charge and cannot be retried on resume. Only retryable `not_sent` failures may
+  retry, after a bounded injected delay persisted in the private journal. A restart repeats
+  any unfinished delay before starting another attempt. Failed attempts and their known or
+  unknown cost remain in the same run, attempt and cost ceilings. This research path does
+  not alter production pipeline state or runtime defaults.
+
 Source refresh is a separate one-shot observation, not a pipeline transition. It selects
 only `smartrecruiters` rows in `new`, `failed`, `discarded`, or `expired`, with no fit
 assessment and no application link; `--refresh-limit` bounds the request count to 25.
@@ -2454,6 +2465,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 |-----------|---------|
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
+| Default-off shadow extraction and assessment share one enforced deadline; a blocking transport is killed and reaped, started timeouts remain ambiguous/unknown and are never replayed, and retryable not-sent failures use persisted bounded backoff inside attempt/time/cost limits | `worker/tests/test_preselection_shadow.py` (`test_public_entrypoint_kills_and_reaps_a_nonreturning_transport`, `test_ambiguous_delivery_after_restart_is_not_retried`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`, `test_backoff_exhaustion_does_not_start_an_attempt_after_deadline`, `test_nonretryable_and_policy_exhausted_errors_do_not_sleep_or_replay`, `test_resume_completes_persisted_backoff_before_retry`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
@@ -2935,14 +2947,22 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   The explicit local attempt journal is atomically written with private file permissions.
   It records each started, completed, retryable, failed, ambiguous and integrity attempt,
   token usage, actual/estimated/unknown charge details, source-rate metadata, latency,
-  retry linkage and caller cost reserve. Resume reuses validated successes, refuses
-  ambiguous delivery, accepts retries only after a retryable not-sent failure, preserves
-  the original elapsed-time and budget identity, and stops when charges are unknown or a
-  provider/model circuit breaker is open. Aggregate reports include run, hashed work
-  item, successful assessment, request, variant, draw and extraction-stage accounting;
-  shared extraction cost is included once in each extracted work-item arm. Only synthetic
-  fake transports exercise this path. No provider/model, question rubric, YOE threshold,
-  price, live evaluation or production policy is selected here.
+  retry linkage, bounded cost reserve and retry-backoff state. One absolute monotonic
+  deadline covers extraction, assessment, retries and backoff. Each transport call runs in
+  a supervised POSIX process group; timeout kills and reaps the worker and its same-group
+  children before the public call returns. Unsupported execution fails before a provider
+  call. A timeout after execution starts remains ambiguous with unknown usage/charge and
+  cannot be replayed on resume. Only an explicitly retryable `not_sent` failure can retry;
+  its bounded injected backoff is persisted before waiting and marked complete before the
+  next attempt, so restart cannot skip the wait. Retry attempts and failed-call charges
+  stay in the original limits and denominators. Resume reuses validated successes,
+  refuses ambiguous delivery, preserves the original elapsed-time and combined limits /
+  retry-policy identity, and stops when charges are unknown or a provider/model circuit
+  breaker is open. Journal schema 3 adds this retry state. Aggregate reports include run,
+  hashed work item, successful assessment, request, variant, draw and extraction-stage
+  accounting; shared extraction cost is included once in each extracted work-item arm.
+  Only synthetic fake transports exercise this path. No provider/model, question rubric,
+  YOE threshold, price, live evaluation or production policy is selected here.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

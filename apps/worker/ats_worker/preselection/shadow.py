@@ -12,11 +12,14 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import tempfile
+import time
 from typing import Any, Callable, Protocol
 
 from ats_worker.preselection.extraction import (
@@ -71,6 +74,10 @@ class Transport(Protocol):
     def complete(self, invocation: "Invocation") -> "ProviderReply": ...
 
 
+class Sleeper(Protocol):
+    def sleep(self, seconds: float) -> None: ...
+
+
 @dataclass(frozen=True)
 class SystemClock:
     """A caller-selected clock implementation; construction performs no I/O."""
@@ -82,6 +89,62 @@ class SystemClock:
         import time
 
         return time.monotonic()
+
+
+@dataclass(frozen=True)
+class SystemSleeper:
+    """The default bounded retry sleeper."""
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """An injected exponential backoff ceiling for explicitly retryable failures."""
+
+    max_retries: int = 1
+    initial_delay_seconds: float = 0.1
+    max_delay_seconds: float = 1.0
+    multiplier: float = 2.0
+
+    def validate(self) -> None:
+        if type(self.max_retries) is not int or self.max_retries < 0:
+            raise ShadowIntegrityError("retry max_retries must be a non-negative integer")
+        numeric = (self.initial_delay_seconds, self.max_delay_seconds, self.multiplier)
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in numeric
+        ):
+            raise ShadowIntegrityError("retry delays and multiplier must be finite numbers")
+        if self.max_retries == 0:
+            if self.initial_delay_seconds < 0 or self.max_delay_seconds < 0:
+                raise ShadowIntegrityError("disabled retry delays cannot be negative")
+            return
+        if (
+            self.initial_delay_seconds <= 0
+            or self.max_delay_seconds < self.initial_delay_seconds
+            or self.multiplier < 1
+        ):
+            raise ShadowIntegrityError("enabled retry backoff must be positive and bounded")
+
+    def delay_seconds(self, retry_number: int) -> float:
+        self.validate()
+        if type(retry_number) is not int or retry_number <= 0 or retry_number > self.max_retries:
+            raise ShadowIntegrityError("retry number is outside the injected retry policy")
+        delay = self.initial_delay_seconds
+        for _ in range(retry_number - 1):
+            delay = min(self.max_delay_seconds, delay * self.multiplier)
+        return float(delay)
+
+
+@dataclass(frozen=True)
+class _RunDeadline:
+    clock_deadline: float
+    real_deadline: float
+
+    def remaining(self, clock: Clock) -> float:
+        return min(self.clock_deadline - clock.monotonic(), self.real_deadline - time.monotonic())
 
 
 @dataclass(frozen=True)
@@ -313,6 +376,8 @@ class AttemptRecord:
     error_code: str | None
     delivery: str | None
     circuit_breaker: bool
+    retry_delay_seconds: float | None
+    retry_backoff_completed: bool
 
 
 @dataclass
@@ -327,7 +392,7 @@ class AttemptJournal:
 
     def to_json(self) -> str:
         payload = {
-            "schema": 2,
+            "schema": 3,
             "run_started_at": self.run_started_at,
             "limits_identity_sha256": self.limits_identity_sha256,
             "records": [asdict(record) for record in self.records],
@@ -357,8 +422,9 @@ class AttemptJournal:
             "records",
         }:
             raise ShadowIntegrityError("journal has an invalid envelope")
-        if type(payload["schema"]) is not int or payload["schema"] != 2:
-            raise ShadowIntegrityError("journal schema must equal integer 2")
+        schema = payload["schema"]
+        if type(schema) is not int or schema != 3:
+            raise ShadowIntegrityError("journal schema must equal integer 3")
         if not isinstance(payload["records"], list):
             raise ShadowIntegrityError("journal records must be an array")
         if payload["run_started_at"] is not None:
@@ -416,6 +482,21 @@ class AttemptJournal:
                     raise ShadowIntegrityError("journal resolved model is invalid")
                 if not isinstance(record.circuit_breaker, bool):
                     raise ShadowIntegrityError("journal circuit-breaker state is invalid")
+                if not isinstance(record.retry_backoff_completed, bool):
+                    raise ShadowIntegrityError("journal retry backoff state is invalid")
+                if record.retry_delay_seconds is not None and (
+                    isinstance(record.retry_delay_seconds, bool)
+                    or not isinstance(record.retry_delay_seconds, (int, float))
+                    or not math.isfinite(record.retry_delay_seconds)
+                    or record.retry_delay_seconds <= 0
+                ):
+                    raise ShadowIntegrityError("journal retry delay is invalid")
+                if record.retry_backoff_completed and record.retry_delay_seconds is None:
+                    raise ShadowIntegrityError("completed retry backoff has no persisted delay")
+                if record.status != "retryable_failure" and (
+                    record.retry_delay_seconds is not None or record.retry_backoff_completed
+                ):
+                    raise ShadowIntegrityError("non-retryable attempt contains retry backoff state")
                 if not isinstance(record.usage, dict) or set(record.usage) != {
                     "input_tokens",
                     "output_tokens",
@@ -489,8 +570,9 @@ class AttemptJournal:
                         or previous.provider != record.provider
                         or previous.requested_model != record.requested_model
                         or previous.resolved_model != record.resolved_model
+                        or not previous.retry_backoff_completed
                     ):
-                        raise ShadowIntegrityError("retry identity changed within a request")
+                        raise ShadowIntegrityError("retry identity changed or backoff was incomplete")
                 if record.status == "retryable_failure" and record.delivery != "not_sent":
                     raise ShadowIntegrityError("retryable failure must prove the request was not sent")
                 if record.status == "ambiguous" and record.delivery != "unknown":
@@ -597,6 +679,17 @@ class AttemptJournal:
             "successful_attempts": sum(record.status == "succeeded" for record in self.records),
             "elapsed_ms_reported": sum(record.elapsed_ms or 0 for record in self.records),
             "elapsed_unknown_attempts": sum(record.elapsed_ms is None for record in self.records),
+            "retry_backoff_seconds_scheduled": round(
+                sum(record.retry_delay_seconds or 0 for record in self.records), 6
+            ),
+            "retry_backoff_seconds_pending": round(
+                sum(
+                    record.retry_delay_seconds or 0
+                    for record in self.records
+                    if record.retry_delay_seconds is not None and not record.retry_backoff_completed
+                ),
+                6,
+            ),
             "attempts_by_stage": dict(sorted(by_stage.items())),
             "attempts_by_variant": dict(sorted(by_variant.items())),
             "attempts_by_draw": dict(sorted(by_draw.items())),
@@ -941,8 +1034,173 @@ def _reserved_charge(ceiling: CostCeiling | None) -> dict[str, str] | None:
     }
 
 
-def _limits_identity(limits: ShadowLimits) -> str:
-    return _canonical_hash(asdict(limits))
+def _execution_boundary_available(transport: Transport) -> None:
+    """Reject transports before an attempt unless a killable process boundary is available."""
+    if (
+        os.name != "posix"
+        or not hasattr(os, "setsid")
+        or not hasattr(os, "killpg")
+        or not callable(getattr(transport, "complete", None))
+    ):
+        raise ShadowIntegrityError(
+            "a supervised POSIX transport boundary is required before provider execution"
+        )
+    try:
+        multiprocessing.get_context("fork")
+    except (RuntimeError, ValueError) as exc:
+        raise ShadowIntegrityError(
+            "a supervised POSIX transport boundary is required before provider execution"
+        ) from exc
+
+
+def _send_worker_message(connection: Any, message: tuple[str, Any]) -> None:
+    try:
+        connection.send(message)
+    finally:
+        connection.close()
+        os._exit(0)
+
+
+def _transport_worker(transport: Transport, invocation: Invocation, sender: Any) -> None:
+    """Run untrusted/blocking adapter code in a process group the parent can kill."""
+    try:
+        os.setsid()
+    except OSError:
+        _send_worker_message(sender, ("boundary_unavailable", None))
+    sender.send(("ready", None))
+    try:
+        null_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null_fd, 1)
+        os.dup2(null_fd, 2)
+        os.close(null_fd)
+        reply = transport.complete(invocation)
+    except ProviderFailure as exc:
+        _send_worker_message(
+            sender,
+            (
+                "provider_failure",
+                {
+                    "error_code": exc.error_code,
+                    "retryable": exc.retryable,
+                    "delivery": exc.delivery,
+                    "model_identity": exc.model_identity,
+                    "usage": exc.usage,
+                    "charge": exc.charge,
+                    "circuit_breaker": exc.circuit_breaker,
+                },
+            ),
+        )
+    except BaseException as exc:
+        code = type(exc).__name__
+        safe_code = code if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", code) else "TransportError"
+        _send_worker_message(sender, ("transport_exception", safe_code))
+    else:
+        _send_worker_message(sender, ("reply", reply))
+
+
+class _SupervisedTimeout(Exception):
+    def __init__(self, delivery: str):
+        super().__init__(delivery)
+        self.delivery = delivery
+
+
+def _terminate_worker(process: Any, *, kill_group: bool) -> bool:
+    if process.pid is None:
+        return True
+    if kill_group:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif process.is_alive():
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.join(timeout=0.1)
+        if process.is_alive():
+            process.kill()
+    process.join(timeout=0.1)
+    return not process.is_alive()
+
+
+def _supervised_complete(
+    invocation: Invocation,
+    transport: Transport,
+    deadline: _RunDeadline,
+    clock: Clock,
+) -> ProviderReply:
+    """Enforce the remaining deadline and reap the call process before returning."""
+    context = multiprocessing.get_context("fork")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=_transport_worker, args=(transport, invocation, sender))
+    try:
+        process.start()
+    except (OSError, RuntimeError) as exc:
+        receiver.close()
+        sender.close()
+        raise ShadowIntegrityError("could not start the supervised transport boundary") from exc
+    sender.close()
+    ready = False
+    worker_cleaned = False
+    try:
+        remaining = deadline.remaining(clock)
+        has_startup = receiver.poll(max(0.0, remaining))
+        if not has_startup:
+            worker_cleaned = _terminate_worker(process, kill_group=False)
+            raise _SupervisedTimeout("not_sent")
+        try:
+            kind, payload = receiver.recv()
+        except (EOFError, OSError) as exc:
+            worker_cleaned = _terminate_worker(process, kill_group=False)
+            raise ShadowIntegrityError("transport boundary exited before provider execution") from exc
+        if kind == "boundary_unavailable":
+            worker_cleaned = _terminate_worker(process, kill_group=False)
+            raise ShadowIntegrityError("transport boundary could not establish process cleanup")
+        if kind != "ready":
+            worker_cleaned = _terminate_worker(process, kill_group=False)
+            raise ShadowIntegrityError("transport boundary returned an invalid startup record")
+        ready = True
+        remaining = deadline.remaining(clock)
+        if remaining <= 0 or not receiver.poll(remaining):
+            cleaned = _terminate_worker(process, kill_group=True)
+            worker_cleaned = cleaned
+            if not cleaned:
+                raise ShadowIntegrityError("timed-out transport worker could not be reaped")
+            raise _SupervisedTimeout("unknown")
+        try:
+            kind, payload = receiver.recv()
+        except (EOFError, OSError) as exc:
+            raise ShadowResumeAmbiguous("transport worker exited without an outcome") from exc
+        cleaned = _terminate_worker(process, kill_group=True)
+        worker_cleaned = cleaned
+        if not cleaned:
+            raise ShadowIntegrityError("completed transport worker could not be reaped")
+        if kind == "provider_failure":
+            raise ProviderFailure(**payload)
+        if kind == "transport_exception":
+            raise RuntimeError(str(payload))
+        if kind != "reply" or not isinstance(payload, ProviderReply):
+            raise RuntimeError("transport returned an invalid supervised response")
+        return payload
+    finally:
+        receiver.close()
+        if not worker_cleaned:
+            _terminate_worker(process, kill_group=ready)
+
+
+def _new_run_deadline(journal: AttemptJournal, limits: ShadowLimits, clock: Clock) -> _RunDeadline:
+    limits.validate()
+    remaining = float(limits.max_elapsed_seconds)
+    if journal.run_started_at is not None:
+        remaining -= _elapsed_since(_utc_from_iso(journal.run_started_at), clock)
+    if not math.isfinite(remaining):
+        raise ShadowIntegrityError("injected monotonic clock returned a non-finite deadline")
+    now_clock = clock.monotonic()
+    if isinstance(now_clock, bool) or not isinstance(now_clock, (int, float)) or not math.isfinite(now_clock):
+        raise ShadowIntegrityError("injected monotonic clock returned an invalid value")
+    usable = max(0.0, remaining)
+    return _RunDeadline(float(now_clock) + usable, time.monotonic() + usable)
 
 
 def _utc_iso(value: datetime) -> str:
@@ -997,12 +1255,18 @@ def _run_invocation(
     transport: Transport,
     journal: AttemptJournal,
     limits: ShadowLimits,
+    retry_policy: RetryPolicy,
+    sleeper: Sleeper,
+    deadline: _RunDeadline,
     clock: Clock,
     persist: Callable[[AttemptJournal], None],
     validator: Callable[[Any], Any],
 ) -> tuple[Any, bool, ModelIdentity]:
     limits.validate()
-    limits_identity = _limits_identity(limits)
+    retry_policy.validate()
+    limits_identity = _canonical_hash(
+        {"limits": asdict(limits), "retry_policy": asdict(retry_policy)}
+    )
     changed_journal_header = False
     if journal.limits_identity_sha256 is None:
         if journal.records:
@@ -1019,6 +1283,10 @@ def _run_invocation(
             raise ShadowBudgetExceeded("prior attempt reached a terminal budget stop")
         if record.status in {"failed", "integrity_failure"}:
             raise ShadowProviderFailure("prior non-retryable attempt requires operator review")
+    if prior and prior[-1].status == "retryable_failure":
+        retry_number = len(prior)
+        if retry_number > retry_policy.max_retries or prior[-1].retry_delay_seconds is None:
+            raise ShadowProviderFailure("bounded retry policy is exhausted or has no persisted backoff")
     succeeded = journal.success_for(invocation.request_identity, invocation.stage)
     if succeeded is not None:
         if (
@@ -1029,6 +1297,7 @@ def _run_invocation(
         ):
             raise ShadowIntegrityError("cached result identity changed")
         return validator(succeeded.response_payload), True, invocation.model_identity
+    _execution_boundary_available(transport)
 
     if journal.run_started_at is None:
         journal.run_started_at = _utc_iso(clock.utc_now())
@@ -1043,14 +1312,32 @@ def _run_invocation(
         if len(prior) >= limits.max_attempts_per_request:
             raise ShadowBudgetExceeded("per-request provider-attempt limit is exhausted")
         elapsed_wall = _elapsed_since(run_started, clock)
-        if elapsed_wall >= limits.max_elapsed_seconds:
-            raise ShadowBudgetExceeded("cumulative provider-call time limit is exhausted")
+        if elapsed_wall >= limits.max_elapsed_seconds or deadline.remaining(clock) <= 0:
+            raise ShadowBudgetExceeded("cumulative run deadline is exhausted")
         _check_cost_room(journal, limits.cost_ceiling)
+
+        if prior and prior[-1].status == "retryable_failure":
+            retry_number = len(prior)
+            retry_record = prior[-1]
+            if retry_number >= limits.max_attempts_per_request:
+                raise ShadowBudgetExceeded("per-request provider-attempt limit leaves no retry")
+            if not retry_record.retry_backoff_completed:
+                remaining = deadline.remaining(clock)
+                if remaining <= 0:
+                    raise ShadowBudgetExceeded("run deadline expired before retry backoff")
+                sleep_for = min(retry_record.retry_delay_seconds or 0, remaining)
+                sleeper.sleep(sleep_for)
+                retry_record.retry_backoff_completed = True
+                persist(journal)
+                if sleep_for < (retry_record.retry_delay_seconds or 0) or deadline.remaining(clock) <= 0:
+                    raise ShadowBudgetExceeded("run deadline expired during retry backoff")
+                continue
 
         attempt_number = len(prior) + 1
         attempt_id = len(journal.records) + 1
         started_at = _utc_iso(clock.utc_now())
         started_mono = clock.monotonic()
+        started_real = time.monotonic()
         record = AttemptRecord(
             attempt_id=attempt_id,
             stage=invocation.stage,
@@ -1074,14 +1361,37 @@ def _run_invocation(
             error_code=None,
             delivery=None,
             circuit_breaker=False,
+            retry_delay_seconds=None,
+            retry_backoff_completed=False,
         )
         journal.records.append(record)
         persist(journal)
 
         try:
-            reply = transport.complete(invocation)
+            reply = _supervised_complete(invocation, transport, deadline, clock)
+        except _SupervisedTimeout as exc:
+            elapsed_ms = max(
+                0,
+                round((clock.monotonic() - started_mono) * 1000),
+                round((time.monotonic() - started_real) * 1000),
+            )
+            record.completed_at = _utc_iso(clock.utc_now())
+            record.elapsed_ms = elapsed_ms
+            record.status = "ambiguous" if exc.delivery == "unknown" else "failed"
+            record.error_code = "deadline_exceeded" if exc.delivery == "unknown" else "boundary_start_timeout"
+            record.delivery = exc.delivery
+            persist(journal)
+            if exc.delivery == "unknown":
+                raise ShadowResumeAmbiguous(
+                    "run deadline expired after provider execution may have started; delivery and charge are unknown"
+                ) from exc
+            raise ShadowBudgetExceeded("run deadline expired before provider execution started") from exc
         except ProviderFailure as exc:
-            elapsed_ms = max(0, round((clock.monotonic() - started_mono) * 1000))
+            elapsed_ms = max(
+                0,
+                round((clock.monotonic() - started_mono) * 1000),
+                round((time.monotonic() - started_real) * 1000),
+            )
             record.completed_at = _utc_iso(clock.utc_now())
             record.elapsed_ms = elapsed_ms
             if (
@@ -1152,12 +1462,43 @@ def _run_invocation(
                 if exc.retryable
                 else "failed"
             )
+            record.retry_delay_seconds = None
+            record.retry_backoff_completed = False
             persist(journal)
             if record.status != "retryable_failure":
+                if record.status == "ambiguous":
+                    raise ShadowResumeAmbiguous(
+                        "provider failure has unknown delivery; no automatic replay is safe"
+                    ) from exc
                 raise ShadowProviderFailure(record.error_code) from exc
+            retry_number = attempt_number
+            if retry_number > retry_policy.max_retries:
+                raise ShadowProviderFailure("bounded retry policy is exhausted") from exc
+            if len(journal.records) >= limits.max_total_attempts:
+                raise ShadowBudgetExceeded("total provider-attempt limit leaves no retry") from exc
+            if retry_number >= limits.max_attempts_per_request:
+                raise ShadowBudgetExceeded("per-request provider-attempt limit leaves no retry") from exc
+            _check_cost_room(journal, limits.cost_ceiling)
+            remaining = deadline.remaining(clock)
+            if remaining <= 0:
+                raise ShadowBudgetExceeded("run deadline expired before retry backoff") from exc
+            delay = retry_policy.delay_seconds(retry_number)
+            sleep_for = min(delay, remaining)
+            record.retry_delay_seconds = sleep_for
+            record.retry_backoff_completed = False
+            persist(journal)
+            sleeper.sleep(sleep_for)
+            record.retry_backoff_completed = True
+            persist(journal)
+            if sleep_for < delay or deadline.remaining(clock) <= 0:
+                raise ShadowBudgetExceeded("run deadline expired during retry backoff") from exc
             continue
         except Exception as exc:
-            elapsed_ms = max(0, round((clock.monotonic() - started_mono) * 1000))
+            elapsed_ms = max(
+                0,
+                round((clock.monotonic() - started_mono) * 1000),
+                round((time.monotonic() - started_real) * 1000),
+            )
             record.completed_at = _utc_iso(clock.utc_now())
             record.elapsed_ms = elapsed_ms
             record.status = "ambiguous"
@@ -1166,7 +1507,11 @@ def _run_invocation(
             persist(journal)
             raise ShadowResumeAmbiguous("transport failed with unknown delivery") from exc
 
-        elapsed_ms = max(0, round((clock.monotonic() - started_mono) * 1000))
+        elapsed_ms = max(
+            0,
+            round((clock.monotonic() - started_mono) * 1000),
+            round((time.monotonic() - started_real) * 1000),
+        )
         record.completed_at = _utc_iso(clock.utc_now())
         record.elapsed_ms = elapsed_ms
         try:
@@ -1227,8 +1572,8 @@ def _run_invocation(
         record.response_payload = reply.payload
         persist(journal)
         elapsed_wall = _elapsed_since(run_started, clock)
-        if elapsed_wall > limits.max_elapsed_seconds:
-            raise ShadowBudgetExceeded("provider call completed after the cumulative time limit")
+        if elapsed_wall > limits.max_elapsed_seconds or deadline.remaining(clock) <= 0:
+            raise ShadowBudgetExceeded("provider call completed after the run deadline")
         return validated, False, reply.model_identity
 
 
@@ -1247,15 +1592,25 @@ def run_jd_extraction(
     persist: Callable[[AttemptJournal], None],
     *,
     enabled: bool = False,
+    retry_policy: RetryPolicy | None = None,
+    sleeper: Sleeper | None = None,
+    _deadline: _RunDeadline | None = None,
 ) -> tuple[JdExtraction, bool]:
     """Extract only from the full JD; no candidate context or other job is accepted."""
     _require_enabled(enabled)
+    policy = retry_policy or RetryPolicy()
+    active_sleeper = sleeper or SystemSleeper()
+    policy.validate()
+    deadline = _deadline or _new_run_deadline(journal, limits, clock)
     invocation = build_extraction_invocation(job, identity)
     result, from_cache, _ = _run_invocation(
         invocation,
         transport,
         journal,
         limits,
+        policy,
+        active_sleeper,
+        deadline,
         clock,
         persist,
         lambda payload: extraction_from_value(payload, job.description),
@@ -1279,6 +1634,8 @@ def run_shadow_assessment(
     extraction: JdExtraction | None = None,
     extraction_identity: ModelIdentity | None = None,
     draw_number: int = 1,
+    retry_policy: RetryPolicy | None = None,
+    sleeper: Sleeper | None = None,
 ) -> ShadowResult:
     """Run one direct or extracted assessment; this function is not wired to runtime."""
     _require_enabled(enabled)
@@ -1287,6 +1644,10 @@ def run_shadow_assessment(
         raise ShadowIntegrityError("draw_number must be a positive integer")
     if profile.status != "approved":
         raise ShadowIntegrityError("shadow assessment requires an approved candidate profile")
+    policy = retry_policy or RetryPolicy()
+    active_sleeper = sleeper or SystemSleeper()
+    policy.validate()
+    deadline = _new_run_deadline(journal, limits, clock)
     extraction_from_cache = False
     if variant == "extracted" and extraction is None:
         if extraction_identity is None:
@@ -1300,6 +1661,9 @@ def run_shadow_assessment(
             clock,
             persist,
             enabled=True,
+            retry_policy=policy,
+            sleeper=active_sleeper,
+            _deadline=deadline,
         )
     if variant == "extracted" and extraction is not None and extraction.coverage != "complete":
         extraction_request_id = (
@@ -1335,6 +1699,9 @@ def run_shadow_assessment(
         transport,
         journal,
         limits,
+        policy,
+        active_sleeper,
+        deadline,
         clock,
         persist,
         lambda payload: validate_assessment_payload(

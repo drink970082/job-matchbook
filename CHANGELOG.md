@@ -18,6 +18,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   charges and model mismatch. No provider, pricing, rubric, live evaluation, database or
   runtime wiring is selected.
 
+- Enforce one monotonic deadline across shadow extraction, assessment, retries and
+  backoff. Run blocking transports in a supervised POSIX process group and kill/reap it on
+  timeout; retain unknown delivery and cost when execution may have started. Add injected
+  bounded retry backoff with durable pending/completed state, so resume cannot bypass the
+  wait or exceed attempt/time/cost ceilings. Journal schema 3 records retry state; fake
+  tests cover cleanup, ambiguous resume, charged failures and backoff interruption.
+
 - Add offline candidate-profile validation and exact context rendering, plus a
   provider-free frozen-pool replay with grouped development/held-out splits, explicit
   unresolved labels and aggregate recency/role-coverage baselines. Synthetic fixtures
