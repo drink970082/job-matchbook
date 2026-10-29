@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
+  identity freshness, bounded typed scores, safe model/version labels and validated JD
+  evidence into a Python/TypeScript React read panel. Private context, digests, raw
+  responses and free-form explanations stay withheld. The panel is not wired to the
+  production inventory or runtime.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
