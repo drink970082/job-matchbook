@@ -3,7 +3,11 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import resource
 import stat
+import subprocess
+import sys
+import threading
 import time
 
 import pytest
@@ -160,6 +164,63 @@ class LargePlainReplyTransport:
     def complete(self, invocation):
         Path(self.marker_path).write_text(str(os.getpid()), encoding="utf-8")
         return reply(ASSESSOR, {"large": "x" * self.size})
+
+
+class ProcessBoundaryProbeTransport:
+    def __init__(self, marker_path, child_marker_path):
+        self.marker_path = str(marker_path)
+        self.child_marker_path = str(child_marker_path)
+
+    def complete(self, invocation):
+        attempts = {}
+        try:
+            child_pid = os.fork()
+        except OSError as exc:
+            attempts["fork"] = f"blocked:{exc.errno}"
+        else:
+            if child_pid == 0:
+                os._exit(0)
+            os.waitpid(child_pid, 0)
+            attempts["fork"] = "spawned"
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import time;time.sleep(10)"], start_new_session=True
+            )
+        except OSError as exc:
+            attempts["popen"] = f"blocked:{exc.errno}"
+        else:
+            Path(self.child_marker_path).write_text(str(child.pid), encoding="utf-8")
+            child.kill()
+            child.wait(timeout=2)
+            attempts["popen"] = "spawned"
+        try:
+            thread = threading.Thread(target=lambda: None)
+            thread.start()
+            thread.join(timeout=2)
+            attempts["thread"] = "spawned"
+        except RuntimeError:
+            attempts["thread"] = "blocked"
+        current_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+        hard_limit = current_limits[1]
+        if hard_limit == resource.RLIM_INFINITY:
+            attempts["raise_limit"] = "unbounded"
+        else:
+            try:
+                resource.setrlimit(resource.RLIMIT_NPROC, (hard_limit + 1, hard_limit + 1))
+            except (OSError, ValueError) as exc:
+                attempts["raise_limit"] = f"blocked:{type(exc).__name__}"
+            else:
+                attempts["raise_limit"] = "raised"
+        status = {}
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key in {"Uid", "CapEff", "CapPrm", "CapInh", "CapAmb", "NoNewPrivs"}:
+                status[key] = value.strip()
+        Path(self.marker_path).write_text(
+            json.dumps({"attempts": attempts, "limits": current_limits, "status": status}),
+            encoding="utf-8",
+        )
+        return reply(ASSESSOR, assessment_payload())
 
 
 def _sleep_and_write_marker(marker_path):
@@ -558,6 +619,10 @@ def test_public_entrypoint_kills_and_reaps_a_nonreturning_transport(tmp_path):
             lambda current: None,
             enabled=True,
         )
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
     assert resumed_transport.calls == []
 
 
@@ -699,11 +764,266 @@ def test_parent_wire_decode_is_checked_against_the_remaining_deadline(monkeypatc
             lambda current: None,
             enabled=True,
         )
-
     assert journal.records[0].status == "ambiguous"
     assert journal.records[0].delivery == "unknown"
-    assert journal.records[0].charge["kind"] == "unknown"
-    assert journal.records[0].usage["input_tokens"] is None
+
+
+def test_provider_worker_process_boundary_blocks_processes_and_threads(tmp_path):
+    marker = tmp_path / "boundary-evidence.json"
+    child_marker = tmp_path / "unexpected-child.pid"
+    parent_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+    parent_no_new_privs = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
+    existing_children = set(multiprocessing.active_children())
+    result = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        ProcessBoundaryProbeTransport(marker, child_marker),
+        AttemptJournal.empty(),
+        limits(),
+        SystemClock(),
+        lambda current: None,
+        enabled=True,
+    )
+    evidence = json.loads(marker.read_text(encoding="utf-8"))
+    assert result is not None
+    assert evidence["limits"] == [0, 0]
+    assert evidence["attempts"]["fork"].startswith("blocked:")
+    assert evidence["attempts"]["popen"].startswith("blocked:")
+    assert evidence["attempts"]["thread"] == "blocked"
+    assert evidence["attempts"]["raise_limit"].startswith("blocked:")
+    uid_values = [int(value) for value in evidence["status"]["Uid"].split()]
+    assert uid_values[0] != 0 and len(set(uid_values[:3])) == 1
+    for capability in ("CapEff", "CapPrm", "CapInh", "CapAmb"):
+        assert int(evidence["status"][capability], 16) == 0
+    assert evidence["status"]["NoNewPrivs"] == "1"
+    assert not child_marker.exists()
+    assert resource.getrlimit(resource.RLIMIT_NPROC) == parent_limits
+    assert set(multiprocessing.active_children()) == existing_children
+    current_parent_no_new_privs = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
+    assert current_parent_no_new_privs == parent_no_new_privs
+
+
+def test_cached_response_validator_runs_inside_the_same_process_boundary(tmp_path, monkeypatch):
+    clock = FakeClock()
+    journal = AttemptJournal.empty()
+    first_transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
+    run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        first_transport,
+        journal,
+        limits(),
+        clock,
+        lambda current: None,
+        enabled=True,
+    )
+
+    original_validate = shadow_module.validate_assessment_payload
+    spawn_marker = tmp_path / "cached-validator-popen.txt"
+    child_marker = tmp_path / "cached-validator-child.pid"
+    fork_marker = tmp_path / "cached-validator-fork.txt"
+    thread_marker = tmp_path / "cached-validator-thread.txt"
+
+    def validate_with_spawn_probe(payload, question_set, **kwargs):
+        try:
+            child_pid = os.fork()
+        except OSError as exc:
+            fork_marker.write_text(f"blocked:{exc.errno}", encoding="utf-8")
+        else:
+            if child_pid == 0:
+                os._exit(0)
+            os.waitpid(child_pid, 0)
+            fork_marker.write_text("spawned", encoding="utf-8")
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-c", "import time;time.sleep(10)"], start_new_session=True
+            )
+        except OSError as exc:
+            spawn_marker.write_text(f"blocked:{exc.errno}", encoding="utf-8")
+        else:
+            child_marker.write_text(str(child.pid), encoding="utf-8")
+            child.kill()
+            child.wait(timeout=2)
+            spawn_marker.write_text("spawned", encoding="utf-8")
+        try:
+            thread = threading.Thread(target=lambda: None)
+            thread.start()
+            thread.join(timeout=2)
+            thread_marker.write_text("spawned", encoding="utf-8")
+        except RuntimeError:
+            thread_marker.write_text("blocked", encoding="utf-8")
+        return original_validate(payload, question_set, **kwargs)
+
+    monkeypatch.setattr(shadow_module, "validate_assessment_payload", validate_with_spawn_probe)
+    cached = run_shadow_assessment(
+        job(),
+        approved_profile(),
+        questions(),
+        "direct",
+        ASSESSOR,
+        FakeTransport([], clock),
+        journal,
+        limits(),
+        clock,
+        lambda current: None,
+        enabled=True,
+    )
+    assert cached.assessment_from_cache is True
+    assert fork_marker.read_text(encoding="utf-8").startswith("blocked:")
+    assert spawn_marker.read_text(encoding="utf-8").startswith("blocked:")
+    assert thread_marker.read_text(encoding="utf-8") == "blocked"
+    assert not child_marker.exists()
+
+
+def test_unsupported_worker_credentials_fail_before_transport(tmp_path, monkeypatch):
+    marker = tmp_path / "unsupported-credentials-provider-called"
+    journal = AttemptJournal.empty()
+    monkeypatch.setattr(
+        shadow_module,
+        "_worker_credentials_supported",
+        lambda: False,
+        raising=False,
+    )
+    with pytest.raises(ShadowIntegrityError, match="worker boundary"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            ProcessBoundaryProbeTransport(marker, tmp_path / "child.pid"),
+            journal,
+            limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    assert not marker.exists()
+    assert journal.records == []
+
+
+def test_worker_process_limit_install_failure_prevents_transport(tmp_path, monkeypatch):
+    marker = tmp_path / "boundary-install-provider-called"
+    journal = AttemptJournal.empty()
+    monkeypatch.setattr(
+        shadow_module,
+        "_install_worker_process_boundary",
+        lambda: False,
+        raising=False,
+    )
+    with pytest.raises(ShadowResumeAmbiguous, match="unknown delivery"):
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            ProcessBoundaryProbeTransport(marker, tmp_path / "child.pid"),
+            journal,
+            limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    assert not marker.exists()
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+
+
+def test_parent_preemption_after_provider_start_stays_ambiguous(tmp_path, monkeypatch):
+    from multiprocessing.process import BaseProcess
+
+    original_join = BaseProcess.join
+    delayed = False
+
+    def preempt_after_provider_start(process, timeout=None):
+        nonlocal delayed
+        original_join(process, timeout)
+        if process.is_alive() and not delayed:
+            # The caller is descheduled after the provider marker but before timeout accounting.
+            delayed = True
+            time.sleep(0.08)
+
+    monkeypatch.setattr(BaseProcess, "join", preempt_after_provider_start)
+    marker = tmp_path / "race-worker.pid"
+    journal = AttemptJournal.empty()
+    started = time.monotonic()
+    error = None
+    try:
+        run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            NonReturningTransport(marker),
+            journal,
+            limits(max_elapsed_seconds=0.04),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+    except Exception as exc:
+        error = exc
+
+    assert marker.exists(), "the provider call should have started before parent preemption"
+    worker_pid = int(marker.read_text(encoding="utf-8"))
+    assert isinstance(error, ShadowResumeAmbiguous), f"unexpected timeout classification: {error!r}"
+    assert journal.records[0].status == "ambiguous"
+    assert journal.records[0].delivery == "unknown"
+    with pytest.raises(ProcessLookupError):
+        os.kill(worker_pid, 0)
+    assert time.monotonic() - started < 1.0
+
+
+def test_worker_boundary_does_not_change_parent_or_unrelated_process(tmp_path):
+    sibling = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(10)"])
+    parent_limits = resource.getrlimit(resource.RLIMIT_NPROC)
+    parent_nnp = next(
+        line.split(":", 1)[1].strip()
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+        if line.startswith("NoNewPrivs:")
+    )
+    try:
+        result = run_shadow_assessment(
+            job(),
+            approved_profile(),
+            questions(),
+            "direct",
+            ASSESSOR,
+            FakeTransport([reply(ASSESSOR, assessment_payload())]),
+            AttemptJournal.empty(),
+            limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+        )
+        assert result is not None
+        assert sibling.poll() is None
+        assert resource.getrlimit(resource.RLIMIT_NPROC) == parent_limits
+        current_nnp = next(
+            line.split(":", 1)[1].strip()
+            for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines()
+            if line.startswith("NoNewPrivs:")
+        )
+        assert current_nnp == parent_nnp
+    finally:
+        sibling.kill()
+        sibling.wait(timeout=2)
 
 
 def test_backoff_exhaustion_does_not_start_an_attempt_after_deadline(tmp_path):

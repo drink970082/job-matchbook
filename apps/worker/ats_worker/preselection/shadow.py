@@ -16,11 +16,16 @@ import multiprocessing
 import os
 from pathlib import Path
 import re
-import signal
 import stat
+import sys
 import tempfile
 import time
 from typing import Any, Callable, Protocol
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - unsupported platforms fail closed below
+    resource = None  # type: ignore[assignment]
 
 from ats_worker.preselection.extraction import (
     AlternativeGroup,
@@ -1109,29 +1114,95 @@ def _reserved_charge(ceiling: CostCeiling | None) -> dict[str, str] | None:
     }
 
 
-def _execution_boundary_available(transport: Transport) -> None:
-    """Reject transports before an attempt unless a killable process boundary is available."""
+def _worker_credentials_supported() -> bool:
+    """Keep RLIMIT_NPROC effective and non-bypassable for the provider worker."""
+    try:
+        real_uid, effective_uid, saved_uid = os.getresuid()
+        if real_uid == 0 or (real_uid, effective_uid, saved_uid) != (
+            real_uid,
+            real_uid,
+            real_uid,
+        ):
+            return False
+        fields: dict[str, int] = {}
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            name, separator, value = line.partition(":")
+            if separator and name in {"CapEff", "CapPrm", "CapInh", "CapAmb"}:
+                fields[name] = int(value.strip(), 16)
+        return set(fields) == {"CapEff", "CapPrm", "CapInh", "CapAmb"} and not any(fields.values())
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _set_worker_no_new_privs() -> bool:
+    """Set and verify no_new_privs before relying on a hard zero process limit."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        prctl = libc.prctl
+        prctl.argtypes = (
+            ctypes.c_int,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        )
+        prctl.restype = ctypes.c_int
+        if prctl(38, 1, 0, 0, 0) != 0:  # PR_SET_NO_NEW_PRIVS
+            return False
+        return prctl(39, 0, 0, 0, 0) == 1  # PR_GET_NO_NEW_PRIVS
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _install_worker_process_boundary() -> bool:
+    """Disable provider-created processes and threads in this worker process."""
     if (
-        os.name != "posix"
+        resource is None
+        or not _worker_credentials_supported()
+        or not _set_worker_no_new_privs()
+    ):
+        return False
+    try:
+        resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+        return resource.getrlimit(resource.RLIMIT_NPROC) == (0, 0)
+    except (OSError, ValueError):
+        return False
+
+
+def _execution_boundary_available(transport: Transport) -> None:
+    """Require a Linux unprivileged single-process transport boundary."""
+    if (
+        sys.platform != "linux"
+        or os.name != "posix"
         or not hasattr(os, "setsid")
-        or not hasattr(os, "killpg")
         or not callable(getattr(transport, "complete", None))
+        or resource is None
+        or not hasattr(resource, "RLIMIT_NPROC")
     ):
         raise ShadowIntegrityError(
-            "a supervised POSIX transport boundary is required before provider execution"
+            "a Linux process-limit transport boundary is required before provider execution"
         )
     try:
         multiprocessing.get_context("fork")
+        getattr(__import__("ctypes").CDLL(None), "prctl")
     except (RuntimeError, ValueError) as exc:
         raise ShadowIntegrityError(
-            "a supervised POSIX transport boundary is required before provider execution"
+            "a Linux process-limit transport boundary is required before provider execution"
         ) from exc
+    except (AttributeError, OSError) as exc:
+        raise ShadowIntegrityError(
+            "a Linux process-limit transport boundary is required before provider execution"
+        ) from exc
+    if not _worker_credentials_supported():
+        raise ShadowIntegrityError(
+            "worker boundary requires matching non-root UIDs and empty capability sets"
+        )
 
 
 class _SupervisedTimeout(Exception):
-    def __init__(self, delivery: str):
-        super().__init__(delivery)
-        self.delivery = delivery
+    """A started worker timed out; public accounting must remain unknown."""
 
 
 class _SupervisedReplyFailure(Exception):
@@ -1425,14 +1496,12 @@ def _transport_worker(
     validator: Callable[[Any], Any],
     result_buffer: Any,
     result_size: Any,
-    ready: Any,
 ) -> None:
     """Run and validate provider output in a killable process; communicate only bounded JSON."""
     try:
         os.setsid()
     except OSError:
         _store_worker_result(result_buffer, result_size, {"kind": "boundary_unavailable"})
-        ready.set()
         os._exit(0)
     try:
         null_fd = os.open(os.devnull, os.O_WRONLY)
@@ -1441,9 +1510,10 @@ def _transport_worker(
         os.close(null_fd)
     except OSError:
         _store_worker_result(result_buffer, result_size, {"kind": "boundary_unavailable"})
-        ready.set()
         os._exit(0)
-    ready.set()
+    if not _install_worker_process_boundary():
+        _store_worker_result(result_buffer, result_size, {"kind": "boundary_unavailable"})
+        os._exit(0)
     try:
         reply = transport.complete(invocation)
     except ProviderFailure as exc:
@@ -1554,13 +1624,13 @@ def _charge_from_wire(value: Any) -> Charge | None:
 
 def _decode_worker_result(payload: bytes, deadline: _RunDeadline, clock: Clock) -> _SupervisedOutcome:
     if deadline.remaining(clock) <= 0:
-        raise _SupervisedTimeout("unknown")
+        raise _SupervisedTimeout()
     try:
         result = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise RuntimeError("supervised worker returned malformed bounded JSON") from exc
     if deadline.remaining(clock) <= 0:
-        raise _SupervisedTimeout("unknown")
+        raise _SupervisedTimeout()
     if type(result) is not dict or type(result.get("kind")) is not str:
         raise RuntimeError("supervised worker returned an invalid result envelope")
     kind = result["kind"]
@@ -1644,26 +1714,6 @@ def _validation_error_from_code(error_code: str) -> Exception:
     return exception_type(message)
 
 
-def _terminate_worker(process: Any, *, kill_group: bool) -> bool:
-    if process.pid is None:
-        return True
-    if kill_group:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    elif process.is_alive():
-        try:
-            process.kill()
-        except ProcessLookupError:
-            pass
-        process.join(timeout=0.1)
-        if process.is_alive():
-            process.kill()
-    process.join(timeout=0.1)
-    return not process.is_alive()
-
-
 def _supervised_complete(
     invocation: Invocation,
     transport: Transport,
@@ -1671,55 +1721,63 @@ def _supervised_complete(
     deadline: _RunDeadline,
     clock: Clock,
 ) -> _SupervisedOutcome:
-    """Run transport and validation under one killable deadline; receive bounded JSON only."""
+    """Run one process- and thread-restricted transport worker under the deadline."""
     context = multiprocessing.get_context("fork")
     result_buffer = context.RawArray("B", _MAX_WORKER_RESULT_BYTES)
     result_size = context.RawValue("I", 0)
-    ready = context.Event()
     process = context.Process(
         target=_transport_worker,
-        args=(transport, invocation, validator, result_buffer, result_size, ready),
+        args=(transport, invocation, validator, result_buffer, result_size),
     )
     try:
         process.start()
     except (OSError, RuntimeError) as exc:
         raise ShadowIntegrityError("could not start the supervised transport boundary") from exc
+
     worker_cleaned = False
     try:
-        remaining = deadline.remaining(clock)
-        if remaining <= 0 or not ready.wait(remaining):
-            worker_cleaned = _terminate_worker(process, kill_group=ready.is_set())
-            raise _SupervisedTimeout("not_sent")
-        remaining = deadline.remaining(clock)
-        if remaining <= 0:
-            worker_cleaned = _terminate_worker(process, kill_group=True)
-            if not worker_cleaned:
-                raise ShadowIntegrityError("timed-out transport worker could not be reaped")
-            raise _SupervisedTimeout("unknown")
-        process.join(timeout=remaining)
+        while process.is_alive():
+            remaining = deadline.remaining(clock)
+            if remaining <= 0:
+                break
+            process.join(timeout=min(remaining, 0.01))
         if process.is_alive():
-            worker_cleaned = _terminate_worker(process, kill_group=True)
+            worker_cleaned = _terminate_worker(process)
             if not worker_cleaned:
                 raise ShadowIntegrityError("timed-out transport worker could not be reaped")
-            raise _SupervisedTimeout("unknown")
-        worker_cleaned = _terminate_worker(process, kill_group=True)
+            raise _SupervisedTimeout()
+        worker_cleaned = _terminate_worker(process)
         if not worker_cleaned:
             raise ShadowIntegrityError("completed transport worker could not be reaped")
         if deadline.remaining(clock) <= 0:
-            raise _SupervisedTimeout("unknown")
+            raise _SupervisedTimeout()
+
         size = result_size.value
         if type(size) is not int or not 0 < size <= _MAX_WORKER_RESULT_BYTES:
             raise RuntimeError("supervised worker exited without a bounded result")
         payload = bytes(result_buffer[:size])
         if deadline.remaining(clock) <= 0:
-            raise _SupervisedTimeout("unknown")
+            raise _SupervisedTimeout()
         outcome = _decode_worker_result(payload, deadline, clock)
         if deadline.remaining(clock) <= 0:
-            raise _SupervisedTimeout("unknown")
+            raise _SupervisedTimeout()
         return outcome
     finally:
         if not worker_cleaned:
-            _terminate_worker(process, kill_group=ready.is_set())
+            _terminate_worker(process)
+
+
+def _terminate_worker(process: Any) -> bool:
+    """Kill and reap the direct worker; provider child creation is disabled."""
+    if process.pid is None:
+        return True
+    if process.is_alive():
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+    process.join(timeout=0.25)
+    return not process.is_alive()
 
 
 def _new_run_deadline(journal: AttemptJournal, limits: ShadowLimits, clock: Clock) -> _RunDeadline:
@@ -1923,7 +1981,7 @@ def _run_invocation(
             outcome = _supervised_complete(invocation, transport, validator, deadline, clock)
             reply = outcome.reply
             validated = outcome.validated
-        except _SupervisedTimeout as exc:
+        except _SupervisedTimeout:
             elapsed_ms = max(
                 0,
                 round((clock.monotonic() - started_mono) * 1000),
@@ -1931,15 +1989,13 @@ def _run_invocation(
             )
             record.completed_at = _utc_iso(clock.utc_now())
             record.elapsed_ms = elapsed_ms
-            record.status = "ambiguous" if exc.delivery == "unknown" else "failed"
-            record.error_code = "deadline_exceeded" if exc.delivery == "unknown" else "boundary_start_timeout"
-            record.delivery = exc.delivery
+            record.status = "ambiguous"
+            record.error_code = "deadline_exceeded"
+            record.delivery = "unknown"
             persist(journal)
-            if exc.delivery == "unknown":
-                raise ShadowResumeAmbiguous(
-                    "run deadline expired after provider execution may have started; delivery and charge are unknown"
-                ) from exc
-            raise ShadowBudgetExceeded("run deadline expired before provider execution started") from exc
+            raise ShadowResumeAmbiguous(
+                "run deadline expired after provider execution may have started; delivery and charge are unknown"
+            ) from None
         except _SupervisedReplyFailure as exc:
             elapsed_ms = max(
                 0,
