@@ -66,8 +66,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   tracked privacy audit pass. The Node privacy wrapper is blocked by sandbox
   `spawnSync git EPERM`; its rule self-test and equivalent tracked-path audit pass. No
   live provider or model inference, price choice, threshold, GO decision or runtime wiring
-  is included. The GitHub integration returns HTTP 403 for blob and branch-ref writes, so
-  no reviewable remote PR exists yet. #110/#116/design prerequisites, #94 acceptance,
+  is included. The GitHub integration returns HTTP 403 for blob, branch-ref and issue writes, so neither
+  a reviewable remote PR nor an issue-status update exists yet. #110/#116/design prerequisites, #94 acceptance,
   profile/provider/policy selection and independent review remain open.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
