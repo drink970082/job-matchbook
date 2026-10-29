@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from ats_worker.preselection_view import project_assessment_view
 
 
@@ -94,6 +96,16 @@ def test_shared_fixture_cases_fail_closed_without_exposing_private_fields():
     assert len(bounded_view["components"][0]["jd_evidence"][0]["excerpt"]) == 300
     assert bounded_view["metadata"]["rubric_version_truncated"] is True
     assert bounded_view["latest_attempt"]["requested_model_truncated"] is True
+    assert bounded_view["metadata"]["resolved_model_truncated"] is True
+    assert bounded_view["latest_attempt"]["resolved_model_truncated"] is True
+    assert bounded_view["components"][0]["jd_evidence"][0]["label_truncated"] is True
+
+    boundary = next(case for case in fixture["cases"]
+                    if case["name"] == "boundary_whitespace_truncation_remains_valid")
+    boundary_view = project_assessment_view(boundary["snapshot"])
+    assert boundary_view["assessment_state"] == "current"
+    assert boundary_view["components"][0]["label"] == "x" * 119
+    assert boundary_view["components"][0]["label_truncated"] is True
 
     oversized = next(case for case in fixture["cases"]
                      if case["name"] == "oversized_component_list")
@@ -101,6 +113,35 @@ def test_shared_fixture_cases_fail_closed_without_exposing_private_fields():
     assert oversized_view["assessment_state"] == "unknown"
     assert oversized_view["assessment_reason"] == "too_many_components"
     assert oversized_view["components"] == []
+
+
+@pytest.mark.parametrize("case_name", [
+    "malformed_attempt_array_state_preserves_success",
+    "malformed_attempt_object_state_preserves_success",
+])
+def test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable(case_name):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ats_worker.preselection_view_cli",
+            "--fixture",
+            str(FIXTURE),
+            "--case",
+            case_name,
+        ],
+        cwd=WORKER_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    view = json.loads(result.stdout)
+    assert view["assessment_state"] == "current"
+    assert view["latest_attempt"]["state"] == "unknown"
+    assert view["components"][0]["score"] == 84
 
 
 def test_projection_and_cli_import_without_runtime_or_provider_modules():

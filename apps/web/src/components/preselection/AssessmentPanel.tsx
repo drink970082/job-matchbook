@@ -31,6 +31,15 @@ function attemptLabel(state: string): string {
     }
 }
 
+function DisplayText({ text, shortened }: { text: string; shortened: boolean }) {
+    return (
+        <>
+            {text}
+            {shortened && <span className="ml-1 text-xs text-muted-foreground">(shortened)</span>}
+        </>
+    )
+}
+
 export function AssessmentPanel({ value }: { value: unknown }) {
     const view = normalizeAssessmentView(value)
     const canShowComponents = view.assessment_state === 'current' || view.assessment_state === 'stale'
@@ -54,17 +63,29 @@ export function AssessmentPanel({ value }: { value: unknown }) {
                 <>
                     <p>Assessed at: <time dateTime={view.assessment_time ?? undefined}>{view.assessment_time}</time></p>
                     {view.metadata && (
-                        <p>Model: {view.metadata.resolved_model}</p>
+                        <p>Model: <DisplayText
+                            text={String(view.metadata.resolved_model)}
+                            shortened={view.metadata.resolved_model_truncated === true}
+                        /></p>
                     )}
                     <ul aria-label="Assessment components" className="mt-2 space-y-2">
                         {view.components.map((component) => (
                             <li key={component.id}>
-                                <h3 className="font-medium">{component.label}</h3>
+                                <h3 className="font-medium"><DisplayText
+                                    text={component.label}
+                                    shortened={component.label_truncated}
+                                /></h3>
                                 <p>{component.score} / 100</p>
                                 {component.jd_evidence.map((evidence) => (
                                     <blockquote key={evidence.id} className="text-sm text-muted-foreground">
-                                        <span>{evidence.label}: </span>
-                                        <span>{evidence.excerpt}</span>
+                                        <span><DisplayText
+                                            text={evidence.label}
+                                            shortened={evidence.label_truncated}
+                                        />: </span>
+                                        <span><DisplayText
+                                            text={evidence.excerpt}
+                                            shortened={evidence.excerpt_truncated}
+                                        /></span>
                                     </blockquote>
                                 ))}
                             </li>

@@ -105,6 +105,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- Keep a valid synthetic assessment visible when latest-attempt state is malformed;
+  align Python timestamp digits with TypeScript, trim boundary whitespace from shortened
+  values, and show an accessible shortening label for each shortened panel value.
+
 - Standalone screen preserves the existing deprioritized job order under its call cap.
   Conflicting direct worker modes and invalid screen caps fail before database access.
   MCP URL redaction uses the same secret-key policy for valid and malformed URLs,
