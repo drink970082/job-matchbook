@@ -2683,7 +2683,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
-| Frozen replay recomputes profile/context/source hashes, versions, counts and exact daily membership from supplied artifacts; allocates K per UTC day, keeps unresolved rows in the pool with null recall, and emits only aggregate metrics and hashes; legacy ID-only replay is explicitly inconclusive | `apps/worker/tests/test_preselection_profile.py` (`test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted`), `apps/worker/tests/test_preselection_replay.py` (`test_k_is_allocated_once_per_complete_utc_day_inside_each_split`, `test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance`, `test_snapshot_rejects_actual_input_or_manifest_tampering`, `test_snapshot_rejects_profile_change_even_when_context_is_rerendered`, `test_unknown_labels_remain_in_pool_and_make_recall_inconclusive_without_denominator_shrink`, `test_replay_cli_emits_only_report_and_no_source_identifiers`) |
+| Frozen replay recomputes profile/context/source hashes, versions, counts and exact daily membership from supplied artifacts; validates nullable normalized fields, allocates K per UTC day, keeps unresolved rows in the pool with null recall, anonymizes untrusted role labels, and converts malformed Unicode into a bounded input error; legacy ID-only replay is explicitly inconclusive | `apps/worker/tests/test_preselection_profile.py` (`test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted`), `apps/worker/tests/test_preselection_replay.py` (`test_k_is_allocated_once_per_complete_utc_day_inside_each_split`, `test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance`, `test_full_snapshot_allows_nullable_normalized_source_fields`, `test_full_snapshot_requires_posted_at_even_if_the_manifest_is_recomputed`, `test_snapshot_rejects_actual_input_or_manifest_tampering`, `test_snapshot_rejects_profile_change_even_when_context_is_rerendered`, `test_unknown_labels_remain_in_pool_and_make_recall_inconclusive_without_denominator_shrink`, `test_snapshot_cli_never_emits_untrusted_role_labels`, `test_snapshot_cli_reports_malformed_unicode_as_a_bounded_input_error`, `test_replay_cli_emits_only_report_and_no_source_identifiers`) |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
@@ -3018,16 +3018,21 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   text; exact rendered-file comparison is byte-for-byte and mismatch exits nonzero.
   Acceptance-grade offline replay requires `tools/preselection_replay.py --snapshot`
   and a closed bundle containing the profile, exact rendered context, normalized source
-  payload for every row, and manifest. Validation recomputes renderer/input versions,
-  hashes, total and label counts, and exact UTC-day membership from those actual inputs;
+  payload for every row, and manifest. The normalized payload requires `source`,
+  `external_id`, `company_name`, `job_title`, `location`, `job_url`, `description` and
+  `posted_at`; location and `posted_at` may be null, and all additional supplied payload
+  data is hashed.
+  Validation recomputes renderer/input versions, hashes, total and label counts, and exact
+  UTC-day membership from those actual inputs;
   a digest alone is not accepted as proof. The deterministic split keeps complete days
   and shared duplicate/template groups together. Each caller-specified K is allocated
   independently to every complete UTC-day pool. Positive, negative and unresolved labels
   remain explicit; unresolved rows stay in counts and make recall inconclusive. Reports
   contain only aggregate metrics and hashes, with no row/group IDs or source/profile
-  text. The legacy ID-only pool remains available for exploration and is always marked
-  inconclusive. No provider, database, legacy scorer/eval engine, runtime selection,
-  quality threshold or acceptance GO is involved.
+  text; per-role metrics use anonymous pool-local ordinal keys. The legacy ID-only pool
+  remains available for exploration and is always marked inconclusive. No provider,
+  database, legacy scorer/eval engine, runtime selection, quality threshold or acceptance
+  GO is involved.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

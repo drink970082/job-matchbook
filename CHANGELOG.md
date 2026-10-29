@@ -55,7 +55,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - Keep screen imports and neutral model errors independent of fit backends and prompt
   reads until a legacy fit export is explicitly requested. Allocate each replay budget
   per complete UTC-day pool, fail rendered-context mismatches, and mark label-unknown
-  evidence inconclusive without shrinking its item count.
+  evidence inconclusive without shrinking its item count. Validate nullable normalized
+  source fields without dropping required provenance, keep submitted role labels out of
+  reports, and return malformed Unicode as a bounded replay-input error.
 
 - Consolidate the accepted offline preparation and its execution contract, remove
   completed preparation claims from the active queue, and define a provider-free

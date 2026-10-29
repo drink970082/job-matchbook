@@ -12,20 +12,24 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
   carried forward with a lazy `score` compatibility facade. Fresh-process regressions
   cover screen/error imports, prompt reads, fit-backend loading and explicit fit-factory
-  access; the focused worker selection passes. Full worker, coverage, integration,
-  schema/privacy checks and fresh-context review remain required. No provider inference
-  or production wiring is involved.
+  access; full worker, coverage, integration and schema checks pass. The privacy guard's
+  subprocess wrapper is blocked by sandbox `spawnSync git EPERM`; its self-test and the
+  equivalent tracked-path audit pass. Fresh-context review found no actionable issue.
+  No provider inference or production wiring is involved.
 
 - **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
   on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
   context, normalized source payloads, versioned hashes, counts and actual UTC-day
-  membership before replay. Budgets are allocated per day; rendered-context mismatch is
-  an error; unresolved labels preserve rows and make recall inconclusive. The older
-  ID-only pool remains exploratory and explicitly inconclusive. Synthetic profile and
-  posting fixtures only; no real candidate/job data, model call, quality claim, runtime
-  selection or acceptance GO. Focused replay/profile tests pass; full worker, coverage,
-  integration, schema/privacy checks and fresh-context review remain required. Disclose
-  the #116 prerequisite range in the dependent draft PR.
+  membership before replay. Normalized source fields are required with nullable location
+  and posting date; budgets are allocated per day; rendered-context mismatch is an error;
+  unresolved labels preserve rows and make recall inconclusive. Reports use anonymous
+  role keys and malformed Unicode fails as bounded input validation. The older ID-only
+  pool remains exploratory and explicitly inconclusive. Synthetic profile and posting
+  fixtures only; no real candidate/job data, model call, quality claim, runtime selection
+  or acceptance GO. Focused replay/profile tests pass (49); worker coverage is 88.60% and
+  web coverage is 420 tests across 35 suites. Post-review integration/schema/privacy
+  checks and a fresh review of this final head remain. Disclose the #116 prerequisite
+  range in the dependent draft PR.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

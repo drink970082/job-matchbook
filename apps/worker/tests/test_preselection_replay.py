@@ -70,13 +70,22 @@ def test_replay_reports_aggregate_baselines_label_coverage_and_no_row_identifier
             "role_coverage",
         }
         assert all(result["budget"] in {1, 3} for result in split["baselines"])
-        assert all("engineering" in result["role_family_metrics"] for result in split["baselines"])
-        engineering = split["role_family_metrics"]["engineering"]
-        assert set(engineering["label_counts"]) == {"positive", "negative", "unresolved"}
-        assert engineering["label_coverage"] == pytest.approx(
-            (engineering["label_counts"]["positive"] + engineering["label_counts"]["negative"])
-            / engineering["pool_items"]
-        )
+        for result in split["baselines"]:
+            role_metrics = result["role_family_metrics"]
+            assert role_metrics
+            assert all(key.startswith("role_") for key in role_metrics)
+            assert all(
+                set(metrics["label_counts"]) == {"positive", "negative", "unresolved"}
+                for metrics in role_metrics.values()
+            )
+            assert all(
+                metrics["label_coverage"]
+                == pytest.approx(
+                    (metrics["label_counts"]["positive"] + metrics["label_counts"]["negative"])
+                    / metrics["pool_items"]
+                )
+                for metrics in role_metrics.values()
+            )
 
 
 def test_role_coverage_baseline_prefers_uncovered_families_then_recency():
@@ -286,6 +295,93 @@ def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_pr
         "production ownership stayed with the team",
     ):
         assert private_value not in encoded
+
+
+def test_full_snapshot_allows_nullable_normalized_source_fields():
+    value = _snapshot_value()
+    for row in value["source_pool"]["items"]:
+        row["source_payload"]["location"] = None
+        row["source_payload"]["posted_at"] = None
+    value["manifest"] = build_snapshot_manifest(
+        value["profile"], value["rendered_context"], value["source_pool"]
+    )
+
+    snapshot = snapshot_from_value(value)
+    assert len(snapshot.pool.items) == 8
+
+
+def test_full_snapshot_requires_posted_at_even_if_the_manifest_is_recomputed():
+    value = _snapshot_value()
+    for row in value["source_pool"]["items"]:
+        row["source_payload"].pop("posted_at")
+
+    with pytest.raises(ReplayValidationError, match="missing required source fields"):
+        build_snapshot_manifest(value["profile"], value["rendered_context"], value["source_pool"])
+
+
+def test_snapshot_cli_never_emits_untrusted_role_labels(tmp_path):
+    value = _snapshot_value()
+    private_role = "PRIVATE_ROLE=alice@example.invalid"
+    for row in value["source_pool"]["items"]:
+        row["role_families"] = [private_role]
+    value["manifest"] = build_snapshot_manifest(
+        value["profile"], value["rendered_context"], value["source_pool"]
+    )
+    path = tmp_path / "synthetic-role-snapshot.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(path),
+            "--snapshot",
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.5",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert private_role not in result.stdout
+    assert set(report["splits"]["development"]["baselines"][0]["role_family_metrics"]) == {
+        "role_1"
+    }
+
+
+def test_snapshot_cli_reports_malformed_unicode_as_a_bounded_input_error(tmp_path):
+    value = _snapshot_value()
+    value["source_pool"]["items"][0]["source_payload"]["extra"] = "\ud800"
+    path = tmp_path / "synthetic-invalid-unicode.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(path),
+            "--snapshot",
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.5",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert "cannot replay frozen input" in result.stderr
+    assert "UnicodeEncodeError" not in result.stderr
 
 
 @pytest.mark.parametrize(

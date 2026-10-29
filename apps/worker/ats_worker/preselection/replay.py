@@ -85,15 +85,16 @@ _MANIFEST_HASH_KEYS = {
 }
 _MANIFEST_COUNT_KEYS = {"items", "utc_days", "label_counts"}
 _DAILY_MANIFEST_KEYS = {"utc_day", "item_count", "item_ids", "label_counts"}
-_SOURCE_REQUIRED_FIELDS = {
+_SOURCE_REQUIRED_TEXT_FIELDS = {
     "source",
     "external_id",
     "company_name",
     "job_title",
-    "location",
     "job_url",
     "description",
 }
+_SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS = {"location", "posted_at"}
+_SOURCE_REQUIRED_FIELDS = _SOURCE_REQUIRED_TEXT_FIELDS | _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS
 _LABELS = {"positive", "negative", "unresolved"}
 
 
@@ -142,7 +143,11 @@ def _canonical_json(value: Any, message: str) -> str:
 
 
 def _canonical_sha256(value: Any, message: str = "frozen artifact cannot be hashed") -> str:
-    return hashlib.sha256(_canonical_json(value, message).encode("utf-8")).hexdigest()
+    try:
+        encoded = _canonical_json(value, message).encode("utf-8")
+    except UnicodeError as exc:
+        raise ReplayValidationError(message) from exc
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _reject_duplicate_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -219,9 +224,14 @@ def _validated_source_pool(value: Any) -> tuple[FrozenPool, str]:
         missing = _SOURCE_REQUIRED_FIELDS - set(source_payload)
         if missing:
             raise ReplayValidationError(f"{path}.source_payload is missing required source fields")
-        for field in _SOURCE_REQUIRED_FIELDS:
+        for field in _SOURCE_REQUIRED_TEXT_FIELDS:
             if not isinstance(source_payload[field], str):
                 raise ReplayValidationError(f"{path}.source_payload.{field} must be text")
+        for field in _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS:
+            if source_payload[field] is not None and not isinstance(source_payload[field], str):
+                raise ReplayValidationError(
+                    f"{path}.source_payload.{field} must be text or null"
+                )
         _canonical_json(source_payload, f"{path}.source_payload is not valid JSON data")
         projected_items.append({key: row[key] for key in _ITEM_KEYS})
 
@@ -469,13 +479,13 @@ def _role_metrics(
 ) -> dict[str, dict[str, Any]]:
     roles = sorted({role for item in pool_items for role in item.role_families})
     metrics: dict[str, dict[str, Any]] = {}
-    for role in roles:
+    for index, role in enumerate(roles, start=1):
         role_pool = [item for item in pool_items if role in item.role_families]
         role_selected = [item for item in selected_items if role in item.role_families]
         positive_total = sum(item.label == "positive" for item in role_pool)
         positive_selected = sum(item.label == "positive" for item in role_selected)
         pool_counts = _label_counts(role_pool)
-        metrics[role] = {
+        metrics[f"role_{index}"] = {
             "pool_items": len(role_pool),
             "selected_items": len(role_selected),
             "label_counts": pool_counts,
