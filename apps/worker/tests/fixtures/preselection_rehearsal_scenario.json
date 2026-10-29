@@ -1,0 +1,112 @@
+{
+  "fixture_schema_version": 1,
+  "synthetic": true,
+  "scenario_id": "synthetic-two-page-rehearsal-v1",
+  "clock": {
+    "elapsed_seconds": 45
+  },
+  "monitoring": {
+    "cadence_seconds": 300,
+    "limits": {
+      "max_tool_calls": 64,
+      "max_read_chars": 1024,
+      "max_jd_chunks": 32,
+      "max_unranked_candidates": 10,
+      "max_elapsed_seconds": 30,
+      "max_queue_age_hours": 24,
+      "max_overload_count": 2,
+      "max_replacements": 1
+    }
+  },
+  "assessment_bindings": {
+    "deferred": "deferred_bound_success_with_newer_provider_error",
+    "current": "late_result_for_older_content",
+    "similar-b": "changed_content_revision",
+    "unknown-source": "missing_expected_identity"
+  },
+  "additional_candidates": [
+    {
+      "candidate_id": "old-due-retry",
+      "source_id": "synthetic-board-c",
+      "posting_identity": "synthetic-posting-due-retry",
+      "requisition_id": "synthetic-req-due-retry",
+      "source_revision": 1,
+      "content_revision": 1,
+      "content_identity": "synthetic-content-due-retry-v1",
+      "assessment_version": "synthetic-assessment-v1",
+      "assessment_state": "current",
+      "assessment_content_revision": 1,
+      "eligibility_state": "eligible",
+      "yoe_state": "pass",
+      "source_state": "open",
+      "confirmed_application": false,
+      "manual_terminal": false,
+      "kind": "retry",
+      "first_eligible_at": "2026-10-28T11:00:00Z",
+      "deferred_at": null,
+      "retry_due_at": "2026-10-27T12:00:00Z",
+      "priority_order": 99,
+      "role_family_ids": [
+        "swe"
+      ],
+      "group_ids": [],
+      "title": "Synthetic engineer",
+      "company": "Synthetic company",
+      "provenance": [
+        "synthetic-retry-row"
+      ]
+    }
+  ],
+  "job_descriptions": {
+    "deferred": "Synthetic JD: design data pipelines, improve service reliability, and communicate tradeoffs across a small engineering team. This fabricated description is deliberately long enough to exercise chunked reads safely.",
+    "current": "Synthetic JD: build customer facing systems, investigate production behavior, write maintainable code, and work with product partners. This fabricated description is deliberately long enough to exercise chunked reads safely.",
+    "similar-b": "Synthetic JD: support a small engineering team.",
+    "unknown-source": "Synthetic JD: source state is unknown."
+  },
+  "job_description_chunk_size": 64,
+  "source_probes": [
+    {
+      "source_id": "synthetic-empty-board",
+      "outcome": "empty"
+    },
+    {
+      "source_id": "synthetic-unavailable-board",
+      "outcome": "unavailable",
+      "error_category": "timeout"
+    }
+  ],
+  "probable_applications": [
+    {
+      "application_id": "synthetic-probable-application",
+      "candidate_id": "similar-a",
+      "certainty": "probable"
+    }
+  ],
+  "revalidation_changes": {
+    "deferred": {
+      "content_revision": 2,
+      "content_identity": "synthetic-content-deferred-v2"
+    },
+    "current": {
+      "source_state": "closed"
+    }
+  },
+  "revalidation_elapsed_seconds": 5,
+  "repeat_day": {
+    "pool_id": "synthetic-daily-pool-2026-10-29",
+    "now": "2026-10-29T12:00:00Z",
+    "window": {
+      "resume_from": "2026-10-28T10:00:00Z",
+      "cutoff_at": "2026-10-29T12:00:00Z",
+      "include_historic_backfill": false
+    },
+    "candidate_id": "deferred"
+  },
+  "simulated_faults": {
+    "provider_state": "circuit_open",
+    "provider_error_category": "provider_unavailable",
+    "private_input_access": "unavailable",
+    "private_input_error_category": "fixture_missing"
+  },
+  "fallback_candidate_limit": 10
+}

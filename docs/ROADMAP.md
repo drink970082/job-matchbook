@@ -22,7 +22,7 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
 | Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
-| JEV/System One assistance | Not implemented in ATS | Optional experiment, after a measured need |
+| JEV/System One assistance | Offline view, batch replay and synthetic rehearsal are available; live path remains gated | Repair unmerged #111/#112 mechanics before live evaluation |
 
 ## Delivery sequence and issues
 
@@ -34,14 +34,15 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 |---|---|---|---|
 | Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
-| Final optional capability | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | #94; demonstrated throughput gap | Deferred; unnecessary if scheduled ChatGPT suffices |
+| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | Offline #117–#119 capabilities are available; #111/#112 repair is next assignable work; live gates remain |
 
 The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
 source state and check timestamps. Legacy rows without source evidence still require
-unknown freshness and official-page availability checks in the #94 Brief. #95 and #96 are
-independent conditional branches after #94, not mandatory stages. Model experimentation
-remains last priority; retaining scorer code does not schedule its deployment or a corpus
-rebuild.
+unknown freshness and official-page availability checks in the #94 Brief. #95 remains a
+conditional delivery-history extension. The operator selects provider-free #96 preparation;
+[#117/#118/#119's plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
+separates that work from #94 unattended evidence and #112 live-evaluation/GO gates.
+Retaining scorer code does not schedule deployment or a corpus rebuild.
 
 ## R1 — Research queries and visible job inventory
 
@@ -97,19 +98,25 @@ Cross-day recommendation dedup remains best-effort without #95's separately appr
 
 Screen/fit adapters, result contracts, tests and manual eval tools remain supported.
 The deployed Luna/medium configuration is standalone screening; fit is not enabled by
-these plans. First observe whether scheduled ChatGPT can retrieve and judge useful
-candidates at the needed volume. If yes, #96 need not produce any scorer rollout.
+these plans. The operator reports that approximately 200 daily postings exceed the current
+workflow's capacity and explicitly selects pre-ranking preparation. This reported need is
+not a new benchmark, model selection, or accepted evaluation result.
 
-Only a demonstrated bottleneck selects a bounded pre-ranking experiment. Astra/Sol defines
-representative evidence-supported cases and recall/top-of-list usefulness criteria; Luna/max
-implements after scope/workload approval. Existing model guards/rubric stay intact until
+The offline assessment projection, fixed-batch replay and fixture consumer are available
+under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
+Next assignable Luna/max work is the [#111/#112 repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md).
+Those synthetic corrections do not depend on real provider output, profile approval,
+#94 execution or #112 GO. Labels, recall/miss targets, live workload and
+provider/model/budget approval remain prerequisites for live evaluation; real persistence,
+MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
 separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or
 Telegram rollout is required for R1–R3. See [EVALUATION](EVALUATION.md).
 
 ## Deferred extensions and pick rule
 
 #95 may precede any model work if repeated recommendations become the actual bottleneck.
-Web-job import, agent-invoked refresh, standard search/fetch compatibility and JEV/System
-One remain unselected ideas, not scheduled dependencies. Writes need explicit provenance,
+Web-job import, agent-invoked refresh and standard search/fetch compatibility remain
+unselected ideas. JEV/System One has selected preparatory work, with no automatic live
+inference or runtime scheduling. Writes need explicit provenance,
 authorization and lifecycle contracts. Prefer source quality, retrieval and verified user
 workflows; choose further inference only when those observations justify it.

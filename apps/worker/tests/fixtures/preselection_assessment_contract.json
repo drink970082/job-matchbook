@@ -1,0 +1,2165 @@
+{
+  "fixture_schema_version": 1,
+  "synthetic": true,
+  "cases": [
+    {
+      "name": "current_success",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "changed_content_revision",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 4,
+          "content_digest": "synthetic-content-digest-4",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "changed_profile_context",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-2",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "changed_question_version",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v2",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "changed_resolved_model",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model-v2"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "late_result_for_older_content",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 4,
+          "content_digest": "synthetic-content-digest-4",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "current_success_with_newer_provider_error",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "provider_error",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "provider_error",
+          "attempted_at": "2026-10-27T13:00:00Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model",
+          "error_category": "timeout",
+          "error_message": "SYNTHETIC_PRIVATE_ERROR_DO_NOT_RENDER"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "not_assessed",
+      "expected_assessment_state": "not_assessed",
+      "expected_latest_attempt_state": "not_attempted",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": null,
+        "latest_attempt": null,
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "missing_expected_identity",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "not_attempted",
+      "snapshot": {
+        "schema_version": 1,
+        "last_success": null,
+        "latest_attempt": null,
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "unsafe_revision",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 9007199254740992,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "invalid_assessment_timestamp",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-02-30T12:30:45Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "naive_assessment_timestamp",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "malformed_component_score",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": "84",
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "oversized_component_list",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            },
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "unresolved_jd_reference",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "missing-jd-reference"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "malformed_success_payload",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": "SYNTHETIC_PRIVATE_MALFORMED_PAYLOAD",
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "unsupported_input_schema",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "unknown",
+      "snapshot": {
+        "schema_version": 2,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "bounded_display_text_is_marked",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Synthetic component label xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "resolved_model": "synthetic-resolved-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "excerpt": "Fabricated JD excerpt xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "valid_zero_score",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 0,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "invalid_latest_attempt_keeps_saved_success",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "unknown",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "not-a-time",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "extracted_input_identity",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "extracted",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model",
+          "extractor_version": "synthetic-extractor-v1"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "extracted",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model",
+            "extractor_version": "synthetic-extractor-v1"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "changed_extractor_identity",
+      "expected_assessment_state": "stale",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "extracted",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model",
+          "extractor_version": "synthetic-extractor-v2"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "extracted",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model",
+            "extractor_version": "synthetic-extractor-v1"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "non_synthetic_snapshot",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "unknown",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ]
+      }
+    },
+    {
+      "name": "caller_defined_input_variant",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "caller-defined-v2",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "caller-defined-v2",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "invalid_identity_missing_question_version",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "malformed_attempt_array_state_preserves_success",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "unknown",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": [],
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "malformed_attempt_object_state_preserves_success",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "unknown",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": {},
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "boundary_whitespace_truncation_remains_valid",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx following text",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "unicode_timestamp_digits_are_rejected",
+      "expected_assessment_state": "unknown",
+      "expected_latest_attempt_state": "succeeded",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 3,
+          "content_digest": "synthetic-content-digest-3",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 3,
+            "content_digest": "synthetic-content-digest-3",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "\u0662\u0660\u0662\u0666-\u0661\u0660-\u0662\u0667T\u0661\u0662:\u0663\u0660:\u0664\u0665Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "succeeded",
+          "attempted_at": "2026-10-27T12:30:45.125Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    },
+    {
+      "name": "deferred_bound_success_with_newer_provider_error",
+      "expected_assessment_state": "current",
+      "expected_latest_attempt_state": "provider_error",
+      "snapshot": {
+        "schema_version": 1,
+        "expected_identity": {
+          "source_revision": 1,
+          "content_digest": "synthetic-content-deferred-v1",
+          "context_identity": "synthetic-context-identity-1",
+          "question_version": "synthetic-question-v1",
+          "rubric_version": "synthetic-rubric-v1",
+          "policy_version": "synthetic-policy-v1",
+          "prompt_version": "synthetic-prompt-v1",
+          "result_schema_version": "synthetic-result-v1",
+          "input_variant": "full_jd",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model"
+        },
+        "last_success": {
+          "captured_identity": {
+            "source_revision": 1,
+            "content_digest": "synthetic-content-deferred-v1",
+            "context_identity": "synthetic-context-identity-1",
+            "question_version": "synthetic-question-v1",
+            "rubric_version": "synthetic-rubric-v1",
+            "policy_version": "synthetic-policy-v1",
+            "prompt_version": "synthetic-prompt-v1",
+            "result_schema_version": "synthetic-result-v1",
+            "input_variant": "full_jd",
+            "provider": "synthetic-provider",
+            "requested_model": "synthetic-requested-model",
+            "resolved_model": "synthetic-resolved-model"
+          },
+          "assessed_at": "2026-10-27T12:30:45.125Z",
+          "components": [
+            {
+              "id": "seniority",
+              "label": "Seniority alignment",
+              "score": 84,
+              "evidence_ids": [
+                "jd-qualifications"
+              ]
+            }
+          ],
+          "free_form_explanation": "SYNTHETIC_PRIVATE_EXPLANATION_DO_NOT_RENDER",
+          "candidate_evidence": "SYNTHETIC_PRIVATE_EVIDENCE_DO_NOT_RENDER",
+          "raw_response": "SYNTHETIC_PRIVATE_RAW_RESPONSE_DO_NOT_RENDER"
+        },
+        "latest_attempt": {
+          "state": "provider_error",
+          "attempted_at": "2026-10-27T13:00:00Z",
+          "provider": "synthetic-provider",
+          "requested_model": "synthetic-requested-model",
+          "resolved_model": "synthetic-resolved-model",
+          "error_category": "timeout",
+          "error_message": "SYNTHETIC_PRIVATE_ERROR_DO_NOT_RENDER"
+        },
+        "jd_source": [
+          {
+            "id": "jd-qualifications",
+            "label": "Required qualifications",
+            "excerpt": "Fabricated JD text: experience designing reliable data services."
+          }
+        ],
+        "synthetic": true
+      }
+    }
+  ]
+}

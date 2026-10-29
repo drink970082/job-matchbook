@@ -25,8 +25,13 @@
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
-supported optional assistance.** Fit pre-ranking is last-priority and conditional on a
-measured scheduled-ChatGPT throughput gap; keeping it does not require turning it on.
+supported optional assistance.** The operator selects provider-free pre-ranking
+preparation for a reported approximately 200-posting daily load that exceeds the current
+workflow's capacity. The [preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
+defines the available offline assessment view, fixed-batch replay and synthetic consumer
+rehearsal. These modules do not select a live model or production policy. Production
+evaluation, persistence, MCP/inventory integration and activation retain their separate
+gates; #112 has no GO decision and #94 still needs actual unattended evidence.
 The operator values Luna/medium within an existing
 subscription; inclusion does not remove allowance limits. The shipped Luna/medium
 configuration is standalone screening, not a fit-model change.
@@ -753,6 +758,23 @@ worker modules are pure and dependency-injected; real services are wired only in
     to an internal target is refused mid-chain (→ unresolvable/`None`). Same
     `get_redirect_safe` guards the `custom` recipe fetch; the `browser` executor validates
     each navigation URL and discards a render whose post-redirect `page.url` is non-public.
+- **`review_batch.py` / `review_batch_cli.py` — offline fixed-batch preparation.** Consume
+  only an explicitly marked synthetic pool, injected cutoff/resume window and complete
+  caller policy. The pure engine filters confirmed applications/manual terminal actions
+  and confirmed source closure, routes unknown/stale evidence to unresolved work, groups
+  exact and explicitly corroborated identities before exclusions, and freezes a
+  ranked/audit/unresolved batch. Confirmed application/manual evidence follows the
+  identity group; mixed source closure is unresolved with per-source evidence. Requisition
+  application matching requires the source scope, while an unscoped requisition match is
+  visibly ambiguous. Stable posting occurrences are unique before audit sampling. Batch
+  and cursor identity includes the injected clock, complete candidate/application inputs,
+  merged-member versions and final order. Revalidation preserves cumulative invalidation
+  and replacement history, meters analysis/scans/search against cumulative work caps, and
+  suppresses any slot that cannot be checked within work/time limits. Its named
+  age-service/role-coverage/audit recipe is synthetic, not the operator's production
+  policy. The CLI requires an explicit fixture and local state path; it opens no database,
+  profile, config, provider or runtime. Read/delivery and downstream resource cost remain
+  unknown without acknowledgements.
 - **`db.py` — SQLite layer.** WAL pragmas + `busy_timeout`; `upsert_postings`
   (dedup on `(source, external_id)`; persists `company_slug`; new complete source
   records start at content revision 1, while repeated exact identities update only
@@ -1644,6 +1666,35 @@ it simply waits for an unbounded pass. **The `new` queue is read
   These derived fields leave the existing `screen_outcome` and stored row values intact.
   MCP protocol tests are mandatory in CI, which installs the optional pinned SDK.
 
+- **Offline synthetic assessment projection** (`preselection_view.py`,
+  `preselection_view_cli.py`). Given an explicitly supplied, schema-1 synthetic snapshot,
+  project a bounded view with separate assessment and latest-attempt states. Compare
+  source revision/content identity, context, rubric/policy/question/prompt/schema, input
+  variant and provider/model identity; stale or incomplete evidence is never a
+  qualification result. Only typed component scores, safe version/model labels and
+  resolved JD-source excerpts leave the projection. Timestamp digits are ASCII-only;
+  malformed latest-attempt metadata is unknown independently of a valid saved result.
+  Bounded text remains valid across a trimmed whitespace boundary, and the isolated panel
+  visibly labels every displayed shortened value. The explicit fixture CLI has no
+  config/profile/database defaults and is not wired into `run.py`, inventory or MCP.
+
+- **Offline synthetic preselection rehearsal** (`preselection_rehearsal.py`,
+  `preselection_rehearsal_cli.py`). An explicit scenario, assessment fixture, candidate
+  pool fixture and output path drive the real assessment projection and review-batch
+  modules through a fixture-backed read adapter. The report records page and per-job JD
+  completeness/error evidence, characters, injected elapsed time, source/application
+  evidence, bounded revalidation, age/overload alerts, repeated-day occurrence identity
+  and a stable-ID fallback from the current validated candidate set. Stale and unknown
+  candidates retain their current source/content and invalidation evidence; closed and
+  confirmed-application exclusions stay visible, and incomplete revalidation yields no
+  fallback recommendations. Batch candidates are validated before cross-fixture identity
+  lookups. Missing, empty and partial JD reads remain distinct and fail the completeness
+  case. Monitoring keys are allowlisted, and missing optional thresholds remain unknown.
+  Provider and missing-private-input faults are labeled simulations;
+  provider cost, human reading and delivery stay unknown. This path has no provider,
+  profile, resume, config, database, network, MCP, scheduler or production wiring.
+  [Current rehearsal limits and unexercised gates](reports/preselection-rehearsal-readiness.md).
+
 ### 7.2 Web (`apps/web/src/`)
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
@@ -1771,6 +1822,11 @@ it simply waits for an unbounded pass. **The `new` queue is read
   spend the scorer actually bills), `JobDetailModal` (JD + score detail), and
   the four charts `TimelineHeatmap` /
   `CategoryDonut` / `StatusFunnel` / `SankeyChart`, plus Radix-based `ui/` primitives.
+
+- **Offline assessment panel** (`lib/assessment-view.ts`,
+  `components/preselection/AssessmentPanel.tsx`) validates and renders only the bounded
+  synthetic projection. The panel is exercised by an isolated component test and is not
+  routed into inventory, Server Actions, MCP, or the deployed UI.
 
 ---
 
@@ -2409,6 +2465,38 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   `_run_scheduler` installs the handler that record wants (`basicConfig`, INFO,
   timestamped) in the daemon branch only, so a bare import still configures nothing.
 
+**Provider-free review-batch replay.** The offline `review_batch.py` path accepts only
+an explicit synthetic schema-1 pool. Its policy requires K and allocations whose sum is
+K, a deterministic tie rule, seed, role/age/retry/overload parameters, and candidate,
+replacement, work and time caps. New arrivals use an explicit UTC half-open
+resume/cutoff interval; deferred and due-retry rows are separate inputs, and historical
+backfill requires an explicit flag. Occurrences use pool + stable posting identity +
+source revision, independently of content/assessment versions, and duplicate stable
+occurrences collapse before selection. Candidate identity groups are formed before
+filtering so a confirmed application/manual terminal action is retained across exact or
+corroborated duplicates; conflicting closed/open source observations remain unresolved
+with each member's source/version evidence. Confirmed unlinked applications match by
+posting identity or by source-scoped requisition identity; a matching requisition without
+source scope is unresolved rather than a global exclusion. Title/company similarity only
+raises a review flag. The synthetic recipe combines caller priority order, oldest-first
+age service, greedy coverage of supplied role IDs, a seeded uniform sample over a frozen
+low-rank frame, and explicit unused-slot redistribution. A batch freezes order and all
+input state, including the injected clock, application and duplicate evidence, merged
+member versions and final order; cursors bind its batch, snapshot and page scope.
+Revalidation marks changed content/source, group, or application evidence, rejects a
+changed policy identity, and preserves cumulative invalidation/replacement history and
+caps across persisted replay. Work units include candidate/evidence validation,
+application/dedup/similarity scans, slot checks and replacement scans/sorts. The supplied
+elapsed-time observation accumulates across replay and is checked before each pass starts;
+the CLI supplies an incremental duration for the current pass, not a cumulative timestamp.
+This fixture-only input is not a measurement of production wall time. If that time
+allowance is exceeded or cumulative work is exhausted, the batch is visibly incomplete,
+its current candidate projection is empty, and selected slots are unverified rather than
+recommended from old evidence. Reported reading, delivery and downstream resource cost
+remain unknown.
+The fixture CLI writes state only to an explicitly named local JSON path; this contract
+does not add production policy, database, MCP, scheduler or worker-runtime wiring.
+
 **Unenforced clause (asserted, not checked).** One contract-flavored claim has no
 deterministic gate; treat it as an *intention backed by the human in the loop*, not a
 guarantee:
@@ -2435,6 +2523,19 @@ guarantee:
   Both are backed by the human in the loop (kept `disqualification_reason` +
   `reopenJobPosting`).
 
+**Offline synthetic assessment-view projection.** A version-1 snapshot must be marked
+synthetic and carry complete expected and captured identities. Matching identities yield
+`current`; any identity change, including a late result for older content, yields `stale`;
+absent success yields `not_assessed`; malformed, missing, oversized, or unsupported input
+yields `unknown` without component values. A later provider error is reported separately
+and never replaces a saved success. Invalid or unknown evidence never becomes a zero
+score, qualification badge, or private-context display; only allowlisted JD references
+are included. Malformed latest-attempt metadata becomes unknown without hiding a valid
+saved result. Python and TypeScript share ASCII-digit offset timestamps and accept a
+shortened label that drops a trailing boundary space; the panel visibly marks each
+displayed shortened value. This contract runs through the explicit local fixture path
+only.
+
 ### Invariant → test traceability
 
 Grounds the "verifiable" claim. **(no test)** marks an invariant with **no** (or only indirect)
@@ -2444,6 +2545,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 |-----------|---------|
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
+| The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |
+| Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
@@ -2564,6 +2667,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP metadata/all-text search, escaped literal metacharacters, UTC assessment windows (including fractional precision), filter-scoped cursors, first-page id ceiling, current-state traversal and payload bounds behave as specified | `tests/test_mcp_repository.py` (`test_all_text_search_is_opt_in_literal_and_keeps_descriptions_chunk_only`, `test_screening_windows_use_utc_instants_and_id_ceiling`, `test_screening_windows_preserve_fractional_precision_beyond_microseconds`, `test_job_cursor_ceiling_and_live_pages_make_no_snapshot_claim`, `test_screening_change_behind_cursor_is_found_by_reconciliation`, `test_large_generated_all_text_search_filters_before_limit_and_bounds_payload`) |
 | MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
+| Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 

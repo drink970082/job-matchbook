@@ -45,17 +45,22 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Orchestrator establishes [workflow baseline #90](https://github.com/drink970082/job-matchbook/issues/90)
-   alongside the first implementation batch.
-2. Luna/max executes [MCP research queries #91](https://github.com/drink970082/job-matchbook/issues/91)
-   using the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md).
-3. After batch 1 acceptance, Luna/max executes [inventory UI #92](https://github.com/drink970082/job-matchbook/issues/92)
-   using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
-4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
-   lifecycle if official pages and freshness limits are checked.
-5. Two independent conditional branches after #94: delivery ledger (#95) for observed
-   repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
-   separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.
+1. Next assignable Luna/max work is the provider-free [#111 shadow transport repair](https://github.com/drink970082/job-matchbook/issues/111),
+   then [#112 provenance/report repair](https://github.com/drink970082/job-matchbook/issues/112).
+   The [repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+   defines source branches, exact defects, synthetic acceptance and stack boundaries.
+   This queue does not launch a session or authorize live inference.
+2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
+   before any upstream stack merge. Existing green suites do not establish acceptance.
+3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
+   still needs actual unattended access/delivery evidence. It does not block the offline
+   corrections. #95 delivery history remains deferred.
+4. Live #112 evaluation requires approved candidate inputs, labels/cohort, questions/YOE,
+   provider/model, budget/pricing and predeclared acceptance tolerances. The operator owns
+   GO and activation; daily throughput need is already selected at approximately 200/day.
+5. Parent #113/#114 production persistence/MCP/inventory/batch integration and #115 actual
+   unattended acceptance retain their scoped gates. Available offline modules are in SPEC;
+   synthetic rehearsal does not satisfy those live deliverables.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
@@ -63,6 +68,12 @@ Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna
 The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
+
+- #111's unmerged shadow transport has no enforced blocking-call deadline or bounded
+  retry backoff. #112's unmerged report accepts unbound provenance declarations, rejects
+  legitimate pre-assessment unresolved outcomes and conflates recurring pool membership
+  with inference identity. Their [repair contract](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+  is the next agent scope; neither implementation is accepted or wired into main.
 
 - The production landing page emits React hydration errors 418/423 before recovering
   on the client. The inventory/detail flow works; the same six errors reproduce with

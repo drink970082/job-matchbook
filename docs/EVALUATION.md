@@ -25,10 +25,16 @@ checks. A corpus-dependent selftest can still need private local data.
 
 ## Selection gate for fit experiments
 
-[Issue #96](https://github.com/drink970082/job-matchbook/issues/96) is conditional and
-last-priority. First establish whether scheduled ChatGPT can handle the useful inventory.
-Only a measured gap selects a scoped pre-ranking experiment. If the workflow suffices,
-retain scorer compatibility without new fit inference or evaluation. Astra/Sol defines
+The operator selects [#96](https://github.com/drink970082/job-matchbook/issues/96)
+preparation, reporting that approximately 200 postings/day exceed the current workflow's
+capacity. [The independent preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
+defines the available assessment view, batch replay and synthetic consumer. The
+[#111/#112 repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+is next assignable provider-free work without waiting for #94 or #112 GO. These software
+checks do not measure model quality, actual price,
+population recall or unattended delivery. #94 evidence, approved inputs/labels/policy,
+provider/model/resource limits and predeclared acceptance values remain required for live
+evaluation; the operator still owns #112 GO and activation separately. Astra/Sol defines
 contracts and acceptance; Luna/max implements. Runtime model/effort remains unchanged.
 
 ## Retained tools and their scope

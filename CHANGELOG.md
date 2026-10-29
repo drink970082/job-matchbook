@@ -9,6 +9,26 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
+  identity freshness, bounded typed scores, safe model/version labels and validated JD
+  evidence into a Python/TypeScript React read panel. Private context, digests, raw
+  responses and free-form explanations stay withheld. The panel is not wired to the
+  production inventory or runtime.
+
+- Add an offline synthetic review-batch engine and explicit local replay CLI. Require
+  caller-supplied policy, UTC window, seed and work caps; freeze deterministic paging,
+  audit sampling, revalidation and bounded replacements without database/runtime wiring.
+  The named policy recipe is synthetic and does not set production selection defaults.
+
+- Add a fixture-only preselection rehearsal CLI that composes the assessment projection
+  and review-batch modules, records bounded read/monitoring evidence, simulates fault and
+  fallback cases, and leaves provider, Scheduled, read/delivery and production gates
+  explicitly unexercised.
+- Record the operator-selected pre-ranking need and a Luna/max execution plan for
+  independent #113 assessment-view, #114 batch-replay and #115 synthetic-rehearsal
+  preparation (#117–#119). Preserve live evaluation, schema, integration and activation
+  gates.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
@@ -25,6 +45,27 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and read-only MCP. Content changes do not rerun models or delete evidence.
 
 ### Changed
+
+- Consolidate the accepted offline preparation and its execution contract, remove
+  completed preparation claims from the active queue, and define a provider-free
+  #111/#112 repair handoff with explicit unmerged-stack and live-acceptance boundaries.
+
+- Harden synthetic preselection rehearsal output: reject unknown monitoring fields and
+  report only allowlisted limits; expose per-selected-job-description completeness and
+  error evidence; validate batch rows before associated identity lookups; scope
+  requisition evidence to source identity; and build fallback from current revalidated
+  candidates, preserving stale/unknown state and exclusion evidence while suppressing
+  recommendations when revalidation is incomplete.
+
+- Correct synthetic review-batch replay so application/manual exclusions survive exact
+  and corroborated deduplication, source closure conflicts stay unresolved, requisition
+  matches are source-scoped, and duplicate posting occurrences cannot enter an audit
+  sample twice. Unchanged closed/open conflicts remain active unresolved candidates
+  during replay. Bind the injected clock and frozen order to snapshot/cursor identity;
+  preserve cumulative replacement/invalidation history, meter candidate/evidence scans
+  and replacement search against the persisted work cap, and check accumulated injected
+  per-pass elapsed duration before each pass. Incomplete revalidation exposes no current
+  candidates and leaves affected slots visibly unverified.
 
 - Deploy the research/inventory and source-lifecycle changes through #105 to production
   on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the
@@ -98,6 +139,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   than dated log entries.
 
 ### Fixed
+
+- Keep a valid synthetic assessment visible when latest-attempt state is malformed;
+  align Python timestamp digits with TypeScript, trim boundary whitespace from shortened
+  values, and show an accessible shortening label for each shortened panel value.
 
 - Standalone screen preserves the existing deprioritized job order under its call cap.
   Conflicting direct worker modes and invalid screen caps fail before database access.
