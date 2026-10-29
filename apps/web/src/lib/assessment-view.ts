@@ -123,10 +123,6 @@ function normalizeAttempt(value: unknown): AssessmentView['latest_attempt'] {
     }
     for (const key of flags) {
         if (typeof value[key] !== 'boolean') return emptyAttempt()
-        const label = value[key.replace('_truncated', '')]
-        if (value[key] === true && (typeof label !== 'string' || Array.from(label).length !== MAX_DISPLAY_LABEL_CHARS)) {
-            return emptyAttempt()
-        }
     }
     if (typeof value.attempted_at !== 'string' || !validOffsetTimestamp(value.attempted_at)) return emptyAttempt()
     if (state === 'provider_error') {
@@ -167,12 +163,7 @@ function normalizeMetadata(value: unknown): AssessmentView['metadata'] {
         if (!safeDisplayText(value[key], MAX_DISPLAY_LABEL_CHARS)) return null
     }
     for (const key of truncatedKeys) {
-        if (key in value) {
-            const labelKey = key.replace('_truncated', '')
-            if (typeof value[key] !== 'boolean' ||
-                (value[key] === true && (typeof value[labelKey] !== 'string' ||
-                Array.from(value[labelKey] as string).length !== MAX_DISPLAY_LABEL_CHARS))) return null
-        }
+        if (key in value && typeof value[key] !== 'boolean') return null
     }
     return value as AssessmentView['metadata']
 }
@@ -184,10 +175,8 @@ function normalizeEvidence(value: unknown): AssessmentEvidence | null {
     if (typeof value.id !== 'string' || !COMPONENT_ID.test(value.id) ||
         !safeDisplayText(value.label, MAX_DISPLAY_LABEL_CHARS) ||
         typeof value.label_truncated !== 'boolean' ||
-        (value.label_truncated && Array.from(value.label).length !== MAX_DISPLAY_LABEL_CHARS) ||
         !safeDisplayText(value.excerpt, MAX_JD_EXCERPT_CHARS) ||
-        typeof value.excerpt_truncated !== 'boolean' ||
-        (value.excerpt_truncated && Array.from(value.excerpt).length !== MAX_JD_EXCERPT_CHARS)) return null
+        typeof value.excerpt_truncated !== 'boolean') return null
     return {
         id: value.id,
         label: value.label,
@@ -210,7 +199,6 @@ function normalizeComponents(value: unknown): AssessmentComponent[] | null {
         if (typeof raw.id !== 'string' || !COMPONENT_ID.test(raw.id) || ids.has(raw.id) ||
             !safeDisplayText(raw.label, MAX_DISPLAY_LABEL_CHARS) ||
             typeof raw.label_truncated !== 'boolean' ||
-            (raw.label_truncated && Array.from(raw.label).length !== MAX_DISPLAY_LABEL_CHARS) ||
             typeof raw.score !== 'number' || !Number.isFinite(raw.score) ||
             raw.score < 0 || raw.score > 100 || !Array.isArray(raw.jd_evidence) ||
             raw.jd_evidence.length > MAX_JD_EVIDENCE) return null

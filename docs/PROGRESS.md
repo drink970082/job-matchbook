@@ -53,8 +53,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Synthetic assessment view — `feat/preselection-assessment-view`, draft PR #121 open
   (offline preparation for #113).** A fabricated snapshot flows through a pure Python
-  projection, bounded JSON, TypeScript validation and an isolated React panel. This does
-  not add production persistence, inventory/MCP wiring or a provider call.
+  projection, bounded JSON, TypeScript validation and an isolated React panel. Shared
+  cases cover malformed attempt metadata, ASCII timestamp parity and visible shortening
+  labels. This does not add production persistence, inventory/MCP wiring or a provider
+  call.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

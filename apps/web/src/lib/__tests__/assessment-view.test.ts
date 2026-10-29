@@ -56,6 +56,20 @@ describe('Python/TypeScript synthetic assessment contract', () => {
             expect(view.assessment_time).toBeNull()
             expect(view.metadata).toBeNull()
         }
+        if (scenario.name.startsWith('malformed_attempt_')) {
+            expect(view.assessment_state).toBe('current')
+            expect(view.latest_attempt.state).toBe('unknown')
+            expect(view.components[0].score).toBe(84)
+        }
+        if (scenario.name === 'boundary_whitespace_truncation_remains_valid') {
+            expect(view.assessment_state).toBe('current')
+            expect(view.components[0].label).toBe('x'.repeat(119))
+            expect(view.components[0].label_truncated).toBe(true)
+        }
+        if (scenario.name === 'unicode_timestamp_digits_are_rejected') {
+            expect(view.assessment_reason).toBe('invalid_assessment_time')
+            expect(view.latest_attempt.state).toBe('succeeded')
+        }
     })
 
     it('treats a future view schema as unsupported without reusing old values', () => {
@@ -69,6 +83,20 @@ describe('Python/TypeScript synthetic assessment contract', () => {
         expect(normalized.assessment_state).toBe('unknown')
         expect(normalized.assessment_reason).toBe('unsupported_schema')
         expect(normalized.components).toEqual([])
+    })
+
+    it('rejects non-ASCII digits in timestamps at the TypeScript boundary', () => {
+        const projected = JSON.parse(JSON.stringify(projectCase('current_success'))) as {
+            assessment_time: string
+            latest_attempt: { attempted_at: string }
+        }
+        projected.assessment_time = '٢٠٢٦-١٠-٢٧T١٢:٣٠:٤٥Z'
+        projected.latest_attempt.attempted_at = '٢٠٢٦-١٠-٢٧T١٢:٣٠:٤٥Z'
+
+        const normalized = normalizeAssessmentView(projected)
+
+        expect(normalized.assessment_state).toBe('unknown')
+        expect(normalized.latest_attempt.state).toBe('unknown')
     })
 
     it('fails closed when a projected view contains private or malformed data', () => {

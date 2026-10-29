@@ -31,4 +31,22 @@ describe('isolated synthetic assessment panel', () => {
         expect(screen.getByText(/does not determine qualification/)).toBeInTheDocument()
         expect(screen.queryByText(/SYNTHETIC_PRIVATE_/)).not.toBeInTheDocument()
     })
+
+    it('visibly labels every shortened field in the real bounded CLI projection', () => {
+        const result = spawnSync('python3', [
+            '-m',
+            'ats_worker.preselection_view_cli',
+            '--fixture',
+            'tests/fixtures/preselection_assessment_contract.json',
+            '--case',
+            'bounded_display_text_is_marked',
+        ], { cwd: workerRoot, encoding: 'utf8' })
+
+        expect(result.status).toBe(0)
+        expect(result.stderr).toBe('')
+        render(<AssessmentPanel value={JSON.parse(result.stdout) as unknown} />)
+
+        expect(screen.getAllByText('(shortened)', { exact: true })).toHaveLength(4)
+        expect(screen.getByRole('heading', { name: /shortened/ })).toBeInTheDocument()
+    })
 })

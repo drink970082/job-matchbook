@@ -49,10 +49,10 @@ _DISPLAY_IDENTITY_KEYS = (
 )
 _COMPONENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _OFFSET_TIMESTAMP = re.compile(
-    r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})[Tt ]"
-    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
-    r"(?:\.(?P<fraction>\d+))?"
-    r"(?P<zone>[Zz]|(?P<sign>[+-])(?P<offset_hour>\d{2}):(?P<offset_minute>\d{2}))$"
+    r"^(?P<year>[0-9]{4})-(?P<month>[0-9]{2})-(?P<day>[0-9]{2})[Tt ]"
+    r"(?P<hour>[0-9]{2}):(?P<minute>[0-9]{2}):(?P<second>[0-9]{2})"
+    r"(?:\.(?P<fraction>[0-9]+))?"
+    r"(?P<zone>[Zz]|(?P<sign>[+-])(?P<offset_hour>[0-9]{2}):(?P<offset_minute>[0-9]{2}))$"
 )
 _ATTEMPT_STATES = frozenset({"succeeded", "provider_error"})
 _ERROR_CATEGORIES = frozenset({
@@ -84,7 +84,9 @@ def _display_text(value: Any, limit: int) -> tuple[str, bool] | None:
     cleaned = value.strip()
     if not cleaned or any(not char.isprintable() for char in cleaned):
         return None
-    return cleaned[:limit], len(cleaned) > limit
+    shortened = len(cleaned) > limit
+    display = cleaned[:limit].rstrip() if shortened else cleaned
+    return display, shortened
 
 
 def _valid_offset_timestamp(value: Any) -> bool:
@@ -208,7 +210,10 @@ def _latest_attempt(value: Any) -> dict[str, Any]:
             "resolved_model_truncated": False,
             "error_category": None,
         }
-    if not _record(value) or value.get("state") not in _ATTEMPT_STATES:
+    if not _record(value):
+        return _unknown_attempt()
+    state = value.get("state")
+    if not isinstance(state, str) or state not in _ATTEMPT_STATES:
         return _unknown_attempt()
     attempted_at = value.get("attempted_at")
     text_fields: dict[str, str] = {}
@@ -223,12 +228,12 @@ def _latest_attempt(value: Any) -> dict[str, Any]:
     if not _valid_offset_timestamp(attempted_at):
         return _unknown_attempt()
     category = value.get("error_category")
-    if value["state"] == "provider_error":
+    if state == "provider_error":
         category = category if isinstance(category, str) and category in _ERROR_CATEGORIES else "unknown_error"
     else:
         category = None
     return {
-        "state": value["state"],
+        "state": state,
         "attempted_at": attempted_at,
         **text_fields,
         **truncation_fields,
