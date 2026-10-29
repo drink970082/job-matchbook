@@ -12,6 +12,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Consolidate the accepted offline preparation and planning branches through PR #123,
   reconcile current-state docs and issue dependencies, and prepare the #111/#112 repair
   handoff. No live evaluation or deployment is selected.
+- **Preselection next-session plan — `docs/luna-next-session-plan`** [ORCH · docs review pending].
+  The operator selects pre-ranking for an approximately 200-posting daily workload.
+  [Draft PR #120](https://github.com/drink970082/job-matchbook/pull/120) contains the
+  [execution plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
+  Ready preparatory issues are #117/#118, then #119 after their contracts. The Luna/max
+  prompt/handoff is prepared. This slice changes documentation/issues only and keeps
+  live evaluation, production integration and activation gated.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -84,9 +91,12 @@ before changing them. No older research authorization schedules new provider cal
    using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
 4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
    lifecycle if official pages and freshness limits are checked.
-5. Two independent conditional branches after #94: delivery ledger (#95) for observed
-   repeats, or last-priority fit pre-ranking (#96) for a throughput gap. Both need a
-   separate design; if scheduled ChatGPT suffices, scorer rollout is unnecessary.
+5. The operator selects pre-ranking (#96) for an approximately 200-posting daily load.
+   Luna/max can execute [#117 assessment-view preparation](https://github.com/drink970082/job-matchbook/issues/117)
+   and [#118 batch replay](https://github.com/drink970082/job-matchbook/issues/118) independently,
+   then [#119 synthetic rehearsal](https://github.com/drink970082/job-matchbook/issues/119).
+   These bounded scopes do not wait for #94 or #112 GO. Live evaluation, production
+   persistence/MCP/UI integration and rollout retain their gates. #95 remains deferred.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.

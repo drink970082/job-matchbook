@@ -26,10 +26,12 @@
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
 supported optional assistance.** The operator selects provider-free pre-ranking
-preparation for a reported approximately 200-posting daily workload. This preparation
-does not choose a model or policy, enable runtime use, or claim that scheduled ChatGPT
-has failed its live acceptance gate. Fit pre-ranking remains optional assistance, and
-production evaluation, persistence and activation retain their separate gates.
+preparation for a reported approximately 200-posting daily load that exceeds the current
+workflow's capacity. The [preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
+defines the available offline assessment view, fixed-batch replay and synthetic consumer
+rehearsal. These modules do not select a live model or production policy. Production
+evaluation, persistence, MCP/inventory integration and activation retain their separate
+gates; #112 has no GO decision and #94 still needs actual unattended evidence.
 The operator values Luna/medium within an existing
 subscription; inclusion does not remove allowance limits. The shipped Luna/medium
 configuration is standalone screening, not a fit-model change.

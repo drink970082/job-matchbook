@@ -24,6 +24,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and review-batch modules, records bounded read/monitoring evidence, simulates fault and
   fallback cases, and leaves provider, Scheduled, read/delivery and production gates
   explicitly unexercised.
+- Record the operator-selected pre-ranking need and a Luna/max execution plan for
+  independent #113 assessment-view, #114 batch-replay and #115 synthetic-rehearsal
+  preparation (#117–#119). Preserve live evaluation, schema, integration and activation
+  gates.
 
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
