@@ -1666,6 +1666,18 @@ it simply waits for an unbounded pass. **The `new` queue is read
   resolved JD-source excerpts leave the projection. The explicit fixture CLI has no
   config/profile/database defaults and is not wired into `run.py`, inventory or MCP.
 
+- **Offline synthetic preselection rehearsal** (`preselection_rehearsal.py`,
+  `preselection_rehearsal_cli.py`). An explicit scenario, assessment fixture, candidate
+  pool fixture and output path drive the real assessment projection and review-batch
+  modules through a fixture-backed read adapter. The report records page and JD-chunk
+  reads, characters, injected elapsed time, source/application evidence, bounded
+  revalidation, age/overload alerts, repeated-day occurrence identity and a stable-ID
+  unranked fallback. Provider and missing-private-input faults are labeled simulations;
+  provider cost, human reading and delivery stay unknown. Monitoring thresholds come
+  from the supplied fixture; missing thresholds are unknown. This path has no provider,
+  profile, resume, config, database, network, MCP, scheduler or production wiring.
+  [Current rehearsal limits and unexercised gates](reports/preselection-rehearsal-readiness.md).
+
 ### 7.2 Web (`apps/web/src/`)
 
 - **`app/page.tsx`** — dashboard entry; SSR with `export const dynamic =
@@ -2499,6 +2511,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from daily occurrence, preserve exclusion/duplicate reasons, freeze order/cursors/audit frame, and bound revalidation/replacements | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_audit_frame_is_frozen_and_probability_uses_actual_frame_size`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
+| The synthetic rehearsal composes the actual assessment and batch modules, distinguishes empty from failed source probes, records bounded reads/revalidation and marks live gates unexercised | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |

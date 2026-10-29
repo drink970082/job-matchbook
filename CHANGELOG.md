@@ -20,6 +20,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   audit sampling, revalidation and bounded replacements without database/runtime wiring.
   The named policy recipe is synthetic and does not set production selection defaults.
 
+- Add a fixture-only preselection rehearsal CLI that composes the assessment projection
+  and review-batch modules, records bounded read/monitoring evidence, simulates fault and
+  fallback cases, and leaves provider, Scheduled, read/delivery and production gates
+  explicitly unexercised.
+
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
   unresolved evidence. Preserve raw standalone outcomes, legacy fit buckets and stored
