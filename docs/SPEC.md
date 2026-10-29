@@ -815,7 +815,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   schema/rendering, location resolver, and screen transports. The legacy `score/`
   package retains fit normalization, usage, and fit backends; its screen/location/backend
   modules re-export the neutral APIs so existing `score.screen_posting` and
-  `score._normalize_score` callers continue to resolve. The combined path remains
+  `score._normalize_score` callers continue to resolve. The package facade resolves
+  legacy public submodule attributes, including `score.usage`, on demand; requesting one
+  module loads only that module and its declared dependencies. The combined path remains
   **SCREEN-gated**: the cheap hard-requirements screen runs FIRST and gates fit scoring.
 
   (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
@@ -2654,7 +2656,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
-| Fresh-process screen-only isolation; lazy exception/screen compatibility imports; explicit fit-factory loading and legacy fit pass | `test_screening_boundary.py` (`test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes`, `test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path`) |
+| Fresh-process screen-only isolation; lazy exception, screen, and public `score.*` submodule compatibility imports (including `score.usage`); explicit fit-factory loading and legacy fit pass | `test_screening_boundary.py` (`test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes`, `test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path`) |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**, skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_score.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`, `test_codex_scorer_always_stays_ephemeral`), `test_run.py` (`test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored`, `test_run_once_skips_the_quota_fetch_when_nothing_was_scored`) |

@@ -84,7 +84,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Extract active hard-requirement screening into the provider-neutral `ats_worker/screening/`
   package and keep legacy `score.*` exports lazy. Exception and screen compatibility
-  imports no longer load legacy fit prompts or fit backends; accessing a fit factory still
+  imports no longer load legacy fit prompts or fit backends; public legacy submodule
+  attributes, including `score.usage`, resolve on demand. Accessing a fit factory still
   resolves the existing legacy path. Screen-only mode skips only legacy `fit_profile`
   validation, while operational checks and explicit legacy validation remain.
 

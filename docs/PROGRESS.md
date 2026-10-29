@@ -11,9 +11,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **Issue #116 screen-isolation repair** — `fix/preselection-screen-isolation`, based on
   current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
   carried forward with a lazy `score` compatibility facade that preserves public module
-  attributes, including `score.usage`. Fresh-process regressions cover screen/error
-  imports, prompt reads, fit-backend loading, public module attributes and explicit
-  fit-factory access. Draft PR
+  attributes, including `score.usage`. Fresh-process regressions cover exception/screen
+  imports, legacy prompt reads, fit-backend loading, public module attributes, and
+  explicit fit-factory access. Worker coverage passes (89%; 1,250 passed, 1 skipped),
+  web coverage passes (420 tests / 35 suites), worker/web integration passes (4 passed,
+  1 skipped; 74 passed), and schema/privacy checks pass. Draft PR
   [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`; the
   issue remains open pending scoped acceptance. No provider inference or production
   wiring is involved.

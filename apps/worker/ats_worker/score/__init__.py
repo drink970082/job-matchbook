@@ -47,10 +47,35 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "fetch_codex_usage": ("usage", "fetch_codex_usage"),
 }
 
+# Preserve the former package's public submodule attributes without importing them
+# while the facade itself is loaded. In particular, callers and tests monkeypatch
+# `score.usage`; importing that one module must stay independent of fit prompts/backends.
+_LAZY_SUBMODULES = {
+    name: name
+    for name in (
+        "backends_claude",
+        "backends_claude_cli",
+        "backends_codex",
+        "errors",
+        "location",
+        "prompts",
+        "screen",
+        "usage",
+    )
+}
+
 # Match the public names exposed by the former eager re-export module. Underscored
 # compatibility names remain accessible explicitly, as they were before the facade.
 __all__ = [
     "subprocess",
+    "backends_claude",
+    "backends_claude_cli",
+    "backends_codex",
+    "errors",
+    "location",
+    "prompts",
+    "screen",
+    "usage",
     "make_claude_scorer",
     "make_claude_cli_scorer",
     "make_codex_scorer",
@@ -72,6 +97,10 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     """Load one compatibility export without importing unrelated fit resources."""
+    if name in _LAZY_SUBMODULES:
+        module = importlib.import_module(f"{__name__}.{_LAZY_SUBMODULES[name]}")
+        globals()[name] = module
+        return module
     try:
         module_name, attribute = _LAZY_EXPORTS[name]
     except KeyError as exc:
@@ -88,4 +117,4 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(_LAZY_EXPORTS))
+    return sorted(set(globals()) | set(_LAZY_EXPORTS) | set(_LAZY_SUBMODULES))
