@@ -23,7 +23,7 @@
     "overload_threshold": 2,
     "max_candidate_count": 300,
     "max_replacements": 1,
-    "max_revalidation_work": 20,
+    "max_revalidation_work": 1000,
     "max_elapsed_seconds": 10,
     "redistribution_order": [
       "ranked",
@@ -354,7 +354,8 @@
       "application_id": "synthetic-unlinked-app",
       "confirmed": true,
       "posting_id": null,
-      "requisition_id": "req-already-applied"
+      "requisition_id": "req-already-applied",
+      "source_id": "board-a"
     }
   ],
   "duplicate_evidence": [

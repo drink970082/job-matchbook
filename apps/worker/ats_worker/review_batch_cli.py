@@ -37,7 +37,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", type=Path, required=True, help="explicit local JSON replay state path")
     parser.add_argument("--fixture", type=Path, help="explicit synthetic fixture path")
     parser.add_argument("--cursor", help="cursor returned by the preceding page")
-    parser.add_argument("--elapsed-seconds", type=int, help="injected synthetic revalidation elapsed time")
+    parser.add_argument(
+        "--elapsed-seconds", type=int,
+        help="incremental synthetic elapsed seconds for this pass; accumulated across replay",
+    )
     return parser
 
 

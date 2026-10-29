@@ -759,9 +759,16 @@ worker modules are pure and dependency-injected; real services are wired only in
 - **`review_batch.py` / `review_batch_cli.py` — offline fixed-batch preparation.** Consume
   only an explicitly marked synthetic pool, injected cutoff/resume window and complete
   caller policy. The pure engine filters confirmed applications/manual terminal actions
-  and confirmed source closure, routes unknown/stale evidence to unresolved work, collapses
-  exact and explicitly corroborated duplicates, freezes a ranked/audit/unresolved batch,
-  and supports scoped cursor paging and capped revalidation/replacements. Its named
+  and confirmed source closure, routes unknown/stale evidence to unresolved work, groups
+  exact and explicitly corroborated identities before exclusions, and freezes a
+  ranked/audit/unresolved batch. Confirmed application/manual evidence follows the
+  identity group; mixed source closure is unresolved with per-source evidence. Requisition
+  application matching requires the source scope, while an unscoped requisition match is
+  visibly ambiguous. Stable posting occurrences are unique before audit sampling. Batch
+  and cursor identity includes the injected clock, complete candidate/application inputs,
+  merged-member versions and final order. Revalidation preserves cumulative invalidation
+  and replacement history, meters analysis/scans/search against cumulative work caps, and
+  suppresses any slot that cannot be checked within work/time limits. Its named
   age-service/role-coverage/audit recipe is synthetic, not the operator's production
   policy. The CLI requires an explicit fixture and local state path; it opens no database,
   profile, config, provider or runtime. Read/delivery and downstream resource cost remain
@@ -2457,15 +2464,29 @@ K, a deterministic tie rule, seed, role/age/retry/overload parameters, and candi
 replacement, work and time caps. New arrivals use an explicit UTC half-open
 resume/cutoff interval; deferred and due-retry rows are separate inputs, and historical
 backfill requires an explicit flag. Occurrences use pool + stable posting identity +
-source revision, independently of content/assessment versions. Confirmed unlinked
-applications are matched by requisition identity; title/company similarity only raises a
-review flag. The synthetic recipe combines caller priority order, oldest-first age service,
-greedy coverage of supplied role IDs, a seeded uniform sample over a frozen low-rank
-frame, and explicit unused-slot redistribution. A batch freezes order and input versions;
-cursors bind its batch, snapshot and page scope. Revalidation marks changed content/source
-or application evidence, rejects a changed policy identity, and only annotates
-same-category replacements within the declared caps. Reported reading, delivery and
-downstream resource cost remain unknown.
+source revision, independently of content/assessment versions, and duplicate stable
+occurrences collapse before selection. Candidate identity groups are formed before
+filtering so a confirmed application/manual terminal action is retained across exact or
+corroborated duplicates; conflicting closed/open source observations remain unresolved
+with each member's source/version evidence. Confirmed unlinked applications match by
+posting identity or by source-scoped requisition identity; a matching requisition without
+source scope is unresolved rather than a global exclusion. Title/company similarity only
+raises a review flag. The synthetic recipe combines caller priority order, oldest-first
+age service, greedy coverage of supplied role IDs, a seeded uniform sample over a frozen
+low-rank frame, and explicit unused-slot redistribution. A batch freezes order and all
+input state, including the injected clock, application and duplicate evidence, merged
+member versions and final order; cursors bind its batch, snapshot and page scope.
+Revalidation marks changed content/source, group, or application evidence, rejects a
+changed policy identity, and preserves cumulative invalidation/replacement history and
+caps across persisted replay. Work units include candidate/evidence validation,
+application/dedup/similarity scans, slot checks and replacement scans/sorts. The supplied
+elapsed-time observation accumulates across replay and is checked before each pass starts;
+the CLI supplies an incremental duration for the current pass, not a cumulative timestamp.
+This fixture-only input is not a measurement of production wall time. If that time
+allowance is exceeded or cumulative work is exhausted, the batch is visibly incomplete,
+its current candidate projection is empty, and selected slots are unverified rather than
+recommended from old evidence. Reported reading, delivery and downstream resource cost
+remain unknown.
 The fixture CLI writes state only to an explicitly named local JSON path; this contract
 does not add production policy, database, MCP, scheduler or worker-runtime wiring.
 
@@ -2517,8 +2538,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 |-----------|---------|
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
-| Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from daily occurrence, preserve exclusion/duplicate reasons, freeze order/cursors/audit frame, and bound revalidation/replacements | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_audit_frame_is_frozen_and_probability_uses_actual_frame_size`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | The synthetic rehearsal composes the actual assessment and batch modules, distinguishes empty from failed source probes, records bounded reads/revalidation and marks live gates unexercised | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`) |
+| Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
