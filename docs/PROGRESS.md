@@ -46,10 +46,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   state and timeout ambiguity accounting. A blocking fake call is killed and reaped before
   return; ambiguous delivery retains unknown usage/charge and cannot replay. Synthetic
   focused tests pass (21). No provider, production policy, runtime wiring or evaluation
-  is selected. Remote draft-PR publication is blocked: the GitHub integration returns HTTP
-  403 (`Resource not accessible by integration`) for blob and branch-ref writes, so this
-  repair is not yet available as a reviewable remote PR. Prerequisite acceptance and full
-  feature merge remain open.
+  is selected. Remote draft-PR publication and issue-status update are blocked: the GitHub
+  integration returns HTTP 403 (`Resource not accessible by integration`) for blob,
+  branch-ref and issue writes. Prerequisite acceptance and full feature merge remain open.
 
 - **Issue #112 evaluation provenance and workload identities — local branch
   `repair/112-evaluation-provenance`, commit `6ab7e75`, stacked on local #111 repair
@@ -66,9 +65,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   tracked privacy audit pass. The Node privacy wrapper is blocked by sandbox
   `spawnSync git EPERM`; its rule self-test and equivalent tracked-path audit pass. No
   live provider or model inference, price choice, threshold, GO decision or runtime wiring
-  is included. The GitHub integration returns HTTP 403 for blob, branch-ref and issue writes, so neither
-  a reviewable remote PR nor an issue-status update exists yet. #110/#116/design prerequisites, #94 acceptance,
-  profile/provider/policy selection and independent review remain open.
+  is included. The GitHub integration returns HTTP 403 for blob, branch-ref and issue
+  writes, so neither a reviewable remote PR nor an issue-status update exists yet.
+  #110/#116/design prerequisites, #94 acceptance, profile/provider/policy selection and
+  independent review remain open.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
