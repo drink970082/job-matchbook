@@ -15,8 +15,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   access; full worker, coverage, integration and schema checks pass. The privacy guard's
   subprocess wrapper is blocked by sandbox `spawnSync git EPERM`; its self-test and the
   equivalent tracked-path audit pass. Fresh-context review found no actionable issue.
-  Its focused draft is local; remote branch/PR writes are currently blocked. No provider
-  inference or production wiring is involved.
+  Draft PR [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`;
+  the issue remains open pending scoped acceptance. No provider inference or production
+  wiring is involved.
 
 - **Issue #110 offline profile/replay repair** — `fix/preselection-daily-replay`, stacked
   on the #116 repair. A full snapshot binds the allowlisted profile, exact rendered
@@ -35,10 +36,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   the 85% gate due to the unmerged stack additions. Schema, compilation and privacy
   self-test pass; the full privacy target's subprocess wrapper is blocked by sandbox
   `spawnSync git EPERM`, while the equivalent tracked-path audit passes. Fresh
-  independent review of the final code head found no actionable findings. Remote
-  publication is blocked because GitHub rejected tree creation as requiring approval
-  under the `never` approval policy; no remote branch, draft PR or issue status was
-  changed. Disclose the #116 prerequisite range in the dependent draft PR.
+  independent review of the final code head found no actionable findings. Draft PR
+  [#127](https://github.com/drink970082/job-matchbook/pull/127) targets `main`; the issue
+  remains open pending scoped acceptance. The PR body discloses the exact #116 prerequisite
+  range. No live input, policy or GO is accepted by these synthetic results.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -77,10 +78,10 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Publish the focused #116/#110 draft PRs once remote writes are available, then
-   revalidate the #111/#112 repair stack against those exact prerequisites. Keep the
-   issues open until their acceptance gates pass. These corrections use fabricated data
-   and authorize no live inference.
+1. Have the orchestrator review draft PRs #126 then #127, then revalidate the #111/#112
+   repair stack against those exact prerequisites. Keep the issues open until their
+   acceptance gates pass. These corrections use fabricated data and authorize no live
+   inference.
 2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
    before any upstream stack merge. Existing green suites do not establish acceptance.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
