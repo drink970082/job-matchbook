@@ -40,14 +40,16 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Keep the dependent slice draft and disclose prerequisite diffs.
 
 - **Issue #111 shadow deadline and retry repair — [draft PR #124](https://github.com/drink970082/job-matchbook/pull/124), branch
-  `repair/111-deadline-cancellation`, code commit `08e3453`.** Extends the unaccepted
-  source at `f49e95ba` with a supervised cancellable transport boundary, one deadline
-  across extraction/assessment/backoff, persisted bounded retry state and timeout
-  ambiguity accounting. On the baseline, a blocking fake exceeded the 10 ms cap
-  (about 160 ms) and retry began without backoff; the repaired focused shadow suite passes
-  (21). The draft targets main and carries unmerged #110/#116/design prerequisite
-  ancestry; none is accepted by this work. No live provider, production policy, runtime
-  wiring or evaluation is selected.
+  `repair/111-deadline-cancellation`.** The local branch extends the unaccepted
+  `f49e95ba` source with a supervised POSIX worker for provider execution, bounded JSON
+  normalization and domain validation. Only capped primitive output crosses shared memory;
+  the parent never unpickles provider output and checks the deadline around result decoding.
+  Timeouts after execution may start remain ambiguous with unknown usage/charge and cannot
+  be replayed; completed oversized/schema-invalid replies retain safely decoded accounting.
+  The focused shadow suite passes (25 tests). PR #124 remains at its prior published head
+  `61952ef` and does not yet include this local response-boundary correction. Its #110/#116/
+  design prerequisite ancestry remains unaccepted; this repair selects no live provider,
+  production policy, runtime wiring or evaluation.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model

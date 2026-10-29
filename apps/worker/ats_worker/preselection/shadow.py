@@ -23,6 +23,8 @@ import time
 from typing import Any, Callable, Protocol
 
 from ats_worker.preselection.extraction import (
+    AlternativeGroup,
+    ExtractedFact,
     ExtractionValidationError,
     JdExtraction,
     extraction_from_value,
@@ -31,6 +33,7 @@ from ats_worker.preselection.profile import CandidateProfile, render_profile
 from ats_worker.preselection.questions import (
     QuestionSet,
     QuestionContractError,
+    ValidatedAnswer,
     ValidatedAssessment,
     validate_assessment_payload,
 )
@@ -72,6 +75,14 @@ class Clock(Protocol):
 
 class Transport(Protocol):
     def complete(self, invocation: "Invocation") -> "ProviderReply": ...
+
+
+@dataclass(frozen=True)
+class _CachedReplyTransport:
+    reply: "ProviderReply"
+
+    def complete(self, invocation: "Invocation") -> "ProviderReply":
+        return self.reply
 
 
 class Sleeper(Protocol):
@@ -1053,55 +1064,520 @@ def _execution_boundary_available(transport: Transport) -> None:
         ) from exc
 
 
-def _send_worker_message(connection: Any, message: tuple[str, Any]) -> None:
+class _SupervisedTimeout(Exception):
+    def __init__(self, delivery: str):
+        super().__init__(delivery)
+        self.delivery = delivery
+
+
+class _SupervisedReplyFailure(Exception):
+    def __init__(
+        self,
+        error_code: str,
+        model_identity: ModelIdentity | None,
+        usage: Usage | None,
+        charge: Charge | None,
+        delivery: str = "completed",
+        circuit_breaker: bool = False,
+    ) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
+        self.model_identity = model_identity
+        self.usage = usage
+        self.charge = charge
+        self.delivery = delivery
+        self.circuit_breaker = circuit_breaker
+
+
+@dataclass(frozen=True)
+class _SupervisedOutcome:
+    reply: ProviderReply
+    validated: Any
+
+
+_MAX_WORKER_RESULT_BYTES = 256 * 1024
+_MAX_WORKER_VALUE_NODES = 8192
+_MAX_WORKER_VALUE_DEPTH = 32
+
+
+class _WorkerWireError(ValueError):
+    pass
+
+
+def _bounded_json_value(value: Any, budget: list[int] | None = None, depth: int = 0) -> Any:
+    """Copy only bounded JSON primitives; provider objects never cross the process boundary."""
+    if budget is None:
+        budget = [0, 0]
+    budget[0] += 1
+    if budget[0] > _MAX_WORKER_VALUE_NODES or depth > _MAX_WORKER_VALUE_DEPTH:
+        raise _WorkerWireError("provider response exceeds the bounded wire shape")
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is str:
+        if len(value) > _MAX_WORKER_RESULT_BYTES:
+            raise _WorkerWireError("provider response contains oversized text")
+        size = len(value.encode("utf-8"))
+        budget[1] += size
+        if budget[1] > _MAX_WORKER_RESULT_BYTES:
+            raise _WorkerWireError("provider response exceeds the bounded wire size")
+        return value
+    if type(value) is int:
+        if value.bit_length() > 256:
+            raise _WorkerWireError("provider response contains an oversized integer")
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise _WorkerWireError("provider response contains a non-finite number")
+        return value
+    if type(value) is list:
+        if len(value) > _MAX_WORKER_VALUE_NODES:
+            raise _WorkerWireError("provider response contains too many array items")
+        return [_bounded_json_value(item, budget, depth + 1) for item in value]
+    if type(value) is dict:
+        if len(value) > _MAX_WORKER_VALUE_NODES:
+            raise _WorkerWireError("provider response contains too many object fields")
+        result: dict[str, Any] = {}
+        for key, item in dict.items(value):
+            if type(key) is not str:
+                raise _WorkerWireError("provider response object keys must be text")
+            safe_key = _bounded_json_value(key, budget, depth + 1)
+            result[safe_key] = _bounded_json_value(item, budget, depth + 1)
+        return result
+    raise _WorkerWireError("provider response contains a non-JSON value")
+
+
+def _worker_identity(identity: Any) -> dict[str, str]:
+    if type(identity) is not ModelIdentity:
+        raise _WorkerWireError("provider response model identity is invalid")
+    values = (identity.provider, identity.requested_model, identity.resolved_model)
+    if any(type(value) is not str for value in values):
+        raise _WorkerWireError("provider response model identity is invalid")
+    return {
+        "provider": identity.provider,
+        "requested_model": identity.requested_model,
+        "resolved_model": identity.resolved_model,
+    }
+
+
+def _worker_usage(usage: Any) -> dict[str, int | None]:
+    if type(usage) is not Usage:
+        raise _WorkerWireError("provider response usage is invalid")
+    values = (usage.input_tokens, usage.output_tokens, usage.cached_input_tokens)
+    if any(value is not None and type(value) is not int for value in values):
+        raise _WorkerWireError("provider response usage is invalid")
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+    }
+
+
+def _worker_charge(charge: Any) -> dict[str, Any]:
+    if type(charge) is not Charge:
+        raise _WorkerWireError("provider response charge is invalid")
+    values = {
+        "kind": charge.kind,
+        "amount": charge.amount,
+        "currency": charge.currency,
+        "billing_unit": charge.billing_unit,
+        "rate_date": charge.rate_date,
+        "rate_source": charge.rate_source,
+    }
+    return _bounded_json_value(values)
+
+
+def _validated_to_wire(validated: Any) -> dict[str, Any]:
+    if type(validated) is ValidatedAssessment:
+        if type(validated.explanation) is not str or type(validated.answers) is not tuple:
+            raise _WorkerWireError("validated assessment has an unsupported shape")
+        answers = []
+        for answer in validated.answers:
+            if type(answer) is not ValidatedAnswer or type(answer.evidence) is not tuple:
+                raise _WorkerWireError("validated answer has an unsupported shape")
+            answers.append(
+                {
+                    "question_id": answer.question_id,
+                    "value": answer.value,
+                    "evidence": list(answer.evidence),
+                }
+            )
+        return {"type": "assessment", "answers": answers, "explanation": validated.explanation}
+    if type(validated) is JdExtraction:
+        if type(validated.facts) is not tuple or type(validated.alternative_groups) is not tuple:
+            raise _WorkerWireError("validated extraction has an unsupported shape")
+        facts = []
+        for fact in validated.facts:
+            if type(fact) is not ExtractedFact:
+                raise _WorkerWireError("validated extraction fact has an unsupported shape")
+            facts.append(
+                {
+                    "id": fact.id,
+                    "quote": fact.quote,
+                    "start": fact.start,
+                    "end": fact.end,
+                    "category": fact.category,
+                    "strength": fact.strength,
+                    "experience_kind": fact.experience_kind,
+                    "minimum_years": fact.minimum_years,
+                    "maximum_years": fact.maximum_years,
+                    "alternative_group_id": fact.alternative_group_id,
+                }
+            )
+        groups = []
+        for group in validated.alternative_groups:
+            if type(group) is not AlternativeGroup or type(group.fact_ids) is not tuple:
+                raise _WorkerWireError("validated alternative group has an unsupported shape")
+            groups.append({"id": group.id, "fact_ids": list(group.fact_ids)})
+        return {
+            "type": "extraction",
+            "coverage": validated.coverage,
+            "facts": facts,
+            "alternative_groups": groups,
+            "jd_sha256": validated.jd_sha256,
+        }
+    raise _WorkerWireError("validator returned an unsupported result type")
+
+
+def _validated_from_wire(value: Any) -> Any:
+    if type(value) is not dict or type(value.get("type")) is not str:
+        raise RuntimeError("supervised worker returned an invalid validated result")
+    if value["type"] == "assessment" and set(value) == {"type", "answers", "explanation"}:
+        if type(value["answers"]) is not list or type(value["explanation"]) is not str:
+            raise RuntimeError("supervised worker returned an invalid assessment")
+        answers = []
+        for item in value["answers"]:
+            if (
+                type(item) is not dict
+                or set(item) != {"question_id", "value", "evidence"}
+                or type(item["question_id"]) is not str
+                or type(item["evidence"]) is not list
+                or any(type(evidence) is not dict for evidence in item["evidence"])
+            ):
+                raise RuntimeError("supervised worker returned an invalid answer")
+            answers.append(
+                ValidatedAnswer(item["question_id"], item["value"], tuple(item["evidence"]))
+            )
+        return ValidatedAssessment(tuple(answers), value["explanation"])
+    if value["type"] == "extraction" and set(value) == {
+        "type", "coverage", "facts", "alternative_groups", "jd_sha256"
+    }:
+        if (
+            type(value["coverage"]) is not str
+            or type(value["facts"]) is not list
+            or type(value["alternative_groups"]) is not list
+            or type(value["jd_sha256"]) is not str
+        ):
+            raise RuntimeError("supervised worker returned an invalid extraction")
+        facts = []
+        fact_keys = {
+            "id", "quote", "start", "end", "category", "strength", "experience_kind",
+            "minimum_years", "maximum_years", "alternative_group_id",
+        }
+        for item in value["facts"]:
+            if type(item) is not dict or set(item) != fact_keys:
+                raise RuntimeError("supervised worker returned an invalid extraction fact")
+            facts.append(ExtractedFact(**item))
+        groups = []
+        for item in value["alternative_groups"]:
+            if type(item) is not dict or set(item) != {"id", "fact_ids"} or type(item["fact_ids"]) is not list:
+                raise RuntimeError("supervised worker returned an invalid alternative group")
+            groups.append(AlternativeGroup(item["id"], tuple(item["fact_ids"])))
+        return JdExtraction(value["coverage"], tuple(facts), tuple(groups), value["jd_sha256"])
+    raise RuntimeError("supervised worker returned an unknown validated result type")
+
+
+def _reply_metadata_to_wire(reply: Any) -> dict[str, Any] | None:
+    if type(reply) is not ProviderReply:
+        return None
+    metadata: dict[str, Any] = {}
     try:
-        connection.send(message)
-    finally:
-        connection.close()
-        os._exit(0)
+        metadata["model_identity"] = _worker_identity(reply.model_identity)
+    except _WorkerWireError:
+        metadata["model_identity"] = None
+    try:
+        metadata["usage"] = _worker_usage(reply.usage)
+    except _WorkerWireError:
+        metadata["usage"] = None
+    try:
+        metadata["charge"] = _worker_charge(reply.charge)
+    except _WorkerWireError:
+        metadata["charge"] = None
+    return metadata
 
 
-def _transport_worker(transport: Transport, invocation: Invocation, sender: Any) -> None:
-    """Run untrusted/blocking adapter code in a process group the parent can kill."""
+def _provider_failure_to_wire(exc: ProviderFailure) -> dict[str, Any]:
+    if (
+        type(exc.retryable) is not bool
+        or type(exc.delivery) is not str
+        or type(exc.circuit_breaker) is not bool
+        or type(exc.error_code) is not str
+    ):
+        raise _WorkerWireError("provider failure metadata is invalid")
+    code = exc.error_code if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", exc.error_code) else "provider_failure"
+    identity = None if exc.model_identity is None else _worker_identity(exc.model_identity)
+    return {
+        "kind": "provider_failure",
+        "error_code": code,
+        "retryable": exc.retryable,
+        "delivery": exc.delivery,
+        "model_identity": identity,
+        "usage": _worker_usage(exc.usage),
+        "charge": _worker_charge(exc.charge),
+        "circuit_breaker": exc.circuit_breaker,
+    }
+
+
+def _store_worker_result(buffer: Any, size: Any, result: dict[str, Any]) -> None:
+    try:
+        safe_result = _bounded_json_value(result)
+        payload = json.dumps(
+            safe_result, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
+        if len(payload) > _MAX_WORKER_RESULT_BYTES:
+            raise _WorkerWireError("supervised result exceeds its byte limit")
+    except (TypeError, ValueError, RecursionError):
+        reply = result.get("reply")
+        metadata = None
+        if type(reply) is dict:
+            metadata = {
+                key: reply.get(key)
+                for key in ("model_identity", "usage", "charge")
+            }
+        safe_failure = _bounded_json_value(
+            {
+                "kind": "reply_integrity_failure",
+                "error_code": "ShadowIntegrityError",
+                "reply": metadata,
+            }
+        )
+        payload = json.dumps(safe_failure, separators=(",", ":")).encode("utf-8")
+    buffer[: len(payload)] = payload
+    size.value = len(payload)
+
+
+def _transport_worker(
+    transport: Transport,
+    invocation: Invocation,
+    validator: Callable[[Any], Any],
+    result_buffer: Any,
+    result_size: Any,
+    ready: Any,
+) -> None:
+    """Run and validate provider output in a killable process; communicate only bounded JSON."""
     try:
         os.setsid()
     except OSError:
-        _send_worker_message(sender, ("boundary_unavailable", None))
-    sender.send(("ready", None))
+        _store_worker_result(result_buffer, result_size, {"kind": "boundary_unavailable"})
+        ready.set()
+        os._exit(0)
     try:
         null_fd = os.open(os.devnull, os.O_WRONLY)
         os.dup2(null_fd, 1)
         os.dup2(null_fd, 2)
         os.close(null_fd)
+    except OSError:
+        _store_worker_result(result_buffer, result_size, {"kind": "boundary_unavailable"})
+        ready.set()
+        os._exit(0)
+    ready.set()
+    try:
         reply = transport.complete(invocation)
     except ProviderFailure as exc:
-        _send_worker_message(
-            sender,
-            (
-                "provider_failure",
-                {
-                    "error_code": exc.error_code,
-                    "retryable": exc.retryable,
-                    "delivery": exc.delivery,
-                    "model_identity": exc.model_identity,
-                    "usage": exc.usage,
-                    "charge": exc.charge,
-                    "circuit_breaker": exc.circuit_breaker,
-                },
-            ),
-        )
+        try:
+            result = _provider_failure_to_wire(exc)
+        except _WorkerWireError:
+            result = {"kind": "provider_failure_invalid"}
     except BaseException as exc:
         code = type(exc).__name__
         safe_code = code if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", code) else "TransportError"
-        _send_worker_message(sender, ("transport_exception", safe_code))
+        result = {"kind": "transport_exception", "error_code": safe_code}
     else:
-        _send_worker_message(sender, ("reply", reply))
+        metadata = _reply_metadata_to_wire(reply)
+        if metadata is None:
+            result = {
+                "kind": "reply_integrity_failure",
+                "error_code": "ShadowIntegrityError",
+                "reply": None,
+            }
+        else:
+            try:
+                if any(metadata.get(key) is None for key in ("model_identity", "usage", "charge")):
+                    raise ShadowIntegrityError("provider reply metadata is invalid")
+                safe_payload = _bounded_json_value(reply.payload)
+                if type(safe_payload) is not dict:
+                    raise ShadowIntegrityError("provider response payload must be an object")
+                safe_reply = ProviderReply(
+                    ModelIdentity(**metadata["model_identity"]),
+                    safe_payload,
+                    Usage(**metadata["usage"]),
+                    Charge(**metadata["charge"]),
+                )
+                safe_reply.model_identity.validate()
+                if safe_reply.model_identity != invocation.model_identity:
+                    raise ShadowModelIdentityMismatch(
+                        "resolved provider/model identity differs from request"
+                    )
+                safe_reply.usage.validate()
+                safe_reply.charge.validate()
+                validated = validator(safe_payload)
+                result = {
+                    "kind": "reply",
+                    "reply": {
+                        **metadata,
+                        "payload": safe_payload,
+                    },
+                    "validated": _validated_to_wire(validated),
+                }
+            except (
+                ShadowIntegrityError,
+                QuestionContractError,
+                ExtractionValidationError,
+                TypeError,
+                AttributeError,
+                ValueError,
+                _WorkerWireError,
+            ) as exc:
+                code = type(exc).__name__
+                safe_code = (
+                    "ShadowIntegrityError"
+                    if isinstance(exc, ShadowIntegrityError)
+                    else code
+                    if code in {
+                        "QuestionContractError",
+                        "ExtractionValidationError",
+                        "TypeError",
+                        "AttributeError",
+                        "ValueError",
+                    }
+                    else "ShadowIntegrityError"
+                )
+                result = {
+                    "kind": "reply_integrity_failure",
+                    "error_code": safe_code,
+                    "reply": metadata,
+                    "circuit_breaker": isinstance(exc, ShadowModelIdentityMismatch),
+                }
+    _store_worker_result(result_buffer, result_size, result)
+    os._exit(0)
 
 
-class _SupervisedTimeout(Exception):
-    def __init__(self, delivery: str):
-        super().__init__(delivery)
-        self.delivery = delivery
+def _model_identity_from_wire(value: Any) -> ModelIdentity | None:
+    if type(value) is not dict or set(value) != {"provider", "requested_model", "resolved_model"}:
+        return None
+    if any(type(value[key]) is not str for key in value):
+        return None
+    return ModelIdentity(value["provider"], value["requested_model"], value["resolved_model"])
+
+
+def _usage_from_wire(value: Any) -> Usage | None:
+    keys = {"input_tokens", "output_tokens", "cached_input_tokens"}
+    if type(value) is not dict or set(value) != keys:
+        return None
+    values = [value[key] for key in keys]
+    if any(item is not None and type(item) is not int for item in values):
+        return None
+    return Usage(value["input_tokens"], value["output_tokens"], value["cached_input_tokens"])
+
+
+def _charge_from_wire(value: Any) -> Charge | None:
+    keys = {"kind", "amount", "currency", "billing_unit", "rate_date", "rate_source"}
+    if type(value) is not dict or set(value) != keys:
+        return None
+    if any(item is not None and type(item) is not str for item in value.values()):
+        return None
+    return Charge(**value)
+
+
+def _decode_worker_result(payload: bytes, deadline: _RunDeadline, clock: Clock) -> _SupervisedOutcome:
+    if deadline.remaining(clock) <= 0:
+        raise _SupervisedTimeout("unknown")
+    try:
+        result = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise RuntimeError("supervised worker returned malformed bounded JSON") from exc
+    if deadline.remaining(clock) <= 0:
+        raise _SupervisedTimeout("unknown")
+    if type(result) is not dict or type(result.get("kind")) is not str:
+        raise RuntimeError("supervised worker returned an invalid result envelope")
+    kind = result["kind"]
+    if kind == "boundary_unavailable":
+        raise ShadowIntegrityError("transport boundary could not establish process cleanup")
+    if kind == "transport_exception":
+        code = result.get("error_code")
+        raise RuntimeError(code if type(code) is str else "TransportError")
+    if kind == "provider_failure_invalid":
+        raise _SupervisedReplyFailure("invalid_failure_metadata", None, None, None, "unknown")
+    if kind == "provider_failure":
+        identity = _model_identity_from_wire(result.get("model_identity"))
+        usage = _usage_from_wire(result.get("usage"))
+        charge = _charge_from_wire(result.get("charge"))
+        if (
+            type(result.get("error_code")) is not str
+            or type(result.get("retryable")) is not bool
+            or result.get("delivery") not in {"not_sent", "unknown"}
+            or type(result.get("circuit_breaker")) is not bool
+            or usage is None
+            or charge is None
+        ):
+            raise _SupervisedReplyFailure("invalid_failure_metadata", identity, usage, charge, "unknown")
+        raise ProviderFailure(
+            error_code=result["error_code"],
+            retryable=result["retryable"],
+            delivery=result["delivery"],
+            model_identity=identity,
+            usage=usage,
+            charge=charge,
+            circuit_breaker=result["circuit_breaker"],
+        )
+    if kind == "reply_integrity_failure":
+        metadata = result.get("reply")
+        if type(metadata) is not dict:
+            metadata = {}
+        raise _SupervisedReplyFailure(
+            result.get("error_code", "ShadowIntegrityError"),
+            _model_identity_from_wire(metadata.get("model_identity")),
+            _usage_from_wire(metadata.get("usage")),
+            _charge_from_wire(metadata.get("charge")),
+            circuit_breaker=result.get("circuit_breaker") is True,
+        )
+    if kind != "reply" or set(result) != {"kind", "reply", "validated"}:
+        raise RuntimeError("supervised worker returned an unknown result type")
+    metadata = result["reply"]
+    if type(metadata) is not dict or set(metadata) != {
+        "model_identity", "usage", "charge", "payload"
+    }:
+        raise RuntimeError("supervised worker returned malformed reply metadata")
+    identity = _model_identity_from_wire(metadata["model_identity"])
+    usage = _usage_from_wire(metadata["usage"])
+    charge = _charge_from_wire(metadata["charge"])
+    if identity is None or usage is None or charge is None or type(metadata["payload"]) is not dict:
+        raise RuntimeError("supervised worker returned invalid reply fields")
+    return _SupervisedOutcome(
+        ProviderReply(identity, metadata["payload"], usage, charge),
+        _validated_from_wire(result["validated"]),
+    )
+
+
+def _validation_error_from_code(error_code: str) -> Exception:
+    messages = {
+        "ShadowIntegrityError": (ShadowIntegrityError, "provider response failed integrity validation"),
+        "ShadowModelIdentityMismatch": (
+            ShadowModelIdentityMismatch,
+            "resolved provider/model identity differs from request",
+        ),
+        "QuestionContractError": (QuestionContractError, "provider response violates its question contract"),
+        "ExtractionValidationError": (
+            ExtractionValidationError,
+            "provider response violates its extraction contract",
+        ),
+        "TypeError": (TypeError, "provider response has an invalid type"),
+        "AttributeError": (AttributeError, "provider response has an invalid shape"),
+        "ValueError": (ValueError, "provider response has an invalid value"),
+    }
+    exception_type, message = messages.get(
+        error_code, (ShadowIntegrityError, "provider response failed integrity validation")
+    )
+    return exception_type(message)
 
 
 def _terminate_worker(process: Any, *, kill_group: bool) -> bool:
@@ -1127,66 +1603,59 @@ def _terminate_worker(process: Any, *, kill_group: bool) -> bool:
 def _supervised_complete(
     invocation: Invocation,
     transport: Transport,
+    validator: Callable[[Any], Any],
     deadline: _RunDeadline,
     clock: Clock,
-) -> ProviderReply:
-    """Enforce the remaining deadline and reap the call process before returning."""
+) -> _SupervisedOutcome:
+    """Run transport and validation under one killable deadline; receive bounded JSON only."""
     context = multiprocessing.get_context("fork")
-    receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(target=_transport_worker, args=(transport, invocation, sender))
+    result_buffer = context.RawArray("B", _MAX_WORKER_RESULT_BYTES)
+    result_size = context.RawValue("I", 0)
+    ready = context.Event()
+    process = context.Process(
+        target=_transport_worker,
+        args=(transport, invocation, validator, result_buffer, result_size, ready),
+    )
     try:
         process.start()
     except (OSError, RuntimeError) as exc:
-        receiver.close()
-        sender.close()
         raise ShadowIntegrityError("could not start the supervised transport boundary") from exc
-    sender.close()
-    ready = False
     worker_cleaned = False
     try:
         remaining = deadline.remaining(clock)
-        has_startup = receiver.poll(max(0.0, remaining))
-        if not has_startup:
-            worker_cleaned = _terminate_worker(process, kill_group=False)
+        if remaining <= 0 or not ready.wait(remaining):
+            worker_cleaned = _terminate_worker(process, kill_group=ready.is_set())
             raise _SupervisedTimeout("not_sent")
-        try:
-            kind, payload = receiver.recv()
-        except (EOFError, OSError) as exc:
-            worker_cleaned = _terminate_worker(process, kill_group=False)
-            raise ShadowIntegrityError("transport boundary exited before provider execution") from exc
-        if kind == "boundary_unavailable":
-            worker_cleaned = _terminate_worker(process, kill_group=False)
-            raise ShadowIntegrityError("transport boundary could not establish process cleanup")
-        if kind != "ready":
-            worker_cleaned = _terminate_worker(process, kill_group=False)
-            raise ShadowIntegrityError("transport boundary returned an invalid startup record")
-        ready = True
         remaining = deadline.remaining(clock)
-        if remaining <= 0 or not receiver.poll(remaining):
-            cleaned = _terminate_worker(process, kill_group=True)
-            worker_cleaned = cleaned
-            if not cleaned:
+        if remaining <= 0:
+            worker_cleaned = _terminate_worker(process, kill_group=True)
+            if not worker_cleaned:
                 raise ShadowIntegrityError("timed-out transport worker could not be reaped")
             raise _SupervisedTimeout("unknown")
-        try:
-            kind, payload = receiver.recv()
-        except (EOFError, OSError) as exc:
-            raise ShadowResumeAmbiguous("transport worker exited without an outcome") from exc
-        cleaned = _terminate_worker(process, kill_group=True)
-        worker_cleaned = cleaned
-        if not cleaned:
-            raise ShadowIntegrityError("completed transport worker could not be reaped")
-        if kind == "provider_failure":
-            raise ProviderFailure(**payload)
-        if kind == "transport_exception":
-            raise RuntimeError(str(payload))
-        if kind != "reply" or not isinstance(payload, ProviderReply):
-            raise RuntimeError("transport returned an invalid supervised response")
-        return payload
-    finally:
-        receiver.close()
+        process.join(timeout=remaining)
+        if process.is_alive():
+            worker_cleaned = _terminate_worker(process, kill_group=True)
+            if not worker_cleaned:
+                raise ShadowIntegrityError("timed-out transport worker could not be reaped")
+            raise _SupervisedTimeout("unknown")
+        worker_cleaned = _terminate_worker(process, kill_group=True)
         if not worker_cleaned:
-            _terminate_worker(process, kill_group=ready)
+            raise ShadowIntegrityError("completed transport worker could not be reaped")
+        if deadline.remaining(clock) <= 0:
+            raise _SupervisedTimeout("unknown")
+        size = result_size.value
+        if type(size) is not int or not 0 < size <= _MAX_WORKER_RESULT_BYTES:
+            raise RuntimeError("supervised worker exited without a bounded result")
+        payload = bytes(result_buffer[:size])
+        if deadline.remaining(clock) <= 0:
+            raise _SupervisedTimeout("unknown")
+        outcome = _decode_worker_result(payload, deadline, clock)
+        if deadline.remaining(clock) <= 0:
+            raise _SupervisedTimeout("unknown")
+        return outcome
+    finally:
+        if not worker_cleaned:
+            _terminate_worker(process, kill_group=ready.is_set())
 
 
 def _new_run_deadline(journal: AttemptJournal, limits: ShadowLimits, clock: Clock) -> _RunDeadline:
@@ -1296,7 +1765,25 @@ def _run_invocation(
             or succeeded.variant != invocation.variant
         ):
             raise ShadowIntegrityError("cached result identity changed")
-        return validator(succeeded.response_payload), True, invocation.model_identity
+        cached_reply = ProviderReply(
+            invocation.model_identity,
+            succeeded.response_payload,
+            Usage(None, None, None),
+            Charge.unknown(),
+        )
+        try:
+            cached = _supervised_complete(
+                invocation,
+                _CachedReplyTransport(cached_reply),
+                validator,
+                deadline,
+                clock,
+            )
+        except _SupervisedTimeout as exc:
+            raise ShadowBudgetExceeded("run deadline expired while validating a cached result") from exc
+        except _SupervisedReplyFailure as exc:
+            raise _validation_error_from_code(exc.error_code) from exc
+        return cached.validated, True, invocation.model_identity
     _execution_boundary_available(transport)
 
     if journal.run_started_at is None:
@@ -1368,7 +1855,9 @@ def _run_invocation(
         persist(journal)
 
         try:
-            reply = _supervised_complete(invocation, transport, deadline, clock)
+            outcome = _supervised_complete(invocation, transport, validator, deadline, clock)
+            reply = outcome.reply
+            validated = outcome.validated
         except _SupervisedTimeout as exc:
             elapsed_ms = max(
                 0,
@@ -1386,6 +1875,57 @@ def _run_invocation(
                     "run deadline expired after provider execution may have started; delivery and charge are unknown"
                 ) from exc
             raise ShadowBudgetExceeded("run deadline expired before provider execution started") from exc
+        except _SupervisedReplyFailure as exc:
+            elapsed_ms = max(
+                0,
+                round((clock.monotonic() - started_mono) * 1000),
+                round((time.monotonic() - started_real) * 1000),
+            )
+            record.completed_at = _utc_iso(clock.utc_now())
+            record.elapsed_ms = elapsed_ms
+            record.status = "integrity_failure"
+            record.delivery = exc.delivery
+            allowed_codes = {
+                "ShadowIntegrityError",
+                "ShadowModelIdentityMismatch",
+                "QuestionContractError",
+                "ExtractionValidationError",
+                "TypeError",
+                "AttributeError",
+                "ValueError",
+                "invalid_failure_metadata",
+            }
+            record.error_code = exc.error_code if exc.error_code in allowed_codes else "ShadowIntegrityError"
+            record.circuit_breaker = exc.circuit_breaker or record.error_code in {
+                "ShadowModelIdentityMismatch",
+                "invalid_failure_metadata",
+            }
+            if exc.delivery == "unknown":
+                record.usage = asdict(Usage(None, None, None))
+                record.charge = asdict(Charge.unknown())
+            else:
+                if exc.model_identity is not None:
+                    try:
+                        exc.model_identity.validate()
+                        record.resolved_model = exc.model_identity.resolved_model
+                    except ShadowIntegrityError:
+                        record.circuit_breaker = True
+                if exc.usage is not None:
+                    try:
+                        record.usage = _usage_dict(exc.usage)
+                    except (ShadowIntegrityError, AttributeError, TypeError):
+                        record.usage = asdict(Usage(None, None, None))
+                if exc.charge is not None:
+                    try:
+                        record.charge = _charge_dict(exc.charge)
+                    except (ShadowIntegrityError, AttributeError, TypeError):
+                        record.charge = asdict(Charge.unknown())
+            persist(journal)
+            if exc.circuit_breaker:
+                raise ShadowModelIdentityMismatch(
+                    "resolved provider/model identity differs from request"
+                ) from exc
+            raise _validation_error_from_code(record.error_code) from exc
         except ProviderFailure as exc:
             elapsed_ms = max(
                 0,
@@ -1527,7 +2067,6 @@ def _run_invocation(
                 raise ShadowModelIdentityMismatch("resolved provider/model identity differs from request")
             reply.usage.validate()
             reply.charge.validate()
-            validated = validator(reply.payload)
         except (
             ShadowIntegrityError,
             QuestionContractError,

@@ -48,6 +48,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Bound preselection shadow response handling to the run deadline: the supervised worker
+  normalizes provider data to a capped JSON primitive result and performs domain validation
+  before returning. The parent executes no provider-controlled pickle code and checks the
+  deadline around bounded result decoding. Oversized completed replies retain available
+  usage/charge; deadline expiry after execution may have started remains ambiguous with
+  unknown accounting and cannot be resumed as a new call.
+
 - Extract active hard-requirement screening into the provider-neutral `ats_worker/screening/`
   package while retaining legacy `score.*` compatibility exports. Screen-only mode defers
   legacy fit/profile/prompt imports and skips only legacy `fit_profile` validation; normal
