@@ -12,8 +12,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
   carried forward with a lazy `score` compatibility facade. Fresh-process regression now
   covers exception/screen imports, legacy prompt reads, fit-backend loading and explicit
-  fit-factory access. Full worker, coverage, integration and boundary review remain in
-  progress; no provider inference or production wiring is involved.
+  fit-factory access. Fresh-context review found no actionable issue. The dependent
+  local stack passes worker coverage (88.61%; 1,300 passed, 1 skipped), web coverage
+  (420 tests / 35 suites), worker/web integration (4 passed, 1 skipped; 74 passed), and
+  schema checks. The branch remains local because the GitHub connector requires approval
+  for remote writes and approval is unavailable. No provider inference or production
+  wiring is involved.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
