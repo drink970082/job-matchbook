@@ -61,7 +61,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   exercises direct, complete extracted, incomplete, failed and ambiguous paths through the
   real #111 journal and #112 report. `make test-worker` passes (1,319 passed, 1 skipped);
   worker coverage passes at 88.74%; worker integration passes (4 passed, 1 skipped);
-  fresh-process CLI/import checks, compile, schema drift, privacy self-test and a 395-path
+  fresh-process CLI/import checks, compile, schema drift, privacy self-test and a 396-path
   tracked privacy audit pass. The Node privacy wrapper is blocked by sandbox
   `spawnSync git EPERM`; its rule self-test and equivalent tracked-path audit pass. No
   live provider or model inference, price choice, threshold, GO decision or runtime wiring
