@@ -46,6 +46,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Consolidate the accepted offline preparation and its execution contract, remove
+  completed preparation claims from the active queue, and define a provider-free
+  #111/#112 repair handoff with explicit unmerged-stack and live-acceptance boundaries.
+
 - Harden synthetic preselection rehearsal output: reject unknown monitoring fields and
   report only allowlisted limits; expose per-selected-job-description completeness and
   error evidence; validate batch rows before associated identity lookups; scope

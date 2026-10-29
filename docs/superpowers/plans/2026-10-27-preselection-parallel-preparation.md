@@ -1,9 +1,10 @@
-# Preselection: independent preparation for the next Luna/max session
+# Preselection: offline preparation contracts
 
-**Status:** scoped plan prepared for operator assignment. This session creates plans and
-issues only. The companion new-session prompt grants execution authority only when the
-operator supplies it to Luna. Parent production integrations, live evaluation and runtime
-activation remain gated. No implementation or model-quality acceptance is claimed here.
+**Status:** the offline assessment view, batch replay and composed synthetic rehearsal
+are available in the repository. This document defines their maintenance contract;
+SPEC describes the implemented behavior. Parent production integrations, live evaluation
+and runtime activation remain gated. Next assignable work is the
+[#111/#112 repair handoff](2026-10-29-preselection-shadow-repair-handoff.md).
 
 ## Operator direction and selection
 
@@ -13,11 +14,9 @@ new benchmark or an accepted #112 evaluation. Do not require the operator to jus
 need again. #94 still owns actual unattended access/delivery evidence, but is not a
 prerequisite for the bounded preparatory slices below.
 
-The operator requests that #113/#114/#115 work without real upstream dependencies be pulled
-forward, and that all implementation/fixes be left for a fresh Luna/max session. The
-existing eight-hour runbook's blanket #113/#114 implementation block is narrowed only for
-these explicit provider-free, schema-free preparatory tickets. Production persistence,
-live MCP/UI integration and rollout remain blocked; no GO is inferred.
+The bounded preparation contract permits provider-free, schema-free synthetic work
+without waiting for upstream live evaluation. Production persistence, live MCP/UI
+integration and rollout remain blocked; no GO is inferred from software tests.
 
 ## Work graph
 
@@ -25,39 +24,31 @@ live MCP/UI integration and rollout remain blocked; no GO is inferred.
 |---|---|---|---|
 | [#117 / PREP113](https://github.com/drink970082/job-matchbook/issues/117) | #113 | Synthetic assessment snapshot → safe shared read projection → isolated React panel | None of #111/#112/#94; current main and this contract |
 | [#118 / PREP114](https://github.com/drink970082/job-matchbook/issues/118) | #114 | Synthetic candidate pool + explicit policy → fixed batch → local page/resume/revalidation report | None of #111/#112/#113/#94; lean candidate inputs below |
-| [#119 / PREP115](https://github.com/drink970082/job-matchbook/issues/119) | #115 | Synthetic consumer traverses PREP113/PREP114, records faults/monitoring and rehearses local fallback | PREP113 and PREP114 completed contracts; observer schema/fixture matrix can start earlier |
+| [#119 / PREP115](https://github.com/drink970082/job-matchbook/issues/119) | #115 | Synthetic consumer traverses PREP113/PREP114, records faults/monitoring and rehearses local fallback | Actual PREP113 and PREP114 modules |
 | Existing fixes | #111/#112 | Deadline/backoff and evaluation integrity/composition/recurring-pool corrections | Their existing implementation branches; separate changes, not prerequisites for PREP113/PREP114 |
 
-The default next-session order is PREP113 → PREP114 → PREP115. Do not stall the first two
-on profile approval, a provider decision, #94 execution, #112 GO, or old evaluation data.
-After this preparation, the operator can assign #111/#112 repairs separately; this prompt
-does not silently turn those fixes into this session's first task.
+Maintenance must keep the three modules independently importable and their actual
+composition testable. #111/#112 repairs remain separate; they are the next assignable
+scope and must not modify production integration under the preparation label.
 
 Each slice must be demoable through actual code in its bounded path, not a collection of
 empty interfaces, TODOs, mocked versions of the very module under test, or fixed report
 fixtures. Its output is useful preparation, not completion of the parent issue.
 
-## Baseline and branch discipline
+## Branch and dependency discipline
 
-- Repository: `drink970082/job-matchbook`; remote main observed at `670f596`.
-- Planning PR #107 remains draft at `87b2f3b`. Existing provider-neutral/offline branches
-  are pushed but not merged. Their code contains the #111/#112 audit defects.
-- Always fetch remote refs first. A local `origin/main` was stale at `2a250f1` until an
-  explicit fetch refreshed it; a successful `ls-remote` alone does not update local refs.
-- PREP113 and PREP114 branch independently from freshly fetched main. Add self-contained
-  modules using existing main dependencies; do not copy or import the unaccepted shadow
-  transport/report just to obtain dataclasses. Treat all their content as reference only.
-- Suggested neutral module seams are top-level `ats_worker/preselection_view.py` and
-  `ats_worker/review_batch.py`, so neither slice needs the unmerged `preselection` package
-  or changes to its eager exports. Add no new package dependency.
-- PREP115 starts from main with the accepted preparatory commits. If those PRs are not yet
-  merged, an explicitly disclosed local stack of those two commits is allowed for draft
-  preparation only. Keep base `main`, identify included commits, and do not merge/rebase
-  other sessions' work without authorization. Never force-push.
-- One issue and logical deliverable per branch/PR. Claim each branch in PROGRESS before
-  work. A planning PR must not auto-close the implementation parents or children.
-- Protect the dirty primary checkout; create isolated worktrees. Do not switch, reset,
-  stash, clean, stage, or commit its changes. Do not access the runtime checkout/services.
+- Repository: `drink970082/job-matchbook`. Fetch explicit remote-tracking refs and inspect
+  actual main; a successful `ls-remote` alone does not refresh local refs.
+- The offline modules are part of main. Maintenance branches start from current main;
+  the unmerged provider-neutral/evaluation stack is not a dependency of these modules.
+- Planning PR #107 remains a separate draft. The #111/#112 source branches remain
+  unaccepted and carry their own upstream dependencies; use the repair handoff for them.
+- One logical unit per branch/PR. Claim maintenance work in PROGRESS before changing it.
+  Implementation acceptance does not close parent live-integration issues.
+- Protect the dirty primary checkout; use isolated worktrees. Never switch, reset, stash,
+  clean, stage or commit another session's changes. Do not access runtime services.
+- Merge authority and exact-head independent review follow DEVELOPMENT. No force pushes,
+  live inference, schema migration or deployment are implied by these contracts.
 
 ## PREP113 — assessment evidence to an isolated read component
 
@@ -183,18 +174,17 @@ replacement exhaustion; invalid cursors and conflicting policy identity.
 Expected areas: new pure batch module, fixture CLI, fabricated fixtures, meaningful
 unit/integration-style CLI tests and current-state docs. No new DB model, Server Action,
 MCP registration, production query, scheduler, worker runtime hook or acknowledgement
-ledger. This slice can start independently of PREP113 and all shadow/report repairs.
+ledger. This module remains independent of PREP113 and the shadow/report implementations.
 
 ## PREP115 — synthetic consumer, monitoring and fallback rehearsal
 
 ### Complete path and staging
 
-After PREP113/PREP114 contracts work, drive their real modules using a fixture-backed
+Drive the real PREP113/PREP114 modules using a fixture-backed
 read adapter and deterministic consumer. It retrieves two or more pages, reads a
 multi-chunk fabricated JD, checks fabricated applications, injects source/provider-state
-failures and produces an explicit observed-case report. Before those dependencies land,
-the evidence-record schema and fixture fault matrix may be prepared independently, but
-completion requires composition with the actual modules, not duplicate fake algorithms.
+failures and produces an explicit observed-case report. Contract changes require
+composition with the actual modules, not duplicate fake algorithms or a canned report.
 
 Use the existing read-tool vocabulary where applicable; a fixture adapter is not a new
 live MCP server or a proof that ChatGPT Scheduled supports those calls.
@@ -230,8 +220,9 @@ The operator still completes #94 and eventual parent #115 unattended acceptance.
 
 ## Existing #111/#112 repair backlog
 
-Retain the independently reproduced findings on those issues. They are future Luna work,
-not changes performed by this planning session and not prerequisites for PREP113/PREP114:
+The independently reproduced findings are next assignable Luna/max repairs under the
+[repair handoff](2026-10-29-preselection-shadow-repair-handoff.md). They do not invalidate
+the available provider-free preparation modules:
 
 1. #111: enforce an actual bounded transport/deadline contract and bounded retry backoff;
    do not merely observe expiry after a blocking call returns.
@@ -264,7 +255,7 @@ those defects. Re-run relevant checks on each new head.
 - Open focused draft PRs with `--base main`; disclose any stack and new commit range.
   No self-merge/deployment. A passing test suite does not close parent #113/#114/#115.
 - Finish with per-issue heads/PRs, commands and observed results, remaining blockers, and
-  the next ready ticket. On a gated item, continue another ready preparatory slice.
+  the next ready ticket. On a gated item, report the exact gate; do not infer permission for unrelated work.
 
 ## Human decisions that remain later
 

@@ -22,7 +22,7 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
 | Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
-| JEV/System One assistance | Live path not implemented; operator selects preparatory work for reported daily load | Execute the independent preparation plan; live evaluation/activation remain gated |
+| JEV/System One assistance | Offline view, batch replay and synthetic rehearsal are available; live path remains gated | Repair unmerged #111/#112 mechanics before live evaluation |
 
 ## Delivery sequence and issues
 
@@ -34,7 +34,7 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 |---|---|---|---|
 | Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
-| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | #117/#118 ready independently; #119 composes them; live gates remain |
+| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | Offline #117–#119 capabilities are available; #111/#112 repair is next assignable work; live gates remain |
 
 The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
 source state and check timestamps. Legacy rows without source evidence still require
@@ -102,9 +102,11 @@ these plans. The operator reports that approximately 200 daily postings exceed t
 workflow's capacity and explicitly selects pre-ranking preparation. This reported need is
 not a new benchmark, model selection, or accepted evaluation result.
 
-Astra/Sol defines the independent synthetic contracts; Luna/max implements #117/#118 and
-then #119 under the scoped assignment. These tickets do not depend on real provider output,
-profile approval, #94 execution or #112 GO. Labels, recall/miss targets, live workload and
+The offline assessment projection, fixed-batch replay and fixture consumer are available
+under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
+Next assignable Luna/max work is the [#111/#112 repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md).
+Those synthetic corrections do not depend on real provider output, profile approval,
+#94 execution or #112 GO. Labels, recall/miss targets, live workload and
 provider/model/budget approval remain prerequisites for live evaluation; real persistence,
 MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
 separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or

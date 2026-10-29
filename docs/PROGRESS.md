@@ -8,18 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Preparation closeout — `chore/preselection-prep-closeout`, integration in progress.**
-  Consolidate the accepted offline preparation and planning branches through PR #123,
-  reconcile current-state docs and issue dependencies, and prepare the #111/#112 repair
-  handoff. No live evaluation or deployment is selected.
-- **Preselection next-session plan — `docs/luna-next-session-plan`** [ORCH · docs review pending].
-  The operator selects pre-ranking for an approximately 200-posting daily workload.
-  [Draft PR #120](https://github.com/drink970082/job-matchbook/pull/120) contains the
-  [execution plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
-  Ready preparatory issues are #117/#118, then #119 after their contracts. The Luna/max
-  prompt/handoff is prepared. This slice changes documentation/issues only and keeps
-  live evaluation, production integration and activation gated.
-
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -36,25 +24,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   references, reconciliation required**. Old single-run claims do not supersede the
   repeated/expanded screen results. Do not merge research prose without current review.
 
-- **Synthetic preselection rehearsal — `feat/synthetic-preselection-rehearsal`, draft
-  PR #123 open (#119 offline preparation).** The explicit fixture CLI composes the
-  actual assessment projection and review-batch modules, records bounded monitoring
-  and simulated faults, reports completeness/errors for every selected JD, and derives
-  its unranked fallback from the current validated candidate set. Stale and unknown
-  candidates retain content/source/invalidation evidence, confirmed exclusions stay
-  visible, and incomplete revalidation suppresses fallback recommendations. Scheduled
-  access, live provider evidence, read/delivery acknowledgements and production rollback
-  remain unexercised; parent #115 remains open.
-
-- **Review-batch replay — `feat/review-batch-replay`, draft PR #122 open
-  (#118 provider-free preparation).** This branch builds a pure synthetic pool/policy
-  engine and explicit local replay CLI. It groups exact/corroborated identities before
-  exclusions, scopes requisition-only application evidence, freezes clock/input/order
-  identity, and preserves cumulative replay history with accounted work and injected-time
-  caps. Byte-identical closed/open source conflicts remain active unresolved candidates
-  on revalidation. It does not add runtime, persistence, provider, or production policy
-  wiring.
-
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
   preflight record, and an unattended acceptance checklist are in [the Daily Brief
@@ -70,33 +39,28 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   The guide excludes confirmed prior applications and keeps probable duplicates flagged
   for review. Interactive access is not acceptance.
 
-- **Synthetic assessment view — `feat/preselection-assessment-view`, draft PR #121 open
-  (offline preparation for #113).** A fabricated snapshot flows through a pure Python
-  projection, bounded JSON, TypeScript validation and an isolated React panel. Shared
-  cases cover malformed attempt metadata, ASCII timestamp parity and visible shortening
-  labels. This does not add production persistence, inventory/MCP wiring or a provider
-  call.
-
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate
 before changing them. No older research authorization schedules new provider calls.
 
 ## Do next — the pick order
 
-1. Orchestrator establishes [workflow baseline #90](https://github.com/drink970082/job-matchbook/issues/90)
-   alongside the first implementation batch.
-2. Luna/max executes [MCP research queries #91](https://github.com/drink970082/job-matchbook/issues/91)
-   using the [batch 1 plan](superpowers/plans/2026-10-22-batch-1-mcp-research.md).
-3. After batch 1 acceptance, Luna/max executes [inventory UI #92](https://github.com/drink970082/job-matchbook/issues/92)
-   using the [batch 2 plan](superpowers/plans/2026-10-22-batch-2-job-inventory.md).
-4. Orchestrator performs scheduled Brief acceptance (#94); #94 need not wait for source
-   lifecycle if official pages and freshness limits are checked.
-5. The operator selects pre-ranking (#96) for an approximately 200-posting daily load.
-   Luna/max can execute [#117 assessment-view preparation](https://github.com/drink970082/job-matchbook/issues/117)
-   and [#118 batch replay](https://github.com/drink970082/job-matchbook/issues/118) independently,
-   then [#119 synthetic rehearsal](https://github.com/drink970082/job-matchbook/issues/119).
-   These bounded scopes do not wait for #94 or #112 GO. Live evaluation, production
-   persistence/MCP/UI integration and rollout retain their gates. #95 remains deferred.
+1. Next assignable Luna/max work is the provider-free [#111 shadow transport repair](https://github.com/drink970082/job-matchbook/issues/111),
+   then [#112 provenance/report repair](https://github.com/drink970082/job-matchbook/issues/112).
+   The [repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+   defines source branches, exact defects, synthetic acceptance and stack boundaries.
+   This queue does not launch a session or authorize live inference.
+2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
+   before any upstream stack merge. Existing green suites do not establish acceptance.
+3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
+   still needs actual unattended access/delivery evidence. It does not block the offline
+   corrections. #95 delivery history remains deferred.
+4. Live #112 evaluation requires approved candidate inputs, labels/cohort, questions/YOE,
+   provider/model, budget/pricing and predeclared acceptance tolerances. The operator owns
+   GO and activation; daily throughput need is already selected at approximately 200/day.
+5. Parent #113/#114 production persistence/MCP/inventory/batch integration and #115 actual
+   unattended acceptance retain their scoped gates. Available offline modules are in SPEC;
+   synthetic rehearsal does not satisfy those live deliverables.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
@@ -104,6 +68,12 @@ Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna
 The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
+
+- #111's unmerged shadow transport has no enforced blocking-call deadline or bounded
+  retry backoff. #112's unmerged report accepts unbound provenance declarations, rejects
+  legitimate pre-assessment unresolved outcomes and conflates recurring pool membership
+  with inference identity. Their [repair contract](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+  is the next agent scope; neither implementation is accepted or wired into main.
 
 - The production landing page emits React hydration errors 418/423 before recovering
   on the client. The inventory/detail flow works; the same six errors reproduce with

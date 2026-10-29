@@ -28,8 +28,10 @@ checks. A corpus-dependent selftest can still need private local data.
 The operator selects [#96](https://github.com/drink970082/job-matchbook/issues/96)
 preparation, reporting that approximately 200 postings/day exceed the current workflow's
 capacity. [The independent preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
-selects #117/#118 and their #119 synthetic composition without waiting for #94 or #112 GO.
-These are provider-free software checks; they do not measure model quality, actual price,
+defines the available assessment view, batch replay and synthetic consumer. The
+[#111/#112 repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
+is next assignable provider-free work without waiting for #94 or #112 GO. These software
+checks do not measure model quality, actual price,
 population recall or unattended delivery. #94 evidence, approved inputs/labels/policy,
 provider/model/resource limits and predeclared acceptance values remain required for live
 evaluation; the operator still owns #112 GO and activation separately. Astra/Sol defines
