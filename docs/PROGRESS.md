@@ -34,9 +34,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   that combined stack pass (1,406 passed, 1 skipped), but total coverage is 84.78%, below
   the 85% gate due to the unmerged stack additions. Schema, compilation and privacy
   self-test pass; the full privacy target's subprocess wrapper is blocked by sandbox
-  `spawnSync git EPERM`, while the equivalent tracked-path audit passes. A final
-  independent review and focused remote draft publication remain. Disclose the #116
-  prerequisite range in the dependent draft PR.
+  `spawnSync git EPERM`, while the equivalent tracked-path audit passes. Fresh
+  independent review of the final code head found no actionable findings. Remote
+  publication is blocked because GitHub rejected tree creation as requiring approval
+  under the `never` approval policy; no remote branch, draft PR or issue status was
+  changed. Disclose the #116 prerequisite range in the dependent draft PR.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -75,10 +77,10 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Complete independent review for the final #110 repair head, then publish the focused
-   #116/#110 draft PRs and revalidate the #111/#112 repair stack against those exact
-   prerequisites. Keep the issues open until their acceptance gates pass. These
-   corrections use fabricated data and authorize no live inference.
+1. Publish the focused #116/#110 draft PRs once remote writes are available, then
+   revalidate the #111/#112 repair stack against those exact prerequisites. Keep the
+   issues open until their acceptance gates pass. These corrections use fabricated data
+   and authorize no live inference.
 2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
    before any upstream stack merge. Existing green suites do not establish acceptance.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
