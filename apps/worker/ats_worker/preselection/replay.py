@@ -1,9 +1,11 @@
 """Provider-free grouped replay over frozen, auditable source artifacts.
 
 The legacy pool reader remains for exploration and always marks its evidence
-INCONCLUSIVE. Acceptance-grade replay requires a closed frozen snapshot containing the
-candidate profile, exact rendered context, full normalized source payloads and a manifest
-whose hashes, versions, counts and daily membership are recomputed before scoring.
+INCONCLUSIVE. Frozen-snapshot replay validates the supplied candidate profile, exact
+rendered context, normalized source payloads, and manifest hashes, versions, counts, and
+daily membership before scoring. Without an independent source roster it cannot prove
+that the supplied pool had no omissions before freezing, so every frozen replay report
+also marks its evidence INCONCLUSIVE.
 Reports contain aggregates and hashes only; they never emit row/group identifiers or
 posting/profile text.
 """

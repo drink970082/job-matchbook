@@ -3018,8 +3018,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   overflow is reported without truncation. `tools/preselection_profile.py` reads only
   an explicitly supplied profile and reports hashes/counts without printing profile
   text; exact rendered-file comparison is byte-for-byte and mismatch exits nonzero.
-  Acceptance-grade offline replay requires `tools/preselection_replay.py --snapshot`
-  and a closed bundle containing the profile, exact rendered context, normalized source
+  Strict frozen-input validation uses `tools/preselection_replay.py --snapshot` and a
+  closed bundle containing the profile, exact rendered context, normalized source
   payload for every row, and manifest. The normalized payload requires `source`,
   `external_id`, `company_name`, `job_title`, `location`, `job_url`, `description` and
   `posted_at`; source and external ID are non-empty trimmed text, location and `posted_at`
@@ -3029,7 +3029,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a digest alone is not accepted as proof. This verifies consistency of the supplied pool,
   not whether its producer omitted rows before freezing. No independent source roster is
   available, so every frozen replay report marks evidence `INCONCLUSIVE`, including when
-  a partial pool is supplied with a recomputed manifest. The deterministic split keeps complete days,
+  a partial pool is supplied with a recomputed manifest. The deterministic split keeps
+  complete days,
   shared duplicate/template groups, and repeated `(source, external_id)` identities
   together; identity keys are hashed internally and are not emitted. Each caller-specified
   K is allocated independently to every complete UTC-day pool. Positive, negative and
