@@ -28,9 +28,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   accounting, hashes the split seed, bounds malformed JSON/timestamp errors, and emits
   aggregate-only synthetic evaluation reports. Worker coverage is 85.05% with the
   existing 85% threshold unchanged. #111 remains open pending scoped
-  acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No provider call, real
-  label, approved live policy, production wiring, database write or runtime selection is
-  included.
+  acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No live/external provider call, real label, approved live policy, production wiring,
+  database write or runtime selection is included.
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
