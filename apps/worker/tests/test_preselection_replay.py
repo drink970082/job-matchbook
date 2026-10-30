@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
 import sys
@@ -267,6 +268,48 @@ def test_replay_cli_bounds_timestamp_utc_normalization_overflow(tmp_path):
 
     assert result.returncode == 2
     assert "cannot replay frozen input" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_replay_cli_bounds_large_connected_component_without_recursion(tmp_path):
+    start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    pool = {
+        "schema": 1,
+        "pool_id": "large-connected-component",
+        "items": [
+            {
+                "id": f"row-{day:04d}",
+                "group_id": "shared-template",
+                "observed_at": (start + timedelta(days=day)).isoformat(),
+                "role_families": ["synthetic"],
+                "label": "positive",
+            }
+            for day in reversed(range(1_300))
+        ],
+    }
+    pool_path = tmp_path / "large-connected-pool.json"
+    pool_path.write_text(json.dumps(pool), encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(pool_path),
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.25",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "at least two independent day/group components" in result.stderr
     assert "Traceback" not in result.stderr
 
 

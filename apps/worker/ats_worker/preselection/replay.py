@@ -440,17 +440,29 @@ def _stable_split(
         raise ReplayValidationError("heldout_fraction must be between 0 and 1")
 
     parent: dict[tuple[str, str], tuple[str, str]] = {}
+    size: dict[tuple[str, str], int] = {}
 
     def find(node: tuple[str, str]) -> tuple[str, str]:
         parent.setdefault(node, node)
-        if parent[node] != node:
-            parent[node] = find(parent[node])
-        return parent[node]
+        size.setdefault(node, 1)
+        root = node
+        while parent[root] != root:
+            root = parent[root]
+        while parent[node] != node:
+            next_node = parent[node]
+            parent[node] = root
+            node = next_node
+        return root
 
     def union(left: tuple[str, str], right: tuple[str, str]) -> None:
         left_root, right_root = find(left), find(right)
         if left_root != right_root:
-            parent[max(left_root, right_root)] = min(left_root, right_root)
+            if size[left_root] < size[right_root] or (
+                size[left_root] == size[right_root] and left_root > right_root
+            ):
+                left_root, right_root = right_root, left_root
+            parent[right_root] = left_root
+            size[left_root] += size[right_root]
 
     row_nodes: list[tuple[tuple[str, str], ...]] = []
     for item in pool.items:

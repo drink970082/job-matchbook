@@ -18,10 +18,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   independent source roster to establish pool completeness. Frozen replay therefore stays
   `INCONCLUSIVE`; it is not an acceptance GO. Profile blocks reject Unicode line and
   paragraph separators, empty required source text is rejected, and deeply nested JSON or
-  out-of-range UTC timestamp normalization fails as a bounded input error. Independent
-  completeness evidence, approved real labels and price/rate provenance, and the
-  operator's acceptance decision remain outstanding. No model quality or live cost result
-  is claimed.
+  out-of-range UTC timestamp normalization fails as a bounded input error. Large connected
+  day/group inputs also avoid recursion-depth failure and report insufficient independent
+  components safely. Independent completeness evidence, approved real labels and
+  price/rate provenance, and the operator's acceptance decision remain outstanding. No
+  model quality or live cost result is claimed.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
