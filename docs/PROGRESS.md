@@ -17,10 +17,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   rendered context, hashes and day membership can be internally checked, but there is no
   independent source roster to establish pool completeness. Frozen replay therefore stays
   `INCONCLUSIVE`; it is not an acceptance GO. Profile blocks reject Unicode line and
-  paragraph separators, empty required source text is rejected, and deeply nested JSON or
-  out-of-range UTC timestamp normalization fails as a bounded input error. Large connected
-  day/group inputs also avoid recursion-depth failure and report insufficient independent
-  components safely. Independent completeness evidence, approved real labels and
+  paragraph separators, empty required source text is rejected, and deeply nested JSON,
+  oversized integer tokens or out-of-range UTC timestamp normalization fail as bounded
+  input errors. Reports carry a domain-separated seed fingerprint, not the raw seed.
+  Large connected day/group inputs avoid recursion-depth failure and report insufficient
+  independent components safely. Independent completeness evidence, approved real labels and
   price/rate provenance, and the operator's acceptance decision remain outstanding. No
   model quality or live cost result is claimed.
 

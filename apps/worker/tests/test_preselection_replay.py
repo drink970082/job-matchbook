@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,6 +7,7 @@ import sys
 
 import pytest
 
+import ats_worker.preselection.replay as replay_module
 from ats_worker.preselection.replay import (
     ReplayValidationError,
     _recency_order,
@@ -91,6 +93,19 @@ def test_replay_reports_aggregate_baselines_label_coverage_and_no_row_identifier
             )
 
 
+def test_replay_report_fingerprints_seed_without_echoing_raw_seed():
+    pool = load_pool_text(FIXTURE.read_text(encoding="utf-8"))
+    seed = "operator@example.com"
+    report = build_replay_report(pool, seed=seed, heldout_fraction=0.25, budgets=(1,))
+    encoded = json.dumps(report, sort_keys=True)
+    expected = hashlib.sha256(
+        b"preselection-replay-seed-v1\0" + seed.encode("utf-8")
+    ).hexdigest()
+
+    assert seed not in encoded
+    assert report["split"]["seed_sha256"] == expected
+
+
 def test_role_coverage_baseline_prefers_uncovered_families_then_recency():
     pool = load_pool_text(FIXTURE.read_text(encoding="utf-8"))
     ordered = _role_coverage_order(list(pool.items))
@@ -101,6 +116,66 @@ def test_role_coverage_baseline_prefers_uncovered_families_then_recency():
         first_two.append(item)
     assert len(roles) >= len(ordered[0].role_families)
     assert first_two[0] != first_two[1]
+
+
+def test_role_coverage_order_matches_reference_greedy_ties_and_prefixes():
+    items = list(load_pool_text(FIXTURE.read_text(encoding="utf-8")).items)
+    remaining = {role for item in items for role in item.role_families}
+    pool = list(items)
+    expected = []
+    while pool:
+        chosen = min(
+            pool,
+            key=lambda item: (
+                -len(remaining.intersection(item.role_families)),
+                -item.observed_at.timestamp(),
+                item.id,
+            ),
+        )
+        expected.append(chosen)
+        remaining.difference_update(chosen.role_families)
+        pool.remove(chosen)
+
+    actual = _role_coverage_order(items)
+    assert [item.id for item in actual] == [item.id for item in expected]
+    assert [item.id for item in _role_coverage_order(items, limit=5)] == [
+        item.id for item in expected[:5]
+    ]
+
+
+def test_baseline_orders_are_built_once_per_day_across_budgets(monkeypatch):
+    pool = load_pool_text(FIXTURE.read_text(encoding="utf-8"))
+    original = replay_module._role_coverage_order
+    calls = []
+
+    def counted(items, limit=None):
+        calls.append(tuple(item.utc_day for item in items))
+        return original(items, limit=limit)
+
+    monkeypatch.setattr(replay_module, "_role_coverage_order", counted)
+    replay_module._baseline_results(list(pool.items), (1, 2, 3))
+
+    assert len(calls) == len({item.utc_day for item in pool.items})
+
+
+def test_role_coverage_order_scales_to_large_single_day_without_reordering_ties():
+    items = [
+        {
+            "id": f"item-{index:05d}",
+            "group_id": f"group-{index:05d}",
+            "observed_at": "2026-01-01T12:00:00Z",
+            "role_families": ["engineering"],
+            "label": "unresolved",
+        }
+        for index in range(10_000)
+    ]
+    pool = pool_from_value({"schema": 1, "pool_id": "large-one-day", "items": items})
+
+    ordered = _role_coverage_order(list(pool.items))
+
+    assert len(ordered) == 10_000
+    assert [item.id for item in ordered[:3]] == ["item-00000", "item-00001", "item-00002"]
+    assert [item.id for item in ordered[-3:]] == ["item-09997", "item-09998", "item-09999"]
 
 
 def test_daily_baseline_ties_use_stable_item_order_and_repeat_exactly():
@@ -163,6 +238,8 @@ def test_frozen_pool_schema_rejects_missing_malformed_and_private_text_fields(mu
 def test_frozen_pool_json_rejects_duplicate_members_and_empty_pool():
     with pytest.raises(ReplayValidationError, match="duplicate JSON"):
         load_pool_text('{"schema":1,"schema":1}')
+    with pytest.raises(ReplayValidationError, match="not valid JSON"):
+        load_pool_text('{"schema":' + "9" * 5_000 + "}")
     value = _pool_value()
     value["items"] = []
     with pytest.raises(ReplayValidationError, match="non-empty array"):
@@ -335,6 +412,34 @@ def test_snapshot_cli_bounds_deeply_nested_json_errors(tmp_path):
     with pytest.raises(RecursionError):
         json.loads(deep_json)
     snapshot_path.write_text(deep_json, encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(snapshot_path),
+            "--snapshot",
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.25",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "cannot replay frozen input" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_snapshot_cli_bounds_oversized_json_integer_errors(tmp_path):
+    snapshot_path = tmp_path / "oversized-integer-snapshot.json"
+    snapshot_path.write_text('{"schema":' + "9" * 5_000 + "}", encoding="utf-8")
     script = Path(__file__).parents[1] / "tools/preselection_replay.py"
 
     result = subprocess.run(

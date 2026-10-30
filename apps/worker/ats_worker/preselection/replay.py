@@ -12,11 +12,12 @@ posting/profile text.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
-import json
+from heapq import heapify, heappop, heappush
 from typing import Any
 
 from ats_worker.preselection.profile import (
@@ -214,7 +215,7 @@ def load_pool_text(source: str) -> FrozenPool:
         return pool_from_value(json.loads(source, object_pairs_hook=_reject_duplicate_members))
     except ReplayValidationError:
         raise
-    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise ReplayValidationError("pool is not valid JSON") from exc
 
 
@@ -420,7 +421,7 @@ def load_snapshot_text(source: str) -> FrozenSnapshot:
         return snapshot_from_value(json.loads(source, object_pairs_hook=_reject_duplicate_members))
     except ReplayValidationError:
         raise
-    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise ReplayValidationError("snapshot is not valid JSON") from exc
 
 
@@ -510,22 +511,41 @@ def _recency_order(items: list[FrozenItem]) -> list[FrozenItem]:
     return sorted(items, key=lambda item: (-item.observed_at.timestamp(), item.id))
 
 
-def _role_coverage_order(items: list[FrozenItem]) -> list[FrozenItem]:
-    remaining = {role for item in items for role in item.role_families}
-    pool = list(items)
+def _role_coverage_order(
+    items: list[FrozenItem], limit: int | None = None
+) -> list[FrozenItem]:
+    ranked_items = _recency_order(items)
+    target = len(ranked_items) if limit is None else min(len(ranked_items), limit)
+    role_indexes: dict[str, list[int]] = {}
+    for index, item in enumerate(ranked_items):
+        for role in item.role_families:
+            role_indexes.setdefault(role, []).append(index)
+
+    remaining_counts = [len(item.role_families) for item in ranked_items]
+    selected = [False] * len(ranked_items)
+    pending = [(-count, index) for index, count in enumerate(remaining_counts)]
+    heapify(pending)
+    covered: set[str] = set()
     ordered: list[FrozenItem] = []
-    while pool:
-        chosen = min(
-            pool,
-            key=lambda item: (
-                -len(remaining.intersection(item.role_families)),
-                -item.observed_at.timestamp(),
-                item.id,
-            ),
-        )
+    while len(ordered) < target:
+        negative_count, index = heappop(pending)
+        if selected[index] or -negative_count != remaining_counts[index]:
+            continue
+        chosen = ranked_items[index]
+        selected[index] = True
         ordered.append(chosen)
-        remaining.difference_update(chosen.role_families)
-        pool.remove(chosen)
+        for role in chosen.role_families:
+            if role in covered:
+                continue
+            covered.add(role)
+            for candidate_index in role_indexes[role]:
+                if selected[candidate_index]:
+                    continue
+                remaining_counts[candidate_index] -= 1
+                heappush(
+                    pending,
+                    (-remaining_counts[candidate_index], candidate_index),
+                )
     return ordered
 
 
@@ -541,11 +561,19 @@ def _ratio(numerator: int, denominator: int) -> float | None:
 def _role_metrics(
     pool_items: list[FrozenItem], selected_items: list[FrozenItem]
 ) -> dict[str, dict[str, Any]]:
-    roles = sorted({role for item in pool_items for role in item.role_families})
+    pool_by_role: dict[str, list[FrozenItem]] = {}
+    selected_by_role: dict[str, list[FrozenItem]] = {}
+    for item in pool_items:
+        for role in item.role_families:
+            pool_by_role.setdefault(role, []).append(item)
+    for item in selected_items:
+        for role in item.role_families:
+            selected_by_role.setdefault(role, []).append(item)
+
     metrics: dict[str, dict[str, Any]] = {}
-    for index, role in enumerate(roles, start=1):
-        role_pool = [item for item in pool_items if role in item.role_families]
-        role_selected = [item for item in selected_items if role in item.role_families]
+    for index, role in enumerate(sorted(pool_by_role), start=1):
+        role_pool = pool_by_role[role]
+        role_selected = selected_by_role.get(role, [])
         positive_total = sum(item.label == "positive" for item in role_pool)
         positive_selected = sum(item.label == "positive" for item in role_selected)
         pool_counts = _label_counts(role_pool)
@@ -572,17 +600,22 @@ def _baseline_results(items: list[FrozenItem], budgets: tuple[int, ...]) -> list
     by_day: dict[str, list[FrozenItem]] = {}
     for item in items:
         by_day.setdefault(item.utc_day, []).append(item)
-    orderers = {
-        "recency": _recency_order,
-        "role_coverage": _role_coverage_order,
-    }
+    max_budget = max(budgets)
+    daily_orders: dict[str, dict[str, list[FrozenItem]]] = {}
+    for day, daily_items in sorted(by_day.items()):
+        daily_orders[day] = {
+            "recency": _recency_order(daily_items)[:max_budget],
+            "role_coverage": _role_coverage_order(daily_items, limit=max_budget),
+        }
+
     results: list[dict[str, Any]] = []
-    for baseline, order in orderers.items():
+    total_counts = _label_counts(items)
+    for baseline in ("recency", "role_coverage"):
         for budget in budgets:
             selected: list[FrozenItem] = []
             daily_allocations: list[dict[str, Any]] = []
             for day, daily_items in sorted(by_day.items()):
-                daily_selected = order(list(daily_items))[:budget]
+                daily_selected = daily_orders[day][baseline][:budget]
                 selected.extend(daily_selected)
                 daily_allocations.append(
                     {
@@ -593,7 +626,6 @@ def _baseline_results(items: list[FrozenItem], budgets: tuple[int, ...]) -> list
                     }
                 )
             counts = _label_counts(selected)
-            total_counts = _label_counts(items)
             positive_total = total_counts["positive"]
             positive_selected = counts["positive"]
             results.append(
@@ -669,7 +701,9 @@ def _build_pool_report(
         "item_count": len(pool.items),
         "split": {
             "algorithm": REPLAY_ALGORITHM_VERSION,
-            "seed": seed,
+            "seed_sha256": hashlib.sha256(
+                b"preselection-replay-seed-v1\0" + seed.encode("utf-8")
+            ).hexdigest(),
             "heldout_fraction": float(heldout_fraction),
         },
         "budgets": list(budgets),

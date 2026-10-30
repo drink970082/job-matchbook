@@ -147,3 +147,20 @@ def test_profile_cli_bounds_deeply_nested_json_errors(tmp_path):
     assert result.returncode == 2
     assert "invalid candidate profile" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_profile_cli_bounds_oversized_json_integer_errors(tmp_path):
+    script = Path(__file__).parents[1] / "tools/preselection_profile.py"
+    profile_path = tmp_path / "oversized-integer-profile.json"
+    profile_path.write_text('{"schema":' + "9" * 5_000 + "}", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(script), str(profile_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid candidate profile" in result.stderr
+    assert "Traceback" not in result.stderr
