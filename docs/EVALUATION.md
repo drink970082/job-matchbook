@@ -51,7 +51,7 @@ unchanged.
 | `label_golden.py`, `label_run.py`, `build_review_sheet.py`, `expand_golden.py` | Curate or review a corpus for a specifically chosen experiment | Not an automatic backlog-drain or relabelling workflow |
 | `pick_frame.py`, `extract_shadow.py` | Frozen-input extraction research | Deferred research; not wired into production scoring |
 | `preselection_profile.py`, `preselection_replay.py` | Allowlisted profile rendering and provider-free grouped replay with recency/role-coverage baselines | Offline tooling only; synthetic fixtures; no runtime selection or quality claim |
-| `preselection/extraction.py`, `questions.py`, `shadow.py`, `evaluation.py`; `preselection_evaluation.py` | JD-span/YOE evidence, typed questions, injected direct/extracted fake-provider runs, schema-4 bound journals and aggregate reports | Unmerged PR #129 candidate; synthetic/provider-free verification only; no real price, quality claim, GO or runtime wiring |
+| `preselection/extraction.py`, `questions.py`, `shadow.py`, `evaluation.py`; `preselection_evaluation.py` | JD-span/YOE evidence, typed questions, injected direct/extracted fake-provider runs, schema-4 bound journals and aggregate reports with split-seed fingerprinting and bounded input errors | Unmerged PR #129 candidate; synthetic/provider-free verification only; no real price, quality claim, GO or runtime wiring |
 | `backfill_descriptions.py` | Explicit JD hydration maintenance | Data-quality tool, not an instruction to rescore or mutate applications |
 
 Tool paths are relative to `apps/worker/tools`. Do not delete these scripts, their

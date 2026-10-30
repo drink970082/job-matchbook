@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -17,6 +17,7 @@ from ats_worker.preselection.evaluation import (
     evaluation_from_value,
     load_evaluation_text,
 )
+from ats_worker.preselection import shadow as shadow_module
 from ats_worker.preselection.shadow import (
     AttemptJournal,
     AttemptRecord,
@@ -243,6 +244,10 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
 def test_synthetic_report_counts_recall_failures_fields_and_draw_stability_without_ids():
     value = evaluation_value()
     report = build_evaluation_report(evaluation_from_value(value), journal_for(value))
+    split_seed = value["run"]["split_seed"]
+    expected_seed_hash = hashlib.sha256(
+        b"preselection-evaluation-split-seed-v1\0" + split_seed.encode("utf-8")
+    ).hexdigest()
 
     held_out_direct_draw_two = report["splits"]["held_out"]["arms"]["direct"]["draws"]["2"]
     assert held_out_direct_draw_two["outcome_status_counts"] == {
@@ -283,6 +288,7 @@ def test_synthetic_report_counts_recall_failures_fields_and_draw_stability_witho
         "estimate",
     }
     assert report["decision"]["status"] == "not_recorded"
+    assert report["run"]["split_seed_sha256"] == expected_seed_hash
     assert report["run"]["evaluation_manifest_sha256"] == hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
@@ -292,6 +298,8 @@ def test_synthetic_report_counts_recall_failures_fields_and_draw_stability_witho
     assert development_baselines["role_coverage"]["budgets"][0]["positive_selected"] == 0
     assert "daily_brief" not in development_baselines
     serialized = json.dumps(report, sort_keys=True)
+    assert split_seed not in serialized
+    assert '"split_seed":' not in serialized
     assert value["items"][0]["work_item_identity_sha256"] not in serialized
     assert "synthetic-group-a" not in serialized
     assert report["run"]["attempt_journal_sha256"] == hashlib.sha256(
@@ -419,6 +427,42 @@ def test_malformed_or_leaking_inputs_fail_as_validation_errors(mutate):
 def test_duplicate_json_members_are_rejected():
     with pytest.raises(EvaluationValidationError, match="duplicate JSON"):
         load_evaluation_text('{"schema": 1, "schema": 1}')
+
+
+@pytest.mark.parametrize("target", ["evaluation", "journal"])
+@pytest.mark.parametrize("malformation", ["oversized-integer", "deeply-nested"])
+def test_cli_bounds_oversized_and_deep_json_errors(tmp_path, target, malformation):
+    input_path = tmp_path / "evaluation.json"
+    input_path.write_text(json.dumps(evaluation_value()), encoding="utf-8")
+    journal_path = tmp_path / "journal.json"
+    journal_for().save(journal_path)
+
+    if target == "evaluation":
+        source = input_path.read_text(encoding="utf-8")
+        if malformation == "oversized-integer":
+            split_seed = evaluation_value()["run"]["split_seed"]
+            source = source.replace(json.dumps(split_seed), "9" * 5000, 1)
+        else:
+            source = source[:-1] + ',"nested":' + "[" * 10_000 + "0" + "]" * 10_000 + "}"
+        input_path.write_text(source, encoding="utf-8")
+    else:
+        source = journal_path.read_text(encoding="utf-8")
+        if malformation == "oversized-integer":
+            source = source.replace('"schema":4', '"schema":' + "9" * 5000, 1)
+        else:
+            source = source[:-1] + ',"nested":' + "[" * 10_000 + "0" + "]" * 10_000 + "}"
+        journal_path.write_text(source, encoding="utf-8")
+        journal_path.chmod(0o600)
+
+    result = subprocess.run(
+        [sys.executable, str(TOOLS / "preselection_evaluation.py"), str(input_path), "--journal", str(journal_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "cannot build preselection evaluation report" in result.stderr
+    assert "Traceback" not in result.stderr
 
 
 def test_human_labels_require_blinding_attestation_and_synthetic_labels_are_marked():
@@ -571,6 +615,22 @@ def test_observation_timestamps_must_include_a_timezone_and_outcomes_must_be_pla
     _refresh_run_fingerprints(value)
     with pytest.raises(EvaluationValidationError, match="not planned for this pool occurrence"):
         evaluation_from_value(value)
+
+
+def test_evaluation_and_journal_timestamps_bound_utc_normalization_overflow():
+    value = evaluation_value()
+    value["items"][0]["observed_at"] = "0001-01-01T00:00:00+14:00"
+    with pytest.raises(EvaluationValidationError, match="timezone-aware ISO-8601 timestamp"):
+        evaluation_from_value(value)
+
+    payload = json.loads(AttemptJournal.empty().to_json())
+    payload["run_started_at"] = "0001-01-01T00:00:00+14:00"
+    with pytest.raises(ShadowIntegrityError, match="journal timestamp is invalid"):
+        AttemptJournal.from_json(json.dumps(payload))
+
+    boundary_clock_time = datetime.min.replace(tzinfo=timezone(timedelta(hours=14)))
+    with pytest.raises(ShadowIntegrityError, match="timezone-aware UTC timestamps"):
+        shadow_module._utc_iso(boundary_clock_time)
 
 
 def test_daily_brief_baseline_requires_all_pools_and_keeps_its_cost_external():

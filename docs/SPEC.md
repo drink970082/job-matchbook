@@ -3063,8 +3063,10 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   pool fingerprint and split manifest. Resume rejects changed bound inputs before a
   transport call. `evaluation.py` validates explicit pseudonymous manifests and their
   matching journal, checks outcomes against successful responses, and emits aggregate
-  metrics without row IDs, answer values or evidence text. The checked-in assessment and
-  evaluation fixtures are synthetic. No live provider calls, real cost/quality claims,
+  metrics without row IDs, answer values, evidence text or the raw split seed. Its report
+  uses a domain-separated seed fingerprint; oversized/deep JSON and UTC-normalization
+  overflow return bounded validation errors. The checked-in assessment and evaluation
+  fixtures are synthetic. No live provider calls, real cost/quality claims,
   acceptance GO, production wiring, database writes or runtime selection are included.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit

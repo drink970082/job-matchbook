@@ -475,7 +475,7 @@ class AttemptJournal:
             payload = json.loads(source, object_pairs_hook=reject_duplicates)
         except ShadowIntegrityError:
             raise
-        except (json.JSONDecodeError, TypeError) as exc:
+        except (ValueError, TypeError, RecursionError) as exc:
             raise ShadowIntegrityError("journal is not valid JSON") from exc
         if not isinstance(payload, dict) or set(payload) != {
             "schema",
@@ -1795,9 +1795,16 @@ def _new_run_deadline(journal: AttemptJournal, limits: ShadowLimits, clock: Cloc
 
 
 def _utc_iso(value: datetime) -> str:
-    if value.tzinfo is None or value.utcoffset() is None:
+    try:
+        offset = value.utcoffset()
+    except (OverflowError, ValueError) as exc:
+        raise ShadowIntegrityError("injected clock must return timezone-aware UTC timestamps") from exc
+    if value.tzinfo is None or offset is None:
         raise ShadowIntegrityError("injected clock must return timezone-aware UTC timestamps")
-    return value.astimezone(timezone.utc).isoformat()
+    try:
+        return value.astimezone(timezone.utc).isoformat()
+    except (OverflowError, ValueError) as exc:
+        raise ShadowIntegrityError("injected clock must return timezone-aware UTC timestamps") from exc
 
 
 def _utc_from_iso(value: Any) -> datetime:
@@ -1805,11 +1812,15 @@ def _utc_from_iso(value: Any) -> datetime:
         raise ShadowIntegrityError("journal timestamp must be text")
     try:
         parsed = datetime.fromisoformat(value)
-    except ValueError as exc:
+        offset = parsed.utcoffset()
+    except (OverflowError, ValueError) as exc:
         raise ShadowIntegrityError("journal timestamp is invalid") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    if parsed.tzinfo is None or offset is None:
         raise ShadowIntegrityError("journal timestamp must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError) as exc:
+        raise ShadowIntegrityError("journal timestamp is invalid") from exc
 
 
 def _elapsed_since(run_started: datetime, clock: Clock) -> float:

@@ -160,11 +160,15 @@ def _timestamp(value: Any, path: str) -> datetime:
     try:
         normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
         parsed = datetime.fromisoformat(normalized)
-    except ValueError as exc:
+        offset = parsed.utcoffset()
+    except (OverflowError, ValueError) as exc:
         raise EvaluationValidationError(f"{path} must be a timezone-aware ISO-8601 timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    if parsed.tzinfo is None or offset is None:
         raise EvaluationValidationError(f"{path} must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError) as exc:
+        raise EvaluationValidationError(f"{path} must be a timezone-aware ISO-8601 timestamp") from exc
 
 
 def _answer_value(value: Any, path: str) -> Any:
@@ -608,7 +612,7 @@ def load_evaluation_text(source: str) -> EvaluationInput:
         return evaluation_from_value(json.loads(source, object_pairs_hook=reject_duplicates))
     except EvaluationValidationError:
         raise
-    except (json.JSONDecodeError, TypeError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise EvaluationValidationError("evaluation input is not valid JSON") from exc
 
 
@@ -1335,7 +1339,9 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             "phase": run["phase"],
             "pool_fingerprint_sha256": run["pool_fingerprint_sha256"],
             "split_algorithm": run["split_algorithm"],
-            "split_seed": run["split_seed"],
+            "split_seed_sha256": hashlib.sha256(
+                b"preselection-evaluation-split-seed-v1\0" + run["split_seed"].encode("utf-8")
+            ).hexdigest(),
             "profile_sha256": run["profile_sha256"],
             "question_set_sha256": run["question_set_sha256"],
             "label_guide_sha256": run["label_guide_sha256"],
