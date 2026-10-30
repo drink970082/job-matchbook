@@ -341,24 +341,25 @@ def guarded_import(name, *args, **kwargs):
     return original_import(name, *args, **kwargs)
 builtins.__import__ = guarded_import
 
-forbidden_files = {"score.txt", "seniority.txt", "extract.txt", "personal_profile.txt"}
-def reject_legacy_read(path):
+def reject_private_text_read(path, mode):
     try:
         path = Path(path)
     except TypeError:
         return
-    if path.name in forbidden_files or (path.name.startswith("resume") and path.suffix == ".txt"):
-        raise AssertionError("forbidden legacy candidate file read: " + str(path))
+    if "r" in mode and path.suffix == ".txt":
+        raise AssertionError("provider-free import read a text resource: " + str(path))
 
 original_open = builtins.open
 def guarded_open(file, *args, **kwargs):
-    reject_legacy_read(file)
+    mode = args[0] if args else kwargs.get("mode", "r")
+    reject_private_text_read(file, mode)
     return original_open(file, *args, **kwargs)
 builtins.open = guarded_open
 
 original_path_open = Path.open
 def guarded_path_open(self, *args, **kwargs):
-    reject_legacy_read(self)
+    mode = args[0] if args else kwargs.get("mode", "r")
+    reject_private_text_read(self, mode)
     return original_path_open(self, *args, **kwargs)
 Path.open = guarded_path_open
 

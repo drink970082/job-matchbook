@@ -30,10 +30,7 @@ from pathlib import Path
 reads = []
 real_read_text = Path.read_text
 def record_reads(path, *args, **kwargs):
-    if path.name in {
-        "score.txt", "screen.txt", "seniority.txt", "extract.txt",
-        "personal_profile.txt",
-    } or (path.name.startswith("resume") and path.suffix == ".txt"):
+    if path.suffix == ".txt":
         reads.append(path.name)
     return real_read_text(path, *args, **kwargs)
 Path.read_text = record_reads
@@ -83,13 +80,10 @@ def main() -> int:
     repo = Path(__file__).resolve().parents[3]
     before = _probe_revision(repo, args.before)
     after = _probe_revision(repo, args.after)
-    legacy_prompts = {"score.txt", "seniority.txt", "extract.txt"}
     if after["score_modules"]:
         raise SystemExit(f"screen-isolated revision imported score modules: {after['score_modules']}")
-    if legacy_prompts.intersection(after["resource_reads"]):
-        raise SystemExit(f"screen-isolated revision read legacy prompts: {after['resource_reads']}")
-    if after["resource_reads"].count("screen.txt") != 1:
-        raise SystemExit(f"expected one screen prompt read, got {after['resource_reads']}")
+    if after["resource_reads"] != ["screen.txt"]:
+        raise SystemExit(f"expected only the screen prompt read, got {after['resource_reads']}")
 
     print(json.dumps({"before": before, "after": after}, indent=2, sort_keys=True))
     return 0

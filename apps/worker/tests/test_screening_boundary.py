@@ -11,6 +11,7 @@ from textwrap import dedent
 def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
     script = dedent(r'''
         import importlib.abc
+        import builtins
         import json
         import sqlite3
         import sys
@@ -27,11 +28,28 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
 
         real_read_text = Path.read_text
         prompt_reads = []
+        def reject_candidate_text_read(path, mode):
+            if "r" in mode and path.suffix == ".txt" and path.name != "screen.txt":
+                raise AssertionError("screen-only read non-screen text resource: " + str(path))
+
+        real_open = builtins.open
+        def guarded_open(file, *args, **kwargs):
+            mode = args[0] if args else kwargs.get("mode", "r")
+            try:
+                reject_candidate_text_read(Path(file), mode)
+            except TypeError:
+                pass
+            return real_open(file, *args, **kwargs)
+        builtins.open = guarded_open
+
+        real_path_open = Path.open
+        def guarded_path_open(path, *args, **kwargs):
+            mode = args[0] if args else kwargs.get("mode", "r")
+            reject_candidate_text_read(path, mode)
+            return real_path_open(path, *args, **kwargs)
+        Path.open = guarded_path_open
+
         def guarded_read_text(path, *args, **kwargs):
-            if path.name in {"score.txt", "seniority.txt", "extract.txt", "personal_profile.txt"}:
-                raise AssertionError("forbidden legacy/resume read: " + str(path))
-            if path.name.startswith("resume") and path.suffix == ".txt":
-                raise AssertionError("resume read in screen-only mode: " + str(path))
             if path.name == "screen.txt":
                 prompt_reads.append(str(path))
             return real_read_text(path, *args, **kwargs)
