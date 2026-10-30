@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add a reproducible before/after report for screen runtime imports and prompt reads.
+  Fresh-process guards for the provider-free review-batch and rehearsal entrypoints
+  reject legacy fit/profile imports and private résumé/profile or fit-prompt reads.
+
 - Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
   identity freshness, bounded typed scores, safe model/version labels and validated JD
   evidence into a Python/TypeScript React read panel. Private context, digests, raw

@@ -13,7 +13,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   carried forward with a lazy `score` compatibility facade that preserves public module
   attributes, including `score.usage`. Fresh-process regression covers exception/screen
   imports, legacy prompt reads, fit-backend loading, public module attributes, and
-  explicit fit-factory access. Worker coverage passes (89%; 1,250 passed, 1 skipped),
+  explicit fit-factory access. `apps/worker/tools/screen_import_resource_demo.py` compares
+  imported modules and prompt reads against the pre-isolation revision. Provider-free
+  review-batch and rehearsal imports reject legacy fit/profile modules and private-file
+  reads. Worker coverage passes (89%; 1,250 passed, 1 skipped),
   web coverage passes (420 tests / 35 suites), worker/web integration passes (4 passed,
   1 skipped; 74 passed), and schema/privacy checks pass. Draft PR
   [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`; the

@@ -804,11 +804,48 @@ def test_cli_errors_do_not_echo_synthetic_private_text(tmp_path):
 def test_fresh_import_does_not_load_runtime_db_network_or_scorer_modules(tmp_path):
     worker_root = Path(__file__).parents[1]
     env = {**os.environ, "PYTHONPATH": str(worker_root)}
-    code = (
-        "import sys; import ats_worker.review_batch; import ats_worker.review_batch_cli; "
-        "bad={'requests','sqlite3','ats_worker.run','ats_worker.config','ats_worker.score'}; "
-        "assert not bad.intersection(sys.modules), bad.intersection(sys.modules)"
-    )
+    code = r'''
+import builtins
+import sys
+from pathlib import Path
+
+original_import = builtins.__import__
+forbidden = (
+    "requests", "sqlite3", "ats_worker.run", "ats_worker.config",
+    "ats_worker.score", "ats_worker.fit_profile", "ats_worker.prompts",
+)
+def guarded_import(name, *args, **kwargs):
+    if any(name == item or name.startswith(item + ".") for item in forbidden):
+        raise AssertionError("forbidden dependency imported: " + name)
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+
+forbidden_files = {"score.txt", "seniority.txt", "extract.txt", "personal_profile.txt"}
+def reject_legacy_read(path):
+    try:
+        path = Path(path)
+    except TypeError:
+        return
+    if path.name in forbidden_files or (path.name.startswith("resume") and path.suffix == ".txt"):
+        raise AssertionError("forbidden legacy candidate file read: " + str(path))
+
+original_open = builtins.open
+def guarded_open(file, *args, **kwargs):
+    reject_legacy_read(file)
+    return original_open(file, *args, **kwargs)
+builtins.open = guarded_open
+
+original_path_open = Path.open
+def guarded_path_open(self, *args, **kwargs):
+    reject_legacy_read(self)
+    return original_path_open(self, *args, **kwargs)
+Path.open = guarded_path_open
+
+import ats_worker.review_batch
+import ats_worker.review_batch_cli
+bad = set(forbidden).intersection(sys.modules)
+assert not bad, bad
+'''
     completed = subprocess.run(
         [sys.executable, "-c", code], cwd=worker_root, env=env, text=True,
         capture_output=True, check=False,
