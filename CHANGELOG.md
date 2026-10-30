@@ -13,6 +13,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   Fresh-process guards for the provider-free review-batch and rehearsal entrypoints
   reject legacy fit/profile imports and private résumé/profile or fit-prompt reads.
 
+- Add offline candidate-profile validation/rendering and frozen daily-pool replay.
+  Replay recomputes supplied-input hashes and manifest membership, keeps complete days
+  and duplicate groups together, applies K per day, and emits aggregate-only reports.
+  Empty required source text is rejected. Unicode line/paragraph separators, deeply
+  nested JSON, oversized integer tokens and timestamps outside the UTC representable range
+  fail with bounded input errors. Daily role-coverage ordering preserves deterministic
+  greedy tie rules while reusing each day's ordering across budgets. Reports emit a
+  domain-separated SHA-256 seed fingerprint rather than the raw seed, and the profile CLI
+  refuses to overwrite its input through a same path, symlink, or hard link. Large connected
+  day/group inputs avoid recursion-depth failures; one-component pools return a bounded
+  validation error. With no independent source roster, each replay remains inconclusive;
+  no provider or runtime selection path is added.
+
 - Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
   identity freshness, bounded typed scores, safe model/version labels and validated JD
   evidence into a Python/TypeScript React read panel. Private context, digests, raw

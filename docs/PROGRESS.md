@@ -8,20 +8,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Issue #116 screen-isolation repair** — `fix/preselection-screen-isolation`, based on
-  current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
-  carried forward with a lazy `score` compatibility facade that preserves public module
-  attributes, including `score.usage`. Fresh-process regression covers exception/screen
-  imports, legacy prompt reads, fit-backend loading, public module attributes, and
-  explicit fit-factory access. `apps/worker/tools/screen_import_resource_demo.py` compares
-  imported modules and prompt reads against the pre-isolation revision. Provider-free
-  review-batch and rehearsal imports reject legacy fit/profile modules and private-file
-  reads. Worker coverage passes (89%; 1,250 passed, 1 skipped),
-  web coverage passes (420 tests / 35 suites), worker/web integration passes (4 passed,
-  1 skipped; 74 passed), and schema/privacy checks pass. Draft PR
-  [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`; the
-  issue remains open pending scoped acceptance. No provider inference or production
-  wiring is involved.
+- **Issue #116 screen-isolation acceptance** remains open. The neutral screen/import
+  boundary and executable before/after demo are present on `main`; #109's scoped
+  contract and profile-policy approvals remain open, so implementation evidence does not
+  close the acceptance issue. No live model or production change is claimed.
+
+- **Issue #110 evaluation acceptance** remains open. The supplied snapshot, profile,
+  rendered context, hashes and day membership can be internally checked, but there is no
+  independent source roster to establish pool completeness. Frozen replay therefore stays
+  `INCONCLUSIVE`; it is not an acceptance GO. Profile blocks reject Unicode line and
+  paragraph separators, empty required source text is rejected, and deeply nested JSON,
+  oversized integer tokens or out-of-range UTC timestamp normalization fail as bounded
+  input errors; the profile CLI refuses to overwrite its input through path aliases.
+  Reports carry a domain-separated seed fingerprint, not the raw seed.
+  Large connected day/group inputs avoid recursion-depth failure and report insufficient
+  independent components safely. Independent completeness evidence, approved real labels and
+  price/rate provenance, and the operator's acceptance decision remain outstanding. No
+  model quality or live cost result is claimed.
 
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -60,13 +63,13 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Finish the provider-free #116 facade correction, then repair #110 daily allocation,
-   rendered-context exit status and frozen-input provenance. Keep both issues open until
-   their exact heads pass independent review. Only then revalidate the #111/#112 repair
-   stack against those prerequisites. These corrections use fabricated data and authorize
-   no live inference.
-2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
-   before any upstream stack merge. Existing green suites do not establish acceptance.
+1. Complete #110's separate evaluation acceptance only after independent source-pool
+   completeness, approved cost/label evidence and the operator's evaluation decision are
+   available. The offline tooling does not establish these; it authorizes no live
+   inference.
+2. Rebuild and verify the #111/#112 stack against the current #126/#110 base. Preserve
+   `RunBinding` and journal schema 4, meet the worker coverage gate, and keep both issues
+   open until their code and separate live-evaluation gates are audited.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
    still needs actual unattended access/delivery evidence. It does not block the offline
    corrections. #95 delivery history remains deferred.
@@ -84,11 +87,9 @@ The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
 
-- #111's unmerged shadow transport has no enforced blocking-call deadline or bounded
-  retry backoff. #112's unmerged report accepts unbound provenance declarations, rejects
-  legitimate pre-assessment unresolved outcomes and conflates recurring pool membership
-  with inference identity. Their [repair contract](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
-  is the next agent scope; neither implementation is accepted or wired into main.
+- PRs #124/#125 remain separate drafts based on an earlier stack. Any combined review
+  must preserve `RunBinding`, journal schema 4 and the 85% worker-coverage gate. No
+  provider inference or #112 GO is authorized.
 
 - The production landing page emits React hydration errors 418/423 before recovering
   on the client. The inventory/detail flow works; the same six errors reproduce with

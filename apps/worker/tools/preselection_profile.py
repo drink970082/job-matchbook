@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Validate/render one explicitly supplied candidate profile without printing its text."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "apps/worker"))
+
+from ats_worker.preselection.profile import (  # noqa: E402
+    ProfileValidationError,
+    load_profile,
+    render_profile,
+)
+
+
+def _same_file_path(first: Path, second: Path) -> bool:
+    try:
+        if first.samefile(second):
+            return True
+    except FileNotFoundError:
+        pass
+    except (OSError, RuntimeError):
+        return True
+    try:
+        return first.resolve() == second.resolve()
+    except (OSError, RuntimeError):
+        return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("profile", help="explicit path to candidate_profile.json")
+    destination = parser.add_mutually_exclusive_group()
+    destination.add_argument(
+        "--check-rendered", help="compare exact bytes with an existing context file"
+    )
+    destination.add_argument(
+        "--write-rendered", help="write generated context to this explicit path"
+    )
+    args = parser.parse_args()
+
+    if args.write_rendered and _same_file_path(Path(args.profile), Path(args.write_rendered)):
+        print("rendered context output must differ from profile input", file=sys.stderr)
+        return 2
+
+    try:
+        profile = load_profile(args.profile)
+        rendered = render_profile(profile)
+    except ProfileValidationError as exc:
+        print(f"invalid candidate profile: {exc}", file=sys.stderr)
+        return 2
+
+    match: bool | None = None
+    if args.check_rendered:
+        try:
+            match = Path(args.check_rendered).read_bytes() == rendered.encode("utf-8")
+        except (OSError, UnicodeError):
+            print("cannot read rendered context file", file=sys.stderr)
+            return 2
+    elif args.write_rendered:
+        try:
+            Path(args.write_rendered).write_bytes(rendered.encode("utf-8"))
+        except (OSError, UnicodeError):
+            print("cannot write rendered context file", file=sys.stderr)
+            return 2
+
+    report = {
+        "schema": profile.schema,
+        "version": profile.version,
+        "status": profile.status,
+        "background_blocks": len(profile.background),
+        "preference_blocks": len(profile.preferences),
+        "profile_sha256": profile.identity_sha256,
+        "context_sha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
+        "context_characters": len(rendered),
+    }
+    if match is not None:
+        report["rendered_file_matches"] = match
+    print(json.dumps(report, sort_keys=True))
+    return 1 if match is False else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

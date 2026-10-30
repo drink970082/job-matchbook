@@ -900,9 +900,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   candidate, intake, and operational configuration validation still runs. The default
   loader used by combined legacy modes continues to validate `fit_profile`.
 
-  Provider-free review-batch and rehearsal imports guard this boundary in fresh
-  processes: legacy fit/profile modules and private résumé/profile or fit-prompt reads
-  fail immediately. `apps/worker/tools/screen_import_resource_demo.py --before <revision>
+  Provider-free review-batch, rehearsal, profile, and replay imports guard this boundary
+  in fresh processes: legacy fit/profile/runtime modules and `.txt` resource reads fail
+  immediately. `apps/worker/tools/screen_import_resource_demo.py --before <revision>
   --after <revision>` reports the runtime import and prompt-resource delta between two
   tracked revisions without loading operator configuration or private inputs.
 
@@ -2568,6 +2568,12 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |
 | Provider-free review-batch and rehearsal imports do not load legacy scoring/profile modules or read legacy prompts, résumés or personal profile files | `apps/worker/tests/test_review_batch.py::test_fresh_import_does_not_load_runtime_db_network_or_scorer_modules`, `apps/worker/tests/test_preselection_rehearsal.py::test_consumer_import_does_not_need_runtime_or_private_data_modules` |
+| Profile, frozen replay, and their CLI imports do not load legacy score/fit/profile/runtime modules or read text resources | `apps/worker/tests/test_preselection_import_boundary.py::test_profile_replay_and_cli_import_without_legacy_modules_or_text_reads` |
+| Candidate profile rejects duplicate IDs, invalid schema/text and Unicode line or paragraph separators; context measurement never truncates; deeply nested input returns a bounded error | `apps/worker/tests/test_preselection_profile.py` (`test_profile_rejects_invalid_or_unallowlisted_values`, `test_profile_rejects_duplicate_ids_across_both_sections_and_duplicate_json_members`, `test_context_budget_is_measurement_only_and_never_truncates`, `test_profile_cli_bounds_deeply_nested_json_errors`) |
+| Frozen replay validates supplied profile/context/source payloads and manifest, preserves daily/split/group membership and unresolved rows, reports only aggregate evidence, rejects blank required source text, and stays inconclusive without an independent source roster | `apps/worker/tests/test_preselection_profile.py::test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted`, `apps/worker/tests/test_preselection_replay.py` (`test_k_is_allocated_once_per_complete_utc_day_inside_each_split`, `test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance`, `test_snapshot_cli_marks_recomputed_partial_pool_inconclusive`, `test_full_snapshot_allows_nullable_normalized_source_fields`, `test_full_snapshot_keeps_repeated_source_identity_in_one_split`, `test_full_snapshot_requires_non_empty_source_identity_fields`, `test_full_snapshot_requires_nonblank_source_text_fields`, `test_full_snapshot_requires_posted_at_even_if_the_manifest_is_recomputed`, `test_snapshot_rejects_actual_input_or_manifest_tampering`, `test_snapshot_rejects_profile_change_even_when_context_is_rerendered`, `test_unknown_labels_remain_in_pool_and_make_recall_inconclusive_without_denominator_shrink`, `test_snapshot_cli_never_emits_untrusted_role_labels`, `test_snapshot_cli_reports_malformed_unicode_as_a_bounded_input_error`, `test_snapshot_cli_bounds_deeply_nested_json_errors`, `test_replay_cli_emits_only_report_and_no_source_identifiers`) |
+| Profile CLI refuses to overwrite its input through a same path, symlink or hard link; JSON integer conversion limits produce bounded profile and replay CLI errors; seed output is a domain-separated SHA-256 fingerprint; role-coverage greedy order preserves reference ties, runs once per day across budgets, and handles a large day | `apps/worker/tests/test_preselection_profile.py` (`test_profile_cli_refuses_rendered_output_aliasing_profile_input`, `test_profile_cli_bounds_oversized_json_integer_errors`), `apps/worker/tests/test_preselection_replay.py` (`test_replay_report_fingerprints_seed_without_echoing_raw_seed`, `test_role_coverage_order_matches_reference_greedy_ties_and_prefixes`, `test_baseline_orders_are_built_once_per_day_across_budgets`, `test_role_coverage_order_scales_to_large_single_day_without_reordering_ties`, `test_snapshot_cli_bounds_oversized_json_integer_errors`) |
+| Out-of-range timestamp normalization fails as a bounded frozen-input validation error | `apps/worker/tests/test_preselection_replay.py::test_replay_cli_bounds_timestamp_utc_normalization_overflow` |
+| Deeply nested JSON returns bounded CLI errors; large connected day/group inputs do not cause recursion tracebacks, and a one-component pool is rejected with a bounded validation error | `apps/worker/tests/test_preselection_profile.py::test_profile_cli_bounds_deeply_nested_json_errors`, `apps/worker/tests/test_preselection_replay.py` (`test_snapshot_cli_bounds_deeply_nested_json_errors`, `test_replay_cli_bounds_large_connected_component_without_recursion`) |
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
@@ -3015,6 +3021,35 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   a loosened ignore rule, or a pre-existing commit. Path deny-list only (no content
   scan); `--self-test` asserts the allow/deny regexes still discriminate, and CI runs
   both.
+- **Candidate profile and frozen replay — offline tooling only.**
+  `ats_worker/preselection/profile.py` validates the closed schema-1 profile, stable
+  block IDs, version/date/status and one-paragraph text, then renders all background and
+  preference blocks in declared order. An injected tokenizer measures the complete
+  context against a soft budget; overflow is reported without truncation. The profile
+  CLI reads only an explicit input and reports hashes/counts without profile text; a
+  rendered-file mismatch exits nonzero, and rendered output cannot alias the profile
+  input. The replay CLI validates a closed snapshot
+  containing the profile, exact rendered context, normalized payload for every row, and
+  manifest. Source and external IDs are non-empty trimmed text; company, title, URL and
+  description must contain non-whitespace text; location and posted-at may be null.
+  It recomputes versions, hashes, counts and UTC-day membership from inputs;
+  a digest alone is not proof. This establishes consistency of the supplied pool, not
+  whether the producer omitted eligible postings. No independent source roster is
+  available, so every frozen replay is `INCONCLUSIVE`, even if a partial pool has a
+  recomputed manifest. Splits keep complete days, duplicate/template groups and repeated
+  `(source, external_id)` identities together; K is allocated to each complete day in
+  each split. Unresolved labels remain in the counts and make recall inconclusive.
+  Reports contain aggregate metrics and hashes only, with no row/group IDs or source or
+  profile text; the split seed is represented by a domain-separated SHA-256 fingerprint,
+  while the caller retains the raw seed for reproduction. The daily role-coverage
+  baseline uses the same deterministic greedy score and recency/item-ID tie order as the
+  full ordering, and its daily orders are reused across requested budgets. The legacy
+  ID-only pool also remains inconclusive. This tooling has no
+  provider, database, runtime-selection, quality-threshold or acceptance-GO wiring.
+  Malformed or excessively nested JSON, oversized integer tokens and timestamps outside
+  UTC's representable range return bounded validation errors. Connected-group assignment
+  handles large valid inputs without recursion-depth failures; a pool with too few
+  independent groups returns a bounded validation error.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):
