@@ -92,6 +92,23 @@ def test_load_from_path(tmp_path):
     assert cfg.companies[1].source == "lever"
 
 
+def test_screen_only_can_skip_unrelated_fit_profile_validation():
+    raw = "companies: []\nfit_profile: malformed\n"
+    cfg = config.load_config(raw, validate_fit_profile=False)
+    assert cfg.fit_profile is None
+
+
+def test_legacy_config_loading_still_validates_fit_profile():
+    with pytest.raises(config.ConfigError, match="fit_profile"):
+        config.load_config("companies: []\nfit_profile: malformed\n")
+
+
+def test_screen_only_still_validates_operational_config():
+    raw = "companies:\n  - { source: not-a-board, slug: x, name: X }\n"
+    with pytest.raises(config.ConfigError, match="source"):
+        config.load_config(raw, validate_fit_profile=False)
+
+
 def test_missing_company_fields_raise():
     bad = "companies:\n  - { source: greenhouse, name: X }\n"  # no slug
     with pytest.raises(config.ConfigError):

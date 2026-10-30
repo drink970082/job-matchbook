@@ -329,13 +329,40 @@ def test_rehearsal_cli_requires_distinct_explicit_output_path(tmp_path):
 def test_consumer_import_does_not_need_runtime_or_private_data_modules():
     script = """
 import builtins
+from pathlib import Path
 original_import = builtins.__import__
-forbidden = ("sqlite3", "requests", "ats_worker.run", "ats_worker.config", "ats_worker.score")
+forbidden = (
+    "sqlite3", "requests", "ats_worker.run", "ats_worker.config",
+    "ats_worker.score", "ats_worker.fit_profile", "ats_worker.prompts",
+)
 def guarded_import(name, *args, **kwargs):
     if any(name == item or name.startswith(item + ".") for item in forbidden):
         raise AssertionError("forbidden dependency imported")
     return original_import(name, *args, **kwargs)
 builtins.__import__ = guarded_import
+
+def reject_private_text_read(path, mode):
+    try:
+        path = Path(path)
+    except TypeError:
+        return
+    if "r" in mode and path.suffix == ".txt":
+        raise AssertionError("provider-free import read a text resource: " + str(path))
+
+original_open = builtins.open
+def guarded_open(file, *args, **kwargs):
+    mode = args[0] if args else kwargs.get("mode", "r")
+    reject_private_text_read(file, mode)
+    return original_open(file, *args, **kwargs)
+builtins.open = guarded_open
+
+original_path_open = Path.open
+def guarded_path_open(self, *args, **kwargs):
+    mode = args[0] if args else kwargs.get("mode", "r")
+    reject_private_text_read(self, mode)
+    return original_path_open(self, *args, **kwargs)
+Path.open = guarded_path_open
+
 import ats_worker.preselection_rehearsal
 import ats_worker.preselection_rehearsal_cli
 """

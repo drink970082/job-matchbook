@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add a reproducible before/after report for screen runtime imports and prompt reads.
+  Fresh-process guards for the provider-free review-batch and rehearsal entrypoints
+  reject legacy fit/profile imports and private résumé/profile or fit-prompt reads.
+
 - Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
   identity freshness, bounded typed scores, safe model/version labels and validated JD
   evidence into a Python/TypeScript React read panel. Private context, digests, raw
@@ -66,6 +70,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   and replacement search against the persisted work cap, and check accumulated injected
   per-pass elapsed duration before each pass. Incomplete revalidation exposes no current
   candidates and leaves affected slots visibly unverified.
+
+- Extract active hard-requirement screening into the provider-neutral `ats_worker/screening/`
+  package and keep legacy `score.*` exports lazy. Exception and screen compatibility
+  imports no longer load legacy fit prompts or fit backends; public legacy submodule
+  attributes, including `score.usage`, resolve on demand. Accessing a fit factory still
+  resolves the existing legacy path. Screen-only mode skips only legacy `fit_profile`
+  validation, while operational checks and explicit legacy validation remain.
 
 - Deploy the research/inventory and source-lifecycle changes through #105 to production
   on 2026-10-26 UTC. Back up SQLite and verify all preexisting table values after the

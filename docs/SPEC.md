@@ -535,9 +535,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
-  `fit_profile` is optional and **read by nothing in the running pipeline** — it is the
-  concept vocabulary the shadow extraction experiment uses (§13), parsed and validated by
-  `fit_profile.py`, which raises the same `ConfigError` at startup on a structural
+  `fit_profile` is optional and is not consumed by the live fit/screen pipeline — it is
+  the concept vocabulary the shadow extraction experiment uses (§13). The default config
+  loader parses and validates it with `fit_profile.py`; standalone screen-only mode skips
+  only that unrelated validation block. Other config validation remains active. The parser
+  raises the same `ConfigError` at startup on a structural
   mistake (unknown priority, an `anti_target` carrying a priority, a duplicate id, an
   over-long description, no target concept, or a concept count over the ceiling).
 - **`fetch/` — board adapters.** One thin module per source, registered in
@@ -808,12 +810,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
   explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
   transaction before writing. Issues no DDL.
-- **`score/` — screening + fit scoring.** A package — `screen.py`, `location.py`,
-  `prompts.py`, `usage.py`, `backends_screen.py` (SCREEN backends),
-  `backends_codex.py`/`backends_claude.py` (fit-SCORE backends) — re-exported
-  through `score/__init__.py`, so `score.screen_posting` / `score._normalize_score`
-  still resolve. Up to two calls, **SCREEN-gated**: the cheap hard-requirements
-  screen runs FIRST and gates the paid fit score.
+- **`screening/` and `score/` — active screening and legacy fit scoring.** The
+  provider-neutral `screening/` package owns the live hard-requirement engine, screen
+  schema/rendering, location resolver, and screen transports. The legacy `score/`
+  package retains fit normalization, usage, and fit backends; its screen/location/backend
+  modules re-export the neutral APIs so existing `score.screen_posting` and
+  `score._normalize_score` callers continue to resolve. The package facade resolves
+  legacy public submodule attributes, including `score.usage`, on demand; requesting one
+  module loads only that module and its declared dependencies. The combined path remains
+  **SCREEN-gated**: the cheap hard-requirements screen runs FIRST and gates fit scoring.
 
   (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
   schema) -> dict` (`screen_posting`'s `extract` kwarg) — so swapping backends is a
@@ -821,9 +826,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   *, env, http=None, model=None, screen_model=None, screen_effort=None,
   num_ctx=8192)` builds that
   callable from **`SCREEN_BACKEND`/`--screen-backend`**, one of **six** values in
-  **three** adapter shapes (`score/backends_screen.py`):
+  **three** adapter shapes (`screening/backends.py`):
   - **HTTP + JSON schema** — `ollama` (**default**; free, local,
-    `score.screen.make_ollama_extract`, `think: false`, `num_ctx` from
+    `screening.make_ollama_extract`, `think: false`, `num_ctx` from
     `OLLAMA_NUM_CTX`/`--model`, default model `qwen3.5:4b`), `claude-api` (metered,
     the Anthropic SDK's structured outputs, default `claude-haiku-4-5`, needs
     `ANTHROPIC_API_KEY`), `openai-api` (metered, plain `requests` against
@@ -884,6 +889,22 @@ worker modules are pure and dependency-injected; real services are wired only in
   fixed summary, never raw exception text. A per-result transaction re-checks that the
   posting is still `new`; a provider call interrupted before commit can be repeated on
   a later pass (at-least-once external execution).
+
+  **Import/config boundary.** The standalone `screening/` package and `--screen-only`
+  composition path do not import `score/`, `fit_profile.py`, or the root legacy prompt
+  module, and they do not load resumes. `score/__init__.py` is a lazy compatibility
+  facade: importing its neutral exception or screen exports loads no fit backend or fit
+  prompt; explicit fit-factory/schema access resolves the retained legacy modules. The
+  legacy `ScoreError` remains the same class as `ModelResponseError`. Screen-only config
+  loading skips only the unrelated legacy `fit_profile` validation block; watchlist,
+  candidate, intake, and operational configuration validation still runs. The default
+  loader used by combined legacy modes continues to validate `fit_profile`.
+
+  Provider-free review-batch and rehearsal imports guard this boundary in fresh
+  processes: legacy fit/profile modules and private résumé/profile or fit-prompt reads
+  fail immediately. `apps/worker/tools/screen_import_resource_demo.py --before <revision>
+  --after <revision>` reports the runtime import and prompt-resource delta between two
+  tracked revisions without loading operator configuration or private inputs.
 
   Each standalone result's persistence timestamp is sampled after its provider call on
   the DB thread through the clock injected by `run.py`. This records when the worker is
@@ -2546,6 +2567,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |
+| Provider-free review-batch and rehearsal imports do not load legacy scoring/profile modules or read legacy prompts, résumés or personal profile files | `apps/worker/tests/test_review_batch.py::test_fresh_import_does_not_load_runtime_db_network_or_scorer_modules`, `apps/worker/tests/test_preselection_rehearsal.py::test_consumer_import_does_not_need_runtime_or_private_data_modules` |
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
 | Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
@@ -2639,7 +2661,8 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Browser-recipe executor (CSS extraction, detail circuit-breaker, SSRF guards on scraped URLs) | `test_browser.py` |
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
-| Config load/validate (sources, slugs, recipes, candidate block) | `test_config.py` |
+| Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
+| Fresh-process screen-only isolation; lazy exception, screen, and public `score.*` submodule compatibility imports (including `score.usage`); explicit fit-factory loading and legacy fit pass | `test_screening_boundary.py` (`test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes`, `test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path`); compare imported modules and prompt reads with `python3 apps/worker/tools/screen_import_resource_demo.py --before <revision> --after <revision>` |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
 | Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**, skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_score.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`, `test_codex_scorer_always_stays_ephemeral`), `test_run.py` (`test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored`, `test_run_once_skips_the_quota_fetch_when_nothing_was_scored`) |

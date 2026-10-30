@@ -39,7 +39,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from . import db, score
+from . import db, screening
 from .fetch import (DETAIL_SOURCES, STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES,
                     prefilter_postings)
 from .feed import prefilter as _prefilter
@@ -74,7 +74,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
                                   max_age_days=max_age_days, now=now):
             return "drop"
         if candidate:
-            verdict = score.deterministic_screen(
+            verdict = screening.deterministic_screen(
                 {"screen": {}, "disqualified": False, "disqualification_reason": ""},
                 stub, candidate)
             if verdict.get("disqualified"):
@@ -101,7 +101,7 @@ def run_fetch(conn, companies, title_filter, *, now, fetch_fn=None,
             for p in kept:
                 p["company_slug"] = c["slug"]
                 if candidate:
-                    verdict = score.deterministic_screen(
+                    verdict = screening.deterministic_screen(
                         {"screen": {}, "disqualified": False, "disqualification_reason": ""},
                         p, candidate)
                     if verdict.get("disqualified"):
@@ -586,6 +586,8 @@ def _persist_scored(conn, row, screen: dict, card: dict, posting: dict, *,
     ruled on every check), so this branch and the 'scored' outcome below are
     byte-identical to pre-fallback behavior.
     """
+    from . import score
+
     # merge_fallback_screen returns a fresh verdict dict, so the routing marker has to be
     # carried across it explicitly — it is provenance, not a screen verdict, and belongs
     # in score_detail whichever way the confirmation goes.
@@ -752,7 +754,7 @@ def run_screen(conn, *, now: str, screen_fn, extract, candidate=None, backend: s
                 row = rows[cursor]
                 cursor += 1
                 try:
-                    needs_provider = score.screen_requires_provider(
+                    needs_provider = screening.screen_requires_provider(
                         row, extract=extract, candidate=candidate)
                 except Exception as exc:  # noqa: BLE001 — fail this item visibly
                     persist(row, None, _screen_error_category(exc),
@@ -910,7 +912,7 @@ def _sweep_free_gates(conn, rows, *, candidate, now, tally, stale_fn=None) -> li
     survivors, write_errors, streak = [], 0, 0
     for row in rows:
         posting = dict(row)
-        gate = score.deterministic_screen(
+        gate = screening.deterministic_screen(
             {"screen": {}, "disqualified": False, "disqualification_reason": ""},
             posting, candidate)
         if not gate["disqualified"] and stale_fn is not None:
@@ -1021,6 +1023,8 @@ def run_score(conn, *, now, screen_fn, fit_fn, batch_size: int = 10,
          a single bad JD in a batch doesn't sink its batch-mates. A single that
          STILL fails marks only that row 'failed'.
     """
+    from . import score
+
     survivors: list[tuple] = []  # (row, posting, screen)
     # Most-recently-touched then newest, so `limit` takes today's discoveries — and the
     # rows run_retry just requeued, which keep their OLD ids — rather than the back of

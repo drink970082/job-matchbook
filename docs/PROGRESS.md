@@ -8,6 +8,21 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Issue #116 screen-isolation repair** — `fix/preselection-screen-isolation`, based on
+  current `main` at `a9e5972`. The neutral screen extraction and mode-aware config are
+  carried forward with a lazy `score` compatibility facade that preserves public module
+  attributes, including `score.usage`. Fresh-process regression covers exception/screen
+  imports, legacy prompt reads, fit-backend loading, public module attributes, and
+  explicit fit-factory access. `apps/worker/tools/screen_import_resource_demo.py` compares
+  imported modules and prompt reads against the pre-isolation revision. Provider-free
+  review-batch and rehearsal imports reject legacy fit/profile modules and private-file
+  reads. Worker coverage passes (89%; 1,250 passed, 1 skipped),
+  web coverage passes (420 tests / 35 suites), worker/web integration passes (4 passed,
+  1 skipped; 74 passed), and schema/privacy checks pass. Draft PR
+  [#126](https://github.com/drink970082/job-matchbook/pull/126) targets `main`; the
+  issue remains open pending scoped acceptance. No provider inference or production
+  wiring is involved.
+
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -45,11 +60,11 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Next assignable Luna/max work is the provider-free [#111 shadow transport repair](https://github.com/drink970082/job-matchbook/issues/111),
-   then [#112 provenance/report repair](https://github.com/drink970082/job-matchbook/issues/112).
-   The [repair handoff](superpowers/plans/2026-10-29-preselection-shadow-repair-handoff.md)
-   defines source branches, exact defects, synthetic acceptance and stack boundaries.
-   This queue does not launch a session or authorize live inference.
+1. Finish the provider-free #116 facade correction, then repair #110 daily allocation,
+   rendered-context exit status and frozen-input provenance. Keep both issues open until
+   their exact heads pass independent review. Only then revalidate the #111/#112 repair
+   stack against those prerequisites. These corrections use fabricated data and authorize
+   no live inference.
 2. Orchestrator reviews the repaired heads and their unmerged #109/#110/#116 prerequisites
    before any upstream stack merge. Existing green suites do not establish acceptance.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
