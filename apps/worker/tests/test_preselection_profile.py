@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -125,3 +127,23 @@ def test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted(tmp_
     assert missing_result.returncode != 0
     assert "rendered context" in missing_result.stderr.lower()
     assert str(missing) not in missing_result.stderr
+
+
+def test_profile_cli_bounds_deeply_nested_json_errors(tmp_path):
+    script = Path(__file__).parents[1] / "tools/preselection_profile.py"
+    profile_path = tmp_path / "deep-profile.json"
+    deep_json = "[" * 10_000 + "0" + "]" * 10_000
+    with pytest.raises(RecursionError):
+        json.loads(deep_json)
+    profile_path.write_text(deep_json, encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(script), str(profile_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "invalid candidate profile" in result.stderr
+    assert "Traceback" not in result.stderr

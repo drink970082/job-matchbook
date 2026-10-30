@@ -147,7 +147,7 @@ def load_profile_text(source: str) -> CandidateProfile:
         value = json.loads(source, object_pairs_hook=_object_without_duplicate_members)
     except ProfileValidationError:
         raise
-    except (json.JSONDecodeError, TypeError) as exc:
+    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
         raise ProfileValidationError("profile is not valid JSON") from exc
     return profile_from_value(value)
 

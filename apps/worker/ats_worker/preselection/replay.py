@@ -96,6 +96,7 @@ _SOURCE_REQUIRED_TEXT_FIELDS = {
     "job_url",
     "description",
 }
+_SOURCE_NONEMPTY_TEXT_FIELDS = {"company_name", "job_title", "job_url", "description"}
 _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS = {"location", "posted_at"}
 _SOURCE_REQUIRED_FIELDS = _SOURCE_REQUIRED_TEXT_FIELDS | _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS
 _SOURCE_POOL_COMPLETENESS_LIMITATION = "source_pool_completeness_not_independently_verifiable"
@@ -149,7 +150,7 @@ def _canonical_json(value: Any, message: str) -> str:
             separators=(",", ":"),
             allow_nan=False,
         )
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise ReplayValidationError(message) from exc
 
 
@@ -213,7 +214,7 @@ def load_pool_text(source: str) -> FrozenPool:
         return pool_from_value(json.loads(source, object_pairs_hook=_reject_duplicate_members))
     except ReplayValidationError:
         raise
-    except (json.JSONDecodeError, TypeError) as exc:
+    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
         raise ReplayValidationError("pool is not valid JSON") from exc
 
 
@@ -239,6 +240,11 @@ def _validated_source_pool(value: Any) -> tuple[FrozenPool, str]:
         for field in _SOURCE_REQUIRED_TEXT_FIELDS:
             if not isinstance(source_payload[field], str):
                 raise ReplayValidationError(f"{path}.source_payload.{field} must be text")
+        for field in _SOURCE_NONEMPTY_TEXT_FIELDS:
+            if not source_payload[field].strip():
+                raise ReplayValidationError(
+                    f"{path}.source_payload.{field} must contain non-whitespace text"
+                )
         for field in _SOURCE_REQUIRED_NULLABLE_TEXT_FIELDS:
             if source_payload[field] is not None and not isinstance(source_payload[field], str):
                 raise ReplayValidationError(
@@ -414,7 +420,7 @@ def load_snapshot_text(source: str) -> FrozenSnapshot:
         return snapshot_from_value(json.loads(source, object_pairs_hook=_reject_duplicate_members))
     except ReplayValidationError:
         raise
-    except (json.JSONDecodeError, TypeError) as exc:
+    except (json.JSONDecodeError, TypeError, RecursionError) as exc:
         raise ReplayValidationError("snapshot is not valid JSON") from exc
 
 

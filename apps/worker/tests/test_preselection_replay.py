@@ -270,6 +270,53 @@ def test_replay_cli_bounds_timestamp_utc_normalization_overflow(tmp_path):
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("field", "blank"),
+    [
+        (field, blank)
+        for field in ("company_name", "job_title", "job_url", "description")
+        for blank in ("", "   ")
+    ],
+)
+def test_full_snapshot_requires_nonblank_source_text_fields(field, blank):
+    value = _snapshot_value()
+    value["source_pool"]["items"][0]["source_payload"][field] = blank
+
+    with pytest.raises(ReplayValidationError, match="non-whitespace text"):
+        snapshot_from_value(value)
+
+
+def test_snapshot_cli_bounds_deeply_nested_json_errors(tmp_path):
+    snapshot_path = tmp_path / "deep-snapshot.json"
+    deep_json = "[" * 10_000 + "0" + "]" * 10_000
+    with pytest.raises(RecursionError):
+        json.loads(deep_json)
+    snapshot_path.write_text(deep_json, encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(snapshot_path),
+            "--snapshot",
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.25",
+            "--budget",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "cannot replay frozen input" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance():
     script = Path(__file__).parents[1] / "tools/preselection_replay.py"
     result = subprocess.run(
