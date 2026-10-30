@@ -20,7 +20,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   nested JSON, oversized integer tokens and timestamps outside the UTC representable range
   fail with bounded input errors. Daily role-coverage ordering preserves deterministic
   greedy tie rules while reusing each day's ordering across budgets. Reports emit a
-  domain-separated SHA-256 seed fingerprint rather than the raw seed. Large connected
+  domain-separated SHA-256 seed fingerprint rather than the raw seed, and the profile CLI
+  refuses to overwrite its input through a same path, symlink, or hard link. Large connected
   day/group inputs avoid recursion-depth failures; one-component pools return a bounded
   validation error. With no independent source roster, each replay remains inconclusive;
   no provider or runtime selection path is added.

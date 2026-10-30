@@ -19,6 +19,20 @@ from ats_worker.preselection.profile import (  # noqa: E402
 )
 
 
+def _same_file_path(first: Path, second: Path) -> bool:
+    try:
+        if first.samefile(second):
+            return True
+    except FileNotFoundError:
+        pass
+    except (OSError, RuntimeError):
+        return True
+    try:
+        return first.resolve() == second.resolve()
+    except (OSError, RuntimeError):
+        return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", help="explicit path to candidate_profile.json")
@@ -30,6 +44,10 @@ def main() -> int:
         "--write-rendered", help="write generated context to this explicit path"
     )
     args = parser.parse_args()
+
+    if args.write_rendered and _same_file_path(Path(args.profile), Path(args.write_rendered)):
+        print("rendered context output must differ from profile input", file=sys.stderr)
+        return 2
 
     try:
         profile = load_profile(args.profile)

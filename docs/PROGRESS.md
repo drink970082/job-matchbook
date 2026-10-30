@@ -19,7 +19,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `INCONCLUSIVE`; it is not an acceptance GO. Profile blocks reject Unicode line and
   paragraph separators, empty required source text is rejected, and deeply nested JSON,
   oversized integer tokens or out-of-range UTC timestamp normalization fail as bounded
-  input errors. Reports carry a domain-separated seed fingerprint, not the raw seed.
+  input errors; the profile CLI refuses to overwrite its input through path aliases.
+  Reports carry a domain-separated seed fingerprint, not the raw seed.
   Large connected day/group inputs avoid recursion-depth failure and report insufficient
   independent components safely. Independent completeness evidence, approved real labels and
   price/rate provenance, and the operator's acceptance decision remain outstanding. No

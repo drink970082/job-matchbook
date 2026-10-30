@@ -129,6 +129,33 @@ def test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted(tmp_
     assert str(missing) not in missing_result.stderr
 
 
+@pytest.mark.parametrize("alias_kind", ["same-path", "symlink", "hardlink"])
+def test_profile_cli_refuses_rendered_output_aliasing_profile_input(tmp_path, alias_kind):
+    script = Path(__file__).parents[1] / "tools/preselection_profile.py"
+    profile_path = tmp_path / "profile.json"
+    original = FIXTURE.read_bytes()
+    profile_path.write_bytes(original)
+    if alias_kind == "same-path":
+        output_path = profile_path
+    elif alias_kind == "symlink":
+        output_path = tmp_path / "profile-alias.json"
+        output_path.symlink_to(profile_path)
+    else:
+        output_path = tmp_path / "profile-hardlink.json"
+        output_path.hardlink_to(profile_path)
+
+    result = subprocess.run(
+        [sys.executable, str(script), str(profile_path), "--write-rendered", str(output_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "must differ from profile input" in result.stderr
+    assert profile_path.read_bytes() == original
+
+
 def test_profile_cli_bounds_deeply_nested_json_errors(tmp_path):
     script = Path(__file__).parents[1] / "tools/preselection_profile.py"
     profile_path = tmp_path / "deep-profile.json"
