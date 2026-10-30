@@ -1,0 +1,266 @@
+{
+  "schema": 1,
+  "profile": {
+    "schema": 1,
+    "version": "synthetic-1",
+    "as_of": "2026-01-02",
+    "status": "draft",
+    "background": [
+      {
+        "id": "work-scope",
+        "text": "Built a service in a fictional internship; production ownership stayed with the team."
+      },
+      {
+        "id": "transferable",
+        "text": "Used data analysis in an academic project; professional depth is not established."
+      }
+    ],
+    "preferences": [
+      {
+        "id": "role-interest",
+        "text": "Interested in engineering and product work; family priority is unresolved."
+      },
+      {
+        "id": "unknown-policy",
+        "text": "Treat unstated authorization and missing requirements as unknown."
+      }
+    ]
+  },
+  "rendered_context": "AS OF 2026-01-02\nBACKGROUND\nBuilt a service in a fictional internship; production ownership stayed with the team.\nUsed data analysis in an academic project; professional depth is not established.\nSEARCH\nInterested in engineering and product work; family priority is unresolved.\nTreat unstated authorization and missing requirements as unknown.\n",
+  "source_pool": {
+    "schema": 1,
+    "pool_id": "synthetic-complete-daily-pool-v1",
+    "items": [
+      {
+        "id": "synthetic-positive-01",
+        "group_id": "synthetic-group-positive-01",
+        "observed_at": "2026-02-01T15:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "positive",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-positive-01",
+          "company_name": "Fictional Company 01",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-positive-01",
+          "description": "Fictional synthetic posting synthetic-positive-01; no real employer or vacancy.",
+          "posted_at": "2026-02-01T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-negative-01",
+        "group_id": "synthetic-group-negative-01",
+        "observed_at": "2026-02-01T09:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "negative",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-negative-01",
+          "company_name": "Fictional Company 01",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-negative-01",
+          "description": "Fictional synthetic posting synthetic-negative-01; no real employer or vacancy.",
+          "posted_at": "2026-02-01T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-positive-02",
+        "group_id": "synthetic-group-positive-02",
+        "observed_at": "2026-02-02T15:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "positive",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-positive-02",
+          "company_name": "Fictional Company 02",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-positive-02",
+          "description": "Fictional synthetic posting synthetic-positive-02; no real employer or vacancy.",
+          "posted_at": "2026-02-02T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-negative-02",
+        "group_id": "synthetic-group-negative-02",
+        "observed_at": "2026-02-02T09:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "negative",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-negative-02",
+          "company_name": "Fictional Company 02",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-negative-02",
+          "description": "Fictional synthetic posting synthetic-negative-02; no real employer or vacancy.",
+          "posted_at": "2026-02-02T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-positive-03",
+        "group_id": "synthetic-group-positive-03",
+        "observed_at": "2026-02-03T15:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "positive",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-positive-03",
+          "company_name": "Fictional Company 03",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-positive-03",
+          "description": "Fictional synthetic posting synthetic-positive-03; no real employer or vacancy.",
+          "posted_at": "2026-02-03T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-negative-03",
+        "group_id": "synthetic-group-negative-03",
+        "observed_at": "2026-02-03T09:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "negative",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-negative-03",
+          "company_name": "Fictional Company 03",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-negative-03",
+          "description": "Fictional synthetic posting synthetic-negative-03; no real employer or vacancy.",
+          "posted_at": "2026-02-03T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-positive-04",
+        "group_id": "synthetic-group-positive-04",
+        "observed_at": "2026-02-04T15:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "positive",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-positive-04",
+          "company_name": "Fictional Company 04",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-positive-04",
+          "description": "Fictional synthetic posting synthetic-positive-04; no real employer or vacancy.",
+          "posted_at": "2026-02-04T08:00:00Z"
+        }
+      },
+      {
+        "id": "synthetic-negative-04",
+        "group_id": "synthetic-group-negative-04",
+        "observed_at": "2026-02-04T09:00:00Z",
+        "role_families": [
+          "engineering"
+        ],
+        "label": "negative",
+        "source_payload": {
+          "source": "synthetic-board",
+          "external_id": "synthetic-negative-04",
+          "company_name": "Fictional Company 04",
+          "job_title": "Synthetic Engineering Role",
+          "location": "Fictional City",
+          "job_url": "https://example.invalid/jobs/synthetic-negative-04",
+          "description": "Fictional synthetic posting synthetic-negative-04; no real employer or vacancy.",
+          "posted_at": "2026-02-04T08:00:00Z"
+        }
+      }
+    ]
+  },
+  "manifest": {
+    "schema": 1,
+    "versions": {
+      "frozen_input": "preselection-frozen-input-v1",
+      "profile_schema": 1,
+      "profile_renderer": "candidate-context-v1",
+      "source_pool_schema": 1,
+      "replay_algorithm": "utc-day-group-and-source-identity-connected-components-v2"
+    },
+    "hashes": {
+      "profile_sha256": "74e92eaa8f8b69401e1925be154c7a7ac16c04b3c3c11809df047f3e9b033509",
+      "rendered_context_sha256": "6ee253839bad9cc07b6491a8b7bbf4ee3de055e978d482af8d7c77a322dd324a",
+      "source_pool_sha256": "e1948cbca0a773706610f5ae55fedc617d04d71f7842e38bc3adcbda07fb9b5e"
+    },
+    "counts": {
+      "items": 8,
+      "utc_days": 4,
+      "label_counts": {
+        "positive": 4,
+        "negative": 4,
+        "unresolved": 0
+      }
+    },
+    "daily_pools": [
+      {
+        "utc_day": "2026-02-01",
+        "item_count": 2,
+        "item_ids": [
+          "synthetic-negative-01",
+          "synthetic-positive-01"
+        ],
+        "label_counts": {
+          "positive": 1,
+          "negative": 1,
+          "unresolved": 0
+        }
+      },
+      {
+        "utc_day": "2026-02-02",
+        "item_count": 2,
+        "item_ids": [
+          "synthetic-negative-02",
+          "synthetic-positive-02"
+        ],
+        "label_counts": {
+          "positive": 1,
+          "negative": 1,
+          "unresolved": 0
+        }
+      },
+      {
+        "utc_day": "2026-02-03",
+        "item_count": 2,
+        "item_ids": [
+          "synthetic-negative-03",
+          "synthetic-positive-03"
+        ],
+        "label_counts": {
+          "positive": 1,
+          "negative": 1,
+          "unresolved": 0
+        }
+      },
+      {
+        "utc_day": "2026-02-04",
+        "item_count": 2,
+        "item_ids": [
+          "synthetic-negative-04",
+          "synthetic-positive-04"
+        ],
+        "label_counts": {
+          "positive": 1,
+          "negative": 1,
+          "unresolved": 0
+        }
+      }
+    ]
+  }
+}

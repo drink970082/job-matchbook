@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "synthetic-1",
+  "as_of": "2026-01-02",
+  "status": "draft",
+  "background": [
+    {"id": "work-scope", "text": "Built a service in a fictional internship; production ownership stayed with the team."},
+    {"id": "transferable", "text": "Used data analysis in an academic project; professional depth is not established."}
+  ],
+  "preferences": [
+    {"id": "role-interest", "text": "Interested in engineering and product work; family priority is unresolved."},
+    {"id": "unknown-policy", "text": "Treat unstated authorization and missing requirements as unknown."}
+  ]
+}
