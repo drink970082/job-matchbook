@@ -86,7 +86,7 @@ def _expect_object(value: Any, required: set[str], path: str) -> dict[str, Any]:
 def _valid_text(value: Any, path: str) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise ProfileValidationError(f"{path} must be non-empty trimmed text")
-    if "\n" in value or "\r" in value:
+    if any(separator in value for separator in ("\n", "\r", "\u2028", "\u2029")):
         raise ProfileValidationError(f"{path} must be one paragraph")
     if any(unicodedata.category(char) in {"Cc", "Cs"} for char in value):
         raise ProfileValidationError(f"{path} contains a control character")

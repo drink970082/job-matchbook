@@ -128,9 +128,16 @@ def _timestamp(value: Any, path: str) -> datetime:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     except ValueError as exc:
         raise ReplayValidationError(f"{path} must be an ISO-8601 timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
+    try:
+        offset = parsed.utcoffset()
+    except (OverflowError, ValueError) as exc:
+        raise ReplayValidationError(f"{path} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or offset is None:
         raise ReplayValidationError(f"{path} must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except (OverflowError, ValueError) as exc:
+        raise ReplayValidationError(f"{path} must be an ISO-8601 timestamp") from exc
 
 
 def _canonical_json(value: Any, message: str) -> str:

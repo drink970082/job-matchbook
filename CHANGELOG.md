@@ -16,8 +16,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 - Add offline candidate-profile validation/rendering and frozen daily-pool replay.
   Replay recomputes supplied-input hashes and manifest membership, keeps complete days
   and duplicate groups together, applies K per day, and emits aggregate-only reports.
-  With no independent source roster, each replay remains inconclusive; no provider or
-  runtime selection path is added.
+  Unicode line/paragraph separators and timestamps outside the UTC representable range
+  fail as bounded input errors. With no independent source roster, each replay remains
+  inconclusive; no provider or runtime selection path is added.
 
 - Add an offline synthetic assessment-view contract: an explicit fixture CLI projects
   identity freshness, bounded typed scores, safe model/version labels and validated JD

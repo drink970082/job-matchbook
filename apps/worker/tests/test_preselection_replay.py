@@ -241,6 +241,35 @@ def test_replay_cli_emits_only_report_and_no_source_identifiers():
     assert "legacy pool has no full source payloads" in report["evidence_limitations"]
 
 
+def test_replay_cli_bounds_timestamp_utc_normalization_overflow(tmp_path):
+    value = _pool_value()
+    value["items"][0]["observed_at"] = "0001-01-01T00:00:00+14:00"
+    pool_path = tmp_path / "out-of-range-timestamp.json"
+    pool_path.write_text(json.dumps(value), encoding="utf-8")
+    script = Path(__file__).parents[1] / "tools/preselection_replay.py"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            str(pool_path),
+            "--seed",
+            "synthetic-seed",
+            "--heldout-fraction",
+            "0.25",
+            "--budget",
+            "1",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "cannot replay frozen input" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance():
     script = Path(__file__).parents[1] / "tools/preselection_replay.py"
     result = subprocess.run(

@@ -48,6 +48,8 @@ def test_profile_renders_all_blocks_exactly_in_declared_order_and_hashes_stably(
         (lambda value: value.update(background={}), "array"),
         (lambda value: value["background"][0].update(source="archive"), "unknown field"),
         (lambda value: value["background"][0].update(text="two\nparagraphs"), "one paragraph"),
+        (lambda value: value["background"][0].update(text="two\u2028paragraphs"), "one paragraph"),
+        (lambda value: value["background"][0].update(text="two\u2029paragraphs"), "one paragraph"),
         (lambda value: value["background"][0].update(text=" padded "), "trimmed text"),
     ],
 )
