@@ -13,19 +13,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   contract and profile-policy approvals remain open, so implementation evidence does not
   close the acceptance issue. No live model or production change is claimed.
 
-- **Issue #110 evaluation acceptance** remains open. The supplied snapshot, profile,
-  rendered context, hashes and day membership can be internally checked, but there is no
-  independent source roster to establish pool completeness. Frozen replay therefore stays
-  `INCONCLUSIVE`; it is not an acceptance GO. Profile blocks reject Unicode line and
-  paragraph separators, empty required source text is rejected, and deeply nested JSON,
-  oversized integer tokens or out-of-range UTC timestamp normalization fail as bounded
-  input errors; the profile CLI refuses to overwrite its input through path aliases.
-  Reports carry a domain-separated seed fingerprint, not the raw seed.
-  Large connected day/group inputs avoid recursion-depth failure and report insufficient
-  independent components safely. Independent completeness evidence, approved real labels and
-  price/rate provenance, and the operator's acceptance decision remain outstanding. No
-  model quality or live cost result is claimed.
+- **Issue #110 evaluation acceptance** remains open. The merged frozen profile/replay
+  path validates supplied payloads, profile/context hashes, day membership and manifest
+  consistency, but has no independent roster proving pool completeness. Every replay is
+  therefore `INCONCLUSIVE`. The unmerged #129 candidate adds synthetic YOE policy and
+  offline assessment-cost/evaluation mechanics; it supplies no approved profile, labels,
+  source roster, actual price evidence or model-quality result. The profile CLI rejects
+  path aliases and malformed inputs with bounded errors; replay preserves daily K,
+  deterministic recency/role baselines and grouped membership.
 
+- **Issues #111/#112 shadow assessment and evaluation** have an unmerged integration
+  candidate in PR #129, based on current `main`. It retains immutable `RunBinding` and
+  schema-4 journals, validates direct/extracted assessment inputs, bounds retries and
+  accounting, and emits aggregate-only synthetic evaluation reports. Worker coverage is
+  85.05% with the existing 85% threshold unchanged. #111 remains open pending scoped
+  acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No provider call, real
+  label, approved live policy, production wiring, database write or runtime selection is
+  included.
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
   runs and labels are not selected work. Candidate-evidence annotation ownership remains
@@ -67,9 +71,9 @@ before changing them. No older research authorization schedules new provider cal
    completeness, approved cost/label evidence and the operator's evaluation decision are
    available. The offline tooling does not establish these; it authorizes no live
    inference.
-2. Rebuild and verify the #111/#112 stack against the current #126/#110 base. Preserve
-   `RunBinding` and journal schema 4, meet the worker coverage gate, and keep both issues
-   open until their code and separate live-evaluation gates are audited.
+2. Review the unmerged #129 integration candidate against its exact head. Preserve
+   `RunBinding` and journal schema 4; keep #111 open until its scoped acceptance is
+   audited, and keep #112 `INCONCLUSIVE` until its separate live-evaluation gates pass.
 3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
    still needs actual unattended access/delivery evidence. It does not block the offline
    corrections. #95 delivery history remains deferred.
@@ -87,9 +91,9 @@ The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
 
-- PRs #124/#125 remain separate drafts based on an earlier stack. Any combined review
-  must preserve `RunBinding`, journal schema 4 and the 85% worker-coverage gate. No
-  provider inference or #112 GO is authorized.
+- PRs #124/#125 remain unmerged drafts. Their provider-free modules are composed in
+  unmerged PR #129 on current `main`; review must preserve `RunBinding`, journal schema 4
+  and the 85% worker-coverage gate. No provider inference or #112 GO is authorized.
 
 - The production landing page emits React hydration errors 418/423 before recovering
   on the client. The inventory/detail flow works; the same six errors reproduce with

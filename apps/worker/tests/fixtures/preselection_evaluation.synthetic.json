@@ -1,0 +1,467 @@
+{
+  "schema": 1,
+  "run": {
+    "run_id": "synthetic-report-run-v1",
+    "protocol_version": "synthetic-eval-protocol-v1",
+    "phase": "development",
+    "pool_fingerprint_sha256": "b1f8ef371ef47e9bc12c5b1cd5441a6c0b67337b2052b244ac20f05311a63e3c",
+    "split_algorithm": "utc-day-and-group-connected-components-v1",
+    "split_seed": "synthetic-seed-v1",
+    "profile_sha256": "d11e81bc8942960c211bce52582136c6852e1131625828cefe5c9b5412062d07",
+    "question_set_sha256": "3eb711a3165ff53f21d9557e984847a857111af1b73dd65cc62c6cb8e86150f9",
+    "label_guide_sha256": "ea5c51a2c0771265e29748ff591709a12fc7770e7333f1163b8bb1c630f3783c",
+    "split_manifest_sha256": "8822475a0b6675f820d622b33d6e6aa6395cc20c72c27c36382ea804d513e1ef",
+    "selection_policy_version": "synthetic-selection-v1",
+    "attempt_limits_identity_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "model_identities": {
+      "direct": {
+        "provider": "fake-provider",
+        "requested_model": "synthetic-assessor",
+        "resolved_model": "synthetic-assessor-r1"
+      },
+      "extract": {
+        "provider": "fake-provider",
+        "requested_model": "synthetic-extractor",
+        "resolved_model": "synthetic-extractor-r1"
+      },
+      "extracted": {
+        "provider": "fake-provider",
+        "requested_model": "synthetic-assessor",
+        "resolved_model": "synthetic-assessor-r1"
+      }
+    },
+    "variants": [
+      "direct",
+      "extracted"
+    ],
+    "draw_numbers": [
+      1,
+      2
+    ],
+    "budgets": [
+      1,
+      2
+    ],
+    "field_ids": [
+      "role_families",
+      "work_alignment",
+      "dimension_example"
+    ],
+    "labeling_blinded": false
+  },
+  "items": [
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "group_id": "synthetic-group-a",
+      "split": "development",
+      "label": "positive",
+      "label_source": "synthetic_fixture",
+      "label_evidence_sha256": "8f54975039c603907668b7506df99602b45170e63be06ec0a285f57e52d8594b",
+      "role_families": [
+        "engineering"
+      ],
+      "field_labels": {
+        "role_families": [
+          "engineering"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 2
+      },
+      "yoe_expected_action": null,
+      "pool_id_sha256": "a6d9cacb6d819d8988032aa770d40fafa17cf3f1f3d026688300fad438b90a5d",
+      "draw_numbers": [
+        1,
+        2
+      ],
+      "observed_at": "2026-10-23T11:00:00Z"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "group_id": "synthetic-group-b",
+      "split": "development",
+      "label": "negative",
+      "label_source": "synthetic_fixture",
+      "label_evidence_sha256": "e2714f0d0690643c8cafbdb957df99799e0f7c77ddac943f7945ef8920798c7c",
+      "role_families": [
+        "engineering",
+        "product"
+      ],
+      "field_labels": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "low",
+        "dimension_example": 1
+      },
+      "yoe_expected_action": null,
+      "pool_id_sha256": "a6d9cacb6d819d8988032aa770d40fafa17cf3f1f3d026688300fad438b90a5d",
+      "draw_numbers": [
+        1,
+        2
+      ],
+      "observed_at": "2026-10-22T11:00:00Z"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "group_id": "synthetic-group-c",
+      "split": "held_out",
+      "label": "positive",
+      "label_source": "synthetic_fixture",
+      "label_evidence_sha256": "f379c20352364e91993e92b56d28f05d7d0f6288cc8b032119ced29e29a76b2a",
+      "role_families": [
+        "engineering",
+        "product"
+      ],
+      "field_labels": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 3
+      },
+      "yoe_expected_action": null,
+      "pool_id_sha256": "b90d6f4bc9e05df0ecd05f247d1e8a74da36bab5da79b6c410131deb9771f279",
+      "draw_numbers": [
+        1,
+        2
+      ],
+      "observed_at": "2026-10-23T11:00:00Z"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "group_id": "synthetic-group-d",
+      "split": "held_out",
+      "label": "unresolved",
+      "label_source": "synthetic_fixture",
+      "label_evidence_sha256": "2e8a6299d7d9acc2e1837250a0de2e2a5975d0e3d71b9cad1228ac3b935d4a20",
+      "role_families": [
+        "product"
+      ],
+      "field_labels": {},
+      "yoe_expected_action": null,
+      "pool_id_sha256": "b90d6f4bc9e05df0ecd05f247d1e8a74da36bab5da79b6c410131deb9771f279",
+      "draw_numbers": [
+        1,
+        2
+      ],
+      "observed_at": "2026-10-24T11:00:00Z"
+    }
+  ],
+  "assessments": [
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "variant": "direct",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003e9",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 2
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "variant": "direct",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ea",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "low",
+        "dimension_example": 1
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "variant": "direct",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003eb",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 3
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "variant": "direct",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ec",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "unknown"
+        ],
+        "work_alignment": "unknown",
+        "dimension_example": 0
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "variant": "direct",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ed",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "engineering"
+        ],
+        "work_alignment": "moderate",
+        "dimension_example": 2
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "variant": "direct",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ee",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "low",
+        "dimension_example": 1
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "variant": "direct",
+      "draw_number": 2,
+      "status": "failed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003ef",
+      "priority_rank": null,
+      "answers": {},
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "variant": "direct",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f0",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "unknown"
+        ],
+        "work_alignment": "unknown",
+        "dimension_example": 0
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "variant": "extracted",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f1",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "engineering"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 2
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "variant": "extracted",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f2",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "low",
+        "dimension_example": 1
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "variant": "extracted",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f3",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 3
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "variant": "extracted",
+      "draw_number": 1,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f4",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "unknown"
+        ],
+        "work_alignment": "unknown",
+        "dimension_example": 0
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "variant": "extracted",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f5",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "engineering"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 2
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "variant": "extracted",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f6",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "low",
+        "dimension_example": 1
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "variant": "extracted",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f7",
+      "priority_rank": 2,
+      "answers": {
+        "role_families": [
+          "engineering",
+          "product"
+        ],
+        "work_alignment": "high",
+        "dimension_example": 3
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+      "request_stage": "assess"
+    },
+    {
+      "work_item_identity_sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "variant": "extracted",
+      "draw_number": 2,
+      "status": "completed",
+      "request_identity_sha256": "00000000000000000000000000000000000000000000000000000000000003f8",
+      "priority_rank": 1,
+      "answers": {
+        "role_families": [
+          "unknown"
+        ],
+        "work_alignment": "unknown",
+        "dimension_example": 0
+      },
+      "yoe_action": null,
+      "pool_occurrence_identity_sha256": "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+      "request_stage": "assess"
+    }
+  ],
+  "baseline_orders": [
+    {
+      "pool_id_sha256": "a6d9cacb6d819d8988032aa770d40fafa17cf3f1f3d026688300fad438b90a5d",
+      "recency": [
+        "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9",
+        "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731"
+      ],
+      "role_coverage": [
+        "7a2878a26a63122001ec4d225df2c224e4f9bb0d8a747b06394e74d347585731",
+        "53f9aea3e112f496d6837e2fccfdaa73ba011b9b06b0d74e1a60bb9e77a71ad9"
+      ]
+    },
+    {
+      "pool_id_sha256": "b90d6f4bc9e05df0ecd05f247d1e8a74da36bab5da79b6c410131deb9771f279",
+      "recency": [
+        "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658",
+        "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c"
+      ],
+      "role_coverage": [
+        "c4db5764eba38e8a6d2ca2437a0a591326f2f090739d5899dc79ae0dc5c91e0c",
+        "814b26b074bba87b5f5dae19556b52e4e783e2b3b2e878010d4cf331a1253658"
+      ]
+    }
+  ]
+}

@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add isolated preselection shadow extraction, typed assessment questions, bounded
+  injected-provider execution and aggregate-only offline evaluation. Resume binds run,
+  profile, questions, pool and split inputs through immutable `RunBinding` in journal
+  schema 4. Checked-in fixtures and reports are synthetic; no provider call, production
+  wiring or acceptance GO is included.
+
 - Add a reproducible before/after report for screen runtime imports and prompt reads.
   Fresh-process guards for the provider-free review-batch and rehearsal entrypoints
   reject legacy fit/profile imports and private résumé/profile or fit-prompt reads.

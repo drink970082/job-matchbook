@@ -1,0 +1,24 @@
+{
+  "version": "synthetic-questions-v1",
+  "questions": [
+    {
+      "id": "role_families",
+      "prompt": "Which fictional role families are plausible? Select every supported family or unknown.",
+      "type": "multi_enum",
+      "allowed_values": ["engineering", "product", "ambiguous", "unknown"]
+    },
+    {
+      "id": "work_alignment",
+      "prompt": "How closely does the described work align with the stated interests?",
+      "type": "enum",
+      "allowed_values": ["low", "moderate", "high", "unknown"]
+    },
+    {
+      "id": "dimension_example",
+      "prompt": "Return a bounded synthetic diagnostic value for schema testing only.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 4
+    }
+  ]
+}
