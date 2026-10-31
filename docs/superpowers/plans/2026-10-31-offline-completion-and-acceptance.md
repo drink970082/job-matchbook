@@ -1,14 +1,19 @@
-# Offline completion and separate evidence acceptance
+# Offline tooling acceptance and evidence ownership
 
-**Status:** operator-selected task decomposition; offline completion is first priority.
-This accepts the work split, not the underlying contracts, merge, private access or live calls.
+**Current state:** Provider-free preselection tooling is accepted and merged. PR #129 is
+merged as `40842e2993e6e1d791c0f7d91b60a4e1f19dbeec`; the accepted and landed trees both
+hash to `0615f8c2c8f97c140a9d1d69f3810b267292a0dd`. Main-branch CI run
+[41217912747](https://github.com/drink970082/job-matchbook/actions/runs/41217912747)
+passes Worker, Web and E2E. Issues #110/#111/#116 and #130 are closed for their offline
+scopes. PRs #124/#125 are closed as superseded. The evidence map below records the live
+work that remains with #131/#132/#112; this state grants no private-input or live-call
+authorization.
 
-## Deliverables and dependency order
+## Evidence ownership and dependency order
 
-1. [#130](https://github.com/drink970082/job-matchbook/issues/130): exact-head final
-   offline acceptance, scoped #109 decision, explicit #129 merge decision, accepted merge
-   verification and #124/#125 supersession. #110/#111/#116 stay open until this evidence
-   exists. Do not make those issue closures prerequisites of their own coordinating review.
+1. [#130](https://github.com/drink970082/job-matchbook/issues/130): offline acceptance,
+   exact-tree verification and supersession of #124/#125 are complete. The scoped #109
+   contract decision and full criterion audit are in the issue record.
 2. [#131](https://github.com/drink970082/job-matchbook/issues/131): approved real inputs,
    independent source roster/full daily pools, grouping and blind/adjudicated labels.
 3. [#132](https://github.com/drink970082/job-matchbook/issues/132): approved provider/model,
@@ -16,9 +21,10 @@ This accepts the work split, not the underlying contracts, merge, private access
 4. #112: comparable arms/current workflow, held-out quality/cost/stability evaluation,
    predeclared thresholds and an explicit decision. GO is not activation.
 
-#109's scoped offline contract can be accepted without resolving its real product/input
-choices. #94/#96 selection gates apply to live measurement, not fabricated offline review.
-#113-#115 retain production implementation/rollout scopes. No issue is closed by this plan.
+#109's scoped offline contract is accepted; its real product/input choices remain open.
+#94/#96 selection gates apply to live measurement, not fabricated offline review.
+#113-#115 retain production implementation/rollout scopes. Issue status is recorded in
+GitHub; this plan describes evidence ownership only.
 
 ## Acceptance responsibility map
 
@@ -43,11 +49,11 @@ notes. Moving evidence does not mark it complete.
 | #116 screen/legacy isolation | #116 + scoped #109 + #130 accepted integration | No live policy/provider evidence required |
 | #112 all original comparative decision criteria | Offline APIs supplied by #110/#111 | #131/#132 supply evidence; #112 retains decision ownership |
 
-## Completion rule
+## Acceptance boundary
 
-Offline means accepted, merged code and reproducible synthetic demonstrations, not merely
-a green branch. #130 records the full criterion audit, exact-head checks and applicability
-of E2E; skips are not passes. Review findings are fixed, not transferred to a live ticket.
-After explicit accepted merge, revised #110/#111/#116 can close with residual evidence
-linked to #131/#132/#112. Keep #124/#125 until explicitly superseded; do not merge their
-stale prerequisite stacks. This split by itself promotes or merges no PR.
+Offline acceptance consists of merged code, the reproducible synthetic demonstration and
+the criterion-level audit under #130. Post-merge Worker, Web and E2E all pass in run
+41217912747. Review findings were resolved in the accepted code. Real profile/policy,
+source completeness, human labels, provider tokens/prices, model quality and GO remain
+with #109/#131/#132/#112. They are not implied by the offline closure, and production
+activation remains separately gated.

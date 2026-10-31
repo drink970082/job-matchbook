@@ -22,7 +22,7 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
 | Saved recommendation history and web-job imports through MCP | No write tools | Deferred, separately designed |
-| JEV/System One assistance | Offline view, batch replay and synthetic rehearsal are available; live path remains gated | Accept and land offline tooling under #130 before real evidence/pilot work |
+| JEV/System One assistance | Provider-free profile/replay, shadow assessment and synthetic evaluation tooling are merged; real replay remains `INCONCLUSIVE` without complete source pools and labels | Prepare the real cohort under #131 after version-scoped input approval; run #132 only with separately approved provider, resource and spend limits |
 
 ## Delivery sequence and issues
 
@@ -34,7 +34,7 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 |---|---|---|---|
 | Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
-| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | Offline #117–#119 are available; #130 offline completion is selected first; #131/#132/#112 retain live gates |
+| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | Offline #117–#119 and #129 are available; #131 real evidence awaits version-scoped input approval; #132/#112 retain live gates |
 
 The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
 source state and check timestamps. Legacy rows without source evidence still require
@@ -104,16 +104,15 @@ not a new benchmark, model selection, or accepted evaluation result.
 
 The offline assessment projection, fixed-batch replay and fixture consumer are available
 under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
-Next selected work is [#130 offline acceptance and landing](https://github.com/drink970082/job-matchbook/issues/130).
-Revised #110/#111 own provider-free implementation; #116 owns screen/import isolation.
-Their scoped acceptance and merge do not require actual profile/label/provider evidence.
-[#131](https://github.com/drink970082/job-matchbook/issues/131) separately owns frozen real
-inputs, independent complete source pools and blind/adjudicated labels;
-[#132](https://github.com/drink970082/job-matchbook/issues/132) owns an explicitly authorized
-provider/tokenizer/pricing pilot. #109 retains scoped versus live decisions, and #112
-retains comparative measurement and GO. Neither opening these tickets nor closing offline
-implementation authorizes private-input access, model calls or activation. Subsequent
-real persistence, MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
+Provider-free profile/replay, shadow assessment and synthetic evaluation tools are merged
+under #129, and their offline acceptance is recorded under #130. [#131](https://github.com/drink970082/job-matchbook/issues/131)
+owns version-approved real inputs, independent complete source pools and blind/adjudicated
+labels; this work awaits explicit approval of the exact profile, policy, label guide, data
+scope and private-input access. [#132](https://github.com/drink970082/job-matchbook/issues/132)
+owns the separately authorized provider/tokenizer/pricing pilot. #109 retains live product
+decisions, and #112 retains comparative measurement and GO. Offline acceptance does not
+authorize private-input access, model calls or activation. Subsequent real persistence,
+MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
 separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or
 Telegram rollout is required for R1–R3. See [EVALUATION](EVALUATION.md).
 
