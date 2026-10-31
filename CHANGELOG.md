@@ -7,6 +7,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Separate offline preselection completion (#130 and revised #110/#111/#116) from
+  real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
+  comparative decision (#112). Select offline acceptance and landing first; preserve
+  remaining evidence and live-authorization gates with explicit ownership.
+
 ### Added
 
 - Revalidate report inputs against their retained canonical manifest and calculate from

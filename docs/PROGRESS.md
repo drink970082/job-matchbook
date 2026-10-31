@@ -8,15 +8,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Issue #116 screen-isolation acceptance** remains open. The neutral screen/import
-  boundary and executable before/after demo are present on `main`; #109's scoped
-  contract and profile-policy approvals remain open, so implementation evidence does not
-  close the acceptance issue. No live model or production change is claimed.
+- **Issue #116 offline screen-isolation acceptance** remains open under #130.
+  The neutral screen/import boundary and executable before/after demo are present on `main`; #109's scoped
+  offline contract acceptance remains open. Real profile/policy approval belongs to
+  #131/#109 and does not block this offline closure scope.
+  No live model or production change is claimed.
 
-- **Issue #110 evaluation acceptance** remains open. The merged frozen profile/replay
-  path validates supplied payloads, profile/context hashes, day membership and manifest
+- **Issue #110 offline replay/evaluation implementation** remains open under #130.
+  The merged frozen profile/replay path validates supplied payloads, profile/context hashes, day membership and manifest
   consistency, but has no independent roster proving pool completeness. Every replay is
-  therefore `INCONCLUSIVE`. The unmerged #129 candidate adds synthetic YOE policy and
+  therefore `INCONCLUSIVE`; #131 owns real completeness/labels and #132 actual cost/token
+  evidence. These are not #110 offline closure gates. The unmerged #129 candidate adds
+  synthetic YOE policy and
   offline assessment-cost/evaluation mechanics; it supplies no approved profile, labels,
   source roster, actual price evidence or model-quality result. The profile CLI rejects
   path aliases and malformed inputs with bounded errors; replay preserves daily K,
@@ -35,7 +38,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   now blocks legacy score/fit/profile/prompt/config/runtime imports and text, YAML and
   `.env` file reads. Worker coverage is 85.11% with the
   existing 85% threshold unchanged. #111 remains open pending scoped
-  acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No live/external provider call, real label, approved live policy, production wiring,
+  offline acceptance/merge under #130; #112 remains `INCONCLUSIVE` with no GO. No live/external provider call, real label, approved live policy, production wiring,
   database write or runtime selection is included.
 - **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
   Isolated extraction/provenance/frame work exists; production cutover, additional model
@@ -74,22 +77,26 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. Complete #110's separate evaluation acceptance only after independent source-pool
-   completeness, approved cost/label evidence and the operator's evaluation decision are
-   available. The offline tooling does not establish these; it authorizes no live
-   inference.
-2. Review the unmerged #129 integration candidate against its exact head. Preserve
-   `RunBinding` and journal schema 4; keep #111 open until its scoped acceptance is
-   audited, and keep #112 `INCONCLUSIVE` until its separate live-evaluation gates pass.
-3. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
-   still needs actual unattended access/delivery evidence. It does not block the offline
-   corrections. #95 delivery history remains deferred.
-4. Live #112 evaluation requires approved candidate inputs, labels/cohort, questions/YOE,
-   provider/model, budget/pricing and predeclared acceptance tolerances. The operator owns
-   GO and activation; daily throughput need is already selected at approximately 200/day.
-5. Parent #113/#114 production persistence/MCP/inventory/batch integration and #115 actual
-   unattended acceptance retain their scoped gates. Available offline modules are in SPEC;
-   synthetic rehearsal does not satisfy those live deliverables.
+1. [#130 offline completion](https://github.com/drink970082/job-matchbook/issues/130)
+   is selected first: record scoped #109 contract acceptance, audit all revised offline
+   #110/#111/#116 criteria against the exact final #129 head, make an explicit offline
+   merge decision, verify the accepted merge and disposition superseded #124/#125.
+   Keep issues open until evidence and merge are recorded. Real input, pricing and live
+   approvals do not block this hermetic slice; the split itself accepts no contract or merge.
+2. [#131 real cohort and labels](https://github.com/drink970082/job-matchbook/issues/131)
+   owns approved profile/policy inputs, independent source-pool completeness, real grouping
+   and blind/adjudicated labels. It is deferred behind offline completion and requires
+   the relevant operator/private-input authorization.
+3. [#132 authorized provider pilot](https://github.com/drink970082/job-matchbook/issues/132)
+   owns actual request tokenization, adapter compatibility, pricing, usage/charge and
+   bounded pilot evidence. It requires #131, accepted offline tooling, #109 real decisions
+   and separate live-call authorization; this plan schedules no provider calls.
+4. #112 retains comparative/held-out evaluation, workflow-cost comparison, predeclared
+   tolerances and explicit GO/NO-GO/INCONCLUSIVE. Closing offline #110/#111/#116 does not
+   satisfy #112 or authorize production. #94/#96 live selection gates remain applicable.
+5. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
+   still needs unattended access/delivery evidence. #95 remains deferred; #113/#114
+   production integration and #115 unattended acceptance retain their own gates.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
