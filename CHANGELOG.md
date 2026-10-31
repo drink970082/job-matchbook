@@ -7,7 +7,33 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Separate offline preselection completion (#130 and revised #110/#111/#116) from
+  real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
+  comparative decision (#112). Select offline acceptance and landing first; preserve
+  remaining evidence and live-authorization gates with explicit ownership.
+
 ### Added
+
+- Revalidate report inputs against their retained canonical manifest and calculate from
+  validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
+  instead of emitting metrics under stale frozen identities.
+
+- Recompute frozen cohort/run hashes before bound execution and enforce declared
+  assessor/extractor models and limits/retry identity before transport, persistence or
+  cached reuse, including standalone extraction and resumed journals.
+
+- Require the validated frozen cohort for bound shadow assessments before transport,
+  persistence or cache reuse, including standalone bound extraction; reject outside jobs and undeclared variants/draws on fresh
+  and resumed runs. Add an instruction-injection contract fixture.
+
+- Add isolated preselection shadow extraction, typed assessment questions, bounded
+  injected-provider execution and aggregate-only offline evaluation. Resume binds run,
+  profile, questions, pool and split inputs through immutable `RunBinding` in journal
+  schema 4. Reports fingerprint split seeds and return bounded errors for oversized or
+  deeply nested JSON and UTC timestamp overflow. Checked-in fixtures and reports are
+  synthetic; no live/external provider call, production wiring or acceptance GO is included.
 
 - Add a reproducible before/after report for screen runtime imports and prompt reads.
   Fresh-process guards for the provider-free review-batch and rehearsal entrypoints
