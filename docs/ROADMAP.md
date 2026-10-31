@@ -104,8 +104,9 @@ not a new benchmark, model selection, or accepted evaluation result.
 
 The offline assessment projection, fixed-batch replay and fixture consumer are available
 under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
-Provider-free profile/replay, shadow assessment and synthetic evaluation tools are merged
-under #129, and their offline acceptance is recorded under #130. [#131](https://github.com/drink970082/job-matchbook/issues/131)
+The profile/replay tooling is available on `main`; PR #129 adds direct/extracted shadow
+assessment and synthetic evaluation, with offline acceptance recorded under #130.
+[#131](https://github.com/drink970082/job-matchbook/issues/131)
 owns version-approved real inputs, independent complete source pools and blind/adjudicated
 labels; this work awaits explicit approval of the exact profile, policy, label guide, data
 scope and private-input access. [#132](https://github.com/drink970082/job-matchbook/issues/132)

@@ -8,14 +8,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Post-#129 landing documentation** `[DOCS · S · branch `docs/post-129-landed-status`]`.
-  PR #129 is merged as `40842e2993e6e1d791c0f7d91b60a4e1f19dbeec`; main-branch CI run
-  [41217912747](https://github.com/drink970082/job-matchbook/actions/runs/41217912747)
-  passes Worker, Web and E2E. Offline scopes #110/#111/#116 and coordinating #130 are
-  closed; #124/#125 are closed as superseded. This documentation update records the
-  landed state and preserves #131/#132/#112 as separate real-evidence gates. No private
-  inputs or live provider calls are in scope.
-
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source
