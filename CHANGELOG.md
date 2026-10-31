@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Revalidate report inputs against their retained canonical manifest and calculate from
+  validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
+  instead of emitting metrics under stale frozen identities.
+
 - Recompute frozen cohort/run hashes before bound execution and enforce declared
   assessor/extractor models and limits/retry identity before transport, persistence or
   cached reuse, including standalone extraction and resumed journals.

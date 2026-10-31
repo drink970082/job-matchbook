@@ -6,7 +6,7 @@ This module does not call models, choose thresholds, or record a GO decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
@@ -118,6 +118,7 @@ class EvaluationInput:
     assessments: tuple[AssessmentOutcome, ...]
     manifest_sha256: str
     run_binding: RunBinding
+    source_json: str = field(repr=False)
 
 
 def _object(value: Any, keys: set[str], path: str) -> dict[str, Any]:
@@ -616,7 +617,8 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     if run["phase"] == "development" and not any(item.split == "development" for item in items):
         raise EvaluationValidationError("development phase requires a development cohort")
 
-    return EvaluationInput(run, tuple(items), baseline_ranks, tuple(assessments), manifest_sha256, run_binding)
+    return EvaluationInput(run, tuple(items), baseline_ranks, tuple(assessments), manifest_sha256, run_binding,
+                           manifest_bytes.decode("utf-8"))
 
 
 def load_evaluation_text(source: str) -> EvaluationInput:
@@ -1147,6 +1149,17 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
     """Join outcomes to the validated #111 journal and report aggregate evidence only."""
     if not isinstance(dataset, EvaluationInput) or not isinstance(journal, AttemptJournal):
         raise EvaluationValidationError("validated evaluation input and AttemptJournal are required")
+    # Reparse the retained canonical manifest so every reported field is checked,
+    # including labels, baseline ranks and outcomes outside the execution binding.
+    try:
+        snapshot = load_evaluation_text(dataset.source_json)
+        if snapshot != dataset:
+            raise EvaluationValidationError("frozen report inputs differ from their manifest")
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise EvaluationValidationError("frozen report inputs differ from their manifest") from exc
+    dataset = snapshot
+    import copy
+    journal = copy.deepcopy(journal)
     run = dataset.run
     if journal.limits_identity_sha256 != run["attempt_limits_identity_sha256"]:
         raise EvaluationValidationError("attempt journal limits identity differs from the frozen run")

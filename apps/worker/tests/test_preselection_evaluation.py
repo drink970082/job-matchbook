@@ -761,3 +761,44 @@ def test_journal_rejects_noncanonical_schema_four_envelopes(case, message):
 
     with pytest.raises(ShadowIntegrityError, match=message):
         AttemptJournal.from_json(source)
+
+
+@pytest.mark.parametrize("case", ["labels", "nested_labels", "baseline", "answers", "manifest", "run"])
+def test_report_rejects_changed_validated_content_with_retained_provenance(case):
+    value = evaluation_value()
+    dataset = evaluation_from_value(value)
+    journal = journal_for(value)
+    if case == "labels":
+        dataset = replace(dataset, items=tuple(replace(item, label="negative") for item in dataset.items))
+    elif case == "nested_labels":
+        dataset.items[0].field_labels.clear()
+    elif case == "baseline":
+        dataset.baseline_ranks.clear()
+    elif case == "answers":
+        dataset.assessments[0].answers.clear()
+    elif case == "manifest":
+        dataset = replace(dataset, manifest_sha256="0" * 64)
+    else:
+        dataset.run["budgets"] = (999,)
+    with pytest.raises(EvaluationValidationError, match="frozen report"):
+        build_evaluation_report(dataset, journal)
+
+
+def test_report_uses_verified_snapshot_when_original_inputs_change_mid_report(monkeypatch):
+    from ats_worker.preselection import evaluation as module
+    value = evaluation_value()
+    dataset, journal = evaluation_from_value(value), journal_for(value)
+    expected = build_evaluation_report(dataset, journal)
+    original = module._recorded_answer_values
+    touched = []
+
+    def mutate_original(record, fields):
+        touched.append(True)
+        dataset.baseline_ranks.clear()
+        dataset.run["budgets"] = (999,)
+        journal.records.clear()
+        return original(record, fields)
+
+    monkeypatch.setattr(module, "_recorded_answer_values", mutate_original)
+    assert build_evaluation_report(dataset, journal) == expected
+    assert touched

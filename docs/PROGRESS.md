@@ -30,9 +30,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   (including resume/cache and standalone extraction), rejects outside jobs and undeclared
   variants/draws. It rechecks cohort content hashes and actual model/limits/retry
   declarations before execution, hashes the split seed, bounds malformed JSON/timestamp errors, and emits
-  aggregate-only synthetic evaluation reports. A fresh-process direct fake-provider run
+  aggregate-only synthetic evaluation reports from revalidated manifest/journal snapshots;
+  report inputs with changed labels, baselines, outcomes or provenance are rejected. A fresh-process direct fake-provider run
   now blocks legacy score/fit/profile/prompt/config/runtime imports and text, YAML and
-  `.env` file reads. Worker coverage is 85.08% with the
+  `.env` file reads. Worker coverage is 85.11% with the
   existing 85% threshold unchanged. #111 remains open pending scoped
   acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No live/external provider call, real label, approved live policy, production wiring,
   database write or runtime selection is included.
