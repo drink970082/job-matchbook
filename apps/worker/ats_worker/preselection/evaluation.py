@@ -191,6 +191,75 @@ def _model_identity(value: Any, path: str) -> dict[str, str]:
     return {key: _text(identity[key], f"{path}.{key}") for key in identity}
 
 
+def verified_execution_inputs(dataset: EvaluationInput) -> tuple[dict[str, Any], tuple[EvaluationItem, ...]]:
+    """Recheck mutable/derived validated inputs against the retained frozen binding."""
+    if not isinstance(dataset, EvaluationInput):
+        raise EvaluationValidationError("validated frozen cohort required")
+    # Snapshot nested dictionaries/lists before hashing and using execution declarations.
+    import copy
+    run, items = copy.deepcopy((dataset.run, dataset.items))
+    try:
+        binding = _execution_binding(run, items)
+        if binding != dataset.run_binding:
+            raise EvaluationValidationError("frozen cohort content differs from its run binding")
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise EvaluationValidationError("frozen cohort content differs from its run binding") from exc
+    return run, items
+
+
+def _execution_binding(run, items) -> RunBinding:
+    frozen_items = [
+        {
+            "work_item_identity_sha256": item.work_item_identity_sha256,
+            "pool_occurrence_identity_sha256": item.pool_occurrence_identity_sha256,
+            "pool_id_sha256": item.pool_id_sha256,
+            "group_id": item.group_id,
+            "split": item.split,
+            "draw_numbers": list(item.draw_numbers),
+            "observed_at": item.observed_at.isoformat().replace("+00:00", "Z"),
+            "label": item.label,
+            "label_source": item.label_source,
+            "label_evidence_sha256": item.label_evidence_sha256,
+            "role_families": list(item.role_families),
+            "field_labels": item.field_labels,
+            "yoe_expected_action": item.yoe_expected_action,
+        }
+        for item in sorted(items, key=lambda row: row.pool_occurrence_identity_sha256)
+    ]
+    computed_pool_fingerprint = _canonical_sha256(frozen_items)
+    computed_split_manifest = _canonical_sha256(
+        {
+            "split_algorithm": run["split_algorithm"],
+            "split_seed": run["split_seed"],
+            "occurrences": [
+                {
+                    "pool_occurrence_identity_sha256": item["pool_occurrence_identity_sha256"],
+                    "pool_id_sha256": item["pool_id_sha256"],
+                    "group_id": item["group_id"],
+                    "split": item["split"],
+                }
+                for item in frozen_items
+            ],
+        }
+    )
+    if run["pool_fingerprint_sha256"] != computed_pool_fingerprint:
+        raise EvaluationValidationError("run pool fingerprint differs from validated frozen items")
+    if run["split_manifest_sha256"] != computed_split_manifest:
+        raise EvaluationValidationError("run split manifest differs from validated frozen groups and pools")
+    declaration = dict(run)
+    for key in ("variants", "draw_numbers", "budgets", "field_ids"):
+        declaration[key] = list(declaration[key])
+    return RunBinding(
+        run_id=run["run_id"],
+        run_declaration_sha256=_canonical_sha256(declaration),
+        profile_sha256=run["profile_sha256"],
+        question_set_sha256=run["question_set_sha256"],
+        pool_fingerprint_sha256=computed_pool_fingerprint,
+        split_manifest_sha256=computed_split_manifest,
+    )
+
+
+
 def evaluation_from_value(value: Any) -> EvaluationInput:
     """Validate a closed, pseudonymous evaluation-input format."""
     payload = _object(value, _TOP_KEYS, "evaluation")
@@ -368,55 +437,7 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     elif not run["labeling_blinded"]:
         raise EvaluationValidationError("human labels must be attested as blind to assessment outputs")
 
-    frozen_items = [
-        {
-            "work_item_identity_sha256": item.work_item_identity_sha256,
-            "pool_occurrence_identity_sha256": item.pool_occurrence_identity_sha256,
-            "pool_id_sha256": item.pool_id_sha256,
-            "group_id": item.group_id,
-            "split": item.split,
-            "draw_numbers": list(item.draw_numbers),
-            "observed_at": item.observed_at.isoformat().replace("+00:00", "Z"),
-            "label": item.label,
-            "label_source": item.label_source,
-            "label_evidence_sha256": item.label_evidence_sha256,
-            "role_families": list(item.role_families),
-            "field_labels": item.field_labels,
-            "yoe_expected_action": item.yoe_expected_action,
-        }
-        for item in sorted(items, key=lambda row: row.pool_occurrence_identity_sha256)
-    ]
-    computed_pool_fingerprint = _canonical_sha256(frozen_items)
-    computed_split_manifest = _canonical_sha256(
-        {
-            "split_algorithm": run["split_algorithm"],
-            "split_seed": run["split_seed"],
-            "occurrences": [
-                {
-                    "pool_occurrence_identity_sha256": item["pool_occurrence_identity_sha256"],
-                    "pool_id_sha256": item["pool_id_sha256"],
-                    "group_id": item["group_id"],
-                    "split": item["split"],
-                }
-                for item in frozen_items
-            ],
-        }
-    )
-    if run["pool_fingerprint_sha256"] != computed_pool_fingerprint:
-        raise EvaluationValidationError("run pool fingerprint differs from validated frozen items")
-    if run["split_manifest_sha256"] != computed_split_manifest:
-        raise EvaluationValidationError("run split manifest differs from validated frozen groups and pools")
-    declaration = dict(run)
-    for key in ("variants", "draw_numbers", "budgets", "field_ids"):
-        declaration[key] = list(declaration[key])
-    run_binding = RunBinding(
-        run_id=run["run_id"],
-        run_declaration_sha256=_canonical_sha256(declaration),
-        profile_sha256=run["profile_sha256"],
-        question_set_sha256=run["question_set_sha256"],
-        pool_fingerprint_sha256=computed_pool_fingerprint,
-        split_manifest_sha256=computed_split_manifest,
-    )
+    run_binding = _execution_binding(run, items)
 
     items_by_occurrence = {item.pool_occurrence_identity_sha256: item for item in items}
     pool_work_items: dict[str, set[str]] = {}

@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Recompute frozen cohort/run hashes before bound execution and enforce declared
+  assessor/extractor models and limits/retry identity before transport, persistence or
+  cached reuse, including standalone extraction and resumed journals.
+
 - Require the validated frozen cohort for bound shadow assessments before transport,
   persistence or cache reuse, including standalone bound extraction; reject outside jobs and undeclared variants/draws on fresh
   and resumed runs. Add an instruction-injection contract fixture.

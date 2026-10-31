@@ -2259,16 +2259,29 @@ def _require_enabled(enabled: bool) -> None:
 def _require_cohort(
     job: JobEnvelope, binding: RunBinding, cohort: EvaluationInput | None,
     variant: str, draw_number: int | None,
+    identities: dict[str, ModelIdentity], limits: ShadowLimits, retry_policy: RetryPolicy,
 ) -> None:
     # Local import keeps the evaluation/shadow dependency acyclic.
-    from ats_worker.preselection.evaluation import EvaluationInput
+    from ats_worker.preselection.evaluation import EvaluationInput, verified_execution_inputs, EvaluationValidationError
 
     if not isinstance(cohort, EvaluationInput) or cohort.run_binding != binding:
         raise ShadowIntegrityError("bound assessment requires its validated frozen cohort")
-    members = [item for item in cohort.items if item.work_item_identity_sha256 == _work_item_identity(job)]
+    try:
+        run, items = verified_execution_inputs(cohort)
+    except EvaluationValidationError as exc:
+        raise ShadowIntegrityError("frozen cohort content differs from its run binding") from exc
+    limits.validate()
+    retry_policy.validate()
+    if _canonical_hash({"limits": asdict(limits), "retry_policy": asdict(retry_policy)}) != run["attempt_limits_identity_sha256"]:
+        raise ShadowIntegrityError("limits/retry policy differs from the frozen run")
+    for arm, identity in identities.items():
+        identity.validate()
+        if asdict(identity) != run["model_identities"][arm]:
+            raise ShadowIntegrityError("provider/model identity differs from the frozen run")
+    members = [item for item in items if item.work_item_identity_sha256 == _work_item_identity(job)]
     if not members:
         raise ShadowIntegrityError("work item is outside the frozen cohort")
-    if variant not in cohort.run["variants"] or (
+    if variant not in run["variants"] or (
         draw_number is not None and not any(draw_number in item.draw_numbers for item in members)
     ):
         raise ShadowIntegrityError("assessment variant or draw is outside the frozen cohort")
@@ -2293,7 +2306,8 @@ def run_jd_extraction(
     _require_enabled(enabled)
     job.validate()
     if journal.run_binding is not None:
-        _require_cohort(job, journal.run_binding, cohort, "extracted", None)
+        _require_cohort(job, journal.run_binding, cohort, "extracted", None,
+                        {"extract": identity}, limits, retry_policy or RetryPolicy())
     elif cohort is not None:
         raise ShadowIntegrityError("frozen cohort requires a journal run binding")
     policy = retry_policy or RetryPolicy()
@@ -2353,7 +2367,11 @@ def run_shadow_assessment(
             raise ShadowIntegrityError("candidate profile differs from the frozen run binding")
         if questions.sha256 != effective_binding.question_set_sha256:
             raise ShadowIntegrityError("question set differs from the frozen run binding")
-        _require_cohort(job, effective_binding, cohort, variant, draw_number)
+        identities = {variant: identity}
+        if variant == "extracted" and extraction_identity is not None:
+            identities["extract"] = extraction_identity
+        _require_cohort(job, effective_binding, cohort, variant, draw_number,
+                        identities, limits, retry_policy or RetryPolicy())
         if journal.bind_run(effective_binding):
             persist(journal)
     policy = retry_policy or RetryPolicy()

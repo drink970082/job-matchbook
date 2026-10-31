@@ -621,3 +621,56 @@ def test_standalone_bound_extraction_cannot_bypass_cohort(tmp_path, outside):
         )
     assert not marker.exists()
     assert journal.to_json() == before
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("case", ["outside", "draw", "run", "model", "limits", "retry", "extract_model", "standalone_model", "standalone_limits"])
+def test_execution_rechecks_frozen_content_models_and_budgets_before_side_effects(tmp_path, resume, case):
+    from dataclasses import replace
+    from ats_worker.preselection.shadow import run_jd_extraction
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    journal = AttemptJournal.empty()
+    if resume:
+        _run_call(profile, questions, FakeProvider(profile, "complete"), journal, limits,
+                  variant="direct", run_binding=dataset.run_binding)
+        journal = AttemptJournal.from_json(journal.to_json())
+    target = JobEnvelope("Synthetic Co", "Junior Engineer", "Remote", JD)
+    model, extractor, retry = ASSESSOR, EXTRACTOR, RetryPolicy()
+    draw = 1
+    if case == "outside":
+        target = JobEnvelope("Outside Co", "Junior Engineer", "Remote", JD)
+        outside_hash = build_extraction_invocation(target, EXTRACTOR).work_item_identity_sha256
+        dataset = replace(dataset, items=(replace(dataset.items[0], work_item_identity_sha256=outside_hash),))
+    elif case == "draw":
+        dataset = replace(dataset, items=(replace(dataset.items[0], draw_numbers=(2,)),))
+        draw = 2
+    elif case == "run":
+        dataset.run["budgets"] = (1000,)
+    elif case == "model":
+        model = ModelIdentity("other", "other", "other")
+    elif case in {"limits", "standalone_limits"}:
+        limits = replace(limits, max_total_attempts=limits.max_total_attempts + 100)
+    elif case == "retry":
+        retry = replace(retry, max_retries=retry.max_retries + 1)
+    elif case in {"extract_model", "standalone_model"}:
+        extractor = ModelIdentity("other", "other", "other")
+    if case.startswith("standalone") and not resume:
+        journal.bind_run(dataset.run_binding)
+    before = journal.to_json()
+    marker = tmp_path / "provider-must-not-run"
+    persisted = []
+    with pytest.raises(ShadowIntegrityError):
+        if case.startswith("standalone"):
+            run_jd_extraction(target, extractor, MarkerFakeProvider(profile, marker), journal,
+                              limits, SystemClock(), persisted.append, enabled=True, cohort=dataset)
+        else:
+            run_shadow_assessment(target, profile, questions,
+                                  "extracted" if case == "extract_model" else "direct", model,
+                                  MarkerFakeProvider(profile, marker), journal, limits, SystemClock(),
+                                  persisted.append, enabled=True, cohort=dataset,
+                                  run_binding=None if resume else dataset.run_binding,
+                                  extraction_identity=extractor, draw_number=draw, retry_policy=retry)
+    assert not marker.exists()
+    assert persisted == []
+    assert journal.to_json() == before
