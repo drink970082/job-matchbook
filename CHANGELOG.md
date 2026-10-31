@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Require the validated frozen cohort for bound shadow assessments before transport,
+  persistence or cache reuse, including standalone bound extraction; reject outside jobs and undeclared variants/draws on fresh
+  and resumed runs. Add an instruction-injection contract fixture.
+
 - Add isolated preselection shadow extraction, typed assessment questions, bounded
   injected-provider execution and aggregate-only offline evaluation. Resume binds run,
   profile, questions, pool and split inputs through immutable `RunBinding` in journal

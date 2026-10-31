@@ -282,6 +282,7 @@ def _run_call(profile, questions, provider, journal, limits, *, variant, run_bin
         enabled=True,
         extraction_identity=EXTRACTOR if variant == "extracted" else None,
         run_binding=run_binding,
+        cohort=evaluation_from_value(_binding_value(_profile(), _questions(), limits)),
     )
 
 
@@ -541,9 +542,82 @@ def test_bound_journal_can_reuse_success_on_resume_without_binding_argument(tmp_
         SystemClock(),
         lambda current: None,
         enabled=True,
+        cohort=dataset,
     )
 
     assert resumed.status == "completed"
     assert resumed.assessment_from_cache is True
     assert not marker.exists()
     assert len(resumed_journal.records) == 1
+
+
+@pytest.mark.parametrize("variant", ["direct", "extracted"])
+@pytest.mark.parametrize("resume", [False, True])
+def test_frozen_cohort_rejects_outside_job_before_any_side_effect(tmp_path, variant, resume):
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    journal = AttemptJournal.empty()
+    if resume:
+        journal.bind_run(dataset.run_binding)
+        journal = AttemptJournal.from_json(journal.to_json())
+    before = journal.to_json()
+    marker = tmp_path / "forbidden-provider"
+    persisted = []
+    with pytest.raises(ShadowIntegrityError, match="outside the frozen cohort"):
+        run_shadow_assessment(
+            JobEnvelope("Outside Co", "Junior Engineer", "Remote", JD),
+            profile, questions, variant, ASSESSOR, MarkerFakeProvider(profile, marker),
+            journal, limits, SystemClock(), persisted.append, enabled=True,
+            run_binding=None if resume else dataset.run_binding, cohort=dataset,
+            extraction_identity=EXTRACTOR,
+        )
+    assert not marker.exists()
+    assert persisted == []
+    assert journal.to_json() == before
+
+
+@pytest.mark.parametrize("case", ["missing", "binding", "draw", "variant"])
+def test_bound_run_rejects_missing_or_incompatible_cohort(tmp_path, case):
+    from dataclasses import replace
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    cohort = dataset
+    if case == "missing":
+        cohort = None
+    elif case == "binding":
+        cohort = replace(dataset, run_binding=replace(dataset.run_binding, run_id="other-run"))
+    elif case == "variant":
+        cohort = replace(dataset, run={**dataset.run, "variants": ["extracted"]})
+    journal = AttemptJournal.empty()
+    before = journal.to_json()
+    marker = tmp_path / "must-not-call"
+    with pytest.raises(ShadowIntegrityError, match="frozen cohort"):
+        run_shadow_assessment(
+            JobEnvelope("Synthetic Co", "Junior Engineer", "Remote", JD),
+            profile, questions, "direct", ASSESSOR, MarkerFakeProvider(profile, marker),
+            journal, limits, SystemClock(), lambda current: pytest.fail("persisted"),
+            enabled=True, run_binding=dataset.run_binding, cohort=cohort,
+            draw_number=2 if case == "draw" else 1,
+        )
+    assert not marker.exists()
+    assert journal.to_json() == before
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_standalone_bound_extraction_cannot_bypass_cohort(tmp_path, outside):
+    from ats_worker.preselection.shadow import run_jd_extraction
+    profile, questions, limits = _profile(), _questions(), _limits()
+    dataset = evaluation_from_value(_binding_value(profile, questions, limits))
+    journal = AttemptJournal.empty()
+    journal.bind_run(dataset.run_binding)
+    before = journal.to_json()
+    marker = tmp_path / "must-not-extract"
+    with pytest.raises(ShadowIntegrityError, match="frozen cohort"):
+        run_jd_extraction(
+            JobEnvelope("Outside" if outside else "Synthetic Co", "Junior Engineer", "Remote", JD),
+            EXTRACTOR, MarkerFakeProvider(profile, marker), journal, limits, SystemClock(),
+            lambda current: pytest.fail("persisted"), enabled=True,
+            cohort=dataset if outside else None,
+        )
+    assert not marker.exists()
+    assert journal.to_json() == before

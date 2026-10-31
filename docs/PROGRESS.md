@@ -23,12 +23,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   deterministic recency/role baselines and grouped membership.
 
 - **Issues #111/#112 shadow assessment and evaluation** have an unmerged integration
-  candidate in PR #129, based on current `main`. It retains immutable `RunBinding` and
+  candidate in PR #129 (`rehearsal/preselection-124-125`), based on current `main`.
+  It retains immutable `RunBinding` and
   schema-4 journals, validates direct/extracted assessment inputs, bounds retries and
-  accounting, hashes the split seed, bounds malformed JSON/timestamp errors, and emits
+  accounting, requires the matching validated cohort before bound assessment execution
+  (including resume/cache and standalone extraction), rejects outside jobs and undeclared
+  variants/draws, hashes the split seed, bounds malformed JSON/timestamp errors, and emits
   aggregate-only synthetic evaluation reports. A fresh-process direct fake-provider run
   now blocks legacy score/fit/profile/prompt/config/runtime imports and text, YAML and
-  environment resource reads. Worker coverage is 85.05% with the
+  `.env` file reads. Worker coverage is 85.05% with the
   existing 85% threshold unchanged. #111 remains open pending scoped
   acceptance and review; #112 remains `INCONCLUSIVE` with no GO. No live/external provider call, real label, approved live policy, production wiring,
   database write or runtime selection is included.

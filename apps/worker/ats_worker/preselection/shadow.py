@@ -20,7 +20,10 @@ import stat
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from ats_worker.preselection.evaluation import EvaluationInput
 
 try:
     import resource
@@ -2253,6 +2256,24 @@ def _require_enabled(enabled: bool) -> None:
         raise ShadowDisabledError("preselection shadow path is disabled by default")
 
 
+def _require_cohort(
+    job: JobEnvelope, binding: RunBinding, cohort: EvaluationInput | None,
+    variant: str, draw_number: int | None,
+) -> None:
+    # Local import keeps the evaluation/shadow dependency acyclic.
+    from ats_worker.preselection.evaluation import EvaluationInput
+
+    if not isinstance(cohort, EvaluationInput) or cohort.run_binding != binding:
+        raise ShadowIntegrityError("bound assessment requires its validated frozen cohort")
+    members = [item for item in cohort.items if item.work_item_identity_sha256 == _work_item_identity(job)]
+    if not members:
+        raise ShadowIntegrityError("work item is outside the frozen cohort")
+    if variant not in cohort.run["variants"] or (
+        draw_number is not None and not any(draw_number in item.draw_numbers for item in members)
+    ):
+        raise ShadowIntegrityError("assessment variant or draw is outside the frozen cohort")
+
+
 def run_jd_extraction(
     job: JobEnvelope,
     identity: ModelIdentity,
@@ -2266,9 +2287,15 @@ def run_jd_extraction(
     retry_policy: RetryPolicy | None = None,
     sleeper: Sleeper | None = None,
     _deadline: _RunDeadline | None = None,
+    cohort: EvaluationInput | None = None,
 ) -> tuple[JdExtraction, bool]:
     """Extract only from the full JD; no candidate context or other job is accepted."""
     _require_enabled(enabled)
+    job.validate()
+    if journal.run_binding is not None:
+        _require_cohort(job, journal.run_binding, cohort, "extracted", None)
+    elif cohort is not None:
+        raise ShadowIntegrityError("frozen cohort requires a journal run binding")
     policy = retry_policy or RetryPolicy()
     active_sleeper = sleeper or SystemSleeper()
     policy.validate()
@@ -2308,6 +2335,7 @@ def run_shadow_assessment(
     retry_policy: RetryPolicy | None = None,
     sleeper: Sleeper | None = None,
     run_binding: RunBinding | None = None,
+    cohort: EvaluationInput | None = None,
 ) -> ShadowResult:
     """Run one direct or extracted assessment; this function is not wired to runtime."""
     _require_enabled(enabled)
@@ -2317,12 +2345,15 @@ def run_shadow_assessment(
     if profile.status != "approved":
         raise ShadowIntegrityError("shadow assessment requires an approved candidate profile")
     effective_binding = run_binding if run_binding is not None else journal.run_binding
+    if cohort is not None and effective_binding is None:
+        raise ShadowIntegrityError("frozen cohort requires an explicit or journal run binding")
     if effective_binding is not None:
         effective_binding.validate()
         if profile.identity_sha256 != effective_binding.profile_sha256:
             raise ShadowIntegrityError("candidate profile differs from the frozen run binding")
         if questions.sha256 != effective_binding.question_set_sha256:
             raise ShadowIntegrityError("question set differs from the frozen run binding")
+        _require_cohort(job, effective_binding, cohort, variant, draw_number)
         if journal.bind_run(effective_binding):
             persist(journal)
     policy = retry_policy or RetryPolicy()
@@ -2345,6 +2376,7 @@ def run_shadow_assessment(
             retry_policy=policy,
             sleeper=active_sleeper,
             _deadline=deadline,
+            cohort=cohort,
         )
     if variant == "extracted" and extraction is not None and extraction.coverage != "complete":
         extraction_request_id = (
