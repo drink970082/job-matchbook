@@ -8,6 +8,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **OpenRouter JEV native shadow integration — `feat/openrouter-jev-shadow`**.
+  Selected local implementation preparation for #132: synchronous injected one-attempt
+  transport, native typed replies and durable shadow accounting. No credentials, live
+  provider calls, source-pool reads, production wiring or runtime changes. Luna/max owns
+  implementation; exact native-contract seam and hermetic acceptance are in preparation.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source
