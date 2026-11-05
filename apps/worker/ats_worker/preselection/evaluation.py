@@ -17,6 +17,10 @@ import re
 import statistics
 from typing import Any
 
+from ats_worker.preselection.jev import (
+    JevContractError,
+    validate_native_jev_journal_payload,
+)
 from ats_worker.preselection.shadow import AttemptJournal, AttemptRecord, RunBinding
 
 
@@ -906,11 +910,14 @@ def _cost_summary(records: list[AttemptRecord]) -> dict[str, Any]:
         usage[field] = {"reported_total": sum(known), "unknown_attempts": len(records) - len(known)}
     price_totals: dict[tuple[str, str, str, str, str], Decimal] = {}
     unknown_charges = 0
+    openrouter_reported_attempts = 0
     for record in records:
         charge = record.charge
         if charge["kind"] == "unknown":
             unknown_charges += 1
             continue
+        if charge["kind"] == "actual" and charge["rate_source"] == "openrouter.response.usage.cost":
+            openrouter_reported_attempts += 1
         key = (
             str(charge["kind"]),
             str(charge["currency"]),
@@ -958,6 +965,12 @@ def _cost_summary(records: list[AttemptRecord]) -> dict[str, Any]:
             for (kind, currency, unit, rate_date, source), amount in sorted(price_totals.items())
         ],
         "unknown_charge_attempts": unknown_charges,
+        "cost_evidence": {
+            "openrouter_provider_reported_charge_attempts": openrouter_reported_attempts,
+            "note": (
+                "OpenRouter usage.cost is provider-reported; this report does not establish an audited invoice amount."
+            ),
+        },
         "cost_reserve_attempts": sum(record.reserved_charge is not None for record in records),
         "circuit_breaker_attempts": sum(record.circuit_breaker for record in records),
         "reported_actual_amount_per_successful_assessment": [
@@ -1129,16 +1142,40 @@ def _attempt_accounting(dataset: EvaluationInput, journal: AttemptJournal) -> di
     }
 
 
-def _recorded_answer_values(record: AttemptRecord, field_ids: tuple[str, ...]) -> dict[str, Any]:
+def _recorded_answer_values(
+    record: AttemptRecord,
+    field_ids: tuple[str, ...],
+) -> dict[str, Any]:
     payload = record.response_payload
     if not isinstance(payload, dict) or not isinstance(payload.get("answers"), dict):
-        raise EvaluationValidationError("successful assessment journal response has no typed answers object")
+        if not isinstance(payload, dict) or "native_contract" not in payload:
+            raise EvaluationValidationError("successful assessment journal response has no typed answers object")
+    if isinstance(payload, dict) and "native_contract" in payload:
+        try:
+            native = validate_native_jev_journal_payload(
+                payload,
+                expected_question_set_sha256=payload.get("question_set_sha256"),
+                expected_model=record.resolved_model,
+            )
+        except (JevContractError, TypeError, ValueError, AttributeError) as exc:
+            raise EvaluationValidationError("native journal response differs from its contract or provenance") from exc
+        if {answer.question_id for answer in native.answers} != set(field_ids):
+            raise EvaluationValidationError("native journal answer IDs differ from the frozen question set")
+        return {
+            answer.question_id: _answer_value(
+                answer.value,
+                f"attempt_journal.response_payload.response.answers.{answer.question_id}",
+            )
+            for answer in native.answers
+        }
     raw_answers = payload["answers"]
     if set(raw_answers) != set(field_ids):
         raise EvaluationValidationError("successful assessment journal answer IDs differ from the frozen question set")
     values: dict[str, Any] = {}
     for field_id in field_ids:
         answer = raw_answers[field_id]
+        if isinstance(answer, dict) and "type" in answer:
+            raise EvaluationValidationError("native journal answers require explicit contract provenance")
         if not isinstance(answer, dict) or "value" not in answer or not isinstance(answer.get("evidence"), list):
             raise EvaluationValidationError("successful assessment journal answer violates the typed answer shape")
         values[field_id] = _answer_value(answer["value"], f"attempt_journal.response_payload.answers.{field_id}.value")
@@ -1270,6 +1307,12 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
         if outcome.status == "completed" and final_status != "succeeded":
             raise EvaluationValidationError("completed outcome has no final successful attempt")
         if outcome.status == "completed":
+            response_payload = matching[-1].response_payload
+            if isinstance(response_payload, dict) and "native_contract" in response_payload:
+                if response_payload.get("question_set_sha256") != run["question_set_sha256"]:
+                    raise EvaluationValidationError(
+                        "native journal question set differs from the frozen evaluation"
+                    )
             recorded = _recorded_answer_values(matching[-1], run["field_ids"])
             if any(_canonical(recorded[key]) != _canonical(outcome.answers[key]) for key in run["field_ids"]):
                 raise EvaluationValidationError("evaluation answers differ from the successful attempt response")

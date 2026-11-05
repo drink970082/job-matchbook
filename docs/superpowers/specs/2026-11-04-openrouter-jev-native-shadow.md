@@ -1,6 +1,6 @@
 # OpenRouter JEV native shadow contract
 
-**Status:** approved for the offline implementation slice described below. The operator
+**Status:** implemented on branch, awaiting verification and review. The operator
 selected OpenRouter/JEV, directed reuse of the Fantasy implementation, and approved the
 native-adapter handoff and continued implementation. This approves code and hermetic
 verification, not a provider invocation, private source-pool read, live rubric or rollout.

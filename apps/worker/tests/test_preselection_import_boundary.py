@@ -114,6 +114,8 @@ from test_preselection_shadow import (
     reply,
 )
 from ats_worker.preselection.shadow import AttemptJournal, run_shadow_assessment
+import ats_worker.preselection.jev
+import ats_worker.preselection.openrouter_jev
 
 clock = FakeClock()
 transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)

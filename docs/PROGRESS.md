@@ -9,20 +9,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 ## In flight
 
 - **OpenRouter JEV native shadow integration — `feat/openrouter-jev-shadow`**.
-  Selected local implementation preparation for #132: synchronous injected one-attempt
-  transport, native typed replies and durable shadow accounting. No credentials, live
-  provider calls, source-pool reads, production wiring or runtime changes. Luna/max owns
-  implementation; exact native-contract seam and hermetic acceptance are in preparation.
+  Offline implementation is on branch and awaiting verification/review: synchronous
+  injected OpenRouter System One transport, native Choice/Noul/Score replies and durable
+  shadow accounting. No credentials or live provider calls, private source-pool reads,
+  production wiring or runtime changes. Live model/rate identity, full-request tokenization,
+  workload and spend caps remain #132 prerequisites.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
-  No private profile or local corpus has been opened for this work. It owns real source
-  roster completeness, grouping, labels and replay evidence; missing evidence remains
-  `INCONCLUSIVE`.
+  Candidate-content review and approval records remain private/local. The real source pool
+  and labels are unread and unfrozen; question set, cohort, label guide and workload remain
+  gates. It owns source roster completeness, grouping, labels and replay evidence; missing
+  evidence remains `INCONCLUSIVE`.
 - **#132 authorized provider pilot** — deferred behind #131 and separate explicit
-  provider/model, workload, retry, time and spend limits. No live provider call or
-  credential use is authorized. It owns actual tokenizer compatibility, request tokens,
-  rate evidence and observed charges.
+  live provider/model, workload, retry, time and spend limits. OpenRouter/JEV is selected
+  for offline adapter work; no live provider call or credential use is authorized. #132
+  owns full-request tokenizer compatibility, request tokens, rate evidence and observed
+  charges.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.

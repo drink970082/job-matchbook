@@ -16,6 +16,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add an isolated OpenRouter System One JEV shadow adapter with native Choice/Noul/Score
+  validation, full probability-preserving journal responses and aggregate provider-reported
+  cost provenance. The sync HTTP client, key, model/rate metadata and limits are injected;
+  the adapter has no runtime wiring or live-call evidence. Generic shadow replies remain
+  compatible.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.
