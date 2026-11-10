@@ -9,23 +9,25 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 ## In flight
 
 - **OpenRouter JEV native shadow integration — `feat/openrouter-jev-shadow`**.
-  Offline implementation is on branch and awaiting verification/review: synchronous
-  injected OpenRouter System One transport, native Choice/Noul/Score replies and durable
-  shadow accounting. No credentials or live provider calls, private source-pool reads,
-  production wiring or runtime changes. Live model/rate identity, full-request tokenization,
-  workload and spend caps remain #132 prerequisites.
+  The implementation is on the branch and draft PR #134 is awaiting review. It provides
+  native Choice/Noul/Score transport, durable accounting and a
+  direct-only evaluation mode for pilots that collect no labels. A separate mechanics-only
+  pilot is authorized for 10 real JDs and the existing 11 questions, with at most 12 model
+  attempts including retries, 15 minutes, USD 1 and 24 KB per request. Explicit token-price
+  and platform-fee evidence must bound cost; an absent API request-price field is not
+  treated as a free call. This sample has no quality labels and cannot support a quality
+  claim or GO. The branch has no production wiring.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
-  approval of the exact profile, policy, label guide, data scope and private-input access.
-  Candidate-content review and approval records remain private/local. The real source pool
-  and labels are unread and unfrozen; question set, cohort, label guide and workload remain
-  gates. It owns source roster completeness, grouping, labels and replay evidence; missing
-  evidence remains `INCONCLUSIVE`.
-- **#132 authorized provider pilot** — deferred behind #131 and separate explicit
-  live provider/model, workload, retry, time and spend limits. OpenRouter/JEV is selected
-  for offline adapter work; no live provider call or credential use is authorized. #132
-  owns full-request tokenizer compatibility, request tokens, rate evidence and observed
-  charges.
+  completion of the independent quality-evidence work. Candidate-content review and
+  approval records remain private/local. A partial 10-item mechanics snapshot is frozen
+  locally with labels not collected; it does not satisfy #131's full roster, grouping or
+  blind/adjudicated quality-truth gates. Missing evidence remains `INCONCLUSIVE`.
+- **#132 authorized provider pilot** — only the bounded mechanics-only scope above is
+  authorized. It makes no quality-label, quality-estimate or GO claim. Preserve explicit
+  rate/fee evidence and the missing API request-price field as separate provenance;
+  full-request tokenization and observed charges remain pilot evidence, not established
+  defaults.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.

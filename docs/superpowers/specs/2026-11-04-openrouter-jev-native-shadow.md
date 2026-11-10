@@ -1,9 +1,9 @@
 # OpenRouter JEV native shadow contract
 
-**Status:** implemented on branch, awaiting verification and review. The operator
-selected OpenRouter/JEV, directed reuse of the Fantasy implementation, and approved the
-native-adapter handoff and continued implementation. This approves code and hermetic
-verification, not a provider invocation, private source-pool read, live rubric or rollout.
+**Status:** native adapter and unlabeled mechanics-pilot binding are implemented on branch.
+The operator separately authorized a narrowly bounded mechanics-only pilot under #132.
+This spec covers adapter behavior and its hermetic verification; it does not authorize
+quality labeling, a quality claim, GO or rollout.
 
 ## Problem
 
@@ -87,6 +87,17 @@ aggregate-only; no GO or production state is written. Existing generic journal/r
 compatibility remains covered. Any required journal schema change must reject ambiguous
 old/new provenance explicitly, not reinterpret past generic answers as native replies.
 
+The one no-label mechanics mode requires phase `pilot`, variants exactly `direct`, one
+direct model identity and all items marked `label=unresolved`, `label_source=not_collected`,
+`label_evidence_sha256=null`, empty `field_labels` and null `yoe_expected_action`.
+It requires `labeling_blinded=false` and rejects mixed sources, resolved truth, blinding
+claims, an extractor identity and priority ranks. Completed outcomes have no rank. Reports
+mark `label_evidence_status=not_collected_mechanics_pilot` and
+`quality_evaluation.status=not_measured`; unranked calls are counted without being
+described as ranked beyond budget. The report identifies a `partial_mechanics_sample`
+and does not mark population recall reportable. This mode cannot support quality
+evaluation or GO.
+
 ## Acceptance
 
 - Native request/response tests cover Choice/Score/Noul, hybrid independent questions,
@@ -105,8 +116,12 @@ old/new provenance explicitly, not reinterpret past generic answers as native re
 
 ## Remaining live scope
 
-Provider account availability, exact resolved model/rates, complete-request tokenizer,
-cohort completeness, approved live questions, human labels, precise pilot caps and
-#94/#96 gate disposition remain #109/#131/#132/#112 work. This code does not establish
-ATS quality, observed real spend, #112 GO or activation. The standalone worker/screener
-and current deployed Web stay unchanged.
+The separately authorized mechanics pilot is bounded to 10 real JDs, the existing 11
+questions, at most 12 model attempts including retries, 900 seconds, USD 1 and 24 KB per
+request. Its frozen sample collects no labels and cannot be used for a quality claim.
+Explicit token-price/platform-fee evidence must remain distinct from the provider API's
+missing request-price field; absence is not treated as a free call. Full-request tokenizer
+compatibility and observed attempt charges remain unverified. Full roster completeness,
+grouping, independent human labels and #94/#96 gate disposition remain #131/#112 work.
+This code does not establish ATS quality, audited invoice cost, #112 GO or activation. The
+standalone worker/screener and current deployed Web stay unchanged.

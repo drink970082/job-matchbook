@@ -1,6 +1,7 @@
 """Offline, aggregate-only evaluation reports for an explicitly frozen preselection run.
 
-The input contains pseudonymous work-item hashes, human labels and validated outcomes.
+The input contains pseudonymous work-item hashes, labels or an explicitly unlabeled
+mechanics-pilot cohort, and validated outcomes.
 This module does not call models, choose thresholds, or record a GO decision.
 """
 
@@ -94,7 +95,7 @@ class EvaluationItem:
     observed_at: datetime
     label: str
     label_source: str
-    label_evidence_sha256: str
+    label_evidence_sha256: str | None
     role_families: tuple[str, ...]
     field_labels: dict[str, Any]
     yoe_expected_action: str | None
@@ -313,7 +314,8 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     ):
         raise EvaluationValidationError("evaluation.run.variants is invalid")
     run["variants"] = tuple(variants)
-    if set(variants) != _VARIANTS:
+    direct_only = run["variants"] == ("direct",)
+    if set(variants) != _VARIANTS and not direct_only:
         raise EvaluationValidationError("evaluation.run must declare both direct and extracted arms")
 
     def positive_integers(raw: Any, path: str) -> tuple[int, ...]:
@@ -381,19 +383,37 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         if not isinstance(label, str) or label not in _LABELS:
             raise EvaluationValidationError(f"{path}.label is invalid")
         label_source = row["label_source"]
-        allowed_sources = {"human_single", "human_adjudicated", "human_unresolved", "synthetic_fixture"}
+        allowed_sources = {
+            "human_single",
+            "human_adjudicated",
+            "human_unresolved",
+            "synthetic_fixture",
+            "not_collected",
+        }
         if not isinstance(label_source, str) or label_source not in allowed_sources:
-            raise EvaluationValidationError(f"{path}.label_source must identify human review")
+            raise EvaluationValidationError(f"{path}.label_source is invalid")
+        if label_source == "not_collected":
+            if run["phase"] != "pilot":
+                raise EvaluationValidationError("not_collected labels are only valid in a pilot phase")
+            if label != "unresolved":
+                raise EvaluationValidationError("not_collected labels must remain unresolved")
+            if run["labeling_blinded"]:
+                raise EvaluationValidationError("not_collected labels cannot claim blind labels")
+            if row["label_evidence_sha256"] is not None:
+                raise EvaluationValidationError("not_collected labels cannot contain label evidence")
+            label_evidence = None
+        else:
+            label_evidence = _sha256(row["label_evidence_sha256"], f"{path}.label_evidence_sha256")
         if label == "unresolved" and label_source not in {
             "human_single",
             "human_unresolved",
             "human_adjudicated",
             "synthetic_fixture",
+            "not_collected",
         }:
             raise EvaluationValidationError(f"{path}.unresolved label source is invalid")
         if label != "unresolved" and label_source == "human_unresolved":
             raise EvaluationValidationError(f"{path}.resolved label cannot use human_unresolved source")
-        label_evidence = _sha256(row["label_evidence_sha256"], f"{path}.label_evidence_sha256")
         role_families = row["role_families"]
         if not isinstance(role_families, list):
             raise EvaluationValidationError(f"{path}.role_families is invalid")
@@ -407,11 +427,15 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
             field_id: _answer_value(label_value, f"{path}.field_labels.{field_id}")
             for field_id, label_value in field_labels.items()
         }
+        if label_source == "not_collected" and checked_labels:
+            raise EvaluationValidationError("not_collected labels cannot contain field labels")
         yoe_expected = row["yoe_expected_action"]
         if yoe_expected is not None and (
             not isinstance(yoe_expected, str) or yoe_expected not in _ACTIONS
         ):
             raise EvaluationValidationError(f"{path}.yoe_expected_action is invalid")
+        if label_source == "not_collected" and yoe_expected is not None:
+            raise EvaluationValidationError("not_collected labels cannot contain a YOE label")
         items.append(
             EvaluationItem(
                 work_item,
@@ -436,10 +460,19 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     if any(len(splits) > 1 for splits in work_item_splits.values()):
         raise EvaluationValidationError("a stable work item cannot cross development and held-out splits")
     label_sources = {item.label_source for item in items}
+    if "not_collected" in label_sources:
+        if label_sources != {"not_collected"}:
+            raise EvaluationValidationError("not_collected label sources cannot be mixed")
+        if run["phase"] != "pilot" or run["labeling_blinded"] or not direct_only:
+            raise EvaluationValidationError(
+                "not_collected mechanics pilot requires pilot phase, unblinded labels and exactly the direct arm"
+            )
+    elif direct_only:
+        raise EvaluationValidationError("direct-only arm is only valid with not_collected pilot labels")
     if "synthetic_fixture" in label_sources:
         if label_sources != {"synthetic_fixture"} or run["labeling_blinded"]:
             raise EvaluationValidationError("synthetic fixtures must be isolated and cannot claim human blinding")
-    elif not run["labeling_blinded"]:
+    elif label_sources != {"not_collected"} and not run["labeling_blinded"]:
         raise EvaluationValidationError("human labels must be attested as blind to assessment outputs")
 
     run_binding = _execution_binding(run, items)
@@ -524,6 +557,7 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
     if not isinstance(raw_assessments, list):
         raise EvaluationValidationError("evaluation.assessments must be an array")
     assessments: list[AssessmentOutcome] = []
+    not_collected_mechanics_pilot = label_sources == {"not_collected"}
     seen_outcomes: set[tuple[str, str, int]] = set()
     known_occurrences = set(items_by_occurrence)
     for index, raw_outcome in enumerate(raw_assessments):
@@ -568,7 +602,12 @@ def evaluation_from_value(value: Any) -> EvaluationInput:
         rank = row["priority_rank"]
         answers = row["answers"]
         if status == "completed":
-            if request_stage != "assess" or type(rank) is not int or rank <= 0:
+            if request_stage != "assess":
+                raise EvaluationValidationError(f"{path} completed result requires an assessment request")
+            if not_collected_mechanics_pilot:
+                if rank is not None:
+                    raise EvaluationValidationError(f"{path} mechanics-only pilot cannot declare a priority rank")
+            elif type(rank) is not int or rank <= 0:
                 raise EvaluationValidationError(f"{path} completed result lacks request identity or valid rank")
             if not isinstance(answers, dict) or set(answers) != set(field_ids):
                 raise EvaluationValidationError(f"{path}.answers must exactly match declared field IDs")
@@ -715,6 +754,7 @@ def _budget_metrics(
         unselected_items = [item for item in items if item.pool_occurrence_identity_sha256 not in selected_occurrences]
         unselected_reasons = {
             "ranked_beyond_budget": 0,
+            "unranked_assessment": 0,
             "unresolved_assessment": 0,
             "failed_assessment": 0,
             "missing_outcome": 0,
@@ -727,6 +767,8 @@ def _budget_metrics(
                 unselected_reasons["unresolved_assessment"] += 1
             elif outcome.status == "failed":
                 unselected_reasons["failed_assessment"] += 1
+            elif outcome.priority_rank is None:
+                unselected_reasons["unranked_assessment"] += 1
             else:
                 unselected_reasons["ranked_beyond_budget"] += 1
         unselected_labels = _label_counts(unselected_items)
@@ -1198,6 +1240,9 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
     import copy
     journal = copy.deepcopy(journal)
     run = dataset.run
+    not_collected_mechanics_pilot = {
+        item.label_source for item in dataset.items
+    } == {"not_collected"}
     if journal.limits_identity_sha256 != run["attempt_limits_identity_sha256"]:
         raise EvaluationValidationError("attempt journal limits identity differs from the frozen run")
     if journal.run_binding != dataset.run_binding:
@@ -1376,6 +1421,11 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
                     and occurrence in planned_hashes
                 }
                 outcomes_by_draw[draw] = current
+                assessment_scope = (
+                    "partial_mechanics_sample"
+                    if not_collected_mechanics_pilot
+                    else ("full_daily_pools" if full_pool_plan else "predeclared_repeated_subset")
+                )
                 status_counts = {
                     "completed": sum(outcome.status == "completed" for outcome in current.values()),
                     "unresolved": sum(outcome.status == "unresolved" for outcome in current.values()),
@@ -1384,8 +1434,8 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
                 }
                 draw_reports[str(draw)] = {
                     "expected_assessments": len(planned_items),
-                    "assessment_scope": "full_daily_pools" if full_pool_plan else "predeclared_repeated_subset",
-                    "population_recall_reportable": full_pool_plan,
+                    "assessment_scope": assessment_scope,
+                    "population_recall_reportable": full_pool_plan and not not_collected_mechanics_pilot,
                     "outcome_status_counts": status_counts,
                     "assessment_coverage": _ratio(status_counts["completed"], len(planned_items)),
                     "budgets": _budget_metrics(planned_items, current, run["budgets"]),
@@ -1408,7 +1458,7 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             "arms": arm_reports,
         }
 
-    return {
+    report = {
         "report_schema": 1,
         "run": {
             "run_id": run["run_id"],
@@ -1467,9 +1517,13 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
                 sum(item.label in {"positive", "negative"} for item in dataset.items), len(dataset.items)
             ),
             "label_evidence_status": (
-                "synthetic_fixture_only"
-                if all(item.label_source == "synthetic_fixture" for item in dataset.items)
-                else "human_labels_blinded_to_assessments"
+                "not_collected_mechanics_pilot"
+                if not_collected_mechanics_pilot
+                else (
+                    "synthetic_fixture_only"
+                    if all(item.label_source == "synthetic_fixture" for item in dataset.items)
+                    else "human_labels_blinded_to_assessments"
+                )
             ),
         },
         "splits": split_reports,
@@ -1480,3 +1534,6 @@ def build_evaluation_report(dataset: EvaluationInput, journal: AttemptJournal) -
             "reason": "metrics do not authorize a pilot, GO, or production rollout",
         },
     }
+    if not_collected_mechanics_pilot:
+        report["quality_evaluation"] = {"status": "not_measured"}
+    return report

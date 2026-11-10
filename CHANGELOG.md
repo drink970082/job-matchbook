@@ -22,6 +22,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   the adapter has no runtime wiring or live-call evidence. Generic shadow replies remain
   compatible.
 
+- Allow a strictly unlabelled direct-only mechanics-pilot manifest: every label is
+  `unresolved`/`not_collected`, label evidence is null, and completed outcomes have no
+  priority rank. Mixed or resolved labels, blind-label claims, other phases and ranked
+  completions are rejected. Reports mark quality as `not_measured` and count completed
+  unranked calls without describing them as ranked beyond budget.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.

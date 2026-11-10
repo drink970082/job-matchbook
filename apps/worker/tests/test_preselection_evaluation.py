@@ -89,6 +89,30 @@ def evaluation_value() -> dict:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def unlabeled_mechanics_pilot_value() -> dict:
+    value = evaluation_value()
+    value["run"]["phase"] = "pilot"
+    value["run"]["labeling_blinded"] = False
+    value["run"]["variants"] = ["direct"]
+    value["run"]["model_identities"] = {
+        "direct": value["run"]["model_identities"]["direct"]
+    }
+    for item in value["items"]:
+        item["label"] = "unresolved"
+        item["label_source"] = "not_collected"
+        item["label_evidence_sha256"] = None
+        item["field_labels"] = {}
+        item["yoe_expected_action"] = None
+    value["assessments"] = [
+        outcome for outcome in value["assessments"] if outcome["variant"] == "direct"
+    ]
+    for outcome in value["assessments"]:
+        if outcome["status"] == "completed":
+            outcome["priority_rank"] = None
+    _refresh_run_fingerprints(value)
+    return value
+
+
 def _charge(kind: str, amount: str | None) -> dict[str, str | None]:
     if kind == "unknown":
         return {
@@ -169,23 +193,24 @@ def journal_for(value: dict | None = None) -> AttemptJournal:
 
     # One shared extraction per work item. It is charged once to the extracted arm.
     seen_extractions: set[str] = set()
-    for item in payload["items"]:
-        work_item = item["work_item_identity_sha256"]
-        if work_item in seen_extractions:
-            continue
-        seen_extractions.add(work_item)
-        request = hashlib.sha256(f"extract:{work_item}".encode()).hexdigest()
-        add(
-            stage="extract_jd",
-            variant="extract",
-            work_item=work_item,
-            draw=None,
-            request=request,
-            status="succeeded",
-            model_key="extract",
-            amount="0.02",
-            response_payload={"coverage": "complete"},
-        )
+    if "extract" in models:
+        for item in payload["items"]:
+            work_item = item["work_item_identity_sha256"]
+            if work_item in seen_extractions:
+                continue
+            seen_extractions.add(work_item)
+            request = hashlib.sha256(f"extract:{work_item}".encode()).hexdigest()
+            add(
+                stage="extract_jd",
+                variant="extract",
+                work_item=work_item,
+                draw=None,
+                request=request,
+                status="succeeded",
+                model_key="extract",
+                amount="0.02",
+                response_payload={"coverage": "complete"},
+            )
 
     for outcome in payload["assessments"]:
         if outcome.get("request_stage", "assess") == "extract_jd":
@@ -483,6 +508,118 @@ def test_human_labels_require_blinding_attestation_and_synthetic_labels_are_mark
         evaluation_from_value(evaluation_value()), journal_for(evaluation_value())
     )
     assert synthetic["cohort"]["label_evidence_status"] == "synthetic_fixture_only"
+
+
+def test_unlabeled_mechanics_pilot_binds_absent_labels_and_reports_no_quality_estimate():
+    value = unlabeled_mechanics_pilot_value()
+    dataset = evaluation_from_value(value)
+    assert all(item.label_evidence_sha256 is None for item in dataset.items)
+
+    report = build_evaluation_report(dataset, journal_for(value))
+    assert report["quality_evaluation"] == {"status": "not_measured"}
+    assert report["cohort"]["label_evidence_status"] == "not_collected_mechanics_pilot"
+    assert report["cohort"]["label_counts"] == {
+        "positive": 0,
+        "negative": 0,
+        "unresolved": len(value["items"]),
+    }
+    assert report["cohort"]["label_coverage"] == 0
+    assert report["decision"]["status"] == "not_recorded"
+    assert report["run"]["variants"] == ["direct"]
+    assert set(report["run"]["model_identities"]) == {"direct"}
+
+    direct = report["splits"]["held_out"]["arms"]["direct"]["draws"]["1"]
+    assert direct["assessment_scope"] == "partial_mechanics_sample"
+    assert direct["population_recall_reportable"] is False
+    budget = direct["budgets"][0]
+    assert budget["positive_recall"] is None
+    assert budget["positive_recall_wilson_95"] is None
+    assert budget["precision_on_resolved_selected"] is None
+    assert budget["unselected_reason_counts"]["ranked_beyond_budget"] == 0
+    held_out_draw_one = {
+        _occurrence(item["pool_id_sha256"], item["work_item_identity_sha256"])
+        for item in value["items"]
+        if item["split"] == "held_out" and 1 in item["draw_numbers"]
+    }
+    assert budget["unselected_reason_counts"]["unranked_assessment"] == sum(
+        outcome["status"] == "completed"
+        and outcome["draw_number"] == 1
+        and outcome["pool_occurrence_identity_sha256"] in held_out_draw_one
+        for outcome in value["assessments"]
+    )
+    assert direct["field_metrics"]["work_alignment"]["accuracy_when_answered"] is None
+    assert direct["required_yoe_metrics"]["accuracy_including_unanswered"] is None
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement", "message"),
+    [
+        ("run.phase", "held_out", "only valid in a pilot"),
+        ("run.labeling_blinded", True, "cannot claim blind labels"),
+        ("items.0.label", "positive", "must remain unresolved"),
+        ("items.0.field_labels", {"work_alignment": "high"}, "cannot contain field labels"),
+        ("items.0.yoe_expected_action", "exclude", "cannot contain a YOE label"),
+        ("items.0.label_evidence_sha256", "f" * 64, "cannot contain label evidence"),
+    ],
+)
+def test_not_collected_mechanics_pilot_rejects_claimed_truth_or_blinding(path, replacement, message):
+    value = unlabeled_mechanics_pilot_value()
+    cursor = value
+    parts = path.split(".")
+    for part in parts[:-1]:
+        cursor = cursor[int(part)] if isinstance(cursor, list) else cursor[part]
+    cursor[parts[-1]] = replacement
+    _refresh_run_fingerprints(value)
+    with pytest.raises(EvaluationValidationError, match=message):
+        evaluation_from_value(value)
+
+
+@pytest.mark.parametrize("other_source", ["synthetic_fixture", "human_unresolved"])
+def test_not_collected_mechanics_pilot_rejects_mixed_label_sources(other_source):
+    value = unlabeled_mechanics_pilot_value()
+    item = value["items"][0]
+    item["label_source"] = other_source
+    item["label_evidence_sha256"] = "b" * 64
+    _refresh_run_fingerprints(value)
+    with pytest.raises(EvaluationValidationError, match="not_collected label sources cannot be mixed"):
+        evaluation_from_value(value)
+
+
+def test_not_collected_mechanics_pilot_requires_one_direct_arm_without_ranking():
+    value = unlabeled_mechanics_pilot_value()
+    original = evaluation_value()
+    value["run"]["variants"] = ["direct", "extracted"]
+    value["run"]["model_identities"] = original["run"]["model_identities"]
+    with pytest.raises(EvaluationValidationError, match="exactly the direct arm"):
+        evaluation_from_value(value)
+
+
+def test_direct_only_arm_and_missing_priority_remain_invalid_for_existing_cohorts():
+    value = evaluation_value()
+    value["run"]["variants"] = ["direct"]
+    value["run"]["model_identities"] = {"direct": value["run"]["model_identities"]["direct"]}
+    value["assessments"] = [
+        outcome for outcome in value["assessments"] if outcome["variant"] == "direct"
+    ]
+    with pytest.raises(EvaluationValidationError, match="only valid with not_collected pilot labels"):
+        evaluation_from_value(value)
+
+    value = evaluation_value()
+    completed = next(outcome for outcome in value["assessments"] if outcome["status"] == "completed")
+    completed["priority_rank"] = None
+    with pytest.raises(EvaluationValidationError, match="completed result lacks request identity or valid rank"):
+        evaluation_from_value(value)
+
+
+def test_missing_human_label_evidence_remains_invalid():
+    value = evaluation_value()
+    value["run"]["labeling_blinded"] = True
+    for item in value["items"]:
+        item["label_source"] = "human_unresolved" if item["label"] == "unresolved" else "human_adjudicated"
+    value["items"][0]["label_evidence_sha256"] = None
+    _refresh_run_fingerprints(value)
+    with pytest.raises(EvaluationValidationError, match="lowercase SHA-256 digest"):
+        evaluation_from_value(value)
 
 
 def test_report_rejects_attempt_journal_model_and_outcome_mismatches():

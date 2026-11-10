@@ -982,6 +982,98 @@ def test_supervised_native_request_journal_cache_and_aggregate_report(tmp_path):
         build_evaluation_report(dataset, forged_journal)
 
 
+def test_direct_only_unlabeled_mechanics_pilot_binds_call_cache_and_report(tmp_path):
+    profile = _synthetic_profile()
+    question_set = jev_question_set_from_value(QUESTIONS)
+    job = JobEnvelope(
+        "Synthetic Co", "Synthetic Role", "Remote", "Synthetic role requires 2+ years professional experience."
+    )
+    extractor = ModelIdentity("synthetic-extractor", "synthetic-extractor", "synthetic-extractor-r1")
+    limits = _synthetic_limits()
+    value, _ = _native_evaluation_value(profile, question_set, job, limits, extractor)
+    run = value["run"]
+    run["phase"] = "pilot"
+    run["labeling_blinded"] = False
+    run["selection_policy_version"] = "synthetic-direct-assessment-no-ranking-v1"
+    run["variants"] = ["direct"]
+    run["model_identities"] = {"direct": asdict(IDENTITY)}
+    item = value["items"][0]
+    item["label"] = "unresolved"
+    item["label_source"] = "not_collected"
+    item["label_evidence_sha256"] = None
+    item["field_labels"] = {}
+    item["yoe_expected_action"] = None
+    outcome = value["assessments"][0]
+    outcome["priority_rank"] = None
+    occurrence = outcome["pool_occurrence_identity_sha256"]
+    frozen_item = {**item, "pool_occurrence_identity_sha256": occurrence}
+    run["pool_fingerprint_sha256"] = _hash([frozen_item])
+    run["split_manifest_sha256"] = _hash(
+        {
+            "split_algorithm": run["split_algorithm"],
+            "split_seed": run["split_seed"],
+            "occurrences": [
+                {
+                    "pool_occurrence_identity_sha256": occurrence,
+                    "pool_id_sha256": item["pool_id_sha256"],
+                    "group_id": item["group_id"],
+                    "split": item["split"],
+                }
+            ],
+        }
+    )
+    dataset = evaluation_from_value(value)
+    marker = tmp_path / "direct-only-pilot-posts.txt"
+    transport = OpenRouterJevTransport(
+        http=MarkerHTTP(FakeResponse(body=_native_reply()), marker),
+        api_key="synthetic-key",
+        model_metadata=JevModelMetadata(IDENTITY, "2026-11-04", "0.0000002", "0.0000008", "0.0001"),
+        timeout_seconds=4.0,
+        charge_currency="USD",
+        charge_billing_unit="request",
+    )
+    journal = AttemptJournal.empty()
+    kwargs = dict(
+        job=job,
+        profile=profile,
+        questions=question_set,
+        variant="direct",
+        identity=IDENTITY,
+        transport=transport,
+        journal=journal,
+        limits=limits,
+        clock=SystemClock(),
+        persist=lambda _journal: None,
+        enabled=True,
+        run_binding=dataset.run_binding,
+        cohort=dataset,
+    )
+
+    result = run_shadow_assessment(**kwargs)
+    assert result.assessment is not None
+    restored = AttemptJournal.from_json(journal.to_json())
+    kwargs["journal"] = restored
+    assert run_shadow_assessment(**kwargs).assessment_from_cache
+
+    report = build_evaluation_report(dataset, restored)
+    assert report["run"]["variants"] == ["direct"]
+    assert set(report["run"]["model_identities"]) == {"direct"}
+    assert report["cohort"]["label_evidence_status"] == "not_collected_mechanics_pilot"
+    assert report["quality_evaluation"] == {"status": "not_measured"}
+    assert report["decision"]["status"] == "not_recorded"
+    direct_draw = report["splits"]["development"]["arms"]["direct"]["draws"]["1"]
+    assert direct_draw["assessment_scope"] == "partial_mechanics_sample"
+    assert direct_draw["population_recall_reportable"] is False
+    model_budget = direct_draw["budgets"][0]
+    assert model_budget["unselected_reason_counts"]["ranked_beyond_budget"] == 0
+    assert model_budget["unselected_reason_counts"]["unranked_assessment"] == 1
+    assert restored.records[0].response_payload["question_set_sha256"] == question_set.sha256
+    assert len(restored.records) == 1
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "https://openrouter.ai/api/v1/systemone"
+    ]
+
+
 def test_missing_charge_is_unknown_preserved_and_resume_stops_before_second_post(tmp_path):
     profile = _synthetic_profile()
     question_set = jev_question_set_from_value(QUESTIONS)
