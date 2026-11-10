@@ -15,8 +15,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   pilot is authorized for 10 real JDs and the existing 11 questions, with at most 12 model
   attempts including retries, 15 minutes, USD 1 and 24 KB per request. Explicit token-price
   and platform-fee evidence must bound cost; an absent API request-price field is not
-  treated as a free call. This sample has no quality labels and cannot support a quality
-  claim or GO. The branch has no production wiring.
+  treated as a free call. The live mechanics campaign remains stopped after its first
+  dispatched attempt, which the initial validator rejected because known provider usage
+  metadata was outside its allowlist; no hidden retry occurred. The branch now validates
+  and preserves those specific fields. No subsequent request has been made. The sample has
+  no quality labels and cannot support a quality claim or GO. The branch has no production
+  wiring.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   completion of the independent quality-evidence work. Candidate-content review and
@@ -27,7 +31,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   authorized. It makes no quality-label, quality-estimate or GO claim. Preserve explicit
   rate/fee evidence and the missing API request-price field as separate provenance;
   full-request tokenization and observed charges remain pilot evidence, not established
-  defaults.
+  defaults. The campaign remains stopped pending offline replay and review.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.

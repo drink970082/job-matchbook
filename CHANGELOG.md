@@ -28,6 +28,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   completions are rejected. Reports mark quality as `not_measured` and count completed
   unranked calls without describing them as ranked beyond budget.
 
+- Validate and preserve the observed OpenRouter usage fields `is_byok` and
+  `cost_details` without relaxing rejection of unknown metadata. Cost details remain
+  descriptive raw response fields and do not replace `usage.cost` for charge accounting.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.

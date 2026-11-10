@@ -68,6 +68,11 @@ rate from tests. Freeze the request/response contract, model and rate in provena
 Usage/cost must be finite, nonnegative and well typed. Missing charge stays unknown;
 provider-reported charge is distinguished from rate estimation and audited invoice
 charge. Do not assume free output/cached calls or treat byte length as actual tokens.
+OpenRouter `usage.is_byok` is accepted only as a boolean. `usage.cost_details` is
+accepted only with exactly `upstream_inference_cost`,
+`upstream_inference_prompt_cost` and `upstream_inference_completions_cost`, each finite
+and nonnegative. Those raw metadata fields do not replace `usage.cost` for attempt charge
+accounting; any unknown top-level or nested usage fields fail validation.
 Bounds for reply size, serialization and parsing must fail visibly without leaking
 headers/keys/raw private error bodies. The original supervised wall-clock boundary
 covers transport and validation.

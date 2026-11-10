@@ -100,6 +100,22 @@ def _native_reply():
     }
 
 
+def _native_reply_with_openrouter_cost_details():
+    value = _native_reply()
+    value["usage"] = {
+        "input_tokens": 4588,
+        "output_tokens": 464,
+        "cost": 0.000192696,
+        "is_byok": False,
+        "cost_details": {
+            "upstream_inference_cost": 0.000192696,
+            "upstream_inference_prompt_cost": 0.000192696,
+            "upstream_inference_completions_cost": 0,
+        },
+    }
+    return value
+
+
 class FakeResponse:
     def __init__(self, status_code=200, body=None):
         self.status_code = status_code
@@ -174,6 +190,39 @@ def test_native_question_pack_validates_choice_noul_score_and_preserves_probabil
     assert answers["certainty"].noul == 0.35
     assert answers["risk"].score == 1.25
     assert dict(answers["risk"].probabilities) == {"0": 0.2, "1": 0.6, "2": 0.2}
+
+
+def test_native_response_accepts_and_preserves_openrouter_usage_metadata():
+    question_set = jev_question_set_from_value(QUESTIONS)
+    response = _native_reply_with_openrouter_cost_details()
+    wrapper = native_jev_journal_payload(question_set, response)
+    validated = validate_native_jev_journal_payload(
+        json.loads(json.dumps(wrapper)),
+        expected_question_set=question_set,
+        expected_model=IDENTITY.resolved_model,
+    )
+    assert len(validated.answers) == len(QUESTIONS["questions"])
+    assert wrapper["response"]["usage"] == response["usage"]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p["usage"].update(is_byok="false"),
+        lambda p: p["usage"].update(cost_details=[]),
+        lambda p: p["usage"]["cost_details"].pop("upstream_inference_prompt_cost"),
+        lambda p: p["usage"]["cost_details"].update(unexpected_fee=0),
+        lambda p: p["usage"]["cost_details"].update(upstream_inference_cost=-0.1),
+        lambda p: p["usage"]["cost_details"].update(upstream_inference_prompt_cost=float("nan")),
+    ],
+)
+def test_native_response_rejects_malformed_openrouter_usage_metadata(mutate):
+    from copy import deepcopy
+
+    payload = deepcopy(_native_reply_with_openrouter_cost_details())
+    mutate(payload)
+    with pytest.raises(ValueError):
+        validate_jev_response(payload, jev_question_set_from_value(QUESTIONS), expected_model=IDENTITY.resolved_model)
 
 
 @pytest.mark.parametrize("question_type", [[], {}])
@@ -877,7 +926,7 @@ def test_supervised_native_request_journal_cache_and_aggregate_report(tmp_path):
     limits = _synthetic_limits()
     dataset_value, extraction = _native_evaluation_value(profile, question_set, job, limits, extractor)
     dataset = evaluation_from_value(dataset_value)
-    response_body = _native_reply()
+    response_body = _native_reply_with_openrouter_cost_details()
     marker = tmp_path / "post-attempts.txt"
     direct_http = MarkerHTTP(FakeResponse(body=response_body), marker)
     transport = OpenRouterJevTransport(
@@ -969,6 +1018,7 @@ def test_supervised_native_request_journal_cache_and_aggregate_report(tmp_path):
     native_payload = resumed_journal.records[0].response_payload
     assert native_payload["response"]["answers"]["role"]["probabilities"]["stable"] == 0.7
     assert native_payload["question_set_sha256"] == question_set.sha256
+    assert native_payload["response"]["usage"] == response_body["usage"]
     assert report["attempt_accounting"]["run"]["cost_evidence"][
         "openrouter_provider_reported_charge_attempts"
     ] == 1

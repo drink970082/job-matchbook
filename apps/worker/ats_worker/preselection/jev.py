@@ -328,7 +328,14 @@ def _validate_native_usage(value: Any) -> None:
     if value is None:
         return
     usage = _object(value, "response.usage")
-    allowed = {"input_tokens", "output_tokens", "cached_input_tokens", "cost"}
+    allowed = {
+        "input_tokens",
+        "output_tokens",
+        "cached_input_tokens",
+        "cost",
+        "is_byok",
+        "cost_details",
+    }
     if set(usage) - allowed:
         raise JevContractError("response.usage contains unsupported fields")
     for key in ("input_tokens", "output_tokens", "cached_input_tokens"):
@@ -336,3 +343,16 @@ def _validate_native_usage(value: Any) -> None:
             raise JevContractError(f"response.usage.{key} must be a non-negative integer")
     if "cost" in usage:
         _number(usage["cost"], "response.usage.cost", minimum=0.0)
+    if "is_byok" in usage and type(usage["is_byok"]) is not bool:
+        raise JevContractError("response.usage.is_byok must be boolean")
+    if "cost_details" in usage:
+        details = _object(usage["cost_details"], "response.usage.cost_details")
+        expected_cost_fields = {
+            "upstream_inference_cost",
+            "upstream_inference_prompt_cost",
+            "upstream_inference_completions_cost",
+        }
+        if set(details) != expected_cost_fields:
+            raise JevContractError("response.usage.cost_details has an invalid object shape")
+        for key in sorted(expected_cost_fields):
+            _number(details[key], f"response.usage.cost_details.{key}", minimum=0.0)
