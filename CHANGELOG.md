@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Measure v4/v5 duty-classification plus preference-arbitration development batches,
+  30 calls each. The v5 sample has full preference repeat agreement; skill/work evidence
+  and independent quality validation remain open. Cumulative provider-reported spend is
+  USD 0.023251914 across 109 attempts, with original ledger history retained.
+
 - Separate preference arbitration from native role/duty classification through a pure,
   versioned policy and add a CAS-bound append-only Stage 1 attempt-cap amendment that
   preserves historical accounting and all monetary ceilings.

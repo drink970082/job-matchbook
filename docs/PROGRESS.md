@@ -32,15 +32,16 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   draws, maximum40newattempts/15minutes/USD0.50includingpriorcost. The new isolated
   campaign ledger and repeated-draw reporter are implemented on this branch and accepted
   for bounded Stage 1 execution after worker and blocked-legacy checks. Private v2 profile/questions and the 10×3 cohort are frozen before
-  calls; no deployment GO. The v2 30-draw development run and nine-draw v3 diagnostic
-  probe have known provider charges and no pending reservations. There are 39 new attempts
-  against the frozen40-attemptStage1cap, cumulativeUSD0.010450566includingpriorcost.
-  Secondary-family preference consistency and critical-skill evidence remain unresolved;
-  do not expand to unseen cohorts yet. The selected next slice is
-  [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md),
-  now approved for implementation and a bounded v4 10×3 run. Append-only amendment
-  extends the retained Stage1attemptcap40→100, preserving counters and USD0.50stage/USD10global
-  ceilings; freeze exact new policy and request manifests before further calls. The
+  calls; no deployment GO. The implemented
+  [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md)
+  keeps raw answers separate from derived tiers. The v5 ten-job/three-draw development
+  measurement has100%derived-preferenceagreement; skills/work alignment each have96.7%modal
+  and93.3%pairwiseagreement. This is not independent quality evidence. Critical-skill
+  flag substantiation remains open; do not expand to unseen cohorts yet. The retained
+  ledger has99new/109totalattempts, cumulativeUSD0.023251914includingpriorcost, no pending or
+  unknown charges. The appended40→100Stage1cap amendment preserves the original ledger;
+  only one new attempt remains under that cap. Further batches need a reviewed append-only
+  stage transition, never a counter/spend reset; USD0.50stage/USD10global ceilings remain. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 

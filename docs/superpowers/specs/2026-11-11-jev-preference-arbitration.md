@@ -11,16 +11,15 @@ Exact v4 question/profile/policy/batch hashes are frozen before dispatch.
 
 ## Current measured constraint
 
-The local v2 development run has 30/30 fresh results, zero of the three implemented
-first-target contradiction checks, and 96.7% modal / 93.3% pairwise agreement on preference,
-skill support and work alignment. That is not full semantic consistency: secondary-family
-work can still be labeled adjacent. A preference-only v3 wording probe has nine fresh
-results; one generic software role still changes secondary/adjacent across repeats.
-These are development observations, not independent accuracy or population recall.
+The v5 ten-job/three-draw development sample has full derived-preference repeat agreement.
+Skills and work alignment each have 96.7% modal and 93.3% pairwise agreement. Raw duty
+classification remains fallible, and skill flags still need exact required/preferred and
+background evidence. No independent quality or complete-pool recall is established.
 
-Two wording iterations do not eliminate the classification/arbitration mismatch. More
-wording churn is not the next experiment. Stable but unsupported critical-skill flags
-also need separate source-evidence audit; do not infer that repeatability makes them right.
+The retained Stage 1 ledger has 99 new attempts against the amended 100 cap and cumulative
+USD 0.023251914 across 109 attempts including earlier mechanics calls. No pending or unknown
+charge remains. Further workload requires a reviewed append-only stage transition; the
+existing single amendment must not be bypassed by a new ledger or modified anchor.
 
 ## Selected implementation boundary
 
