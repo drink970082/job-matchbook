@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Document a staged JEV convergence and release-readiness proposal under a cumulative
+  operator-authorized USD 10 research ceiling, with independent tests, proxy/operator
+  label provenance, batched review and explicit rollout gates.
+
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
   real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
   comparative decision (#112). Select offline acceptance and landing first; preserve

@@ -21,19 +21,26 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   failure remains recorded. The 10 dispatched attempts have no retries or unknown charges;
   their provider-reported total is USD 0.002003148, not invoice-audited. Quality labeling,
   independent grouping and comparative evaluation remain open. There is no GO or production
-  wiring.
+  wiring. The operator authorizes a cumulative USD 10 JEV research ceiling, including
+  prior inference spend, toward stable production-ready advisory scoring. The
+  [convergence plan](superpowers/plans/2026-11-11-jev-stable-scoring-convergence.md)
+  proposes small development, independent expansion, locked tests and runtime shadow,
+  with batched operator adjudication and separate proxy/operator-confirmed evidence.
+  Exact new batch versions and implementation scope remain to be frozen; no deployment GO.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   completion of the independent quality-evidence work. Candidate-content review and
   approval records remain private/local. A partial 10-item mechanics snapshot is frozen
   locally with labels not collected; it does not satisfy #131's full roster, grouping or
   blind/adjudicated quality-truth gates. Missing evidence remains `INCONCLUSIVE`.
-- **#132 authorized provider pilot** — only the bounded mechanics-only scope above is
-  authorized. It makes no quality-label, quality-estimate or GO claim. Preserve explicit
+- **#132 authorized provider research** — the mechanics evidence remains separate from
+  the newly authorized cumulative USD 10 convergence campaign. Exact batches/model/input
+  bindings and resource reservations must be recorded before further inference. No
+  quality-label, quality-estimate or GO claim is established by spending authorization. Preserve explicit
   rate/fee evidence and the missing API request-price field as separate provenance;
   full-request tokenization and observed charges remain pilot evidence, not established
-  defaults. The authorized mechanics sample is available for operator review; no additional
-  calls or quality-evaluation run is scheduled.
+  defaults. The mechanics sample and local audit are available; the staged convergence
+  plan governs preparation of new calls rather than an unattended recurring schedule.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.
