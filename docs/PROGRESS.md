@@ -38,7 +38,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Secondary-family preference consistency and critical-skill evidence remain unresolved;
   do not expand to unseen cohorts yet. The selected next slice is
   [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md),
-  with a reviewed append-only campaign extension before any further calls. The
+  now approved for implementation and a bounded v4 10×3 run. Append-only amendment
+  extends the retained Stage1attemptcap40→100, preserving counters and USD0.50stage/USD10global
+  ceilings; freeze exact new policy and request manifests before further calls. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 
