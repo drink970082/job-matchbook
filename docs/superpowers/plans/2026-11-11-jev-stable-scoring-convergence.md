@@ -27,6 +27,25 @@ SCORING's measured failures prohibit trusting synthetic probes as quality proof,
 numeric confidence is calibrated, tuning the production fit prompt or mixing multiple JDs
 in one inference. One request contains one complete job.
 
+## Required isolation from legacy scoring/evaluation
+
+The operator explicitly requires this campaign to remain separate from the old eval and
+score modules. Implement new assessment, review-band and evaluation logic only through
+the isolated `preselection/` contracts and dedicated tests/tools. Do not import or invoke
+legacy `score/`, its Registry/rubric/prompt/rendering helpers, `score_eval.py`,
+`seniority_eval.py`, `extract_shadow.py` or their corpus/label loaders. Do not read legacy
+score prompts, score_detail or old evaluation outputs as features, labels or expected truth.
+Do not change those modules as a shortcut to supporting this experiment.
+
+Extend the existing import/resource boundary tests to cover every new command and runtime
+entrypoint. They must execute successfully with legacy imports and legacy prompt/corpus
+file reads blocked. Maintain separate versioned inputs, fixtures, cache/journal identities
+and reports. Shared source JD identities and pure neutral infrastructure are permissible
+only when they introduce no scoring/evaluation dependency. Any legacy baseline comparison
+is a separately identified, immutable report/input at the reporting boundary, never an
+import of the legacy evaluation engine or a source of truth. Fail the acceptance gate if
+the isolated path requires a forbidden module or resource.
+
 ## What a score means
 
 Expose four independent dimensions:

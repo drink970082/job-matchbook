@@ -26,7 +26,9 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   [convergence plan](superpowers/plans/2026-11-11-jev-stable-scoring-convergence.md)
   proposes small development, independent expansion, locked tests and runtime shadow,
   with batched operator adjudication and separate proxy/operator-confirmed evidence.
-  Exact new batch versions and implementation scope remain to be frozen; no deployment GO.
+  Exact new batch versions and implementation scope remain to be frozen; no deployment GO. The
+  operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
+  and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   completion of the independent quality-evidence work. Candidate-content review and

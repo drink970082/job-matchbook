@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Require the JEV convergence campaign to remain isolated from legacy score/eval engines,
+  prompts and score-derived labels, with import/resource boundary acceptance checks.
+
 - Document a staged JEV convergence and release-readiness proposal under a cumulative
   operator-authorized USD 10 research ceiling, with independent tests, proxy/operator
   label provenance, batched review and explicit rollout gates.
