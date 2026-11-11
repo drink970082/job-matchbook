@@ -870,4 +870,3 @@ def build_stage1_report(
         "labels_used": False,
         "scores_or_ranks_created": False,
     }
-

@@ -369,4 +369,3 @@ def test_policy_must_name_frozen_choice_fields_and_values():
     with pytest.raises(ConvergenceError):
         Stage1Manifest(manifest.campaign_id, manifest.profile_sha256, MODEL,
                        manifest.question_set, manifest.expected_draws, bad).validate()
-
