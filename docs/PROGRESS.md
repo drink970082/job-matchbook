@@ -32,7 +32,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   draws, maximum40newattempts/15minutes/USD0.50includingpriorcost. The new isolated
   campaign ledger and repeated-draw reporter are implemented on this branch and accepted
   for bounded Stage 1 execution after worker and blocked-legacy checks. Private v2 profile/questions and the 10×3 cohort are frozen before
-  calls; no deployment GO. The
+  calls; no deployment GO. The v2 30-draw development run and nine-draw v3 diagnostic
+  probe have known provider charges and no pending reservations. There are 39 new attempts
+  against the frozen40-attemptStage1cap, cumulativeUSD0.010450566includingpriorcost.
+  Secondary-family preference consistency and critical-skill evidence remain unresolved;
+  do not expand to unseen cohorts yet. The selected next slice is
+  [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md),
+  with a reviewed append-only campaign extension before any further calls. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 

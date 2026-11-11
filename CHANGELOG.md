@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record bounded JEV development measurements (30 v2 draws and nine preference-wording
+  probe draws) and retain secondary-tier inconsistency as an open constraint; select a
+  separate duty/avoidance classification and deterministic preference-arbitration slice.
+
 - Add isolated JEV Stage 1 campaign accounting with durable reservations, known/unknown
   settlement and restart stops, plus native repeated-draw stability/contradiction reports
   and blocked-legacy execution coverage. No quality estimate or production activation.
