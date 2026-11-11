@@ -181,6 +181,8 @@ class CampaignSnapshot:
     pending_reservation_id: str | None
     has_unknown_settlement: bool
     has_over_reserve_charge: bool
+    current_stage_attempt_cap: int
+    last_event_sha256: str | None
     global_ceiling: str
     ordinary_dispatch_ceiling: str
     stage_ceiling: str
@@ -192,12 +194,14 @@ class _LedgerState:
     events: list[dict[str, Any]]
     attempts: int
     stage_attempts: int
+    effective_stage_attempt_cap: int
     settled_spend: Decimal
     pending: CampaignReservation | None
     unknown: bool
     over_reserve: bool
     settlement_by_id: dict[str, dict[str, Any]]
     previous_hash: str | None
+    extension_event: dict[str, Any] | None
 
 
 def _pairs_no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -249,9 +253,19 @@ class CampaignLedger:
 
     def _state(self) -> _LedgerState:
         if not self.path.exists():
-            return _LedgerState([], self.config.historical_attempts, 0,
-                                _decimal(self.config.historical_spend, "historical_spend"),
-                                None, False, False, {}, None)
+            return _LedgerState(
+                events=[],
+                attempts=self.config.historical_attempts,
+                stage_attempts=0,
+                effective_stage_attempt_cap=self.config.max_stage_attempts,
+                settled_spend=_decimal(self.config.historical_spend, "historical_spend"),
+                pending=None,
+                unknown=False,
+                over_reserve=False,
+                settlement_by_id={},
+                previous_hash=None,
+                extension_event=None,
+            )
         try:
             if self.path.is_symlink() or not self.path.is_file():
                 raise CampaignLedgerIntegrityError("campaign ledger is not a regular file")
@@ -274,9 +288,19 @@ class CampaignLedger:
             raise CampaignLedgerIntegrityError("campaign ledger contains an empty event")
         events: list[dict[str, Any]] = []
         previous_hash: str | None = None
-        state = _LedgerState([], self.config.historical_attempts, 0,
-                             _decimal(self.config.historical_spend, "historical_spend"),
-                             None, False, False, {}, None)
+        state = _LedgerState(
+            events=[],
+            attempts=self.config.historical_attempts,
+            stage_attempts=0,
+            effective_stage_attempt_cap=self.config.max_stage_attempts,
+            settled_spend=_decimal(self.config.historical_spend, "historical_spend"),
+            pending=None,
+            unknown=False,
+            over_reserve=False,
+            settlement_by_id={},
+            previous_hash=None,
+            extension_event=None,
+        )
         for index, line in enumerate(lines):
             try:
                 event = json.loads(
@@ -332,6 +356,10 @@ class CampaignLedger:
                 raise CampaignLedgerIntegrityError("campaign reservation ID is duplicated")
             if state.pending is not None or state.unknown:
                 raise CampaignLedgerIntegrityError("campaign has overlapping or unknown reservations")
+            if state.attempts >= self.config.max_global_attempts:
+                raise CampaignLedgerIntegrityError("campaign event stream exceeds its global attempt cap")
+            if state.stage_attempts >= state.effective_stage_attempt_cap:
+                raise CampaignLedgerIntegrityError("campaign event stream exceeds its stage attempt cap")
             if body["campaign_id"] != self.config.campaign_id or body["stage_id"] != self.config.stage_id:
                 raise CampaignLedgerIntegrityError("campaign reservation has a different campaign identity")
             run_id = _validate_text(body["run_id"], "run_id", maximum=128)
@@ -386,6 +414,35 @@ class CampaignLedger:
             state.settlement_by_id[reservation_id] = body
             state.pending = None
             return
+        if kind == "extend_stage_attempts":
+            expected = {
+                "kind", "campaign_id", "stage_id", "previous_stage_attempt_cap",
+                "new_stage_attempt_cap", "authorization_sha256",
+                "expected_previous_event_sha256", "previous_event_sha256",
+            }
+            if set(body) != expected:
+                raise CampaignLedgerIntegrityError("campaign cap extension has an invalid shape")
+            if state.extension_event is not None:
+                raise CampaignLedgerIntegrityError("campaign ledger contains duplicate cap amendments")
+            if state.pending is not None or state.unknown or state.over_reserve:
+                raise CampaignLedgerIntegrityError("campaign cap amendment follows a stopped or pending attempt")
+            if body["campaign_id"] != self.config.campaign_id or body["stage_id"] != self.config.stage_id:
+                raise CampaignLedgerIntegrityError("campaign cap amendment has a different campaign identity")
+            old_cap, new_cap = body["previous_stage_attempt_cap"], body["new_stage_attempt_cap"]
+            if type(old_cap) is not int or old_cap != state.effective_stage_attempt_cap:
+                raise CampaignLedgerIntegrityError("campaign cap amendment has a mismatched previous cap")
+            if type(new_cap) is not int or new_cap <= old_cap:
+                raise CampaignLedgerIntegrityError("campaign cap amendment is not a strict increase")
+            _sha256(body["authorization_sha256"], "authorization_sha256")
+            expected_previous = _sha256(body["expected_previous_event_sha256"], "expected_previous_event_sha256")
+            if expected_previous != body["previous_event_sha256"]:
+                raise CampaignLedgerIntegrityError("campaign cap amendment compare-and-swap hash is inconsistent")
+            maximum_stage_cap = state.stage_attempts + (self.config.max_global_attempts - state.attempts)
+            if new_cap > maximum_stage_cap:
+                raise CampaignLedgerIntegrityError("campaign cap amendment exceeds global attempts remaining")
+            state.effective_stage_attempt_cap = new_cap
+            state.extension_event = body
+            return
         raise CampaignLedgerIntegrityError("campaign ledger event kind is unsupported")
 
     def _append(self, state: _LedgerState, body: dict[str, Any]) -> None:
@@ -437,6 +494,8 @@ class CampaignLedger:
                 pending_reservation_id=pending.reservation_id if pending else None,
                 has_unknown_settlement=state.unknown,
                 has_over_reserve_charge=state.over_reserve,
+                current_stage_attempt_cap=state.effective_stage_attempt_cap,
+                last_event_sha256=state.previous_hash,
                 global_ceiling=_decimal_text(_decimal(self.config.global_ceiling, "global_ceiling")),
                 ordinary_dispatch_ceiling=_decimal_text(_decimal(self.config.ordinary_dispatch_ceiling, "ordinary_dispatch_ceiling")),
                 stage_ceiling=_decimal_text(_decimal(self.config.stage_ceiling, "stage_ceiling")),
@@ -469,7 +528,7 @@ class CampaignLedger:
                 raise CampaignBudgetExceeded("campaign has an unresolved in-flight reservation")
             if state.attempts >= self.config.max_global_attempts:
                 raise CampaignBudgetExceeded("global campaign attempt cap is exhausted")
-            if state.stage_attempts >= self.config.max_stage_attempts:
+            if state.stage_attempts >= state.effective_stage_attempt_cap:
                 raise CampaignBudgetExceeded("stage attempt cap is exhausted")
             reserve = _decimal(self.config.reserve_per_attempt, "reserve_per_attempt")
             exposure = state.settled_spend + reserve
@@ -497,6 +556,54 @@ class CampaignLedger:
                 "reserved_amount": reservation.reserved_amount,
             })
             return reservation
+
+    def extend_stage_attempts(
+        self,
+        *,
+        new_cap: int,
+        authorization_sha256: str,
+        expected_previous_event_sha256: str,
+    ) -> CampaignSnapshot:
+        """Append one compare-and-swap stage-cap amendment without changing spend state."""
+        if type(new_cap) is not int:
+            raise ConvergenceError("new stage attempt cap must be an integer")
+        authorization_sha256 = _sha256(authorization_sha256, "authorization_sha256")
+        expected_previous_event_sha256 = _sha256(
+            expected_previous_event_sha256, "expected_previous_event_sha256"
+        )
+        with self._locked():
+            state = self._state()
+            if state.pending is not None or state.unknown or state.over_reserve:
+                raise CampaignBudgetExceeded("campaign cap cannot be amended while pending or stopped")
+            prior = state.extension_event
+            if prior is not None:
+                if (
+                    new_cap == prior["new_stage_attempt_cap"]
+                    and authorization_sha256 == prior["authorization_sha256"]
+                    and expected_previous_event_sha256 == prior["expected_previous_event_sha256"]
+                ):
+                    return self._snapshot_from_state(state)
+                raise CampaignLedgerIntegrityError("campaign already has a different cap amendment")
+            if expected_previous_event_sha256 != state.previous_hash:
+                raise CampaignBudgetExceeded("campaign cap amendment compare-and-swap is stale")
+            if new_cap <= state.effective_stage_attempt_cap:
+                raise ConvergenceError("new stage attempt cap must strictly increase")
+            maximum_stage_cap = state.stage_attempts + (self.config.max_global_attempts - state.attempts)
+            if new_cap > maximum_stage_cap:
+                raise CampaignBudgetExceeded("new stage attempt cap exceeds global attempts remaining")
+            self._ensure_anchor(state)
+            self._append(state, {
+                "kind": "extend_stage_attempts",
+                "campaign_id": self.config.campaign_id,
+                "stage_id": self.config.stage_id,
+                "previous_stage_attempt_cap": state.effective_stage_attempt_cap,
+                "new_stage_attempt_cap": new_cap,
+                "authorization_sha256": authorization_sha256,
+                "expected_previous_event_sha256": expected_previous_event_sha256,
+            })
+            state.effective_stage_attempt_cap = new_cap
+            state.extension_event = state.events[-1]
+            return self._snapshot_from_state(state)
 
     def settle(self, reservation_id: str, charge: Any | None) -> CampaignSnapshot:
         reservation_id = _validate_text(reservation_id, "reservation_id", maximum=128)
@@ -580,6 +687,7 @@ class CampaignLedger:
             self.config.campaign_id, self.config.stage_id, state.attempts, state.stage_attempts,
             _decimal_text(state.settled_spend), pending.reserved_amount if pending else "0",
             pending.reservation_id if pending else None, state.unknown, state.over_reserve,
+            state.effective_stage_attempt_cap, state.previous_hash,
             _decimal_text(_decimal(self.config.global_ceiling, "global_ceiling")),
             _decimal_text(_decimal(self.config.ordinary_dispatch_ceiling, "ordinary_dispatch_ceiling")),
             _decimal_text(_decimal(self.config.stage_ceiling, "stage_ceiling")),

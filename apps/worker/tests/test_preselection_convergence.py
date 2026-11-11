@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -72,6 +73,21 @@ def _reserve(ledger, request="request-1", draw=1, work_hash="b" * 64):
     return ledger.reserve_attempt(
         phase="stage1", run_id="synthetic-run", request_identity=request,
         work_item_identity_sha256=work_hash, draw_number=draw,
+    )
+
+
+def _authorization_hash():
+    return hashlib.sha256(b"synthetic-operator-authorization").hexdigest()
+
+
+def _extend(ledger, *, new_cap=100, expected_previous_event_sha256=None):
+    snapshot = ledger.snapshot()
+    return ledger.extend_stage_attempts(
+        new_cap=new_cap,
+        authorization_sha256=_authorization_hash(),
+        expected_previous_event_sha256=(
+            expected_previous_event_sha256 or snapshot.last_event_sha256
+        ),
     )
 
 
@@ -369,3 +385,111 @@ def test_policy_must_name_frozen_choice_fields_and_values():
     with pytest.raises(ConvergenceError):
         Stage1Manifest(manifest.campaign_id, manifest.profile_sha256, MODEL,
                        manifest.question_set, manifest.expected_draws, bad).validate()
+
+
+def test_stage_cap_extension_is_cas_bound_idempotent_and_preserves_accounting(tmp_path):
+    path = tmp_path / "campaign.jsonl"
+    ledger = CampaignLedger(path, _config())
+    for draw in (1, 2):
+        reservation = _reserve(ledger, request=f"before-extension-{draw}", draw=draw)
+        ledger.settle(reservation.reservation_id, _charge("0.0002"))
+    before = ledger.snapshot()
+    original_config_hash = ledger.config.identity_sha256
+    original_anchor = json.loads(path.read_text().splitlines()[0])["body"]
+    assert before.stage_attempts == 2
+    assert before.attempts == 12
+    assert before.current_stage_attempt_cap == 40
+
+    amended = _extend(ledger)
+
+    assert amended.stage_attempts == before.stage_attempts
+    assert amended.attempts == before.attempts
+    assert amended.settled_spend == before.settled_spend
+    assert amended.current_stage_attempt_cap == 100
+    assert amended.last_event_sha256 != before.last_event_sha256
+    assert ledger.config.identity_sha256 == original_config_hash
+    assert json.loads(path.read_text().splitlines()[0])["body"] == original_anchor
+    assert _extend(ledger, expected_previous_event_sha256=before.last_event_sha256) == amended
+
+    with pytest.raises(CampaignLedgerIntegrityError, match="different cap amendment"):
+        _extend(ledger, new_cap=101, expected_previous_event_sha256=before.last_event_sha256)
+
+    resumed = CampaignLedger(path, _config())
+    assert resumed.snapshot() == amended
+    after = _reserve(resumed, request="after-extension", draw=3)
+    assert resumed.snapshot().stage_attempts == 3
+    assert resumed.snapshot().attempts == 13
+    resumed.settle(after.reservation_id, _charge())
+
+
+def test_stage_cap_extension_rejects_stale_cas_nonincrease_and_global_overflow(tmp_path):
+    ledger = CampaignLedger(tmp_path / "stale.jsonl", _config())
+    stale_hash = ledger.snapshot().last_event_sha256
+    reservation = _reserve(ledger)
+    ledger.settle(reservation.reservation_id, _charge())
+    with pytest.raises(CampaignBudgetExceeded, match="stale"):
+        _extend(ledger, expected_previous_event_sha256=stale_hash)
+
+    with pytest.raises(ConvergenceError, match="strictly increase"):
+        _extend(ledger, new_cap=40)
+    with pytest.raises(ConvergenceError, match="integer"):
+        ledger.extend_stage_attempts(
+            new_cap=True,
+            authorization_sha256=_authorization_hash(),
+            expected_previous_event_sha256=ledger.snapshot().last_event_sha256,
+        )
+    with pytest.raises(ConvergenceError, match="authorization_sha256"):
+        ledger.extend_stage_attempts(
+            new_cap=100,
+            authorization_sha256="bad",
+            expected_previous_event_sha256=ledger.snapshot().last_event_sha256,
+        )
+
+    tight = CampaignLedger(tmp_path / "global.jsonl", _config(max_global_attempts=11))
+    with pytest.raises(CampaignBudgetExceeded, match="global attempts remaining"):
+        _extend(tight, new_cap=41)
+
+
+def test_replay_rejects_a_second_cap_amendment_event(tmp_path):
+    path = tmp_path / "duplicate-amendment.jsonl"
+    ledger = CampaignLedger(path, _config())
+    _extend(ledger)
+    last_envelope = json.loads(path.read_text().splitlines()[-1])
+    previous_hash = last_envelope["event_sha256"]
+    body = {
+        "kind": "extend_stage_attempts",
+        "campaign_id": "synthetic-stage-one",
+        "stage_id": "stage1",
+        "previous_stage_attempt_cap": 100,
+        "new_stage_attempt_cap": 110,
+        "authorization_sha256": _authorization_hash(),
+        "expected_previous_event_sha256": previous_hash,
+        "previous_event_sha256": previous_hash,
+    }
+    event_hash = hashlib.sha256(
+        json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    duplicate_event = json.dumps(
+        {"body": body, "event_sha256": event_hash},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(duplicate_event + "\n")
+
+    with pytest.raises(CampaignLedgerIntegrityError, match="duplicate cap amendments"):
+        CampaignLedger(path, _config()).snapshot()
+
+
+@pytest.mark.parametrize("stop_state", ["pending", "unknown", "over-reserve"])
+def test_stage_cap_extension_rejects_pending_or_stopped_campaign(tmp_path, stop_state):
+    ledger = CampaignLedger(tmp_path / f"{stop_state}.jsonl", _config())
+    reservation = _reserve(ledger)
+    if stop_state == "unknown":
+        ledger.settle(reservation.reservation_id, None)
+    elif stop_state == "over-reserve":
+        ledger.settle(reservation.reservation_id, _charge("0.1501"))
+    with pytest.raises(CampaignBudgetExceeded, match="pending or stopped"):
+        _extend(ledger)

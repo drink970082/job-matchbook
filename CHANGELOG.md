@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Separate preference arbitration from native role/duty classification through a pure,
+  versioned policy and add a CAS-bound append-only Stage 1 attempt-cap amendment that
+  preserves historical accounting and all monetary ceilings.
+
 - Record bounded JEV development measurements (30 v2 draws and nine preference-wording
   probe draws) and retain secondary-tier inconsistency as an open constraint; select a
   separate duty/avoidance classification and deterministic preference-arbitration slice.

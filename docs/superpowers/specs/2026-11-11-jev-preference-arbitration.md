@@ -1,6 +1,6 @@
 # Next convergence slice: separate duty classification from preference arbitration
 
-**Status:** approved for implementation and bounded small-sample execution under the
+**Status:** implemented on branch; approved for bounded small-sample execution under the
 operator's instruction to continue the selected structural correction. The existing USD 10
 campaign grant remains; production GO/merge/deployment are not authorized. This slice
 extends the retained Stage 1 cap from 40 to 100 through an append-only scoped amendment,
@@ -38,11 +38,13 @@ into generic module source. Preserve every raw answer and distinguish the derive
 Decision table:
 
 1. Explicit primary-duty avoidance -> avoided; unclear avoidance -> unresolved.
-2. No avoidance and any supported first-target family -> primary.
-3. No supported first target but a first-target family still unknown -> unresolved priority.
-4. All first-target families ruled out and any supported secondary family -> secondary.
-5. All declared targets ruled out and engineering-primary yes -> adjacent.
-6. Missing/conflicting duties or unsupported branch -> unresolved; never manufacture a pass.
+2. No avoidance but engineering-primary no/unknown -> unresolved (including conflict
+   with a supported engineering role); do not derive a positive preference from it.
+3. No avoidance, engineering-primary yes and any supported first-target family -> primary.
+4. No supported first target but a first-target family still unknown -> unresolved priority.
+5. All first-target families ruled out and any supported secondary family -> secondary.
+6. All declared targets ruled out and engineering-primary yes -> adjacent.
+7. Missing/conflicting duties or unsupported branch -> unresolved; never manufacture a pass.
 
 The function cannot guarantee that model role/avoidance facts are correct. Report raw
 model errors and derived-policy consistency separately. Do not create a 0–100 score,

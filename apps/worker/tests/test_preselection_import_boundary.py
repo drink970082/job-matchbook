@@ -117,8 +117,16 @@ from ats_worker.preselection.shadow import AttemptJournal, run_shadow_assessment
 import ats_worker.preselection.jev
 import ats_worker.preselection.openrouter_jev
 from ats_worker.preselection.convergence import CampaignLedger, build_stage1_report
+from ats_worker.preselection.preference import PreferenceTier, derive_preference
 from test_preselection_convergence import _charge, _config, _manifest, _observation, _reserve
+from test_preselection_preference import (
+    MODEL as PREFERENCE_MODEL,
+    _payload as preference_payload,
+    _policy as preference_policy,
+    _questions as preference_questions,
+)
 from tempfile import TemporaryDirectory
+import hashlib
 
 clock = FakeClock()
 transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
@@ -143,10 +151,26 @@ with TemporaryDirectory() as directory:
     ledger = CampaignLedger(Path(directory) / "campaign.jsonl", _config())
     reservation = _reserve(ledger)
     ledger.settle(reservation.reservation_id, _charge())
+    before_extension = ledger.snapshot()
+    amendment = ledger.extend_stage_attempts(
+        new_cap=100,
+        authorization_sha256=hashlib.sha256(b"synthetic authorization").hexdigest(),
+        expected_previous_event_sha256=before_extension.last_event_sha256,
+    )
+    assert amendment.current_stage_attempt_cap == 100
+    assert amendment.attempts == before_extension.attempts
     manifest = _manifest(policy=False)
     report = build_stage1_report(manifest, [_observation(manifest, 1, "primary")])
     assert report["completed_draws"] == 1
     assert report["quality_evaluation"] == "not_measured"
+    question_set = preference_questions()
+    decision = derive_preference(
+        preference_payload(question_set, quant="supported"),
+        question_set,
+        PREFERENCE_MODEL,
+        preference_policy(question_set),
+    )
+    assert decision.tier is PreferenceTier.PRIMARY
 loaded = [
     name for name in sys.modules
     if any(name == item or name.startswith(item + ".") for item in forbidden)
