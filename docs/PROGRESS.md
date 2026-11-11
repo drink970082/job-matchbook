@@ -15,11 +15,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   pilot is authorized for 10 real JDs and the existing 11 questions, with at most 12 model
   attempts including retries, 15 minutes, USD 1 and 24 KB per request. Explicit token-price
   and platform-fee evidence must bound cost; an absent API request-price field is not
-  treated as a free call. The live mechanics campaign remains stopped after its first
-  dispatched attempt, which the initial validator rejected because known provider usage
-  metadata was outside its allowlist; no hidden retry occurred. The branch now validates
-  and preserves those specific fields. No subsequent request has been made. The sample has
-  no quality labels and cannot support a quality claim or GO. The branch has no production
+  treated as a free call. The private mechanics evidence contains 10 provider responses
+  and 110 format-validated answers: nine live successes and one original failed attempt
+  whose retained response validates offline after the usage-metadata fix. The original
+  failure remains recorded. The 10 dispatched attempts have no retries or unknown charges;
+  their provider-reported total is USD 0.002003148, not invoice-audited. Quality labeling,
+  independent grouping and comparative evaluation remain open. There is no GO or production
   wiring.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
@@ -31,7 +32,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   authorized. It makes no quality-label, quality-estimate or GO claim. Preserve explicit
   rate/fee evidence and the missing API request-price field as separate provenance;
   full-request tokenization and observed charges remain pilot evidence, not established
-  defaults. The campaign remains stopped pending offline replay and review.
+  defaults. The authorized mechanics sample is available for operator review; no additional
+  calls or quality-evaluation run is scheduled.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.

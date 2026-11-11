@@ -28,6 +28,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   completions are rejected. Reports mark quality as `not_measured` and count completed
   unranked calls without describing them as ranked beyond budget.
 
+- Collect the authorized ten-posting JEV mechanics sample: nine live successes and one
+  retained response recovered by offline validation, ten total inference attempts with no
+  retries, and USD 0.002003148 provider-reported cost. No human quality labels or GO.
+
 - Validate and preserve the observed OpenRouter usage fields `is_byok` and
   `cost_details` without relaxing rejection of unknown metadata. Cost details remain
   descriptive raw response fields and do not replace `usage.cost` for charge accounting.
