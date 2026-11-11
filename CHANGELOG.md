@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add isolated JEV Stage 1 campaign accounting with durable reservations, known/unknown
+  settlement and restart stops, plus native repeated-draw stability/contradiction reports
+  and blocked-legacy execution coverage. No quality estimate or production activation.
+
 - Require the JEV convergence campaign to remain isolated from legacy score/eval engines,
   prompts and score-derived labels, with import/resource boundary acceptance checks.
 

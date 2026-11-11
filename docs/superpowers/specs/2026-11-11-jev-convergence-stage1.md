@@ -1,6 +1,6 @@
 # JEV convergence Stage 0/1 contract
 
-**Status:** approved for implementation and the bounded Stage 1 experiment by the
+**Status:** implemented on branch; approved for the bounded Stage 1 experiment by the
 operator's instruction to begin executing the USD 10 convergence plan. This approves no
 production activation. Exact private input hashes are frozen separately before dispatch.
 

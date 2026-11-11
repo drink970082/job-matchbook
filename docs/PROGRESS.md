@@ -29,8 +29,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Stage 0/1 execution is now selected under the
   [approved bounded contract](superpowers/specs/2026-11-11-jev-convergence-stage1.md):
   an isolated campaign ledger/repeat reporter and ten development jobs × three fresh
-  draws, maximum40newattempts/15minutes/USD0.50includingpriorcost. Private input versions
-  are frozen before calls; no deployment GO. The
+  draws, maximum40newattempts/15minutes/USD0.50includingpriorcost. The new isolated
+  campaign ledger and repeated-draw reporter are implemented on this branch and accepted
+  for bounded Stage 1 execution after worker and blocked-legacy checks. Private v2 profile/questions and the 10×3 cohort are frozen before
+  calls; no deployment GO. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 

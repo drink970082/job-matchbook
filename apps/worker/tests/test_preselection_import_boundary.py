@@ -116,6 +116,9 @@ from test_preselection_shadow import (
 from ats_worker.preselection.shadow import AttemptJournal, run_shadow_assessment
 import ats_worker.preselection.jev
 import ats_worker.preselection.openrouter_jev
+from ats_worker.preselection.convergence import CampaignLedger, build_stage1_report
+from test_preselection_convergence import _charge, _config, _manifest, _observation, _reserve
+from tempfile import TemporaryDirectory
 
 clock = FakeClock()
 transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
@@ -136,6 +139,14 @@ result = run_shadow_assessment(
 assert result.status == "completed"
 assert result.assessment is not None
 assert len(transport.calls) == 1
+with TemporaryDirectory() as directory:
+    ledger = CampaignLedger(Path(directory) / "campaign.jsonl", _config())
+    reservation = _reserve(ledger)
+    ledger.settle(reservation.reservation_id, _charge())
+    manifest = _manifest(policy=False)
+    report = build_stage1_report(manifest, [_observation(manifest, 1, "primary")])
+    assert report["completed_draws"] == 1
+    assert report["quality_evaluation"] == "not_measured"
 loaded = [
     name for name in sys.modules
     if any(name == item or name.startswith(item + ".") for item in forbidden)
