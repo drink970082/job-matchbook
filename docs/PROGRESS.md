@@ -48,12 +48,16 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   970attempts/USD0.299487376, no pending/unknown/overreserve. Pure source-ID v2 explicitly
   states the existing citation bounds without relaxing validation or changing semantics;
   1728worker tests/1skip/85.25%coverage plus schema/privacy/import-boundary gates pass.
-  [Instruction alignment/new-source validation](superpowers/specs/2026-11-12-source-id-validation30.md)
-  is the selected follow-up under the continuous directive:30newJDs/4exposed controls,
-  same questions/background/policy/model/route, max136attempts/USD1insideUSD10. Eight
-  exposed control draws must satisfy the complete contract before new-source dispatch.
-  Prior-company flags, source/proxy/wire hashes and all three ancestor ledgers stay bound;
-  no old history reset, cutover or activation.
+  The source-ID v2 mechanical gate closes after8control draws:6valid/2over-count
+  failures. No new30JD is dispatched and no remaining v2 work is selected. Linked total:
+  978attempts/USD0.310636176, no pending/unknown/overreserve. Its
+  [contract/checkpoint](superpowers/specs/2026-11-12-source-id-validation30.md) preserves
+  all outcomes and the frozen new30source/proxy/grouping inputs. The next proposed v3
+  replaces arbitrary top-k citation caps with actual-source unique-ID counts, preserving
+  source/type/minimum/uniqueness/HTTP resource validation. It is not implemented or run.
+  The required Luna implementer reports a session usage limit; execution stops under the
+  operator's stated condition. Resume from this checkpoint without retrying failed draws,
+  resuming closed stages, changing labels, or resetting history. No cutover or activation.
 
 
 

@@ -255,7 +255,7 @@ assert source_wire["reasoning"] == {
     "effort": "low",
     "exclude": True,
 }
-assert SOURCE_ID_CHAT_PROFILE_VERSION == "source-ids-haiku-low-reasoning-4096-v1"
+assert SOURCE_ID_CHAT_PROFILE_VERSION == "source-ids-haiku-low-reasoning-4096-v2"
 source_reference = source_reply.payload["answers"]["role_families"]["evidence"][0]
 source_text = source_invocation.payload[
     "job_description" if source_reference["source"] == "jd" else "candidate_context"

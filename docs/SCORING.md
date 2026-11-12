@@ -1762,8 +1762,10 @@ Source-ID references eliminate invented literal quote text in the small separate
 slice, but strict schema alone does not enforce the citation-count bounds:19/30fact and
 30/30skill replies exceed them. Exact source provenance is not successful assessment
 acceptance. Preserve failed raw replies and known cost; do not clip evidence retrospectively
-or count diagnostic projections as live successes. Make contract bounds explicit in the
-source-ID instruction before new-source testing. A dynamically selected central requirement
+or count diagnostic projections as live successes. Explicitly stating these arbitrary
+counts still fails2/8control draws, so wording alone is not accepted. Evaluate a natural
+actual-source unique-ID maximum separately, retaining all provenance/resource safeguards
+and old failures. No new-source v2 outputs exist. A dynamically selected central requirement
 can change between draws; agreement of its enum is not a fixed-requirement accuracy measure.
 See the [separated-pass checkpoint](reports/2026-11-12-source-id-separation-checkpoint.md).
 

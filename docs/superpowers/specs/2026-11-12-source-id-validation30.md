@@ -1,7 +1,17 @@
 # Source-ID instruction alignment and new-source validation
 
-**Status:** selected bounded research under the standing continuousUSD10directive;
-no additional model/provider or production activation.
+**Status:** v2 mechanical gate closed at8control draws:6valid/2citation-count failures.
+No new-source dispatch is selected in this epoch. Cumulative978attempts/USD0.310636176,
+no pending/unknown/overreserve. All30newJDs remain provider-unseen. Execution stops because
+Luna, the required implementer, reports its session usage limit. No additional model/
+provider or production activation. The bounded protocol below remains the audit contract;
+its unsent128calls are not work to resume automatically.
+
+The next proposed v3 uses each actual source's citable-ID count as the natural maximum,
+retaining minimum sources, uniqueness, exact provenance and bounded HTTP resources.
+It is unimplemented. Preserve old failures and frozen new-source/proxy inputs; a new
+protocol/ledger must carry978attempts/USD0.310636176forward and bind all four predecessors
+before any new inference. No retrofit success, paid retry or budget reset.
 
 The source-ID v1 experiment fails live acceptance mainly because replies exceed declared
 citation counts. Preserve that negative result and every reply/charge. Source-ID v2 makes
