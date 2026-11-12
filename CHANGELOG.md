@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Reconcile interrupted JEV accounting using operator Activity token records, retaining
+  the lost reply. Record v7 regression and a role-only structural ablation; freeze100new
+  source postings with16pre-model proxy cases for bounded expansion, without accuracy/GO.
+
 - Record partial calibrated-v7 regression and an operator-harness interruption:21
   completed responses, one unresolved dispatched request, known cumulativeUSD0.068362182.
   Preserve the pending reserve and effective cap400; stop inference for billing evidence

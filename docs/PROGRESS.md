@@ -40,30 +40,29 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   high/moderate on one vague-duty job and remains explicitly uncertain. Six source-bound
   skill sidecars cover16selectedrequirements with identical three-draw support; annotations
   remain proxy/selected-only, not human gold or an automatic requirements collector.
-  The retained ledger has319new/329totalattempts and known cumulativeUSD0.068362182
-  including prior cost, with one unresolved USD0.15reservation. Three distinct-auth
-  cap amendments preserve history; a further cap600amendment has not been applied.
-  The effective cap is400. The
+  The retained ledger has479new/489totalattempts, cumulativeUSD0.095610396including
+  prior cost, with no pending/unknown/overreserve charges. The interrupted v7 request is
+  reconciled from operator-supplied Activity: all21retained rows match token counts/order;
+  the unmatched5615input/457output row supports USD0.000235830 reconstructed from frozen
+  rates, not an exact unrounded invoice. The lost response remains lost. The effective
+  cap600amendment is retained without resetting prior spend. Prelaunch checks now reject
+  unresolved accounting/missing amendments before key access. The
   [forty-job validation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
-  contains120freshcalls on unchanged v6 inputs, with pre-model proxy labels and29company-family
-  groups frozen. Preference tiers repeat identically on35/40jobs;25/29singleton proxy cases
-  and9/11ambiguous-set cases have every draw admissible. These are proxy comparisons,
-  not human accuracy. Thirty-four items are from new companies and six share development
-  companies; the cohort is purposive, not a complete-day source roster. Embedded avoidance
-  misses, team-context inference and specialized-engineering tag omissions remain defects.
-  Operator calibration accepts low-latency work except explicitly very low-level C++,
-  visual-model inference engineering, substantial ETL mixed with BI, and alpha research
-  with substantial programming/model implementation; chip-domain work remains avoided.
-  A frozen private profile2.0.4/v7 pack applies these policies without changing background,
-  eligibility rules or adding weights. The exposed40are selected for120fresh regression
-  calls with max140newattempts/15minutes; USD0.50current and USD10global ceilings remain.
-  The operator harness incorrectly continued after an amendment-call TypeError; interruption
-  retained21complete responses and one dispatched request without a reply/cost. No cap was
-  exceeded, but all provider calls are stopped pending exact billing reconciliation. The
-  cap400→600authorization is recorded but unapplied; a fail-closed prelaunch guard now
-  rejects unresolved accounting or a missing cap amendment before any key/network access.
-  This partial regression is not independent quality evidence. Operator policy decisions
-  are settled; the required intervention is the missing provider billing record.
+  retains unchanged-v6 evidence and pre-model proxies; these40are exposed development
+  examples for later revisions. Operator preferences accept low latency except explicitly
+  very low-level C++, vision inference, substantial ETL/BI and coded alpha research;
+  chip-domain work remains avoided. Profile2.0.4changes no candidate facts or eligibility.
+  V7's two complete regression passes have39/40unanimous preferences, but wrong consistent
+  classifications remain. A role-only nine-question projection removes background,
+  eligibility and unrelated skill/interest questions without changing role/avoidance wording.
+  Two passes on the exposed40have37/40unanimity; sparse-duty abstention improves but other
+  outcomes regress. This is a structural ablation, not an accuracy/GO claim or a new default.
+  A frozen100new-posting/name-excluded-company expansion is selected for200freshcalls,
+  max200newattempts/15minutes and cap600→1000authorization. USD0.50current/USD10global,
+  one in flight/no retries/24KB bounds remain. It contains76normalizedcompany-name groups,
+  16pre-model quoted-duty proxy cases and84quality-unlabelled cases; aliases/templates
+  are not independently reconciled. Two source-event controls are not employment offers.
+  Inference remains isolated research with no production writes, merge or activation.
   The operator directs continuous execution until intervention/session-limit/USD10exhaustion,
   with no overfitting, unnecessary complexity or invented missing JD facts. Thirteen
   over-bound full payloads were omitted, never truncated; mobile coverage remains absent.
