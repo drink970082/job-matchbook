@@ -1,9 +1,9 @@
 # JEV advisory-scoring research checkpoint
 
-**Status:** no production GO. Required operator intervention is whether to authorize a
-separate model comparison; candidate preference calibration is settled. The selected
-model remains `typesafe/jev-1.13-20260917`. No other model received private inputs or paid
-inference. Measurements are current to the 2026-11-12 UTC checkpoint.
+**Status:** no production GO. Candidate preference calibration and the bounded Haiku
+comparison are authorized. JEV measurements below remain unchanged; the additional
+transport is accepted for that comparison, with no Haiku inference evidence yet.
+Measurements are current to the 2026-11-12 UTC checkpoint.
 
 ## Measurements and limits
 
@@ -57,12 +57,12 @@ blocked-resource test executes reconciliation with legacy scorer imports/resourc
 Web/E2E were not rerun: this change has no Web/runtime surface. Production data, screening,
 legacy scoring/evaluation and activation remain outside the experiment.
 
-## Pending decision
+## Selected bounded comparison
 
-A proposed bounded comparison uses OpenRouter `anthropic/claude-haiku-5.5`, restricted to
+The operator-approved bounded comparison uses OpenRouter `anthropic/claude-haiku-5.5`, restricted to
 the Anthropic route, with advertised backend snapshot20261007 checked before dispatch and
 no model/provider fallback. Public endpoint metadata is retained; no inference is performed.
-The proposal is10exposed failure/control cases plus20newJDs, two draws each, max60attempts
+The scope is10exposed failure/control cases plus20newJDs, two draws each, max60attempts
 including failures, one in flight, no retries,15minutes,24KBrequest/128KBresponse and
 2048maximum output tokens. New pilot spend is cappedUSD1within the existing cumulative
 USD10grant; all prior cost/attempts must carry forward. Model-specific reservations and
@@ -70,5 +70,8 @@ exact source/schema/price bindings require freezing before execution. This is no
 paid judge or gold-label source. Exact source quotes must be validated, omissions remain
 unknown, and no automatic selection/merge/deployment follows a passing comparison.
 
-The current authorization selects JEV only. This proposed model comparison requires an
-explicit operator decision; unused credit does not justify more uninformative JEV calls.
+The affirmative operator reply selects this exact comparison, not unrestricted model
+migration. Thirty exact payloads and pre-model proxy expectations are frozen before calls;
+20sources are new and10are exposed controls. The new direct-only transport passes1697worker
+tests/1skip/85.11%coverage. Actual live evidence remains pending; unused credit does not
+justify additional uninformative JEV calls.

@@ -1,0 +1,538 @@
+"""Synthetic route, quote normalization and failure-accounting tests for Haiku Chat."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+import json
+import multiprocessing
+from pathlib import Path
+
+import pytest
+
+from ats_worker.preselection.openrouter_chat import (
+    CHAT_EVIDENCE_NOTE,
+    CHAT_COMPLETIONS_URL,
+    MAX_REQUEST_BYTES,
+    MAX_RESPONSE_BYTES,
+    MODEL_IDENTITY,
+    REPORTED_COST_SOURCE,
+    RESOLVED_MODEL,
+    REQUESTED_MODEL,
+    TIMEOUT_SECONDS,
+    OpenRouterChatError,
+    OpenRouterChatTransport,
+    build_openrouter_chat_request,
+)
+from ats_worker.preselection.shadow import (
+    AttemptJournal,
+    Charge,
+    CostCeiling,
+    JobEnvelope,
+    ProviderFailure,
+    RetryPolicy,
+    ShadowLimits,
+    SystemClock,
+    build_assessment_invocation,
+    run_shadow_assessment,
+)
+from ats_worker.preselection.profile import profile_from_value
+from ats_worker.preselection.questions import question_set_from_value
+
+
+RATE_DATE = "2026-11-12"
+JD_QUOTE = "2+ years professional experience"
+CONTEXT_QUOTE = "Interested in engineering and product work"
+
+
+QUESTION_SET = question_set_from_value({
+    "version": "synthetic-haiku-chat-v1",
+    "questions": [
+        {
+            "id": "role_families",
+            "prompt": "Select supported synthetic role families or unknown.",
+            "type": "multi_enum",
+            "allowed_values": ["engineering", "product", "unknown"],
+        },
+        {
+            "id": "work_alignment",
+            "prompt": "Classify synthetic interest alignment.",
+            "type": "enum",
+            "allowed_values": ["low", "moderate", "high", "unknown"],
+        },
+        {
+            "id": "dimension_example",
+            "prompt": "Return a bounded synthetic schema value.",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4,
+        },
+    ],
+})
+
+
+def _profile():
+    return profile_from_value({
+        "schema": 1,
+        "version": "synthetic-chat-profile-v1",
+        "as_of": "2026-11-11",
+        "status": "approved",
+        "background": [
+            {"id": "engineering", "text": "Built software in a fictional internship."},
+            {"id": "data", "text": "Used data analysis in an academic project."},
+        ],
+        "preferences": [
+            {"id": "interests", "text": "Interested in engineering and product work; no ranking is stated."},
+        ],
+    })
+
+
+def _job(description=None):
+    return JobEnvelope(
+        "Synthetic Co",
+        "Synthetic Engineer",
+        "Remote",
+        description or "A fictional company needs an engineer with 2+ years professional experience.",
+    )
+
+
+def _assessment(invocation, *, jd_quote=JD_QUOTE, context_quote=CONTEXT_QUOTE):
+    return {
+        "answers": {
+            "role_families": {
+                "value": ["engineering"],
+                "evidence": [{"source": "jd", "quote": jd_quote}],
+            },
+            "work_alignment": {
+                "value": "moderate",
+                "evidence": [{"source": "candidate_context", "quote": context_quote}],
+            },
+            "dimension_example": {"value": 2, "evidence": []},
+        },
+        "explanation": "Synthetic explanation tied to the supplied evidence.",
+    }
+
+
+def _response(
+    invocation,
+    *,
+    assessment=None,
+    model=REQUESTED_MODEL,
+    provider="Anthropic",
+    finish_reason="stop",
+    refusal=None,
+    cost="0.0005",
+    usage=True,
+):
+    message = {
+        "role": "assistant",
+        "content": json.dumps(assessment or _assessment(invocation), ensure_ascii=False),
+    }
+    if refusal is not None:
+        message["refusal"] = refusal
+    body = {
+        "id": "synthetic-chat-response",
+        "provider": provider,
+        "model": model,
+        "choices": [{"index": 0, "finish_reason": finish_reason, "message": message}],
+    }
+    if usage:
+        body["usage"] = {
+            "prompt_tokens": 320,
+            "completion_tokens": 91,
+            "prompt_tokens_details": {"cached_tokens": 10},
+            "cost": cost,
+        }
+    return body
+
+
+class FakeResponse:
+    def __init__(self, body, *, status_code=200):
+        self.status_code = status_code
+        self.body = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self.closed = False
+
+    def iter_content(self, chunk_size):
+        assert chunk_size > 0
+        for start in range(0, len(self.body), chunk_size):
+            yield self.body[start:start + chunk_size]
+
+    def close(self):
+        self.closed = True
+
+
+class FakeHTTP:
+    def __init__(self, response=None, *, marker_path=None, failure=None):
+        self.response = response
+        self.marker_path = Path(marker_path) if marker_path is not None else None
+        self.failure = failure
+        self.posts = []
+        self.call_count = multiprocessing.get_context("fork").Value("i", 0)
+
+    def post(self, url, **kwargs):
+        with self.call_count.get_lock():
+            self.call_count.value += 1
+        self.posts.append((url, kwargs))
+        if self.marker_path is not None:
+            with self.marker_path.open("a", encoding="utf-8") as stream:
+                stream.write("POST\n")
+                stream.flush()
+        if self.failure is not None:
+            raise self.failure
+        return self.response
+
+
+def _invocation(description=None, *, model_identity=MODEL_IDENTITY):
+    return build_assessment_invocation(
+        _job(description),
+        _profile(),
+        QUESTION_SET,
+        model_identity,
+        variant="direct",
+    )
+
+
+def _transport(http):
+    return OpenRouterChatTransport(http=http, api_key="synthetic-secret", rate_date=RATE_DATE)
+
+
+def _limits():
+    return ShadowLimits(
+        max_total_attempts=3,
+        max_attempts_per_request=1,
+        max_elapsed_seconds=900.0,
+        cost_ceiling=CostCeiling(
+            total_amount="1",
+            max_attempt_amount="0.15",
+            currency="USD",
+            billing_unit="request",
+            rate_date=RATE_DATE,
+            rate_source=REPORTED_COST_SOURCE,
+        ),
+    )
+
+
+def _complete_failure(transport, invocation):
+    with pytest.raises(ProviderFailure) as raised:
+        transport.complete(invocation)
+    return raised.value
+
+
+def test_pure_request_builder_freezes_selected_route_and_refines_only_evidence_schema():
+    invocation = _invocation()
+    body = build_openrouter_chat_request(invocation)
+    request = json.loads(body)
+    assert len(body) <= MAX_REQUEST_BYTES
+    assert request["model"] == REQUESTED_MODEL
+    assert request["max_tokens"] == 2048
+    assert request["stream"] is False
+    assert request["n"] == 1
+    assert request["reasoning"] == {"enabled": False}
+    assert request["tool_choice"] == "none"
+    assert "tools" not in request
+    assert request["provider"] == {
+        "only": ["anthropic"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+    }
+    assert request["messages"][0]["content"] == (
+        invocation.system_prompt + "\n\n" + CHAT_EVIDENCE_NOTE
+    )
+    assert len(CHAT_EVIDENCE_NOTE.encode("utf-8")) <= 250
+    assert "synthetic-secret" not in body.decode("utf-8")
+    user_payload = json.loads(request["messages"][1]["content"])
+    assert user_payload == invocation.payload
+    assert user_payload["job_description"] == _job().description
+    assert user_payload["candidate_context"] == invocation.payload["candidate_context"]
+    schema = request["response_format"]["json_schema"]["schema"]
+    original_schema = invocation.output_schema
+    for question_id in original_schema["properties"]["answers"]["properties"]:
+        item = schema["properties"]["answers"]["properties"][question_id]["properties"]["evidence"]["items"]
+        assert item["additionalProperties"] is False
+        assert item["required"] == ["source", "quote"]
+        assert item["properties"]["source"]["enum"] == ["jd", "candidate_context"]
+        assert item["properties"]["quote"] == {"type": "string", "minLength": 1}
+        assert "start" not in item["properties"]
+        assert "end" not in item["properties"]
+    assert invocation.output_schema == original_schema
+
+
+@pytest.mark.parametrize("model", [REQUESTED_MODEL, RESOLVED_MODEL])
+def test_transport_posts_once_to_fixed_route_and_returns_quote_normalized_reply(model):
+    invocation = _invocation()
+    response = FakeResponse(_response(invocation, model=model))
+    http = FakeHTTP(response)
+    transport = _transport(http)
+    reply = transport.complete(invocation)
+
+    assert len(http.posts) == 1
+    url, kwargs = http.posts[0]
+    assert url == CHAT_COMPLETIONS_URL
+    assert kwargs["timeout"] == TIMEOUT_SECONDS
+    assert kwargs["allow_redirects"] is False
+    assert kwargs["stream"] is True
+    assert kwargs["headers"]["Authorization"] == "Bearer synthetic-secret"
+    assert kwargs["data"] == build_openrouter_chat_request(invocation)
+    assert response.closed
+    assert reply.model_identity == MODEL_IDENTITY
+    assert json.loads(response.body)["model"] == model
+    assert reply.usage.input_tokens == 320
+    assert reply.usage.output_tokens == 91
+    assert reply.usage.cached_input_tokens == 10
+    assert reply.charge == Charge("actual", "0.0005", "USD", "request", RATE_DATE, REPORTED_COST_SOURCE)
+    assert reply.payload["answers"]["role_families"]["evidence"] == [{
+        "source": "jd",
+        "start": invocation.payload["job_description"].index(JD_QUOTE),
+        "end": invocation.payload["job_description"].index(JD_QUOTE) + len(JD_QUOTE),
+        "quote": JD_QUOTE,
+    }]
+    context = invocation.payload["candidate_context"]
+    context_ref = reply.payload["answers"]["work_alignment"]["evidence"][0]
+    assert context_ref["source"] == "candidate_context"
+    assert context[context_ref["start"]:context_ref["end"]] == CONTEXT_QUOTE
+    assert "synthetic-secret" not in repr(transport)
+
+
+def test_generic_supervised_shadow_roundtrip_uses_normalized_exact_offsets(tmp_path):
+    invocation = _invocation()
+    response = FakeResponse(_response(invocation))
+    http = FakeHTTP(response, marker_path=tmp_path / "posts.jsonl")
+    journal = AttemptJournal.empty()
+    clock = SystemClock()
+    result = run_shadow_assessment(
+        _job(),
+        _profile(),
+        QUESTION_SET,
+        "direct",
+        MODEL_IDENTITY,
+        _transport(http),
+        journal,
+        _limits(),
+        clock,
+        lambda current: None,
+        enabled=True,
+        retry_policy=RetryPolicy(max_retries=0, initial_delay_seconds=0, max_delay_seconds=0),
+    )
+
+    assert result.status == "completed"
+    assert result.assessment is not None
+    assert http.call_count.value == 1
+    answers = {answer.question_id: answer for answer in result.assessment.answers}
+    jd_ref = answers["role_families"].evidence[0]
+    assert invocation.payload["job_description"][jd_ref["start"]:jd_ref["end"]] == JD_QUOTE
+    context_ref = answers["work_alignment"].evidence[0]
+    context = invocation.payload["candidate_context"]
+    assert context[context_ref["start"]:context_ref["end"]] == CONTEXT_QUOTE
+
+
+@pytest.mark.parametrize("quote", ["Not present in the JD", "Python"])
+def test_missing_or_ambiguous_quote_fails_with_known_charge(quote):
+    invocation = _invocation("Python is required. Python is also mentioned in the overview.")
+    assessment = _assessment(invocation, jd_quote=quote)
+    http = FakeHTTP(FakeResponse(_response(invocation, assessment=assessment)))
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.error_code == "openrouter_assessment_invalid"
+    assert failure.delivery == "delivered"
+    assert failure.retryable is False
+    assert failure.usage.input_tokens == 320
+    assert failure.charge == Charge("actual", "0.0005", "USD", "request", RATE_DATE, REPORTED_COST_SOURCE)
+    assert len(http.posts) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("provider", "OpenAI", "openrouter_provider_mismatch"),
+        ("provider", None, "openrouter_provider_mismatch"),
+        ("model", "another/model", "openrouter_response_model_mismatch"),
+    ],
+)
+def test_wrong_provider_or_model_fails_with_known_charge(field, value, code):
+    invocation = _invocation()
+    response_value = _response(invocation)
+    response_value[field] = value
+    failure = _complete_failure(_transport(FakeHTTP(FakeResponse(response_value))), invocation)
+    assert failure.error_code == code
+    assert failure.charge.kind == "actual"
+    assert failure.charge.amount == "0.0005"
+    assert failure.delivery == "delivered"
+
+
+@pytest.mark.parametrize(
+    ("finish_reason", "refusal", "code"),
+    [
+        ("length", None, "openrouter_finish_reason_invalid"),
+        ("tool_calls", None, "openrouter_finish_reason_invalid"),
+        ("stop", "Synthetic refusal", "openrouter_refusal"),
+    ],
+)
+def test_non_stop_refusal_and_tool_finish_fail_with_known_charge(finish_reason, refusal, code):
+    invocation = _invocation()
+    response_value = _response(invocation, finish_reason=finish_reason, refusal=refusal)
+    failure = _complete_failure(_transport(FakeHTTP(FakeResponse(response_value))), invocation)
+    assert failure.error_code == code
+    assert failure.charge.kind == "actual"
+    assert failure.delivery == "delivered"
+
+
+def test_tool_calls_and_duplicate_content_members_fail_without_losing_known_cost():
+    invocation = _invocation()
+    response_value = _response(invocation)
+    response_value["choices"][0]["message"]["tool_calls"] = [{"id": "synthetic"}]
+    failure = _complete_failure(_transport(FakeHTTP(FakeResponse(response_value))), invocation)
+    assert failure.error_code == "openrouter_tool_call_rejected"
+    assert failure.charge.kind == "actual"
+
+    response_value = _response(invocation)
+    content = response_value["choices"][0]["message"]["content"]
+    response_value["choices"][0]["message"]["content"] = content[:-1] + ',"explanation":"duplicate"}'
+    failure = _complete_failure(_transport(FakeHTTP(FakeResponse(response_value))), invocation)
+    assert failure.error_code == "openrouter_assessment_invalid"
+    assert failure.charge.kind == "actual"
+
+    invalid_value = _assessment(invocation)
+    invalid_value["answers"]["role_families"]["value"] = ["not-allowed"]
+    failure = _complete_failure(
+        _transport(FakeHTTP(FakeResponse(_response(invocation, assessment=invalid_value)))),
+        invocation,
+    )
+    assert failure.error_code == "openrouter_assessment_invalid"
+    assert failure.charge.kind == "actual"
+
+
+@pytest.mark.parametrize(
+    "raw_body",
+    [
+        b"{not-json",
+        b'{"provider":"Anthropic","provider":"Anthropic"}',
+        b'{"nested":' + b"[" * 40 + b"0" + b"]" * 40 + b"}",
+        b" " * (MAX_RESPONSE_BYTES + 1),
+    ],
+)
+def test_malformed_duplicate_deep_and_oversized_http_bodies_have_unknown_charge(raw_body):
+    invocation = _invocation()
+    failure = _complete_failure(_transport(FakeHTTP(FakeResponse(raw_body))), invocation)
+    assert failure.error_code == "openrouter_response_unavailable"
+    assert failure.delivery == "delivered"
+    assert failure.charge.kind == "unknown"
+    assert failure.retryable is False
+
+
+def test_valid_response_without_usage_cost_keeps_price_unknown():
+    invocation = _invocation()
+    response_value = _response(invocation, usage=False)
+    response_value["usage"] = {"prompt_tokens": 12, "completion_tokens": 5}
+    reply = _transport(FakeHTTP(FakeResponse(response_value))).complete(invocation)
+    assert reply.usage.input_tokens == 12
+    assert reply.usage.output_tokens == 5
+    assert reply.charge == Charge.unknown()
+
+
+def test_network_failure_is_unknown_delivery_one_call_and_redacts_exception_text():
+    invocation = _invocation()
+    http = FakeHTTP(failure=RuntimeError("synthetic-secret-response-body"))
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.error_code == "openrouter_delivery_unknown"
+    assert failure.delivery == "unknown"
+    assert failure.charge.kind == "unknown"
+    assert failure.retryable is False
+    assert "synthetic-secret-response-body" not in str(failure)
+    assert len(http.posts) == 1
+
+
+def test_http_rejection_has_unknown_charge_and_is_not_retried():
+    invocation = _invocation()
+    response = FakeResponse({"error": {"message": "private provider detail"}}, status_code=429)
+    http = FakeHTTP(response)
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.error_code == "openrouter_http_rejected"
+    assert failure.delivery == "unknown"
+    assert failure.charge.kind == "unknown"
+    assert response.closed
+    assert len(http.posts) == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_charge", "expected_prompt_tokens"),
+    [
+        (
+            {"error": {"message": "private provider detail"}, "usage": {
+                "prompt_tokens": 25, "completion_tokens": 0, "cost": "0.0002"
+            }},
+            "0.0002",
+            25,
+        ),
+        (
+            {"error": {"message": "private provider detail"}, "usage": {
+                "prompt_tokens": 25, "completion_tokens": 0
+            }},
+            None,
+            25,
+        ),
+    ],
+)
+def test_http_rejection_boundedly_preserves_any_reported_usage_and_charge(
+    body, expected_charge, expected_prompt_tokens
+):
+    invocation = _invocation()
+    response = FakeResponse(body, status_code=400)
+    http = FakeHTTP(response)
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.error_code == "openrouter_http_rejected"
+    assert failure.delivery == "unknown"
+    assert failure.usage.input_tokens == expected_prompt_tokens
+    if expected_charge is None:
+        assert failure.charge.kind == "unknown"
+    else:
+        assert failure.charge.kind == "actual"
+        assert failure.charge.amount == expected_charge
+        assert failure.charge.rate_source == REPORTED_COST_SOURCE
+    assert "private provider detail" not in str(failure)
+    assert response.closed
+    assert len(http.posts) == 1
+
+
+def test_oversized_http_error_body_is_bounded_and_keeps_charge_unknown():
+    invocation = _invocation()
+    response = FakeResponse(b" " * (MAX_RESPONSE_BYTES + 1), status_code=400)
+    failure = _complete_failure(_transport(FakeHTTP(response)), invocation)
+    assert failure.error_code == "openrouter_http_rejected"
+    assert failure.charge.kind == "unknown"
+    assert failure.delivery == "unknown"
+    assert response.closed
+
+
+@pytest.mark.parametrize("mutation", ["extracted", "native", "model"])
+def test_unsupported_invocations_reject_before_http(mutation):
+    invocation = _invocation()
+    if mutation == "extracted":
+        invocation = replace(invocation, variant="extracted")
+    elif mutation == "native":
+        invocation = replace(invocation, schema_version="jev-native-response-v1")
+    else:
+        invocation = replace(invocation, model_identity=replace(MODEL_IDENTITY, requested_model="other/model"))
+    http = FakeHTTP(FakeResponse({}))
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.delivery == "not_sent"
+    assert failure.charge.kind == "unknown"
+    assert http.posts == []
+
+
+def test_oversized_request_rejects_before_http():
+    invocation = _invocation("x" * MAX_REQUEST_BYTES)
+    with pytest.raises(OpenRouterChatError, match="request_too_large"):
+        build_openrouter_chat_request(invocation)
+    http = FakeHTTP(FakeResponse({}))
+    failure = _complete_failure(_transport(http), invocation)
+    assert failure.delivery == "not_sent"
+    assert http.posts == []
+
+
+def test_constructor_requires_injected_key_http_and_frozen_iso_date():
+    with pytest.raises(ValueError, match="HTTP POST"):
+        OpenRouterChatTransport(http=object(), api_key="key", rate_date=RATE_DATE)
+    with pytest.raises(ValueError, match="API key"):
+        OpenRouterChatTransport(http=FakeHTTP(FakeResponse({})), api_key=" ", rate_date=RATE_DATE)
+    with pytest.raises(ValueError, match="API key"):
+        OpenRouterChatTransport(http=FakeHTTP(FakeResponse({})), api_key="key\nInjected:", rate_date=RATE_DATE)
+    with pytest.raises(ValueError, match="ISO calendar date"):
+        OpenRouterChatTransport(http=FakeHTTP(FakeResponse({})), api_key="key", rate_date="2026-2-2")

@@ -114,6 +114,12 @@ from test_preselection_shadow import (
     reply,
 )
 from ats_worker.preselection.shadow import AttemptJournal, run_shadow_assessment
+from ats_worker.preselection.shadow import build_assessment_invocation
+from ats_worker.preselection.openrouter_chat import (
+    MODEL_IDENTITY as CHAT_MODEL_IDENTITY,
+    OpenRouterChatTransport,
+    build_openrouter_chat_request,
+)
 import ats_worker.preselection.jev
 import ats_worker.preselection.openrouter_jev
 from ats_worker.preselection.convergence import CampaignLedger, build_stage1_report
@@ -135,6 +141,7 @@ from test_preselection_skills import (
 )
 from tempfile import TemporaryDirectory
 import hashlib
+import json
 
 clock = FakeClock()
 transport = FakeTransport([reply(ASSESSOR, assessment_payload())], clock)
@@ -155,6 +162,50 @@ result = run_shadow_assessment(
 assert result.status == "completed"
 assert result.assessment is not None
 assert len(transport.calls) == 1
+chat_invocation = build_assessment_invocation(
+    job(), approved_profile(), questions(), CHAT_MODEL_IDENTITY, variant="direct"
+)
+wire = build_openrouter_chat_request(chat_invocation)
+assert b"\"reasoning\":{\"enabled\":false}" in wire
+chat_assessment = assessment_payload()
+for answer in chat_assessment["answers"].values():
+    answer["evidence"] = [
+        {"source": item["source"], "quote": item["quote"]}
+        for item in answer["evidence"]
+    ]
+chat_response_body = json.dumps({
+    "id": "synthetic-chat-response",
+    "provider": "Anthropic",
+    "model": "anthropic/claude-haiku-5.5",
+    "usage": {"prompt_tokens": 12, "completion_tokens": 7, "cost": "0.0001"},
+    "choices": [{
+        "finish_reason": "stop",
+        "message": {"role": "assistant", "content": json.dumps(chat_assessment)},
+    }],
+}).encode("utf-8")
+class ChatResponse:
+    status_code = 200
+    def iter_content(self, chunk_size):
+        yield chat_response_body
+    def close(self):
+        pass
+class ChatHTTP:
+    def __init__(self):
+        self.calls = 0
+    def post(self, url, **kwargs):
+        self.calls += 1
+        assert url == "https://openrouter.ai/api/v1/chat/completions"
+        assert kwargs["allow_redirects"] is False
+        return ChatResponse()
+chat_http = ChatHTTP()
+chat_reply = OpenRouterChatTransport(
+    http=chat_http,
+    api_key="synthetic-chat-key",
+    rate_date="2026-11-12",
+).complete(chat_invocation)
+assert chat_http.calls == 1
+assert chat_reply.model_identity == CHAT_MODEL_IDENTITY
+assert chat_reply.payload["answers"]["role_families"]["evidence"][0]["start"] == job().description.index("engineer")
 with TemporaryDirectory() as directory:
     ledger = CampaignLedger(Path(directory) / "campaign.jsonl", _config())
     reservation = _reserve(ledger)

@@ -29,10 +29,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   manual reconciliation preserves original unknown events and counters; its worker gate
   passes1669tests/1skip/85.14%coverage with blocked legacy execution. The original lost
   response remains lost; a proven local pre-dispatch failure is zero-charged explicitly.
-  Work is stopped for an operator decision on a proposed OpenRouter Haiku5.5 comparison:
+  The operator authorizes the
+  [bounded Haiku5.5comparison](superpowers/specs/2026-11-12-openrouter-haiku-comparison.md):
   max60attempts/15minutes/USD1withinUSD10,10exposed controls+20newJDs×2, same approved
-  data, no retries/fallbacks or activation. Only public metadata has been fetched; this
-  additional model/provider route is not authorized and has received no private inputs.
+  full profile, no retries/provider/model fallback or activation. Exact new-source/proxy,
+  quote schema, routing/rates and stage-bridge identities must freeze before calls.
+  The isolated direct-only typed-JSON transport is implemented and accepted for this
+  comparison after1697worker tests/1skip/85.11%coverage,30targeted/boundary tests and
+  schema/privacy/diff gates. Exact30request payloads, pre-model proxies, rates/routing and
+  an audit-linked850attempt/USD0.140438676stage bridge are frozen; maximum23667wirebytes
+  retains every full JD/profile. Original HTTP replies stay separate from uniquely
+  matched quote offsets. No Haiku private input or paid inference has occurred yet.
+
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   completion of the independent quality-evidence work. Candidate-content review and
