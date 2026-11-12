@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain136/136valid source-ID v3 replies and linked1114attempts/USD0.486128776.
+  Preserve semantic/proxy limitations, frozen labels and a raw summary display defect;
+  require an operator-selected quality/requirement gate before another cohort. No GO.
+
 - Add source-ID v3 natural citation bounds: schema and normalizer maxima match each
   source's actual citable unique-ID count, while existing minimums, provenance checks,
   resource limits, semantic inputs and quote-mode bytes remain unchanged.

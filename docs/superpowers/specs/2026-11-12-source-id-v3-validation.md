@@ -1,6 +1,6 @@
 # Source-ID v3 natural citation bounds
 
-**Status:** approved under the operator's standing continuous same-route research authorization, renewed at session resumption. This selects a bounded mechanical experiment, not semantic-policy changes or production acceptance.
+**Status:** shipped 2026-11-12. The136-attempt v3 epoch is closed at1114linked attempts/USD0.486128776; all136responses pass the contract. Semantic quality remains inconclusive; see the [checkpoint](../../reports/2026-11-12-source-id-v3-checkpoint.md). No remaining v3 dispatch or production acceptance.
 
 ## Contract
 

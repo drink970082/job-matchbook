@@ -53,14 +53,21 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   978attempts/USD0.310636176, no pending/unknown/overreserve. Its
   [contract/checkpoint](superpowers/specs/2026-11-12-source-id-validation30.md) preserves
   all outcomes and the frozen new30source/proxy/grouping inputs. The v3
-  [contract](superpowers/specs/2026-11-12-source-id-v3-validation.md) is approved under
-  the standing same-route research authorization. The source-ID v3 implementation uses
+  [contract](superpowers/specs/2026-11-12-source-id-v3-validation.md) records the bounded
+  experiment under the standing same-route research authorization. The source-ID v3 implementation uses
   each source's actual citable unique-ID count for schema and normalizer maxima, retaining
   existing minimums, provenance checks and HTTP resource limits; quote-mode bytes and
   semantic inputs are unchanged. Focused tests, the full worker suite (1730 passed,
- 1skip) and worker coverage (85.29%) pass. The new v3 epoch, exact wire freeze and provider
-  calls are not started; carry forward978attempts/USD0.310636176 and preserve all
-  predecessor ledgers. No cutover or activation.
+  1skip) and worker coverage (85.29%) pass. The v3
+  [checkpoint](reports/2026-11-12-source-id-v3-checkpoint.md) retains136/136valid replies,
+  new-source preference repeat28/30 and selected-core enum repeat26/30, with only10/30
+  identical full core citation sets. Semantic proxy contradictions, degree/years selected
+  as skills and changing requirements remain unresolved; independent human labels are
+  absent. The30newJDs are now exposed, with prior-company flags preserved. Linked total
+  1114attempts/USD0.486128776, no pending/unknown/overreserve. Raw summary stage-delta
+  display has a preserved historical-baseline defect; ledger/response accounting agrees.
+  Await operator choice of human adjudication or a new fixed-requirement contract before
+  another paid cohort; no cutover, old-stage resumption or activation.
 
 
 
