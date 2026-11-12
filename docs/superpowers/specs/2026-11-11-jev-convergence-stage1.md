@@ -40,6 +40,14 @@ counts/spend. One unclosed reservation stops new paid work, since delivery may b
 Actual settlement is idempotent only for an identical reservation and exact charge; altered
 settlement, duplicate IDs or malformed/corrupted/truncated events fail visibly. Unknown
 settlement stops further dispatch. Do not rewrite original provider-attempt journals.
+An explicitly audited unknown settlement can be reconciled by a separate append-only
+manual event: exact reservation, actual charge, evidence SHA256 and expected previous
+hash are required. Original unknown events/journals remain intact. First reconciliation
+rejects stale CAS, known reservations and any pending reservation; exact retries are
+idempotent even after later events, conflicting retries fail. Replay adds the actual
+amount once and permits dispatch only after every unknown is resolved; over-reserve
+charges still stop. A zero charge requires proof of no provider dispatch, never absence
+of a reply. This does not add automatic retry or provider status inference.
 Use filesystem locking so two controllers cannot reserve concurrent calls. No network/key
 access belongs in this module. The one-off operator harness wraps the existing supervised
 shadow transport; a kill between dispatch and settlement leaves visible pending accounting.

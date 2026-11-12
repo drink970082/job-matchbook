@@ -1,9 +1,10 @@
 # JEV scoring: bounded convergence and production-readiness plan
 
-**Status:** proposed execution/acceptance plan, prepared at operator request. The operator
-has authorized up to USD 10 for JEV research; this is not a production GO, merge or deployment.
-Exact execution versions and batch manifests are frozen before inference. No inference
-was performed to prepare this plan. Operational behavior below is a target, not shipped.
+**Status:** selected staged research under the operator's continuous-execution directive
+and cumulative USD10grant; stop only for required intervention, session limits or budget
+exhaustion. Exact versions/batch manifests and retained accounting bind each execution.
+This authorizes no production GO, merge, deployment or alternative provider/model.
+Operational behavior below remains a target until separately accepted.
 
 ## Outcome and boundaries
 

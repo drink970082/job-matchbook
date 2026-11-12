@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add manual evidence/CAS-bound reconciliation of unknown campaign settlements, retaining
+  original journal/ledger events and counters. Exact retries are idempotent; unresolved
+  unknowns, conflicting evidence and over-reserve charges still stop dispatch.
+
 - Reconcile interrupted JEV accounting using operator Activity token records, retaining
   the lost reply. Record v7 regression and a role-only structural ablation; freeze100new
   source postings with16pre-model proxy cases for bounded expansion, without accuracy/GO.

@@ -40,12 +40,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   high/moderate on one vague-duty job and remains explicitly uncertain. Six source-bound
   skill sidecars cover16selectedrequirements with identical three-draw support; annotations
   remain proxy/selected-only, not human gold or an automatic requirements collector.
-  The retained ledger has479new/489totalattempts, cumulativeUSD0.095610396including
-  prior cost, with no pending/unknown/overreserve charges. The interrupted v7 request is
+  The retained ledger has620new/630totalattempts and known cumulativeUSD0.115306590
+  including prior cost, with no pending/unknown/overreserve charges. The proven local
+  pre-dispatch failure retains its original unknown event and an evidence/CAS-bound
+  zero-charge reconciliation event; counters and prior spend are unchanged. Manual
+  reconciliation passes1669worker tests/85.14%coverage and blocked-legacy execution. The interrupted v7 request is
   reconciled from operator-supplied Activity: all21retained rows match token counts/order;
   the unmatched5615input/457output row supports USD0.000235830 reconstructed from frozen
   rates, not an exact unrounded invoice. The lost response remains lost. The effective
-  cap600amendment is retained without resetting prior spend. Prelaunch checks now reject
+  cap1000amendment is retained without resetting prior spend. Prelaunch checks now reject
   unresolved accounting/missing amendments before key access. The
   [forty-job validation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
   retains unchanged-v6 evidence and pre-model proxies; these40are exposed development
@@ -62,7 +65,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   one in flight/no retries/24KB bounds remain. It contains76normalizedcompany-name groups,
   16pre-model quoted-duty proxy cases and84quality-unlabelled cases; aliases/templates
   are not independently reconciled. Two source-event controls are not employment offers.
-  Inference remains isolated research with no production writes, merge or activation.
+  The first140calls are retained; a stale140dispatch guard blocked the141st attempt
+  before the fsynced network marker. Exact frozen-class offline replay confirms zero
+  session.post calls for that failure. A separate60-call second-pass remainder is frozen,
+  preserving the extra failed attempt and all original evidence. After accounting repair,
+  a bounded160-call exposed40development probe separates eight persona-neutral role facts
+  and seven inspectable avoidance predicates; no synthetic merged native response, skill
+  facts, company exceptions or confidence thresholds are introduced. This tests question
+  shape rather than further wording changes. Inference remains isolated research with no
+  production writes, merge or activation.
   The operator directs continuous execution until intervention/session-limit/USD10exhaustion,
   with no overfitting, unnecessary complexity or invented missing JD facts. Thirteen
   over-bound full payloads were omitted, never truncated; mobile coverage remains absent.

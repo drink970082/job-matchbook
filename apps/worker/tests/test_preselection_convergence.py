@@ -103,6 +103,19 @@ def _extend_with_auth(ledger, authorization_sha256, *, new_cap, expected_previou
     )
 
 
+def _reconcile_unknown(ledger, reservation_id, charge, evidence_sha256, expected_previous_event_sha256):
+    return ledger.reconcile_unknown_settlement(
+        reservation_id=reservation_id,
+        charge=charge,
+        evidence_sha256=evidence_sha256,
+        expected_previous_event_sha256=expected_previous_event_sha256,
+    )
+
+
+def _evidence_hash(label):
+    return hashlib.sha256(("synthetic manual evidence: " + label).encode()).hexdigest()
+
+
 class _Invocation:
     request_identity = "request-transport"
     work_item_identity_sha256 = "c" * 64
@@ -221,6 +234,240 @@ def test_unknown_and_interrupted_reservations_stop_after_restart(tmp_path):
     assert restarted.settle(reservation.reservation_id, None) == unknown
     with pytest.raises(CampaignBudgetExceeded, match="unknown charge"):
         _reserve(CampaignLedger(path, _config()), request="third")
+
+
+def test_unknown_settlement_reconciliation_is_append_only_idempotent_and_restart_safe(tmp_path):
+    path = tmp_path / "manual-reconciliation.jsonl"
+    ledger = CampaignLedger(path, _config())
+    reservation = _reserve(ledger)
+    unknown = ledger.settle(reservation.reservation_id, None)
+    original_unknown_event = json.loads(path.read_text().splitlines()[-1])["body"]
+    evidence = _evidence_hash("synthetic offline dispatch guard audit")
+    charge = _charge("0.0002", billing_unit="attempt", rate_source="synthetic.manual-audit")
+
+    reconciled = _reconcile_unknown(
+        ledger,
+        reservation.reservation_id,
+        charge,
+        evidence,
+        unknown.last_event_sha256,
+    )
+
+    assert reconciled.attempts == unknown.attempts == 11
+    assert reconciled.stage_attempts == unknown.stage_attempts == 1
+    assert reconciled.settled_spend == "0.002203148"
+    assert not reconciled.has_unknown_settlement
+    assert not reconciled.has_over_reserve_charge
+    events = [json.loads(line)["body"] for line in path.read_text().splitlines()]
+    assert events[-2] == original_unknown_event
+    assert events[-1]["kind"] == "reconcile_unknown_settlement"
+    assert events[-1]["evidence_sha256"] == evidence
+
+    line_count = len(events)
+    assert _reconcile_unknown(
+        ledger, reservation.reservation_id, charge, evidence, unknown.last_event_sha256
+    ) == reconciled
+    assert len(path.read_text().splitlines()) == line_count
+    with pytest.raises(CampaignLedgerIntegrityError, match="evidence was reused differently"):
+        _reconcile_unknown(
+            ledger,
+            reservation.reservation_id,
+            _charge("0.0003", billing_unit="attempt", rate_source="synthetic.manual-audit"),
+            evidence,
+            unknown.last_event_sha256,
+        )
+
+    later_attempt = _reserve(ledger, request="after-manual-reconciliation", draw=2)
+    ledger.settle(later_attempt.reservation_id, _charge("0.0001"))
+    later = ledger.snapshot()
+    line_count = len(path.read_text().splitlines())
+    assert _reconcile_unknown(
+        ledger, reservation.reservation_id, charge, evidence, unknown.last_event_sha256
+    ) == later
+    assert len(path.read_text().splitlines()) == line_count
+    assert CampaignLedger(path, _config()).snapshot() == later
+
+
+def test_zero_charge_reconciliation_and_unresolved_unknowns_are_tracked_independently(tmp_path):
+    path = tmp_path / "sequential-unknowns.jsonl"
+    ledger = CampaignLedger(path, _config())
+    first = _reserve(ledger, request="first", draw=1)
+    first_unknown = ledger.settle(first.reservation_id, None)
+    first_charge = _charge("0", billing_unit="attempt", rate_source="synthetic.manual-guard-proof")
+    first_evidence = _evidence_hash("first bounded local-guard proof")
+    after_first = _reconcile_unknown(
+        ledger, first.reservation_id, first_charge, first_evidence,
+        first_unknown.last_event_sha256,
+    )
+    assert after_first.settled_spend == "0.002003148"
+    assert not after_first.has_unknown_settlement
+
+    second = _reserve(ledger, request="second", draw=2)
+    second_unknown = ledger.settle(second.reservation_id, None)
+    assert second_unknown.has_unknown_settlement
+    assert _reconcile_unknown(
+        ledger, first.reservation_id, first_charge, first_evidence,
+        first_unknown.last_event_sha256,
+    ) == second_unknown
+    assert second_unknown.has_unknown_settlement
+
+    second_charge = _charge("0.0003", billing_unit="attempt", rate_source="synthetic.manual-audit")
+    second_evidence = _evidence_hash("second synthetic audit")
+    final = _reconcile_unknown(
+        ledger, second.reservation_id, second_charge, second_evidence,
+        second_unknown.last_event_sha256,
+    )
+    assert final.settled_spend == "0.002303148"
+    assert not final.has_unknown_settlement
+    assert final.attempts == 12
+    assert final.stage_attempts == 2
+    assert CampaignLedger(path, _config()).snapshot() == final
+
+
+@pytest.mark.parametrize(
+    "charge",
+    [
+        None,
+        _charge(kind="estimate"),
+        _charge(amount="-0.1"),
+        _charge(currency="EUR"),
+        _charge(rate_date="not-a-date"),
+    ],
+)
+def test_reconciliation_rejects_unknown_or_invalid_charge_without_appending(tmp_path, charge):
+    path = tmp_path / "invalid-charge.jsonl"
+    ledger = CampaignLedger(path, _config())
+    reservation = _reserve(ledger)
+    unknown = ledger.settle(reservation.reservation_id, None)
+    before = path.read_text()
+    with pytest.raises(ConvergenceError, match="valid actual USD charge"):
+        _reconcile_unknown(
+            ledger,
+            reservation.reservation_id,
+            charge,
+            _evidence_hash("valid-format-only"),
+            unknown.last_event_sha256,
+        )
+    assert path.read_text() == before
+
+
+@pytest.mark.parametrize("evidence", [None, "bad", "A" * 64])
+def test_reconciliation_rejects_missing_or_malformed_evidence_digest(tmp_path, evidence):
+    ledger = CampaignLedger(tmp_path / "invalid-evidence.jsonl", _config())
+    reservation = _reserve(ledger)
+    unknown = ledger.settle(reservation.reservation_id, None)
+    with pytest.raises(ConvergenceError, match="evidence_sha256"):
+        _reconcile_unknown(
+            ledger,
+            reservation.reservation_id,
+            _charge("0"),
+            evidence,
+            unknown.last_event_sha256,
+        )
+
+
+def test_reconciliation_rejects_stale_cas_known_settlement_and_pending_reservation(tmp_path):
+    ledger = CampaignLedger(tmp_path / "reconcile-preconditions.jsonl", _config())
+    first = _reserve(ledger)
+    stale_hash = ledger.snapshot().last_event_sha256
+    unknown = ledger.settle(first.reservation_id, None)
+    charge = _charge("0")
+    evidence = _evidence_hash("synthetic evidence")
+    with pytest.raises(CampaignBudgetExceeded, match="compare-and-swap is stale"):
+        _reconcile_unknown(ledger, first.reservation_id, charge, evidence, stale_hash)
+    with pytest.raises(CampaignLedgerIntegrityError, match="unreconciled unknown"):
+        _reconcile_unknown(ledger, "missing-reservation", charge, evidence, unknown.last_event_sha256)
+
+    _reconcile_unknown(ledger, first.reservation_id, charge, evidence, unknown.last_event_sha256)
+    second = _reserve(ledger, request="second", draw=2)
+    with pytest.raises(CampaignBudgetExceeded, match="another reservation is pending"):
+        _reconcile_unknown(ledger, first.reservation_id, charge, evidence, unknown.last_event_sha256)
+    ledger.settle(second.reservation_id, _charge())
+
+    known = _reserve(ledger, request="already-known", draw=3)
+    known_snapshot = ledger.settle(known.reservation_id, _charge())
+    with pytest.raises(CampaignLedgerIntegrityError, match="unreconciled unknown"):
+        _reconcile_unknown(
+            ledger,
+            known.reservation_id,
+            charge,
+            evidence,
+            known_snapshot.last_event_sha256,
+        )
+
+
+def test_reconciliation_over_reserve_is_recorded_and_still_stops_dispatch(tmp_path):
+    path = tmp_path / "reconciled-over-reserve.jsonl"
+    ledger = CampaignLedger(path, _config())
+    reservation = _reserve(ledger)
+    unknown = ledger.settle(reservation.reservation_id, None)
+    reconciled = _reconcile_unknown(
+        ledger,
+        reservation.reservation_id,
+        _charge("0.150000001", billing_unit="attempt", rate_source="synthetic.manual-audit"),
+        _evidence_hash("over-reserve evidence"),
+        unknown.last_event_sha256,
+    )
+    assert not reconciled.has_unknown_settlement
+    assert reconciled.has_over_reserve_charge
+    assert reconciled.settled_spend == "0.152003149"
+    restarted = CampaignLedger(path, _config())
+    assert restarted.snapshot() == reconciled
+    with pytest.raises(CampaignBudgetExceeded, match="exceeded its reserve"):
+        _reserve(restarted, request="must-not-dispatch", draw=2)
+
+
+def test_replay_rejects_tampered_or_duplicate_reconciliation_events(tmp_path):
+    path = tmp_path / "tampered-reconciliation.jsonl"
+    ledger = CampaignLedger(path, _config())
+    reservation = _reserve(ledger)
+    unknown = ledger.settle(reservation.reservation_id, None)
+    _reconcile_unknown(
+        ledger,
+        reservation.reservation_id,
+        _charge("0"),
+        _evidence_hash("original evidence"),
+        unknown.last_event_sha256,
+    )
+    lines = path.read_text().splitlines()
+    last = json.loads(lines[-1])
+    last["body"]["evidence_sha256"] = "bad"
+    last["event_sha256"] = hashlib.sha256(
+        json.dumps(last["body"], ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    lines[-1] = json.dumps(last, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    path.write_text("\n".join(lines) + "\n")
+    with pytest.raises(ConvergenceError, match="evidence_sha256"):
+        CampaignLedger(path, _config()).snapshot()
+
+    duplicate_path = tmp_path / "duplicate-reconciliation.jsonl"
+    duplicate_ledger = CampaignLedger(duplicate_path, _config())
+    duplicate_reservation = _reserve(duplicate_ledger)
+    duplicate_unknown = duplicate_ledger.settle(duplicate_reservation.reservation_id, None)
+    duplicate_ledger.reconcile_unknown_settlement(
+        reservation_id=duplicate_reservation.reservation_id,
+        charge=_charge("0"),
+        evidence_sha256=_evidence_hash("duplicate evidence"),
+        expected_previous_event_sha256=duplicate_unknown.last_event_sha256,
+    )
+    duplicate_lines = duplicate_path.read_text().splitlines()
+    previous = json.loads(duplicate_lines[-1])["event_sha256"]
+    duplicate_body = dict(json.loads(duplicate_lines[-1])["body"])
+    duplicate_body["expected_previous_event_sha256"] = previous
+    duplicate_body["previous_event_sha256"] = previous
+    duplicate_hash = hashlib.sha256(
+        json.dumps(duplicate_body, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+    duplicate_envelope = json.dumps(
+        {"body": duplicate_body, "event_sha256": duplicate_hash},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    duplicate_path.write_text("\n".join(duplicate_lines + [duplicate_envelope]) + "\n")
+    with pytest.raises(CampaignLedgerIntegrityError, match="duplicates an unknown settlement reconciliation"):
+        CampaignLedger(duplicate_path, _config()).snapshot()
 
 
 def test_over_reserve_charge_is_recorded_and_persistently_stops_new_attempts(tmp_path):

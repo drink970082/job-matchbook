@@ -175,6 +175,17 @@ with TemporaryDirectory() as directory:
     assert second_amendment.current_stage_attempt_cap == 200
     assert second_amendment.attempts == before_extension.attempts
     assert second_amendment.settled_spend == before_extension.settled_spend
+    unknown_ledger = CampaignLedger(Path(directory) / "unknown-campaign.jsonl", _config())
+    unknown_reservation = _reserve(unknown_ledger, request="synthetic-unknown", draw=1)
+    unknown_snapshot = unknown_ledger.settle(unknown_reservation.reservation_id, None)
+    reconciled_snapshot = unknown_ledger.reconcile_unknown_settlement(
+        reservation_id=unknown_reservation.reservation_id,
+        charge=_charge("0", billing_unit="attempt", rate_source="synthetic.manual-audit"),
+        evidence_sha256=hashlib.sha256(b"synthetic manual evidence").hexdigest(),
+        expected_previous_event_sha256=unknown_snapshot.last_event_sha256,
+    )
+    assert not reconciled_snapshot.has_unknown_settlement
+    assert reconciled_snapshot.attempts == unknown_snapshot.attempts
     manifest = _manifest(policy=False)
     report = build_stage1_report(manifest, [_observation(manifest, 1, "primary")])
     assert report["completed_draws"] == 1

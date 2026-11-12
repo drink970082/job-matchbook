@@ -197,9 +197,11 @@ class _LedgerState:
     effective_stage_attempt_cap: int
     settled_spend: Decimal
     pending: CampaignReservation | None
+    reservation_by_id: dict[str, CampaignReservation]
     unknown: bool
     over_reserve: bool
     settlement_by_id: dict[str, dict[str, Any]]
+    reconciliation_by_id: dict[str, dict[str, Any]]
     previous_hash: str | None
     extension_events_by_authorization: dict[str, dict[str, Any]]
 
@@ -260,9 +262,11 @@ class CampaignLedger:
                 effective_stage_attempt_cap=self.config.max_stage_attempts,
                 settled_spend=_decimal(self.config.historical_spend, "historical_spend"),
                 pending=None,
+                reservation_by_id={},
                 unknown=False,
                 over_reserve=False,
                 settlement_by_id={},
+                reconciliation_by_id={},
                 previous_hash=None,
                 extension_events_by_authorization={},
             )
@@ -295,9 +299,11 @@ class CampaignLedger:
             effective_stage_attempt_cap=self.config.max_stage_attempts,
             settled_spend=_decimal(self.config.historical_spend, "historical_spend"),
             pending=None,
+            reservation_by_id={},
             unknown=False,
             over_reserve=False,
             settlement_by_id={},
+            reconciliation_by_id={},
             previous_hash=None,
             extension_events_by_authorization={},
         )
@@ -373,10 +379,12 @@ class CampaignLedger:
                 raise CampaignLedgerIntegrityError("campaign reservation amount differs from frozen reserve")
             state.attempts += 1
             state.stage_attempts += 1
-            state.pending = CampaignReservation(
+            reservation = CampaignReservation(
                 reservation_id, self.config.campaign_id, self.config.stage_id, run_id,
                 request_identity, work_hash, draw, _decimal_text(reserved),
             )
+            state.pending = reservation
+            state.reservation_by_id[reservation_id] = reservation
             return
         if kind == "settle":
             expected = {
@@ -413,6 +421,52 @@ class CampaignLedger:
                 raise CampaignLedgerIntegrityError("campaign settlement status is invalid")
             state.settlement_by_id[reservation_id] = body
             state.pending = None
+            return
+        if kind == "reconcile_unknown_settlement":
+            expected = {
+                "kind", "reservation_id", "status", "amount", "currency", "billing_unit",
+                "rate_date", "rate_source", "evidence_sha256",
+                "expected_previous_event_sha256", "previous_event_sha256",
+            }
+            if set(body) != expected:
+                raise CampaignLedgerIntegrityError("settlement reconciliation event has an invalid shape")
+            if state.pending is not None:
+                raise CampaignLedgerIntegrityError("settlement reconciliation overlaps a pending reservation")
+            reservation_id = _validate_text(body["reservation_id"], "reservation_id", maximum=128)
+            original = state.settlement_by_id.get(reservation_id)
+            if original is None or original.get("status") != "unknown":
+                raise CampaignLedgerIntegrityError("reconciliation has no matching unknown settlement")
+            if reservation_id in state.reconciliation_by_id:
+                raise CampaignLedgerIntegrityError("campaign ledger duplicates an unknown settlement reconciliation")
+            if body["status"] != "settled" or body["currency"] != "USD":
+                raise CampaignLedgerIntegrityError("reconciliation must record a known actual USD charge")
+            amount = _decimal(body["amount"], "reconciled settlement amount")
+            for name in ("billing_unit", "rate_source"):
+                _validate_text(body[name], name, maximum=256)
+            _validate_text(body["rate_date"], "rate_date", maximum=10)
+            try:
+                if date.fromisoformat(body["rate_date"]).isoformat() != body["rate_date"]:
+                    raise ValueError
+            except ValueError:
+                raise CampaignLedgerIntegrityError("reconciled settlement rate date is invalid") from None
+            _sha256(body["evidence_sha256"], "evidence_sha256")
+            expected_previous = _sha256(
+                body["expected_previous_event_sha256"], "expected_previous_event_sha256"
+            )
+            if expected_previous != body["previous_event_sha256"]:
+                raise CampaignLedgerIntegrityError("settlement reconciliation compare-and-swap hash is inconsistent")
+            reservation = state.reservation_by_id.get(reservation_id)
+            if reservation is None:
+                raise CampaignLedgerIntegrityError("reconciliation reservation has no original reserve event")
+            reserved = _decimal(reservation.reserved_amount, "reserved_amount")
+            if amount > reserved:
+                state.over_reserve = True
+            state.settled_spend += amount
+            state.reconciliation_by_id[reservation_id] = body
+            state.unknown = any(
+                settlement.get("status") == "unknown" and identity not in state.reconciliation_by_id
+                for identity, settlement in state.settlement_by_id.items()
+            )
             return
         if kind == "extend_stage_attempts":
             expected = {
@@ -642,6 +696,52 @@ class CampaignLedger:
                 )
                 if amount > pending_reserve:
                     state.over_reserve = True
+            return self._snapshot_from_state(state)
+
+    def reconcile_unknown_settlement(
+        self,
+        *,
+        reservation_id: str,
+        charge: Any,
+        evidence_sha256: str,
+        expected_previous_event_sha256: str,
+    ) -> CampaignSnapshot:
+        """Append manually audited actual-charge evidence for a previously unknown attempt.
+
+        This accounts for evidence supplied by an operator; it does not infer provider
+        delivery or price and never rewrites the original unknown settlement.
+        """
+        reservation_id = _validate_text(reservation_id, "reservation_id", maximum=128)
+        evidence_sha256 = _sha256(evidence_sha256, "evidence_sha256")
+        expected_previous_event_sha256 = _sha256(
+            expected_previous_event_sha256, "expected_previous_event_sha256"
+        )
+        charge_event = self._charge_event(charge)
+        if charge_event["status"] != "settled":
+            raise ConvergenceError("unknown settlement reconciliation requires a valid actual USD charge")
+        candidate = {
+            "kind": "reconcile_unknown_settlement",
+            "reservation_id": reservation_id,
+            **charge_event,
+            "evidence_sha256": evidence_sha256,
+            "expected_previous_event_sha256": expected_previous_event_sha256,
+        }
+        with self._locked():
+            state = self._state()
+            if state.pending is not None:
+                raise CampaignBudgetExceeded("cannot reconcile a settlement while another reservation is pending")
+            prior = state.reconciliation_by_id.get(reservation_id)
+            if prior is not None:
+                if {key: value for key, value in prior.items() if key != "previous_event_sha256"} != candidate:
+                    raise CampaignLedgerIntegrityError("unknown settlement reconciliation evidence was reused differently")
+                return self._snapshot_from_state(state)
+            original = state.settlement_by_id.get(reservation_id)
+            if original is None or original.get("status") != "unknown":
+                raise CampaignLedgerIntegrityError("reconciliation requires an unreconciled unknown settlement")
+            if expected_previous_event_sha256 != state.previous_hash:
+                raise CampaignBudgetExceeded("settlement reconciliation compare-and-swap is stale")
+            self._append(state, candidate)
+            self._apply_event(state, state.events[-1])
             return self._snapshot_from_state(state)
 
     def _charge_event(self, charge: Any | None) -> dict[str, Any]:
