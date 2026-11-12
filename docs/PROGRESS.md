@@ -66,8 +66,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   absent. The30newJDs are now exposed, with prior-company flags preserved. Linked total
   1114attempts/USD0.486128776, no pending/unknown/overreserve. Raw summary stage-delta
   display has a preserved historical-baseline defect; ledger/response accounting agrees.
-  Await operator choice of human adjudication or a new fixed-requirement contract before
-  another paid cohort; no cutover, old-stage resumption or activation.
+  JEV remains the operator-selected intended route; Haiku is a comparator, with no further
+  expansion selected. The [native return contract](superpowers/specs/2026-11-12-jev-return-comparison.md)
+  selects unchanged native v8 on the same34sources×2, max68newattempts/USD1insideUSD10,
+  with fresh metadata, five-ledger bridge and exact-wire controls before dispatch. Independent
+  labels/fixed-requirement design remain separate quality gates. No cutover, old-stage
+  resumption or activation.
 
 
 
