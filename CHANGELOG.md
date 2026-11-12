@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record completed100-posting/two-pass JEV expansion and an exposed40-job structural
+  probe. Preserve stable semantic errors, partial-proxy limitations and cumulative
+  850attempts/USD0.140438676accounting; stop for a separately authorized model comparison.
+
 - Add manual evidence/CAS-bound reconciliation of unknown campaign settlements, retaining
   original journal/ledger events and counters. Exact retries are idempotent; unresolved
   unknowns, conflicting evidence and over-reserve charges still stop dispatch.

@@ -1740,6 +1740,17 @@ must not be pooled into crisp accuracy. Once used for revisions these40are regre
 examples, not untouched validation. Missing JD facts and uncertain preference boundaries
 remain unknown; no company/posting exceptions or extra numeric weights are justified.
 
+Splitting JEV's avoidance rubric into seven inspectable duty predicates and removing
+persona context from role facts can still produce stable semantic errors: accepted visual
+inference engineering may be avoided and embedded/device work may miss avoidance. The
+exposed40-job structural probe repeats perfectly without becoming correct. Frozen role-only
+classification repeats on98/100new source postings, but only16have pre-model quoted-duty
+proxy labels and84remain quality-unlabelled. Neither result licenses a native label as a
+sole production authority. More wording/company-specific tuning on these exposed cohorts
+is not selected. A different model is an explicitly authorized comparison, not an automatic
+migration, paid judge or new source of gold. See the
+[current checkpoint](reports/2026-11-12-jev-convergence-checkpoint.md) for evidence limits.
+
 ### 9.5 Rebuild checklist
 
 A rebuilt implementation should be able to answer yes to all of these:

@@ -9,77 +9,30 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 ## In flight
 
 - **OpenRouter JEV native shadow integration — `feat/openrouter-jev-shadow`**.
-  The implementation is on the branch and draft PR #134 is awaiting review. It provides
-  native Choice/Noul/Score transport, durable accounting and a
-  direct-only evaluation mode for pilots that collect no labels. A separate mechanics-only
-  pilot is authorized for 10 real JDs and the existing 11 questions, with at most 12 model
-  attempts including retries, 15 minutes, USD 1 and 24 KB per request. Explicit token-price
-  and platform-fee evidence must bound cost; an absent API request-price field is not
-  treated as a free call. The private mechanics evidence contains 10 provider responses
-  and 110 format-validated answers: nine live successes and one original failed attempt
-  whose retained response validates offline after the usage-metadata fix. The original
-  failure remains recorded. The 10 dispatched attempts have no retries or unknown charges;
-  their provider-reported total is USD 0.002003148, not invoice-audited. Quality labeling,
-  independent grouping and comparative evaluation remain open. There is no GO or production
-  wiring. The operator authorizes a cumulative USD 10 JEV research ceiling, including
-  prior inference spend, toward stable production-ready advisory scoring. The
-  [convergence plan](superpowers/plans/2026-11-11-jev-stable-scoring-convergence.md)
-  proposes small development, independent expansion, locked tests and runtime shadow,
-  with batched operator adjudication and separate proxy/operator-confirmed evidence.
-  Stage 0/1 execution is now selected under the
-  [approved bounded contract](superpowers/specs/2026-11-11-jev-convergence-stage1.md):
-  an isolated campaign ledger/repeat reporter and ten development jobs × three fresh
-  draws, maximum40newattempts/15minutes/USD0.50includingpriorcost. The new isolated
-  campaign ledger and repeated-draw reporter are implemented on this branch and accepted
-  for bounded Stage 1 execution after worker and blocked-legacy checks. Private v2 profile/questions and the 10×3 cohort are frozen before
-  calls; no deployment GO. The implemented
-  [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md)
-  keeps raw answers separate from derived tiers. Frozen v6 development observations
-  cover ten jobs × six fresh calls in two batches: preference, engineering-primary,
-  avoidance and overall skill descriptors all agree; work-interest alignment is split
-  high/moderate on one vague-duty job and remains explicitly uncertain. Six source-bound
-  skill sidecars cover16selectedrequirements with identical three-draw support; annotations
-  remain proxy/selected-only, not human gold or an automatic requirements collector.
-  The retained ledger has620new/630totalattempts and known cumulativeUSD0.115306590
-  including prior cost, with no pending/unknown/overreserve charges. The proven local
-  pre-dispatch failure retains its original unknown event and an evidence/CAS-bound
-  zero-charge reconciliation event; counters and prior spend are unchanged. Manual
-  reconciliation passes1669worker tests/85.14%coverage and blocked-legacy execution. The interrupted v7 request is
-  reconciled from operator-supplied Activity: all21retained rows match token counts/order;
-  the unmatched5615input/457output row supports USD0.000235830 reconstructed from frozen
-  rates, not an exact unrounded invoice. The lost response remains lost. The effective
-  cap1000amendment is retained without resetting prior spend. Prelaunch checks now reject
-  unresolved accounting/missing amendments before key access. The
-  [forty-job validation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
-  retains unchanged-v6 evidence and pre-model proxies; these40are exposed development
-  examples for later revisions. Operator preferences accept low latency except explicitly
-  very low-level C++, vision inference, substantial ETL/BI and coded alpha research;
-  chip-domain work remains avoided. Profile2.0.4changes no candidate facts or eligibility.
-  V7's two complete regression passes have39/40unanimous preferences, but wrong consistent
-  classifications remain. A role-only nine-question projection removes background,
-  eligibility and unrelated skill/interest questions without changing role/avoidance wording.
-  Two passes on the exposed40have37/40unanimity; sparse-duty abstention improves but other
-  outcomes regress. This is a structural ablation, not an accuracy/GO claim or a new default.
-  A frozen100new-posting/name-excluded-company expansion is selected for200freshcalls,
-  max200newattempts/15minutes and cap600→1000authorization. USD0.50current/USD10global,
-  one in flight/no retries/24KB bounds remain. It contains76normalizedcompany-name groups,
-  16pre-model quoted-duty proxy cases and84quality-unlabelled cases; aliases/templates
-  are not independently reconciled. Two source-event controls are not employment offers.
-  The first140calls are retained; a stale140dispatch guard blocked the141st attempt
-  before the fsynced network marker. Exact frozen-class offline replay confirms zero
-  session.post calls for that failure. A separate60-call second-pass remainder is frozen,
-  preserving the extra failed attempt and all original evidence. After accounting repair,
-  a bounded160-call exposed40development probe separates eight persona-neutral role facts
-  and seven inspectable avoidance predicates; no synthetic merged native response, skill
-  facts, company exceptions or confidence thresholds are introduced. This tests question
-  shape rather than further wording changes. Inference remains isolated research with no
-  production writes, merge or activation.
-  The operator directs continuous execution until intervention/session-limit/USD10exhaustion,
-  with no overfitting, unnecessary complexity or invented missing JD facts. Thirteen
-  over-bound full payloads were omitted, never truncated; mobile coverage remains absent.
-  The exposed40cannot become an untouched test after tuning. The
-  operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
-  and score-derived truth; new entrypoints must pass blocked-import/resource checks.
+  Draft PR#134contains isolated native transport, direct-only pilots, preference and
+  selected-requirement evidence tooling, and durable append-only accounting. There is
+  no production wiring or GO. Legacy score/eval modules, prompts and truth stay isolated.
+  The operator selects continuous research until required intervention, session limits
+  or cumulativeUSD10exhaustion; missing JD facts remain unknown, with no employer-specific
+  exceptions, invented weights or tuning an exposed cohort as if it were untouched.
+  [Current evidence and pending comparison](reports/2026-11-12-jev-convergence-checkpoint.md)
+  records100new source postings×2calls:98/100repeated preferences match, but only16cases
+  have pre-model proxy expectations, not independent human gold. A separate160-call
+  structural probe is perfectly repeatable on40exposedjobs while retaining stable
+  semantic mistakes. More wording churn is not selected; native classification is not
+  accepted as the sole production preference authority. Profile2.0.4reflects the operator's
+  settled low-level-C++/vision-inference/chip/ETL/alpha-research preferences; candidate
+  background and eligibility rules are unchanged. Selected skill facts remain manually
+  annotated/proxy-only; automatic extraction, independent labels and complete-day gates
+  remain open. The retained ledger has850totalattempts, accountedUSD0.140438676, no
+  pending/unknown/overreserve, cap1000andUSD0.50current/USD10global ceilings. Evidence-bound
+  manual reconciliation preserves original unknown events and counters; its worker gate
+  passes1669tests/1skip/85.14%coverage with blocked legacy execution. The original lost
+  response remains lost; a proven local pre-dispatch failure is zero-charged explicitly.
+  Work is stopped for an operator decision on a proposed OpenRouter Haiku5.5 comparison:
+  max60attempts/15minutes/USD1withinUSD10,10exposed controls+20newJDs×2, same approved
+  data, no retries/fallbacks or activation. Only public metadata has been fetched; this
+  additional model/provider route is not authorized and has received no private inputs.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   completion of the independent quality-evidence work. Candidate-content review and
