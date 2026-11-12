@@ -40,8 +40,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   flag substantiation remains open; do not expand to unseen cohorts yet. The retained
   ledger has99new/109totalattempts, cumulativeUSD0.023251914includingpriorcost, no pending or
   unknown charges. The appended40→100Stage1cap amendment preserves the original ledger;
-  only one new attempt remains under that cap. Further batches need a reviewed append-only
-  stage transition, never a counter/spend reset; USD0.50stage/USD10global ceilings remain. The
+  only one new attempt remains under that cap. The next
+  [skill-evidence slice](superpowers/specs/2026-11-11-jev-skill-evidence.md) is selected:
+  exact requirement/profile proof and per-requirement comparisons, plus distinct-auth/CAS
+  append-only cap100→200continuation. At most80newattempts, unchanged sources/monetary caps;
+  no unseen-cohort expansion or counter/spend reset. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 
