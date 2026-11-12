@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record partial calibrated-v7 regression and an operator-harness interruption:21
+  completed responses, one unresolved dispatched request, known cumulativeUSD0.068362182.
+  Preserve the pending reserve and effective cap400; stop inference for billing evidence
+  and add a private prelaunch guard rather than resetting counters or assuming zero cost.
+
 - Record operator-calibrated JEV research preferences and select a bounded v7 regression
   batch. Low latency alone is accepted, explicitly very low-level C++ and chip-domain
   work remain avoided; vision inference, substantial ETL/BI and coded alpha research
