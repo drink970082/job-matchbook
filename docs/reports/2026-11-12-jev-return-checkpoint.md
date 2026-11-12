@@ -24,8 +24,8 @@ sources: two explicitly substantial backend/fullstack roles and one explicit Pyt
 Airflow pipeline role mixed with reporting. These conflict with accepted frozen-profile
 work, independently of comparator agreement, but are not independent human gold. Exact
 quotes/offsets/hashes and raw draws are retained privately. Do not patch company exceptions
-or tune prompts on these exposed examples. A small diagnosis with the existing frozen atomic
-v9pack can identify which predicate is responsible without changing semantic wording.
+or tune prompts on these exposed examples. The [frozen atomic diagnosis](2026-11-12-jev-atomic-checkpoint.md) separates these target
+results from a persistent inference-control error; no wording change or complete fix is established.
 
 The epoch adds68attempts/USD0.009087120. Linked total1182attempts/USD0.495215896, no
 pending/unknown/overreserve; all five predecessor ledgers remain unchanged. Segment totals,

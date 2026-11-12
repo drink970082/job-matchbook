@@ -1,6 +1,6 @@
 # Frozen native atomic-v9 avoidance diagnosis
 
-**Status:** approved bounded diagnostic under the standing continuous cumulativeUSD10JEV directive. Existing wording/profile/model only; no new semantic design or production activation.
+**Status:** shipped 2026-11-12. Closed14/14valid native draws, linked1196attempts/USD0.496861792. See the [checkpoint](../../reports/2026-11-12-jev-atomic-checkpoint.md). Target improvement coexists with a stable inference-control semantic error; no production GO.
 
 The native-v8 return has stable avoidance concerns on substantial backend/fullstack and
 mixed-ETL roles. Select an exposed development diagnosis, not a new quality sample: reuse

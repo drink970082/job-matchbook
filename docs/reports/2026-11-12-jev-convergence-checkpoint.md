@@ -69,3 +69,8 @@ USD0.495215896and the preserved five-ledger bridge. Old stages remain closed. No
 provider fallback, model superiority or human-quality claim follows from this diagnostic.
 Independent labels/fixed-requirement design remain separate future gates. No runtime,
 merge, deployment or production GO.
+
+The [atomic diagnosis](2026-11-12-jev-atomic-checkpoint.md) retains14additional valid
+draws, with target improvements and a persistent visual inference-control mistake. Linked
+accounting is1196attempts/USD0.496861792. A conservative native-disagreement guard versus
+single-assessment advisory JEV is a pending operator design decision, not implemented policy.

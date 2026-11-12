@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain14/14valid frozen native-v9diagnostic draws and linked1196attempts/
+  USD0.496861792. Target improvements coexist with an inference-control semantic error;
+  preserve all outcomes and prepare a native-disagreement policy decision without GO.
+
 - Retain68/68valid native-JEV return draws on the frozen comparator cohort; linked
  1182attempts/USD0.495215896. Preserve native semantic avoidance concerns and keep
   Haiku as comparator only, with no model replacement or production GO.

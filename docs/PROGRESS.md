@@ -72,10 +72,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   23/30both proxy-admissible, with stable backend/fullstack and mixed-ETL avoidance concerns.
   The [return checkpoint](reports/2026-11-12-jev-return-checkpoint.md) records1182linked
   attempts/USD0.495215896, no pending/unknown/overreserve. The
-  [atomic diagnostic](superpowers/specs/2026-11-12-jev-atomic-diagnostic.md) selects existing
-  unchanged native-v9predicates on4controls+3exposed concerns, max14calls/USD0.25,
-  six-ledger bridge and wire/seal freeze before dispatch. Independent labels and semantic
-  authority remain separate quality gates. No cutover, old-stage resumption or activation.
+  [atomic diagnostic](reports/2026-11-12-jev-atomic-checkpoint.md) retains14/14valid
+  unchanged-v9draws: three targets become all-absent, but a visual inference-systems control
+  remains wrongly marked excluded-modeling. All7choice vectors repeat; probability/confidence
+  differ. Linked1196attempts/USD0.496861792, no pending/unknown/overreserve; six ancestors
+  unchanged. A [decision draft](superpowers/specs/2026-11-12-jev-disagreement-guard-design.md)
+  awaits operator choice: single-assessment advisory JEV or a conservative native-signal
+  disagreement guard to unresolved/keep. No new policy/epoch, cutover or activation.
+  Independent labels and semantic authority remain separate quality gates.
 
 
 
