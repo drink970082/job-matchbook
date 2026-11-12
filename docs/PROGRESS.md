@@ -44,7 +44,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   no pending/unknown/overreserve, and two distinct-auth cap amendments preserving history.
   The effective cap is200; the78-call skill slice is complete under its80newattemptlimit.
   [Forty-job provider-free preparation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
-  freezes new source payloads from30companies with no model calls or labels yet. Exact
+  freezes new source payloads from30companies with no model calls or labels yet. The
+  operator now directs continuous execution until intervention/session-limit/USD10exhaustion,
+  with no overfitting, unnecessary complexity or invented missing JD facts. Forty-job
+  pre-model proxy labeling/grouping and then120freshcalls are selected under a retained
+  cap200→400amendment; routine milestones do not require renewed permission. Exact
   duplicates are excluded; grouping/labels and declared mobile/sales coverage gaps remain.
   Thirteen over-bound full payloads were omitted, never truncated. Do not run expansion
   before source/label/batch bindings and its append-only cap authorization are frozen. The

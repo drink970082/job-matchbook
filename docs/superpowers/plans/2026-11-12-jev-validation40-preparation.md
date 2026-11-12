@@ -1,8 +1,10 @@
 # Independent expansion: forty-job preparation
 
-**Status:** selected for provider-free preparation under the operator-approved staged
-convergence plan and cumulative USD10 research grant. This document does not start a
-provider batch or grant production GO. The current skill slice stays within its80-callcap.
+**Status:** selected for preparation and a bounded frozen-version forty-job validation
+under the operator's continuous-execution directive and cumulative USD10 research grant.
+Do not stop at routine milestones; stop for required operator intervention, session limit
+or budget exhaustion. No production GO/merge/deployment is authorized. The old skill slice
+remains closed under its80-callcap; this new batch has its own manifest and authorization.
 
 Freeze40 previously uninspected full source JDs, excluding the original ten and exact
 source/requisition/JD duplicates. Stratify across target families, avoided-duty negatives
@@ -25,3 +27,30 @@ After source/label/policy manifests are frozen, select a separate bounded model 
 append its authorization/CAS cap amendment to the same retained ledger. Do not consume the
 remaining current-slice attempts for this expansion, reset counters or bypass legacy
 isolation. A locked100–150job test and complete-day shadow remain later gates.
+
+## Exact selected validation workload
+
+Use the already frozen40newJDs and unchanged v6 main pack/profile/preference policy.
+Before calls, read full JDs, freeze source-span-supported proxy expectations and grouping
+without model outputs, and register unresolved facts explicitly. Do not manufacture
+labels from the metadata selection strata. Mobile and sales negative coverage is absent;
+13full payloads exceeded24KB and were omitted rather than truncated. Report this selection
+bias. Facts not stated in a JD remain unknown; the system may keep ambiguous assessments
+rather than chasing perfect agreement with new complexity or company-specific exceptions.
+
+Then append an authorization/CAS attempt-cap amendment200→400 on the same ledger; preserve
+historical spend/counters and USD0.50current monetary cap/USD10global ceiling. Run40jobs×3fresh
+draws, at most140newattempts, one in flight, no retries and a15minute execution segment.
+All seven optional research slices together remain within global5000attempts/1000newJDscope.
+Freeze exact source/profile/questions/policy/model/label/group identities before dispatch.
+
+Keep forty-job results as validation, never rebrand an exposed test as untouched. Report
+per-field/proxy agreement, raw errors, abstentions, group-repeat stability and review-order
+ambiguity; these proxy labels are not human gold. A genuine preference tradeoff or the
+need for independent operator calibration is collected into one compact evidence packet,
+including apparently-clear random controls; that is a legitimate intervention stop.
+
+No new production code is required to begin this batch: use existing isolated contracts,
+verified ledger amendments and the reviewed supervised transport. Broader100–150locked test
+and full daily-pool acceptance stay separate. Further batches require recorded resource
+bindings; unused credit is not a reason to run an uninformative experiment.
