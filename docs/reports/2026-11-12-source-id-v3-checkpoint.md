@@ -31,7 +31,7 @@ error. Same enum across different requirements is not repeatability of a fixed r
 Five new-source company names have prior exposure. Company grouping/flags remain frozen;
 this purposive sample cannot support company-independent or population claims.
 
-## Semantic limits and decision needed
+## Semantic limits and JEV direction
 
 The proxy-set avoidance contradiction includes a research role whose duties describe
 independent hypotheses and extracting signals, but one draw projects analysis/reporting-only
@@ -45,7 +45,10 @@ change between unrelated requirements, or yield different support for the same r
 These remain live semantic limitations despite valid citations. No scalar weighting,
 ranking, all-requirements coverage or all-clear is established.
 
-Two researched next directions require an operator decision under DEVELOPMENT §3:
+JEV remains the intended route; Haiku is only a comparator. The
+[native return contract](../superpowers/specs/2026-11-12-jev-return-comparison.md) selects
+unchanged native v8 on these34sources. No further Haiku expansion is selected. Two
+possible semantic-quality directions remain unselected design forks under DEVELOPMENT §3:
 
 - Collect human/adjudicated labels on the retained full inputs first. This costs human
   attention but separates proxy defects from model mistakes without another paid draw.
@@ -57,10 +60,12 @@ Two researched next directions require an operator decision under DEVELOPMENT §
   requirement-identification/annotation gate. Its representation/acceptance contract is
   unselected; no automatic extraction or new paid epoch is authorized by this document.
 
-Another larger cohort with unchanged semantics cannot settle these truth/representation
+Another larger Haiku cohort with unchanged semantics cannot settle these truth/representation
 questions. More wording churn, post-output relabeling and enum agreement as accuracy are
-not selected. The campaign awaits this decision; it is not out of budget or implementer
-capacity. No runtime/database/legacy score/eval resources, activation or merge.
+not selected. These comparator limitations do not establish corresponding native-JEV errors.
+The selected native comparison diagnoses workflow disagreements without a semantic redesign;
+quality truth and fixed-requirement design retain their own gates. No runtime/database/legacy
+score/eval resources, activation or merge.
 
 ## Accounting and artifacts
 

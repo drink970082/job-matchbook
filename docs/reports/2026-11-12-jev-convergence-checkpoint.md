@@ -57,12 +57,15 @@ blocked-resource test executes reconciliation with legacy scorer imports/resourc
 Web/E2E were not rerun: this change has no Web/runtime surface. Production data, screening,
 legacy scoring/evaluation and activation remain outside the experiment.
 
-## Selected structural follow-up
+## Selected native follow-up
 
-The initial60-attempt Haiku comparison is closed, with all replies/charges retained.
-Its [checkpoint](2026-11-12-haiku-comparison-checkpoint.md) distinguishes complete
-assessment acceptance, individual field provenance, semantic proxies and consistency.
-A separately bounded fact/skill separation slice uses the same approved model/route
-under the continuous USD10directive; see its [contract](../superpowers/specs/2026-11-12-source-id-fact-skill-separation.md).
-Prior910attempts/USD0.221028176carry forward through both frozen predecessor ledgers.
-No automatic selection/merge/deployment or production GO follows research observations.
+JEV remains the intended route. Haiku is only a comparator; its closed bounded epochs
+have separate [evidence](2026-11-12-source-id-v3-checkpoint.md), not a model replacement.
+The [native return contract](../superpowers/specs/2026-11-12-jev-return-comparison.md)
+selects unchanged native v8 on the same34frozen comparator sources×2draws, max68attempts/
+USD1inside the cumulativeUSD10directive. Historical1114attempts/USD0.486128776and all five
+predecessor ledgers carry into a new epoch, with exact wire/source/controller bindings and
+fresh metadata/price proof before calls. Old stages remain closed. No prompt tuning,
+provider fallback, model superiority or human-quality claim follows from this diagnostic.
+Independent labels/fixed-requirement design remain separate future gates. No runtime,
+merge, deployment or production GO.
