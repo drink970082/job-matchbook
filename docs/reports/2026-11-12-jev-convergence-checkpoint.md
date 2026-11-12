@@ -62,10 +62,10 @@ legacy scoring/evaluation and activation remain outside the experiment.
 JEV remains the intended route. Haiku is only a comparator; its closed bounded epochs
 have separate [evidence](2026-11-12-source-id-v3-checkpoint.md), not a model replacement.
 The [native return contract](../superpowers/specs/2026-11-12-jev-return-comparison.md)
-selects unchanged native v8 on the same34frozen comparator sources×2draws, max68attempts/
-USD1inside the cumulativeUSD10directive. Historical1114attempts/USD0.486128776and all five
-predecessor ledgers carry into a new epoch, with exact wire/source/controller bindings and
-fresh metadata/price proof before calls. Old stages remain closed. No prompt tuning,
+retains unchanged native v8 on the same34frozen comparator sources×2draws:68/68valid,
+29/30new-source repeated preferences, but stable semantic avoidance concerns. The
+[return checkpoint](2026-11-12-jev-return-checkpoint.md) records linked1182attempts/
+USD0.495215896and the preserved five-ledger bridge. Old stages remain closed. No prompt tuning,
 provider fallback, model superiority or human-quality claim follows from this diagnostic.
 Independent labels/fixed-requirement design remain separate future gates. No runtime,
 merge, deployment or production GO.

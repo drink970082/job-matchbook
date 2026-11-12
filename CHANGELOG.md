@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain68/68valid native-JEV return draws on the frozen comparator cohort; linked
+ 1182attempts/USD0.495215896. Preserve native semantic avoidance concerns and keep
+  Haiku as comparator only, with no model replacement or production GO.
+
 - Retain136/136valid source-ID v3 replies and linked1114attempts/USD0.486128776.
   Preserve semantic/proxy limitations, frozen labels and a raw summary display defect;
   require an operator-selected quality/requirement gate before another cohort. No GO.

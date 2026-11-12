@@ -68,10 +68,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   display has a preserved historical-baseline defect; ledger/response accounting agrees.
   JEV remains the operator-selected intended route; Haiku is a comparator, with no further
   expansion selected. The [native return contract](superpowers/specs/2026-11-12-jev-return-comparison.md)
-  selects unchanged native v8 on the same34sources×2, max68newattempts/USD1insideUSD10,
-  with fresh metadata, five-ledger bridge and exact-wire controls before dispatch. Independent
-  labels/fixed-requirement design remain separate quality gates. No cutover, old-stage
-  resumption or activation.
+  retains unchanged native v8 on the same34sources×2:68/68valid,29/30new-source repeat,
+  23/30both proxy-admissible, with stable backend/fullstack and mixed-ETL avoidance concerns.
+  The [return checkpoint](reports/2026-11-12-jev-return-checkpoint.md) records1182linked
+  attempts/USD0.495215896, no pending/unknown/overreserve. The
+  [atomic diagnostic](superpowers/specs/2026-11-12-jev-atomic-diagnostic.md) selects existing
+  unchanged native-v9predicates on4controls+3exposed concerns, max14calls/USD0.25,
+  six-ledger bridge and wire/seal freeze before dispatch. Independent labels and semantic
+  authority remain separate quality gates. No cutover, old-stage resumption or activation.
 
 
 

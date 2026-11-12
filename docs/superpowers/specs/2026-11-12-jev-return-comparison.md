@@ -1,6 +1,6 @@
 # Native JEV return: frozen-protocol cross-route diagnostic
 
-**Status:** approved bounded execution under the standing cumulativeUSD10JEV research directive and the operator's confirmation that JEV remains the intended route, Haiku only a comparator. No new semantic design, model replacement or production GO.
+**Status:** shipped 2026-11-12. Native v8 epoch closed at68/68valid responses, linked1182attempts/USD0.495215896. See the [checkpoint](../../reports/2026-11-12-jev-return-checkpoint.md). JEV remains intended, Haiku comparator only; no production GO.
 
 ## Selected work
 
