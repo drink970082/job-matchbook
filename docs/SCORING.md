@@ -1758,6 +1758,15 @@ arrived but invalid reply has completed delivery and may have a known bill; conf
 that with network ambiguity loses accounting and prevents independent work. Preserve
 original failed attempts and charges, never retry them to improve a validation count.
 
+Source-ID references eliminate invented literal quote text in the small separated-pass
+slice, but strict schema alone does not enforce the citation-count bounds:19/30fact and
+30/30skill replies exceed them. Exact source provenance is not successful assessment
+acceptance. Preserve failed raw replies and known cost; do not clip evidence retrospectively
+or count diagnostic projections as live successes. Make contract bounds explicit in the
+source-ID instruction before new-source testing. A dynamically selected central requirement
+can change between draws; agreement of its enum is not a fixed-requirement accuracy measure.
+See the [separated-pass checkpoint](reports/2026-11-12-source-id-separation-checkpoint.md).
+
 ### 9.5 Rebuild checklist
 
 A rebuilt implementation should be able to answer yes to all of these:

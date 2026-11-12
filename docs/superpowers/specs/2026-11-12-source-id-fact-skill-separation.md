@@ -1,6 +1,6 @@
 # Source-ID fact/skill separation research
 
-**Status:** approved bounded research execution under the operator's standing continuous
+**Status:** closed bounded research epoch; see the [checkpoint](../../reports/2026-11-12-source-id-separation-checkpoint.md). Execution was scoped under the operator's standing continuous
 USD10research directive, using the already approved Haiku/Anthropic route. This changes
 neither provider/model nor production behavior. The initial60-attempt comparison stays
 closed; its failed attempts, raw replies, charges and exposed sources remain retained.

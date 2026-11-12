@@ -41,15 +41,20 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   the complete operator evidence policy;324/360individual fields have literal valid quotes,
   while semantic errors remain. A separate per-axis/contradiction audit freezes before
   the20new-source outputs; it is not a successful-model response or independent gold.
-  [Source-ID fact/skill separation](superpowers/specs/2026-11-12-source-id-fact-skill-separation.md)
-  is the next selected small slice under the continuous directive, keeping the same
-  approved model/route and USD10ceiling. It uses5exposed+10newJDs×2draws×2independentpasses,
-  max60newattempts/USD1, no retries, no persona in job facts and background-only skill
-  comparison. Pure source-ID evidence prevents invented quote text; fixed rules rather
-  than a model preference verdict handle the operator policy. The source-ID seam passes
-  1728worker tests/1skip/85.25%coverage plus schema/privacy/import-boundary gates.
-  Initial60observations stay
-  closed; linked prior ledgers/counts/cost carry forward unchanged. No cutover/activation.
+  [Source-ID fact/skill separation](reports/2026-11-12-source-id-separation-checkpoint.md)
+  has60retained replies:11/30fact and0/30skill responses satisfy the complete contract.
+  IDs resolve exactly in offline diagnosis, but over-count references remain live failures;
+  diagnostic projections are not successful assessments. Linked cumulative accounting is
+  970attempts/USD0.299487376, no pending/unknown/overreserve. Pure source-ID v2 explicitly
+  states the existing citation bounds without relaxing validation or changing semantics;
+  1728worker tests/1skip/85.25%coverage plus schema/privacy/import-boundary gates pass.
+  [Instruction alignment/new-source validation](superpowers/specs/2026-11-12-source-id-validation30.md)
+  is the selected follow-up under the continuous directive:30newJDs/4exposed controls,
+  same questions/background/policy/model/route, max136attempts/USD1insideUSD10. Eight
+  exposed control draws must satisfy the complete contract before new-source dispatch.
+  Prior-company flags, source/proxy/wire hashes and all three ancestor ledgers stay bound;
+  no old history reset, cutover or activation.
+
 
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

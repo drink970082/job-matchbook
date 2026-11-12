@@ -1,8 +1,8 @@
 # JEV advisory-scoring research checkpoint
 
 **Status:** no production GO. Candidate preference calibration and the bounded Haiku
-comparison are authorized. JEV measurements below remain unchanged; the additional
-transport is accepted for that comparison, with no Haiku inference evidence yet.
+comparison are authorized. JEV measurements below remain unchanged; the completed
+Haiku comparison is reported in the [Haiku checkpoint](2026-11-12-haiku-comparison-checkpoint.md).
 Measurements are current to the 2026-11-12 UTC checkpoint.
 
 ## Measurements and limits
@@ -57,21 +57,12 @@ blocked-resource test executes reconciliation with legacy scorer imports/resourc
 Web/E2E were not rerun: this change has no Web/runtime surface. Production data, screening,
 legacy scoring/evaluation and activation remain outside the experiment.
 
-## Selected bounded comparison
+## Selected structural follow-up
 
-The operator-approved bounded comparison uses OpenRouter `anthropic/claude-haiku-5.5`, restricted to
-the Anthropic route, with advertised backend snapshot20261007 checked before dispatch and
-no model/provider fallback. Public endpoint metadata is retained; no inference is performed.
-The scope is10exposed failure/control cases plus20newJDs, two draws each, max60attempts
-including failures, one in flight, no retries,15minutes,24KBrequest/128KBresponse and
-2048maximum output tokens. New pilot spend is cappedUSD1within the existing cumulative
-USD10grant; all prior cost/attempts must carry forward. Model-specific reservations and
-exact source/schema/price bindings require freezing before execution. This is not a new
-paid judge or gold-label source. Exact source quotes must be validated, omissions remain
-unknown, and no automatic selection/merge/deployment follows a passing comparison.
-
-The affirmative operator reply selects this exact comparison, not unrestricted model
-migration. Thirty exact payloads and pre-model proxy expectations are frozen before calls;
-20sources are new and10are exposed controls. The new direct-only transport passes1697worker
-tests/1skip/85.11%coverage. Actual live evidence remains pending; unused credit does not
-justify additional uninformative JEV calls.
+The initial60-attempt Haiku comparison is closed, with all replies/charges retained.
+Its [checkpoint](2026-11-12-haiku-comparison-checkpoint.md) distinguishes complete
+assessment acceptance, individual field provenance, semantic proxies and consistency.
+A separately bounded fact/skill separation slice uses the same approved model/route
+under the continuous USD10directive; see its [contract](../superpowers/specs/2026-11-12-source-id-fact-skill-separation.md).
+Prior910attempts/USD0.221028176carry forward through both frozen predecessor ledgers.
+No automatic selection/merge/deployment or production GO follows research observations.

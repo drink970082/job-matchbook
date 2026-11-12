@@ -3167,7 +3167,8 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   blocks are candidate-citable; all text remains present. Constrained ID arrays normalize
   locally into exact spans, rejecting unavailable/header/duplicate/wrong-source IDs.
   Optional candidate evidence minimums fail before HTTP when unavailable. Source-ID mode
-  uses4096tokens and low-effort reasoning with reasoning output excluded; quote-mode bytes
+  uses4096tokens and low-effort reasoning with reasoning output excluded; its v2 note
+  explicitly states existing per-answer1–3JD/0–2candidate bounds and schema minima. Quote-mode bytes
   remain unchanged. Mode/index/profile/options/exact wire hashes require caller run-binding
   and separate journals; generic Invocation identity does not encode these options.
   Source IDs prove provenance, not semantic entailment or complete requirements coverage.

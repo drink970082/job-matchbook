@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Make existing source-ID citation-count bounds explicit in the v2 instruction, preserving
+  validation and quote-mode bytes. Retain60separated-pass attempts,49over-count assessment
+  failures and cumulative970attempts/USD0.299487376; select a mechanically gated new-source
+  slice without changing semantic questions, background, policy, provider or production.
+
 - Add optional lossless source-ID evidence to the isolated Chat transport, with exact
   local spans, conservative section provenance and background-only candidate citations.
   Preserve quote-mode bytes; source-ID mode uses a separately bound low-reasoning4096
