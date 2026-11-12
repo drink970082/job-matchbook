@@ -30,8 +30,11 @@ from ats_worker.preselection.shadow import (
     JobEnvelope,
     ProviderFailure,
     RetryPolicy,
+    ShadowIntegrityError,
     ShadowLimits,
+    ShadowProviderFailure,
     SystemClock,
+    Usage,
     build_assessment_invocation,
     run_shadow_assessment,
 )
@@ -191,6 +194,17 @@ def _invocation(description=None, *, model_identity=MODEL_IDENTITY):
     )
 
 
+def _invocation_for_draw(draw_number):
+    return build_assessment_invocation(
+        _job(),
+        _profile(),
+        QUESTION_SET,
+        MODEL_IDENTITY,
+        variant="direct",
+        draw_number=draw_number,
+    )
+
+
 def _transport(http):
     return OpenRouterChatTransport(http=http, api_key="synthetic-secret", rate_date=RATE_DATE)
 
@@ -324,6 +338,141 @@ def test_generic_supervised_shadow_roundtrip_uses_normalized_exact_offsets(tmp_p
     assert context[context_ref["start"]:context_ref["end"]] == CONTEXT_QUOTE
 
 
+@pytest.mark.parametrize(("cost", "expected_charge_kind"), [("0.0005", "actual"), (None, "unknown")])
+def test_supervised_bad_quote_preserves_completed_failure_accounting_and_resume_guard(
+    tmp_path, cost, expected_charge_kind
+):
+    invocation = _invocation()
+    response_value = _response(
+        invocation,
+        assessment=_assessment(invocation, jd_quote="Paraphrased but absent from the JD"),
+        cost=cost,
+    )
+    http = FakeHTTP(FakeResponse(response_value))
+    transport = _transport(http)
+    journal_path = tmp_path / f"bad-quote-{expected_charge_kind}.json"
+    journal = AttemptJournal.empty()
+    limits = _limits()
+    policy = RetryPolicy(max_retries=0, initial_delay_seconds=0, max_delay_seconds=0)
+
+    def execute(current_journal):
+        return run_shadow_assessment(
+            _job(),
+            _profile(),
+            QUESTION_SET,
+            "direct",
+            MODEL_IDENTITY,
+            transport,
+            current_journal,
+            limits,
+            SystemClock(),
+            lambda current: current.save(journal_path),
+            enabled=True,
+            retry_policy=policy,
+        )
+
+    with pytest.raises(ShadowIntegrityError):
+        execute(journal)
+
+    assert http.call_count.value == 1
+    assert len(journal.records) == 1
+    record = AttemptJournal.load(journal_path).records[0]
+    assert record.status == "integrity_failure"
+    assert record.error_code == "openrouter_assessment_invalid"
+    assert record.delivery == "completed"
+    assert record.usage == {
+        "input_tokens": 320,
+        "output_tokens": 91,
+        "cached_input_tokens": 10,
+    }
+    assert record.charge["kind"] == expected_charge_kind
+    if expected_charge_kind == "actual":
+        assert record.charge["amount"] == "0.0005"
+        assert record.charge["rate_source"] == REPORTED_COST_SOURCE
+    else:
+        assert record.charge["amount"] is None
+    assert record.response_payload is None
+    assert "invalid_failure_metadata" not in [item.error_code for item in AttemptJournal.load(journal_path).records]
+
+    # The journal restart path sees the completed nonretryable attempt and refuses replay.
+    with pytest.raises(ShadowProviderFailure):
+        execute(AttemptJournal.load(journal_path))
+    assert http.call_count.value == 1
+
+    if expected_charge_kind == "actual":
+        # A known, nonretryable quote failure is scoped to this draw; another frozen draw may proceed.
+        next_invocation = _invocation_for_draw(2)
+        next_http = FakeHTTP(FakeResponse(_response(next_invocation)))
+        next_journal = AttemptJournal.load(journal_path)
+        next_result = run_shadow_assessment(
+            _job(),
+            _profile(),
+            QUESTION_SET,
+            "direct",
+            MODEL_IDENTITY,
+            _transport(next_http),
+            next_journal,
+            limits,
+            SystemClock(),
+            lambda current: current.save(journal_path),
+            enabled=True,
+            draw_number=2,
+            retry_policy=policy,
+        )
+        assert next_result.status == "completed"
+        assert next_http.call_count.value == 1
+        reloaded = AttemptJournal.load(journal_path)
+        assert len(reloaded.records) == 2
+        assert reloaded.records[0].status == "integrity_failure"
+        assert reloaded.records[0].charge["amount"] == "0.0005"
+        assert reloaded.records[1].status == "succeeded"
+        assert reloaded.records[1].draw_number == 2
+
+
+def test_supervised_rejects_retryable_completed_failure_metadata_without_retry():
+    class InvalidFailureTransport:
+        def __init__(self):
+            self.calls = multiprocessing.get_context("fork").Value("i", 0)
+
+        def complete(self, invocation):
+            with self.calls.get_lock():
+                self.calls.value += 1
+            raise ProviderFailure(
+                error_code="synthetic_invalid_failure_state",
+                retryable=True,
+                delivery="completed",
+                model_identity=MODEL_IDENTITY,
+                usage=Usage(320, 91, 10),
+                charge=Charge("actual", "0.0005", "USD", "request", RATE_DATE, REPORTED_COST_SOURCE),
+            )
+
+    transport = InvalidFailureTransport()
+    journal = AttemptJournal.empty()
+    with pytest.raises(ShadowIntegrityError) as raised:
+        run_shadow_assessment(
+            _job(),
+            _profile(),
+            QUESTION_SET,
+            "direct",
+            MODEL_IDENTITY,
+            transport,
+            journal,
+            _limits(),
+            SystemClock(),
+            lambda current: None,
+            enabled=True,
+            retry_policy=RetryPolicy(1, 0.001, 0.001, 1.0),
+        )
+    assert journal.records, str(raised.value)
+    record = journal.records[0]
+    assert record.status == "integrity_failure"
+    assert record.error_code == "invalid_failure_metadata"
+    assert record.delivery == "unknown"
+    assert record.charge["kind"] == "unknown"
+    assert record.response_payload is None
+    assert transport.calls.value == 1
+
+
 @pytest.mark.parametrize("quote", ["Not present in the JD", "Python"])
 def test_missing_or_ambiguous_quote_fails_with_known_charge(quote):
     invocation = _invocation("Python is required. Python is also mentioned in the overview.")
@@ -331,7 +480,7 @@ def test_missing_or_ambiguous_quote_fails_with_known_charge(quote):
     http = FakeHTTP(FakeResponse(_response(invocation, assessment=assessment)))
     failure = _complete_failure(_transport(http), invocation)
     assert failure.error_code == "openrouter_assessment_invalid"
-    assert failure.delivery == "delivered"
+    assert failure.delivery == "completed"
     assert failure.retryable is False
     assert failure.usage.input_tokens == 320
     assert failure.charge == Charge("actual", "0.0005", "USD", "request", RATE_DATE, REPORTED_COST_SOURCE)
@@ -354,7 +503,7 @@ def test_wrong_provider_or_model_fails_with_known_charge(field, value, code):
     assert failure.error_code == code
     assert failure.charge.kind == "actual"
     assert failure.charge.amount == "0.0005"
-    assert failure.delivery == "delivered"
+    assert failure.delivery == "completed"
 
 
 @pytest.mark.parametrize(
@@ -371,7 +520,7 @@ def test_non_stop_refusal_and_tool_finish_fail_with_known_charge(finish_reason, 
     failure = _complete_failure(_transport(FakeHTTP(FakeResponse(response_value))), invocation)
     assert failure.error_code == code
     assert failure.charge.kind == "actual"
-    assert failure.delivery == "delivered"
+    assert failure.delivery == "completed"
 
 
 def test_tool_calls_and_duplicate_content_members_fail_without_losing_known_cost():
@@ -412,7 +561,7 @@ def test_malformed_duplicate_deep_and_oversized_http_bodies_have_unknown_charge(
     invocation = _invocation()
     failure = _complete_failure(_transport(FakeHTTP(FakeResponse(raw_body))), invocation)
     assert failure.error_code == "openrouter_response_unavailable"
-    assert failure.delivery == "delivered"
+    assert failure.delivery == "completed"
     assert failure.charge.kind == "unknown"
     assert failure.retryable is False
 

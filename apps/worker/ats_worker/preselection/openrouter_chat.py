@@ -399,7 +399,7 @@ class OpenRouterChatTransport:
             raise self._provider_failure(
                 "openrouter_response_unavailable",
                 model_identity=MODEL_IDENTITY,
-                delivery="delivered",
+                delivery="completed",
             ) from None
         finally:
             close = getattr(response, "close", None)
@@ -417,7 +417,7 @@ class OpenRouterChatTransport:
                 model_identity=MODEL_IDENTITY,
                 usage=usage,
                 charge=charge,
-                delivery="delivered",
+                delivery="completed",
                 circuit_breaker=breaker,
             )
 

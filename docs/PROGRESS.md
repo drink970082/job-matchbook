@@ -39,7 +39,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   schema/privacy/diff gates. Exact30request payloads, pre-model proxies, rates/routing and
   an audit-linked850attempt/USD0.140438676stage bridge are frozen; maximum23667wirebytes
   retains every full JD/profile. Original HTTP replies stay separate from uniquely
-  matched quote offsets. No Haiku private input or paid inference has occurred yet.
+  matched quote offsets. The first Haiku response is chargedUSD0.0014555but rejected for
+  one paraphrased profile citation. Raw HTTP and original journal remain unchanged; the
+  phase ledger retains its known cost (combined851attempts/USD0.141894176). A supervised
+  failure-state mismatch is corrected: completed nonretryable validation failures retain
+  accounting, block replay and allow independent declared draws. The fix passes1700worker
+  tests/1skip/85.14%coverage plus actual-response offline replay with no provider call.
+  Exact59remaining scheduled calls
+  share the phase ledger and frozen wires; the original failed draw is never retried.
 
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

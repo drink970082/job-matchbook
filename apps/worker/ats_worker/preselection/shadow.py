@@ -1616,6 +1616,8 @@ def _provider_failure_to_wire(exc: ProviderFailure) -> dict[str, Any]:
         or type(exc.delivery) is not str
         or type(exc.circuit_breaker) is not bool
         or type(exc.error_code) is not str
+        or exc.delivery not in {"not_sent", "unknown", "completed"}
+        or (exc.delivery == "completed" and exc.retryable)
     ):
         raise _WorkerWireError("provider failure metadata is invalid")
     code = exc.error_code if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", exc.error_code) else "provider_failure"
@@ -1819,7 +1821,8 @@ def _decode_worker_result(payload: bytes, deadline: _RunDeadline, clock: Clock) 
         if (
             type(result.get("error_code")) is not str
             or type(result.get("retryable")) is not bool
-            or result.get("delivery") not in {"not_sent", "unknown"}
+            or result.get("delivery") not in {"not_sent", "unknown", "completed"}
+            or (result.get("delivery") == "completed" and result.get("retryable"))
             or type(result.get("circuit_breaker")) is not bool
             or usage is None
             or charge is None
@@ -2242,7 +2245,8 @@ def _run_invocation(
             if (
                 not isinstance(exc.retryable, bool)
                 or not isinstance(exc.delivery, str)
-                or exc.delivery not in {"not_sent", "unknown"}
+                or exc.delivery not in {"not_sent", "unknown", "completed"}
+                or (exc.delivery == "completed" and exc.retryable)
                 or not isinstance(exc.circuit_breaker, bool)
             ):
                 record.status = "integrity_failure"
@@ -2300,16 +2304,19 @@ def _run_invocation(
                     record.status = "budget_stop"
                     persist(journal)
                     raise ShadowBudgetExceeded("failure charge exceeded the per-attempt reserve") from exc
-            record.status = (
-                "ambiguous"
-                if exc.delivery == "unknown"
-                else "retryable_failure"
-                if exc.retryable
-                else "failed"
-            )
+            if exc.delivery == "completed":
+                record.status = "integrity_failure"
+            elif exc.delivery == "unknown":
+                record.status = "ambiguous"
+            elif exc.retryable:
+                record.status = "retryable_failure"
+            else:
+                record.status = "failed"
             record.retry_delay_seconds = None
             record.retry_backoff_completed = False
             persist(journal)
+            if record.status == "integrity_failure":
+                raise _validation_error_from_code(record.error_code) from exc
             if record.status != "retryable_failure":
                 if record.status == "ambiguous":
                     raise ShadowResumeAmbiguous(

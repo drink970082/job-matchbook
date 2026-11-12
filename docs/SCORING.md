@@ -1751,6 +1751,13 @@ is not selected. A different model is an explicitly authorized comparison, not a
 migration, paid judge or new source of gold. See the
 [current checkpoint](reports/2026-11-12-jev-convergence-checkpoint.md) for evidence limits.
 
+Structured LLM output can paraphrase a candidate preference while presenting it as a
+literal quote. A valid JSON schema/finish reason is not provenance: unique exact-source
+matching must reject unsupported quotations without replacing the model's answer. An
+arrived but invalid reply has completed delivery and may have a known bill; conflating
+that with network ambiguity loses accounting and prevents independent work. Preserve
+original failed attempts and charges, never retry them to improve a validation count.
+
 ### 9.5 Rebuild checklist
 
 A rebuilt implementation should be able to answer yes to all of these:

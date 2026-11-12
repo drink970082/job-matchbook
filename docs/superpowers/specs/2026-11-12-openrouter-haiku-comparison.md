@@ -48,7 +48,10 @@ a quote supports a model's interpretation. Positive claims without evidence rema
 or unresolved, never verified eligibility/ability.
 
 Parse usage/actual `usage.cost` before semantic validation. Preserve known Charge/Usage in
-provider failures; missing price/delivery is unknown, not zero. Charge currency USD, unit
+provider failures; missing price/delivery is unknown, not zero. Completed nonretryable
+response-validation failures use the explicit `completed` delivery state across the
+supervised wire and journal, retain reported charge/usage and cannot be retried.
+`completed` plus retryable is invalid; existing not-sent/unknown behavior is unchanged. Charge currency USD, unit
 request, rate date from the frozen metadata observed UTC date, rate source
 `openrouter.response.usage.cost`. Error strings/bodies must not expose keys or private text.
 
@@ -60,7 +63,8 @@ and is not resumed as a side effect. Its frozen850attempts/USD0.140438676are car
 as explicit historical attempts/spend in a linked new-stage ledger, with old-ledger full
 hash and final event hash checked before every new reservation. This is an audit-linked
 stage bridge, not a fresh budget/counter reset or general unattended multi-phase scheduler.
-Stop if the predecessor changes, either stage has unresolved accounting, or any cap fails.
+The linked epoch uses the ledger's supported internal `stage1` token; its campaign/epoch
+identity and historical carry distinguish it from JEV. Stop if the predecessor changes, either stage has unresolved accounting, or any cap fails.
 All prior failed/lost calls count. Campaign/controller locking serializes selected work.
 
 Freeze model-specific reservation from the maximum advertised context/tier rates plus
@@ -78,6 +82,11 @@ network/unknown charge; actual generic supervised journal roundtrip and blocked 
 execution. Full worker coverage>=85%, schema drift, privacy and diff checks must pass.
 Update SPEC current tooling/traceability, PROGRESS residual and CHANGELOG with source.
 No Web surface changes or live provider calls in tests.
+
+Known-cost completed quote/schema/length failures remain unscored and count toward the
+60attempts; independent already-scheduled items may continue without retrying failed work.
+Unknown cost/delivery or provider/model/circuit violations stop the whole batch. Preserve
+first-attempt metadata defects and original journals; offline replay is not new inference.
 
 Report each axis, exact evidence, completion failures, ambiguity and repeat disagreements.
 Do not claim causal model superiority from changed protocol, scalar fit accuracy from

@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Preserve completed nonretryable provider-validation failures across the supervised
+  wire/journal, retaining reported cost and refusing retries. Independent declared
+  draws remain possible; invalid retryable+completed metadata stays rejected.
+
 - Add an isolated, injected Haiku Chat transport for the operator-approved bounded
   comparison. It freezes the Anthropic-only route, validates unique quote provenance,
   retains known charges on errors and rejects unsupported inputs before dispatch.
