@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record operator-calibrated JEV research preferences and select a bounded v7 regression
+  batch. Low latency alone is accepted, explicitly very low-level C++ and chip-domain
+  work remain avoided; vision inference, substantial ETL/BI and coded alpha research
+  are accepted. No background, eligibility, weights or production defaults change.
+
 - Record unchanged-v6 forty-job validation:120fresh calls,35/40unanimous preference
   results, explicit proxy-label limitations and generic classification defects. Retain
   cumulative307attempts/USD0.064009512accounting and batch preference questions for

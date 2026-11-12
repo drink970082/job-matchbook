@@ -50,9 +50,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   not human accuracy. Thirty-four items are from new companies and six share development
   companies; the cohort is purposive, not a complete-day source roster. Embedded avoidance
   misses, team-context inference and specialized-engineering tag omissions remain defects.
-  A private five-question operator packet covers low-latency scope, visual inference,
-  chip-domain RL, ETL/BI and alpha-research boundaries. Further revision waits for these
-  preference decisions; provider calls are stopped for intervention, not budget exhaustion.
+  Operator calibration accepts low-latency work except explicitly very low-level C++,
+  visual-model inference engineering, substantial ETL mixed with BI, and alpha research
+  with substantial programming/model implementation; chip-domain work remains avoided.
+  A frozen private profile2.0.4/v7 pack applies these policies without changing background,
+  eligibility rules or adding weights. The exposed40are selected for120fresh regression
+  calls under a recorded cap400→600amendment, max140newattempts/15minutes; USD0.50current
+  and USD10global ceilings remain. Independent untouched expansion follows regression.
   The operator directs continuous execution until intervention/session-limit/USD10exhaustion,
   with no overfitting, unnecessary complexity or invented missing JD facts. Thirteen
   over-bound full payloads were omitted, never truncated; mobile coverage remains absent.
