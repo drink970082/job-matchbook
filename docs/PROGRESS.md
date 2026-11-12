@@ -34,19 +34,22 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   max60attempts/15minutes/USD1withinUSD10,10exposed controls+20newJDs×2, same approved
   full profile, no retries/provider/model fallback or activation. Exact new-source/proxy,
   quote schema, routing/rates and stage-bridge identities must freeze before calls.
-  The isolated direct-only typed-JSON transport is implemented and accepted for this
-  comparison after1697worker tests/1skip/85.11%coverage,30targeted/boundary tests and
-  schema/privacy/diff gates. Exact30request payloads, pre-model proxies, rates/routing and
-  an audit-linked850attempt/USD0.140438676stage bridge are frozen; maximum23667wirebytes
-  retains every full JD/profile. Original HTTP replies stay separate from uniquely
-  matched quote offsets. The first Haiku response is chargedUSD0.0014555but rejected for
-  one paraphrased profile citation. Raw HTTP and original journal remain unchanged; the
-  phase ledger retains its known cost (combined851attempts/USD0.141894176). A supervised
-  failure-state mismatch is corrected: completed nonretryable validation failures retain
-  accounting, block replay and allow independent declared draws. The fix passes1700worker
-  tests/1skip/85.14%coverage plus actual-response offline replay with no provider call.
-  Exact59remaining scheduled calls
-  share the phase ledger and frozen wires; the original failed draw is never retried.
+  The isolated direct-only typed-JSON transport and completed-response failure bridge
+  pass1700worker tests/1skip/85.14%coverage, schema/privacy/boundary gates and retained
+  actual-response offline replay. The initial60Haikuattempts are complete: USD0.0805895new,
+  combined910attempts/USD0.221028176, no pending/unknown/overreserve. Only26responses meet
+  the complete operator evidence policy;324/360individual fields have literal valid quotes,
+  while semantic errors remain. A separate per-axis/contradiction audit freezes before
+  the20new-source outputs; it is not a successful-model response or independent gold.
+  [Source-ID fact/skill separation](superpowers/specs/2026-11-12-source-id-fact-skill-separation.md)
+  is the next selected small slice under the continuous directive, keeping the same
+  approved model/route and USD10ceiling. It uses5exposed+10newJDs×2draws×2independentpasses,
+  max60newattempts/USD1, no retries, no persona in job facts and background-only skill
+  comparison. Pure source-ID evidence prevents invented quote text; fixed rules rather
+  than a model preference verdict handle the operator policy. The source-ID seam passes
+  1728worker tests/1skip/85.25%coverage plus schema/privacy/import-boundary gates.
+  Initial60observations stay
+  closed; linked prior ledgers/counts/cost carry forward unchanged. No cutover/activation.
 
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

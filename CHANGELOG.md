@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add optional lossless source-ID evidence to the isolated Chat transport, with exact
+  local spans, conservative section provenance and background-only candidate citations.
+  Preserve quote-mode bytes; source-ID mode uses a separately bound low-reasoning4096
+  profile. Record the initial60Haiku observations and select bounded fact/skill separation,
+  carrying910priorattempts/USD0.221028176forward without production activation.
+
 - Preserve completed nonretryable provider-validation failures across the supervised
   wire/journal, retaining reported cost and refusing retries. Independent declared
   draws remain possible; invalid retryable+completed metadata stays rejected.

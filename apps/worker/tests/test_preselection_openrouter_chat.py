@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import json
 import multiprocessing
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 
 from ats_worker.preselection.openrouter_chat import (
     CHAT_EVIDENCE_NOTE,
+    CHAT_SOURCE_ID_NOTE,
     CHAT_COMPLETIONS_URL,
     MAX_REQUEST_BYTES,
     MAX_RESPONSE_BYTES,
@@ -18,11 +20,14 @@ from ats_worker.preselection.openrouter_chat import (
     REPORTED_COST_SOURCE,
     RESOLVED_MODEL,
     REQUESTED_MODEL,
+    SOURCE_ID_CHAT_PROFILE_VERSION,
+    SOURCE_ID_MAX_COMPLETION_TOKENS,
     TIMEOUT_SECONDS,
     OpenRouterChatError,
     OpenRouterChatTransport,
     build_openrouter_chat_request,
 )
+from ats_worker.preselection.citations import build_citation_index
 from ats_worker.preselection.shadow import (
     AttemptJournal,
     Charge,
@@ -205,8 +210,39 @@ def _invocation_for_draw(draw_number):
     )
 
 
-def _transport(http):
-    return OpenRouterChatTransport(http=http, api_key="synthetic-secret", rate_date=RATE_DATE)
+def _transport(http, *, evidence_mode="quote", require_candidate_evidence=False):
+    return OpenRouterChatTransport(
+        http=http,
+        api_key="synthetic-secret",
+        rate_date=RATE_DATE,
+        evidence_mode=evidence_mode,
+        require_candidate_evidence=require_candidate_evidence,
+    )
+
+
+def _source_id_assessment(invocation, index=None):
+    index = index or build_citation_index(
+        invocation.payload["job_description"], invocation.payload["candidate_context"]
+    )
+    jd_ids = [index.citable_ids_for("jd")[0]]
+    candidate_ids = list(index.citable_ids_for("candidate_context")[:1])
+    return {
+        "answers": {
+            "role_families": {
+                "value": ["engineering"],
+                "evidence": {"jd": jd_ids, "candidate_context": candidate_ids},
+            },
+            "work_alignment": {
+                "value": "moderate",
+                "evidence": {"jd": jd_ids, "candidate_context": candidate_ids},
+            },
+            "dimension_example": {
+                "value": 2,
+                "evidence": {"jd": jd_ids, "candidate_context": candidate_ids},
+            },
+        },
+        "explanation": "Synthetic explanation tied to indexed source blocks.",
+    }
 
 
 def _limits():
@@ -234,6 +270,8 @@ def _complete_failure(transport, invocation):
 def test_pure_request_builder_freezes_selected_route_and_refines_only_evidence_schema():
     invocation = _invocation()
     body = build_openrouter_chat_request(invocation)
+    assert hashlib.sha256(body).hexdigest() == "098a6784bc2a42a45e306466af0f805a950384b144cbc27d9d15129798d961a8"
+    assert build_openrouter_chat_request(invocation, evidence_mode="quote") == body
     request = json.loads(body)
     assert len(body) <= MAX_REQUEST_BYTES
     assert request["model"] == REQUESTED_MODEL
@@ -268,6 +306,59 @@ def test_pure_request_builder_freezes_selected_route_and_refines_only_evidence_s
         assert "start" not in item["properties"]
         assert "end" not in item["properties"]
     assert invocation.output_schema == original_schema
+
+
+def test_source_id_request_is_lossless_and_schema_allows_only_citable_ids():
+    invocation = _invocation()
+    invocation_payload = json.loads(json.dumps(invocation.payload, ensure_ascii=False))
+    index = build_citation_index(
+        invocation.payload["job_description"], invocation.payload["candidate_context"]
+    )
+    body = build_openrouter_chat_request(
+        invocation,
+        evidence_mode="source_ids",
+        require_candidate_evidence=True,
+    )
+    request = json.loads(body)
+    user_payload = json.loads(request["messages"][1]["content"])
+    assert type(user_payload["job_description"]) is list
+    assert type(user_payload["candidate_context"]) is list
+    assert user_payload["job_description"] == index.model_blocks("jd")
+    assert user_payload["candidate_context"] == index.model_blocks("candidate_context")
+    assert all(set(block) == {"id", "section", "text"} for block in (
+        user_payload["job_description"] + user_payload["candidate_context"]
+    ))
+    assert invocation.payload == invocation_payload
+    assert "2+ years professional experience" in "".join(
+        block["text"] for block in user_payload["job_description"]
+    )
+    assert request["messages"][0]["content"] == (
+        invocation.system_prompt + "\n\n" + CHAT_SOURCE_ID_NOTE
+    )
+    assert request["max_tokens"] == SOURCE_ID_MAX_COMPLETION_TOKENS == 4096
+    assert request["reasoning"] == {
+        "enabled": True,
+        "effort": "low",
+        "exclude": True,
+    }
+    assert SOURCE_ID_CHAT_PROFILE_VERSION == "source-ids-haiku-low-reasoning-4096-v1"
+    assert "2+ years professional experience" not in request["messages"][0]["content"]
+    schema = request["response_format"]["json_schema"]["schema"]
+    for question_id in [question.id for question in QUESTION_SET.questions]:
+        evidence = schema["properties"]["answers"]["properties"][question_id]["properties"]["evidence"]
+        assert evidence["required"] == ["jd", "candidate_context"]
+        assert evidence["additionalProperties"] is False
+        assert evidence["properties"]["jd"]["minItems"] == 1
+        assert evidence["properties"]["jd"]["maxItems"] == 3
+        assert evidence["properties"]["jd"]["items"]["enum"] == list(index.citable_ids_for("jd"))
+        assert evidence["properties"]["candidate_context"]["minItems"] == 1
+        assert evidence["properties"]["candidate_context"]["maxItems"] == 2
+        assert evidence["properties"]["candidate_context"]["items"]["enum"] == list(
+            index.citable_ids_for("candidate_context")
+        )
+        assert "quote" not in evidence["properties"]
+        assert "start" not in evidence["properties"]
+        assert "end" not in evidence["properties"]
 
 
 @pytest.mark.parametrize("model", [REQUESTED_MODEL, RESOLVED_MODEL])
@@ -336,6 +427,144 @@ def test_generic_supervised_shadow_roundtrip_uses_normalized_exact_offsets(tmp_p
     context_ref = answers["work_alignment"].evidence[0]
     context = invocation.payload["candidate_context"]
     assert context[context_ref["start"]:context_ref["end"]] == CONTEXT_QUOTE
+
+
+def test_source_id_mode_supervised_roundtrip_resolves_ids_to_exact_local_offsets(tmp_path):
+    description = "## Responsibilities:\nA fictional company needs a technical writer with two years of experience."
+    invocation = _invocation(description)
+    index = build_citation_index(
+        invocation.payload["job_description"], invocation.payload["candidate_context"]
+    )
+    assert index.jd_blocks[0].citable is False
+    assert index.citable_ids_for("jd") == ("J0001",)
+    assessment = _source_id_assessment(invocation, index)
+    response = FakeResponse(_response(invocation, assessment=assessment))
+    http = FakeHTTP(response, marker_path=tmp_path / "source-id-posts.jsonl")
+    journal = AttemptJournal.empty()
+    result = run_shadow_assessment(
+        _job(description),
+        _profile(),
+        QUESTION_SET,
+        "direct",
+        MODEL_IDENTITY,
+        _transport(http, evidence_mode="source_ids", require_candidate_evidence=True),
+        journal,
+        _limits(),
+        SystemClock(),
+        lambda current: None,
+        enabled=True,
+        retry_policy=RetryPolicy(max_retries=0, initial_delay_seconds=0, max_delay_seconds=0),
+    )
+
+    assert result.status == "completed"
+    assert http.call_count.value == 1
+    assert len(journal.records) == 1
+    assert journal.records[0].status == "succeeded"
+    assert journal.records[0].response_payload is not None
+    source_texts = {
+        "jd": invocation.payload["job_description"],
+        "candidate_context": invocation.payload["candidate_context"],
+    }
+    assert result.assessment is not None
+    for answer in result.assessment.answers:
+        assert len(answer.evidence) == 2
+        for reference in answer.evidence:
+            source_text = source_texts[reference["source"]]
+            assert source_text[reference["start"]:reference["end"]] == reference["quote"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["hallucinated", "wrong_source", "header", "duplicate", "quote_copy", "offset"],
+)
+def test_source_id_hallucinated_wrong_source_header_and_duplicate_ids_fail_with_known_charge(mutation):
+    invocation = _invocation("## Responsibilities:\nBuild a useful synthetic feature.")
+    index = build_citation_index(
+        invocation.payload["job_description"], invocation.payload["candidate_context"]
+    )
+    assessment = _source_id_assessment(invocation, index)
+    evidence = assessment["answers"]["role_families"]["evidence"]
+    if mutation == "hallucinated":
+        evidence["jd"] = ["J9999"]
+    elif mutation == "wrong_source":
+        evidence["candidate_context"] = [index.citable_ids_for("jd")[0]]
+    elif mutation == "header":
+        evidence["jd"] = [index.jd_blocks[0].id]
+    elif mutation == "duplicate":
+        evidence["jd"] = [index.citable_ids_for("jd")[0]] * 2
+    elif mutation == "quote_copy":
+        evidence["quote"] = "Model-authored quote text is not accepted."
+    else:
+        evidence["jd"] = [{"id": index.citable_ids_for("jd")[0], "start": 0}]
+    http = FakeHTTP(FakeResponse(_response(invocation, assessment=assessment)))
+    failure = _complete_failure(
+        _transport(http, evidence_mode="source_ids", require_candidate_evidence=True),
+        invocation,
+    )
+    assert failure.error_code == "openrouter_assessment_invalid"
+    assert failure.delivery == "completed"
+    assert failure.charge == Charge("actual", "0.0005", "USD", "request", RATE_DATE, REPORTED_COST_SOURCE)
+    assert len(http.posts) == 1
+
+
+def test_source_id_option_bounds_empty_candidate_sources_and_freezes_transport_mode():
+    empty_profile = profile_from_value({
+        "schema": 1,
+        "version": "synthetic-empty-citation-profile-v1",
+        "as_of": "2026-11-11",
+        "status": "approved",
+        "background": [],
+        "preferences": [],
+    })
+    invocation = build_assessment_invocation(
+        _job(), empty_profile, QUESTION_SET, MODEL_IDENTITY, variant="direct"
+    )
+    body = build_openrouter_chat_request(invocation, evidence_mode="source_ids")
+    schema = json.loads(body)["response_format"]["json_schema"]["schema"]
+    candidate_schema = schema["properties"]["answers"]["properties"]["role_families"]["properties"][
+        "evidence"
+    ]["properties"]["candidate_context"]
+    assert candidate_schema["minItems"] == 0
+    assert candidate_schema["maxItems"] == 0
+    assert "enum" not in candidate_schema["items"]
+
+    http = FakeHTTP(FakeResponse({}))
+    failure = _complete_failure(
+        _transport(http, evidence_mode="source_ids", require_candidate_evidence=True), invocation
+    )
+    assert failure.error_code == "openrouter_candidate_evidence_unavailable"
+    assert failure.delivery == "not_sent"
+    assert http.posts == []
+
+    transport = _transport(
+        FakeHTTP(FakeResponse({})), evidence_mode="source_ids", require_candidate_evidence=True
+    )
+    assert transport.evidence_mode == "source_ids"
+    assert transport.require_candidate_evidence is True
+    with pytest.raises(AttributeError, match="frozen"):
+        transport._evidence_mode = "quote"
+
+
+def test_source_id_mode_without_citable_jd_evidence_rejects_before_http():
+    invocation = _invocation("## Responsibilities:\n\n")
+    http = FakeHTTP(FakeResponse({}))
+    failure = _complete_failure(_transport(http, evidence_mode="source_ids"), invocation)
+    assert failure.error_code == "openrouter_jd_evidence_unavailable"
+    assert failure.delivery == "not_sent"
+    assert failure.charge.kind == "unknown"
+    assert http.posts == []
+
+
+def test_evidence_mode_options_are_strict_before_request_construction():
+    invocation = _invocation()
+    for options in (
+        {"evidence_mode": "unknown"},
+        {"evidence_mode": True},
+        {"require_candidate_evidence": 1},
+        {"evidence_mode": "quote", "require_candidate_evidence": True},
+    ):
+        with pytest.raises(OpenRouterChatError):
+            build_openrouter_chat_request(invocation, **options)
 
 
 @pytest.mark.parametrize(("cost", "expected_charge_kind"), [("0.0005", "actual"), (None, "unknown")])
