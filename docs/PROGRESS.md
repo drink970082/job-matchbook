@@ -40,18 +40,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   high/moderate on one vague-duty job and remains explicitly uncertain. Six source-bound
   skill sidecars cover16selectedrequirements with identical three-draw support; annotations
   remain proxy/selected-only, not human gold or an automatic requirements collector.
-  The retained ledger has177new/187totalattempts, cumulativeUSD0.038861424includingpriorcost,
-  no pending/unknown/overreserve, and two distinct-auth cap amendments preserving history.
-  The effective cap is200; the78-call skill slice is complete under its80newattemptlimit.
-  [Forty-job provider-free preparation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
-  freezes new source payloads from30companies with no model calls or labels yet. The
-  operator now directs continuous execution until intervention/session-limit/USD10exhaustion,
-  with no overfitting, unnecessary complexity or invented missing JD facts. Forty-job
-  pre-model proxy labeling/grouping and then120freshcalls are selected under a retained
-  cap200→400amendment; routine milestones do not require renewed permission. Exact
-  duplicates are excluded; grouping/labels and declared mobile/sales coverage gaps remain.
-  Thirteen over-bound full payloads were omitted, never truncated. Do not run expansion
-  before source/label/batch bindings and its append-only cap authorization are frozen. The
+  The retained ledger has297new/307totalattempts, cumulativeUSD0.064009512includingpriorcost,
+  no pending/unknown/overreserve, and three distinct-auth cap amendments preserving history.
+  The effective cap is400. The
+  [forty-job validation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
+  contains120freshcalls on unchanged v6 inputs, with pre-model proxy labels and29company-family
+  groups frozen. Preference tiers repeat identically on35/40jobs;25/29singleton proxy cases
+  and9/11ambiguous-set cases have every draw admissible. These are proxy comparisons,
+  not human accuracy. Thirty-four items are from new companies and six share development
+  companies; the cohort is purposive, not a complete-day source roster. Embedded avoidance
+  misses, team-context inference and specialized-engineering tag omissions remain defects.
+  A private five-question operator packet covers low-latency scope, visual inference,
+  chip-domain RL, ETL/BI and alpha-research boundaries. Further revision waits for these
+  preference decisions; provider calls are stopped for intervention, not budget exhaustion.
+  The operator directs continuous execution until intervention/session-limit/USD10exhaustion,
+  with no overfitting, unnecessary complexity or invented missing JD facts. Thirteen
+  over-bound full payloads were omitted, never truncated; mobile coverage remains absent.
+  The exposed40cannot become an untouched test after tuning. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 

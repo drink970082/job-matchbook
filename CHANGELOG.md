@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record unchanged-v6 forty-job validation:120fresh calls,35/40unanimous preference
+  results, explicit proxy-label limitations and generic classification defects. Retain
+  cumulative307attempts/USD0.064009512accounting and batch preference questions for
+  operator intervention; no production GO or legacy scoring integration.
+
 - Record two unchanged-version development batches and selected-requirement evidence
   measurements: 78 fresh calls, stable preference/skill labels, and explicit remaining
   work-interest uncertainty. Freeze forty new source payloads for provider-free labeling

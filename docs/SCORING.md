@@ -1729,6 +1729,17 @@ representative evidence, not repetition of an old passing run. Luna/medium fit a
 JEV classification remain separate unvalidated proposals. [ROADMAP R4](ROADMAP.md#r4--optional-scorer-maintenance)
 and [EVALUATION](EVALUATION.md) govern selection and acceptance.
 
+JEV's isolated frozen-v6 expansion exposes limits that development repeats cannot
+measure: embedded duties can miss the avoidance tag, team descriptions can be mistaken
+for role deliverables, and broad general-SWE tags can disappear on specialized engineering
+work despite explicitly overlapping scopes. Repeated labels are not correctness evidence.
+The private40-job cohort has pre-model proxy labels,29company-family groups and120fresh
+responses, but no independent human gold. Preference is unanimous on35/40jobs; all-draw
+proxy admissibility is25/29singleton and9/11multi-value cases. Multi-value admissibility
+must not be pooled into crisp accuracy. Once used for revisions these40are regression
+examples, not untouched validation. Missing JD facts and uncertain preference boundaries
+remain unknown; no company/posting exceptions or extra numeric weights are justified.
+
 ### 9.5 Rebuild checklist
 
 A rebuilt implementation should be able to answer yes to all of these:

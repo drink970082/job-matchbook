@@ -1,10 +1,19 @@
 # Independent expansion: forty-job preparation
 
-**Status:** selected for preparation and a bounded frozen-version forty-job validation
-under the operator's continuous-execution directive and cumulative USD10 research grant.
-Do not stop at routine milestones; stop for required operator intervention, session limit
-or budget exhaustion. No production GO/merge/deployment is authorized. The old skill slice
-remains closed under its80-callcap; this new batch has its own manifest and authorization.
+**Status:** frozen-version validation evidence is available; operator preference
+calibration is required before revision. Forty jobs × three fresh calls cost
+USD0.025148088; cumulative307attempts costUSD0.064009512(provider-reported, not invoice-audited).
+The retained ledger has no pending/unknown/overreserve charges and effective attempt cap400.
+
+Preference is unanimous on35/40jobs. Pre-model proxy comparisons are admissible on every
+draw for25/29singleton cases and9/11multi-value cases; neither establishes human accuracy.
+Explicit embedded avoidance misses and inference from team rather than role duties prevent
+GO. A private five-question packet asks about low-latency scope, vision inference,
+chip-domain RL, ETL/BI mixtures and alpha research. Apparently-clear controls were frozen
+before outputs and remain available for independent calibration. No production activation.
+The operator's continuous-execution directive remains active within USD10; this stop is for
+required preference intervention. Do not treat the exposed40as an untouched test after any
+revision. The following is the frozen batch protocol, retained for reproducibility.
 
 Freeze40 previously uninspected full source JDs, excluding the original ten and exact
 source/requisition/JD duplicates. Stratify across target families, avoided-duty negatives
@@ -33,7 +42,8 @@ isolation. A locked100–150job test and complete-day shadow remain later gates.
 Use the already frozen40newJDs and unchanged v6 main pack/profile/preference policy.
 Before calls, read full JDs, freeze source-span-supported proxy expectations and grouping
 without model outputs, and register unresolved facts explicitly. Do not manufacture
-labels from the metadata selection strata. Mobile and sales negative coverage is absent;
+labels from the metadata selection strata. Mobile negative coverage is absent; the sales-engineer title stratum is absent,
+although a primary-sales GTM negative is included;
 13full payloads exceeded24KB and were omitted rather than truncated. Report this selection
 bias. Facts not stated in a JD remain unknown; the system may keep ambiguous assessments
 rather than chasing perfect agreement with new complexity or company-specific exceptions.
