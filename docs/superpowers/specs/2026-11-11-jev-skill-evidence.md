@@ -1,6 +1,6 @@
 # Selected convergence slice: skill evidence and safe batch continuation
 
-**Status:** approved for implementation and bounded development measurement under the
+**Status:** implemented on branch; approved for bounded development measurement under the
 operator's continuing USD 10 research authorization. No production activation/GO is granted.
 This extends the retained stage attempt cap100→200 using a distinct append-only authorization,
 not a new ledger. Historical counters and all monetary/global ceilings stay unchanged.
@@ -36,7 +36,8 @@ remains separate work; the sidecar does not establish automatic population-scale
 - `SkillEvidencePolicy(version, question_set_sha256, profile_sha256, jd_sha256, requirements)`:
   bind all exact inputs and unique question IDs. Atomic packs contain exactly those Choice
   questions with direct/transferable/not_evidenced/unknown criteria. No silent extra facts,
-  missing questions, invalid spans or duplicate references. Empty candidate reference lists
+  missing questions, invalid spans or duplicate references within a requirement. The same
+  exact background evidence may legitimately support several different requirements. Empty candidate reference lists
   are permitted but do not prove inability or source completeness.
 - `derive_skill_evidence(native_payload, question_set, expected_model, jd_text, profile, policy)`:
   revalidate native wrapper/model/question identity and source/profile hashes before deriving
@@ -51,7 +52,10 @@ Interpret support at the competency/depth the JD actually requests. Direct means
 of that requirement, transferable means relevant evidence without establishing the same
 competency/depth, not_evidenced means supplied background lacks support, unknown is ambiguous.
 An alternative clause is satisfied by a valid option; no preferred requirement becomes a
-mandatory gap. No claim of inability, years, visa status or salary follows from these labels.
+mandatory gap. A direct/transferable answer without any declared validated background
+reference remains visible as unlinked positive evidence and resolves to uncertainty, not an
+unsupported positive all-clear. Preserve the raw support value. This affects the core summary
+only for explicit/possible core requirements; preferred unlinked positives stay separate. No claim of inability, years, visa status or salary follows from these labels.
 
 Report per-requirement support/provenance and a summary with these semantics:
 
@@ -64,7 +68,9 @@ Report per-requirement support/provenance and a summary with these semantics:
 4. No explicit or possible required+central facts -> no_explicit_core_requirement, not a
    verified pass. Preferred facts never create core gaps; supporting facts stay separate.
 
-Keep all unresolved requirement IDs visible even when a known gap determines the summary.
+Keep all support=unknown requirement IDs visible, including preferred/supporting facts,
+without making them core gaps; also retain possible-core uncertainty. A known gap may
+determine the summary while other unresolved requirement IDs remain visible.
 Include policy/profile/JD/question/response identities, referenced IDs and explicit
 `selected_requirements_only` / `operator_proxy_not_gold` provenance. Do not overwrite raw
 native values or the main descriptive support label. All completeness/accuracy claims remain

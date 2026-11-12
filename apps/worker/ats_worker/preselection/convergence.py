@@ -201,7 +201,7 @@ class _LedgerState:
     over_reserve: bool
     settlement_by_id: dict[str, dict[str, Any]]
     previous_hash: str | None
-    extension_event: dict[str, Any] | None
+    extension_events_by_authorization: dict[str, dict[str, Any]]
 
 
 def _pairs_no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -264,7 +264,7 @@ class CampaignLedger:
                 over_reserve=False,
                 settlement_by_id={},
                 previous_hash=None,
-                extension_event=None,
+                extension_events_by_authorization={},
             )
         try:
             if self.path.is_symlink() or not self.path.is_file():
@@ -299,7 +299,7 @@ class CampaignLedger:
             over_reserve=False,
             settlement_by_id={},
             previous_hash=None,
-            extension_event=None,
+            extension_events_by_authorization={},
         )
         for index, line in enumerate(lines):
             try:
@@ -422,8 +422,6 @@ class CampaignLedger:
             }
             if set(body) != expected:
                 raise CampaignLedgerIntegrityError("campaign cap extension has an invalid shape")
-            if state.extension_event is not None:
-                raise CampaignLedgerIntegrityError("campaign ledger contains duplicate cap amendments")
             if state.pending is not None or state.unknown or state.over_reserve:
                 raise CampaignLedgerIntegrityError("campaign cap amendment follows a stopped or pending attempt")
             if body["campaign_id"] != self.config.campaign_id or body["stage_id"] != self.config.stage_id:
@@ -433,7 +431,9 @@ class CampaignLedger:
                 raise CampaignLedgerIntegrityError("campaign cap amendment has a mismatched previous cap")
             if type(new_cap) is not int or new_cap <= old_cap:
                 raise CampaignLedgerIntegrityError("campaign cap amendment is not a strict increase")
-            _sha256(body["authorization_sha256"], "authorization_sha256")
+            authorization = _sha256(body["authorization_sha256"], "authorization_sha256")
+            if authorization in state.extension_events_by_authorization:
+                raise CampaignLedgerIntegrityError("campaign ledger reuses a cap amendment authorization")
             expected_previous = _sha256(body["expected_previous_event_sha256"], "expected_previous_event_sha256")
             if expected_previous != body["previous_event_sha256"]:
                 raise CampaignLedgerIntegrityError("campaign cap amendment compare-and-swap hash is inconsistent")
@@ -441,7 +441,7 @@ class CampaignLedger:
             if new_cap > maximum_stage_cap:
                 raise CampaignLedgerIntegrityError("campaign cap amendment exceeds global attempts remaining")
             state.effective_stage_attempt_cap = new_cap
-            state.extension_event = body
+            state.extension_events_by_authorization[authorization] = body
             return
         raise CampaignLedgerIntegrityError("campaign ledger event kind is unsupported")
 
@@ -575,15 +575,14 @@ class CampaignLedger:
             state = self._state()
             if state.pending is not None or state.unknown or state.over_reserve:
                 raise CampaignBudgetExceeded("campaign cap cannot be amended while pending or stopped")
-            prior = state.extension_event
+            prior = state.extension_events_by_authorization.get(authorization_sha256)
             if prior is not None:
                 if (
                     new_cap == prior["new_stage_attempt_cap"]
-                    and authorization_sha256 == prior["authorization_sha256"]
                     and expected_previous_event_sha256 == prior["expected_previous_event_sha256"]
                 ):
                     return self._snapshot_from_state(state)
-                raise CampaignLedgerIntegrityError("campaign already has a different cap amendment")
+                raise CampaignLedgerIntegrityError("campaign authorization was reused for a different amendment")
             if expected_previous_event_sha256 != state.previous_hash:
                 raise CampaignBudgetExceeded("campaign cap amendment compare-and-swap is stale")
             if new_cap <= state.effective_stage_attempt_cap:
@@ -602,7 +601,7 @@ class CampaignLedger:
                 "expected_previous_event_sha256": expected_previous_event_sha256,
             })
             state.effective_stage_attempt_cap = new_cap
-            state.extension_event = state.events[-1]
+            state.extension_events_by_authorization[authorization_sha256] = state.events[-1]
             return self._snapshot_from_state(state)
 
     def settle(self, reservation_id: str, charge: Any | None) -> CampaignSnapshot:

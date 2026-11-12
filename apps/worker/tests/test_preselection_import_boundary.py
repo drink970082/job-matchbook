@@ -118,12 +118,20 @@ import ats_worker.preselection.jev
 import ats_worker.preselection.openrouter_jev
 from ats_worker.preselection.convergence import CampaignLedger, build_stage1_report
 from ats_worker.preselection.preference import PreferenceTier, derive_preference
+from ats_worker.preselection.skills import derive_skill_evidence
 from test_preselection_convergence import _charge, _config, _manifest, _observation, _reserve
 from test_preselection_preference import (
     MODEL as PREFERENCE_MODEL,
     _payload as preference_payload,
     _policy as preference_policy,
     _questions as preference_questions,
+)
+from test_preselection_skills import (
+    JD as SKILL_JD,
+    MODEL as SKILL_MODEL,
+    _answers as skill_answers,
+    _context as skill_context,
+    _payload as skill_payload,
 )
 from tempfile import TemporaryDirectory
 import hashlib
@@ -159,6 +167,14 @@ with TemporaryDirectory() as directory:
     )
     assert amendment.current_stage_attempt_cap == 100
     assert amendment.attempts == before_extension.attempts
+    second_amendment = ledger.extend_stage_attempts(
+        new_cap=200,
+        authorization_sha256=hashlib.sha256(b"second synthetic authorization").hexdigest(),
+        expected_previous_event_sha256=amendment.last_event_sha256,
+    )
+    assert second_amendment.current_stage_attempt_cap == 200
+    assert second_amendment.attempts == before_extension.attempts
+    assert second_amendment.settled_spend == before_extension.settled_spend
     manifest = _manifest(policy=False)
     report = build_stage1_report(manifest, [_observation(manifest, 1, "primary")])
     assert report["completed_draws"] == 1
@@ -171,6 +187,17 @@ with TemporaryDirectory() as directory:
         preference_policy(question_set),
     )
     assert decision.tier is PreferenceTier.PRIMARY
+    skill_question_set, skill_profile, skill_policy = skill_context()
+    skill_report = derive_skill_evidence(
+        skill_payload(skill_question_set, skill_answers()),
+        skill_question_set,
+        SKILL_MODEL,
+        SKILL_JD,
+        skill_profile,
+        skill_policy,
+    )
+    assert skill_report.summary == "unresolved"
+    assert skill_report.coverage == "selected_requirements_only"
 loaded = [
     name for name in sys.modules
     if any(name == item or name.startswith(item + ".") for item in forbidden)

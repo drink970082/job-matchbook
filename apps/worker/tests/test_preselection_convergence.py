@@ -80,6 +80,10 @@ def _authorization_hash():
     return hashlib.sha256(b"synthetic-operator-authorization").hexdigest()
 
 
+def _authorization_hash_second():
+    return hashlib.sha256(b"synthetic-operator-authorization-second").hexdigest()
+
+
 def _extend(ledger, *, new_cap=100, expected_previous_event_sha256=None):
     snapshot = ledger.snapshot()
     return ledger.extend_stage_attempts(
@@ -88,6 +92,14 @@ def _extend(ledger, *, new_cap=100, expected_previous_event_sha256=None):
         expected_previous_event_sha256=(
             expected_previous_event_sha256 or snapshot.last_event_sha256
         ),
+    )
+
+
+def _extend_with_auth(ledger, authorization_sha256, *, new_cap, expected_previous_event_sha256):
+    return ledger.extend_stage_attempts(
+        new_cap=new_cap,
+        authorization_sha256=authorization_sha256,
+        expected_previous_event_sha256=expected_previous_event_sha256,
     )
 
 
@@ -411,7 +423,7 @@ def test_stage_cap_extension_is_cas_bound_idempotent_and_preserves_accounting(tm
     assert json.loads(path.read_text().splitlines()[0])["body"] == original_anchor
     assert _extend(ledger, expected_previous_event_sha256=before.last_event_sha256) == amended
 
-    with pytest.raises(CampaignLedgerIntegrityError, match="different cap amendment"):
+    with pytest.raises(CampaignLedgerIntegrityError, match="authorization was reused"):
         _extend(ledger, new_cap=101, expected_previous_event_sha256=before.last_event_sha256)
 
     resumed = CampaignLedger(path, _config())
@@ -479,8 +491,68 @@ def test_replay_rejects_a_second_cap_amendment_event(tmp_path):
     with path.open("a", encoding="utf-8") as stream:
         stream.write(duplicate_event + "\n")
 
-    with pytest.raises(CampaignLedgerIntegrityError, match="duplicate cap amendments"):
+    with pytest.raises(CampaignLedgerIntegrityError, match="reuses a cap amendment authorization"):
         CampaignLedger(path, _config()).snapshot()
+
+
+def test_distinct_cap_amendments_preserve_state_and_exact_repeat_is_idempotent(tmp_path):
+    path = tmp_path / "multiple-amendments.jsonl"
+    ledger = CampaignLedger(path, _config())
+    first = ledger.snapshot()
+    first_auth = _authorization_hash()
+    _extend_with_auth(
+        ledger,
+        first_auth,
+        new_cap=100,
+        expected_previous_event_sha256=first.last_event_sha256,
+    )
+    attempt = _reserve(ledger, request="between-amendments", draw=1)
+    ledger.settle(attempt.reservation_id, _charge("0.0003"))
+    between = ledger.snapshot()
+    lines_before_repeat = len(path.read_text().splitlines())
+
+    assert _extend_with_auth(
+        ledger,
+        first_auth,
+        new_cap=100,
+        expected_previous_event_sha256=first.last_event_sha256,
+    ) == between
+    assert len(path.read_text().splitlines()) == lines_before_repeat
+    with pytest.raises(CampaignLedgerIntegrityError, match="authorization was reused"):
+        _extend_with_auth(
+            ledger,
+            first_auth,
+            new_cap=101,
+            expected_previous_event_sha256=first.last_event_sha256,
+        )
+
+    second_auth = _authorization_hash_second()
+    after_second = _extend_with_auth(
+        ledger,
+        second_auth,
+        new_cap=200,
+        expected_previous_event_sha256=between.last_event_sha256,
+    )
+    assert after_second.current_stage_attempt_cap == 200
+    assert after_second.stage_attempts == between.stage_attempts == 1
+    assert after_second.attempts == between.attempts == 11
+    assert after_second.settled_spend == between.settled_spend == "0.002303148"
+
+    resumed = CampaignLedger(path, _config())
+    assert resumed.snapshot() == after_second
+    assert _extend_with_auth(
+        resumed,
+        first_auth,
+        new_cap=100,
+        expected_previous_event_sha256=first.last_event_sha256,
+    ) == after_second
+    with pytest.raises(CampaignLedgerIntegrityError, match="authorization was reused"):
+        _extend_with_auth(
+            resumed,
+            second_auth,
+            new_cap=201,
+            expected_previous_event_sha256=between.last_event_sha256,
+        )
 
 
 @pytest.mark.parametrize("stop_state", ["pending", "unknown", "over-reserve"])

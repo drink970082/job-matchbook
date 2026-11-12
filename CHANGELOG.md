@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add exact-source selected-requirement skill evidence reports, with required/preferred
+  separation, explicit proxy provenance and unresolved unlinked positives. Extend campaign
+  accounting to distinct authorization/CAS amendment history without resetting prior spend.
+
 - Measure v4/v5 duty-classification plus preference-arbitration development batches,
   30 calls each. The v5 sample has full preference repeat agreement; skill/work evidence
   and independent quality validation remain open. Cumulative provider-reported spend is
