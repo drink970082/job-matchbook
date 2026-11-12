@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Record two unchanged-version development batches and selected-requirement evidence
+  measurements: 78 fresh calls, stable preference/skill labels, and explicit remaining
+  work-interest uncertainty. Freeze forty new source payloads for provider-free labeling
+  preparation; no independent quality or deployment claim.
+
 - Add exact-source selected-requirement skill evidence reports, with required/preferred
   separation, explicit proxy provenance and unresolved unlinked positives. Extend campaign
   accounting to distinct authorization/CAS amendment history without resetting prior spend.

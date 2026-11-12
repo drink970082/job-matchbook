@@ -34,17 +34,20 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   for bounded Stage 1 execution after worker and blocked-legacy checks. Private v2 profile/questions and the 10×3 cohort are frozen before
   calls; no deployment GO. The implemented
   [duty classification plus preference arbitration](superpowers/specs/2026-11-11-jev-preference-arbitration.md)
-  keeps raw answers separate from derived tiers. The v5 ten-job/three-draw development
-  measurement has100%derived-preferenceagreement; skills/work alignment each have96.7%modal
-  and93.3%pairwiseagreement. This is not independent quality evidence. Critical-skill
-  flag substantiation remains open; do not expand to unseen cohorts yet. The retained
-  ledger has99new/109totalattempts, cumulativeUSD0.023251914includingpriorcost, no pending or
-  unknown charges. The appended40→100Stage1cap amendment preserves the original ledger;
-  only one new attempt remains under that cap. The next
-  [skill-evidence slice](superpowers/specs/2026-11-11-jev-skill-evidence.md) is selected:
-  exact requirement/profile proof and per-requirement comparisons, plus distinct-auth/CAS
-  append-only cap100→200continuation. At most80newattempts, unchanged sources/monetary caps;
-  no unseen-cohort expansion or counter/spend reset. The
+  keeps raw answers separate from derived tiers. Frozen v6 development observations
+  cover ten jobs × six fresh calls in two batches: preference, engineering-primary,
+  avoidance and overall skill descriptors all agree; work-interest alignment is split
+  high/moderate on one vague-duty job and remains explicitly uncertain. Six source-bound
+  skill sidecars cover16selectedrequirements with identical three-draw support; annotations
+  remain proxy/selected-only, not human gold or an automatic requirements collector.
+  The retained ledger has177new/187totalattempts, cumulativeUSD0.038861424includingpriorcost,
+  no pending/unknown/overreserve, and two distinct-auth cap amendments preserving history.
+  The effective cap is200; the78-call skill slice is complete under its80newattemptlimit.
+  [Forty-job provider-free preparation](superpowers/plans/2026-11-12-jev-validation40-preparation.md)
+  freezes new source payloads from30companies with no model calls or labels yet. Exact
+  duplicates are excluded; grouping/labels and declared mobile/sales coverage gaps remain.
+  Thirteen over-bound full payloads were omitted, never truncated. Do not run expansion
+  before source/label/batch bindings and its append-only cap authorization are frozen. The
   operator explicitly requires isolation from legacy score/eval modules, prompts, corpora
   and score-derived truth; new entrypoints must pass blocked-import/resource checks.
 

@@ -115,3 +115,14 @@ exact repeat after later events, conflicting auth, stale CAS and unchanged costs
 Blocked legacy imports/resources must still allow actual new evidence derivation and ledger
 continuation. Full worker-only pytest coverage>=85%, schema/privacy/staged-diff checks;
 no web change. No merge/deploy or large unseen-cohort expansion in this slice.
+
+## Current measurement limits
+
+The frozen development slice contains60fresh main observations (ten jobs/six draws in two
+batches) and18sidecar calls across16selectedrequirements. Preference and main skill descriptors
+agree on this sample; one work-interest field remains split across two neighboring labels.
+Selected requirement support is repeat-stable, with required/preferred and alternative-clause
+separation visible. These are already-inspected development jobs and proxy fact annotations,
+not independent human accuracy, a complete runtime requirements extractor or production GO.
+Forty new source payloads are frozen for later pre-model labeling/group review; their missing
+mobile/sales coverage and over-bound exclusions constrain later interpretation.
