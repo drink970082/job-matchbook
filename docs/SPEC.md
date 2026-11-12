@@ -3166,11 +3166,14 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   with local duty/qualification/unknown heading provenance. Only canonical BACKGROUND
   blocks are candidate-citable; all text remains present. Constrained ID arrays normalize
   locally into exact spans, rejecting unavailable/header/duplicate/wrong-source IDs.
-  Optional candidate evidence minimums fail before HTTP when unavailable. Source-ID mode
-  uses4096tokens and low-effort reasoning with reasoning output excluded; its v2 note
-  explicitly states existing per-answer1–3JD/0–2candidate bounds and schema minima. Quote-mode bytes
-  remain unchanged. Mode/index/profile/options/exact wire hashes require caller run-binding
-  and separate journals; generic Invocation identity does not encode these options.
+  The schema and local normalizer cap each source's ID array at that source's actual count
+  of citable unique IDs; the JD minimum remains1, and the candidate minimum is1 only when
+  candidate evidence is required, otherwise0. An empty source has maximum0. Optional
+  candidate evidence minimums fail before HTTP when unavailable. Source-ID mode uses
+ 4096tokens and low-effort reasoning with reasoning output excluded, with the v3 note asking
+  for necessary listed IDs without fixed top-k counts. Quote-mode bytes remain unchanged.
+  Mode/index/profile/options/exact wire hashes require caller run-binding and separate
+  journals; generic Invocation identity does not encode these options.
   Source IDs prove provenance, not semantic entailment or complete requirements coverage.
   Nonretryable completed-response failures have an explicit supervised wire/journal state,
   retain known accounting as integrity failures, and refuse same-draw replay; independent

@@ -9,10 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
-- Retain the failed source-ID v2 mechanical gate (6/8valid); keep30newJDs undispatched,
-  all prior charges/counters intact at978attempts/USD0.310636176, and no production GO.
-  Record the proposed natural source-cardinality follow-up and required implementer's
-  session limit; include the accepted v2 import-boundary profile assertion.
+- Add source-ID v3 natural citation bounds: schema and normalizer maxima match each
+  source's actual citable unique-ID count, while existing minimums, provenance checks,
+  resource limits, semantic inputs and quote-mode bytes remain unchanged.
+
+- Preserve the failed source-ID v2 mechanical gate (6/8valid), keep30newJDs undispatched,
+  retain historical accounting at978attempts/USD0.310636176, and make no production GO.
+  The v2 import-boundary profile assertion remains versioned separately.
 
 - Make existing source-ID citation-count bounds explicit in the v2 instruction, preserving
   validation and quote-mode bytes. Retain60separated-pass attempts,49over-count assessment

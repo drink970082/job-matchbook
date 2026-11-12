@@ -52,12 +52,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   failures. No new30JD is dispatched and no remaining v2 work is selected. Linked total:
   978attempts/USD0.310636176, no pending/unknown/overreserve. Its
   [contract/checkpoint](superpowers/specs/2026-11-12-source-id-validation30.md) preserves
-  all outcomes and the frozen new30source/proxy/grouping inputs. The next proposed v3
-  replaces arbitrary top-k citation caps with actual-source unique-ID counts, preserving
-  source/type/minimum/uniqueness/HTTP resource validation. It is not implemented or run.
-  The required Luna implementer reports a session usage limit; execution stops under the
-  operator's stated condition. Resume from this checkpoint without retrying failed draws,
-  resuming closed stages, changing labels, or resetting history. No cutover or activation.
+  all outcomes and the frozen new30source/proxy/grouping inputs. The v3
+  [contract](superpowers/specs/2026-11-12-source-id-v3-validation.md) is approved under
+  the standing same-route research authorization. The source-ID v3 implementation uses
+  each source's actual citable unique-ID count for schema and normalizer maxima, retaining
+  existing minimums, provenance checks and HTTP resource limits; quote-mode bytes and
+  semantic inputs are unchanged. Focused tests, the full worker suite (1730 passed,
+ 1skip) and worker coverage (85.29%) pass. The new v3 epoch, exact wire freeze and provider
+  calls are not started; carry forward978attempts/USD0.310636176 and preserve all
+  predecessor ledgers. No cutover or activation.
 
 
 
