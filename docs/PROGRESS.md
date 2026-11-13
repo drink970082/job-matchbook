@@ -85,8 +85,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   preserve the compound projection, while other pairs remain unresolved/review/keep. Raw
   wrappers and provenance stay in the result. The guard has its own versioned policy hash;
   focused26tests, full worker1756passed/1skip,85.24%coverage and schema/privacy/diff gates
-  pass. Retained-response replay and fresh20-source live validation remain pending: the
-  required Luna implementer reports its actual usage limit, triggering the operator stop.
+  pass. Required Luna capacity is available. Retained-response replay and the private
+  fresh20-source validation harness are in preparation; no new inference has started.
   Source preparation retains24rows(4controls/20new),22full-description reads including
   two pre-output duplicate skips,7prior-company flags and no new-source human labels.
   Its approved max96calls/USD0.50protocol has no wire/controller freeze or inference yet;
