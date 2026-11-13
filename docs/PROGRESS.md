@@ -95,7 +95,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   the1changed-tier case, without resampling.20new labels remain uncollected and7company
   names prior-exposed. Linked1292attempts/USD0.509665912, no pending/unknown/overreserve;
   all7ancestorsunchanged. The policy/model/packs remain frozen for broader new-source
-  validation. No cutover, ownership/model switch, failed-call retry or activation.
+  validation. The [fresh100contract](superpowers/specs/2026-11-12-jev-guard-validation100.md)
+  selects100additional unused pilot sources plus4controls, max416calls/USD0.50new within
+  USD10, carrying1292/.509665912 through8oldledgers. Source and private-harness preparation
+  precede any freeze/inference. No semantic tuning, cutover, failed retry or activation.
   Independent labels and semantic authority remain separate quality gates.
 
 
