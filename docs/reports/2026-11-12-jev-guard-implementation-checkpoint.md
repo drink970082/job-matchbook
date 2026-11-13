@@ -39,12 +39,14 @@ traceability/current behavior, PROGRESS and CHANGELOG accompany the source commi
 
 ## Remaining work and actual stop
 
-Luna, the required implementer, reports an actual usage limit after these source gates.
-This triggers the operator's session-limit stop; no replacement model/owner is used.
-Original seven-source live responses have NOT yet been replayed through this new module,
-and no new inference is run. No actual-data guard outcome or quality GO is claimed here.
-Web/E2E/production behavior and independent human quality remain unverified: this is isolated
-tooling with no web/runtime surface. No deployment or merge is selected.
+Required Luna capacity is available. The [original-response replay](2026-11-12-jev-guard-retained-replay.md)
+executes14/14real pairs with original run/source/model/question provenance and raw wrappers
+unchanged, without APIcalls. Four selected sources enter review and three preserve base
+projection; all seven final tiers repeat despite avoidance-input numeric drift. This is
+policy behavior, not independent human quality. Fresh live validation and its harness/
+freeze gates remain pending. Web/E2E/production behavior and independent human quality
+remain unverified: this is isolated tooling with no web/runtime surface. No deployment
+or merge is selected.
 
 The [bounded fresh-source protocol](../superpowers/specs/2026-11-12-jev-guard-validation20.md)
 is prepared at canonical `jev-guard-validation20-v1.preflight/`. It retains4exact controls+
@@ -59,6 +61,5 @@ independent gold or company/template independence.
 Seven predecessor ledger hashes/accounting are verified. Cumulative1196attempts/USD0.496861792
 is unchanged, with no pending/unknown/overreserve. The new epoch's96calls/USD0.50remain
 unstarted: no final wire/controller/metadata freeze or reservation. Funding remains the
-existing cumulativeUSD10authorization. Resume after required capacity returns, first with
-original-response offline replay and accepted-code bindings, then private harness/freeze/
-zero-key dry-run before bounded calls. Never reset history or retry old failed calls.
+existing cumulativeUSD10authorization. Proceed through private harness/mock/freeze/
+zero-key dry-run before bounded calls, using the accepted original-response replay identities. Never reset history or retry old failed calls.

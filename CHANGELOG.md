@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Validate the native disagreement guard on14retained real source/draw pairs without
+  new inference: raw wrappers remain unchanged,4/7selected sources go to review and
+  numeric variation does not change final tiers. No independent quality or GO claim.
+
 - Add a pure native JEV disagreement guard. It validates each succeeded direct response
   against its declared run binding and preserves the compound projection only when the
   compound and complete caller-pinned atomic vector agree on present or absent. Other

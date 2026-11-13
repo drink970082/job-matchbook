@@ -85,8 +85,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   preserve the compound projection, while other pairs remain unresolved/review/keep. Raw
   wrappers and provenance stay in the result. The guard has its own versioned policy hash;
   focused26tests, full worker1756passed/1skip,85.24%coverage and schema/privacy/diff gates
-  pass. Required Luna capacity is available. Retained-response replay and the private
-  fresh20-source validation harness are in preparation; no new inference has started.
+  pass. Required Luna capacity is available. The [retained replay](reports/2026-11-12-jev-guard-retained-replay.md)
+  validates14/14real source/draw pairs with raw wrappers unchanged:4/7sourcesreview,
+  3/7preservebaseprojection, no finaltier changes acrossdraws despite avoidance-input
+  numeric variation. No provider call occurs. The private fresh20-source validation
+  harness is in preparation; no new inference has started.
   Source preparation retains24rows(4controls/20new),22full-description reads including
   two pre-output duplicate skips,7prior-company flags and no new-source human labels.
   Its approved max96calls/USD0.50protocol has no wire/controller freeze or inference yet;

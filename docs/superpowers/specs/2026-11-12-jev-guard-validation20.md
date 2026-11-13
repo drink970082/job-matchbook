@@ -1,6 +1,6 @@
 # Native disagreement guard: bounded fresh-source validation
 
-**Status:** approved preparation/execution under the operator's selected review-on-disagreement policy and standing cumulativeUSD10JEV directive. Pure guard source gates pass1756tests/1skip/85.24%coverage. Source preparation is retained and required implementer capacity is available; original-response replay and exact-wire/controller/metadata freeze remain pending. No inference yet. No production wiring or GO.
+**Status:** approved preparation/execution under the operator's selected review-on-disagreement policy and standing cumulativeUSD10JEV directive. Pure guard source gates pass1756tests/1skip/85.24%coverage. Source preparation is retained and required implementer capacity is available; original-response replay passes14/14pairs with raw wrappers preserved, while private harness and exact-wire/controller/metadata freeze remain pending. No inference yet. No production wiring or GO.
 
 ## Scope and interpretation
 
