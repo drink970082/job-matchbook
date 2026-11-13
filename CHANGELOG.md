@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain416valid frozen JEV guard calls and208source/draw pairs on100additional sources
+  plus4controls.94/100final tiers repeat;34casesremainreview, including6changed-tier cases,
+  without resampling. Linked accounting1708attempts/USD0.561444184; all8ancestor ledgers
+  unchanged. Prepare20input-only human label items, with0labelscollected and no semantic GO.
+
 - Retain96valid live native guard calls and48source/draw pairs on4controls+20new sources;
   19/20new final tiers repeat and3casesremainreview without resampling. Linked accounting
   is1292attempts/USD0.509665912, with no production or independent quality GO.

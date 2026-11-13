@@ -93,15 +93,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   96/96valid calls and48/48guard pairs. New20finaltiersrepeat19/20;3casesreview includes
   the1changed-tier case, without resampling.20new labels remain uncollected and7company
   names prior-exposed. Linked1292attempts/USD0.509665912, no pending/unknown/overreserve;
-  all7ancestorsunchanged. The policy/model/packs remain frozen for broader new-source
-  validation. The [fresh100contract](superpowers/specs/2026-11-12-jev-guard-validation100.md)
-  selects100additional unused pilot sources plus4controls, max416calls/USD0.50new within
-  USD10, carrying1292/.509665912 through8oldledgers. Source preparation retains5strata20each,
-  107full-JD reads incl7duplicate exclusions,74normalized company names/max2sources each
-  and77prior-company flags. The private416-call mock and exact freeze precede inference.
-  No semantic tuning, cutover, failed retry or activation.
-  Independent labels and semantic authority remain separate quality gates.
-
+  all7ancestorsunchanged. The policy/model/packs stay frozen. The
+  [fresh100checkpoint](reports/2026-11-12-jev-guard-validation100-checkpoint.md) retains
+  416/416valid calls and208/208guard pairs:94/100new finaltiersrepeat,34casesreview
+  including6changed-tier cases; no resampling.100new sources exclude230priorIDs/identities/
+  raw+normalizedJDhashes.107full-JD reads include7duplicate exclusions;74normalized company
+  names/max2sources each and77prior-company flags limit independence. Linked1708attempts/
+  USD0.561444184, no pending/unknown/overreserve;8ancestorsunchanged. The fixed execution/
+  review path passes, but independent labels/semantic accuracy remain unverified. A private
+  input-only20-item human label pack is prepared,0labelscollected; independent adjudication
+  is the next quality dependency. Ordinary disagreement already follows review/keep and
+  needs no new permission. No tuning, cutover, failed retry, model upgrade or activation.
 
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
