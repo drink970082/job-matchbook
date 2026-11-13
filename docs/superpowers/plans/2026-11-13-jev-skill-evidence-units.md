@@ -1,6 +1,7 @@
 # Complete fixed skill coverage using resource-bounded units
 
-Execute the [approved contract](../specs/2026-11-13-jev-skill-evidence-units.md).
+**Status:** deferred pending Astra architecture; do not execute. The linked
+[contract](../specs/2026-11-13-jev-skill-evidence-units.md) is not selected implementation scope.
 
 1. Luna/max adds pure validated composition, focused tests and required source gates;
    root supplies source-doc updates before the same source commit.

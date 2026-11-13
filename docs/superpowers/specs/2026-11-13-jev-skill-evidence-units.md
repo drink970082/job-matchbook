@@ -1,8 +1,8 @@
 # Preserve complete selected-skill coverage within native request bounds
 
-**Status:** approved implementation/execution under the operator's continuing isolated
-skill-evidence implementation directive and cumulativeUSD10grant. The operator selects
-domain grouping with separate skill evidence. No ranking weights, runtime activation or GO.
+**Status:** deferred pending Astra's product architecture. The operator stops further
+research-framework expansion; this document is not authorization to implement or dispatch.
+Only preparatory unit data exists. No composition implementation or40-call epoch is shipped.
 
 ## Selected scope and alternatives
 

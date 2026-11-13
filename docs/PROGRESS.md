@@ -120,11 +120,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   no selected technical requirement;3full requests exceed24KB and need explicit resource
   splitting to cover their unchanged requirements. Linked1744attempts/USD0.568324876,
   no pending/unknown/overreserve; all9predecessorsunchanged. No runtime/DB activation.
-  The selected [resource-unit follow-up](superpowers/specs/2026-11-13-jev-skill-evidence-units.md)
-  preserves all14requirements from3overbound parent packs, sending one original question
-  with full JD/profile per call and validating complete parent composition.6control units
-  precede14main units×2, max40calls/USD0.50new with10ancestor accounting; no input truncation,
-  invented posting IDs, new selection, model change or fake merged native response.
+  The operator stops further framework expansion and hands product architecture to Astra.
+  The [resource-unit proposal](superpowers/specs/2026-11-13-jev-skill-evidence-units.md) is
+  deferred: preparatory data exists, but no composition source change or new40-call epoch
+  is shipped. Research mechanics/guards are not assumed production architecture; no further
+  implementation or paid research is selected before the architecture decision.
+
 
 
 
