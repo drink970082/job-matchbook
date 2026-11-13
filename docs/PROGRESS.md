@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV P0 contract/integration audit (#136)** — `feat/jev-p0-contract`, PR #144.
+  Contract, eight-domain vocabulary and input bindings accepted; offline all-22-row
+  measurement is complete. Delivered and accepted, unmerged in PR #144; runtime unchanged.
+  No inference, production DB change, merge or deployment. P1 owns fresh daily pools.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source

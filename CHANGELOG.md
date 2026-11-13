@@ -16,6 +16,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Prepare JEV P0 ranking contracts, integration/reuse audit and resource-limit evidence
+  against pinned planning and research revisions; record accepted contract rules and
+  approved-profile/eight-domain bindings and complete offline 22-source request
+  measurements. Runtime
+  behavior remains unchanged.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.
