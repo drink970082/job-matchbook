@@ -71,7 +71,8 @@ experiment platform, provider transport, daemon or runtime dependency.
 P1 completion requires actual complete daily roster/grouped split hashes, measured full
 requests, frozen proxy guide and proposed exact paid/subscription workload. Until cohort
 counts exist, no numerical attempt/spend/time proposal can be truthfully finalized.
-Execution authorization is zero calls, zero model-label jobs and zero money. P2 separately
+Inference authorization is zero provider calls, zero model-label jobs and zero money.
+Separately authorized public-board snapshot fetching is documented in the collection guide. P2 separately
 requires accepted counts/model/attempt/repeat/retry/money/time caps and reconciled historical
 ledgers. Study thresholds remain research defaults for pre-registration, not GO evidence.
 

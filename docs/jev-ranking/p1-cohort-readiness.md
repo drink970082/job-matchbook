@@ -1,6 +1,6 @@
 # P1 cohort readiness
 
-**Status:** complete daily held-out pools unavailable; prospective collection selected, collector preparation active.
+**Status:** complete daily held-out pools unavailable; limited prospective snapshot scope accepted and scheduled; actual observations pending.
 Accepted P0 source: `1308f47`. This is an offline data audit, not a quality evaluation.
 No labels or JEV outputs were read for this audit.
 
@@ -83,8 +83,8 @@ content with explicit assessability reasons. Freeze the source roster, approved 
 hashes, allocation K/R, baseline ordering, proxy guide, unresolved-label handling and
 statistical limits. Record exact manifests and checksums; seal held-out data against
 inspection for tuning. P1 must separately justify source-content completeness and sample
-size, rather than infer them from row counts. No collector, fetch, schedule, proxy-label
-workload or provider inference is activated by this recommendation.
+size, rather than infer them from row counts. The accepted limited snapshot scope and its active timers are documented separately in
+[collection](p1-collection.md). No proxy-label workload or provider inference is authorized.
 
 A retrospective stored-inventory-only study is a different, weaker scope. It can be
 proposed as development evidence, but cannot be renamed three complete untouched daily

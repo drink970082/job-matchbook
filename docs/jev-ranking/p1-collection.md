@@ -1,7 +1,7 @@
 # P1 bounded roster snapshot collector
 
-**Status:** implementation prepared and tested with fake responses; live activation pending.
-This is a proposed limited daily-snapshot study, not complete all-day intake coverage.
+**Status:** limited snapshot collection authorized; three one-shot timers enabled, observations pending.
+This is an accepted limited daily-snapshot study, not complete all-day intake coverage.
 
 ## Explicit scope
 
@@ -25,20 +25,19 @@ Cross-day requisition/template grouping remains P1 preparation work.
 `scope_capture_complete` means every selected board returned a structurally valid matching
 list. `daily_window_complete` is always false: a point observation cannot observe jobs
 that appeared and disappeared between observations. No result claims full original P1
-held-out completeness. The operator must accept this 120-board snapshot study scope before
-activation; a failed board makes that observation incomplete and is not silently replaced.
+held-out completeness. The operator accepted this 120-board snapshot study scope and activation; a failed board makes that observation incomplete and is not silently replaced.
 
-## Concrete activation candidate
+## Active collection schedule
 
-Proposed dates are 2026-11-14, 2026-11-15 and 2026-11-16 at 12:00 UTC
+Scheduled dates are 2026-11-14, 2026-11-15 and 2026-11-16 at 12:00 UTC
 (07:00 America/New_York), with each enclosing UTC day declared in the manifest.
 If activation occurs after the first cutoff, choose three later distinct dates before
 starting rather than manufacture a missed observation. Each run permits at most 120
 requests, 1,800 seconds of cooperative network elapsed time, 134,217,728 total response
 bytes and 268,435,456 serialized output bytes. Blocking reads can overrun the cooperative
 time cap by the configured read timeout (at most 20 seconds); this is not a process-kill
-deadline. There are no retries, redirects, model requests, production DB writes or schedule
-changes. Three runs permit at most 360 public-board requests. No run is activated here.
+deadline. There are no retries, redirects, model requests, production DB writes or changes to the production worker schedule. Three runs permit at most 360 public-board
+requests. Only these three separate snapshot timers are enabled.
 
 Create the private output directory with mode 0700. For each accepted day substitute its
 UTC start/end and a unique private output filename:
@@ -70,3 +69,30 @@ Targeted tests cover native identity reconciliation, title/age/location/internsh
 missing-body reasons, duplicate identity, malformed payload retention, unsupported/error
 boards, timestamps/slug validation, fixture CLI and no-clobber-before-live behavior.
 No live endpoint or production service was exercised.
+
+## Active operational binding
+
+The running schedule uses frozen collector build `b1d3ca466795d30f89dc7817db7a4a18f629bd08`,
+archived independently of subsequent worktree edits. Its private activation directory is
+`apps/worker/resume/pivot/jev-ranking-p1-v1/activation` in the original checkout. It holds
+scope.json, manifest.json, run.py, the archived code and observations/. Each run verifies
+the frozen scope and all 75 archived source-file hashes before dispatch. Private files
+remain ignored; outputs use mode 0600 and the activation root uses mode 0700.
+
+User timers `ats-jev-p1-20261114.timer`, `ats-jev-p1-20261115.timer` and
+`ats-jev-p1-20261116.timer` each activate their matching oneshot service once, at 12:00 UTC.
+Timers have no randomized delay or missed-run persistence; services have no automatic
+restart and a 1900-second process timeout. An offline/missed day is not silently backfilled.
+User lingering is enabled, allowing timers to run without an interactive login. No existing
+ATS service or model setting was changed. This activation does not merge PR #145.
+
+Verified: systemd unit verification passes; all three timers are enabled/active with the
+expected next times; matching services have no start timestamp and zero restarts. The
+archived CLI imports/--help and all code hashes pass; observations/ is empty. Live HTTP,
+board success and resulting datasets are pending, not claimed verified.
+
+Inspect with `systemctl --user list-timers 'ats-jev-p1-*' --all` and
+`journalctl --user -u ats-jev-p1-20261114.service` (substitute the day). Disable remaining
+captures with `systemctl --user disable --now ats-jev-p1-20261114.timer ats-jev-p1-20261115.timer ats-jev-p1-20261116.timer`.
+A completed run requires valid observation JSON, reconciled counts/hashes and review of
+failed boards before cohort acceptance. P1 stays open until real-data requirements pass.
