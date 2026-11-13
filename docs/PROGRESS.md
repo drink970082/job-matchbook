@@ -10,7 +10,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **JEV P0 contract/integration audit (#136)** — `feat/jev-p0-contract`, based on
   `origin/main` and planning revision `ef18116c20b01cc7df7e7a9a8c7594b5a76f3900`.
-  Operator assigned continuation; offline contract/audit prepared, awaiting policy acceptance. No inference, production
+  Operator assigned continuation; contract rules accepted; approved historical profile pinned; exact domain mapping awaits operator acceptance. No inference, production
   DB changes, merge or deployment. P1 awaits accepted P0; [review package](jev-ranking/p0-review.md) names remaining policy/input decisions.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

@@ -1,6 +1,6 @@
 # P0 resource evidence and proposed bound
 
-**Status:** offline audit; production bound awaits contract acceptance and P1 inventory.
+**Status:** offline audit; initial local research bound accepted provisionally; P1 inventory measurement pending.
 Planning source: `ef18116c20b01cc7df7e7a9a8c7594b5a76f3900`; audited research:
 `16deac2fd152b57d1648c81dd201f8760315b25d`.
 
@@ -59,9 +59,9 @@ canonical resolved identity, tokenizer availability and billed input accounting 
 unverified. No fixed account RPS/TPS or new cost claim is inferred. Historical report
 metadata and charges remain historical observations, not newly queried facts.
 
-## Recommended configurable policy, pending acceptance
+## Accepted provisional configurable policy
 
-Propose **32,768 serialized request bytes** as an initial local safety ceiling for the
+Use **32,768 serialized request bytes**, provisionally accepted by the operator, as the initial local safety ceiling for the
 minimal study: it accommodates all measured retained complete bodies, adds 3,676 bytes
 above their maximum, and avoids treating a multi-megabyte provider body limit as a
 sensible operating budget. It does not establish that any request fits a token context

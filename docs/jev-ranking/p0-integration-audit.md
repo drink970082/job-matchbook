@@ -1,6 +1,6 @@
 # P0 integration and reuse audit
 
-**Status:** audited integration facts and proposed ownership reconciliation; no runtime changes.
+**Status:** audited integration facts and accepted minimal-track ownership boundary; no runtime changes.
 
 ## Pinned sources
 
@@ -57,7 +57,7 @@ The actual bodies of [#113](https://github.com/drink970082/job-matchbook/issues/
 | #114 | Production daily selection, mandatory YOE exclusion, UI, aging/revalidation, acknowledgments and bounded replacement; #109/#113 dependencies. Offline #118 is accepted. | P4 owns rank batch attempts/recovery, P5 bounded consumption. Mandatory YOE/UI/aging/acknowledgment policies are not silently inherited. Keep remaining legacy scope separate |
 | #115 | Actual Scheduled access and delivery under #94, original JD reading, production monitoring/rollback and old #112/#113/#114 gates. Synthetic #119 is accepted. | P5/P6 cover only selected JEV acceptance/rollout. Interactive success cannot close #115 or #94; Scheduled rollout requires separate selection and evidence |
 
-Before shared modules are assigned, record acceptance of this ownership split; no two work packages should own the same persistence/query/batch edit concurrently. Legacy #131/#132/#112 remain separate evidence and must not be closed as experimentally passed. Their mandatory extraction/guard/human-gold requirements do not automatically govern the minimal track.
+The continuation accepts this minimal-track ownership boundary; legacy tickets remain open for their residual criteria. No two work packages may own the same persistence/query/batch edit concurrently. Legacy #131/#132/#112 remain separate evidence and must not be closed as experimentally passed. Their mandatory extraction/guard/human-gold requirements do not automatically govern the minimal track.
 
 ## Local size bound
 

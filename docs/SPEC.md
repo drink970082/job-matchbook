@@ -23,7 +23,9 @@
 ## Product direction and implementation boundary
 
 The [JEV P0 audit](jev-ranking/p0-integration-audit.md) and
-[proposed ranking contract](jev-ranking/p0-contract.md) describe offline preparation.
+[accepted ranking contract rules](jev-ranking/p0-contract.md) describe offline preparation.
+Exact domain/input binding remains incomplete; the approved historical profile identity
+is recorded in the [input audit](jev-ranking/p0-input-binding.md).
 They do not add ranking persistence or MCP ranking to the shipped system.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
