@@ -22,6 +22,10 @@
 
 ## Product direction and implementation boundary
 
+The [JEV P0 audit](jev-ranking/p0-integration-audit.md) and
+[proposed ranking contract](jev-ranking/p0-contract.md) describe offline preparation.
+They do not add ranking persistence or MCP ranking to the shipped system.
+
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
