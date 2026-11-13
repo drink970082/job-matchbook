@@ -16,6 +16,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Prepare isolated JEV source-to-ranking-to-MCP development using a fake provider and
+  source-only existing-inventory exports, additive immutable event schema and explicitly
+  injected read-only ranking tools. Verify source/binding identity, stale-success retention,
+  snapshot pagination and private source chunks; keep production data/runtime unchanged.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.

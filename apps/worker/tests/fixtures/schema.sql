@@ -119,3 +119,10 @@ CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");
 CREATE INDEX "feed_unresolved_reason_idx" ON "feed_unresolved"("reason");
 CREATE INDEX "status_history_application_id_idx" ON "status_history"("application_id");
 CREATE UNIQUE INDEX "promotion_dismissed_source_slug_key" ON "promotion_dismissed"("source", "slug");
+
+CREATE TABLE "job_ranking_events" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "job_id" INTEGER NOT NULL,
+    "state_json" TEXT NOT NULL
+);
+CREATE INDEX "job_ranking_events_job_id_id_idx" ON "job_ranking_events"("job_id", "id");

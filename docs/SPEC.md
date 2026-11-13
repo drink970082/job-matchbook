@@ -22,6 +22,11 @@
 
 ## Product direction and implementation boundary
 
+The [isolated JEV development slice](jev-ranking/p3-prototype.md) is an explicitly
+selected pre-P2 prototype. Existing DB sources may be exported read-only for fake-provider
+mechanics tests in temporary databases. This is neither ranking-quality evidence nor
+activation of a production ranker; prospective collection remains independent.
+
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Screening and fit scoring remain
@@ -1622,6 +1627,16 @@ it simply waits for an unbounded pass. **The `new` queue is read
   `--once` (§9).
   Stage gating in §[9](#9-behaviors-and-invariants).
 
+- **`ranking/` — isolated, fake-only development path.** Prisma-owned append-only
+  `job_ranking_events` stores captured source/binding plus latest-success/attempt state.
+  `RankingStore` receives an isolated connection and provider; `RankingReader` opens
+  SQLite read-only and reconstructs committed snapshot watermarks. No scheduler/native
+  HTTP adapter/production wiring is enabled. Explicit `ranking_reader` injection into
+  `create_server` adds three prototype-only read tools for list, chunked detail and
+  reconciling coverage; ordinary MCP retains its existing tools. The test-only private
+  20-source demo provisions a temporary fixture DB and verifies actual in-process MCP,
+  with every result marked fake/prototype. Freshness is captured-input-relative.
+
 - **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
   `requirements-mcp.txt` only for this service. `ReadOnlyATSRepository` opens the
   Prisma-owned SQLite file with URI `mode=ro`, enables `query_only`, uses a bounded
@@ -2042,6 +2057,16 @@ before schema changes — additive changes are low-risk, destructive ones are no
 
 The checkable contracts. These are the facts the code must satisfy; verify against
 them when changing behavior.
+
+**Isolated JEV prototype:** when explicitly injected for development, native responses
+must match job/source/binding/model identities and question schema before success is
+stored. Exact input bindings may reuse cache; changed captured source/profile/policy
+bindings expose prior success as stale, and failed refresh never erases it. Immutable
+sequenced state supports pinned list/coverage snapshots. Low, null and unranked captured
+sources remain accessible. MCP reads never mutate ranking, screening or application data,
+and prototype/fake results remain explicitly labeled. Default MCP tools and production
+worker wiring do not activate this path. Freshness describes the captured binding, not
+unobserved source changes or live availability.
 
 **Pipeline state machine** (`pipeline.py`):
 
@@ -2564,6 +2589,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 | Invariant | Test(s) |
 |-----------|---------|
+| Explicit isolated JEV prototype identity/cache/freshness/snapshot/fake labeling | `tests/test_ranking_prototype.py` |
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |

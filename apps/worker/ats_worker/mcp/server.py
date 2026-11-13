@@ -20,6 +20,7 @@ from ats_worker.mcp.read_repository import (
     TEXT_CHUNK_SIZE,
     ReadOnlyATSRepository,
     RepositoryError,
+    redact_url,
 )
 
 
@@ -52,7 +53,7 @@ _SERVER_INSTRUCTIONS = (
 )
 
 
-def create_server(repository: ReadOnlyATSRepository | None = None) -> MCPServer:
+def create_server(repository: ReadOnlyATSRepository | None = None, ranking_reader: Any | None = None) -> MCPServer:
     """Build the protocol server, optionally against an isolated database in tests."""
     repo = repository or ReadOnlyATSRepository()
     server = MCPServer("Job Matchbook ATS (read-only)", instructions=_SERVER_INSTRUCTIONS)
@@ -223,6 +224,85 @@ def create_server(repository: ReadOnlyATSRepository | None = None) -> MCPServer:
     ) -> dict[str, Any]:
         """Read one record from an allowlisted ATS table by its primary key."""
         return read(repo.get_ats_record, entity, key)
+
+    if ranking_reader is not None:
+        @server.tool(annotations=_READ_ONLY)
+        def list_job_rankings(
+            domain: Annotated[str | None, Field(max_length=MAX_FILTER_CHARS,
+                                                  description="Exact declared domain or mixed/unknown.")] = None,
+            priority: Annotated[Literal["high", "medium", "low"] | None, Field(
+                description="Projected priority; null-priority results are in the unknown lane.")] = None,
+            needs_review: Annotated[bool | None, Field(description="Filter by the deterministic review flag.")] = None,
+            freshness: Annotated[Literal["current", "stale", "absent", "all"], Field(
+                description="Freshness against the latest explicitly captured prototype binding.")] = "current",
+            lane: Annotated[Literal["ranked", "unknown", "raw"], Field(
+                description="Ranked priorities, null-priority results, or all captured sources.")] = "ranked",
+            limit: Annotated[int, Field(ge=1, le=100)] = 20,
+            cursor: Annotated[str | None, Field(max_length=4096)] = None,
+        ) -> dict[str, Any]:
+            """Snapshot-page captured fake rankings; unfiltered order is tier/time/ID, not weighted domain utility.
+
+            Use the exact domain filter for domain-specific queues. A combined page does not
+            imply that one domain is more valuable than another.
+            """
+            return read(
+                ranking_reader.list_rankings, domain=domain, priority=priority,
+                needs_review=needs_review, freshness=freshness, lane=lane,
+                limit=limit, cursor=cursor,
+            )
+
+        @server.tool(annotations=_READ_ONLY)
+        def get_job_ranking(
+            job_id: Annotated[int, Field(ge=1)],
+            watermark: Annotated[int | None, Field(ge=0)] = None,
+            description_offset: Annotated[int, Field(ge=0, le=2_147_483_647)] = 0,
+            description_limit: Annotated[int, Field(ge=1, le=TEXT_CHUNK_SIZE)] = TEXT_CHUNK_SIZE,
+        ) -> dict[str, Any]:
+            """Read one captured ranking with full source fields and a bounded source-description chunk."""
+            detail = read(ranking_reader.get_ranking, job_id, watermark=watermark)
+            if detail is None:
+                raise ToolError("ranking source was not found")
+            source = dict(detail["source_snapshot"])
+            description = source.pop("description")
+            source["source_url"] = redact_url(source["source_url"])
+            chunk = description[description_offset:description_offset + description_limit]
+            ranking = detail["ranking"]
+            safe_ranking = None
+            if ranking is not None:
+                binding = ranking.get("binding", {})
+                safe_ranking = {
+                    key: value for key, value in ranking.items()
+                    if key not in {"binding", "raw_native"}
+                }
+                source_captured_time = safe_ranking.pop("source_captured_time", None)
+                source_revision = safe_ranking.pop("source_revision", None)
+                safe_ranking["provenance"] = {
+                    key: binding[key] for key in (
+                        "source_sha256", "question_set_sha256", "rubric_version",
+                        "projection_version", "adapter_version", "requested_model", "resolved_model",
+                    ) if key in binding
+                }
+                safe_ranking["provenance"].update(
+                    source_captured_time=source_captured_time, source_revision=source_revision,
+                )
+            return {
+                "job_id": detail["job_id"], "source_snapshot": source,
+                "source_description_chunk": chunk, "description_offset": description_offset,
+                "description_limit": description_limit, "description_total_chars": len(description),
+                "has_more": description_offset + len(chunk) < len(description),
+                "next_offset": description_offset + len(chunk) if description_offset + len(chunk) < len(description) else None,
+                "ranking": safe_ranking, "latest_attempt": detail["latest_attempt"],
+                "freshness": detail["freshness"], "watermark": detail["watermark"],
+                "freshness_basis": detail["freshness_basis"], "prototype": True, "fake_provider": True,
+                "source_snapshot_basis": "latest explicitly captured source; ranking provenance identifies its own input snapshot",
+            }
+
+        @server.tool(annotations=_READ_ONLY)
+        def get_job_ranking_coverage(
+            watermark: Annotated[int | None, Field(ge=0)] = None,
+        ) -> dict[str, Any]:
+            """Return reconciled freshness and latest-attempt counts at one committed watermark."""
+            return read(ranking_reader.coverage, watermark=watermark)
 
     return server
 
