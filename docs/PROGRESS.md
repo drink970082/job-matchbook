@@ -101,9 +101,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   names/max2sources each and77prior-company flags limit independence. Linked1708attempts/
   USD0.561444184, no pending/unknown/overreserve;8ancestorsunchanged. The fixed execution/
   review path passes, but independent labels/semantic accuracy remain unverified. A private
-  input-only20-item human label pack is prepared,0labelscollected; independent adjudication
-  is the next quality dependency. Ordinary disagreement already follows review/keep and
-  needs no new permission. No tuning, cutover, failed retry, model upgrade or activation.
+  input-only20-item human label pack remains unfilled. The operator instead selects a
+  [Sol low blind cross-check](reports/2026-11-13-sol-low-blind20-crosscheck.md):20model reviews,
+  15/20preferred tiers match,18/20JEV tiers fall within admissible alternatives, with broad
+  alternatives explicitly not accuracy.5existing review cases plus3Sol uncertainties and
+  1tier difference yield9review/keep;0substantial unprotected determinate acceptance/avoidance
+  oppositions. No immediate human answer is required.0newOpenRouter calls; all9closed
+  ledgers unchanged. Human labels remain0and semantic-quality acceptance remains unverified.
+  No tuning, cutover, failed retry, model upgrade or activation.
 
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

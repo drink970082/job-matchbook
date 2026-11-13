@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain20Sol low blind model reviews of the input-only preference slice:15preferred-tier
+  matches,5existing review cases and4additional review cases, with no substantial unprotected
+  determinate acceptance/avoidance opposition. Preserve0human labels and unchanged campaign
+  accounting; the model cross-check replaces the mandatory user worksheet for this task.
+
 - Retain416valid frozen JEV guard calls and208source/draw pairs on100additional sources
   plus4controls.94/100final tiers repeat;34casesremainreview, including6changed-tier cases,
   without resampling. Linked accounting1708attempts/USD0.561444184; all8ancestor ledgers
