@@ -8,15 +8,141 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **OpenRouter JEV native shadow integration — `feat/openrouter-jev-shadow`**.
+  Draft PR#134contains isolated native transport, direct-only pilots, preference and
+  selected-requirement evidence tooling, and durable append-only accounting. There is
+  no production wiring or GO. Legacy score/eval modules, prompts and truth stay isolated.
+  The operator selects continuous research until required intervention, session limits
+  or cumulativeUSD10exhaustion; missing JD facts remain unknown, with no employer-specific
+  exceptions, invented weights or tuning an exposed cohort as if it were untouched.
+  [Current evidence and pending comparison](reports/2026-11-12-jev-convergence-checkpoint.md)
+  records100new source postings×2calls:98/100repeated preferences match, but only16cases
+  have pre-model proxy expectations, not independent human gold. A separate160-call
+  structural probe is perfectly repeatable on40exposedjobs while retaining stable
+  semantic mistakes. More wording churn is not selected; native classification is not
+  accepted as the sole production preference authority. Profile2.0.4reflects the operator's
+  settled low-level-C++/vision-inference/chip/ETL/alpha-research preferences; candidate
+  background and eligibility rules are unchanged. Selected skill facts remain manually
+  annotated/proxy-only; automatic extraction, independent labels and complete-day gates
+  remain open. The retained ledger has850totalattempts, accountedUSD0.140438676, no
+  pending/unknown/overreserve, cap1000andUSD0.50current/USD10global ceilings. Evidence-bound
+  manual reconciliation preserves original unknown events and counters; its worker gate
+  passes1669tests/1skip/85.14%coverage with blocked legacy execution. The original lost
+  response remains lost; a proven local pre-dispatch failure is zero-charged explicitly.
+  The operator authorizes the
+  [bounded Haiku5.5comparison](superpowers/specs/2026-11-12-openrouter-haiku-comparison.md):
+  max60attempts/15minutes/USD1withinUSD10,10exposed controls+20newJDs×2, same approved
+  full profile, no retries/provider/model fallback or activation. Exact new-source/proxy,
+  quote schema, routing/rates and stage-bridge identities must freeze before calls.
+  The isolated direct-only typed-JSON transport and completed-response failure bridge
+  pass1700worker tests/1skip/85.14%coverage, schema/privacy/boundary gates and retained
+  actual-response offline replay. The initial60Haikuattempts are complete: USD0.0805895new,
+  combined910attempts/USD0.221028176, no pending/unknown/overreserve. Only26responses meet
+  the complete operator evidence policy;324/360individual fields have literal valid quotes,
+  while semantic errors remain. A separate per-axis/contradiction audit freezes before
+  the20new-source outputs; it is not a successful-model response or independent gold.
+  [Source-ID fact/skill separation](reports/2026-11-12-source-id-separation-checkpoint.md)
+  has60retained replies:11/30fact and0/30skill responses satisfy the complete contract.
+  IDs resolve exactly in offline diagnosis, but over-count references remain live failures;
+  diagnostic projections are not successful assessments. Linked cumulative accounting is
+  970attempts/USD0.299487376, no pending/unknown/overreserve. Pure source-ID v2 explicitly
+  states the existing citation bounds without relaxing validation or changing semantics;
+  1728worker tests/1skip/85.25%coverage plus schema/privacy/import-boundary gates pass.
+  The source-ID v2 mechanical gate closes after8control draws:6valid/2over-count
+  failures. No new30JD is dispatched and no remaining v2 work is selected. Linked total:
+  978attempts/USD0.310636176, no pending/unknown/overreserve. Its
+  [contract/checkpoint](superpowers/specs/2026-11-12-source-id-validation30.md) preserves
+  all outcomes and the frozen new30source/proxy/grouping inputs. The v3
+  [contract](superpowers/specs/2026-11-12-source-id-v3-validation.md) records the bounded
+  experiment under the standing same-route research authorization. The source-ID v3 implementation uses
+  each source's actual citable unique-ID count for schema and normalizer maxima, retaining
+  existing minimums, provenance checks and HTTP resource limits; quote-mode bytes and
+  semantic inputs are unchanged. Focused tests, the full worker suite (1730 passed,
+  1skip) and worker coverage (85.29%) pass. The v3
+  [checkpoint](reports/2026-11-12-source-id-v3-checkpoint.md) retains136/136valid replies,
+  new-source preference repeat28/30 and selected-core enum repeat26/30, with only10/30
+  identical full core citation sets. Semantic proxy contradictions, degree/years selected
+  as skills and changing requirements remain unresolved; independent human labels are
+  absent. The30newJDs are now exposed, with prior-company flags preserved. Linked total
+  1114attempts/USD0.486128776, no pending/unknown/overreserve. Raw summary stage-delta
+  display has a preserved historical-baseline defect; ledger/response accounting agrees.
+  JEV remains the operator-selected intended route; Haiku is a comparator. The
+  [native return contract](superpowers/specs/2026-11-12-jev-return-comparison.md)
+  retains unchanged native v8 on the same34sources×2:68/68valid,29/30new-source repeat,
+  23/30both proxy-admissible, with stable backend/fullstack and mixed-ETL avoidance concerns.
+  The [return checkpoint](reports/2026-11-12-jev-return-checkpoint.md) records1182linked
+  attempts/USD0.495215896, no pending/unknown/overreserve. The
+  [atomic diagnostic](reports/2026-11-12-jev-atomic-checkpoint.md) retains14/14valid
+  unchanged-v9draws: three targets become all-absent, but a visual inference-systems control
+  remains wrongly marked excluded-modeling. All7choice vectors repeat; probability/confidence
+  differ. Linked1196attempts/USD0.496861792, no pending/unknown/overreserve; six ancestors
+  unchanged. The operator approves the [native disagreement guard](superpowers/specs/2026-11-12-jev-disagreement-guard-design.md):
+  categorical differences go to unresolved/review/keep; probability/confidence-only
+  variation is ignored, and only opposite determinate avoidance labels are material.
+  The pure guard validates succeeded direct native records against each run's explicit
+  binding, question pack, expected model, shared source and draw. Its versioned caller
+  contract pins the seven atomic Choice IDs and question hash; matching determinate labels
+  preserve the compound projection, while other pairs remain unresolved/review/keep. Raw
+  wrappers and provenance stay in the result. The guard has its own versioned policy hash;
+  focused26tests, full worker1756passed/1skip,85.24%coverage and schema/privacy/diff gates
+  pass. Required Luna capacity is available. The [retained replay](reports/2026-11-12-jev-guard-retained-replay.md)
+  validates14/14real source/draw pairs with raw wrappers unchanged:4/7sourcesreview,
+  3/7preservebaseprojection, no finaltier changes acrossdraws despite avoidance-input
+  numeric variation. No provider call occurs in that retained replay.
+  The [fresh20checkpoint](reports/2026-11-12-jev-guard-validation20-checkpoint.md) retains
+  96/96valid calls and48/48guard pairs. New20finaltiersrepeat19/20;3casesreview includes
+  the1changed-tier case, without resampling.20new labels remain uncollected and7company
+  names prior-exposed. Linked1292attempts/USD0.509665912, no pending/unknown/overreserve;
+  all7ancestorsunchanged. The policy/model/packs stay frozen. The
+  [fresh100checkpoint](reports/2026-11-12-jev-guard-validation100-checkpoint.md) retains
+  416/416valid calls and208/208guard pairs:94/100new finaltiersrepeat,34casesreview
+  including6changed-tier cases; no resampling.100new sources exclude230priorIDs/identities/
+  raw+normalizedJDhashes.107full-JD reads include7duplicate exclusions;74normalized company
+  names/max2sources each and77prior-company flags limit independence. Linked1708attempts/
+  USD0.561444184, no pending/unknown/overreserve;8ancestorsunchanged. The fixed execution/
+  review path passes, but independent labels/semantic accuracy remain unverified. A private
+  input-only20-item human label pack remains unfilled. The operator instead selects a
+  [Sol low blind cross-check](reports/2026-11-13-sol-low-blind20-crosscheck.md):20model reviews,
+  15/20preferred tiers match,18/20JEV tiers fall within admissible alternatives, with broad
+  alternatives explicitly not accuracy.5existing review cases plus3Sol uncertainties and
+  1tier difference yield9review/keep;0substantial unprotected determinate acceptance/avoidance
+  oppositions. No immediate human answer is required.0newOpenRouter calls; all9closed
+  ledgers unchanged. Human labels remain0and semantic-quality acceptance remains unverified.
+  No tuning, cutover, failed retry, model upgrade or activation.
+  The [fixed skill checkpoint](reports/2026-11-13-jev-fixed-skill-evidence20-checkpoint.md)
+  retains36/36valid calls and134selected-requirement answers:16/16main vectors/summariesrepeat,
+  with2selected-core-supported,12unverified-core and2unresolved summaries.106/122main support
+  answers match frozen Sol proxies;8sourceshave1repeated difference each, not human accuracy.
+  Provenance is explicit model/operator proxy with default hash compatibility;1764worker
+  tests/1skip/85.27%coverage plus focused boundary/schema/privacy gates pass.20-card preview
+  keeps9preference-review cases and4unassessed skill sources visible. The operator selects
+  domain grouping with separate skill evidence, without cross-domain weights.1sourcehas
+  no selected technical requirement;3full requests exceed24KB and need explicit resource
+  splitting to cover their unchanged requirements. Linked1744attempts/USD0.568324876,
+  no pending/unknown/overreserve; all9predecessorsunchanged. No runtime/DB activation.
+  The operator stops further framework expansion and hands product architecture to Astra.
+  The [resource-unit proposal](superpowers/specs/2026-11-13-jev-skill-evidence-units.md) is
+  deferred: preparatory data exists, but no composition source change or new40-call epoch
+  is shipped. Research mechanics/guards are not assumed production architecture; no further
+  implementation or paid research is selected before the architecture decision.
+
+
+
+
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
-  approval of the exact profile, policy, label guide, data scope and private-input access.
-  No private profile or local corpus has been opened for this work. It owns real source
-  roster completeness, grouping, labels and replay evidence; missing evidence remains
-  `INCONCLUSIVE`.
-- **#132 authorized provider pilot** — deferred behind #131 and separate explicit
-  provider/model, workload, retry, time and spend limits. No live provider call or
-  credential use is authorized. It owns actual tokenizer compatibility, request tokens,
-  rate evidence and observed charges.
+  completion of the independent quality-evidence work. Candidate-content review and
+  approval records remain private/local. A partial 10-item mechanics snapshot is frozen
+  locally with labels not collected; it does not satisfy #131's full roster, grouping or
+  blind/adjudicated quality-truth gates. Missing evidence remains `INCONCLUSIVE`.
+- **#132 authorized provider research** — the mechanics evidence remains separate from
+  the newly authorized cumulative USD 10 convergence campaign. Exact batches/model/input
+  bindings and resource reservations must be recorded before further inference. No
+  quality-label, quality-estimate or GO claim is established by spending authorization. Preserve explicit
+  rate/fee evidence and the missing API request-price field as separate provenance;
+  full-request tokenization and observed charges remain pilot evidence, not established
+  defaults. The mechanics sample and local audit are available; the staged convergence
+  plan governs preparation of new calls rather than an unattended recurring schedule.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.

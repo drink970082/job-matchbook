@@ -9,12 +9,167 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain36valid JEV selected-skill calls and134requirement answers with source-bound model/
+  operator-proxy provenance.16main vectors/summaries repeat; a20-card offline preview keeps
+  preference and skill evidence separate, including4unassessed sources. Linked accounting
+  is1744attempts/USD0.568324876; no independent human-quality or production GO.
+
+- Preserve caller-declared model-proxy versus operator-proxy provenance in selected skill
+  evidence with an explicit policy wrapper. Default policy hashes and dataclass shape stay
+  compatible; model origin is bound to a separate v2 identity. Unsupported/human-gold origins
+  are rejected; source-span and core-summary semantics remain unchanged.
+
+- Retain20Sol low blind model reviews of the input-only preference slice:15preferred-tier
+  matches,5existing review cases and4additional review cases, with no substantial unprotected
+  determinate acceptance/avoidance opposition. Preserve0human labels and unchanged campaign
+  accounting; the model cross-check replaces the mandatory user worksheet for this task.
+
+- Retain416valid frozen JEV guard calls and208source/draw pairs on100additional sources
+  plus4controls.94/100final tiers repeat;34casesremainreview, including6changed-tier cases,
+  without resampling. Linked accounting1708attempts/USD0.561444184; all8ancestor ledgers
+  unchanged. Prepare20input-only human label items, with0labelscollected and no semantic GO.
+
+- Retain96valid live native guard calls and48source/draw pairs on4controls+20new sources;
+  19/20new final tiers repeat and3casesremainreview without resampling. Linked accounting
+  is1292attempts/USD0.509665912, with no production or independent quality GO.
+
+- Validate the native disagreement guard on14retained real source/draw pairs without
+  new inference: raw wrappers remain unchanged,4/7selected sources go to review and
+  numeric variation does not change final tiers. No independent quality or GO claim.
+
+- Add a pure native JEV disagreement guard. It validates each succeeded direct response
+  against its declared run binding and preserves the compound projection only when the
+  compound and complete caller-pinned atomic vector agree on present or absent. Other
+  pairs stay unresolved/review/keep; only opposite determinate labels are material.
+  Probability/confidence changes do not affect arbitration. Both raw response wrappers and
+  run/question/source/draw identities remain in the output; no runtime wiring is added.
+
+- Retain14/14valid frozen native-v9diagnostic draws and linked1196attempts/
+  USD0.496861792. Target improvements coexist with an inference-control semantic error;
+  preserve all outcomes and prepare a native-disagreement policy decision without GO.
+
+- Retain68/68valid native-JEV return draws on the frozen comparator cohort; linked
+ 1182attempts/USD0.495215896. Preserve native semantic avoidance concerns and keep
+  Haiku as comparator only, with no model replacement or production GO.
+
+- Retain136/136valid source-ID v3 replies and linked1114attempts/USD0.486128776.
+  Preserve semantic/proxy limitations, frozen labels and a raw summary display defect;
+  require an operator-selected quality/requirement gate before another cohort. No GO.
+
+- Add source-ID v3 natural citation bounds: schema and normalizer maxima match each
+  source's actual citable unique-ID count, while existing minimums, provenance checks,
+  resource limits, semantic inputs and quote-mode bytes remain unchanged.
+
+- Preserve the failed source-ID v2 mechanical gate (6/8valid), keep30newJDs undispatched,
+  retain historical accounting at978attempts/USD0.310636176, and make no production GO.
+  The v2 import-boundary profile assertion remains versioned separately.
+
+- Make existing source-ID citation-count bounds explicit in the v2 instruction, preserving
+  validation and quote-mode bytes. Retain60separated-pass attempts,49over-count assessment
+  failures and cumulative970attempts/USD0.299487376; select a mechanically gated new-source
+  slice without changing semantic questions, background, policy, provider or production.
+
+- Add optional lossless source-ID evidence to the isolated Chat transport, with exact
+  local spans, conservative section provenance and background-only candidate citations.
+  Preserve quote-mode bytes; source-ID mode uses a separately bound low-reasoning4096
+  profile. Record the initial60Haiku observations and select bounded fact/skill separation,
+  carrying910priorattempts/USD0.221028176forward without production activation.
+
+- Preserve completed nonretryable provider-validation failures across the supervised
+  wire/journal, retaining reported cost and refusing retries. Independent declared
+  draws remain possible; invalid retryable+completed metadata stays rejected.
+
+- Add an isolated, injected Haiku Chat transport for the operator-approved bounded
+  comparison. It freezes the Anthropic-only route, validates unique quote provenance,
+  retains known charges on errors and rejects unsupported inputs before dispatch.
+  Prior850attempts/USD0.140438676carry forward; no production model or runtime changes.
+
+- Record completed100-posting/two-pass JEV expansion and an exposed40-job structural
+  probe. Preserve stable semantic errors, partial-proxy limitations and cumulative
+  850attempts/USD0.140438676accounting; stop for a separately authorized model comparison.
+
+- Add manual evidence/CAS-bound reconciliation of unknown campaign settlements, retaining
+  original journal/ledger events and counters. Exact retries are idempotent; unresolved
+  unknowns, conflicting evidence and over-reserve charges still stop dispatch.
+
+- Reconcile interrupted JEV accounting using operator Activity token records, retaining
+  the lost reply. Record v7 regression and a role-only structural ablation; freeze100new
+  source postings with16pre-model proxy cases for bounded expansion, without accuracy/GO.
+
+- Record partial calibrated-v7 regression and an operator-harness interruption:21
+  completed responses, one unresolved dispatched request, known cumulativeUSD0.068362182.
+  Preserve the pending reserve and effective cap400; stop inference for billing evidence
+  and add a private prelaunch guard rather than resetting counters or assuming zero cost.
+
+- Record operator-calibrated JEV research preferences and select a bounded v7 regression
+  batch. Low latency alone is accepted, explicitly very low-level C++ and chip-domain
+  work remain avoided; vision inference, substantial ETL/BI and coded alpha research
+  are accepted. No background, eligibility, weights or production defaults change.
+
+- Record unchanged-v6 forty-job validation:120fresh calls,35/40unanimous preference
+  results, explicit proxy-label limitations and generic classification defects. Retain
+  cumulative307attempts/USD0.064009512accounting and batch preference questions for
+  operator intervention; no production GO or legacy scoring integration.
+
+- Record two unchanged-version development batches and selected-requirement evidence
+  measurements: 78 fresh calls, stable preference/skill labels, and explicit remaining
+  work-interest uncertainty. Freeze forty new source payloads for provider-free labeling
+  preparation; no independent quality or deployment claim.
+
+- Add exact-source selected-requirement skill evidence reports, with required/preferred
+  separation, explicit proxy provenance and unresolved unlinked positives. Extend campaign
+  accounting to distinct authorization/CAS amendment history without resetting prior spend.
+
+- Measure v4/v5 duty-classification plus preference-arbitration development batches,
+  30 calls each. The v5 sample has full preference repeat agreement; skill/work evidence
+  and independent quality validation remain open. Cumulative provider-reported spend is
+  USD 0.023251914 across 109 attempts, with original ledger history retained.
+
+- Separate preference arbitration from native role/duty classification through a pure,
+  versioned policy and add a CAS-bound append-only Stage 1 attempt-cap amendment that
+  preserves historical accounting and all monetary ceilings.
+
+- Record bounded JEV development measurements (30 v2 draws and nine preference-wording
+  probe draws) and retain secondary-tier inconsistency as an open constraint; select a
+  separate duty/avoidance classification and deterministic preference-arbitration slice.
+
+- Add isolated JEV Stage 1 campaign accounting with durable reservations, known/unknown
+  settlement and restart stops, plus native repeated-draw stability/contradiction reports
+  and blocked-legacy execution coverage. No quality estimate or production activation.
+
+- Require the JEV convergence campaign to remain isolated from legacy score/eval engines,
+  prompts and score-derived labels, with import/resource boundary acceptance checks.
+
+- Document a staged JEV convergence and release-readiness proposal under a cumulative
+  operator-authorized USD 10 research ceiling, with independent tests, proxy/operator
+  label provenance, batched review and explicit rollout gates.
+
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
   real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
   comparative decision (#112). Select offline acceptance and landing first; preserve
   remaining evidence and live-authorization gates with explicit ownership.
 
 ### Added
+
+- Add an isolated OpenRouter System One JEV shadow adapter with native Choice/Noul/Score
+  validation, full probability-preserving journal responses and aggregate provider-reported
+  cost provenance. The sync HTTP client, key, model/rate metadata and limits are injected;
+  the adapter has no runtime wiring or live-call evidence. Generic shadow replies remain
+  compatible.
+
+- Allow a strictly unlabelled direct-only mechanics-pilot manifest: every label is
+  `unresolved`/`not_collected`, label evidence is null, and completed outcomes have no
+  priority rank. Mixed or resolved labels, blind-label claims, other phases and ranked
+  completions are rejected. Reports mark quality as `not_measured` and count completed
+  unranked calls without describing them as ranked beyond budget.
+
+- Collect the authorized ten-posting JEV mechanics sample: nine live successes and one
+  retained response recovered by offline validation, ten total inference attempts with no
+  retries, and USD 0.002003148 provider-reported cost. No human quality labels or GO.
+
+- Validate and preserve the observed OpenRouter usage fields `is_byok` and
+  `cost_details` without relaxing rejection of unknown metadata. Cost details remain
+  descriptive raw response fields and do not replace `usage.cost` for charge accounting.
 
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance

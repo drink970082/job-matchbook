@@ -2573,6 +2573,17 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Frozen replay validates supplied profile/context/source payloads and manifest, preserves daily/split/group membership and unresolved rows, reports only aggregate evidence, rejects blank required source text, and stays inconclusive without an independent source roster | `apps/worker/tests/test_preselection_profile.py::test_rendered_context_cli_mismatch_is_a_failure_and_errors_are_redacted`, `apps/worker/tests/test_preselection_replay.py` (`test_k_is_allocated_once_per_complete_utc_day_inside_each_split`, `test_full_snapshot_cli_validates_complete_daily_pools_and_emits_aggregate_provenance`, `test_snapshot_cli_marks_recomputed_partial_pool_inconclusive`, `test_full_snapshot_allows_nullable_normalized_source_fields`, `test_full_snapshot_keeps_repeated_source_identity_in_one_split`, `test_full_snapshot_requires_non_empty_source_identity_fields`, `test_full_snapshot_requires_nonblank_source_text_fields`, `test_full_snapshot_requires_posted_at_even_if_the_manifest_is_recomputed`, `test_snapshot_rejects_actual_input_or_manifest_tampering`, `test_snapshot_rejects_profile_change_even_when_context_is_rerendered`, `test_unknown_labels_remain_in_pool_and_make_recall_inconclusive_without_denominator_shrink`, `test_snapshot_cli_never_emits_untrusted_role_labels`, `test_snapshot_cli_reports_malformed_unicode_as_a_bounded_input_error`, `test_snapshot_cli_bounds_deeply_nested_json_errors`, `test_replay_cli_emits_only_report_and_no_source_identifiers`) |
 | Profile CLI refuses to overwrite its input through a same path, symlink or hard link; JSON integer conversion limits produce bounded profile and replay CLI errors; seed output is a domain-separated SHA-256 fingerprint; role-coverage greedy order preserves reference ties, runs once per day across budgets, and handles a large day | `apps/worker/tests/test_preselection_profile.py` (`test_profile_cli_refuses_rendered_output_aliasing_profile_input`, `test_profile_cli_bounds_oversized_json_integer_errors`), `apps/worker/tests/test_preselection_replay.py` (`test_replay_report_fingerprints_seed_without_echoing_raw_seed`, `test_role_coverage_order_matches_reference_greedy_ties_and_prefixes`, `test_baseline_orders_are_built_once_per_day_across_budgets`, `test_role_coverage_order_scales_to_large_single_day_without_reordering_ties`, `test_snapshot_cli_bounds_oversized_json_integer_errors`) |
 | Out-of-range timestamp normalization fails as a bounded frozen-input validation error | `apps/worker/tests/test_preselection_replay.py::test_replay_cli_bounds_timestamp_utc_normalization_overflow` |
+| Native JEV Choice/Noul/Score values preserve probabilities/confidence in a contract-tagged raw-response journal wrapper; OpenRouter completion is one injected POST, frozen model/question/cost provenance is enforced, unknown charges and ambiguous delivery stop safely, and aggregate reports distinguish provider-reported cost from invoice-audited amounts | `apps/worker/tests/test_preselection_jev.py` (`test_native_question_pack_validates_choice_noul_score_and_preserves_probabilities`, `test_openrouter_transport_posts_once_without_redirects_and_keeps_native_reply`, `test_transport_bounds_duplicate_deep_and_oversized_json_without_body_leaks`, `test_supervised_native_request_journal_cache_and_aggregate_report`, `test_missing_charge_is_unknown_preserved_and_resume_stops_before_second_post`, `test_ambiguous_delivery_is_journaled_and_resume_does_not_repeat_post`, `test_outside_cohort_fails_before_journal_or_http_side_effect`, `test_cached_native_response_mutation_is_rejected_without_http_side_effect`, `test_explicit_429_has_one_outer_failure_attempt_and_unknown_charge_stops_retry`) |
+| Skill evidence binds exact requirement and background spans, preserves native support and selected/proxy provenance, distinguishes required/preferred/unclear centrality, and withholds unlinked positive claims; distinct-auth campaign amendments preserve all accounting | `apps/worker/tests/test_preselection_skills.py` (`test_report_keeps_one_alternative_clause_atomic_and_provenance_selected_only`, `test_only_required_central_non_direct_support_creates_unverified_core`, `test_positive_answer_without_profile_trace_is_unresolved_not_all_clear`, `test_unknown_preferred_and_supporting_facts_remain_visible_without_changing_summary`, `test_same_profile_source_reference_can_support_separate_requirements`, `test_raw_native_wrapper_is_unchanged_and_report_carries_all_frozen_identities`, `test_default_policy_keeps_legacy_hash_and_dataclass_shape`, `test_model_proxy_provenance_is_bound_and_reported_without_changing_default`, `test_provenance_rejects_values_outside_the_closed_proxy_vocabulary`, `test_provenance_wrapper_rejects_custom_policy_subclasses`, `test_requirement_policy_accepts_one_to_five_and_rejects_six`); `apps/worker/tests/test_preselection_convergence.py` multiple-amendment replay/idempotence tests; `apps/worker/tests/test_preselection_import_boundary.py::test_shadow_assessment_runs_with_legacy_imports_and_resources_blocked` |
+| Preference tiers derive from validated native duty/role answers and a supplied versioned policy; raw evidence stays intact; a CAS-bound append-only Stage 1 cap extension preserves accounting and stops on stale/pending/unknown/over-reserve state | `apps/worker/tests/test_preselection_preference.py` (`test_derive_preference_truth_table`, `test_any_first_target_support_precedes_secondary_and_policy_order_is_not_a_weight`, `test_preference_policy_rejects_invalid_question_mappings`, `test_preference_requires_matching_model_question_set_and_native_response`), `apps/worker/tests/test_preselection_convergence.py` (`test_stage_cap_extension_is_cas_bound_idempotent_and_preserves_accounting`, `test_stage_cap_extension_rejects_stale_cas_nonincrease_and_global_overflow`, `test_stage_cap_extension_rejects_pending_or_stopped_campaign`); blocked-legacy entrypoint execution |
+| The native preference guard requires succeeded direct records, two validated run bindings and matching source/draw/model/question/wrapper provenance; a complete caller-pinned seven-choice tri-state vector aggregates present before unknown, preserves the compound projection only for matching determinate labels, and otherwise keeps unresolved while marking only opposite determinate labels material; numeric-only variation does not arbitrate, its policy hash binds both policies, and both raw payloads remain available | `apps/worker/tests/test_preselection_preference_guard.py` (`test_guard_truth_table`, `test_both_absent_preserves_compound_unresolved_projection`, `test_atomic_present_dominates_unknown_and_requires_complete_vector`, `test_guard_rejects_failed_unbound_or_mismatched_evidence`, `test_guard_rejects_incomplete_atomic_vector`, `test_guard_rejects_malformed_atomic_contract_and_run_binding`, `test_numeric_probability_and_confidence_changes_do_not_change_arbitration`, `test_guard_policy_identity_changes_with_atomic_contract_version_or_question_hash`, `test_guard_preserves_raw_payloads_and_all_provenance`, `test_guard_executes_with_legacy_imports_and_private_resources_blocked`, `test_guard_module_import_does_not_load_shadow_or_legacy_runtime_modules`) |
+| Completed nonretryable provider response failures preserve safe codes, reported cost/usage and completed delivery across worker wire/journal save/load; they refuse same-draw replay while allowing independent scheduled draws; retryable+completed is invalid | `apps/worker/tests/test_preselection_openrouter_chat.py` (`test_supervised_bad_quote_preserves_completed_failure_accounting_and_resume_guard`, `test_supervised_rejects_retryable_completed_failure_metadata_without_retry`) |
+| The direct-only Haiku transport sends one bounded Anthropic-only request with no fallbacks/tools/retries, derives unique exact quote offsets under the generic schema, retains known cost on response/HTTP failures, and rejects unsupported invocations before dispatch | `apps/worker/tests/test_preselection_openrouter_chat.py` (`test_pure_request_builder_freezes_selected_route_and_refines_only_evidence_schema`, `test_generic_supervised_shadow_roundtrip_uses_normalized_exact_offsets`, `test_missing_or_ambiguous_quote_fails_with_known_charge`, `test_wrong_provider_or_model_fails_with_known_charge`, `test_http_rejection_boundedly_preserves_any_reported_usage_and_charge`, `test_network_failure_is_unknown_delivery_one_call_and_redacts_exception_text`, `test_unsupported_invocations_reject_before_http`); `apps/worker/tests/test_preselection_import_boundary.py` actual Chat execution with legacy imports/resources blocked |
+| Lossless source-ID citations retain exact Unicode/whitespace/repeated spans, conservative heading provenance and canonical background-only evidence; both wire profiles execute with legacy resources blocked | `apps/worker/tests/test_preselection_citations.py`; `apps/worker/tests/test_preselection_openrouter_chat.py`; `apps/worker/tests/test_preselection_import_boundary.py` |
+| Manual reconciliation appends evidence/CAS-bound actual charge events for unknown settlements without rewriting history or resetting attempts; exact retries stay idempotent, unresolved unknowns and over-reserve charges still stop, and corrupt/duplicate events fail replay | `apps/worker/tests/test_preselection_convergence.py` (`test_unknown_settlement_reconciliation_is_append_only_idempotent_and_restart_safe`, `test_zero_charge_reconciliation_and_unresolved_unknowns_are_tracked_independently`, `test_reconciliation_rejects_stale_cas_known_settlement_and_pending_reservation`, `test_reconciliation_over_reserve_is_recorded_and_still_stops_dispatch`, `test_replay_rejects_tampered_or_duplicate_reconciliation_events`) |
+| JEV Stage 1 campaign accounting reserves before dispatch, retains prior spend, caps attempts/cost and stops after pending/unknown/over-reserve charges across restart; bound repeated native reports expose missing draws and policy contradictions without quality claims | `apps/worker/tests/test_preselection_convergence.py` (`test_ledger_reserves_before_call_settles_idempotently_and_resumes`, `test_unknown_and_interrupted_reservations_stop_after_restart`, `test_over_reserve_charge_is_recorded_and_persistently_stops_new_attempts`, `test_campaign_attempt_and_spend_caps_are_checked_before_reserve`, `test_corrupted_truncated_or_reconfigured_ledger_fails_loud`, `test_competing_reservers_are_serialized_by_filesystem_lock`, `test_three_draw_report_computes_stability_without_quality_claims`, `test_three_draw_report_preserves_missing_draws_and_finds_explicit_contradictions`); `apps/worker/tests/test_preselection_import_boundary.py` blocked-import/resource execution checks |
+| Native JEV validation accepts and preserves only the observed OpenRouter usage extensions `is_byok` (boolean) and `cost_details` (three finite nonnegative fields); unknown or malformed metadata still fails through journal/cache/report validation | `apps/worker/tests/test_preselection_jev.py` (`test_native_response_accepts_and_preserves_openrouter_usage_metadata`, `test_native_response_rejects_malformed_openrouter_usage_metadata`, `test_supervised_native_request_journal_cache_and_aggregate_report`) |
+| A mechanics-only pilot binds no labels, no extractor model and no assessment rank: all items remain unresolved/not-collected with null evidence; only unblinded direct-only pilot runs admit completed null-rank outcomes; reports mark quality not measured and separate unranked calls from ranked-beyond-budget items | `apps/worker/tests/test_preselection_evaluation.py` (`test_unlabeled_mechanics_pilot_binds_absent_labels_and_reports_no_quality_estimate`, `test_not_collected_mechanics_pilot_rejects_claimed_truth_or_blinding`, `test_not_collected_mechanics_pilot_rejects_mixed_label_sources`, `test_not_collected_mechanics_pilot_requires_one_direct_arm_without_ranking`, `test_direct_only_arm_and_missing_priority_remain_invalid_for_existing_cohorts`, `test_missing_human_label_evidence_remains_invalid`), `apps/worker/tests/test_preselection_jev.py::test_direct_only_unlabeled_mechanics_pilot_binds_call_cache_and_report` |
 | Deeply nested JSON returns bounded CLI errors; large connected day/group inputs do not cause recursion tracebacks, and a one-component pool is rejected with a bounded validation error | `apps/worker/tests/test_preselection_profile.py::test_profile_cli_bounds_deeply_nested_json_errors`, `apps/worker/tests/test_preselection_replay.py` (`test_snapshot_cli_bounds_deeply_nested_json_errors`, `test_replay_cli_bounds_large_connected_component_without_recursion`) |
 | Shadow requirements and YOE policy use validated JD spans; direct/extracted fake-provider runs account for attempts and reject changed bound inputs and outside-cohort jobs before transport; evaluation validates outcomes against schema-4 journal provenance, fingerprints split seeds and reports aggregates only; malformed JSON and UTC overflow return bounded errors | `apps/worker/tests/test_preselection_extraction.py` (`test_synthetic_required_yoe_boundary_truth_table_uses_supported_jd_facts`, `test_yoe_policy_keeps_unknown_alternatives_unresolved_and_never_calls_them_passes`), `apps/worker/tests/test_preselection_shadow.py` (`test_instruction_injection_stays_in_jd_and_cannot_change_typed_contract`, `test_direct_assessment_payload_contains_exact_profile_one_full_job_and_questions`, `test_extractor_gets_only_full_jd_and_extracted_assessment_omits_original_jd`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`), `apps/worker/tests/test_preselection_evaluation.py` (`test_report_rejects_changed_validated_content_with_retained_provenance`, `test_report_uses_verified_snapshot_when_original_inputs_change_mid_report`, `test_synthetic_report_counts_recall_failures_fields_and_draw_stability_without_ids`, `test_cli_bounds_oversized_and_deep_json_errors`, `test_evaluation_and_journal_timestamps_bound_utc_normalization_overflow`, `test_run_binding_is_immutable_and_journal_schema_four_round_trips_it`, `test_run_binding_rejects_invalid_identity_and_late_journal_binding`), `apps/worker/tests/test_preselection_shadow_evaluation_integration.py` (`test_real_shadow_rejects_profile_or_questions_that_differ_from_bound_run_before_transport`, `test_bound_journal_rejects_changed_inputs_when_binding_argument_is_omitted`, `test_bound_journal_can_reuse_success_on_resume_without_binding_argument`, `test_frozen_cohort_rejects_outside_job_before_any_side_effect`, `test_bound_run_rejects_missing_or_incompatible_cohort`, `test_standalone_bound_extraction_cannot_bypass_cohort`, `test_execution_rechecks_frozen_content_models_and_budgets_before_side_effects`) |
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
@@ -3055,9 +3066,21 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   `preselection/extraction.py` validates JD-quoted requirement spans and required versus
   preferred experience facts; its YOE policy returns `exclude`, `not_excluded` or
   `unresolved` with evidence and an explicit policy version. `questions.py` validates the
-  versioned question set and exact typed assessment answers. `shadow.py` is default-off
-  and accepts an injected transport, model identity, limits, clock and private journal;
-  there is no provider adapter or `run.py` wiring. Its bounded worker accounts for
+  versioned generic question set and exact typed assessment answers. `jev.py` adds a separate
+  versioned native JEV contract for Choice, Noul and Score answers, including criteria,
+  probability distributions and confidence. It preserves native values without generated
+  explanation or source evidence. `openrouter_jev.py` performs one synchronous injected
+  HTTP POST per assessment attempt; it sends the selected model, one-job state and native
+  question map, with no generic response schema. The question-specific instructions carry
+  a fixed guard that treats job and candidate text as untrusted data. The transport rejects
+  extraction-stage calls, oversized request/reply bodies, redirects, duplicate JSON keys,
+  deeply nested JSON and unexpected response fields. The injected HTTP client must have no
+  automatic retry behavior. Explicit model/rate resolution is a separate injected GET and
+  is never performed by completion; it checks the fixed requested JEV model and records
+  canonical identity plus input, completion and per-request prices. Missing prices are
+  unusable, and price metadata is not a tokenizer measurement. `shadow.py` remains default-off
+  and accepts injected transport, model identity, limits, clock and private journal; there
+  is no `run.py` wiring. Its bounded worker accounts for
   attempts, retries, elapsed time, usage and actual/estimated/unknown charges. Journal
   schema 4 persists `RunBinding` over the frozen run declaration, profile, question set,
   pool fingerprint and split manifest. Resume rejects changed bound inputs before a
@@ -3068,8 +3091,37 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   pool, split and run-declaration hashes, rejecting mutated or replaced cohort contents.
   Actual assessor/extractor models and limits/retry fingerprints must match the frozen
   declaration before persistence, cache reuse or transport. Unbound single-job synthetic calls remain
-  available. Instruction-injection fixtures verify JD text cannot alter the system prompt,
-  candidate context or typed response contract; they do not establish live model resistance.
+  available. JEV may assess direct input or caller-supplied validated extracted facts, but
+  extraction itself is not a JEV capability. Its journal payload carries an explicit native
+  contract tag, the full question set and hashes around the unchanged raw provider response;
+  resumed cache and report validation check question identity, model, typed answers, score
+  legends and distributions. A completed native reply with unavailable or over-reserve cost
+  remains in the private journal as a `budget_stop`, with unknown cost preserved. Provider
+  usage cost is recorded as `actual` with source `openrouter.response.usage.cost`; this means
+  provider-reported per-attempt cost, not invoice-audited spend. Reports label that evidence
+  and remain aggregate-only. The raw native response may also include `usage.is_byok` as a
+  boolean and `usage.cost_details` with exactly `upstream_inference_cost`,
+  `upstream_inference_prompt_cost` and `upstream_inference_completions_cost`, each a
+  finite nonnegative number. These details are preserved in the wrapper but do not replace
+  `usage.cost` as charge evidence. Unknown top-level or nested usage fields remain
+  rejected. The generic question/reply path retains its prior shape.
+  `EvaluationInput` also supports one narrow mechanics-only mode: phase `pilot`, variants
+  exactly `direct`, one direct model identity, and every item labeled `unresolved` from
+  `not_collected` with null label-evidence hash, empty field labels and no expected YOE
+  action. This mode must set `labeling_blinded=false`; it rejects mixed human/synthetic
+  sources, any apparent resolved truth, and any blinding claim. It does not admit an
+  extractor identity or priority ranks; completed outcomes carry `priority_rank=null`.
+  Its frozen binding includes that null evidence value. The aggregate report uses
+  `label_evidence_status=not_collected_mechanics_pilot`,
+  `quality_evaluation.status=not_measured`, null quality denominators and an unrecorded
+  decision; it calls the cohort a `partial_mechanics_sample` and does not mark population
+  recall reportable. Completed unranked assessments are counted separately from
+  ranked-beyond-budget items. Human/synthetic evaluation and both-arm, ranked
+  development/held-out requirements remain unchanged.
+  Instruction-injection fixtures verify JD text cannot alter the generic system prompt,
+  candidate context or typed response contract; the JEV guard is sent as question
+  instructions because System One has no caller-supplied system-prompt field. These checks
+  do not establish live model resistance.
   `evaluation.py` validates explicit pseudonymous manifests and their
   matching journal. Report generation reparses the retained canonical manifest, rejects
   changed labels, baselines, outcomes or provenance, and uses the validated snapshot and
@@ -3077,8 +3129,104 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   metrics without row IDs, answer values, evidence text or the raw split seed. Its report
   uses a domain-separated seed fingerprint; oversized/deep JSON and UTC-normalization
   overflow return bounded validation errors. The checked-in assessment and evaluation
-  fixtures are synthetic. No live provider calls, real cost/quality claims,
-  acceptance GO, production wiring, database writes or runtime selection are included.
+  fixtures are synthetic. This implementation does not establish live tokenizer evidence,
+  audited invoice cost, labeled quality, acceptance GO, production wiring, database writes
+  or runtime selection.
+- **JEV convergence Stage 1 — isolated tooling.** `preselection/convergence.py`
+  supplies a locked append-only campaign ledger and a pure repeated-draw reporter. The
+  campaign anchor binds historical spend/attempts and immutable USD/global/stage limits;
+  distinct authorization-hash/CAS amendments can raise the effective Stage 1 attempt cap
+  without resetting counters, charges or the original anchor. Reopening the ledger validates
+  amendment history; exact retries stay idempotent after later events, while conflicting
+  authorization reuse, stale CAS or stopped-state amendments fail.
+  each supervised transport completion reserves and fsyncs before dispatch, then settles
+  known actual charge evidence idempotently. Pending/unknown or over-reserve charges stop
+  new calls across restart. Manual reconciliation of a previously unknown settlement
+  requires an actual charge, evidence hash and CAS-bound append-only event; it preserves
+  original unknown evidence and counts, adds cost once and clears only resolved unknowns.
+  Identical retries remain idempotent, conflicting evidence fails, and over-reserve charges
+  still stop dispatch. The ledger does not infer delivery or prove the supplied evidence.
+  Hash-chain/shape/config mismatches fail visibly. This is a
+  Stage 1 ledger, not general multi-phase scheduling or a provider/invoice audit. Native
+  observations are checked against exact profile/model/question and explicit job/draw
+  membership; reports preserve missing draws and expose per-field modal/pairwise stability
+  and supplied-policy contradictions without labels, accuracy, scores, ranks or GO. New
+  functionality remains independent of legacy score/eval modules/resources. It has no
+  runtime wiring, database writes, automatic deployment or additional provider selection.
+- **Bounded Haiku comparison — isolated direct-only transport.**
+  `preselection/openrouter_chat.py` builds exact bytes without keys/network and exposes
+  an injected single-POST Chat transport. Only the approved Haiku5.5alias/dated advertised
+  snapshot and Anthropic route are accepted; fallbacks, tools, retries, extracted inputs
+  and native JEV payloads are not supported. Requests/replies are bounded24KB/128KB,
+  quote output2048tokens/reasoning disabled, timeout45seconds. Generic enum/multi-enum/number answer schemas refine
+  evidence to source+unique exact quote; offsets are derived locally and the ordinary
+  typed validator rechecks them. Raw responses and metadata snapshot provenance remain
+  the caller's records, separate from normalized quotes. Schema/provider/model/finish/
+  quote errors retain any reported usage/cost; missing price/delivery stays unknown.
+  Explicit source-ID mode indexes full sources losslessly into bounded stable J/C blocks,
+  with local duty/qualification/unknown heading provenance. Only canonical BACKGROUND
+  blocks are candidate-citable; all text remains present. Constrained ID arrays normalize
+  locally into exact spans, rejecting unavailable/header/duplicate/wrong-source IDs.
+  The schema and local normalizer cap each source's ID array at that source's actual count
+  of citable unique IDs; the JD minimum remains1, and the candidate minimum is1 only when
+  candidate evidence is required, otherwise0. An empty source has maximum0. Optional
+  candidate evidence minimums fail before HTTP when unavailable. Source-ID mode uses
+  4096tokens and low-effort reasoning with reasoning output excluded, with the v3 note asking
+  for necessary listed IDs without fixed top-k counts. Quote-mode bytes remain unchanged.
+  Mode/index/profile/options/exact wire hashes require caller run-binding and separate
+  journals; generic Invocation identity does not encode these options.
+  Source IDs prove provenance, not semantic entailment or complete requirements coverage.
+  Free-selected core answers can cite non-skill qualifications or different requirements;
+  enum repeatability is not fixed-requirement accuracy. Larger semantic experiments await
+  human adjudication or a selected fixed-requirement contract; see the
+  [v3 checkpoint](reports/2026-11-12-source-id-v3-checkpoint.md).
+  Nonretryable completed-response failures have an explicit supervised wire/journal state,
+  retain known accounting as integrity failures, and refuse same-draw replay; independent
+  declared work can continue. Retryable+completed metadata is rejected.
+  Bounded non-200 bodies are available for private diagnosis without echoing their text
+  or credentials in errors. Import/execution remains isolated from legacy score/eval
+  resources. This is optional research tooling with no runtime, DB or automatic model
+  selection. The approved60-attempt comparison carries prior cost/counts through a frozen
+  audit-linked stage bridge, not a fresh budget; see the scoped comparison contract.
+- **Preference arbitration — isolated pure policy.** `preselection/preference.py` validates
+  an exact native wrapper/model/question set and applies a versioned question/value policy.
+  Explicit avoided duties take precedence; unclear avoidance or unconfirmed engineering
+  yields unresolved. Supported first-target roles yield primary; unknown first-target
+  evidence remains unresolved; otherwise a supported secondary family yields secondary.
+  Only ruled-out targets with engineering-primary yes yield adjacent. The output is a
+  separate tier/reason/policy/question/response hash and source-question references; raw
+  answers are preserved. Role families and value maps are supplied, not hardcoded candidate
+  weights. It makes no score, eligibility verdict, runtime selection or production write.
+  `preselection/preference_guard.py` compares a succeeded direct compound assessment with
+  a succeeded direct seven-choice atomic vector. The caller supplies a versioned atomic
+  contract pinning the exact question IDs and question-set hash. Both records must match
+  their separately validated run bindings, question packs, expected canonical model, source
+  work identity and draw. A present-dominant atomic aggregate and the compound avoidance
+  answer are compared without changing either raw wrapper: matching present or absent labels
+  preserve the compound projection, including unresolved; every other pairing becomes
+  unresolved/review/keep. Only opposite determinate present/absent labels are material;
+  unknowns are ordinary uncertainty, and probability/confidence differences alone do not
+  affect arbitration. The result carries both raw payloads and run/question/response
+  provenance. Its own versioned policy hash binds the guard version, compound-policy hash
+  and complete ordered atomic contract; probability/confidence values do not enter that
+  identity. The module has no file, environment, network, database, runtime or legacy
+  scoring imports and is not wired into production.
+- **Selected-requirement skill evidence — isolated tooling.** `preselection/skills.py`
+  validates exact JD spans, approved background-block quotes and bound profile/JD/question/
+  model identities before deriving per-requirement support. Requirement packs have one
+  to five exact Choice questions. Requiredness and centrality are explicitly supplied
+  proxy annotations; preferred/supporting facts never manufacture central gaps. Empty
+  candidate references are allowed but do not prove inability; positive answers without
+  a linked background trace remain unresolved. Only required+central non-direct evidence
+  produces an unverified-core flag, not exclusion. All unknown facts remain visible.
+  Reports preserve raw answers and declare selected-requirements-only/operator-proxy
+  provenance; they are not a full requirements extractor, human gold, overall score,
+  eligibility pass or quality GO. `ProvenancedSkillEvidencePolicy` optionally wraps an exact
+  base policy with a validated operator-proxy or model-proxy origin. The default preserves
+  the base dataclass shape and v1 policy hash; model-proxy identity uses a separate v2 domain
+  binding the origin, and the report carries that origin. Unknown or human-gold provenance
+  is rejected; model selection/support annotations do not become independent human truth.
+  Legacy scoring/evaluation resources remain blocked.
 - **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
   `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
   rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):

@@ -1729,6 +1729,46 @@ representative evidence, not repetition of an old passing run. Luna/medium fit a
 JEV classification remain separate unvalidated proposals. [ROADMAP R4](ROADMAP.md#r4--optional-scorer-maintenance)
 and [EVALUATION](EVALUATION.md) govern selection and acceptance.
 
+JEV's isolated frozen-v6 expansion exposes limits that development repeats cannot
+measure: embedded duties can miss the avoidance tag, team descriptions can be mistaken
+for role deliverables, and broad general-SWE tags can disappear on specialized engineering
+work despite explicitly overlapping scopes. Repeated labels are not correctness evidence.
+The private40-job cohort has pre-model proxy labels,29company-family groups and120fresh
+responses, but no independent human gold. Preference is unanimous on35/40jobs; all-draw
+proxy admissibility is25/29singleton and9/11multi-value cases. Multi-value admissibility
+must not be pooled into crisp accuracy. Once used for revisions these40are regression
+examples, not untouched validation. Missing JD facts and uncertain preference boundaries
+remain unknown; no company/posting exceptions or extra numeric weights are justified.
+
+Splitting JEV's avoidance rubric into seven inspectable duty predicates and removing
+persona context from role facts can still produce stable semantic errors: accepted visual
+inference engineering may be avoided and embedded/device work may miss avoidance. The
+exposed40-job structural probe repeats perfectly without becoming correct. Frozen role-only
+classification repeats on98/100new source postings, but only16have pre-model quoted-duty
+proxy labels and84remain quality-unlabelled. Neither result licenses a native label as a
+sole production authority. More wording/company-specific tuning on these exposed cohorts
+is not selected. A different model is an explicitly authorized comparison, not an automatic
+migration, paid judge or new source of gold. See the
+[current checkpoint](reports/2026-11-12-jev-convergence-checkpoint.md) for evidence limits.
+
+Structured LLM output can paraphrase a candidate preference while presenting it as a
+literal quote. A valid JSON schema/finish reason is not provenance: unique exact-source
+matching must reject unsupported quotations without replacing the model's answer. An
+arrived but invalid reply has completed delivery and may have a known bill; conflating
+that with network ambiguity loses accounting and prevents independent work. Preserve
+original failed attempts and charges, never retry them to improve a validation count.
+
+Source-ID references eliminate invented literal quote text in the small separated-pass
+slice, but strict schema alone does not enforce the citation-count bounds:19/30fact and
+30/30skill replies exceed them. Exact source provenance is not successful assessment
+acceptance. Preserve failed raw replies and known cost; do not clip evidence retrospectively
+or count diagnostic projections as live successes. Explicitly stating these arbitrary
+counts still fails2/8control draws, so wording alone is not accepted. Evaluate a natural
+actual-source unique-ID maximum separately, retaining all provenance/resource safeguards
+and old failures. No new-source v2 outputs exist. A dynamically selected central requirement
+can change between draws; agreement of its enum is not a fixed-requirement accuracy measure.
+See the [separated-pass checkpoint](reports/2026-11-12-source-id-separation-checkpoint.md).
+
 ### 9.5 Rebuild checklist
 
 A rebuilt implementation should be able to answer yes to all of these:
