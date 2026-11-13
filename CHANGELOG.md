@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Add a pure native JEV disagreement guard. It validates each succeeded direct response
+  against its declared run binding and preserves the compound projection only when the
+  compound and complete caller-pinned atomic vector agree on present or absent. Other
+  pairs stay unresolved/review/keep; only opposite determinate labels are material.
+  Probability/confidence changes do not affect arbitration. Both raw response wrappers and
+  run/question/source/draw identities remain in the output; no runtime wiring is added.
+
 - Retain14/14valid frozen native-v9diagnostic draws and linked1196attempts/
   USD0.496861792. Target improvements coexist with an inference-control semantic error;
   preserve all outcomes and prepare a native-disagreement policy decision without GO.

@@ -1,6 +1,6 @@
 # Native JEV disagreement guard
 
-**Status:** approved by the operator: disagreements go to review/keep; only materially different outcomes need escalation. Numerical probability/confidence variation alone is ordinary model variation, not a reason to tune or stop. JEV remains intended; Haiku is comparator only. Pure isolated implementation and retained-response replay are selected; live validation requires a separately frozen bounded protocol within the existing cumulativeUSD10authorization. No runtime wiring, merge or activation.
+**Status:** shipped 2026-11-12 as pure isolated tooling, with1756worker tests/1skip and85.24%coverage. Operator-approved categorical disagreements go to review/keep; numerical-only probability/confidence changes are ignored. Retained-response replay and live validation are pending because the required Luna implementer reports a usage limit. No runtime wiring, merge or activation. JEV remains intended; Haiku comparator only.
 
 ## Problem and retained evidence
 

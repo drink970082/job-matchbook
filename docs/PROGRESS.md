@@ -66,8 +66,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   absent. The30newJDs are now exposed, with prior-company flags preserved. Linked total
   1114attempts/USD0.486128776, no pending/unknown/overreserve. Raw summary stage-delta
   display has a preserved historical-baseline defect; ledger/response accounting agrees.
-  JEV remains the operator-selected intended route; Haiku is a comparator, with no further
-  expansion selected. The [native return contract](superpowers/specs/2026-11-12-jev-return-comparison.md)
+  JEV remains the operator-selected intended route; Haiku is a comparator. The
+  [native return contract](superpowers/specs/2026-11-12-jev-return-comparison.md)
   retains unchanged native v8 on the same34sources×2:68/68valid,29/30new-source repeat,
   23/30both proxy-admissible, with stable backend/fullstack and mixed-ETL avoidance concerns.
   The [return checkpoint](reports/2026-11-12-jev-return-checkpoint.md) records1182linked
@@ -79,8 +79,19 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   unchanged. The operator approves the [native disagreement guard](superpowers/specs/2026-11-12-jev-disagreement-guard-design.md):
   categorical differences go to unresolved/review/keep; probability/confidence-only
   variation is ignored, and only opposite determinate avoidance labels are material.
-  Pure isolated implementation and retained-response replay are selected, with a bounded
-  fresh-source protocol required before live validation. No cutover or activation.
+  The pure guard validates succeeded direct native records against each run's explicit
+  binding, question pack, expected model, shared source and draw. Its versioned caller
+  contract pins the seven atomic Choice IDs and question hash; matching determinate labels
+  preserve the compound projection, while other pairs remain unresolved/review/keep. Raw
+  wrappers and provenance stay in the result. The guard has its own versioned policy hash;
+  focused26tests, full worker1756passed/1skip,85.24%coverage and schema/privacy/diff gates
+  pass. Retained-response replay and fresh20-source live validation remain pending: the
+  required Luna implementer reports its actual usage limit, triggering the operator stop.
+  Source preparation retains24rows(4controls/20new),22full-description reads including
+  two pre-output duplicate skips,7prior-company flags and no new-source human labels.
+  Its approved max96calls/USD0.50protocol has no wire/controller freeze or inference yet;
+  historical1196attempts/USD0.496861792and all7ledgers remain unchanged. No cutover,
+  ownership/model switch, failed-call retry or activation.
   Independent labels and semantic authority remain separate quality gates.
 
 
