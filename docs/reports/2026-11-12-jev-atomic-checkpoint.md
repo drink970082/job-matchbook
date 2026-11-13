@@ -20,13 +20,15 @@ separate from that target-only denominator. All comparisons are exposed diagnost
 orchestrator reviews, not independent human gold. A question/profile change between v8
 and v9prevents attributing the effect to decomposition alone.
 
-The [decision draft](../superpowers/specs/2026-11-12-jev-disagreement-guard-design.md)
-compares retaining single-assessment advisory JEV with a deterministic unresolved/keep guard
-on disagreement between existing native signals. The latter would keep all three target
-avoidance concerns visible, but also move a positive inference control to review. Four of
-these seven selected pairs disagree; this is not a population review-rate estimate. A new
-semantic output policy is a DEVELOPMENT §3fork, so the campaign awaits the operator's
-choice before implementation or another paid epoch. No further prompt tuning is selected.
+The operator approves the [native disagreement guard](../superpowers/specs/2026-11-12-jev-disagreement-guard-design.md):
+existing native categorical disagreements go to unresolved/review/keep. Numeric probability/
+confidence variation is ignored; unknown uncertainty is ordinary, and only opposite determinate
+avoidance labels are material. No claim about causal non-determinism follows. A positive
+inference control may move to review, preserving the opportunity rather than adopting an
+atomic false avoidance. Four of these seven selected pairs disagree; this is not a population
+review-rate estimate. Pure source implementation, offline retained-response replay and a
+[bounded fresh-source validation](../superpowers/specs/2026-11-12-jev-guard-validation20.md)
+are selected. No new rubric, confidence threshold, model switch or production activation.
 
 The epoch adds14attempts/USD0.001645896. Linked total1196attempts/USD0.496861792, no
 pending/unknown/overreserve; all SIX predecessor ledgers remain unchanged. Controls cost

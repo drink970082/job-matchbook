@@ -72,5 +72,7 @@ merge, deployment or production GO.
 
 The [atomic diagnosis](2026-11-12-jev-atomic-checkpoint.md) retains14additional valid
 draws, with target improvements and a persistent visual inference-control mistake. Linked
-accounting is1196attempts/USD0.496861792. A conservative native-disagreement guard versus
-single-assessment advisory JEV is a pending operator design decision, not implemented policy.
+accounting is1196attempts/USD0.496861792. The operator selects a conservative native-disagreement guard to review/keep, ignoring
+numeric-only variation and recording ordinary unknown uncertainty without unnecessary
+escalation. Pure implementation and separately bounded fresh-source validation are selected;
+no production authority or activation follows.
