@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain96valid live native guard calls and48source/draw pairs on4controls+20new sources;
+  19/20new final tiers repeat and3casesremainreview without resampling. Linked accounting
+  is1292attempts/USD0.509665912, with no production or independent quality GO.
+
 - Validate the native disagreement guard on14retained real source/draw pairs without
   new inference: raw wrappers remain unchanged,4/7selected sources go to review and
   numeric variation does not change final tiers. No independent quality or GO claim.

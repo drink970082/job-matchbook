@@ -90,11 +90,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   3/7preservebaseprojection, no finaltier changes acrossdraws despite avoidance-input
   numeric variation. No provider call occurs. The private fresh20-source validation
   harness is in preparation; no new inference has started.
-  Source preparation retains24rows(4controls/20new),22full-description reads including
-  two pre-output duplicate skips,7prior-company flags and no new-source human labels.
-  Its approved max96calls/USD0.50protocol has no wire/controller freeze or inference yet;
-  historical1196attempts/USD0.496861792and all7ledgers remain unchanged. No cutover,
-  ownership/model switch, failed-call retry or activation.
+  The [fresh20checkpoint](reports/2026-11-12-jev-guard-validation20-checkpoint.md) retains
+  96/96valid calls and48/48guard pairs. New20finaltiersrepeat19/20;3casesreview includes
+  the1changed-tier case, without resampling.20new labels remain uncollected and7company
+  names prior-exposed. Linked1292attempts/USD0.509665912, no pending/unknown/overreserve;
+  all7ancestorsunchanged. The policy/model/packs remain frozen for broader new-source
+  validation. No cutover, ownership/model switch, failed-call retry or activation.
   Independent labels and semantic authority remain separate quality gates.
 
 
