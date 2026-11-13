@@ -88,8 +88,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   pass. Required Luna capacity is available. The [retained replay](reports/2026-11-12-jev-guard-retained-replay.md)
   validates14/14real source/draw pairs with raw wrappers unchanged:4/7sourcesreview,
   3/7preservebaseprojection, no finaltier changes acrossdraws despite avoidance-input
-  numeric variation. No provider call occurs. The private fresh20-source validation
-  harness is in preparation; no new inference has started.
+  numeric variation. No provider call occurs in that retained replay.
   The [fresh20checkpoint](reports/2026-11-12-jev-guard-validation20-checkpoint.md) retains
   96/96valid calls and48/48guard pairs. New20finaltiersrepeat19/20;3casesreview includes
   the1changed-tier case, without resampling.20new labels remain uncollected and7company
@@ -97,8 +96,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   all7ancestorsunchanged. The policy/model/packs remain frozen for broader new-source
   validation. The [fresh100contract](superpowers/specs/2026-11-12-jev-guard-validation100.md)
   selects100additional unused pilot sources plus4controls, max416calls/USD0.50new within
-  USD10, carrying1292/.509665912 through8oldledgers. Source and private-harness preparation
-  precede any freeze/inference. No semantic tuning, cutover, failed retry or activation.
+  USD10, carrying1292/.509665912 through8oldledgers. Source preparation retains5strata20each,
+  107full-JD reads incl7duplicate exclusions,74normalized company names/max2sources each
+  and77prior-company flags. The private416-call mock and exact freeze precede inference.
+  No semantic tuning, cutover, failed retry or activation.
   Independent labels and semantic authority remain separate quality gates.
 
 
