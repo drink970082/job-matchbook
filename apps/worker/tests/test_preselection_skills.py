@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 import hashlib
 
 import pytest
@@ -12,6 +12,7 @@ from ats_worker.preselection.jev import jev_question_set_from_value, native_jev_
 from ats_worker.preselection.profile import profile_from_value
 from ats_worker.preselection.skills import (
     ProfileEvidenceRef,
+    ProvenancedSkillEvidencePolicy,
     SkillEvidenceError,
     SkillEvidencePolicy,
     SkillRequirement,
@@ -418,3 +419,142 @@ def test_empty_profile_references_are_permitted_without_completeness_claim():
     assert report.provenance == "operator_proxy_not_gold"
     assert report.explicit_core_requirement_ids == ("mandatory_alt",)
     assert "mandatory_alt" in report.unresolved_requirement_ids
+
+
+def test_default_policy_keeps_legacy_hash_and_dataclass_shape():
+    _, _, policy = _context()
+
+    assert policy.sha256 == "ae4b141e6a96c59a3f61a5e991053340233206ce1c8af98de922a9891f0e39dd"
+    assert tuple(asdict(policy)) == (
+        "version",
+        "question_set_sha256",
+        "profile_sha256",
+        "jd_sha256",
+        "requirements",
+    )
+    assert _derive().provenance == "operator_proxy_not_gold"
+
+
+def test_model_proxy_provenance_is_bound_and_reported_without_changing_default():
+    question_set, profile, policy = _context()
+    model_proxy = ProvenancedSkillEvidencePolicy(policy, "model_proxy_not_gold")
+    default_wrapper = ProvenancedSkillEvidencePolicy(policy)
+
+    report = derive_skill_evidence(
+        _payload(question_set, _answers()), question_set, MODEL, JD, profile, model_proxy
+    )
+
+    assert model_proxy.sha256 != policy.sha256
+    assert default_wrapper.sha256 == policy.sha256
+    assert report.policy_sha256 == model_proxy.sha256
+    assert report.provenance == "model_proxy_not_gold"
+    assert tuple(asdict(policy)) == (
+        "version",
+        "question_set_sha256",
+        "profile_sha256",
+        "jd_sha256",
+        "requirements",
+    )
+
+
+@pytest.mark.parametrize("provenance", ["human_gold", "model_proxy", "", None])
+def test_provenance_rejects_values_outside_the_closed_proxy_vocabulary(provenance):
+    question_set, profile, policy = _context()
+    wrapped = ProvenancedSkillEvidencePolicy(policy, provenance)
+
+    with pytest.raises(SkillEvidenceError, match="provenance"):
+        derive_skill_evidence(
+            _payload(question_set, _answers()), question_set, MODEL, JD, profile, wrapped
+        )
+
+
+def test_provenance_wrapper_rejects_custom_policy_subclasses():
+    question_set, profile, policy = _context()
+
+    class CustomPolicy(SkillEvidencePolicy):
+        annotation_provenance = "human_gold"
+
+    custom = CustomPolicy(**asdict(policy))
+    wrapped = ProvenancedSkillEvidencePolicy(custom, "model_proxy_not_gold")
+
+    with pytest.raises(SkillEvidenceError, match="plain skill evidence policy"):
+        derive_skill_evidence(
+            _payload(question_set, _answers()), question_set, MODEL, JD, profile, wrapped
+        )
+
+    class CustomProvenancePolicy(ProvenancedSkillEvidencePolicy):
+        @property
+        def sha256(self):
+            return "0" * 64
+
+    custom_wrapper = CustomProvenancePolicy(policy, "model_proxy_not_gold")
+    with pytest.raises(SkillEvidenceError, match="custom provenance policy subclasses"):
+        derive_skill_evidence(
+            _payload(question_set, _answers()), question_set, MODEL, JD, profile, custom_wrapper
+        )
+
+
+def test_requirement_policy_accepts_one_to_five_and_rejects_six():
+    question_set, profile, policy = _context()
+    questions = deepcopy(QUESTION_SET_VALUE)
+    one_question_set = jev_question_set_from_value({
+        "version": "synthetic-skill-sidecar-one",
+        "questions": questions["questions"][:1],
+    })
+    one_requirement = replace(
+        policy,
+        question_set_sha256=one_question_set.sha256,
+        requirements=(policy.requirements[0],),
+    )
+    one_requirement.validate(one_question_set, JD, profile)
+
+    jd_text = JD + " Go is required. Rust is preferred."
+    for question_id in ("extra_go", "extra_rust"):
+        questions["questions"].append({
+            "id": question_id,
+            "type": "choice",
+            "instructions": "Classify synthetic evidence for this one requirement.",
+            "criteria": {value: f"Synthetic {value} support." for value in QUESTION_VALUES},
+        })
+    six_question_set = jev_question_set_from_value({
+        "version": "synthetic-skill-sidecar-six",
+        "questions": questions["questions"],
+    })
+    go_requirement = SkillRequirement(
+        question_id="extra_go",
+        quote="Go",
+        start=jd_text.index("Go is required"),
+        end=jd_text.index("Go is required") + 2,
+        obligation="required",
+        centrality="central",
+        profile_evidence=(),
+    )
+    rust_requirement = SkillRequirement(
+        question_id="extra_rust",
+        quote="Rust",
+        start=jd_text.index("Rust is preferred"),
+        end=jd_text.index("Rust is preferred") + 4,
+        obligation="preferred",
+        centrality="supporting",
+        profile_evidence=(),
+    )
+    six_requirements = replace(
+        policy,
+        question_set_sha256=six_question_set.sha256,
+        jd_sha256=hashlib.sha256(jd_text.encode("utf-8")).hexdigest(),
+        requirements=policy.requirements + (go_requirement, rust_requirement),
+    )
+
+    with pytest.raises(SkillEvidenceError, match="requirement limit"):
+        six_requirements.validate(six_question_set, jd_text, profile)
+
+    five_question_set = jev_question_set_from_value({
+        "version": "synthetic-skill-sidecar-five",
+        "questions": questions["questions"][:-1],
+    })
+    five_requirements = replace(
+        six_requirements,
+        question_set_sha256=five_question_set.sha256,
+        requirements=policy.requirements + (go_requirement,),
+    )
+    five_requirements.validate(five_question_set, jd_text, profile)

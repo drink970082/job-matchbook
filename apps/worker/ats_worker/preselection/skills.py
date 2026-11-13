@@ -30,6 +30,8 @@ _QUESTION_ID = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _SUPPORT_VALUES = {"direct", "transferable", "not_evidenced", "unknown"}
 _OBLIGATIONS = {"required", "preferred", "unclear"}
 _CENTRALITIES = {"central", "supporting", "unclear"}
+_ANNOTATION_PROVENANCE = {"operator_proxy_not_gold", "model_proxy_not_gold"}
+_DEFAULT_ANNOTATION_PROVENANCE = "operator_proxy_not_gold"
 _MAX_REQUIREMENTS = 5
 _MAX_PROFILE_REFS_PER_REQUIREMENT = 8
 _MAX_SPAN_TEXT = 4096
@@ -235,6 +237,49 @@ class SkillEvidencePolicy:
 
 
 @dataclass(frozen=True)
+class ProvenancedSkillEvidencePolicy:
+    """Bind the origin of proxy annotations without changing legacy policy identities."""
+
+    policy: SkillEvidencePolicy
+    annotation_provenance: str = _DEFAULT_ANNOTATION_PROVENANCE
+
+    def validate(
+        self,
+        question_set: NativeJevQuestionSet,
+        jd_text: str,
+        profile: CandidateProfile,
+    ) -> None:
+        if type(self.policy) is not SkillEvidencePolicy:
+            raise SkillEvidenceError("provenance wrapper must contain a plain skill evidence policy")
+        if (
+            not isinstance(self.annotation_provenance, str)
+            or self.annotation_provenance not in _ANNOTATION_PROVENANCE
+        ):
+            raise SkillEvidenceError("annotation provenance is unsupported")
+        self.policy.validate(question_set, jd_text, profile)
+        # Encode the complete wrapper here so the non-default identity is size checked
+        # before it is used in a report.
+        _ = self.sha256
+
+    @property
+    def sha256(self) -> str:
+        if type(self.policy) is not SkillEvidencePolicy:
+            raise SkillEvidenceError("provenance wrapper must contain a plain skill evidence policy")
+        if (
+            not isinstance(self.annotation_provenance, str)
+            or self.annotation_provenance not in _ANNOTATION_PROVENANCE
+        ):
+            raise SkillEvidenceError("annotation provenance is unsupported")
+        if self.annotation_provenance == _DEFAULT_ANNOTATION_PROVENANCE:
+            return self.policy.sha256
+        return hashlib.sha256(_canonical_json({
+            "domain": "ats-preselection-skill-evidence-policy-v2",
+            "policy": asdict(self.policy),
+            "annotation_provenance": self.annotation_provenance,
+        })).hexdigest()
+
+
+@dataclass(frozen=True)
 class SkillRequirementEvidence:
     question_id: str
     quote: str
@@ -272,16 +317,27 @@ def derive_skill_evidence(
     expected_model: str,
     jd_text: str,
     profile: CandidateProfile,
-    policy: SkillEvidencePolicy,
+    policy: SkillEvidencePolicy | ProvenancedSkillEvidencePolicy,
 ) -> SkillEvidenceReport:
     """Revalidate frozen sources and native answers, then derive bounded requirement evidence."""
-    policy.validate(question_set, jd_text, profile)
+    if isinstance(policy, ProvenancedSkillEvidencePolicy):
+        if type(policy) is not ProvenancedSkillEvidencePolicy:
+            raise SkillEvidenceError("custom provenance policy subclasses are unsupported")
+        policy.validate(question_set, jd_text, profile)
+        source_policy = policy.policy
+        annotation_provenance = policy.annotation_provenance
+        policy_sha256 = policy.sha256
+    else:
+        policy.validate(question_set, jd_text, profile)
+        source_policy = policy
+        annotation_provenance = _DEFAULT_ANNOTATION_PROVENANCE
+        policy_sha256 = policy.sha256
     _text(expected_model, "expected resolved model", maximum=256)
     try:
         assessment = validate_native_jev_journal_payload(
             native_payload,
             expected_question_set=question_set,
-            expected_question_set_sha256=policy.question_set_sha256,
+            expected_question_set_sha256=source_policy.question_set_sha256,
             expected_model=expected_model,
         )
     except JevContractError:
@@ -297,7 +353,7 @@ def derive_skill_evidence(
     profile_block_ids: list[str] = []
     has_unresolved_core = False
 
-    for requirement in policy.requirements:
+    for requirement in source_policy.requirements:
         support = answers[requirement.question_id]
         refs = requirement.profile_evidence
         explicit_core = requirement.obligation == "required" and requirement.centrality == "central"
@@ -363,14 +419,14 @@ def derive_skill_evidence(
     return SkillEvidenceReport(
         summary=summary,
         coverage="selected_requirements_only",
-        provenance="operator_proxy_not_gold",
-        policy_sha256=policy.sha256,
+        provenance=annotation_provenance,
+        policy_sha256=policy_sha256,
         question_set_sha256=question_set.sha256,
         profile_sha256=profile.identity_sha256,
-        jd_sha256=policy.jd_sha256,
+        jd_sha256=source_policy.jd_sha256,
         response_sha256=response_sha,
         model_identity=expected_model,
-        selected_requirement_ids=tuple(item.question_id for item in policy.requirements),
+        selected_requirement_ids=tuple(item.question_id for item in source_policy.requirements),
         explicit_core_requirement_ids=tuple(explicit_core_ids),
         unverified_core_requirement_ids=tuple(unverified_core_ids),
         unresolved_requirement_ids=tuple(unresolved_ids),

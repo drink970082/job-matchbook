@@ -128,7 +128,10 @@ import ats_worker.preselection.jev
 import ats_worker.preselection.openrouter_jev
 from ats_worker.preselection.convergence import CampaignLedger, build_stage1_report
 from ats_worker.preselection.preference import PreferenceTier, derive_preference
-from ats_worker.preselection.skills import derive_skill_evidence
+from ats_worker.preselection.skills import (
+    ProvenancedSkillEvidencePolicy,
+    derive_skill_evidence,
+)
 from test_preselection_convergence import _charge, _config, _manifest, _observation, _reserve
 from test_preselection_preference import (
     MODEL as PREFERENCE_MODEL,
@@ -315,6 +318,17 @@ with TemporaryDirectory() as directory:
     )
     assert skill_report.summary == "unresolved"
     assert skill_report.coverage == "selected_requirements_only"
+    model_proxy_skill_report = derive_skill_evidence(
+        skill_payload(skill_question_set, skill_answers()),
+        skill_question_set,
+        SKILL_MODEL,
+        SKILL_JD,
+        skill_profile,
+        ProvenancedSkillEvidencePolicy(skill_policy, "model_proxy_not_gold"),
+    )
+    assert model_proxy_skill_report.provenance == "model_proxy_not_gold"
+    assert model_proxy_skill_report.policy_sha256 != skill_report.policy_sha256
+    assert model_proxy_skill_report.question_set_sha256 == skill_question_set.sha256
 loaded = [
     name for name in sys.modules
     if any(name == item or name.startswith(item + ".") for item in forbidden)

@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Preserve caller-declared model-proxy versus operator-proxy provenance in selected skill
+  evidence with an explicit policy wrapper. Default policy hashes and dataclass shape stay
+  compatible; model origin is bound to a separate v2 identity. Unsupported/human-gold origins
+  are rejected; source-span and core-summary semantics remain unchanged.
+
 - Retain20Sol low blind model reviews of the input-only preference slice:15preferred-tier
   matches,5existing review cases and4additional review cases, with no substantial unprotected
   determinate acceptance/avoidance opposition. Preserve0human labels and unchanged campaign

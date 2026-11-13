@@ -112,7 +112,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   The operator selects continued [fixed skill evidence implementation](superpowers/specs/2026-11-13-jev-fixed-skill-evidence20.md):
   Sol low supplies source-quoted model-proxy requirements/support alternatives on20retained
   JDs; JEV compares the same frozen requirements against the unchanged approved full profile.
-  Luna/max owns truthful annotation-provenance handling and bounded native harness; max44calls/
+  The explicit skill-policy provenance wrapper distinguishes model/operator proxies while
+  preserving default identities; Luna/max owns source gates and bounded native harness; max44calls/
   USD0.50new after source/mock/freeze gates, carrying1708/.561444184 through9closed ledgers.
   No automatic runtime extractor, new résumé source, human-gold claim or activation.
 
