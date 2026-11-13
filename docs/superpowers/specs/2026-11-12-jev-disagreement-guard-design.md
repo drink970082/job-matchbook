@@ -1,6 +1,6 @@
-# Native JEV disagreement guard — decision draft
+# Native JEV disagreement guard
 
-**Status:** draft; operator decision required. No implementation, paid epoch, runtime wiring or activation selected by this document. JEV remains the intended model; Haiku remains comparator only.
+**Status:** approved by the operator: disagreements go to review/keep; only materially different outcomes need escalation. Numerical probability/confidence variation alone is ordinary model variation, not a reason to tune or stop. JEV remains intended; Haiku is comparator only. Pure isolated implementation and retained-response replay are selected; live validation requires a separately frozen bounded protocol within the existing cumulativeUSD10authorization. No runtime wiring, merge or activation.
 
 ## Problem and retained evidence
 
@@ -10,13 +10,13 @@ return all-seven-absent on those three sources in both draws, but independently 
 a visual-model inference-systems control as excluded modeling in both draws. Both protocols
 can be stable and wrong. More prompt wording or employer exceptions are not selected.
 
-## Options and recommendation
+## Selected direction and alternatives
 
 1. Retain a single v8 native assessment as advisory output; collect independent human
    quality labels before further design. Lowest complexity and request count, but the
    observed stable avoidance concerns remain unhandled by automatic policy. No sole
    production preference authority or automatic discard is accepted.
-2. Recommended next research contract: keep native JEV as the only assessed backend and
+2. Selected research contract: keep native JEV as the only assessed backend and
    add a conservative ordinary-code comparison of the existing v8 and atomic-v9 signals.
    Source/version/run identities must align; raw results remain distinct. Agreement is
    advisory evidence only. Disagreement becomes visible unresolved/keep, never a forced
@@ -29,7 +29,7 @@ use deterministic comparison, keep opportunities under ambiguity, expose reasons
 all services and preserve private untrusted sources. Accounting/configuration integrity
 still fails loud/stops; an unknown bill cannot become opportunity uncertainty.
 
-## Concrete candidate rule (not implemented)
+## Approved advisory rule
 
 Aggregate a complete validated atomic vector: any present→present; otherwise any unknown→
 unknown; otherwise all-seven-absent→absent. Missing/invalid replies are recorded failures,
@@ -54,7 +54,7 @@ one control has both present. Thus4/7selected source pairs reach review, while3/
 aligned signals. Selection is output-based and purposive: no workload-rate or accuracy claim.
 These are paper-rule counterfactuals from retained calls, not executed policy results.
 
-## Gate if the operator selects option2
+## Execution gate
 
 Write an approved execution contract and implement only pure isolated policy tooling via
 Luna/max, with meaningful tests for source/question/run mismatches, complete atomic vectors,
@@ -63,5 +63,40 @@ required worker/coverage/import-boundary/privacy/schema gates and update SPEC tr
 Then freeze a separate bounded fresh-source research protocol and linked ledger carrying
 1196attempts/USD0.496861792 plus all seven ancestor ledgers. No reuse of exposed cases as
 untouched acceptance, no old-epoch resumption or failed-call retry. Independent human labels,
-source completeness and production GO remain separate gates. No automatic paid calls,
-merge, deployment or activation follows selecting this design direction.
+source completeness and production GO remain separate gates. The standing spending authorization remains; further paid work needs a concrete bounded
+source/run/wire/ledger freeze, not another funding request. No merge, deployment or
+activation follows this design direction.
+
+## Implementation acceptance
+
+Add a small pure isolated policy module, leaving existing PreferencePolicy and transport
+semantics unchanged. Consume native succeeded direct-assessment journal records plus
+explicit validated RunBindings, native question packs, existing compound PreferencePolicy,
+expected ModelIdentity and expected source/work identity. Verify matching source/draw,
+canonical response/question hashes, model and each declared run binding (profile hashes
+are covered by RunBinding); the two protocols intentionally have distinct run/profile
+identities. Missing/unbound/failed/malformed/mismatched records fail visibly and never
+become successful unknown assessments. Do not read files/env/services or mutate inputs.
+
+The atomic contract pins its seven exact Choice IDs and question-set identity, with
+present/absent/unknown values; a complete vector is required. Guard outputs carry the
+base native PreferenceDecision, final advisory tier/review reason, source/draw, policy
+and both run/question/response identities. Both-present and both-absent preserve the
+existing compound projection (including its unresolved state); other pairs go unresolved/
+review/keep. Unknown/unknown is ordinary unresolved, not a material disagreement.
+
+Only opposite determinate avoidance labels (present versus absent) are materially
+different for this guard; unknown versus a determinate label is ordinary uncertainty.
+Probability/confidence changes with identical labels are ignored for arbitration and
+never trigger repeated calls, repair, tuning, numeric thresholds or user escalation.
+All categorical disagreements still go to review. This is an operational distinction,
+not proof that a difference was caused by non-determinism or is a semantic error.
+
+Meaningful tests cover the tri-state table, present-dominates-unknown aggregation,
+complete vectors, base unresolved preservation, probability/confidence-only changes,
+source/draw/run/profile/question/model mismatches, failed evidence, raw preservation
+and execution with legacy score/eval imports/resources blocked. Full worker/coverage
+>=85%, schema/privacy/diff gates apply. Update SPEC clause+traceability, PROGRESS and
+CHANGELOG in the source commit. No Web/E2E/runtime wiring. Then replay the retained
+seven-source pairs with explicit original bindings; do not reinterpret old model
+responses, proxy labels or bills. No paid replay or failed-call retry.

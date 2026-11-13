@@ -76,9 +76,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   unchanged-v9draws: three targets become all-absent, but a visual inference-systems control
   remains wrongly marked excluded-modeling. All7choice vectors repeat; probability/confidence
   differ. Linked1196attempts/USD0.496861792, no pending/unknown/overreserve; six ancestors
-  unchanged. A [decision draft](superpowers/specs/2026-11-12-jev-disagreement-guard-design.md)
-  awaits operator choice: single-assessment advisory JEV or a conservative native-signal
-  disagreement guard to unresolved/keep. No new policy/epoch, cutover or activation.
+  unchanged. The operator approves the [native disagreement guard](superpowers/specs/2026-11-12-jev-disagreement-guard-design.md):
+  categorical differences go to unresolved/review/keep; probability/confidence-only
+  variation is ignored, and only opposite determinate avoidance labels are material.
+  Pure isolated implementation and retained-response replay are selected, with a bounded
+  fresh-source protocol required before live validation. No cutover or activation.
   Independent labels and semantic authority remain separate quality gates.
 
 
