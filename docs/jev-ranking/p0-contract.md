@@ -9,7 +9,7 @@ It does not establish provider capacity, evaluation quality or rollout permissio
 
 ## Inputs and domain vocabulary
 
-One source snapshot contains job ID, exact stored title/company/full description,
+One source snapshot contains job ID, exact stored title/company/location/full description,
 source URL, publication time (nullable), captured time and source revision. Hash canonical
 UTF-8 JSON (sorted keys, compact separators, no NaN) including a schema domain tag and
 all those fields. Never normalize away duties or truncate text. Input strings are data,
@@ -23,10 +23,17 @@ primary work cannot be assigned. No inferred domain is silently added. The quest
 criteria include every approved domain plus these literals. Domain allocation for
 reading budgets remains outside this classifier.
 
-**Input prerequisite:** the profile is pinned in [input binding](p0-input-binding.md);
-the actual domain manifest needs operator acceptance before P1 freezes inputs. No private candidate facts or domain preferences are
-reconstructed here. The existing research role-family policy is evidence, not automatic
-approval of its vocabulary or avoided-role precedence.
+**Approved input binding:** the profile and accepted eight-domain manifest are pinned
+in [input binding](p0-input-binding.md). Domains classify primary duties rather than
+job titles: research-oriented Research Engineer/Quant Analyst work belongs with research,
+while tool/model/system implementation belongs with quantitative engineering. Domain
+membership does not override preference judgments or introduce domain weights. Mixed and
+unknown remain valid; no claim of exhaustive future career coverage is required.
+The manifest describes the eight families accepted by the operator: quantitative research
+and trading; quantitative engineering and research implementation; agent/LLM applications;
+ML engineering; AI infrastructure; data engineering; general software engineering; analysis
+and decision support. Exact private criterion bytes are versioned and hashed separately
+from the unchanged approved background.
 
 ## Exact native question pack: ranking-v1
 
@@ -202,7 +209,8 @@ Synthetic stored source:
   "publication_time": null,
   "captured_time": "2026-11-13T00:00:00Z",
   "source_revision": "demo-source-v1",
-  "schema": "ranking-source-v1"
+  "schema": "ranking-source-v1",
+  "location": ""
 }
 ```
 
@@ -221,7 +229,7 @@ Local invocation envelope (not HTTP fields):
   "attempt_id": "a1",
   "job_id": "demo-1",
   "snapshot_id": "demo-source-v1",
-  "source_sha256": "80fd289133671fdcf578a769d518e94252a92ec4048668d3acbae5f30c681f2c",
+  "source_sha256": "a836b5d6bbc3ba6cb0e07bdcfef50eeaa887f34aab95364363627ec3062aa5b8",
   "profile_sha256": "0061b56308bfe05e6d0ee6153597e0f23331e79d9b920bda721b0ba654e855b4",
   "question_sha256": "d34c2d2cf569f4827f4155ee884011cb57cae8748288d1a5635e2fef16333d4c",
   "rubric_version": "ranking-v1",
@@ -361,15 +369,14 @@ Variations, independently reset to that fixture:
 This is an exact contract trace, not a claim that the actual MCP path is implemented or
 executed. P3 acceptance requires an executable fake-provider demonstration through it.
 
-## Remaining prerequisites and research ceiling
+## Bound inputs and research ceiling
 
-The approved private profile is pinned in [input binding](p0-input-binding.md). The actual
-domain manifest still needs operator acceptance and must be bound before P1 freezes inputs.
-Acceptance of the domain format does not supply private vocabulary or background.
-Provider evidence and a complete-request roster remain required from the companion P0
-audit. The approved provisional research request ceiling is 32,768 serialized UTF-8 bytes,
-configurable and measured on the complete HTTP JSON including questions and context. It is
-a local operational bound pending the roster, not a provider capacity claim or production
-default. Larger requests remain visible as deferred; no truncation or automatic split.
-This ceiling authorizes no inference and does not replace separate workload/budget approval.
-P0 remains incomplete until the outstanding input and measurement evidence is supplied.
+The approved private profile and eight-domain manifest are pinned in
+[input binding](p0-input-binding.md). Complete-request development-roster measurements
+and provider evidence are recorded in the companion [resource audit](p0-resources.md).
+The approved provisional research request ceiling is 32,768 serialized UTF-8 bytes,
+configurable and measured on complete HTTP JSON including questions and context. It is
+a local operational bound, not a provider capacity claim or production default.
+Larger requests remain visible as deferred; no truncation or automatic split. P1 must
+measure the intended daily roster before inference. This ceiling authorizes no inference
+and does not replace separate workload/budget approval.

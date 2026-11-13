@@ -8,10 +8,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV P0 contract/integration audit (#136)** — `feat/jev-p0-contract`, based on
-  `origin/main` and planning revision `ef18116c20b01cc7df7e7a9a8c7594b5a76f3900`.
-  Operator assigned continuation; contract rules accepted; approved historical profile pinned; exact domain mapping awaits operator acceptance. No inference, production
-  DB changes, merge or deployment. P1 awaits accepted P0; [review package](jev-ranking/p0-review.md) names remaining policy/input decisions.
+- **JEV P0 contract/integration audit (#136)** — `feat/jev-p0-contract`, PR #144.
+  Contract, eight-domain vocabulary and input bindings accepted; offline all-22-row
+  measurement is complete. Delivered and accepted, unmerged in PR #144; runtime unchanged.
+  No inference, production DB change, merge or deployment. P1 owns fresh daily pools.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

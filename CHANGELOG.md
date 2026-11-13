@@ -18,7 +18,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Prepare JEV P0 ranking contracts, integration/reuse audit and resource-limit evidence
   against pinned planning and research revisions; record accepted contract rules and
-  approved-profile identity while keeping domain vocabulary binding explicit. Runtime
+  approved-profile/eight-domain bindings and complete offline 22-source request
+  measurements. Runtime
   behavior remains unchanged.
 
 - Revalidate report inputs against their retained canonical manifest and calculate from

@@ -70,16 +70,36 @@ response-byte bound, HTTP deadline and campaign attempt/money/time caps; do not 
 exact tokens from bytes or characters. No long-context header, truncation or splitting
 is enabled by this proposal.
 
-Before freezing P1, serialize the **accepted minimal question pack** with each approved
-profile/full-JD binding in the intended complete roster, hash every body, and record
-count/min/median/nearest-rank P90/P95/max, composition and exclusions. Exact token
-measurements require a documented compatible tokenizer or authorized provider usage;
-report unavailable counts explicitly rather than characters/4. Reconsider the proposed
-ceiling against that distribution before inference. Overbound remains visible deferred
-with reason `request_bytes_exceeded`, unchanged source and `not_sent` delivery. An
-explicit bounded provider verification belongs to separately authorized P2.
+## Accepted minimal request distribution
 
-P0 cannot claim the new minimal-ranker population distribution yet: its exact question
-pack and frozen P1 roster have not been accepted. The historical measurement above is
-reproducible evidence for removing the unexplained 24,000 assumption, not a substitute
-for that missing population. No provider calls, production DB writes or deployment ran.
+After operator acceptance of the eight-domain vocabulary, the offline measurement used
+all 22 retained source rows, the unchanged approved full profile and the exact four-question
+contract. Complete request serialization includes requested model, state, canonical full
+profile/domain candidate context and all native question criteria/instructions.
+
+| Cohort | n | Min | Median | P90 | P95 | Max | >24,000 | >32,768 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Controls | 2 | 17,292 | 18,122.5 | 18,953 | 18,953 | 18,953 | 0 | 0 |
+| Requested main | 20 | 14,359 | 17,840 | 19,899 | 19,969 | 23,945 | 0 | 0 |
+
+No source was excluded or truncated; the three former size exclusions and former
+no-selected-skill source are included. All 22 description hashes match the frozen roster,
+all source IDs reconcile uniquely, the approved profile canonical identity matches its
+historical frozen identity, and the pinned native parser validates the four-question pack.
+The accepted 32,768-byte local bound accommodates this complete historical development
+roster. This does not establish fresh daily coverage or provider acceptance.
+
+Bindings and the private report SHA are recorded in [input binding](p0-input-binding.md).
+Reproduce with `python3 /tmp/jev-p0-measure.py`, also retained as ignored
+`apps/worker/resume/pivot/jev-ranking-p0-v1/measure.py`. The script imports only the
+pinned pure profile/native-contract parsers, reads exact approved input files, builds
+requests locally and writes only its new ignored package; it has no transport or DB path.
+Actual output: controls n=2/max=18,953; main n=20/max=23,945; excluded=0;
+provider_calls=0; exact_tokens=null. Quantiles use nearest rank.
+
+Before P1 freezes its complete daily pools, rerun these measurements against that declared
+inventory and accepted bindings. Exact token measurements require a documented compatible
+tokenizer or authorized provider usage; unavailable counts stay explicit rather than
+characters/4. Overbound remains visible deferred with reason `request_bytes_exceeded`,
+unchanged source and `not_sent` delivery. Bounded provider verification belongs to separately
+authorized P2. No provider calls, production DB writes or deployment ran.
