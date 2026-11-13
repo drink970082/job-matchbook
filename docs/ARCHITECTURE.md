@@ -1,5 +1,11 @@
 # Architecture — ATS tools with ChatGPT judgment
 
+> **Selected JEV delivery track:** [canonical handoff](jev-ranking/README.md). JEV
+> produces domain-specific ranking priorities; ChatGPT consumes them over MCP for deeper
+> judgment. This target supersedes optional-model selection and mandatory legacy research
+> sequences below for JEV work. Shipped behavior remains unchanged; no calls or activation
+> are authorized. Use the linked delivery index for current dependencies and gates.
+
 **Status:** approved product direction; the implementation boundary is explicit below.
 The [pivot decision](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 sets ownership. [SPEC](SPEC.md) describes shipped behavior;
@@ -11,7 +17,7 @@ sets ownership. [SPEC](SPEC.md) describes shipped behavior;
 |---|---|---|
 | Discovery | Scheduled board/feed collection, official URLs, full JD storage | Supplemental web discovery outside the watchlist |
 | Evidence | Posting identity, source text, timestamps, availability and data quality | Read evidence; verify official pages before recommending |
-| Judgment | Optional screen/scorer assistance, separately identified | Primary eligibility interpretation, fit, career value and final ranking |
+| Judgment | Selected target: JEV domain-specific review priority; separate screening evidence | Deeper eligibility interpretation, fit, career value and final recommendations |
 | Personal context | Existing private inputs remain supported for optional scoring | Primary résumé, background, preferences and recommendation rubric |
 | Delivery | Existing Telegram path remains supported; service health stays local | Preferred daily recommendation and notification workflow |
 | Tracking | Applications, status history, watchlist, backups and manual UI | Consult application history and distinguish possible duplicates |
@@ -58,16 +64,12 @@ assessments. Query eligibility must not depend on having a score. Existing fetch
 candidate/title filtering must be inventoried before moving preferences to ChatGPT;
 changing the scorer alone does not restore jobs excluded during intake.
 
-**Optional assistance.** Keep both screening and fit-scoring capabilities. Fit pre-ranking
-is the last optional step, selected only if actual scheduled ChatGPT retrieval/judgment
-cannot handle the relevant volume. Successful scheduled handling can make it unnecessary;
-retention of code is not a commitment to run it. Luna/medium
-is the preferred low-cost assistance direction because the operator already pays for a
-ChatGPT subscription (approximately US$20/month in the operator's context). Subscription
-inference still consumes allowance; no unlimited or zero-cost-per-request guarantee is
-made. The shipped Luna/medium choice is for screen-only. Choosing Luna for fit, removing
-existing model guards or changing its rubric requires a separate scoped evaluation.
-A machine score must not become the only path by which ChatGPT can discover a job.
+**Selected ranking target.** JEV produces domain-specific priority through the
+[ranking contract](jev-ranking/design.md). ChatGPT consumes ranking and full source evidence
+through read-only MCP. One native request per changed binding is the first hypothesis;
+guards/extractors are conditional research, not mandatory runtime stages. Machine priority
+must not become the only path to discover a job. Existing screening and legacy fit capability
+remain supported; selection of the JEV target does not enable it or change their defaults.
 
 **Freshness.** Existing conflict handling does not generally update stored JDs;
 expiry checks select scored/notified rows from supported detail sources. A source-first
@@ -110,7 +112,7 @@ ships, response time is not evidence freshness and stored jobs need official-pag
 
 Use the existing fetch adapters/recipes, repository queries and dependency-injected
 worker modules. Prefer literal search and useful SQL filters before a vector database.
-An optional JEV/System One adapter may classify facts or prioritize review after a shadow
-evaluation; it is not a committed dependency, a free service or a replacement for full
-ChatGPT explanations. Any future write tools require their own design, authorization and
+The selected JEV ranking adapter must satisfy the dedicated research and rollout gates;
+it is not deployed by this design, free inference, or a replacement for full ChatGPT
+explanations. Any future write tools require their own design, authorization and
 provenance contract. Operational health alerts remain distinct from job recommendations.

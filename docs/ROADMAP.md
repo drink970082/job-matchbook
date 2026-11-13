@@ -1,5 +1,11 @@
 # Roadmap — ChatGPT-first job research
 
+> **Selected JEV delivery track:** [canonical handoff](jev-ranking/README.md). JEV
+> produces domain-specific ranking priorities; ChatGPT consumes them over MCP for deeper
+> judgment. This target supersedes optional-model selection and mandatory legacy research
+> sequences below for JEV work. Shipped behavior remains unchanged; no calls or activation
+> are authorized. Use the linked delivery index for current dependencies and gates.
+
 **Direction:** Job Matchbook supplies reliable job evidence, tracking and tools;
 ChatGPT supplies primary judgment, supplemental search and recommendation delivery.
 **Screening and the scorer remain supported optional assistance.** This is not a plan
@@ -94,28 +100,24 @@ An interactive chat does not prove unattended tunnel access. If scheduling is un
 record the blocker and manual fallback; do not silently introduce paid API orchestration.
 Cross-day recommendation dedup remains best-effort without #95's separately approved ledger.
 
-## R4 — Scorer as the final optional capability
+## R4 — Selected JEV ranking consumed through MCP
 
-Screen/fit adapters, result contracts, tests and manual eval tools remain supported.
-The deployed Luna/medium configuration is standalone screening; fit is not enabled by
-these plans. The operator reports that approximately 200 daily postings exceed the current
-workflow's capacity and explicitly selects pre-ranking preparation. This reported need is
-not a new benchmark, model selection, or accepted evaluation result.
+JEV is the selected target ranking system; ChatGPT consumes priority and source evidence
+for deeper judgment. [#135](https://github.com/drink970082/job-matchbook/issues/135)
+owns the delivery track; [the index](jev-ranking/delivery.md#issue-index) links P0–P6.
+Order: contract/reuse audit → frozen comparison → authorized minimal-ranker evidence →
+one-job persistence/MCP slice → bounded batch recovery → actual consumer acceptance →
+separately approved rollout. Numerical quality gates remain provisional until pre-registered.
 
-The offline assessment projection, fixed-batch replay and fixture consumer are available
-under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
-The profile/replay tooling is available on `main`; PR #129 adds direct/extracted shadow
-assessment and synthetic evaluation, with offline acceptance recorded under #130.
-[#131](https://github.com/drink970082/job-matchbook/issues/131)
-owns version-approved real inputs, independent complete source pools and blind/adjudicated
-labels; this work awaits explicit approval of the exact profile, policy, label guide, data
-scope and private-input access. [#132](https://github.com/drink970082/job-matchbook/issues/132)
-owns the separately authorized provider/tokenizer/pricing pilot. #109 retains live product
-decisions, and #112 retains comparative measurement and GO. Offline acceptance does not
-authorize private-input access, model calls or activation. Subsequent real persistence,
-MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
-separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or
-Telegram rollout is required for R1–R3. See [EVALUATION](EVALUATION.md).
+The normal-path hypothesis is one JEV request per changed full-JD/profile binding, domain
+priorities and a bounded review reserve. No mandatory extraction, guard, second model or
+cross-domain weighted score. Research PR #134 supplies candidate code and evidence, not a
+production architecture to merge wholesale. Old #131/#132/#112 scopes are retained but
+are not prerequisite frameworks for this track. Reconcile #113/#114/#115 overlap in P0.
+
+Shipped screen/fit behavior remains unchanged. There is no new inference or activation
+permission, no historical inventory drain and no automatic change to Telegram or scheduling.
+Use [research gates](jev-ranking/research.md), not test counts, to judge product utility.
 
 ## Deferred extensions and pick rule
 

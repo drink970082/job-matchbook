@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV ranking architecture and delivery handoff — `docs/jev-ranking-roadmap`**.
+  Parent #135; [handoff](jev-ranking/README.md). Documentation and issue decomposition
+  only; no new provider calls, implementation,
+  deployment or merge of research PR #134. Target: JEV priority consumed over MCP.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source
@@ -57,26 +62,18 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#131 real cohort and labels](https://github.com/drink970082/job-matchbook/issues/131)
-   owns approved profile/policy inputs, independent source-pool completeness, real grouping
-   and blind/adjudicated labels. Start only after version-scoped approval of the exact
-   inputs and private-input access; no private file has been read for this work.
-2. [#132 authorized provider pilot](https://github.com/drink970082/job-matchbook/issues/132)
-   owns actual request tokenization, adapter compatibility, pricing, usage/charge and
-   bounded pilot evidence. It requires #131, accepted offline tooling, #109 real decisions
-   and separate exact provider/model/resource-limit authorization; no provider call is
-   scheduled.
-3. #112 retains comparative/held-out evaluation, workflow-cost comparison, predeclared
-   tolerances and explicit GO/NO-GO/INCONCLUSIVE. Closing offline #110/#111/#116 does not
-   satisfy #112 or authorize production. #94/#96 live selection gates remain applicable.
-4. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
-   still needs unattended access/delivery evidence. #95 remains deferred; #113/#114
-   production integration and #115 unattended acceptance retain their own gates.
+1. [#136 contract/reuse audit](https://github.com/drink970082/job-matchbook/issues/136)
+   is the next JEV planning package after assignment; use the
+   [canonical handoff](jev-ranking/README.md) and parent #135.
+2. #137 prepares the frozen research package; #138 requires separate inference approval.
+3. #139–#142 own gated persistence/MCP, batch recovery, consumer acceptance and rollout.
+   No production implementation or deployment is selected by this documentation task.
+4. #94 unattended Daily Brief access remains an independent workflow gate.
 
-[ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
-owns active branch claims. Documentation plans do not launch agents or deploy services.
-Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna/max.
-The current runtime Luna/medium screening configuration is a separate concern.
+Older #131/#132/#112 scopes remain retained but are not the selected JEV execution order.
+Do not infer mandatory human gold, extracted comparison or framework reuse from those tickets.
+For this track Sol owns large/uncertain work and Luna fixed-contract implementation.
+Issues own status; documents own contracts. No agents are launched by this plan.
 
 ## Current implementation limitations
 
