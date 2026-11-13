@@ -8,6 +8,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV P1 evaluation preparation (#137)** — `feat/jev-p1-evaluation`, based on main
+  `9045b2c` and accepted P0 `1308f47` (PR #144, unmerged). Offline cohort-readiness
+  audit, synthetic baseline/metrics, evaluation contract and selected prospective
+  collection preparation; no inference, DB
+  writes, production wiring, merge or deployment. Synthetic comparison and 120-board snapshot
+  collector are implemented and tested; activation is pending acceptance of limited scope; #137 remains open for accepted collection scope, three
+  daily snapshots, grouped split/labels and exact inference-budget proposal.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source

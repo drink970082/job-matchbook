@@ -16,6 +16,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Prepare a standalone synthetic JEV ranking baseline/metric utility and P1 evaluation
+  protocol and bounded native-board snapshot collector; audit real cohort completeness
+  without provider calls or production changes.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.
