@@ -1,8 +1,8 @@
 # Fixed selected-skill evidence: JEV with Sol low cross-check
 
-**Status:** approved execution scope under the operator's explicit direction to implement
-the proposed core-skill/résumé evidence verification and continue until intervention,
-session limit or cumulativeUSD10exhaustion. No production activation or automatic extractor.
+**Status:** shipped 2026-11-13 — provenance implementation and bounded36-call execution are
+complete; selected-requirement/proxy limits and3overbound sources remain explicit. See
+[checkpoint](../../reports/2026-11-13-jev-fixed-skill-evidence20-checkpoint.md).
 
 ## Selected approach
 

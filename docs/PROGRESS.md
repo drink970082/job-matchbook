@@ -109,13 +109,23 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   oppositions. No immediate human answer is required.0newOpenRouter calls; all9closed
   ledgers unchanged. Human labels remain0and semantic-quality acceptance remains unverified.
   No tuning, cutover, failed retry, model upgrade or activation.
-  The operator selects continued [fixed skill evidence implementation](superpowers/specs/2026-11-13-jev-fixed-skill-evidence20.md):
-  Sol low supplies source-quoted model-proxy requirements/support alternatives on20retained
-  JDs; JEV compares the same frozen requirements against the unchanged approved full profile.
-  The explicit skill-policy provenance wrapper distinguishes model/operator proxies while
-  preserving default identities; Luna/max owns source gates and bounded native harness; max44calls/
-  USD0.50new after source/mock/freeze gates, carrying1708/.561444184 through9closed ledgers.
-  No automatic runtime extractor, new résumé source, human-gold claim or activation.
+  The [fixed skill checkpoint](reports/2026-11-13-jev-fixed-skill-evidence20-checkpoint.md)
+  retains36/36valid calls and134selected-requirement answers:16/16main vectors/summariesrepeat,
+  with2selected-core-supported,12unverified-core and2unresolved summaries.106/122main support
+  answers match frozen Sol proxies;8sourceshave1repeated difference each, not human accuracy.
+  Provenance is explicit model/operator proxy with default hash compatibility;1764worker
+  tests/1skip/85.27%coverage plus focused boundary/schema/privacy gates pass.20-card preview
+  keeps9preference-review cases and4unassessed skill sources visible. The operator selects
+  domain grouping with separate skill evidence, without cross-domain weights.1sourcehas
+  no selected technical requirement;3full requests exceed24KB and need explicit resource
+  splitting to cover their unchanged requirements. Linked1744attempts/USD0.568324876,
+  no pending/unknown/overreserve; all9predecessorsunchanged. No runtime/DB activation.
+  The selected [resource-unit follow-up](superpowers/specs/2026-11-13-jev-skill-evidence-units.md)
+  preserves all14requirements from3overbound parent packs, sending one original question
+  with full JD/profile per call and validating complete parent composition.6control units
+  precede14main units×2, max40calls/USD0.50new with10ancestor accounting; no input truncation,
+  invented posting IDs, new selection, model change or fake merged native response.
+
 
 
 

@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Retain36valid JEV selected-skill calls and134requirement answers with source-bound model/
+  operator-proxy provenance.16main vectors/summaries repeat; a20-card offline preview keeps
+  preference and skill evidence separate, including4unassessed sources. Linked accounting
+  is1744attempts/USD0.568324876; no independent human-quality or production GO.
+
 - Preserve caller-declared model-proxy versus operator-proxy provenance in selected skill
   evidence with an explicit policy wrapper. Default policy hashes and dataclass shape stay
   compatible; model origin is bound to a separate v2 identity. Unsupported/human-gold origins
