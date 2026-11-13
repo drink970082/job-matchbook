@@ -216,6 +216,11 @@ Planning/documentation PRs must not auto-close future implementation tickets.
 
 ## Agent ownership and handoff
 
+For the operator-selected [JEV ranking track](jev-ranking/README.md), the explicit
+assignment overrides the general model split below: Sol implements large/uncertain
+work; Luna implements bounded work under fixed contracts. The orchestrator owns plans
+and acceptance, not experiments or implementation. Other tracks retain the rules below.
+
 - **Astra/Sol orchestrator:** owns documentation, architecture, issue decomposition,
   contracts, scope decisions, acceptance and merge coordination. It may inspect code and
   run checks, but does not implement production code/tests or patch review findings.

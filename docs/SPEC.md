@@ -1,5 +1,8 @@
 # Job Matchbook — System Specification
 
+> Target JEV ranking architecture and gated delivery: [handoff](jev-ranking/README.md).
+> This is a selected future direction, not a shipped runtime or schema change.
+
 > **Authoritative source of truth for this repository.** This document describes
 > the system *as it actually exists* and is written to be verified against the
 > code. When code and this spec disagree, that is a bug in one of them — fix it,

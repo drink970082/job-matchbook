@@ -7,6 +7,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### JEV ranking planning
+
+- Record the operator-selected JEV ranking → MCP architecture, research gates, failure
+  policy and dependency-ordered Sol/Luna delivery handoff. Production behavior is unchanged;
+  documentation does not authorize new inference, deployment or merging research PR #134.
+
 ### Changed
 
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
