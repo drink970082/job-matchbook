@@ -1644,7 +1644,7 @@ it simply waits for an unbounded pass. **The `new` queue is read
   reconciling coverage; ordinary MCP retains its existing tools. The test-only private
   20-source demo provisions a temporary fixture DB and verifies actual in-process MCP,
   with fake results marked fake/prototype. A separate proof-bound native replay demo
-  verifies recorded request/response/ledger bundles and actual in-process MCP for both
+  verifies recorded request/response/ledger bundles and actual in-process MCP for all three
   development campaigns without network calls or production writes. Recorded results
   retain `fake_provider=false`, `prototype=true`; completion is explicitly local replay
   ingestion time, separate from immutable source capture. Freshness is captured-input-relative.
