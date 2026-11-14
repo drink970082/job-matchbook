@@ -133,3 +133,17 @@ pass16 with5 private-artifact skips. Its actual private CLI replay passes20 rows
 chunks with zero network/provider/production writes. Runtime code is unchanged.
 Latest documentation/addendum review remains in progress. No production
 ranking activation, live ChatGPT connector acceptance or held-out quality is verified.
+
+## Separate 60-source development comparison
+
+The [frozen60-source frame](dev60-frame.md) excludes the original20 and exact
+matching groups/descriptions. All60 blinded model-proxy references were sealed
+before the unchanged C pack was sent once per source. The
+[native transport receipt](dev60-native.md) validates60 settlements, USD0.011639040
+and zero pending/unknown charges. These results remain private JSON; the20-source
+MCP replay CLI does not accept this campaign.
+
+At totalK10/20/40, publication and native ordering each recover4/7/14 of15
+proxy-positive rows, exchanging one gained and one lost positive at each budget.
+One additional utility label is unresolved. No net ranking benefit is established;
+prospective validation and actual consumer acceptance remain open.

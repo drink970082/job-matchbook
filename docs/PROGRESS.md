@@ -17,12 +17,17 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   leftover-K exploration fill and acceptable secondary work as MEDIUM. The C arm
   improves preference agreement with its blinded model proxy from 12/20 to 15/20;
   accepted-policy reading selections show no utility gain on this exposed 20-row pool.
-  A separately frozen 60-source/37-company development frame has blinded reference
-  work in flight before native inference. This is a stratified development study,
+  A separately frozen 60-source/37-company development frame has all60 blinded
+  model-proxy references sealed before inference. Its native campaign completed
+  60valid settlements for USD0.011639040, no pending/unknown; fixed-budget comparison
+  reports no net utility advantage: both arms recover4/7/14 of15 model-proxy positives
+  atK10/20/40; each exchanges one gained/lost positive. Disposition remains
+  INCONCLUSIVE for deployment. This is a stratified development study,
   not human truth or population recall. No production writes, service changes or
   ranking rollout; P1/P2 quality acceptance remains separate. See
   [C comparison](jev-ranking/native20-secondary-comparison.md) and
-  [60-source frame](jev-ranking/dev60-frame.md).
+  [60-source comparison](jev-ranking/dev60-comparison.md). Narrow private disagreement
+  adjudication remains in flight; no new inference arm or policy change.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

@@ -11,7 +11,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Validate accepted secondary-work wording in a third settled 20-source native
   development arm and replay it through isolated MCP; freeze a separate 60-source
-  development frame before blinded references and inference.
+  development frame before blinded references and inference. Its bounded60-call
+  native campaign settles all responses for USD0.011639040 with no pending charge.
 
 ### Changed
 
