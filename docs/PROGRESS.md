@@ -12,14 +12,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `9045b2c` and accepted P0 `1308f47` (PR #144, unmerged). Offline cohort-readiness
   audit, synthetic baseline/metrics, evaluation contract and selected prospective
   collection preparation. The accepted 120-board snapshot scope is scheduled once at
-  12:00 UTC on November 14–16 using frozen build `b1d3ca4`; separate one-shot user timers
+  12:00 UTC on November 15–17 using repaired frozen build `0b84b5b`; separate one-shot user timers
   are enabled. Observations are pending; no model calls, production DB writes, worker
   service changes or merge. #137 remains open for three valid observations, grouped
   split/labels and a frozen inference workload/budget under the operator
   standing API-expense authority. The user selected v2 leftover-K fill as the evaluator
   default; legacy v1 remains explicit. First scheduled snapshot failed before HTTP because
-  the slug validator rejected a legitimate dotted Ashby slug. The tested repair and
-  replacement November 17 capture are prepared; pending frozen-build activation.
+  the slug validator rejected a legitimate dotted Ashby slug. The tested repaired build is activated; the failed November 14 receipt remains preserved,
+  its timer is disabled, and no late capture was substituted.
   See [collection](jev-ranking/p1-collection.md).
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

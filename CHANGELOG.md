@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Fixed
 
+- Activate the repaired frozen 120-board collector for November 15–17; preserve the
+  November 14 pre-HTTP failure without fabricating a replacement observation.
+
 - Accept valid dotted native-board slugs such as Ashby board names while retaining
   URL/path injection rejection; validate the full frozen scope before collection.
 

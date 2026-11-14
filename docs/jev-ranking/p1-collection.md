@@ -29,7 +29,7 @@ held-out completeness. The operator accepted this 120-board snapshot study scope
 
 ## Active collection schedule
 
-Scheduled dates are 2026-11-14, 2026-11-15 and 2026-11-16 at 12:00 UTC
+Scheduled dates are 2026-11-15, 2026-11-16 and 2026-11-17 at 12:00 UTC
 (07:00 America/New_York), with each enclosing UTC day declared in the manifest.
 If activation occurs after the first cutoff, choose three later distinct dates before
 starting rather than manufacture a missed observation. Each run permits at most 120
@@ -72,19 +72,26 @@ No live endpoint or production service was exercised.
 
 ## Active operational binding
 
-The running schedule uses frozen collector build `b1d3ca466795d30f89dc7817db7a4a18f629bd08`,
+The running schedule uses frozen collector build `0b84b5b4020fac6de4a8090fc76e6da66585c3b1`,
 archived independently of subsequent worktree edits. Its private activation directory is
-`apps/worker/resume/pivot/jev-ranking-p1-v1/activation` in the original checkout. It holds
+`apps/worker/resume/pivot/jev-ranking-p1-v1/activation-repair-0b84b5b` in the original checkout. It holds
 scope.json, manifest.json, run.py, the archived code and observations/. Each run verifies
 the frozen scope and all 75 archived source-file hashes before dispatch. Private files
 remain ignored; outputs use mode 0600 and the activation root uses mode 0700.
 
-User timers `ats-jev-p1-20261114.timer`, `ats-jev-p1-20261115.timer` and
-`ats-jev-p1-20261116.timer` each activate their matching oneshot service once, at 12:00 UTC.
+User timers `ats-jev-p1-20261115.timer`, `ats-jev-p1-20261116.timer` and
+`ats-jev-p1-20261117.timer` each activate their matching oneshot service once, at 12:00 UTC.
 Timers have no randomized delay or missed-run persistence; services have no automatic
 restart and a 1900-second process timeout. An offline/missed day is not silently backfilled.
 User lingering is enabled, allowing timers to run without an interactive login. No existing
 ATS service or model setting was changed. This activation does not merge PR #145.
+
+The November 14 attempt failed slug validation before HTTP or output creation. Its
+service receipt and original archive remain preserved; its timer is disabled. No late
+November 14 observation was fabricated. The repaired archive changes only the collector
+runtime file, accepts all 120 frozen board slugs, and passes an offline full-scope
+120-board fixture. Repair manifest SHA-256:
+`96b0f227a7a47bec7b0095e97ac03c71201d977c24852a0b272f0540b0b6d745`.
 
 Verified: systemd unit verification passes; all three timers are enabled/active with the
 expected next times; matching services have no start timestamp and zero restarts. The
@@ -93,6 +100,6 @@ board success and resulting datasets are pending, not claimed verified.
 
 Inspect with `systemctl --user list-timers 'ats-jev-p1-*' --all` and
 `journalctl --user -u ats-jev-p1-20261114.service` (substitute the day). Disable remaining
-captures with `systemctl --user disable --now ats-jev-p1-20261114.timer ats-jev-p1-20261115.timer ats-jev-p1-20261116.timer`.
+captures with `systemctl --user disable --now ats-jev-p1-20261115.timer ats-jev-p1-20261116.timer ats-jev-p1-20261117.timer`.
 A completed run requires valid observation JSON, reconciled counts/hashes and review of
 failed boards before cohort acceptance. P1 stays open until real-data requirements pass.

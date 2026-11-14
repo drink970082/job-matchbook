@@ -60,13 +60,12 @@ counts above are inventory evidence only.
 
 ## Selected prospective preparation and activation gate
 
-The operator selected prospective collection. Prepare a bounded collection surface for
-review before activation; no model workload or deployment is authorized. It should observe
-ordinary intake without invoking a model, scoring backlog, changing filter decisions or
-restarting/scheduling services as a side effect. Capture at least three fully closed,
-untouched UTC daily windows after the accepted development cutoff. Operator approval must
-name the collector build, whether it observes existing scheduled intake or performs new
-fetches, exact windows, source scope, storage location and request/time/storage caps.
+The operator accepted the bounded 120-board point-snapshot study described in
+[collection](p1-collection.md). Repaired frozen build `0b84b5b` is scheduled for
+November 15–17 at 12:00 UTC; the November 14 pre-HTTP failure remains explicit.
+These observations cannot establish complete all-day intake coverage. No production
+ranking deployment follows from collection approval. Actual observations, group locking
+and independent evaluation remain pending.
 
 For each window retain an immutable manifest of the watchlist/config revision, expected
 boards/feed pages, run start/end/cutoff, pagination completion and per-source success or
