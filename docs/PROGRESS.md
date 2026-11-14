@@ -15,7 +15,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   12:00 UTC on November 14–16 using frozen build `b1d3ca4`; separate one-shot user timers
   are enabled. Observations are pending; no model calls, production DB writes, worker
   service changes or merge. #137 remains open for three valid observations, grouped
-  split/labels and the exact inference-budget proposal. An opt-in v2 unused-budget
+  split/labels and a frozen inference workload/budget under the operator
+  standing API-expense authority. An opt-in v2 unused-budget
   fallback is prepared but not selected; see [candidate](jev-ranking/p1-reserve-candidate.md).
   See [collection](jev-ranking/p1-collection.md).
 
