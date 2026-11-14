@@ -16,6 +16,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Add an opt-in fixed-K exploration fallback for the P1 evaluator, with lane-level
+  accounting and unchanged v1 defaults; expose the reserve-starvation tradeoff for review.
+
+- Prepare a standalone synthetic JEV ranking baseline/metric utility and P1 evaluation
+  protocol and bounded native-board snapshot collector; audit real cohort completeness
+  without provider calls or production changes. Activate three separately authorized
+  one-shot 120-board snapshots against a frozen build; leave real cohort acceptance open.
+
 - Revalidate report inputs against their retained canonical manifest and calculate from
   validated/copy snapshots; reject changed labels, baselines, outcomes and provenance
   instead of emitting metrics under stale frozen identities.

@@ -8,6 +8,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV P1 evaluation preparation (#137)** — `feat/jev-p1-evaluation`, based on main
+  `9045b2c` and accepted P0 `1308f47` (PR #144, unmerged). Offline cohort-readiness
+  audit, synthetic baseline/metrics, evaluation contract and selected prospective
+  collection preparation. The accepted 120-board snapshot scope is scheduled once at
+  12:00 UTC on November 14–16 using frozen build `b1d3ca4`; separate one-shot user timers
+  are enabled. Observations are pending; no model calls, production DB writes, worker
+  service changes or merge. #137 remains open for three valid observations, grouped
+  split/labels and a frozen inference workload/budget under the operator
+  standing API-expense authority. An opt-in v2 unused-budget
+  fallback is prepared but not selected; see [candidate](jev-ranking/p1-reserve-candidate.md).
+  See [collection](jev-ranking/p1-collection.md).
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source

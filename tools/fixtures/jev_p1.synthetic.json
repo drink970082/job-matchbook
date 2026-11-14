@@ -1,0 +1,137 @@
+{
+  "schema": "jev-p1-synthetic-v1",
+  "pool_is_source_eligible": true,
+  "declared_domains": [
+    "synthetic_a",
+    "synthetic_b",
+    "synthetic_c",
+    "synthetic_d",
+    "synthetic_e",
+    "synthetic_f",
+    "synthetic_g",
+    "synthetic_h"
+  ],
+  "whole_inventory_exclusions": 0,
+  "rows": [
+    {
+      "job_id": "demo-001",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T10:00:00Z",
+      "domain": "synthetic_a",
+      "jev_state": "high",
+      "needs_review": false,
+      "current_successful_binding": true,
+      "label": "positive"
+    },
+    {
+      "job_id": "demo-002",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T09:00:00Z",
+      "domain": "synthetic_b",
+      "jev_state": "medium",
+      "needs_review": true,
+      "current_successful_binding": true,
+      "label": "unresolved"
+    },
+    {
+      "job_id": "demo-003",
+      "day": "2026-11-01",
+      "publication_time": null,
+      "domain": "synthetic_a",
+      "jev_state": "low",
+      "needs_review": false,
+      "current_successful_binding": true,
+      "label": "negative"
+    },
+    {
+      "job_id": "demo-004",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T08:00:00Z",
+      "domain": "unknown",
+      "jev_state": "missing",
+      "needs_review": true,
+      "current_successful_binding": false,
+      "label": "positive"
+    },
+    {
+      "job_id": "demo-005",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T11:00:00Z",
+      "domain": "synthetic_b",
+      "jev_state": "failed",
+      "needs_review": false,
+      "current_successful_binding": false,
+      "label": "negative"
+    },
+    {
+      "job_id": "demo-006",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T07:00:00Z",
+      "domain": "mixed",
+      "jev_state": "null",
+      "needs_review": true,
+      "current_successful_binding": true,
+      "label": "unresolved"
+    },
+    {
+      "job_id": "demo-007",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T12:00:00Z",
+      "domain": "synthetic_a",
+      "jev_state": "deferred",
+      "needs_review": false,
+      "current_successful_binding": false,
+      "label": "positive"
+    },
+    {
+      "job_id": "demo-008",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T06:00:00Z",
+      "domain": "synthetic_b",
+      "jev_state": "stale",
+      "needs_review": true,
+      "current_successful_binding": false,
+      "label": "negative"
+    },
+    {
+      "job_id": "demo-009",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T05:00:00Z",
+      "domain": "synthetic_a",
+      "jev_state": "high",
+      "needs_review": false,
+      "current_successful_binding": true,
+      "label": "negative"
+    },
+    {
+      "job_id": "demo-010",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T04:00:00Z",
+      "domain": "synthetic_b",
+      "jev_state": "medium",
+      "needs_review": true,
+      "current_successful_binding": true,
+      "label": "positive"
+    },
+    {
+      "job_id": "demo-011",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T03:00:00Z",
+      "domain": "unknown",
+      "jev_state": "missing",
+      "needs_review": true,
+      "current_successful_binding": false,
+      "label": "unresolved"
+    },
+    {
+      "job_id": "demo-012",
+      "day": "2026-11-01",
+      "publication_time": "2026-11-01T02:00:00Z",
+      "domain": "synthetic_a",
+      "jev_state": "low",
+      "needs_review": false,
+      "current_successful_binding": true,
+      "label": "negative"
+    }
+  ]
+}
