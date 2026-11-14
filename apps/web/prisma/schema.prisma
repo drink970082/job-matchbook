@@ -155,3 +155,14 @@ model app_settings {
   value      String
   updated_at String?
 }
+
+// Isolated JEV P3 prototype only. Immutable full-state events reconstruct result,
+// source/binding and latest-attempt state at the same committed sequence watermark.
+// No production writer/scheduler is wired to this additive table.
+model job_ranking_events {
+  id         Int    @id @default(autoincrement())
+  job_id     Int
+  state_json String
+
+  @@index([job_id, id])
+}

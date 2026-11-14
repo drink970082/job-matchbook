@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from mcp import Client, StdioServerParameters  # noqa: E402
 
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
+from ats_worker.ranking.prototype import RankingReader, RankingStore, digest, fake_reply  # noqa: E402
 from tests._helpers import bootstrap_db  # noqa: E402
 
 
@@ -89,6 +91,68 @@ async def test_protocol_errors_are_actionable_without_exposing_database_paths(tm
         invalid = await client.call_tool("list_ats_records", {"entity": "sqlite_master"})
         assert invalid.is_error is True
         assert "entity" in invalid.content[0].text
+
+
+@pytest.mark.anyio
+async def test_optional_ranking_tools_are_private_chunked_and_in_process(tmp_path):
+    import sqlite3
+
+    from tests.test_ranking_prototype import policy, source
+
+    path = bootstrap_db(tmp_path / "ranking-mcp.db")
+    body = "A synthetic complete description with a private marker. " * 15
+    job = source(41, description=body, source_url="https://example.test/jobs/41?access_token=canary")
+    pol = policy()
+
+    def fake_provider(invocation):
+        reply = fake_reply(invocation, "high")
+        reply["response"]["id"] = "private-provider-request-id"
+        reply["response"]["provider"] = "private-provider-name"
+        return reply
+
+    with sqlite3.connect(path) as conn:
+        RankingStore(conn).assess(job, pol, provider=fake_provider, now="2026-11-13T01:00:00Z")
+
+    server = create_server(ReadOnlyATSRepository(path), ranking_reader=RankingReader(path))
+    async with Client(server, raise_exceptions=True) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        assert {"list_job_rankings", "get_job_ranking", "get_job_ranking_coverage"} <= names
+
+        listed = await client.call_tool("list_job_rankings", {"lane": "raw"})
+        page = listed.structured_content
+        assert page["items"][0]["job_id"] == 41
+        assert "description" not in page["items"][0]
+        assert body not in json.dumps(page)
+        assert page["fake_provider"] is True and page["prototype"] is True
+
+        offset = 0
+        chunks = []
+        detail_text = ""
+        while True:
+            result = await client.call_tool("get_job_ranking", {
+                "job_id": 41, "description_offset": offset, "description_limit": 137,
+            })
+            detail = result.structured_content
+            detail_text = json.dumps(detail)
+            chunks.append(detail["source_description_chunk"])
+            if not detail["has_more"]:
+                break
+            offset = detail["next_offset"]
+        assert "".join(chunks) == body
+        assert "profile_sha256" not in detail_text
+        assert "response_sha256" not in detail_text
+        assert detail["source_snapshot_sha256"] == digest(job)
+        assert detail["source_assessment_origin"] == "fake"
+        assert "assessment_origin" not in detail["source_snapshot"]
+        assert "private-provider-request-id" not in detail_text
+        assert "private-provider-name" not in detail_text
+        assert "canary" not in detail_text
+        assert "%5BREDACTED%5D" in detail_text
+        assert detail["ranking"]["native_values"]["preference"] == "strong"
+        assert detail["ranking"]["native_diagnostics"]["preference"]["confidence"] == 1
+        assert detail["ranking"]["provenance"]["source_revision"] == 1
+        coverage = await client.call_tool("get_job_ranking_coverage", {})
+        assert coverage.structured_content["freshness"] == {"current": 1, "stale": 0, "absent": 0}
 
 
 @pytest.mark.anyio

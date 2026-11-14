@@ -8,6 +8,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV P3 isolated prototype (#139), explicit pre-P2 exception** —
+  `feat/jev-p3-prototype`, based on main `9045b2c`, accepted P0 `1308f47`.
+  Operator authorized existing stored inventory for development while prospective
+  snapshots remain validation-only. Isolated fake-provider code and private 20-source
+  MCP demonstration pass in PR #146 (`408065d`). Operator now authorizes API expenses
+  for continued work: two bounded 20-source native development campaigns are settled
+  (new USD 0.007441392, no pending/unknown); blind references and comparisons are frozen.
+  Explicit native-response replay is implemented in isolated temporary DB/MCP only.
+  No production writes, service changes or ranking rollout. Consumer reserve and
+  acceptable-secondary-work priority decisions await the operator; real ranking quality
+  and P1/P2 acceptance remain separate gates.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source
