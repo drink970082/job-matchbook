@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import re
 
 from ats_worker.fetch import ashby, greenhouse, lever, prefilter_postings
 from ats_worker.screening.engine import deterministic_screen
@@ -45,7 +46,7 @@ def validate_scope(scope):
         if any(not isinstance(v, str) or not v.strip() for v in board.values()):
             raise ValueError("board fields must be nonempty strings")
         # Live URLs use slugs only; forbid URL/path injection.
-        if any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in board["slug"]):
+        if not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*", board["slug"]):
             raise ValueError("invalid board slug")
         key = (board["source"], board["slug"])
         if key in seen:

@@ -66,10 +66,22 @@ class JevP1EvaluationTests(unittest.TestCase):
 
         for k, r in BUDGETS:
             publication, pub_reserve = select_day(
-                validated_rows, validated_domains, "2026-11-01", k, r, ARM_PUBLICATION
+                validated_rows,
+                validated_domains,
+                "2026-11-01",
+                k,
+                r,
+                ARM_PUBLICATION,
+                fill_unused_budget=False,
             )
             jev, jev_reserve = select_day(
-                validated_rows, validated_domains, "2026-11-01", k, r, ARM_JEV
+                validated_rows,
+                validated_domains,
+                "2026-11-01",
+                k,
+                r,
+                ARM_JEV,
+                fill_unused_budget=False,
             )
             self.assertEqual(pub_reserve, jev_reserve)
             self.assertLessEqual(len(publication), k)
@@ -93,7 +105,9 @@ class JevP1EvaluationTests(unittest.TestCase):
             row("missing-a", publication_time=None),
         ]
         domains, rows, _ = validate_input(payload(source))
-        publication, _ = select_day(rows, domains, "2026-11-01", 10, 0, ARM_PUBLICATION)
+        publication, _ = select_day(
+            rows, domains, "2026-11-01", 10, 0, ARM_PUBLICATION, fill_unused_budget=False
+        )
         self.assertEqual(
             ["known-a", "known-z", "missing-a", "missing-z"],
             [item["job_id"] for item in publication],
@@ -108,7 +122,9 @@ class JevP1EvaluationTests(unittest.TestCase):
             row("failed", jev_state="failed", publication_time="2026-11-01T15:00:00Z"),
         ]
         domains, rows, _ = validate_input(payload(source))
-        selected, _ = select_day(rows, domains, "2026-11-01", 10, 0, ARM_JEV)
+        selected, _ = select_day(
+            rows, domains, "2026-11-01", 10, 0, ARM_JEV, fill_unused_budget=False
+        )
         self.assertEqual(["high", "low", "failed", "null", "stale"], [x["job_id"] for x in selected])
 
     def test_unknown_domains_are_reserve_only_and_review_flags_do_not_filter(self):
@@ -117,7 +133,9 @@ class JevP1EvaluationTests(unittest.TestCase):
             for index in range(6)
         ]
         domains, rows, _ = validate_input(payload(unknown_rows))
-        selected, reserve = select_day(rows, domains, "2026-11-01", 10, 2, ARM_PUBLICATION)
+        selected, reserve = select_day(
+            rows, domains, "2026-11-01", 10, 2, ARM_PUBLICATION, fill_unused_budget=False
+        )
         self.assertEqual(2, len(selected))
         self.assertEqual(reserve, {item["job_id"] for item in selected})
 
@@ -125,7 +143,9 @@ class JevP1EvaluationTests(unittest.TestCase):
             row(f"reviewed-{index}", needs_review=True) for index in range(12)
         ]
         domains, rows, _ = validate_input(payload(reviewed_rows))
-        selected, reserve = select_day(rows, domains, "2026-11-01", 10, 2, ARM_PUBLICATION)
+        selected, reserve = select_day(
+            rows, domains, "2026-11-01", 10, 2, ARM_PUBLICATION, fill_unused_budget=False
+        )
         self.assertEqual(10, len(selected))
         self.assertEqual(2, len(reserve))
 
@@ -186,7 +206,7 @@ class JevP1EvaluationTests(unittest.TestCase):
         report = evaluate(payload([
             row("a", label="positive", jev_state="high"),
             row("b", label="negative", jev_state="low"),
-        ], exclusions=3))
+        ], exclusions=3), fill_unused_budget=False)
         self.assertEqual("synthetic", report["evidence_kind"])
         self.assertEqual("jev-p1-selection-v1", report["protocol_version"])
         self.assertEqual("reserve_cap", report["selection_policy"])
@@ -197,7 +217,7 @@ class JevP1EvaluationTests(unittest.TestCase):
         self.assertEqual(2, budget["R"])
         self.assertIn("positive_reads", budget["paired_day_delta_jev_minus_publication"])
 
-    def test_v2_fills_all_unknown_small_pool_without_changing_v1_default(self):
+    def test_v2_fills_all_unknown_small_pool_and_v1_remains_an_opt_out(self):
         source = [
             row(
                 f"unknown-{index}",
@@ -210,7 +230,7 @@ class JevP1EvaluationTests(unittest.TestCase):
         ]
         data = payload(source)
 
-        v1 = evaluate(data)
+        v1 = evaluate(data, fill_unused_budget=False)
         v2 = evaluate(data, fill_unused_budget=True)
         first_v1 = v1["budgets"][0]["budget_results"][0]
         first_v2 = v2["budgets"][0]["budget_results"][0]
@@ -260,6 +280,38 @@ class JevP1EvaluationTests(unittest.TestCase):
             self.assertEqual(
                 first_v2["arms"][arm]["selected_ids"], changed_selection[arm]["selected_ids"]
             )
+
+    def test_v2_is_default_for_evaluation_and_selector(self):
+        data = payload([row(f"unknown-{index}", domain="unknown") for index in range(6)])
+        default_report = evaluate(data)
+        explicit_v2 = evaluate(data, fill_unused_budget=True)
+        v1_report = evaluate(data, fill_unused_budget=False)
+        default_budget = default_report["budgets"][0]["budget_results"][0]
+        explicit_budget = explicit_v2["budgets"][0]["budget_results"][0]
+        v1_budget = v1_report["budgets"][0]["budget_results"][0]
+
+        self.assertEqual("jev-p1-selection-v2", default_report["protocol_version"])
+        self.assertEqual("minimum_reserve_fill_unused_budget", default_report["selection_policy"])
+        self.assertEqual(
+            explicit_budget["arms"][ARM_PUBLICATION]["selected_ids"],
+            default_budget["arms"][ARM_PUBLICATION]["selected_ids"],
+        )
+        self.assertEqual(6, default_budget["arms"][ARM_PUBLICATION]["reads"])
+        self.assertEqual(2, v1_budget["arms"][ARM_PUBLICATION]["reads"])
+
+        domains, rows, _ = validate_input(data)
+        default_selection, _ = select_day(rows, domains, "2026-11-01", 10, 2, ARM_PUBLICATION)
+        legacy_selection, _ = select_day(
+            rows,
+            domains,
+            "2026-11-01",
+            10,
+            2,
+            ARM_PUBLICATION,
+            fill_unused_budget=False,
+        )
+        self.assertEqual(6, len(default_selection))
+        self.assertEqual(2, len(legacy_selection))
 
     def test_v2_accounts_for_short_ordinary_lane_and_fallback_review_burden(self):
         source = [

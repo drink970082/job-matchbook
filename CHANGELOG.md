@@ -7,6 +7,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- Accept valid dotted native-board slugs such as Ashby board names while retaining
+  URL/path injection rejection; validate the full frozen scope before collection.
+
 ### Changed
 
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
@@ -16,8 +21,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
-- Add an opt-in fixed-K exploration fallback for the P1 evaluator, with lane-level
-  accounting and unchanged v1 defaults; expose the reserve-starvation tradeoff for review.
+- Default the P1 evaluator to accepted fixed-K exploration fallback with lane-level
+  accounting; retain explicit legacy-v1 selection for frozen comparisons.
 
 - Prepare a standalone synthetic JEV ranking baseline/metric utility and P1 evaluation
   protocol and bounded native-board snapshot collector; audit real cohort completeness

@@ -254,7 +254,7 @@ def _select_day_with_accounting(
     r: int,
     arm: str,
     *,
-    fill_unused_budget: bool = False,
+    fill_unused_budget: bool = True,
 ) -> tuple[list[dict[str, Any]], set[str], set[str]]:
     """Select one day's reads and return initial-reserve and fallback IDs."""
     if arm not in ARMS:
@@ -283,10 +283,19 @@ def _select_day_with_accounting(
 
 
 def select_day(
-    rows: list[dict[str, Any]], domains: list[str], day: str, k: int, r: int, arm: str
+    rows: list[dict[str, Any]],
+    domains: list[str],
+    day: str,
+    k: int,
+    r: int,
+    arm: str,
+    *,
+    fill_unused_budget: bool = True,
 ) -> tuple[list[dict[str, Any]], set[str]]:
-    """Select one day's v1 reads, sharing the same pre-label exploration IDs."""
-    selected, reserve_ids, _ = _select_day_with_accounting(rows, domains, day, k, r, arm)
+    """Select one day's reads, sharing pre-label exploration IDs across arms."""
+    selected, reserve_ids, _ = _select_day_with_accounting(
+        rows, domains, day, k, r, arm, fill_unused_budget=fill_unused_budget
+    )
     return selected, reserve_ids
 
 
@@ -416,7 +425,7 @@ def metrics_for_selection(
     }
 
 
-def evaluate(payload: Any, *, fill_unused_budget: bool = False) -> dict[str, Any]:
+def evaluate(payload: Any, *, fill_unused_budget: bool = True) -> dict[str, Any]:
     if not isinstance(fill_unused_budget, bool):
         raise ValueError("fill_unused_budget must be a boolean")
     domains, rows, exclusions = validate_input(payload)
@@ -478,11 +487,21 @@ def _read_input(path: str) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", help="explicit synthetic frozen-pool JSON file")
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--fill-unused-budget",
         action="store_true",
-        help="opt into selection protocol v2: treat R as a minimum reserve within total K",
+        dest="fill_unused_budget",
+        help="select protocol v2: treat R as a minimum reserve within total K (default)",
     )
+    selection.add_argument(
+        "--reserve-cap",
+        "--no-fill-unused-budget",
+        action="store_false",
+        dest="fill_unused_budget",
+        help="select legacy protocol v1: R is a cap on whole-pool exploration reads",
+    )
+    parser.set_defaults(fill_unused_budget=True)
     args = parser.parse_args(argv)
     try:
         report = evaluate(_read_input(args.input), fill_unused_budget=args.fill_unused_budget)

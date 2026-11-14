@@ -25,8 +25,8 @@
 The [P1 offline evaluation preparation](jev-ranking/p1-evaluation.md) supplies a
 synthetic baseline/metric path, independent of runtime ranking. The
 [cohort-readiness audit](jev-ranking/p1-cohort-readiness.md) distinguishes stored intake
-from independently complete daily source rosters; real P1 evidence remains incomplete. An optional evaluator v2 can fill unused total-K
-capacity from exploration; v1 stays default pending acceptance of that consumer policy. A separate injected `roster_collection` utility
+from independently complete daily source rosters; real P1 evidence remains incomplete. The accepted evaluator v2 fills unused total-K capacity from exploration by default;
+legacy v1 remains explicit. The collector accepts safe dot-separated native ATS slugs. A separate injected `roster_collection` utility
 can retain one raw/parsed Greenhouse, Lever or Ashby observation with exclusion reasons;
 its explicit live CLI has request/time/byte caps and never writes the production DB or
 invokes models. A separately authorized frozen build has three one-shot user timers
@@ -2053,6 +2053,13 @@ before schema changes — additive changes are low-risk, destructive ones are no
 The checkable contracts. These are the facts the code must satisfy; verify against
 them when changing behavior.
 
+**Development selection and capture:** default v2 exploration fallback may fill unused
+ordinary-domain capacity without exceeding total K or repeating IDs; initial reserve and
+fallback remain label-independent and separately accounted. Legacy v1 is explicit.
+Native snapshot scope accepts safe dot-separated slug components while rejecting paths,
+schemes, escapes, query/hash and control characters; real frozen scope is validated before
+activation. A missed snapshot is not fabricated or labeled on time.
+
 **Pipeline state machine** (`pipeline.py`):
 
 ```
@@ -2574,6 +2581,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 | Invariant | Test(s) |
 |-----------|---------|
+| Development fixed-K fallback/deduplication/label independence and safe dotted native slug validation | `tools/tests/test_jev_p1_evaluation.py`, `apps/worker/tests/test_roster_collection.py::test_dotted_ashby_slug_is_valid`, `test_scope_rejects_unsafe_dotted_slugs`, `test_fixture_cli_accepts_dotted_ashby_slug_without_http` |
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |

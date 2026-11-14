@@ -16,8 +16,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   are enabled. Observations are pending; no model calls, production DB writes, worker
   service changes or merge. #137 remains open for three valid observations, grouped
   split/labels and a frozen inference workload/budget under the operator
-  standing API-expense authority. An opt-in v2 unused-budget
-  fallback is prepared but not selected; see [candidate](jev-ranking/p1-reserve-candidate.md).
+  standing API-expense authority. The user selected v2 leftover-K fill as the evaluator
+  default; legacy v1 remains explicit. First scheduled snapshot failed before HTTP because
+  the slug validator rejected a legitimate dotted Ashby slug. The tested repair and
+  replacement November 17 capture are prepared; pending frozen-build activation.
   See [collection](jev-ranking/p1-collection.md).
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

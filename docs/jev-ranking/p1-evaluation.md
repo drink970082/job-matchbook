@@ -6,7 +6,7 @@ Planning: [ef18116c](https://github.com/drink970082/job-matchbook/tree/ef18116c/
 This package owns no production runtime. The operator has separately authorized API
 expenses for continued measured development; this evaluator itself makes no provider calls.
 
-## Fixed comparison protocol — v1 default
+## Fixed comparison protocol — accepted v2 default
 
 Use publication-time order (descending, missing last, stable job ID ascending) as arm A;
 JEV high/medium/low and the same time/ID tie-break as arm B. Use the same frozen pool,
@@ -27,7 +27,9 @@ Allocate remaining slots by equal round-robin over lexicographically sorted decl
 domains, skipping empty queues and excluding selected reserve IDs. Domain membership
 is frozen independently of JEV and reference utility labels; mixed/unknown domain rows
 have reserve access only. Up to K unique reads total. Unused reserve capacity may be
-filled from ordinary domain queues; no additional exploration beyond R. Report actual
+filled from ordinary domain queues. After ordinary queues are exhausted, remaining total-K
+capacity is filled from unselected source IDs in the same pre-label hash order. R is an
+initial guarantee inside K, not a maximum that forces unused slots. Report actual
 JEV review flags separately: main-lane flagged jobs consume ordinary slots, not extra
 reads. P5 separately tests live consumer review behavior.
 
@@ -35,8 +37,8 @@ Arm B keeps missing/null/failed/deferred/stale assessments explicitly after low 
 their frozen declared domain, ordered by the same publication-time/ID keys. They remain
 unknown, never coerced to low or dropped from the pool, recall denominator or coverage.
 Arm A orders the same domain queues solely by time/ID regardless of assessment state.
-No ranking state may redefine source eligibility. Empty domains or all-unknown domains
-may produce fewer than K reads; disclose actual denominator and unused slots.
+No ranking state may redefine source eligibility. Pools smaller than K produce fewer than K reads; disclose actual denominator and unused
+slots. Unknown-domain items remain discoverable through reserve and fallback.
 
 Blind guide: read full JD plus approved background/preferences without seeing JEV or
 legacy scores. Record domain; worth_deep_reading/not_currently_worth_deep_reading/unresolved;
@@ -99,9 +101,8 @@ P1 remains open: actual daily artifacts, duplicate-group split hashes, sealed bl
 proxy inputs and exact campaign attempt/money/time/subscription proposal are not yet
 available. No synthetic or stored-inventory result satisfies those missing criteria.
 
-## Optional development candidate
+## Accepted unused-budget behavior
 
-The [unused-budget candidate](p1-reserve-candidate.md) adds an explicit opt-in v2 without
-changing v1 defaults or its frozen comparison. Reports label protocol_version and
-selection_policy and expose lane-level read/review accounting. V2 has not been selected
-for prospective validation; default changes require acceptance of that policy tradeoff.
+The [unused-budget candidate](p1-reserve-candidate.md) is the accepted default v2. Reports label protocol_version and selection_policy and
+expose lane-level read/review accounting. Legacy v1 is explicit opt-out; its frozen
+comparison remains unchanged. V2 will be used for subsequent prospective validation.

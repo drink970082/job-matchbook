@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 import sys
 import pytest
-from ats_worker.roster_collection import collect, sha
+from ats_worker.roster_collection import collect, sha, validate_scope
 
 
 def scope(*sources):
@@ -68,6 +68,24 @@ def test_invalid_scope_window_prevents_fetch():
         collect(scope("greenhouse"), fetch_json=lambda board: pytest.fail("must not fetch"), now="2026-11-15T00:00:00Z", window_start="2026-11-13T00:00:00Z", window_end="2026-11-14T00:00:00Z")
 
 
+def test_dotted_ashby_slug_is_valid():
+    spec = scope("ashby")
+    spec["boards"][0]["slug"] = "kraken.com"
+    validate_scope(spec)
+
+
+@pytest.mark.parametrize("slug", [
+    ".", "..", "../secret", "kraken..com", ".kraken", "kraken.",
+    "https://kraken.com", "kraken%2ecom", "kraken?x=1", "kraken#jobs",
+    "kraken/com", "kraken\\com", "kraken\ncom",
+])
+def test_scope_rejects_unsafe_dotted_slugs(slug):
+    spec = scope("ashby")
+    spec["boards"][0]["slug"] = slug
+    with pytest.raises(ValueError, match="invalid board slug"):
+        validate_scope(spec)
+
+
 def test_fixture_cli_no_network_and_no_clobber(tmp_path):
     spec, fixture, output = (tmp_path / n for n in ("scope.json", "fixture.json", "out.json"))
     spec.write_text(json.dumps(scope("greenhouse")))
@@ -78,6 +96,21 @@ def test_fixture_cli_no_network_and_no_clobber(tmp_path):
     assert json.loads(output.read_text())["model_calls"] == 0
     assert json.loads(first.stdout)["daily_window_complete"] is False
     assert subprocess.run(cmd, capture_output=True).returncode != 0
+
+
+def test_fixture_cli_accepts_dotted_ashby_slug_without_http(tmp_path):
+    spec = scope("ashby")
+    spec["boards"][0]["slug"] = "kraken.com"
+    scope_file, fixture, output = (tmp_path / n for n in ("scope.json", "fixture.json", "out.json"))
+    scope_file.write_text(json.dumps(spec))
+    fixture.write_text(json.dumps({"ashby/kraken.com": {"jobs": []}}))
+    cmd = [sys.executable, str(Path(__file__).parents[1] / "tools/jev_collect_roster.py"), "--scope", str(scope_file), "--fixture", str(fixture), "--output", str(output), "--now", "2026-11-13T12:00:00Z", "--window-start", "2026-11-13T00:00:00Z", "--window-end", "2026-11-14T00:00:00Z"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    observation = json.loads(output.read_text())
+    assert observation["scope_capture_complete"] is True
+    assert observation["boards"][0]["board"]["slug"] == "kraken.com"
+    assert observation["model_calls"] == 0 and observation["database_writes"] == 0
 
 
 def test_existing_output_blocks_even_live_initialization(tmp_path):

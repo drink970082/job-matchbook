@@ -1,8 +1,7 @@
 # P1 unused-budget candidate
 
-**Status:** implemented as opt-in counterfactual; v1 remains the default.
-This changes consumer selection policy, not API spend or ranking labels. Human
-acceptance is pending before selecting it as the prospective validation protocol.
+**Status:** accepted; v2 is the default, with explicit legacy-v1 selection available.
+This changes consumer selection policy, not API spend or ranking labels. The operator selected v2 for subsequent development and prospective validation.
 
 V1 treats R as a hard exploration maximum: mixed/unknown domain jobs cannot enter
 ordinary domain queues, so main-queue exhaustion can leave available K slots unused.
@@ -11,8 +10,10 @@ unused K capacity from the remaining source roster in the same pre-label hash or
 Total reads never exceed K or the pool size; no duplicate IDs. R guarantees initial
 exploration rather than limiting all exploration. Initial reserve, ordinary and fallback
 reads/review flags are reported separately. No native result or utility label controls
-fallback eligibility/order. Default CLI behavior is unchanged; opt in with
-`--fill-unused-budget` or `evaluate(..., fill_unused_budget=True)`.
+fallback eligibility/order. The CLI, `evaluate` and `select_day` default to v2. `--fill-unused-budget` remains
+accepted; select frozen v1 with `--reserve-cap`, `--no-fill-unused-budget` or explicit
+`fill_unused_budget=False`. Old frozen experiments retain their original code hash
+and must not be silently recomputed under changed defaults.
 
 ## Existing development-pool counterfactual
 
@@ -36,12 +37,11 @@ and exact selector code hash. All20 remain in denominators; no reference/output 
 
 ## Verification and decision
 
-11 targeted unit tests pass, including all9original v1 cases plus opt-in fallback
+12 targeted unit tests pass, including all9original v1 cases with explicit legacy selection plus fallback
 budget/deduplication/unknown-pool and label-independent selection regressions. Both CLI
 modes execute successfully. The synthetic12-row fixture reads11/12 atK20 andK40 in
 v1/v2 respectively; atK40unused slots29/28. No collector, timer, database or API changed.
 
-Recommendation: accept v2 for the future fixed-K consumer study to avoid unused budget
-while preserving total workload. Keeping v1 instead preserves a strict exploration cap
-at the expense of possible unread jobs despite unused main capacity. Neither option
-changes approved profile facts, JEV questions or production behavior automatically.
+The accepted v2 policy avoids unused budget while preserving total workload. Legacy v1
+remains explicitly reproducible. This policy changes neither approved profile facts nor
+JEV questions or the independently frozen collector build.
