@@ -1629,13 +1629,20 @@ it simply waits for an unbounded pass. **The `new` queue is read
 
 - **`ranking/` — isolated, fake-only development path.** Prisma-owned append-only
   `job_ranking_events` stores captured source/binding plus latest-success/attempt state.
-  `RankingStore` receives an isolated connection and provider; `RankingReader` opens
+  `RankingStore` receives an isolated connection and provider; its default remains
+  fake-only. Explicit `allow_native_replay=True` accepts only pinned recorded JEV 1.13
+  identity/adapter for offline imports. Per-result and captured-policy origins distinguish
+  fake from recorded-native without entering the canonical source hash. `RankingReader` opens
   SQLite read-only and reconstructs committed snapshot watermarks. No scheduler/native
   HTTP adapter/production wiring is enabled. Explicit `ranking_reader` injection into
   `create_server` adds three prototype-only read tools for list, chunked detail and
   reconciling coverage; ordinary MCP retains its existing tools. The test-only private
   20-source demo provisions a temporary fixture DB and verifies actual in-process MCP,
-  with every result marked fake/prototype. Freshness is captured-input-relative.
+  with fake results marked fake/prototype. A separate proof-bound native replay demo
+  verifies recorded request/response/ledger bundles and actual in-process MCP for both
+  development campaigns without network calls or production writes. Recorded results
+  retain `fake_provider=false`, `prototype=true`; completion is explicitly local replay
+  ingestion time, separate from immutable source capture. Freshness is captured-input-relative.
 
 - **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
   `requirements-mcp.txt` only for this service. `ReadOnlyATSRepository` opens the
@@ -2064,7 +2071,12 @@ stored. Exact input bindings may reuse cache; changed captured source/profile/po
 bindings expose prior success as stale, and failed refresh never erases it. Immutable
 sequenced state supports pinned list/coverage snapshots. Low, null and unranked captured
 sources remain accessible. MCP reads never mutate ranking, screening or application data,
-and prototype/fake results remain explicitly labeled. Default MCP tools and production
+and prototype/fake results remain explicitly labeled. Recorded-native replay has an
+explicit off-by-default mode, exact source and campaign proof validation, honest origin
+labels and replay-ingestion timestamps; it never masquerades as fake or production-native
+execution. Canonical stored source snapshots preserve the hash preimage and expose its hash
+separately. MCP source URL redaction is a deliberate sanitized view; that original-source
+hash is not claimed to hash a redacted DTO. Default MCP tools and production
 worker wiring do not activate this path. Freshness describes the captured binding, not
 unobserved source changes or live availability.
 
@@ -2589,7 +2601,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 | Invariant | Test(s) |
 |-----------|---------|
-| Explicit isolated JEV prototype identity/cache/freshness/snapshot/fake labeling | `tests/test_ranking_prototype.py` |
+| Explicit isolated JEV prototype identity/cache/freshness/snapshot/fake/native-replay labeling, proof validation and source/completion timestamps | `tests/test_ranking_prototype.py`, `tests/test_native_ranking_replay.py`, `tests/test_mcp_protocol.py::test_optional_ranking_tools_are_private_chunked_and_in_process` |
 | Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |

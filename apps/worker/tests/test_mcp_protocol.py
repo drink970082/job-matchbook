@@ -14,7 +14,7 @@ from mcp import Client, StdioServerParameters  # noqa: E402
 
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
-from ats_worker.ranking.prototype import RankingReader, RankingStore, fake_reply  # noqa: E402
+from ats_worker.ranking.prototype import RankingReader, RankingStore, digest, fake_reply  # noqa: E402
 from tests._helpers import bootstrap_db  # noqa: E402
 
 
@@ -140,6 +140,10 @@ async def test_optional_ranking_tools_are_private_chunked_and_in_process(tmp_pat
             offset = detail["next_offset"]
         assert "".join(chunks) == body
         assert "profile_sha256" not in detail_text
+        assert "response_sha256" not in detail_text
+        assert detail["source_snapshot_sha256"] == digest(job)
+        assert detail["source_assessment_origin"] == "fake"
+        assert "assessment_origin" not in detail["source_snapshot"]
         assert "private-provider-request-id" not in detail_text
         assert "private-provider-name" not in detail_text
         assert "canary" not in detail_text

@@ -21,6 +21,9 @@ from ats_worker.ranking.native import jev_question_set_from_value, validate_jev_
 SOURCE_FIELDS = {"schema", "job_id", "company", "title", "location", "description", "source_url", "publication_time", "captured_time", "source_revision"}
 POLICY_FIELDS = {"profile_sha256", "question_context_domain_sha256", "question_set", "rubric_version", "projection_version", "adapter_version", "requested_model", "resolved_model"}
 BASIS = "latest explicitly captured prototype source/policy; not live source availability"
+RECORDED_NATIVE_REQUESTED_MODEL = "typesafe/jev-1.13"
+RECORDED_NATIVE_RESOLVED_MODEL = "typesafe/jev-1.13-20260917"
+RECORDED_NATIVE_ADAPTER = "recorded-native-replay-v1"
 
 
 def canonical(value):
@@ -47,7 +50,22 @@ def _instant(value, path, *, allow_date=False, require_utc=False):
     return parsed.astimezone(timezone.utc)
 
 
-def binding(source, policy):
+def _assessment_origin(policy, *, allow_native_replay):
+    requested = policy.get("requested_model")
+    resolved = policy.get("resolved_model")
+    if requested.startswith("fake-") and resolved.startswith("fake-"):
+        return "fake"
+    if (
+        allow_native_replay
+        and requested == RECORDED_NATIVE_REQUESTED_MODEL
+        and resolved == RECORDED_NATIVE_RESOLVED_MODEL
+        and policy.get("adapter_version") == RECORDED_NATIVE_ADAPTER
+    ):
+        return "recorded_native"
+    raise ValueError("prototype accepts fake models only unless recorded native replay is enabled")
+
+
+def binding(source, policy, *, allow_native_replay=False):
     if not isinstance(source, dict) or set(source) != SOURCE_FIELDS or source["schema"] != "ranking-source-v1":
         raise ValueError("invalid source snapshot")
     if type(source["job_id"]) is not int or source["job_id"] <= 0:
@@ -73,8 +91,7 @@ def binding(source, policy):
             raise ValueError("invalid policy hash")
     if any(not isinstance(policy[k], str) or not policy[k] for k in POLICY_FIELDS - {"question_set", "profile_sha256", "question_context_domain_sha256"}):
         raise ValueError("unresolved model or policy version")
-    if not policy["requested_model"].startswith("fake-") or not policy["resolved_model"].startswith("fake-"):
-        raise ValueError("prototype accepts fake models only")
+    origin = _assessment_origin(policy, allow_native_replay=allow_native_replay)
     questions = jev_question_set_from_value(policy["question_set"])
     if [q.id for q in questions.questions] != ["domain", "preference", "relevance", "ambiguity"]:
         raise ValueError("four ranking questions required in canonical order")
@@ -94,17 +111,23 @@ def _fresh(state):
 
 def _summary(state):
     result = state["latest_success"]
+    assessment_origin = result["assessment_origin"] if result else state["assessment_origin"]
     return {"job_id": state["source"]["job_id"], "company": state["source"]["company"], "title": state["source"]["title"],
             "publication_time": state["source"]["publication_time"], "domain": result["domain"] if result else "unknown",
             "priority": result["priority"] if result else None, "needs_review": result["needs_review"] if result else True,
             "freshness": _fresh(state), "attempt_state": state["latest_attempt"]["state"],
-            "fake_provider": True, "prototype": True}
+            "assessment_origin": assessment_origin,
+            "source_assessment_origin": state["assessment_origin"],
+            "fake_provider": assessment_origin == "fake", "prototype": True}
 
 
 class RankingStore:
     """Single-job prototype writer. Caller injects an isolated, schema-ready connection."""
-    def __init__(self, connection):
+    def __init__(self, connection, *, allow_native_replay=False):
         self.connection = connection
+        if type(allow_native_replay) is not bool:
+            raise ValueError("allow_native_replay must be a boolean")
+        self.allow_native_replay = allow_native_replay
 
     def _latest(self, job_id):
         row = self.connection.execute("SELECT state_json FROM job_ranking_events WHERE job_id=? ORDER BY id DESC LIMIT 1", (job_id,)).fetchone()
@@ -116,14 +139,17 @@ class RankingStore:
             return row.lastrowid
 
     def capture(self, source, policy, *, now):
-        bound, _ = binding(source, policy)
+        bound, _ = binding(source, policy, allow_native_replay=self.allow_native_replay)
+        origin = _assessment_origin(policy, allow_native_replay=self.allow_native_replay)
         identity = digest({"schema": "ranking-binding-v1", **bound})
         previous = self._latest(source["job_id"])
         if previous and previous["binding_sha256"] == identity:
             return previous
-        state = {"source": json.loads(canonical(source)), "binding": bound, "binding_sha256": identity,
+        state = {"source": json.loads(canonical(source)), "assessment_origin": origin,
+                 "binding": bound, "binding_sha256": identity,
                  "latest_success": previous["latest_success"] if previous else None,
-                 "latest_attempt": {"id": None, "state": "pending", "at": now, "reason": None}}
+                 "latest_attempt": {"id": None, "state": "pending", "at": now,
+                                    "reason": None, "assessment_origin": origin}}
         self._append(state)
         return state
 
@@ -131,8 +157,10 @@ class RankingStore:
         state = self.capture(source, policy, now=now)
         if _fresh(state) == "current":
             return {"cache_hit": True, **_summary(state)}
-        _, questions = binding(source, policy)
-        state["latest_attempt"] = {"id": uuid4().hex, "state": "running", "at": now, "reason": None}
+        _, questions = binding(source, policy, allow_native_replay=self.allow_native_replay)
+        origin = _assessment_origin(policy, allow_native_replay=self.allow_native_replay)
+        state["latest_attempt"] = {"id": uuid4().hex, "state": "running", "at": now,
+                                    "reason": None, "assessment_origin": origin}
         self._append(state)
         expected_model = state["binding"]["resolved_model"]
         invocation = {"job_id": state["source"]["job_id"], "source_sha256": state["binding"]["source_sha256"],
@@ -174,7 +202,9 @@ class RankingStore:
                                        "native_diagnostics": diagnostics, "response_sha256": digest(reply["response"]),
                                        "source_captured_time": state["source"]["captured_time"],
                                        "source_revision": state["source"]["source_revision"],
-                                       "completed_at": now, "fake_provider": True, "prototype": True}
+                                       "completed_at": now, "assessment_origin": origin,
+                                       "completed_at_basis": "replay_ingestion" if origin == "recorded_native" else "fake_assessment",
+                                       "fake_provider": origin == "fake", "prototype": True}
             state["latest_attempt"].update(state="succeeded", reason=None)
         except Exception as exc:
             state["latest_attempt"].update(state="failed", reason="delivery_unknown" if isinstance(exc, TimeoutError) else "invalid_or_failed_provider")
@@ -203,11 +233,23 @@ class RankingReader:
         watermark, states = self._states(watermark)
         freshness = Counter(_fresh(s) for s in states)
         attempts = Counter(s["latest_attempt"]["state"] for s in states)
+        origins = Counter(
+            s["latest_success"]["assessment_origin"]
+            if s.get("latest_success") else s.get("assessment_origin", "fake")
+            for s in states
+        )
+        source_origins = Counter(s.get("assessment_origin", "fake") for s in states)
+        assessment_origin = next(iter(origins)) if len(origins) == 1 else ("mixed" if origins else None)
+        source_assessment_origin = next(iter(source_origins)) if len(source_origins) == 1 else ("mixed" if source_origins else None)
         return {"watermark": watermark, "scope": "explicitly captured prototype inventory", "freshness_basis": BASIS,
                 "total": len(states), "freshness": {k: freshness[k] for k in ("current", "stale", "absent")},
                 "latest_attempt": {k: attempts[k] for k in ("pending", "running", "succeeded", "failed", "deferred", "none")},
                 "current_unknown": sum(_fresh(s) == "current" and s["latest_success"]["priority"] is None for s in states),
-                "prototype": True, "fake_provider": True}
+                "assessment_origin": assessment_origin,
+                "assessment_origin_counts": {k: origins[k] for k in ("fake", "recorded_native")},
+                "source_assessment_origin": source_assessment_origin,
+                "source_assessment_origin_counts": {k: source_origins[k] for k in ("fake", "recorded_native")},
+                "prototype": True, "fake_provider": bool(states) and set(origins) == {"fake"}}
 
     def list_rankings(self, *, domain=None, priority=None, needs_review=None, freshness="current", lane="ranked", limit=20, cursor=None):
         if domain is not None and (not isinstance(domain, str) or len(domain) > 64): raise ValueError("invalid domain")
@@ -250,18 +292,27 @@ class RankingReader:
         next_cursor = None
         if len(rows) > limit:
             next_cursor = base64.urlsafe_b64encode(canonical({"version": 1, "watermark": watermark, "filters": digest(filters), "last": page[-1]["job_id"]}).encode()).decode()
+        page_origins = Counter(r["assessment_origin"] for r in page)
+        assessment_origin = next(iter(page_origins)) if len(page_origins) == 1 else ("mixed" if page_origins else None)
         return {"items": page, "next_cursor": next_cursor, "watermark": watermark, "snapshot": True,
                 "eligible_count": eligible, "returned_count": len(page), "scope": "explicitly captured prototype inventory",
-                "freshness_basis": BASIS, "prototype": True, "fake_provider": True}
+                "freshness_basis": BASIS, "assessment_origin": assessment_origin,
+                "prototype": True, "fake_provider": bool(page) and all(r["fake_provider"] for r in page)}
 
     def get_ranking(self, job_id, watermark=None):
         if type(job_id) is not int or job_id <= 0: raise ValueError("invalid job identity")
         watermark, states = self._states(watermark)
         state = next((s for s in states if s["source"]["job_id"] == job_id), None)
         if state is None: return None
-        return {"job_id": job_id, "source_snapshot": state["source"], "ranking": state["latest_success"],
+        source_snapshot = state["source"]
+        source_origin = state.get("assessment_origin", "fake")
+        result_origin = state["latest_success"]["assessment_origin"] if state["latest_success"] else source_origin
+        return {"job_id": job_id, "source_snapshot": source_snapshot, "ranking": state["latest_success"],
                 "latest_attempt": state["latest_attempt"], "freshness": _fresh(state), "watermark": watermark,
-                "freshness_basis": BASIS, "prototype": True, "fake_provider": True}
+                "source_snapshot_sha256": state["binding"]["source_sha256"],
+                "source_assessment_origin": source_origin,
+                "assessment_origin": result_origin, "freshness_basis": BASIS,
+                "prototype": True, "fake_provider": result_origin == "fake"}
 
 
 def fake_reply(invocation, tier="high"):

@@ -79,3 +79,52 @@ runtime deployment is supplied by this exception. P1/P2 real-data/quality gates 
 operational/consumer gates remain. Existing-inventory development is allowed; future
 prospective snapshots remain validation inputs, not tuning replacements after inspection.
 #139 stays open for acceptance beyond this isolated prototype.
+
+## Authorized native experiments and offline replay
+
+The operator authorized API expenses for continued development. Two separately bounded
+20-request experiments completed on these existing development sources, with original
+blind utility labels sealed before Arm A and an exact-rubric blind proxy sealed before
+Arm B. New native spend totals USD 0.007441392; every one of 40 responses and charges
+validated, with zero pending/unknown/overreserve. See [trial](native20-report.md),
+[ambiguity arm](native20-ambiguity-arm.md), [utility comparison](native20-comparison.md)
+and [rubric comparison](native20-rubric-comparison.md). Proxy/engineering model usage is
+separate and is not reported as zero/free. Neither run is a quality GO or rollout.
+
+The default store still rejects native models. An explicit off-by-default recorded-native
+mode and the test-only `native_ranking_replay_demo` import only proof-bound stored
+responses from the two known private campaigns into a fresh temporary fixture DB. There
+is no inference entrypoint in the replay path. It verifies source/profile/question,
+request/response/result, ledger-chain/settlement and summary proofs before import. Origin
+is `recorded_native`, fake_provider false, prototype true; fake origin remains distinct.
+Stored source/hash preimages stay exact; MCP may redact secret URL parameters, so the
+original-source hash is not a hash of that sanitized view. Local result completion is labeled replay ingestion,
+not source capture or an invented live inference timestamp.
+
+From apps/worker, replay with:
+
+```sh
+/tmp/ats-jev-p3-venv/bin/python -m tests.native_ranking_replay_demo   /home/halcyon/root/ats/apps/worker/resume/pivot/jev-ranking-p3-dev-v1/native20
+/tmp/ats-jev-p3-venv/bin/python -m tests.native_ranking_replay_demo   /home/halcyon/root/ats/apps/worker/resume/pivot/jev-ranking-p3-dev-v1/native20-ambiguity-v2
+```
+
+Both observed replays reconcile 20 current/succeeded recorded-native results, 16 low and
+4 medium, and all 20 MCP list/detail/source-chunk reads; each uses zero HTTP/provider calls
+and zero production writes. Overall needs_review is 20 in A and 7 in B. Explicit campaign
+selection keeps the original pack and clarified experimental pack independently available;
+Arm B is not silently substituted as a production default.
+
+Consumer reserve policy and the medium/low boundary for acceptable non-primary work remain
+pending human preference decisions. Candidate code and evidence are prepared; no personal
+preference or production default is changed while those decisions remain open.
+
+## Final native replay verification
+
+After all native-replay and timestamp changes, the full worker suite reports
+`1586 passed in 65.13s`; total branch coverage is 85.76% against the 85% floor. The focused
+replay/core/actual-SDK MCP suite reports 47 passed with private artifacts enabled, including
+both A/B campaigns. Both root-executed CLI replays return 20 current/succeeded recorded-native
+results, 20 list rows, 20 detail rows and 20 reconstructed description chunks, with zero
+network/provider calls and zero production writes. `make check-schema` and diff checks pass.
+Fresh review has no unresolved findings in the isolated replay scope. No production
+ranking activation, live ChatGPT connector acceptance or held-out quality is verified.

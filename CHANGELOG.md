@@ -16,6 +16,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Support explicit offline replay of proof-bound native development responses through
+  temporary ranking storage and MCP, with honest origin/source-hash/ingestion metadata;
+  record two settled 20-request JEV experiments and their frozen proxy comparisons.
+
 - Prepare isolated JEV source-to-ranking-to-MCP development using a fake provider and
   source-only existing-inventory exports, additive immutable event schema and explicitly
   injected read-only ranking tools. Verify source/binding identity, stale-success retention,
