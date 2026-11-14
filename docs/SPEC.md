@@ -25,7 +25,8 @@
 The [P1 offline evaluation preparation](jev-ranking/p1-evaluation.md) supplies a
 synthetic baseline/metric path, independent of runtime ranking. The
 [cohort-readiness audit](jev-ranking/p1-cohort-readiness.md) distinguishes stored intake
-from independently complete daily source rosters; real P1 evidence remains incomplete. A separate injected `roster_collection` utility
+from independently complete daily source rosters; real P1 evidence remains incomplete. An optional evaluator v2 can fill unused total-K
+capacity from exploration; v1 stays default pending acceptance of that consumer policy. A separate injected `roster_collection` utility
 can retain one raw/parsed Greenhouse, Lever or Ashby observation with exclusion reasons;
 its explicit live CLI has request/time/byte caps and never writes the production DB or
 invokes models. A separately authorized frozen build has three one-shot user timers
