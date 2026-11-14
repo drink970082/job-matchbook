@@ -76,6 +76,11 @@ unresolved identities. A failed or partial source remains explicit, never silent
 by another day. Collection completeness is relative to this frozen scope, not all jobs
 on the internet. Any permitted partial-scope study needs explicit acceptance and disclosure.
 
+Exact normalized-description equality is insufficient for template grouping: separate
+Dev60 development adjudication identifies a near-identical pair differing in a spelling
+variant. Check near-template candidates before splitting; do not represent exact-only
+groups as proof of independent opportunities.
+
 Before model outputs or proxy labels, lock duplicate/requisition/template groups and
 keep each group on one side of development/held-out. Carry all size outliers and missing
 content with explicit assessability reasons. Freeze the source roster, approved P0 input

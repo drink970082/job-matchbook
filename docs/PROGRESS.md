@@ -20,6 +20,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   default; legacy v1 remains explicit. First scheduled snapshot failed before HTTP because
   the slug validator rejected a legitimate dotted Ashby slug. The tested repaired build is activated; the failed November 14 receipt remains preserved,
   its timer is disabled, and no late capture was substituted.
+  Near-template grouping must include spelling variants before any future split;
+  the separate Dev60 development adjudication found a pair missed by exact-only grouping.
   See [collection](jev-ranking/p1-collection.md).
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
