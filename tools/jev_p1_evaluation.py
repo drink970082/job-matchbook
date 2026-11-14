@@ -246,10 +246,17 @@ def _round_robin(
     return selected
 
 
-def select_day(
-    rows: list[dict[str, Any]], domains: list[str], day: str, k: int, r: int, arm: str
-) -> tuple[list[dict[str, Any]], set[str]]:
-    """Select one day's unique reads, sharing the same pre-label exploration IDs."""
+def _select_day_with_accounting(
+    rows: list[dict[str, Any]],
+    domains: list[str],
+    day: str,
+    k: int,
+    r: int,
+    arm: str,
+    *,
+    fill_unused_budget: bool = False,
+) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    """Select one day's reads and return initial-reserve and fallback IDs."""
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {ARMS}")
     if k <= 0 or r < 0 or r > k:
@@ -264,7 +271,23 @@ def select_day(
     ]
     main_slots = k - len(reserve_rows)
     main = _round_robin(main_rows, domains, arm, main_slots)
-    return reserve_rows + main, reserve_ids
+    selected = reserve_rows + main
+    fallback_rows: list[dict[str, Any]] = []
+    if fill_unused_budget and len(selected) < k:
+        selected_ids = {row["job_id"] for row in selected}
+        remaining_rows = [row for row in day_rows if row["job_id"] not in selected_ids]
+        fallback_rows = sorted(remaining_rows, key=_exploration_key)[: k - len(selected)]
+        selected.extend(fallback_rows)
+    fallback_ids = {row["job_id"] for row in fallback_rows}
+    return selected, reserve_ids, fallback_ids
+
+
+def select_day(
+    rows: list[dict[str, Any]], domains: list[str], day: str, k: int, r: int, arm: str
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Select one day's v1 reads, sharing the same pre-label exploration IDs."""
+    selected, reserve_ids, _ = _select_day_with_accounting(rows, domains, day, k, r, arm)
+    return selected, reserve_ids
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -274,7 +297,11 @@ def _ratio(numerator: int, denominator: int) -> float | None:
 
 
 def metrics_for_selection(
-    pool: list[dict[str, Any]], selected: list[dict[str, Any]], k: int, reserve_ids: set[str]
+    pool: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    k: int,
+    reserve_ids: set[str],
+    fallback_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Compute P1 precision/recall bounds without treating unresolved labels as negatives."""
     selected_ids = {row["job_id"] for row in selected}
@@ -283,6 +310,11 @@ def metrics_for_selection(
     pool_by_id = {row["job_id"]: row for row in pool}
     if not selected_ids <= pool_by_id.keys():
         raise ValueError("selected rows must be members of the frozen pool")
+    if not reserve_ids <= selected_ids:
+        raise ValueError("initial-reserve IDs must be selected")
+    fallback_ids = fallback_ids or set()
+    if not fallback_ids <= selected_ids or reserve_ids & fallback_ids:
+        raise ValueError("exploration-fallback IDs must be selected and distinct from initial reserve IDs")
 
     selected_counts = Counter(row["label"] for row in selected)
     pool_counts = Counter(row["label"] for row in pool)
@@ -306,6 +338,18 @@ def metrics_for_selection(
     pool_review = sum(row["needs_review"] for row in pool)
     selected_review = sum(row["needs_review"] for row in selected)
     pool_current = sum(row["current_successful_binding"] for row in pool)
+    selected_by_id = {row["job_id"]: row for row in selected}
+    ordinary_ids = selected_ids - reserve_ids - fallback_ids
+
+    def lane_accounting(job_ids: set[str]) -> dict[str, Any]:
+        lane_rows = [selected_by_id[job_id] for job_id in job_ids]
+        flagged = sum(row["needs_review"] for row in lane_rows)
+        return {
+            "reads": len(lane_rows),
+            "review_flagged": flagged,
+            "review_flag_fraction": _ratio(flagged, len(lane_rows)),
+        }
+
     reserve_positive = sum(
         row["label"] == "positive" and row["job_id"] in reserve_ids for row in selected
     )
@@ -314,6 +358,17 @@ def metrics_for_selection(
         "selected_ids": [row["job_id"] for row in selected],
         "reads": read_count,
         "unused_slots": k - read_count,
+        "selection_accounting": {
+            "initial_reserve_reads": len(reserve_ids),
+            "ordinary_domain_reads": len(ordinary_ids),
+            "exploration_fallback_reads": len(fallback_ids),
+            "total_reads": read_count,
+            "review_flag_burden_by_lane": {
+                "initial_reserve": lane_accounting(reserve_ids),
+                "ordinary_domain": lane_accounting(ordinary_ids),
+                "exploration_fallback": lane_accounting(fallback_ids),
+            },
+        },
         "label_counts": {
             "positive": selected_positive,
             "negative": selected_negative,
@@ -361,12 +416,16 @@ def metrics_for_selection(
     }
 
 
-def evaluate(payload: Any) -> dict[str, Any]:
+def evaluate(payload: Any, *, fill_unused_budget: bool = False) -> dict[str, Any]:
+    if not isinstance(fill_unused_budget, bool):
+        raise ValueError("fill_unused_budget must be a boolean")
     domains, rows, exclusions = validate_input(payload)
     days = sorted({row["day"] for row in rows})
     result: dict[str, Any] = {
         "evidence_kind": "synthetic",
         "schema": SCHEMA,
+        "protocol_version": "jev-p1-selection-v2" if fill_unused_budget else "jev-p1-selection-v1",
+        "selection_policy": "minimum_reserve_fill_unused_budget" if fill_unused_budget else "reserve_cap",
         "whole_inventory_exclusions": exclusions,
         "budgets": [],
     }
@@ -376,11 +435,13 @@ def evaluate(payload: Any) -> dict[str, Any]:
         for k, r in BUDGETS:
             reserve_count = min(r, len(day_pool))
             arms: dict[str, Any] = {}
-            selected_by_arm: dict[str, list[dict[str, Any]]] = {}
             for arm in ARMS:
-                selected, reserve_ids = select_day(rows, domains, day, k, r, arm)
-                selected_by_arm[arm] = selected
-                arms[arm] = metrics_for_selection(day_pool, selected, k, reserve_ids)
+                selected, reserve_ids, fallback_ids = _select_day_with_accounting(
+                    rows, domains, day, k, r, arm, fill_unused_budget=fill_unused_budget
+                )
+                arms[arm] = metrics_for_selection(
+                    day_pool, selected, k, reserve_ids, fallback_ids
+                )
             publication_counts = arms[ARM_PUBLICATION]["label_counts"]
             jev_counts = arms[ARM_JEV]["label_counts"]
             budget_results.append(
@@ -417,9 +478,14 @@ def _read_input(path: str) -> Any:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", help="explicit synthetic frozen-pool JSON file")
+    parser.add_argument(
+        "--fill-unused-budget",
+        action="store_true",
+        help="opt into selection protocol v2: treat R as a minimum reserve within total K",
+    )
     args = parser.parse_args(argv)
     try:
-        report = evaluate(_read_input(args.input))
+        report = evaluate(_read_input(args.input), fill_unused_budget=args.fill_unused_budget)
     except InputError as error:
         print(f"jev-p1-evaluation: {error}", file=sys.stderr)
         return 2

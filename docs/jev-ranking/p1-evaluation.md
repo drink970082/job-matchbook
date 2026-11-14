@@ -5,7 +5,7 @@ Accepted P0: [1308f47](https://github.com/drink970082/job-matchbook/tree/1308f47
 Planning: [ef18116c](https://github.com/drink970082/job-matchbook/tree/ef18116c/docs/jev-ranking).
 This work owns no production runtime and authorizes no inference.
 
-## Fixed comparison protocol
+## Fixed comparison protocol — v1 default
 
 Use publication-time order (descending, missing last, stable job ID ascending) as arm A;
 JEV high/medium/low and the same time/ID tie-break as arm B. Use the same frozen pool,
@@ -97,3 +97,10 @@ scope and activation details are in [collection](p1-collection.md).
 P1 remains open: actual daily artifacts, duplicate-group split hashes, sealed blind
 proxy inputs and exact campaign attempt/money/time/subscription proposal are not yet
 available. No synthetic or stored-inventory result satisfies those missing criteria.
+
+## Optional development candidate
+
+The [unused-budget candidate](p1-reserve-candidate.md) adds an explicit opt-in v2 without
+changing v1 defaults or its frozen comparison. Reports label protocol_version and
+selection_policy and expose lane-level read/review accounting. V2 has not been selected
+for prospective validation; default changes require acceptance of that policy tradeoff.

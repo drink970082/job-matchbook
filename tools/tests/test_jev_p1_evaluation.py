@@ -188,12 +188,111 @@ class JevP1EvaluationTests(unittest.TestCase):
             row("b", label="negative", jev_state="low"),
         ], exclusions=3))
         self.assertEqual("synthetic", report["evidence_kind"])
+        self.assertEqual("jev-p1-selection-v1", report["protocol_version"])
+        self.assertEqual("reserve_cap", report["selection_policy"])
         self.assertEqual(3, report["whole_inventory_exclusions"])
         self.assertEqual(1, len(report["budgets"]))
         budget = report["budgets"][0]["budget_results"][0]
         self.assertEqual(10, budget["K"])
         self.assertEqual(2, budget["R"])
         self.assertIn("positive_reads", budget["paired_day_delta_jev_minus_publication"])
+
+    def test_v2_fills_all_unknown_small_pool_without_changing_v1_default(self):
+        source = [
+            row(
+                f"unknown-{index}",
+                domain="unknown",
+                label=("positive" if index == 0 else "negative"),
+                jev_state=("high" if index % 2 else "failed"),
+                needs_review=index % 2 == 0,
+            )
+            for index in range(6)
+        ]
+        data = payload(source)
+
+        v1 = evaluate(data)
+        v2 = evaluate(data, fill_unused_budget=True)
+        first_v1 = v1["budgets"][0]["budget_results"][0]
+        first_v2 = v2["budgets"][0]["budget_results"][0]
+        self.assertEqual("jev-p1-selection-v1", v1["protocol_version"])
+        self.assertEqual(2, first_v1["arms"][ARM_PUBLICATION]["reads"])
+        self.assertEqual("jev-p1-selection-v2", v2["protocol_version"])
+        self.assertEqual("minimum_reserve_fill_unused_budget", v2["selection_policy"])
+
+        for arm in (ARM_PUBLICATION, ARM_JEV):
+            selection = first_v2["arms"][arm]
+            self.assertEqual(6, selection["reads"])
+            self.assertEqual(4, selection["unused_slots"])
+            self.assertEqual(
+                {
+                    "initial_reserve_reads": 2,
+                    "ordinary_domain_reads": 0,
+                    "exploration_fallback_reads": 4,
+                    "total_reads": 6,
+                },
+                {
+                    key: selection["selection_accounting"][key]
+                    for key in (
+                        "initial_reserve_reads",
+                        "ordinary_domain_reads",
+                        "exploration_fallback_reads",
+                        "total_reads",
+                    )
+                },
+            )
+            self.assertEqual(6, len(set(selection["selected_ids"])))
+
+        self.assertEqual(
+            first_v2["arms"][ARM_PUBLICATION]["selected_ids"],
+            first_v2["arms"][ARM_JEV]["selected_ids"],
+        )
+        changed_outcomes = [
+            {
+                **item,
+                "label": "unresolved" if item["label"] != "unresolved" else "positive",
+                "jev_state": "stale" if item["jev_state"] != "stale" else "high",
+            }
+            for item in source
+        ]
+        changed = evaluate(payload(changed_outcomes), fill_unused_budget=True)
+        changed_selection = changed["budgets"][0]["budget_results"][0]["arms"]
+        for arm in (ARM_PUBLICATION, ARM_JEV):
+            self.assertEqual(
+                first_v2["arms"][arm]["selected_ids"], changed_selection[arm]["selected_ids"]
+            )
+
+    def test_v2_accounts_for_short_ordinary_lane_and_fallback_review_burden(self):
+        source = [
+            row("domain-a", domain="synthetic_a", needs_review=True),
+            row("domain-b", domain="synthetic_b", needs_review=False),
+            row("unknown-a", domain="unknown", needs_review=True),
+            row("unknown-b", domain="unknown", needs_review=False),
+            row("mixed-a", domain="mixed", needs_review=True),
+            row("mixed-b", domain="mixed", needs_review=False),
+        ]
+        report = evaluate(payload(source), fill_unused_budget=True)
+        budget = report["budgets"][0]["budget_results"][0]
+
+        for arm in (ARM_PUBLICATION, ARM_JEV):
+            selection = budget["arms"][arm]
+            accounting = selection["selection_accounting"]
+            self.assertEqual(6, selection["reads"])
+            self.assertLessEqual(selection["reads"], budget["K"])
+            self.assertGreater(accounting["ordinary_domain_reads"], 0)
+            self.assertGreater(accounting["exploration_fallback_reads"], 0)
+            self.assertEqual(
+                selection["reads"],
+                accounting["initial_reserve_reads"]
+                + accounting["ordinary_domain_reads"]
+                + accounting["exploration_fallback_reads"],
+            )
+            lane_review_flags = sum(
+                lane["review_flagged"]
+                for lane in accounting["review_flag_burden_by_lane"].values()
+            )
+            self.assertEqual(
+                selection["review_flag_burden"]["selected"]["flagged"], lane_review_flags
+            )
 
 
 if __name__ == "__main__":
