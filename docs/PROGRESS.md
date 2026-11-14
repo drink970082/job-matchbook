@@ -11,14 +11,18 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **JEV P3 isolated prototype (#139), explicit pre-P2 exception** —
   `feat/jev-p3-prototype`, based on main `9045b2c`, accepted P0 `1308f47`.
   Operator authorized existing stored inventory for development while prospective
-  snapshots remain validation-only. Isolated fake-provider code and private 20-source
-  MCP demonstration pass in PR #146 (`408065d`). Operator now authorizes API expenses
-  for continued work: two bounded 20-source native development campaigns are settled
-  (new USD 0.007441392, no pending/unknown); blind references and comparisons are frozen.
-  Explicit native-response replay is implemented in isolated temporary DB/MCP only.
-  No production writes, service changes or ranking rollout. Consumer reserve and
-  acceptable-secondary-work priority decisions await the operator; real ranking quality
-  and P1/P2 acceptance remain separate gates.
+  snapshots remain validation-only. Isolated fake and recorded-native MCP replay run
+  in temporary databases only. Three bounded 20-source development campaigns are
+  settled (60 calls, USD 0.011359488; no pending/unknown). The operator accepted
+  leftover-K exploration fill and acceptable secondary work as MEDIUM. The C arm
+  improves preference agreement with its blinded model proxy from 12/20 to 15/20;
+  accepted-policy reading selections show no utility gain on this exposed 20-row pool.
+  A separately frozen 60-source/37-company development frame has blinded reference
+  work in flight before native inference. This is a stratified development study,
+  not human truth or population recall. No production writes, service changes or
+  ranking rollout; P1/P2 quality acceptance remains separate. See
+  [C comparison](jev-ranking/native20-secondary-comparison.md) and
+  [60-source frame](jev-ranking/dev60-frame.md).
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

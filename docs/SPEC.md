@@ -23,9 +23,14 @@
 ## Product direction and implementation boundary
 
 The [isolated JEV development slice](jev-ranking/p3-prototype.md) is an explicitly
-selected pre-P2 prototype. Existing DB sources may be exported read-only for fake-provider
-mechanics tests in temporary databases. This is neither ranking-quality evidence nor
-activation of a production ranker; prospective collection remains independent.
+selected pre-P2 prototype. Existing DB sources may be exported read-only for fake-provider mechanics and explicitly
+enabled recorded-native replay in temporary databases. Three settled 20-source native
+development arms compare ambiguity and accepted secondary-work wording;
+[the C comparison](jev-ranking/native20-secondary-comparison.md) reports proxy agreement
+and unchanged reading utility without quality acceptance. A separately
+[frozen 60-source frame](jev-ranking/dev60-frame.md) supplies a larger development
+comparison. These studies do not activate a production ranker; prospective collection
+remains independent.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

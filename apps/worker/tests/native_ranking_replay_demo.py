@@ -34,6 +34,7 @@ from ats_worker.ranking.prototype import (
 
 CAMPAIGN_NATIVE20 = "native20"
 CAMPAIGN_AMBIGUITY_V2 = "native20-ambiguity-v2"
+CAMPAIGN_SECONDARY_V3 = "native20-secondary-v3"
 BASE_P0_HASHES = {
     "sources.json": "996f198e4e799a75a648ae25ab3fe261f84bfea03170bf28c3978846e4074327",
     "profile-binding.json": "bb33a4996dc1a388d6198d479d9bd2649ca6042cfab114ae6be361c56cb74986",
@@ -76,6 +77,39 @@ CAMPAIGN_PROOFS = {
         "carry_usd": "0.571995172",
         "parent_ledger_sha256": "2a66b07130e2e5d7d47ff409c0f0259acfd05cf3806fe31d83c338e28ab25d05",
         "parent_question_pack_sha256": "b88dac97b717b6b9cb93ff7cc4df2bbae23d9e7dcb02bcbf327d23c40d8517e7",
+        "parent_campaign": CAMPAIGN_NATIVE20,
+        "changed_question": "ambiguity",
+        "question_pack_version": "ranking-v1-ambiguity-clarified-v1",
+        "request_bytes_min": 16_387,
+        "request_bytes_max": 22_847,
+    },
+    CAMPAIGN_SECONDARY_V3: {
+        "input_hashes": {
+            **BASE_P0_HASHES,
+            "question-pack.json": "e63c5bf3c55904df22af028775f1c25d4f07d94013a563be85804167b0224109",
+            "pilot-offline-preparation.json": "7ec0194e127e9003a534141c897e540d1889e0d99d3417f2677b83ceea99f75b",
+            "policy-acceptance.json": "d88e779258c74cb1d8d6f59b5bc056641cb40bec1577710404746f81547b38e2",
+            "arm-manifest.json": "250ce046937234580d5f8460db8b4fe5bf17a915af86a9f9976ecf46778ea605",
+        },
+        "proxy_hashes": {
+            "native20-blind-proxy.json": "a056e1a9f1416f5ce24e202199100c2d72327665d4760efdf6b2f18b3b981e33",
+            "native20-rubric-proxy.json": "6ac37f58e152dd2e5e614b6f56c4cd23e9aefa00eb7b910c0d601a9d2504cec7",
+            "native20-secondary-preference-proxy.json": "57d9077ab3f06031c5433531865a997bde1e097c7b22767202a64c637b558071",
+        },
+        "ledger_sha256": "eaea44645278c609dcf07997557ddab4f4dcbe918bf811e05da4bd29bb24ad89",
+        "summary_sha256": "586a82cf4acf5d3d9d012c66fe6734e34c6e9554fa4943e2186497f88b29dcae",
+        "result_manifest_sha256": "d9804121da5bd0b59064b5d0808600c95130951f7dc4ed9e4f2cc175d51fd385",
+        "sealed_manifest_sha256": "55e4579f92263473997aeb3e455c9803f4114b2798dbca9fe366202b4b33ace3",
+        "settled_usd": "0.003918096",
+        "carry_attempts": 1784,
+        "carry_usd": "0.575766268",
+        "parent_ledger_sha256": "51a68b6006471d19a9f2341ec937ff4223b1df2409cc59f97b3053c31f5f56d6",
+        "parent_question_pack_sha256": "0bcbb9eebb28a98959baed4e1fc6776b278c82cc88511100ab86a431d539c978",
+        "parent_campaign": CAMPAIGN_AMBIGUITY_V2,
+        "changed_question": "preference",
+        "question_pack_version": "ranking-v2-secondary-plausible-v1",
+        "request_bytes_min": 17_420,
+        "request_bytes_max": 23_880,
     },
 }
 NATIVE_PARSER_SHA256 = "51a0860d959ac792003cc209d85df34979d7e12bd1b4b95f905d889ceaff0acd"
@@ -237,72 +271,77 @@ def _validated_values(response: Any, questions) -> tuple[dict[str, str], dict[st
     return values, response
 
 
-def _verify_ambiguity_arm(
+def _verify_wording_arm(
     package_root: Path,
+    campaign: str,
     frozen: dict[str, Any],
     prep: dict[str, Any],
     proof_spec: dict[str, Any],
     proxy_hashes: dict[str, str],
 ):
+    parent_campaign = proof_spec["parent_campaign"]
+    parent_proof = CAMPAIGN_PROOFS[parent_campaign]
+    parent_dir = package_root if parent_campaign == CAMPAIGN_NATIVE20 else package_root / parent_campaign
+    changed_question = proof_spec["changed_question"]
     manifest = frozen["arm-manifest.json"]
     if not isinstance(manifest, dict):
-        _fail("ambiguity arm manifest is invalid")
-    _same(manifest.get("schema"), "native20-ambiguity-v2-freeze-v1", "ambiguity arm manifest schema mismatch")
+        _fail("wording arm manifest is invalid")
+    _same(manifest.get("schema"), f"{campaign}-freeze-v1", "wording arm manifest schema mismatch")
     expected_files = {name: digest for name, digest in proof_spec["input_hashes"].items() if name != "arm-manifest.json"}
-    _same(manifest.get("files"), expected_files, "ambiguity arm frozen input list mismatch")
-    _same(manifest.get("proxies"), proxy_hashes, "ambiguity arm proxy seals mismatch")
-    _same(manifest.get("parent_ledger_sha256"), proof_spec["parent_ledger_sha256"], "ambiguity arm parent ledger mismatch")
-    _same(manifest.get("carry_attempts"), 1764, "ambiguity arm carry attempts mismatch")
-    _same(manifest.get("carry_usd"), "0.571995172", "ambiguity arm carry amount mismatch")
+    _same(manifest.get("files"), expected_files, "wording arm frozen input list mismatch")
+    _same(manifest.get("proxies"), proxy_hashes, "wording arm proxy seals mismatch")
+    _same(manifest.get("parent_ledger_sha256"), proof_spec["parent_ledger_sha256"], "wording arm parent ledger mismatch")
+    _same(manifest.get("carry_attempts"), proof_spec["carry_attempts"], "wording arm carry attempts mismatch")
+    _same(manifest.get("carry_usd"), proof_spec["carry_usd"], "wording arm carry amount mismatch")
     _same(manifest.get("limits"), {
         "attempts": 20, "request_bytes": 32768, "retries": 0,
         "seconds": 1200, "usd": "0.50",
-    }, "ambiguity arm limits mismatch")
-    _same(manifest.get("request_count"), EXPECTED_JOBS, "ambiguity arm request count mismatch")
-    _same(manifest.get("request_bytes_min"), 16_387, "ambiguity arm minimum request size mismatch")
-    _same(manifest.get("request_bytes_max"), 22_847, "ambiguity arm maximum request size mismatch")
-    _same(manifest.get("provider_calls"), 0, "ambiguity arm freeze made provider calls")
+    }, "wording arm limits mismatch")
+    _same(manifest.get("request_count"), EXPECTED_JOBS, "wording arm request count mismatch")
+    _same(manifest.get("request_bytes_min"), proof_spec["request_bytes_min"], "wording arm minimum request size mismatch")
+    _same(manifest.get("request_bytes_max"), proof_spec["request_bytes_max"], "wording arm maximum request size mismatch")
+    _same(manifest.get("provider_calls"), 0, "wording arm freeze made provider calls")
 
-    _same(prep.get("schema"), "native20-ambiguity-v2-offline-preparation-v1", "ambiguity arm preparation schema mismatch")
-    _same(prep.get("parent_ledger_sha256"), proof_spec["parent_ledger_sha256"], "ambiguity arm preparation parent ledger mismatch")
-    _same(prep.get("parent_question_pack_sha256"), proof_spec["parent_question_pack_sha256"], "ambiguity arm parent question pack mismatch")
-    _same(prep.get("cumulative_attempts"), 1764, "ambiguity arm preparation attempts mismatch")
-    _same(prep.get("cumulative_usd"), "0.571995172", "ambiguity arm preparation cost mismatch")
-    _same(prep.get("pending"), 0, "ambiguity arm has pending prior charges")
-    _same(prep.get("unknown"), 0, "ambiguity arm has unknown prior charges")
-    _same(prep.get("overreserve"), 0, "ambiguity arm has overreserved prior charges")
-    _same(prep.get("provider_calls"), 0, "ambiguity arm preparation made provider calls")
+    _same(prep.get("schema"), f"{campaign}-offline-preparation-v1", "wording arm preparation schema mismatch")
+    _same(prep.get("parent_ledger_sha256"), proof_spec["parent_ledger_sha256"], "wording arm preparation parent ledger mismatch")
+    _same(prep.get("parent_question_pack_sha256"), proof_spec["parent_question_pack_sha256"], "wording arm parent question pack mismatch")
+    _same(prep.get("cumulative_attempts"), proof_spec["carry_attempts"], "wording arm preparation attempts mismatch")
+    _same(prep.get("cumulative_usd"), proof_spec["carry_usd"], "wording arm preparation cost mismatch")
+    _same(prep.get("pending"), 0, "wording arm has pending prior charges")
+    _same(prep.get("unknown"), 0, "wording arm has unknown prior charges")
+    _same(prep.get("overreserve"), 0, "wording arm has overreserved prior charges")
+    _same(prep.get("provider_calls"), 0, "wording arm preparation made provider calls")
+    if campaign == CAMPAIGN_SECONDARY_V3:
+        _same(prep.get("policy_acceptance_sha256"), proof_spec["input_hashes"]["policy-acceptance.json"], "secondary arm policy acceptance mismatch")
 
-    parent_pack_raw = _read_regular(package_root / "question-pack.json", max_bytes=100_000)
-    _same(_sha(parent_pack_raw), proof_spec["parent_question_pack_sha256"], "ambiguity arm parent question pack hash mismatch")
+    parent_pack_raw = _read_regular(parent_dir / "question-pack.json", max_bytes=100_000)
+    _same(_sha(parent_pack_raw), proof_spec["parent_question_pack_sha256"], "wording arm parent question pack hash mismatch")
     parent_pack = _parse(parent_pack_raw)
     try:
         parent_questions = jev_question_set_from_value(parent_pack)
-        selected_questions = jev_question_set_from_value(frozen["question-pack.json"])
     except Exception:
-        _fail("ambiguity arm question pack is invalid")
-    parent_ambiguity = next(question for question in parent_pack["questions"] if question["id"] == "ambiguity")
-    selected_ambiguity = next(question for question in frozen["question-pack.json"]["questions"] if question["id"] == "ambiguity")
+        _fail("wording arm question pack is invalid")
+    parent_question = next(question for question in parent_pack["questions"] if question["id"] == changed_question)
+    selected_question = next(question for question in frozen["question-pack.json"]["questions"] if question["id"] == changed_question)
     _same(manifest.get("question_change"), {
-        "before": parent_ambiguity,
-        "after": selected_ambiguity,
-    }, "ambiguity arm question change differs from its manifest")
+        "before": parent_question,
+        "after": selected_question,
+    }, "wording arm question change differs from its manifest")
     _same(
-        [question for question in parent_pack["questions"] if question["id"] != "ambiguity"],
-        [question for question in frozen["question-pack.json"]["questions"] if question["id"] != "ambiguity"],
-        "ambiguity arm changed another question",
+        [question for question in parent_pack["questions"] if question["id"] != changed_question],
+        [question for question in frozen["question-pack.json"]["questions"] if question["id"] != changed_question],
+        "wording arm changed another question",
     )
-    _same(parent_pack["version"], "ranking-v1", "baseline question pack version mismatch")
-    _same(frozen["question-pack.json"]["version"], "ranking-v1-ambiguity-clarified-v1", "ambiguity arm question pack version mismatch")
+    _same(frozen["question-pack.json"]["version"], proof_spec["question_pack_version"], "wording arm question pack version mismatch")
 
-    parent_ledger = _read_regular(package_root / CAMPAIGN_NATIVE20 / "campaign-ledger.jsonl", max_bytes=2_000_000)
-    _same(_sha(parent_ledger), proof_spec["parent_ledger_sha256"], "ambiguity arm baseline ledger hash mismatch")
-    parent_summary_raw, parent_summary = _read_json(package_root / CAMPAIGN_NATIVE20 / "summary.json", max_bytes=100_000)
-    _same(_sha(parent_summary_raw), CAMPAIGN_PROOFS[CAMPAIGN_NATIVE20]["summary_sha256"], "ambiguity arm baseline summary hash mismatch")
-    _same(parent_summary.get("ledger_sha256"), proof_spec["parent_ledger_sha256"], "ambiguity arm baseline summary ledger mismatch")
+    parent_ledger = _read_regular(package_root / parent_campaign / "campaign-ledger.jsonl", max_bytes=2_000_000)
+    _same(_sha(parent_ledger), proof_spec["parent_ledger_sha256"], "wording arm parent ledger hash mismatch")
+    parent_summary_raw, parent_summary = _read_json(package_root / parent_campaign / "summary.json", max_bytes=100_000)
+    _same(_sha(parent_summary_raw), parent_proof["summary_sha256"], "wording arm parent summary hash mismatch")
+    _same(parent_summary.get("ledger_sha256"), proof_spec["parent_ledger_sha256"], "wording arm parent summary ledger mismatch")
     closed_parent = [item for item in prep.get("closed_ledgers", []) if isinstance(item, dict) and item.get("sha256") == proof_spec["parent_ledger_sha256"]]
     if len(closed_parent) != 1 or closed_parent[0].get("last_event_sha256") != parent_summary.get("ledger_final_event_sha256"):
-        _fail("ambiguity arm does not close over the baseline ledger")
+        _fail("wording arm does not close over the parent ledger")
     return parent_questions
 
 
@@ -354,6 +393,9 @@ def load_verified_native20(
         _fail("campaign summary hash mismatch")
     if not isinstance(summary, dict):
         _fail("native20 summary is invalid")
+    if campaign == CAMPAIGN_SECONDARY_V3:
+        sealed_manifest = _read_regular(campaign_dir / "native-results-manifest.json", max_bytes=100_000)
+        _same(_sha(sealed_manifest), proof_spec["sealed_manifest_sha256"], "secondary arm sealed result manifest mismatch")
     ledger_raw = _read_regular(campaign_dir / "campaign-ledger.jsonl", max_bytes=2_000_000)
     if _sha(ledger_raw) != summary.get("ledger_sha256"):
         _fail("campaign ledger differs from summary")
@@ -378,11 +420,14 @@ def load_verified_native20(
     _same(carry.get("historical_spend_usd"), proof_spec["carry_usd"], "campaign carry spend mismatch")
     _same(carry.get("limits"), {"attempts": 20, "usd": "0.50", "seconds": 1200, "request_bytes": 32768}, "campaign limits mismatch")
     parent_questions = None
-    if campaign == CAMPAIGN_AMBIGUITY_V2:
+    if campaign in {CAMPAIGN_AMBIGUITY_V2, CAMPAIGN_SECONDARY_V3}:
         _same(carry.get("arm_manifest_sha256"), proof_spec["input_hashes"]["arm-manifest.json"], "campaign arm manifest binding mismatch")
         _same(carry.get("parent_ledger_sha256"), proof_spec["parent_ledger_sha256"], "campaign parent ledger binding mismatch")
         _same(carry.get("rubric_proxy_seal_sha256"), proxy_hashes["native20-rubric-proxy.json"], "campaign rubric proxy binding mismatch")
-        parent_questions = _verify_ambiguity_arm(package_root, frozen, prep, proof_spec, proxy_hashes)
+        parent_questions = _verify_wording_arm(package_root, campaign, frozen, prep, proof_spec, proxy_hashes)
+        if campaign == CAMPAIGN_SECONDARY_V3:
+            _same(carry.get("accepted_policy_sha256"), proof_spec["input_hashes"]["policy-acceptance.json"], "campaign accepted policy binding mismatch")
+            _same(carry.get("preference_proxy_seal_sha256"), proxy_hashes["native20-secondary-preference-proxy.json"], "campaign preference proxy binding mismatch")
 
     expected_summary = {
         "status": "completed", "attempts": EXPECTED_JOBS, "settled": EXPECTED_JOBS,
@@ -426,11 +471,11 @@ def load_verified_native20(
             "request_sha256": request_sha,
             "request_bytes": len(request_raw_expected),
         }
-        if campaign == CAMPAIGN_AMBIGUITY_V2:
+        if campaign in {CAMPAIGN_AMBIGUITY_V2, CAMPAIGN_SECONDARY_V3}:
             parent_request_raw = _canonical_request(source, frozen["profile-binding.json"], parent_questions)
             parent_request_sha = _sha(parent_request_raw)
             _same(prepared.get("parent_request_sha256"), parent_request_sha, "arm parent request differs from baseline context")
-            baseline_request = _read_regular(package_root / CAMPAIGN_NATIVE20 / f"request-{job_id}.json", max_bytes=32_768)
+            baseline_request = _read_regular(package_root / proof_spec["parent_campaign"] / f"request-{job_id}.json", max_bytes=32_768)
             if baseline_request != parent_request_raw:
                 _fail("arm parent request differs from frozen baseline request")
             proof["parent_request_sha256"] = parent_request_sha
@@ -500,7 +545,7 @@ def load_verified_native20(
         for source in sources
         for kind, suffix in (("request", ".json"), ("response", ".body"), ("result", ".json"))
     }
-    if campaign == CAMPAIGN_AMBIGUITY_V2:
+    if campaign in {CAMPAIGN_AMBIGUITY_V2, CAMPAIGN_SECONDARY_V3}:
         expected_files |= {f"frozen-request-{source['job_id']}.json" for source in sources}
     actual_files = {
         path.name for path in campaign_dir.iterdir()

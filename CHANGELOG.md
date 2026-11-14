@@ -7,6 +7,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Research
+
+- Validate accepted secondary-work wording in a third settled 20-source native
+  development arm and replay it through isolated MCP; freeze a separate 60-source
+  development frame before blinded references and inference.
+
 ### Changed
 
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from

@@ -112,6 +112,40 @@ def test_ambiguity_arm_replay_reconciles_mcp_without_changing_priority():
     assert result["live_provider_calls"] == result["network_calls"] == result["production_db_writes"] == 0
 
 
+def test_secondary_arm_replay_reconciles_accepted_preference_policy():
+    inputs = _private_inputs_or_skip().parent / "native20-secondary-v3"
+    if not inputs.is_dir():
+        pytest.skip("private secondary arm artifacts are not present")
+    result = run_demo(inputs)
+    assert result["campaign"] == "native20-secondary-v3"
+    assert result["replayed_responses"] == result["succeeded"] == 20
+    assert result["freshness"] == {"current": 20, "stale": 0, "absent": 0}
+    assert result["assessment_origin_counts"] == {"fake": 0, "recorded_native": 20}
+    assert result["priority_counts"] == {"low": 12, "medium": 8}
+    assert result["needs_review"] == {"yes": 5, "no": 15}
+    assert result["aggregate_native_values"]["preference"] == {"plausible": 8, "weak": 12}
+    assert result["aggregate_native_values"]["ambiguity"] == {"clear": 18, "review": 2}
+    assert result["mcp_counts"] == {"list_rows": 20, "detail_rows": 20, "description_chunks": 20}
+    assert result["fake_provider"] is False
+    assert result["prototype"] is True
+    assert result["live_provider_calls"] == result["network_calls"] == result["production_db_writes"] == 0
+
+
+def test_secondary_arm_rejects_symlinked_package_before_replay(tmp_path):
+    target = tmp_path / "unverified"
+    target.mkdir()
+    inputs = tmp_path / "native20-secondary-v3"
+    inputs.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ReplayInputError, match="private replay input directory is invalid"):
+        run_demo(inputs)
+    assert list(target.iterdir()) == []
+
+
+def test_unapproved_campaign_is_rejected_before_artifact_access(tmp_path):
+    with pytest.raises(ReplayInputError, match="unsupported replay campaign"):
+        run_demo(tmp_path / "missing", campaign="native20-secondary-v4")
+
+
 def test_changed_native_response_body_is_rejected_before_replay(tmp_path):
     inputs = _copy_replay_package(_private_inputs_or_skip(), tmp_path)
     response = next(inputs.glob("response-*.body"))
