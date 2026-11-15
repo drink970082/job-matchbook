@@ -147,3 +147,19 @@ At totalK10/20/40, publication and native ordering each recover4/7/14 of15
 proxy-positive rows, exchanging one gained and one lost positive at each budget.
 One additional utility label is unresolved. No net ranking benefit is established;
 prospective validation and actual consumer acceptance remain open.
+
+## Normal screened-inventory development
+
+The [Screened60 frame](screened60-frame.md) uses the normal retained screened view
+without waiting for independent snapshots. The normal fetch+screen worker is active;
+independent JEV collection timers are disabled. Blinded references were sealed before
+all60 native calls; [the audited receipt](screened60-native.md) settlesUSD0.011450754
+with zero pending/unknown. This campaign remains private JSON and is not imported by
+the20-source MCP replay CLI.
+
+[Both locked comparison views](screened60-comparison.md) are reported. AtK20 the
+primary publication/domain-allocation baseline recovers11 positives versus native10.
+A secondary flat current-UI ordering recovers3 versus native10; all60share one
+creation timestamp, so UIorder is numericID tie-breaking in this frame. Six native
+misses comprise twoMEDIUMties and fourLOW assessment/utility disagreements. This is
+exposed model-proxy development evidence with no production GO or automatic new arm.

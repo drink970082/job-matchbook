@@ -31,9 +31,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   independence. All independent JEVcollection timers are disabled; normal fetch+screen worker is
   active. A new [Screened60 frame](jev-ranking/screened60-frame.md) contains the newest
   60 from the actual retained screen pool, excluding prior research exposure. All60
-  source revisions/screens match and complete bodies fit the existing bound. Blind
-  references are in flight before a bounded unchanged-C comparison. No new duty policy
-  or production ranking rollout.
+  source revisions/screens match and complete bodies fit the existing bound. All60 blind references precede inference;60valid settlements costUSD0.011450754.
+  [Screened comparison](jev-ranking/screened60-comparison.md) atK20 reports primary
+  publication/domain baseline11 versus native10 positives, and separately flat current-UI
+  order3 versus native10. All60share one creation timestamp, so UIorder is numericID
+  tie-breaking. Native misses six positives (twoMEDIUMties/fourLOWdisagreements).
+  Next inspect those misses under existing rules and validate on normal future intake;
+  no new duty policy, automatic extra arm or production ranking rollout.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

@@ -36,7 +36,12 @@ atK10/20/40 with different selected identities and no net utility gain; its depl
 disposition is INCONCLUSIVE. The [Screened60 frame](jev-ranking/screened60-frame.md) aligns the next development
 comparison with the normal post-screen inventory. Independent collection timers are
 disabled; normal worker fetch+screen supplies new intake. These studies do not activate
-a production ranker or certify cached screening as eligibility truth.
+a production ranker or certify cached screening as eligibility truth. Its
+[settled receipt](jev-ranking/screened60-native.md) binds60valid calls/USD0.011450754.
+[Both comparison views](jev-ranking/screened60-comparison.md) remain explicit: atK20
+primary publication/domain allocation11 versus native10 positives; flat current-UI
+ordering3 versus native10, on one creation-time-tied development batch. No quality
+GO, eligibility predicate or consumer deployment follows.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

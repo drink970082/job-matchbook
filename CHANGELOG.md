@@ -11,7 +11,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 - Freeze Screened60 from the actual retained screen pool, using newest-first ordering
   and prior-exposure exclusions, for an unchanged-C paired comparison. Keep cached
-  screening evidence separate from independent utility references.
+  screening evidence separate from independent utility references. Settle60native
+  calls forUSD0.011450754 and report both primaryK20regression11→10positives and
+  current-UI sensitivity3→10, with tied-creation/development limits and no GO.
 
 - Validate accepted secondary-work wording in a third settled 20-source native
   development arm and replay it through isolated MCP; freeze a separate 60-source
