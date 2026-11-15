@@ -12,9 +12,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   `1308f47`. Continue directly with existing normally screened inventory; new intake
   comes from the enabled normal ATS worker fetch+screen service. All independent JEV
   collection timers are disabled. Three extra snapshots are not a prerequisite.
-  Accepted v2 unused-K fill remains the evaluator default. Next: reconcile the actual
-  post-screen read pool and freeze the identical comparison scope for both arms,
-  reference labels and bounded workload. Screen outputs are advisory inputs, not utility
+  Accepted v2 unused-K fill remains the evaluator default. The actual public
+  candidate/no-disqualifier pool has6152rows at the frozen read-only cutoff. A newest60
+  development cohort, independent blind references and bounded unchanged-C inference
+  are in PR146; paired comparison verification is in flight. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
