@@ -22,7 +22,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   atK20. The single D boundary-wording trial in PR146 is rejected:0/4target misses
   repaired, primaryK2010→9 andflat10→8. Its tier/domain consumer also lacksK20gain.
   C remains the development pack; further work needs a different scoped mechanism,
-  not another wording iteration. Normal intake remains active without a collection wait. Screen outputs are advisory inputs, not utility
+  not another wording iteration. The input-isolation follow-up also rejects both arms:
+  fullsingleton exactlymatches C52/60; isolation51/60 fixes1/4target cases and loses one
+  HYBRID flatK20positive. Fresh answers are preference-only; other C fields are cached.
+  Next mechanism is source-fact extraction plus explicit preference mapping, not another
+  context-filter variant. Normal intake remains active without a collection wait. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
