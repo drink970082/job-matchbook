@@ -26,8 +26,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   not human truth or population recall. No production writes, service changes or
   ranking rollout; P1/P2 quality acceptance remains separate. See
   [C comparison](jev-ranking/native20-secondary-comparison.md) and
-  [60-source comparison](jev-ranking/dev60-comparison.md). Narrow private disagreement
-  adjudication remains in flight; no new inference arm or policy change.
+  [60-source comparison](jev-ranking/dev60-comparison.md). Narrow private adjudication supports advisory MEDIUM readings for four LOW misses
+  under existing rules, without relabeling. A spelling-variant near-template pair limits
+  independence. Prospective consumer admission protocol is in preparation on P1; no new
+  inference arm or policy change.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

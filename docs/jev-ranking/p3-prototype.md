@@ -131,7 +131,7 @@ network/provider calls and zero production writes. `make check-schema` and diff 
 The C helper/test addendum passes50 focused A/B/C/core/MCP cases; public replay tests
 pass16 with5 private-artifact skips. Its actual private CLI replay passes20 rows and
 chunks with zero network/provider/production writes. Runtime code is unchanged.
-Latest documentation/addendum review remains in progress. No production
+Development evidence remains separate from runtime and production acceptance. No production
 ranking activation, live ChatGPT connector acceptance or held-out quality is verified.
 
 ## Separate 60-source development comparison

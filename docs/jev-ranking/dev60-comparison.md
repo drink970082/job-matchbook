@@ -142,3 +142,35 @@ production behavior are not verified by these offline checks.
 | Comparison tests | `bf796fdb81965b91dc7a6cd5c02f9890dce3d3e96579e7869b0680dfe6b97832` |
 | Comparison artifact | `78f1fde03ec5d35ed4ff1f690bd297a7d7d5da94886efe35bf2b3a71b28cdfb3` |
 | Private diagnosis | `21e603f97c374580a22dbd0a7be0152933619dbbc3aaa88df1fdee65e1174729` |
+
+## Narrow private adjudication addendum
+
+Full-source review of the four utility-positive native-LOW rows supports
+plausible+partial, hence MEDIUM, under the existing approved policy in all four cases.
+This is an advisory interpretation, not replacement reference truth. The source lost
+against publication ordering at every budget describes software implementation;
+specialist-domain gaps do not establish avoided duties or absent background relevance.
+One other case combines explicit implementation with reporting. Two combine explicitly
+primary execution work with repeated implementation duties, supporting the existing
+mixed-plausible criterion without calling the work first-choice engineering. No new
+candidate facts, blanket role acceptance or human preference decision is needed to apply
+the current rules. Original labels, outputs and metrics remain unchanged.
+
+Those two execution-work rows are near duplicates: their complete descriptions differ
+only in a spelling variant. Exact whitespace-normalized grouping misses that variant.
+The four rows therefore represent three duty patterns; the frozen 60-row counts are
+preserved. Future validation needs near-template/requisition review before splitting.
+
+P0 separates ranking from eligibility and leaves reading allocation to the consumer; it
+does not implement a universal eligibility-before-K predicate. The concrete consumer
+recommendation is to admit sources using supported, current, source/profile-bound
+eligibility evidence before reserve/domain/K allocation, with confirmed conflicts in a
+visible excluded-with-reason view. Unknown or stale evidence stays visible for review;
+native priority and proxy utility labels cannot substitute for eligibility facts. Apply
+the same admission scope to both ordering arms. This recommendation adds no predicate or
+filtered comparison here.
+
+Private `adjudication.json` validates 14 exact source spans and binds all original inputs;
+SHA256 `cb09f56c41df575edd87046d037d37e3c42ff90650dbfbab3c07f32c4f7e2964`.
+No additional native call or cohort change occurred. Prospective capture remains the
+next evidence gate.

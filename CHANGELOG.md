@@ -13,6 +13,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   development arm and replay it through isolated MCP; freeze a separate 60-source
   development frame before blinded references and inference. Its bounded60-call
   native campaign settles all responses for USD0.011639040 with no pending charge.
+  Preserve advisory four-row disagreement adjudication separately from frozen labels
+  and metrics, including a spelling-variant near-template limitation.
 
 ### Changed
 
