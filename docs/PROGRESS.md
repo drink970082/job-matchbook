@@ -19,8 +19,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   current-UI ordering gives3→10, with a shared-creation-time limitation. Neither result
   authorizes ranking rollout. Six-miss inspection in PR146 separates twoMEDIUM cutoff cases from four advisory
   LOW preference disagreements. An offline four-case correction still reads10positives
-  atK20, so preference stability and within-tier selection remain separate questions
-  before fresh normal-intake validation; no separate collection wait. Screen outputs are advisory inputs, not utility
+  atK20. The single D boundary-wording trial in PR146 is rejected:0/4target misses
+  repaired, primaryK2010→9 andflat10→8. Its tier/domain consumer also lacksK20gain.
+  C remains the development pack; further work needs a different scoped mechanism,
+  not another wording iteration. Normal intake remains active without a collection wait. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
