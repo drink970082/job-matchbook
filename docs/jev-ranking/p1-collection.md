@@ -1,105 +1,38 @@
-# P1 bounded roster snapshot collector
+# P1 optional roster snapshot utility
 
-**Status:** limited snapshot collection authorized; three one-shot timers enabled, observations pending.
-This is an accepted limited daily-snapshot study, not complete all-day intake coverage.
+**Status:** inactive. All independent JEV snapshot timers are disabled. Normal ATS
+worker fetch + standalone screening supplies ongoing intake; this utility is not a
+prerequisite for existing-inventory development or later fresh-data evaluation.
 
-## Explicit scope
+## Utility and retained scope
 
-The read-only watchlist export contains 172 boards. The candidate selects the 120 boards
-whose existing native APIs supply one complete list response: Greenhouse 101, Ashby 12,
-Lever 7. The other 52 watchlist boards and all discovery feeds are excluded explicitly.
-No browser/custom adapter or detail hydration is invoked. Existing global title/age and
-candidate location/internship gates are copied into the private scope; no filter changes.
+`apps/worker/tools/jev_collect_roster.py` can capture one bounded observation through
+injected fixtures or explicitly selected native APIs. It retains raw payloads, parsed
+identities, source/description hashes, exclusion reasons and per-board success/failure.
+It makes no model calls or production DB writes. `scope_capture_complete` means every
+selected board returned a structurally matching response; `daily_window_complete` is
+always false. Point snapshots cannot establish all-day coverage or full JD completeness.
 
-Private candidate: `apps/worker/resume/pivot/jev-ranking-p1-v1/scope-candidate.json` in the
-operator's original checkout, mode 0600, ignored by git. Canonical UTF-8 compact sorted
-JSON SHA-256: `19ada5f2db1b99efb7e6d1256b0fe465b1a14660c2653432979f51230d1c674f`.
-The scope and candidate settings must remain frozen across observations.
-
-Each output retains the exact decoded native JSON payload, raw identities, parsed full
-posting values/hashes, deterministic filter reasons, missing-body records, duplicate
-identity links and per-board success/failure/unsupported receipts. Raw/parsed IDs reconcile
-for captured boards. A returned body is not proof the source supplied a complete JD.
-Cross-day requisition/template grouping remains P1 preparation work.
-
-`scope_capture_complete` means every selected board returned a structurally valid matching
-list. `daily_window_complete` is always false: a point observation cannot observe jobs
-that appeared and disappeared between observations. No result claims full original P1
-held-out completeness. The operator accepted this 120-board snapshot study scope and activation; a failed board makes that observation incomplete and is not silently replaced.
-
-## Active collection schedule
-
-Scheduled dates are 2026-11-15, 2026-11-16 and 2026-11-17 at 12:00 UTC
-(07:00 America/New_York), with each enclosing UTC day declared in the manifest.
-If activation occurs after the first cutoff, choose three later distinct dates before
-starting rather than manufacture a missed observation. Each run permits at most 120
-requests, 1,800 seconds of cooperative network elapsed time, 134,217,728 total response
-bytes and 268,435,456 serialized output bytes. Blocking reads can overrun the cooperative
-time cap by the configured read timeout (at most 20 seconds); this is not a process-kill
-deadline. There are no retries, redirects, model requests, production DB writes or changes to the production worker schedule. Three runs permit at most 360 public-board
-requests. Only these three separate snapshot timers are enabled.
-
-Create the private output directory with mode 0700. For each accepted day substitute its
-UTC start/end and a unique private output filename:
-
-```sh
-python3 apps/worker/tools/jev_collect_roster.py \
-  --scope /home/halcyon/root/ats/apps/worker/resume/pivot/jev-ranking-p1-v1/scope-candidate.json \
-  --output /PRIVATE/observations/YYYY-MM-DD.json \
-  --window-start YYYY-MM-DDT00:00:00Z \
-  --window-end NEXT-DAYT00:00:00Z \
-  --live --max-requests 120 --max-seconds 1800 \
-  --max-response-bytes 134217728 --max-output-bytes 268435456
-```
-
-Output is reserved exclusively with mode 0600 before network dispatch. Existing or
-unwritable output paths fail before any request. Interrupted/failed writes are not a
-sealed valid JSON observation and must be reconciled before rerunning; the collector
-never overwrites a previous path. A zero CLI exit means selected-scope capture succeeded,
-not daily coverage or ranking quality. Exit 2 reports incomplete capture.
-
-## Executed fake demonstration
-
-A synthetic Greenhouse board with one posting was captured using `--fixture`, `--now`
-and a declared UTC window. Actual summary: expected/captured boards 1/1, raw/parsed rows
-1/1, retained 1, excluded 0, model_calls 0, database_writes 0,
-scope_capture_complete true, daily_window_complete false. Reusing the output path fails.
-
-Targeted tests cover native identity reconciliation, title/age/location/internship and
-missing-body reasons, duplicate identity, malformed payload retention, unsupported/error
-boards, timestamps/slug validation, fixture CLI and no-clobber-before-live behavior.
-No live endpoint or production service was exercised.
-
-## Active operational binding
-
-The running schedule uses frozen collector build `0b84b5b4020fac6de4a8090fc76e6da66585c3b1`,
-archived independently of subsequent worktree edits. Its private activation directory is
-`apps/worker/resume/pivot/jev-ranking-p1-v1/activation-repair-0b84b5b` in the original checkout. It holds
-scope.json, manifest.json, run.py, the archived code and observations/. Each run verifies
-the frozen scope and all 75 archived source-file hashes before dispatch. Private files
-remain ignored; outputs use mode 0600 and the activation root uses mode 0700.
-
-User timers `ats-jev-p1-20261115.timer`, `ats-jev-p1-20261116.timer` and
-`ats-jev-p1-20261117.timer` each activate their matching oneshot service once, at 12:00 UTC.
-Timers have no randomized delay or missed-run persistence; services have no automatic
-restart and a 1900-second process timeout. An offline/missed day is not silently backfilled.
-User lingering is enabled, allowing timers to run without an interactive login. No existing
-ATS service or model setting was changed. This activation does not merge PR #145.
-
-The November 14 attempt failed slug validation before HTTP or output creation. Its
-service receipt and original archive remain preserved; its timer is disabled. No late
-November 14 observation was fabricated. The repaired archive changes only the collector
-runtime file, accepts all 120 frozen board slugs, and passes an offline full-scope
-120-board fixture. Repair manifest SHA-256:
+The private frozen scope selects120boards:101Greenhouse,12Ashby,7Lever. Other52boards
+and discovery feeds are excluded. Scope SHA256:
+`19ada5f2db1b99efb7e6d1256b0fe465b1a14660c2653432979f51230d1c674f`.
+The repaired archive `0b84b5b` validates all120safe slugs and passes an offline full-scope
+fixture. Its immutable manifest SHA256:
 `96b0f227a7a47bec7b0095e97ac03c71201d977c24852a0b272f0540b0b6d745`.
+Archives and the pre-HTTP failed receipt remain private and ignored. No observations
+are claimed to exist. Do not enable another collection campaign as an evaluation gate.
 
-Verified: systemd unit verification passes; all three timers are enabled/active with the
-expected next times; matching services have no start timestamp and zero restarts. The
-archived CLI imports/--help and all code hashes pass; observations/ is empty. Live HTTP,
-board success and resulting datasets are pending, not claimed verified.
+## Active operating path
 
-Inspect with `systemctl --user list-timers 'ats-jev-p1-*' --all` and
-`journalctl --user -u ats-jev-p1-20261114.service` (substitute the day). Disable remaining
-captures with `systemctl --user disable --now ats-jev-p1-20261115.timer ats-jev-p1-20261116.timer ats-jev-p1-20261117.timer`.
-A completed run requires valid observation JSON, reconciled counts/hashes and review of
-failed boards before cohort acceptance. P1 stays open until real-data requirements pass.
+The normal `ats-worker.service` is enabled and active, using the existing runtime
+checkout and `--screen-only --screen-backend codex --screen-model gpt-5.6-luna
+--screen-effort medium --screen-unlimited --screen-workers 1`. It fetches and screens at the
+existing daily00:00America/New_York schedule, without fit scoring. User lingering
+allows operation after logout; the host must remain awake and online.
+
+Existing completed screen evidence may be used now for exposed development. Select the
+same post-screen inventory for both publication and JEV ordering; report lifecycle,
+unknown/provider-error and source-relative freshness separately. Cached screen evidence
+is advisory and does not prove current profile binding. No candidate facts or screen
+outcomes are overwritten for research. See the
+[consumer comparison protocol](p1-prospective-consumer-protocol.md).

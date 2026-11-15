@@ -17,6 +17,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Disable the redundant three JEV snapshot timers and use the enabled normal worker
+  fetch+screen intake. Resume existing screened-inventory evaluation without a
+  three-day collection prerequisite; preserve advisory evidence limitations.
+
 - Freeze prospective consumer analysis using independently verified conflict receipts,
   common admission before K and explicit capture/exclusion denominators; preserve
   advisory screening/cache behavior without adding a production predicate.

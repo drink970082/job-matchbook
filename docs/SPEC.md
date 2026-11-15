@@ -29,12 +29,13 @@ from independently complete daily source rosters; real P1 evidence remains incom
 legacy v1 remains explicit. The collector accepts safe dot-separated native ATS slugs. A separate injected `roster_collection` utility
 can retain one raw/parsed Greenhouse, Lever or Ashby observation with exclusion reasons;
 its explicit live CLI has request/time/byte caps and never writes the production DB or
-invokes models. A separately authorized frozen build has three one-shot user timers
-for 120-board snapshots on November 15–17 at 12:00 UTC, bound to repaired build `0b84b5b`; datasets are still pending. The November 14 attempt failed before HTTP and remains an explicit failed receipt. Unsupported sources and all-day completeness remain explicit gaps. The
-[prospective consumer analysis protocol](jev-ranking/p1-prospective-consumer-protocol.md)
-requires independently checked source/profile-bound conflict receipts for study admission,
-identical admission in both ordering arms and separate capture/exclusion denominators.
-It adds no runtime predicate; cached screening stays advisory.
+invokes models. The optional roster utility has no active collection timers. The normal worker's
+fetch+screen intake supplies development and future fresh evidence; three extra
+snapshots are not required before using existing screened inventory. The
+[consumer analysis protocol](jev-ranking/p1-prospective-consumer-protocol.md) keeps
+both ordering arms on the same post-screen pool and preserves source/profile evidence,
+unknowns and explicit denominators. Cached screening remains advisory; this adds no
+production admission predicate.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

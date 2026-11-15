@@ -8,25 +8,16 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV P1 evaluation preparation (#137)** — `feat/jev-p1-evaluation`, based on main
-  `9045b2c` and accepted P0 `1308f47` (PR #144, unmerged). Offline cohort-readiness
-  audit, synthetic baseline/metrics, evaluation contract and selected prospective
-  collection preparation. The accepted 120-board snapshot scope is scheduled once at
-  12:00 UTC on November 15–17 using repaired frozen build `0b84b5b`; separate one-shot user timers
-  are enabled. Observations are pending; no model calls, production DB writes, worker
-  service changes or merge. #137 remains open for three valid observations, grouped
-  split/labels and a frozen inference workload/budget under the operator
-  standing API-expense authority. The user selected v2 leftover-K fill as the evaluator
-  default; legacy v1 remains explicit. First scheduled snapshot failed before HTTP because
-  the slug validator rejected a legitimate dotted Ashby slug. The tested repaired build is activated; the failed November 14 receipt remains preserved,
-  its timer is disabled, and no late capture was substituted.
-  Near-template grouping must include spelling variants before any future split;
-  the separate Dev60 development adjudication found a pair missed by exact-only grouping.
-  See [collection](jev-ranking/p1-collection.md) and the
-  [prospective consumer analysis protocol](jev-ranking/p1-prospective-consumer-protocol.md).
-  Admission evidence must be independently source/profile-bound; cached screen freshness
-  alone is advisory. Both arms retain identical admission and explicit capture/exclusion
-  denominators. Actual observation counts and inference workloads remain unsealed.
+- **JEV P1 evaluation preparation (#137)** — `feat/jev-p1-evaluation`, accepted P0
+  `1308f47`. Continue directly with existing normally screened inventory; new intake
+  comes from the enabled normal ATS worker fetch+screen service. All independent JEV
+  collection timers are disabled. Three extra snapshots are not a prerequisite.
+  Accepted v2 unused-K fill remains the evaluator default. Next: reconcile the actual
+  post-screen read pool and freeze the identical comparison scope for both arms,
+  reference labels and bounded workload. Screen outputs are advisory inputs, not utility
+  truth. Preserve source/profile/freshness limits and near-template grouping before any
+  fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
+  [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

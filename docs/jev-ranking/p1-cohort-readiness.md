@@ -1,6 +1,6 @@
 # P1 cohort readiness
 
-**Status:** complete daily held-out pools unavailable; limited prospective snapshot scope accepted and scheduled; actual observations pending.
+**Status:** existing screened inventory is available for development; fresh evidence uses normal worker intake. Independent snapshot timers are disabled.
 Accepted P0 source: `1308f47`. This is an offline data audit, not a quality evaluation.
 No labels or JEV outputs were read for this audit.
 
@@ -60,12 +60,10 @@ counts above are inventory evidence only.
 
 ## Selected prospective preparation and activation gate
 
-The operator accepted the bounded 120-board point-snapshot study described in
-[collection](p1-collection.md). Repaired frozen build `0b84b5b` is scheduled for
-November 15–17 at 12:00 UTC; the November 14 pre-HTTP failure remains explicit.
-These observations cannot establish complete all-day intake coverage. No production
-ranking deployment follows from collection approval. Actual observations, group locking
-and independent evaluation remain pending.
+Use the normal worker’s fetch+screen output for new evidence, and existing screened
+inventory for development now. The independent120-board collector is inactive;
+three extra point snapshots are not an evaluation prerequisite. Preserve screen,
+source freshness, grouping and exposure limits when freezing any comparison pool.
 
 For each window retain an immutable manifest of the watchlist/config revision, expected
 boards/feed pages, run start/end/cutoff, pagination completion and per-source success or
@@ -87,12 +85,14 @@ content with explicit assessability reasons. Freeze the source roster, approved 
 hashes, allocation K/R, baseline ordering, proxy guide, unresolved-label handling and
 statistical limits. Record exact manifests and checksums; seal held-out data against
 inspection for tuning. P1 must separately justify source-content completeness and sample
-size, rather than infer them from row counts. The accepted limited snapshot scope and its active timers are documented separately in
-[collection](p1-collection.md). No proxy-label workload or provider inference is authorized.
+size, rather than infer them from row counts. The normal worker operating path and
+inactive optional collector are documented in [collection](p1-collection.md). Standing
+API-expense authority permits bounded development workloads; each campaign still seals
+its exact inputs and limits before dispatch.
 
-A retrospective stored-inventory-only study is a different, weaker scope. It can be
-proposed as development evidence, but cannot be renamed three complete untouched daily
-pools or satisfy that gate without an explicit changed evaluation contract.
+The operator selected existing normally screened inventory as development evidence now.
+It cannot be renamed complete untouched daily pools. Future validation uses normal
+worker intake with its actual coverage and exposure limitations disclosed.
 
 ## Verification limits
 

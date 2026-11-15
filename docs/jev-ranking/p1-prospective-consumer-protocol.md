@@ -1,18 +1,23 @@
 # Prospective consumer comparison protocol
 
-**Status:** frozen analysis protocol for the three scheduled limited snapshots;
-execution awaits captured evidence. No runtime, screening, predicate or model-arm change.
+**Status:** analysis protocol for existing normally screened inventory and later
+fresh worker intake; independent collection timers are disabled. No runtime, screening, predicate or model-arm change.
 This does not turn point snapshots into complete daily windows or establish a GO threshold.
+
+This protocol does not require adding a new eligibility gate ahead of the operator’s
+existing screen view. Extra fact-review admission below is a separately declared study
+analysis; it must not silently redefine that existing post-screen pool.
 
 Use the accepted [P0 contract](https://github.com/drink970082/job-matchbook/blob/1308f47/docs/jev-ranking/p0-contract.md),
 [limited collection scope](p1-collection.md) and [P1 v2 comparison](p1-evaluation.md).
-Preserve the scheduled November 15–17 observations and their frozen build/scope; do not
-substitute late captures, successful boards or newly selected sources for failures.
-Collection remains independent of ranking and eligibility assessment.
+Use normal worker fetch+screen output. Seal the same post-screen read pool for both
+ordering arms; screen judgments are advisory inputs, not utility-reference truth.
+Existing inventory is development evidence and can be used immediately. Future normal
+intake can provide fresh validation without a separate collector or three-day wait.
 
 ## Freeze before judgments
 
-For each observation seal the expected-board receipts, raw identities, parsed sources,
+For each worker intake/export seal available source receipts, identities, parsed sources,
 capture cutoff, source hashes, original filter reasons and missing/failed records.
 Reconcile raw → parsed/excluded/unresolved before forming a consumer pool. Group exact
 source/requisition identities and review near-template candidates, including spelling
@@ -138,8 +143,8 @@ filtered Dev60 quality result. Paired differences share the same unresolved iden
 show uncertainty bounds, actual feasibility ceilings and repeated-source dependence.
 
 Before any native inference, actual snapshot counts, full request sizes, grouped scope,
-blind guide and bounded inference workload must be sealed separately. Three limited
-point observations do not satisfy complete-day held-out requirements. No final numerical
+blind guide and bounded inference workload must be sealed separately. Ordinary worker exports do not by themselves establish complete-day intake or
+untouched held-out evidence. No final numerical
 GO thresholds or production activation follow from this protocol. Missing evidence keeps
 the relevant result INCONCLUSIVE; no new user preference decision is needed now.
 
