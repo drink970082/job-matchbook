@@ -36,7 +36,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   publication/domain baseline11 versus native10 positives, and separately flat current-UI
   order3 versus native10. All60share one creation timestamp, so UIorder is numericID
   tie-breaking. Native misses six positives (twoMEDIUMties/fourLOWdisagreements).
-  Next inspect those misses under existing rules and validate on normal future intake;
+  The [six-miss inspection](jev-ranking/screened60-misses.md) supports advisoryMEDIUM
+  readings for fourLOWcases; twoMEDIUMcases rank21/24 and both primaryarms already read
+  them. An offline four-LOW→MEDIUM counterfactual still reads10positives atK20 because
+  two gains displace two other positives. Preference stability and within-tier selection
+  remain separate diagnostic questions before fresh validation;
   no new duty policy, automatic extra arm or production ranking rollout.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped

@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Inspect six Screened60 misses with unchanged inputs: distinguish two MEDIUM cutoff
+  cases from four advisory LOW preference disagreements. An offline four-case
+  correction still reads10positives atK20; preserve original labels and metrics.
+
 - Freeze Screened60 from the actual retained screen pool, using newest-first ordering
   and prior-exposure exclusions, for an unchanged-C paired comparison. Keep cached
   screening evidence separate from independent utility references. Settle60native

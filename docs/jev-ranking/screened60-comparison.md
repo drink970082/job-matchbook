@@ -156,3 +156,8 @@ operator's original checkout.
 | Audited native result manifest | `8d74adbf101ad5a64566878b0ce3653841b7cebd9e7fe539193b4aedc740f0c9` |
 | Comparison wrapper | `af4b18384ddeb4a973ef9b801f4060738e27844abf689c6836c007f96bec271c` |
 | Comparison artifact | `51fffd8cd0560e8b7bc5f9b356fd41c0496a5c6a10c0a6d03158c431002567cd` |
+
+The [six-miss inspection](screened60-misses.md) preserves this recorded comparison.
+Advisory MEDIUM readings for four LOW cases alone leave flatK20 positive recovery at10
+in an explicitly hypothetical replay; tier ties remain material. No new provider draw,
+reference relabeling or metric replacement is included.

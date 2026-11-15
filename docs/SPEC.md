@@ -41,7 +41,10 @@ a production ranker or certify cached screening as eligibility truth. Its
 [Both comparison views](jev-ranking/screened60-comparison.md) remain explicit: atK20
 primary publication/domain allocation11 versus native10 positives; flat current-UI
 ordering3 versus native10, on one creation-time-tied development batch. No quality
-GO, eligibility predicate or consumer deployment follows.
+GO, eligibility predicate or consumer deployment follows. The
+[six-miss inspection](jev-ranking/screened60-misses.md) separates twoMEDIUM cutoff
+misses from four advisoryLOW preference disagreements. Its offline counterfactual
+retains10positive reads atK20; it is not a provider result or changed metric.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
