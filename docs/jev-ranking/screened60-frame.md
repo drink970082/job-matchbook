@@ -15,7 +15,8 @@ The web's default Discovered view is All jobs, ordered `created_at DESC,id DESC`
 a screen filter. The corresponding retained screened view adds the no-disqualifier or
 candidate filter. This frame applies both predicates, then uses that exact default
 creation-time/ID ordering. It does not use legacy fit scores, duty/domain judgments,
-title quotas, company caps or model outcomes to select sources.
+title quotas, company caps, JEV/native ranking outcomes or utility-reference labels
+to select sources. Stored screen outcomes explicitly define the advisory input pool.
 
 ## Selection and provenance
 
