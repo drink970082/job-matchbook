@@ -47,7 +47,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   positives atK20 versus Cflat10 (paired[-3,0]), so it is not selected either.
   C remains the development pack. Do not repeat this wording patch or treat larger-K
   gains as a primary-budget pass; a different mechanism needs a new scoped hypothesis.
-  No production ranking rollout follows.
+  The [input-isolation diagnostic](jev-ranking/screened60-input-isolation.md) is also
+  rejected: fullsingleton52/60 matches C choices exactly; isolated51/60 repairs only1/4
+  target cases and loses one HYBRID flatK20 positive. All29weak controls remain weak.
+  C stays unchanged. Further work needs source-fact extraction plus explicit preference
+  mapping as a separately scoped mechanism, not another wording/context-filter variant.
+  No new experiment or production ranking rollout follows from the negative results.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

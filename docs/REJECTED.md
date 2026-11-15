@@ -15,6 +15,16 @@
 > Open work lives in [`BACKLOG.md`](./BACKLOG.md); the live delta and open defects in
 > [`PROGRESS.md`](./PROGRESS.md).
 
+- **JEV input isolation as the Screened60 preference repair.** Both full-context
+  and duty-only-context arms use the same unchanged singleton C preference question.
+  Full exactly reproduces C’s60choices/52agreements/0of4target repairs; isolation
+  yields51agreements/1of4repairs, with two repairs offset by three regressions.
+  All29weak controls stay weak, but isolated HYBRID flatK20 loses one positive.
+  Neither component is selected; the three other C dimensions are cached, not fresh.
+  Reopen with a different source-fact/projection mechanism and scoped evidence, not
+  another field-filtering or wording variant on this exposed frame.
+  [Protocol, both arms and immutable proofs](jev-ranking/screened60-input-isolation.md).
+
 - **JEV boundary wording and tier/domain consumer as the Screened60 K20 repair.**
   The D wording-only candidate preserves all29weak controls and improves preference
   agreement52→55/60, but fixes0/4adjudicated LOW cases and worsens primary/flat K20

@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Reject the two-arm Screened60 preference-input isolation diagnostic after120settled
+  calls/USD0.015086988: full singleton matches C, isolated agreement falls52→51/60
+  and HYBRID flatK20 loses one positive. Retain C and preserve both outcomes.
+
 - Reject the single Screened60 D preference-boundary trial after60settled calls
   (USD0.012012714):0/4target misses repaired and both K20comparators regress.
   Retain C; record the tier/domain consumer’s lack of primary-budget improvement.
