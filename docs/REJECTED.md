@@ -15,6 +15,16 @@
 > Open work lives in [`BACKLOG.md`](./BACKLOG.md); the live delta and open defects in
 > [`PROGRESS.md`](./PROGRESS.md).
 
+- **JEV boundary wording and tier/domain consumer as the Screened60 K20 repair.**
+  The D wording-only candidate preserves all29weak controls and improves preference
+  agreement52→55/60, but fixes0/4adjudicated LOW cases and worsens primary/flat K20
+  recovery10→9/10→8. It is not a repair. Global-tier then equal-domain rotation with
+  reserve returns8known positives versus the original flat10 atK20 (paired[-3,0]);
+  larger-K gains do not meet the primary reading budget. C remains unchanged.
+  Reopen only with a different, explicitly scoped mechanism/hypothesis and fresh
+  validation, not another wording iteration on this exposed batch.
+  [Evidence and immutable proofs](jev-ranking/screened60-boundary-arm.md).
+
 - **An autoheal entrypoint watchdog — BUILT, DRILLED, and REJECTED 2026-07-28 · do not
   re-derive.** The idea (a `sh -c` wrapper that pings the socket in a loop and exits when it
   dies, so `restart:` fires) was in the approved plan and its own drill **passed**: bogus

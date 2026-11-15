@@ -41,7 +41,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   them. An offline four-LOW→MEDIUM counterfactual still reads10positives atK20 because
   two gains displace two other positives. Preference stability and within-tier selection
   remain separate diagnostic questions before fresh validation;
-  no new duty policy, automatic extra arm or production ranking rollout.
+  The [singleD boundary-wording trial](jev-ranking/screened60-boundary-arm.md) is
+  rejected: preference agreement52→55/60 but0/4target LOW misses repaired, primaryK20
+  utility10→9 andflatK20utility10→8. The tier-first/domain-rotation consumer gives8known
+  positives atK20 versus Cflat10 (paired[-3,0]), so it is not selected either.
+  C remains the development pack. Do not repeat this wording patch or treat larger-K
+  gains as a primary-budget pass; a different mechanism needs a new scoped hypothesis.
+  No production ranking rollout follows.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.

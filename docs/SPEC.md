@@ -44,7 +44,11 @@ ordering3 versus native10, on one creation-time-tied development batch. No quali
 GO, eligibility predicate or consumer deployment follows. The
 [six-miss inspection](jev-ranking/screened60-misses.md) separates twoMEDIUM cutoff
 misses from four advisoryLOW preference disagreements. Its offline counterfactual
-retains10positive reads atK20; it is not a provider result or changed metric.
+retains10positive reads atK20; it is not a provider result or changed metric. The
+[bounded D trial](jev-ranking/screened60-boundary-arm.md) is rejected despite better
+aggregate preference agreement: it repairs0/4target LOW cases and regresses both locked
+K20comparators. The additional tier/domain consumer is also unselected atK20. C and
+production runtime remain unchanged.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Reject the single Screened60 D preference-boundary trial after60settled calls
+  (USD0.012012714):0/4target misses repaired and both K20comparators regress.
+  Retain C; record the tier/domain consumer’s lack of primary-budget improvement.
+
 - Inspect six Screened60 misses with unchanged inputs: distinguish two MEDIUM cutoff
   cases from four advisory LOW preference disagreements. An offline four-case
   correction still reads10positives atK20; preserve original labels and metrics.
