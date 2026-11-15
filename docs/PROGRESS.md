@@ -15,7 +15,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   Accepted v2 unused-K fill remains the evaluator default. The actual public
   candidate/no-disqualifier pool has6152rows at the frozen read-only cutoff. A newest60
   development cohort, independent blind references and bounded unchanged-C inference
-  are in PR146; paired comparison verification is in flight. Screen outputs are advisory inputs, not utility
+  are in PR146. AtK20 the primary comparator gives11→10proxy positives; secondary
+  current-UI ordering gives3→10, with a shared-creation-time limitation. Neither result
+  authorizes ranking rollout. Next inspect six native misses and validate on normal
+  future intake; no separate collection wait. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
