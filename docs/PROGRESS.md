@@ -17,8 +17,10 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   development cohort, independent blind references and bounded unchanged-C inference
   are in PR146. AtK20 the primary comparator gives11→10proxy positives; secondary
   current-UI ordering gives3→10, with a shared-creation-time limitation. Neither result
-  authorizes ranking rollout. Next inspect six native misses and validate on normal
-  future intake; no separate collection wait. Screen outputs are advisory inputs, not utility
+  authorizes ranking rollout. Six-miss inspection in PR146 separates twoMEDIUM cutoff cases from four advisory
+  LOW preference disagreements. An offline four-case correction still reads10positives
+  atK20, so preference stability and within-tier selection remain separate questions
+  before fresh normal-intake validation; no separate collection wait. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
