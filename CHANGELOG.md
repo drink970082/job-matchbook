@@ -17,6 +17,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Freeze prospective consumer analysis using independently verified conflict receipts,
+  common admission before K and explicit capture/exclusion denominators; preserve
+  advisory screening/cache behavior without adding a production predicate.
+
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
   real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
   comparative decision (#112). Select offline acceptance and landing first; preserve

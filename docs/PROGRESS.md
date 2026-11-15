@@ -22,7 +22,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   its timer is disabled, and no late capture was substituted.
   Near-template grouping must include spelling variants before any future split;
   the separate Dev60 development adjudication found a pair missed by exact-only grouping.
-  See [collection](jev-ranking/p1-collection.md).
+  See [collection](jev-ranking/p1-collection.md) and the
+  [prospective consumer analysis protocol](jev-ranking/p1-prospective-consumer-protocol.md).
+  Admission evidence must be independently source/profile-bound; cached screen freshness
+  alone is advisory. Both arms retain identical admission and explicit capture/exclusion
+  denominators. Actual observation counts and inference workloads remain unsealed.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
