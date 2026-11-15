@@ -9,6 +9,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Freeze Screened60 from the actual retained screen pool, using newest-first ordering
+  and prior-exposure exclusions, for an unchanged-C paired comparison. Keep cached
+  screening evidence separate from independent utility references.
+
 - Validate accepted secondary-work wording in a third settled 20-source native
   development arm and replay it through isolated MCP; freeze a separate 60-source
   development frame before blinded references and inference. Its bounded60-call

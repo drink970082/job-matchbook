@@ -33,8 +33,10 @@ comparison. Its bounded native campaign settles all60 responses for USD0.0116390
 [the transport receipt](jev-ranking/dev60-native.md) preserves proof hashes and limits.
 [Fixed-budget comparison](jev-ranking/dev60-comparison.md) finds equal positive counts
 atK10/20/40 with different selected identities and no net utility gain; its deployment
-disposition is INCONCLUSIVE. These studies do not activate a production ranker; prospective collection
-remains independent.
+disposition is INCONCLUSIVE. The [Screened60 frame](jev-ranking/screened60-frame.md) aligns the next development
+comparison with the normal post-screen inventory. Independent collection timers are
+disabled; normal worker fetch+screen supplies new intake. These studies do not activate
+a production ranker or certify cached screening as eligibility truth.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

@@ -28,8 +28,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   [C comparison](jev-ranking/native20-secondary-comparison.md) and
   [60-source comparison](jev-ranking/dev60-comparison.md). Narrow private adjudication supports advisory MEDIUM readings for four LOW misses
   under existing rules, without relabeling. A spelling-variant near-template pair limits
-  independence. Prospective consumer admission protocol is in preparation on P1; no new
-  inference arm or policy change.
+  independence. All independent JEVcollection timers are disabled; normal fetch+screen worker is
+  active. A new [Screened60 frame](jev-ranking/screened60-frame.md) contains the newest
+  60 from the actual retained screen pool, excluding prior research exposure. All60
+  source revisions/screens match and complete bodies fit the existing bound. Blind
+  references are in flight before a bounded unchanged-C comparison. No new duty policy
+  or production ranking rollout.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
