@@ -25,8 +25,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   not another wording iteration. The input-isolation follow-up also rejects both arms:
   fullsingleton exactlymatches C52/60; isolation51/60 fixes1/4target cases and loses one
   HYBRID flatK20positive. Fresh answers are preference-only; other C fields are cached.
-  Next mechanism is source-fact extraction plus explicit preference mapping, not another
-  context-filter variant. Normal intake remains active without a collection wait. Screen outputs are advisory inputs, not utility
+  The scoped source-duty-fact/projection pilot in PR146 now passes development gates:
+  4/4diagnostics repaired, derivedpreference52→56/60;8freshcontrols7weak/1unknown,
+  21othercontrols cached unchanged. HYBRID primaryK20 recovery10→11, flat10→10.
+  Select this general-SWE component for development only; next fresh screened-source
+  validation needs complete current component provenance. Normal intake stays active. Screen outputs are advisory inputs, not utility
   truth. Preserve source/profile/freshness limits and near-template grouping before any
   fresh-data split. See [operating path](jev-ranking/p1-collection.md) and
   [comparison protocol](jev-ranking/p1-prospective-consumer-protocol.md).
