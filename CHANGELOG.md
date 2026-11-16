@@ -9,6 +9,11 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Select the scoped general-SWE source-duty-fact/projection development component
+  after28settled calls/USD0.002446710:4/4diagnostics repaired,52→56/60agreement,
+  HYBRID primaryK20 recovery10→11 and flatK20 unchanged. Keep C/runtime unchanged
+  pending fresh complete-pipeline validation.
+
 - Reject the two-arm Screened60 preference-input isolation diagnostic after120settled
   calls/USD0.015086988: full singleton matches C, isolated agreement falls52→51/60
   and HYBRID flatK20 loses one positive. Retain C and preserve both outcomes.

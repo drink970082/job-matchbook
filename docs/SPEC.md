@@ -52,6 +52,11 @@ production runtime remain unchanged. The
 [input-isolation diagnostic](jev-ranking/screened60-input-isolation.md) also rejects
 both singleton components:120fresh preference answers only, with other C dimensions
 reused solely in labeled HYBRID diagnostics. No full-ranker or runtime adoption follows.
+The [duty-fact/projection pilot](jev-ranking/screened60-duty-facts.md) selects a private
+general-SWE development component:28fresh fact tags,4/4diagnostic repairs,56/60projected
+preference agreement, and HYBRID primaryK20 recovery10→11 with flatK20 unchanged.
+Eight controls are freshly projected and21cached; one fresh control becomes unknown.
+This is neither native preference inference nor a deployed full-assessment adapter.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

@@ -52,7 +52,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   target cases and loses one HYBRID flatK20 positive. All29weak controls remain weak.
   C stays unchanged. Further work needs source-fact extraction plus explicit preference
   mapping as a separately scoped mechanism, not another wording/context-filter variant.
-  No new experiment or production ranking rollout follows from the negative results.
+  The [source-duty-fact/projection pilot](jev-ranking/screened60-duty-facts.md) passes
+  its development gates:28fresh fact tags project the Cgeneral-SWE branch, repairing
+  4/4diagnostics; agreement52→56/60. Fresh controls7weak/1unknown, with21other controls
+  cached unchanged; no control is promoted. HYBRID primaryK20 positives10→11;flat10→10.
+  The component is selected for development only. C and normal runtime remain unchanged.
+  Next validate on fresh screened sources with complete current component provenance;
+  cached Canswers here do not validate a full new ranker or authorize deployment.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
