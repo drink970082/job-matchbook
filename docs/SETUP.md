@@ -13,14 +13,11 @@ commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from t
 | Python 3.11+ | Native worker and MCP |
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
-| Codex CLI login or selected fit-provider credentials plus private résumé inputs | Optional fit pipeline |
-| Telegram bot credentials | Optional existing match alerts |
 | MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | ChatGPT reading local ATS data |
 
-A local GPU/Ollama, a résumé, a fit backend and Telegram are not prerequisites for the
-tracker or fetch-only discovery. Subscription inference consumes allowance; metered APIs
-can incur separate bills. The operator's affordable Luna/medium preference does not
-change the existing fit model defaults or guards.
+A local GPU/Ollama and a résumé are not prerequisites for the tracker or fetch-only
+discovery. Subscription inference consumes allowance; metered APIs can incur separate
+bills.
 
 ## Path A — tracker only
 
@@ -56,8 +53,7 @@ python -m ats_worker.run --screen-only --screen-backend codex \
   --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --once
 ```
 
-Authenticate the Codex CLI on the host. This skips fit, Telegram and résumé loading;
-results live in `job_screenings` without changing posting lifecycle status. Completed
+Authenticate the Codex CLI on the host. Results live in `job_screenings` without changing posting lifecycle status. Completed
 is not synonymous with passed. Numeric limits count provider calls; deterministic checks
 need none. Explicit `--screen-unlimited` replaces the numeric limit while preserving
 cache/breaker behavior, but does not remove subscription limits. The operator uses that

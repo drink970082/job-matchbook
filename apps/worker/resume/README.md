@@ -13,15 +13,8 @@ filename minus a leading `resume_`:
 | `resume.txt` | Label `resume` — the classic single-resume layout. |
 | `resume_quant_dev.txt` | Label `quant_dev` — a targeted version. |
 | `resume_swe.txt` | Label `swe` — another targeted version. |
-| `personal_profile.txt` | NOT a resume. Optional about-me context (goals, constraints, preferences) the fit scorer uses to judge whether a job suits you. |
+| `personal_profile.txt` | NOT a resume. Optional about-me context (goals, constraints, preferences). |
 
-With **one** version, scoring behaves exactly as before. With **two or more**,
-the Claude fit scorer sees all of them, scores the best-fitting version, and
-reports which one to send (`recommended_resume` — shown in the Telegram alert
-and the job detail modal).
-
-> Note: every `*.txt` here is loaded. When you split into targeted versions,
-> **delete the old `resume.txt`** or it becomes a third scored version.
 
 Files only need to be clean readable text — the scorer judges fit on content,
 not formatting (export from your `.tex`/`.docx` sources however you like).

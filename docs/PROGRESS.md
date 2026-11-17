@@ -75,8 +75,7 @@ artifacts. No live eval was run for the pivot. Subscription-backed Luna assistan
 acceptable; its allowance is finite, and old strong-fit token/cache measurements are not
 current Luna/medium budget forecasts. The roadmap does not require draining every row.
 
-The operator-selected worker remains standalone screen-only; combined fit/Telegram
-capabilities and CLI defaults remain available. Current operational mode is in
+A worker pass is fetch -> screen. Current operational mode is in
 [SPEC §6](SPEC.md#6-architecture). Use fresh telemetry before making workload decisions.
 
 ## Other work

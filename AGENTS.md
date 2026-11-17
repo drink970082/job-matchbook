@@ -30,10 +30,10 @@ the task needs:
   definition of done, and the branch/PR/merge protocol (§7).
 - **`docs/ARCHITECTURE.md`** and **`docs/ROADMAP.md`** — approved ChatGPT-first
   ownership, feature readiness and product order. ATS supplies sources/tools/tracking;
-  screen and fit remain optional assistance. Targets are not shipped capabilities.
+  screen remains optional assistance. Targets are not shipped capabilities.
 - **`docs/EVALUATION.md`** — relevant checks and private-corpus limitations. No broad
   scorer eval is owed for unrelated source/MCP/UI/docs work; provider runs need scoped
-  authorization. Preserve useful scorer tools/tests and private research artifacts.
+  authorization. Preserve useful screen tools/tests and private research artifacts.
 - **`docs/SCORING.md`** — retained optional subsystem contracts and measured failure
   modes. Read before touching the screen prompt or its evals; the fit scorer it describes is retired. It is not the product queue.
 
@@ -82,8 +82,7 @@ write implementation or fix review findings. All implementation goes to Luna at 
 effort, including tests and corrective patches. This is separate from the deployed
 Luna/**medium** screener. Follow [DEVELOPMENT](docs/DEVELOPMENT.md#agent-ownership-and-handoff)
 for branch/PR/review handoff. Issues own deliverable status/dependencies, ROADMAP owns
-order, PROGRESS owns branch claims. Conditional scorer work is last priority and may
-remain unused if scheduled ChatGPT handles the workload.
+order, PROGRESS owns branch claims.
 
 ## What this is
 
