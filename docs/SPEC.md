@@ -57,6 +57,12 @@ general-SWE development component:28fresh fact tags,4/4diagnostic repairs,56/60p
 preference agreement, and HYBRID primaryK20 recovery10→11 with flatK20 unchanged.
 Eight controls are freshly projected and21cached; one fresh control becomes unknown.
 This is neither native preference inference nor a deployed full-assessment adapter.
+The [fresh screened validation](jev-ranking/fresh-screened-validation.md) uses 68
+new sources, 68 fresh C4 assessments and 22 conditional source-fact calls with no
+historical answers. It passes the locked K20 non-regression gates and improves
+proxy preference agreement58→61/68; both K20 utility counts remain4. One new
+reference-weak promotion and primaryK40 recovery6→5 remain limitations. Whole-ranker
+acceptance is INCONCLUSIVE; production ranking and default MCP wiring are unchanged.
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the

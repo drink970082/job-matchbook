@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Research
 
+- Validate the scoped duty-fact component on68fresh screened sources with90settled
+  calls/USD0.015982344 and zero historical answers. Proxy preference agreement rises
+  58→61/68; both lockedK20 non-regression gates pass with4positive reads each.
+  Retain the new weak-control promotion, primaryK40 regression6→5 and whole-ranker
+  INCONCLUSIVE disposition; no production activation.
+
 - Select the scoped general-SWE source-duty-fact/projection development component
   after28settled calls/USD0.002446710:4/4diagnostics repaired,52→56/60agreement,
   HYBRID primaryK20 recovery10→11 and flatK20 unchanged. Keep C/runtime unchanged

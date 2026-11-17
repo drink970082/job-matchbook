@@ -57,8 +57,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   4/4diagnostics; agreement52→56/60. Fresh controls7weak/1unknown, with21other controls
   cached unchanged; no control is promoted. HYBRID primaryK20 positives10→11;flat10→10.
   The component is selected for development only. C and normal runtime remain unchanged.
-  Next validate on fresh screened sources with complete current component provenance;
-  cached Canswers here do not validate a full new ranker or authorize deployment.
+  [Fresh screened validation](jev-ranking/fresh-screened-validation.md) supplies68
+  fresh C4 assessments plus22conditional facts, zero cached answers,90valid settlements
+  forUSD0.015982344. Proxy preference agreement58→61/68 and both lockedK20gates pass,
+  with utility4→4; primaryK40 drops6→5 and one new reference-weak control is promoted.
+  Whole-ranker quality remains INCONCLUSIVE. Residuals are source-fact chip-domain
+  context and budget-sensitive consumer selection; no new policy/arm is selected.
+  Production persistence/defaultMCP integration and consumer acceptance remain open.
 
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
