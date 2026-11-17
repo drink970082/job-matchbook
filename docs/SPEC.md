@@ -24,8 +24,8 @@
 
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
-primary personal judgment/recommendation interface. **Screening and fit scoring remain
-supported optional assistance.** The operator selects provider-free pre-ranking
+primary personal judgment/recommendation interface. **Hard-requirements screening is
+supported optional assistance; the fit scorer is removed.** The operator selects provider-free pre-ranking
 preparation for a reported approximately 200-posting daily load that exceeds the current
 workflow's capacity. The [preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
 defines the available offline assessment view, fixed-batch replay and synthetic consumer

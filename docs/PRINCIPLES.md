@@ -19,7 +19,7 @@ human, never automated.
 - *Why:* the system's whole stance is "prepare everything, submit nothing" — trust
   survives only while the human stays the actor of record.
 - *In this repo:* no auto-apply (SPEC §4 non-goal); promotion *suggests*, never
-  auto-promotes (§9); notify only alerts; "Mark Applied" is a human click.
+  auto-promotes (§9); "Mark Applied" is a human click.
 - *Smell:* a change that removes a confirmation seam "for convenience" — auto-retrying
   an apply, auto-adding a watchlist entry, auto-sending anything beyond the alert.
 
@@ -55,8 +55,9 @@ make primary recommendations. Subscription inclusion is not unlimited allowance.
 - *In this repo:* a worker pass is fetch -> screen (fetch-only stops before the screen);
   Codex Luna/medium is selected for screening. There is no fit scorer. MCP exposes facts
   and separate assessment state.
-- *Smell:* deleting the useful scorer to claim zero cost; making every job buy a fit
-  call before it is visible; treating a screen measurement as validation of a fit model;
+- *Smell:* deleting useful assistance just to claim zero cost; making every job buy a
+  model call before it is visible; treating a screen measurement as validation of a
+  ranking model;
   adding a metered provider or rerunning a large eval without a concrete need.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;

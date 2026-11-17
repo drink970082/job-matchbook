@@ -8,9 +8,8 @@
 Job Matchbook collects jobs from official company boards, stores their descriptions,
 and tracks applications in a self-hosted SQLite database. Its read-only MCP tools let
 ChatGPT inspect jobs and application history for personal analysis and a Daily Job Brief.
-Screening and résumé-fit scoring remain available as **optional assistance**. Fit
-pre-ranking is a last-priority option for a demonstrated volume bottleneck; if scheduled
-ChatGPT handles the workload, no fit rollout is needed.
+Hard-requirements screening is available as **optional assistance**; review ranking is
+the JEV track.
 
 > **Collect and preserve job evidence → query with ChatGPT → review and apply by hand → track.**
 
@@ -40,8 +39,8 @@ agent assessment or update applications. Context-based cross-day deduplication i
 best-effort until a persistent delivery ledger exists.
 
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
-configuration, résumé files and databases are gitignored. Optional fit scoring sends
-selected JD and personal inputs to the configured provider; connecting ChatGPT exposes
+configuration, résumé files and databases are gitignored. A hosted screen backend
+receives JD text and your hard requirements; connecting ChatGPT exposes
 the data returned by the enabled MCP tools to that chat.
 
 ## Quick start
@@ -94,8 +93,8 @@ See [current and target architecture](docs/ARCHITECTURE.md) and the detailed
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Current implementation, target ownership and boundaries |
 | [Roadmap](docs/ROADMAP.md) | Feature readiness, R1–R4 priorities and acceptance |
-| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction with optional scorer retained |
-| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/scorer and MCP paths |
+| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction |
+| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen and MCP paths |
 | [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
 | [Progress](docs/PROGRESS.md) | Branch claims, next work and current limitations |
 | [Backlog](docs/BACKLOG.md) | Current triage; links to deferred technical investigations |

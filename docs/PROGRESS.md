@@ -1,7 +1,7 @@
 # Job Matchbook — active work
 
 Job Matchbook is a job-source, tracking and tool layer for ChatGPT-led research and
-recommendations. Optional screening **and fit scoring remain supported**.
+recommendations. Optional hard-requirements screening is supported; the fit scorer is removed.
 [ROADMAP](ROADMAP.md) owns product order; [ARCHITECTURE](ARCHITECTURE.md) separates
 current implementation from target responsibilities; [SPEC](SPEC.md) describes shipped
 behavior. Completed work belongs in CHANGELOG, not this queue.

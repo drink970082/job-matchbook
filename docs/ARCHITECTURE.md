@@ -21,7 +21,7 @@ flowchart LR
     Sources[Official boards and discovery feeds] --> Fetch[Fetch and hydrate]
     Fetch --> DB[(SQLite evidence and application records)]
     DB --> UI[Local tracker and job browser]
-    DB --> Assist[Optional screen and scorer]
+    DB --> Assist[Optional hard-requirements screen]
     Assist --> DB
     DB --> MCP[Read-only MCP tools]
     MCP --> Chat[ChatGPT judgment and Daily Brief]
@@ -54,7 +54,7 @@ The UI remains the manual persistence path.
 **Evidence vs. judgment.** Retain raw JD and official identity independently of model
 assessments. Query eligibility must not depend on having a score. Existing fetch-time
 candidate/title filtering must be inventoried before moving preferences to ChatGPT;
-changing the scorer alone does not restore jobs excluded during intake.
+changing the screen alone does not restore jobs excluded during intake.
 
 **Optional assistance.** Keep both screening and fit-scoring capabilities. Fit pre-ranking
 is the last optional step, selected only if actual scheduled ChatGPT retrieval/judgment
@@ -74,8 +74,7 @@ then, a stored posting is not proof that a requisition is still open.
 
 **Personal context.** ChatGPT's durable task instructions or accessible profile document
 should define current preferences and background; conversational memory alone is not a
-versioned configuration. Do not remove private scorer inputs while optional fit scoring
-still reads them. No private résumé or settings belong in public documentation.
+versioned configuration. No private résumé or settings belong in public documentation.
 
 **Incremental research.** Current MCP filters use posting creation/publication dates,
 not screen-completion dates. List rows expose completion metadata but not the full screen

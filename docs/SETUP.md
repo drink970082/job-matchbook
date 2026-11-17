@@ -39,8 +39,8 @@ python -m ats_worker.run --fetch-only --once
 ```
 
 Fill the private config for intended sources/intake first. `make setup` does not overwrite
-existing files. Doctor reports the broader installation; a missing optional scorer is
-not a requirement to enable it. Fetch-only still applies configured title/candidate/age
+existing files. Doctor reports the broader installation; a missing optional screen backend
+is not a requirement to enable it. Fetch-only still applies configured title/candidate/age
 filters and runs the existing expiry/retry behavior. Dropping `--once` enables the
 configured schedule. The web's fit-oriented view is not yet a complete unscored-job
 browser; use MCP for current record access.
@@ -77,7 +77,7 @@ save recommendations or import jobs today; the manual tracker remains available.
 | Collection filters, candidate facts, schedule | Private `config.yaml` | Existing intake/screen semantics; edit and restart intentionally |
 | Watchlist | Config seed, then DB | After initial seed, manage in web; config edits do not replace DB rows |
 | Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
-| Optional fit résumé/profile | `apps/worker/resume/` | Still read by fit; not removed by the pivot |
+| Private résumé/profile | `apps/worker/resume/` | Not read by the worker; private inputs for onboarding and ranking work |
 | Primary personal judgment rubric | ChatGPT task/project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
 | Application history and job evidence | Shared SQLite directory | Back up with SQLite-aware tools; preserve WAL sidecars |
 
