@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `labeled` so adding the `e2e` label runs the gated E2E job; a rerun would reuse
+    # the old event payload, which has no label.
+    types: [opened, synchronize, reopened, labeled]
   schedule:
     - cron: '0 7 * * *'   # nightly — full CI (unit suites + the otherwise-gated e2e job)
 

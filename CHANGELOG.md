@@ -26,6 +26,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   only. Quota telemetry moves from `score/usage.py` to the neutral `ats_worker/usage.py`,
   so a screen-only pass can record usage without importing the legacy fit package. First
   step of retiring the old fit scorer (JEV replaces it); no behavior change.
+### Fixed
+
+- CI: adding the `e2e` label to a PR now runs the gated E2E job. `pull_request` only
+  fired on opened/synchronize/reopened, so a label added after the last push never took
+  effect until another push.
+
 ### Removed
 
 - Drop three finished one-off tools nothing calls: `tools/sponsor_diff.py` (its
