@@ -63,22 +63,7 @@ need none. Explicit `--screen-unlimited` replaces the numeric limit while preser
 cache/breaker behavior, but does not remove subscription limits. The operator uses that
 explicit unlimited mode with one worker; this bounded example is not a deployment change.
 
-## Path D — optional combined fit and alerts
-
-Read [SCORING](SCORING.md) and provider/configuration details in SPEC before running:
-
-```bash
-cd apps/worker
-python -m ats_worker.run --once
-```
-
-Without a mode flag this selects the existing screen+fit path, not discovery-only.
-It loads configured private résumé/profile inputs and may notify via Telegram.
-Fit defaults to Codex `gpt-5.6-sol`; alternatives are `claude-code` or metered `claude-api`.
-Retaining Luna screening does not certify or enable Luna as a fit model.
-A live eval is not part of setup; [EVALUATION](EVALUATION.md) describes when one is needed.
-
-## Path E — ChatGPT access
+## Path D — ChatGPT access
 
 Follow [SPEC §12](SPEC.md#12-setup-and-deployment) for the MCP extra, stdio command,
 absolute database path and private tunnel configuration. Connect and test the ATS plugin

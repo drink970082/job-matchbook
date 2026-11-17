@@ -442,7 +442,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   (default 1), `--rescreen-screened` (clear successful screen cache for eligible `new`
   rows before a one-shot pass; requires `--once`), `--fetch-only` (run fetch/feed/expire
   then stop before any screen call — a quota-free board refresh), `--screen-only`
-  (accepted no-op alias for the default pass, kept for existing service files),
+  (accepted no-op alias for the default pass, kept for existing service files; the
+  retired fit flags `--score-*`, `--batch-size`, `--no-notify`, `--rescreen-discarded`
+  and `--resume-dir` are likewise accepted and ignored with a warning),
   `--refresh-unscored --refresh-source smartrecruiters --refresh-limit N` (standalone,
   source-only refresh of eligible existing unscored rows; requires `--once`, an explicit
   adapter, and a limit from 1 through 25; runs no intake or screening), and
@@ -1313,8 +1315,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   missing DB file, where SQLite silently creates an empty database and both weaker probes
   report healthy forever against a tracker with no data. A real table name yields `no such
   table: job_postings`.
-- **`app/api/scorer-usage/route.ts`** — serves the fit-backend quota snapshot the
-  worker captures once per scoring pass (§7.1): reads `scorer_usage.json` (path derived
+- **`app/api/scorer-usage/route.ts`** — serves the subscription quota snapshot
+  `ats_worker.usage.capture_usage` writes (§7.1): reads `scorer_usage.json` (path derived
   from `DATABASE_URL`, overridable via `SCORER_USAGE_FILE`), returns the snapshot —
   including the `backend` it describes — plus `as_of` (the file mtime).
   Missing/unparseable → empty state (`{backend:null, limits:[], as_of:null}`, still
@@ -2088,7 +2090,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
-| Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**, skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
+| Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
 | A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
 | `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |

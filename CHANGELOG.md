@@ -32,7 +32,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   row. Kept: the `score`/`score_detail` columns and the web/MCP views that read their
   history, the web quota bar (`ats_worker/usage.py`), and the seniority classifier as
   unwired `ats_worker/seniority.py`. A `fit_profile` block in `config.yaml` is accepted and
-  ignored. Worker coverage gate 85 -> 84: the deleted code was near-fully covered.
+  ignored, and the retired fit flags (`--score-limit`, `--no-notify`, ...) are accepted
+  and ignored with a warning, so an old service file still starts. Worker coverage gate
+  85 -> 84: the deleted code was near-fully covered.
 
 ### Changed
 

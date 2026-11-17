@@ -248,18 +248,6 @@ def test_run_fetch_gated_batch_matches_the_ungated_statuses(db_path, tmp_path):
     assert gated == plain == {"new": ["2"], "discarded": ["1"]}
 
 
-# --- run_score ------------------------------------------------------------
-
-
-# --- run_notify -----------------------------------------------------------
-
-
-# --- failure bookkeeping + stage gating -----------------------------------
-
-
-# --- run_score concurrency -------------------------------------------------
-
-
 # --- run_expire -------------------------------------------------------------
 
 DETAIL_SRC = "smartrecruiters"   # a real per-listing source (has fetch_one)
@@ -362,21 +350,6 @@ def test_run_expire_declined_fetch_is_treated_as_alive(db_path):
     assert pipeline.run_expire(
         conn, now=LATER, detail_fetch_fn=lambda *a: None) == 0
     assert _statuses(conn)["x"] == "notified"
-
-
-# --- dead screen provider ---------------------------------------------------
-
-
-# --- scorer provenance ------------------------------------------------------
-
-
-# --- rescreen discarded -----------------------------------------------------
-
-
-# --- the FREE seniority pre-ordering ---------------------------------------
-# It re-orders the queue so the paid budget lands on rows worth spending it on. It must
-# never DISCARD: the layer was measured against the strong scorer's own verdicts, not
-# human labels, so a false demotion may cost a delay and must not cost a posting.
 
 
 # --- per-board health line: the thing that makes a teaser board visible ---

@@ -1,17 +1,14 @@
 # worker (ats-worker)
 
 The Python pipeline service of the ATS project — one of two services in this
-repo (the other is the [`../web`](../web) app). On a schedule it: **fetch**
-postings from company ATS boards → **score** each against your resume (hard
-requirements screened locally on Ollama; fit scored by the Codex CLI by
-default, Claude as a metered alternate) → **notify** you on Telegram for every
-high scorer. You still apply by hand, then one-click "Mark Applied" in the web
-UI.
+repo (the other is the [`../web`](../web) app). On a schedule it **fetches**
+postings from company ATS boards and **screens** each against your hard requirements
+(degree, work authorization, clearance, location, internships; local Ollama by default).
+You review in the web UI, apply by hand, then one-click "Mark Applied".
 
 ```
-fetch ──► score ─────────────► notify
-(boards) (Ollama screen +      (Telegram)
-          Codex/Claude fit score)
+fetch ──► screen
+(boards)  (hard requirements; results in job_screenings)
 ```
 
 Postings live in the `job_postings` table of the SQLite db shared with the
@@ -65,17 +62,16 @@ python -m ats_worker.run --run-now  # ... plus one pass right now
 ```
 
 `docker compose up` (from the repo root) only starts the **web** stack — the
-worker isn't containerized (its default fit-score backend shells out to the
-Codex CLI, which authenticates from the operator's host `~/.codex`, and it's
-already pinned to the host by Ollama's GPU). See `docs/SPEC.md` §6.
+worker isn't containerized (the CLI screen backends authenticate from the host's own
+login, and the default screen is pinned to the host by Ollama's GPU). See
+`docs/SPEC.md` §6.
 
-## Standalone screen-only pass
+## The screen pass
 
-This mode fetches as usual, runs the hard-requirements screen, records the result
-separately, then exits before fit scoring, quota refresh, or notification. It does
-not need a résumé or fit-backend credentials. Successful results are cached until
-an explicit one-shot re-screen; provider errors can retry on a later pass.
-Codex selection defaults to Luna at medium in this mode:
+Every pass fetches as usual, runs the hard-requirements screen and records the result in
+`job_screenings` (`--screen-only` is an accepted alias). It needs no résumé. Successful
+results are cached until an explicit one-shot re-screen; provider errors can retry on a
+later pass. Codex selection defaults to Luna at medium:
 
 Before the first use against an existing database, apply the Prisma-owned schema from
 the repository root with `make db-push`; this adds the `job_screenings` table. The worker
@@ -83,16 +79,15 @@ does not issue DDL.
 
 ```bash
 cd apps/worker
-python -m ats_worker.run --once --screen-only --screen-backend codex \
+python -m ats_worker.run --once --screen-backend codex \
   --screen-model gpt-5.6-luna --screen-effort medium --screen-limit 40 --screen-workers 1
 ```
 
 The default cap is 40 provider calls per pass. To explicitly screen all eligible work,
 replace `--screen-limit 40` with `--screen-unlimited`; the two flags are mutually
-exclusive. Unlimited mode requires `--screen-only`, overrides the environment/default
-cap, and keeps success caching, the provider breaker and the per-DB pass lock. Zero is
-still an invalid numeric limit. The operator deployment selects unlimited mode with
-one screen worker; it does not run fit scoring or notifications.
+exclusive. Unlimited mode overrides the environment/default cap and keeps success
+caching, the provider breaker and the per-DB pass lock. Zero is still an invalid numeric
+limit.
 
 The expanded 103-row evaluation measured Luna at zero false disqualifications
 (30/37 recall, three flips) against seven for qwen3.5:4b (31/37, no flips).

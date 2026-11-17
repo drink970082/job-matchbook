@@ -1169,3 +1169,31 @@ def test_authorization_still_ruled_when_the_model_returns_no_entry():
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["screen"]["authorization"]["pass"] is False
     assert out["disqualified"] is True
+
+
+def _strict_mode_violations(node, path="$"):
+    """Every object in a schema sent to OpenAI-style structured output must list EVERY key
+    of `properties` in `required` and set additionalProperties:false, or the API rejects
+    the whole request with a 400 before the model runs. Yields the offenders."""
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            yield from _strict_mode_violations(item, f"{path}[{i}]")
+        return
+    if not isinstance(node, dict):
+        return
+    props = node.get("properties")
+    if isinstance(props, dict):
+        missing = set(props) - set(node.get("required") or [])
+        if missing:
+            yield f"{path}: properties {sorted(missing)} not in required"
+        if node.get("additionalProperties") is not False:
+            yield f"{path}: object without additionalProperties: false"
+    for key, value in node.items():
+        yield from _strict_mode_violations(value, f"{path}.{key}")
+
+
+def test_screen_schema_is_strict_mode_valid():
+    # SCREEN_SCHEMA reaches `codex exec --output-schema` and the openai-api backend's
+    # strict json_schema; a missing `required` key 400s every call on those backends.
+    bad = list(_strict_mode_violations(screen_prompts.SCREEN_SCHEMA, "SCREEN_SCHEMA"))
+    assert not bad, "strict-mode violations:\n" + "\n".join(bad)

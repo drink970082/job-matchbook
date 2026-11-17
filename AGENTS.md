@@ -87,10 +87,9 @@ remain unused if scheduled ChatGPT handles the workload.
 
 ## What this is
 
-A ChatGPT-first job-source, evidence and tracking system with optional screening and
-fit assistance. The implemented combined pipeline remains available; the operator's
-current screen-only mode bypasses fit/Telegram. Luna/medium refers to that screen,
-not an enabled fit model. See docs/ARCHITECTURE.md for target/current boundaries.
+A ChatGPT-first job-source, evidence and tracking system with optional hard-requirements
+screening. The old fit scorer and Telegram alerts are removed; review ranking is the JEV
+track. See docs/ARCHITECTURE.md for target/current boundaries.
 
 A self-hosted, semi-automated job-application system — two services, one shared SQLite
 database:
@@ -98,8 +97,8 @@ database:
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
 - **`apps/worker`** — Python 3.11 pipeline: fetch (board adapters + generic
-  custom/browser recipe executors) -> screen (Ollama) + score fit (Codex CLI default,
-  Claude alternate) -> notify (Telegram). A human applies by hand.
+  custom/browser recipe executors) -> screen (Ollama default, or a CLI/API backend).
+  A human applies by hand.
 
 ## Run / test / build
 
