@@ -1,9 +1,8 @@
-"""Compatibility facade for the legacy fit scorer and active screen APIs.
+"""Legacy fit scorer. Screening lives in `ats_worker.screening`, quota telemetry in
+`ats_worker.usage`.
 
-Fit exports are resolved only when requested. Importing this package, its neutral
-exception module, or a screen compatibility export must not load fit backends or the
-legacy fit prompts. Explicit legacy callers keep the historical names and monkeypatch
-seams.
+Fit exports are resolved only when requested: importing this package or its neutral
+exception module must not load fit backends or the legacy fit prompts.
 """
 from __future__ import annotations
 
@@ -17,39 +16,16 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "make_claude_cli_scorer": ("backends_claude_cli", "make_claude_cli_scorer"),
     "make_codex_scorer": ("backends_codex", "make_codex_scorer"),
     "ScoreError": ("errors", "ScoreError"),
-    "resolve_location": ("screening.location", "resolve_location"),
-    "_token_country": ("screening.location", "_token_country"),
     "_SCORE_SCHEMA": ("prompts", "_SCORE_SCHEMA"),
-    "SCREEN_SCHEMA": ("screening.prompts", "SCREEN_SCHEMA"),
-    "_job_block": ("screening.prompts", "_job_block"),
     "_score_schema": ("prompts", "_score_schema"),
     "_scorer_system_blocks": ("prompts", "_scorer_system_blocks"),
     "_scorer_system_sections": ("prompts", "_scorer_system_sections"),
-    "_truncate": ("screening.prompts", "_truncate"),
-    "_degree_rank": ("screening.engine", "_degree_rank"),
-    "_flag": ("screening.engine", "_flag"),
-    "_is_internship": ("screening.engine", "_is_internship"),
-    "_needs_sponsorship": ("screening.engine", "_needs_sponsorship"),
     "_normalize_score": ("screen", "_normalize_score"),
-    "_offers_sponsorship": ("screening.engine", "_offers_sponsorship"),
-    "_sentences": ("screening.engine", "_sentences"),
     "demote_for_confirmation": ("screen", "demote_for_confirmation"),
-    "deterministic_screen": ("screening.engine", "deterministic_screen"),
-    "make_ollama_extract": ("screening", "make_ollama_extract"),
     "merge_fallback_screen": ("screen", "merge_fallback_screen"),
-    "screen_posting": ("screening.engine", "screen_posting"),
-    "screen_requires_provider": ("screening.engine", "screen_requires_provider"),
-    "sponsorship_snippets": ("screening.engine", "sponsorship_snippets"),
-    "_claude_limits": ("usage", "_claude_limits"),
-    "_epoch": ("usage", "_epoch"),
-    "capture_usage": ("usage", "capture_usage"),
-    "fetch_claude_usage": ("usage", "fetch_claude_usage"),
-    "fetch_codex_usage": ("usage", "fetch_codex_usage"),
 }
 
-# Preserve the former package's public submodule attributes without importing them
-# while the facade itself is loaded. In particular, callers and tests monkeypatch
-# `score.usage`; importing that one module must stay independent of fit prompts/backends.
+# Public submodule attributes, loaded on first access rather than with the package.
 _LAZY_SUBMODULES = {
     name: name
     for name in (
@@ -57,10 +33,8 @@ _LAZY_SUBMODULES = {
         "backends_claude_cli",
         "backends_codex",
         "errors",
-        "location",
         "prompts",
         "screen",
-        "usage",
     )
 }
 
@@ -72,26 +46,14 @@ __all__ = [
     "backends_claude_cli",
     "backends_codex",
     "errors",
-    "location",
     "prompts",
     "screen",
-    "usage",
     "make_claude_scorer",
     "make_claude_cli_scorer",
     "make_codex_scorer",
     "ScoreError",
-    "resolve_location",
-    "SCREEN_SCHEMA",
     "demote_for_confirmation",
-    "deterministic_screen",
-    "make_ollama_extract",
     "merge_fallback_screen",
-    "screen_posting",
-    "screen_requires_provider",
-    "sponsorship_snippets",
-    "capture_usage",
-    "fetch_claude_usage",
-    "fetch_codex_usage",
 ]
 
 
@@ -105,12 +67,7 @@ def __getattr__(name: str) -> Any:
         module_name, attribute = _LAZY_EXPORTS[name]
     except KeyError as exc:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
-    import_name = (
-        f"ats_worker.{module_name}"
-        if module_name == "screening" or module_name.startswith("screening.")
-        else f"{__name__}.{module_name}"
-    )
-    module = importlib.import_module(import_name)
+    module = importlib.import_module(f"{__name__}.{module_name}")
     value = getattr(module, attribute)
     globals()[name] = value
     return value

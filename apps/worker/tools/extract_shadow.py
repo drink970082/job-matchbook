@@ -95,7 +95,7 @@ def _tightest_window(backend: str):
     the 5-hour one long before the weekly. Codex exposes only a weekly window, so the
     rule degenerates correctly there.
     """
-    from ats_worker.score.usage import fetch_claude_usage, fetch_codex_usage
+    from ats_worker.usage import fetch_claude_usage, fetch_codex_usage
     snapshot = (fetch_claude_usage if backend == "claude" else fetch_codex_usage)()
     limits = (snapshot or {}).get("limits") or []
     if not limits:

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from ats_worker import score
-from ats_worker.score import location as loc
+from ats_worker.screening import location as screen_location
+from ats_worker.screening import location as loc
 
 ALLOWED = ["remote", "USA"]   # frozen: the corpus was measured under exactly this
 
@@ -68,9 +68,9 @@ def test_no_us_eligible_string_is_ever_discarded():
     and still reaches the human. That asymmetry is why the whole gate errs toward keep,
     and it is the one property that must survive every future widening of the resolver.
     """
-    offenders = [(r["s"], r["n"], score.resolve_location(r["s"], ALLOWED)[1])
+    offenders = [(r["s"], r["n"], screen_location.resolve_location(r["s"], ALLOWED)[1])
                  for r in _corpus() if r["expect"] == "keep"
-                 and not score.resolve_location(r["s"], ALLOWED)[0]]
+                 and not screen_location.resolve_location(r["s"], ALLOWED)[0]]
     assert not offenders, (
         f"{sum(n for _, n, _ in offenders)} live rows would be silently deleted: "
         f"{offenders[:10]}")
@@ -78,7 +78,7 @@ def test_no_us_eligible_string_is_ever_discarded():
 
 def test_the_leak_set_is_pinned_exactly():
     leaks = [(r["s"], r["n"]) for r in _corpus() if r["expect"] == "discard"
-             and score.resolve_location(r["s"], ALLOWED)[0]]
+             and screen_location.resolve_location(r["s"], ALLOWED)[0]]
     rows = sum(n for _, n in leaks)
     assert (len(leaks), rows) == (LEAK_CEILING_STRINGS, LEAK_CEILING_ROWS), (
         f"leak set moved to {len(leaks)} strings / {rows} rows: {sorted(leaks)}")
@@ -100,7 +100,7 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
             continue
         if len(loc._tokenize(r["s"])) != 1:
             continue
-        keep, note = score.resolve_location(r["s"], ALLOWED)
+        keep, note = screen_location.resolve_location(r["s"], ALLOWED)
         if keep:
             continue
         want = pycountry.countries.get(alpha_2=r["foreign"][0])
@@ -226,7 +226,7 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     (None, ["remote", "USA"], True, ""),
 ])
 def test_resolve_location(location, allowed, want_keep, want_note):
-    passed, note = score.resolve_location(location, allowed)
+    passed, note = screen_location.resolve_location(location, allowed)
     assert passed is want_keep, (location, allowed)
     assert note == want_note, (location, allowed)
 

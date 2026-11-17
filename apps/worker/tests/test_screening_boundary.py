@@ -224,23 +224,10 @@ def test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh
             from ats_worker.score import ScoreError
             from ats_worker.model_errors import ModelResponseError
             assert ScoreError is ModelResponseError
-        elif action == "screen":
-            from ats_worker.score import SCREEN_SCHEMA, deterministic_screen, screen_posting
-            from ats_worker.screening.engine import deterministic_screen as neutral_screen
-            from ats_worker.screening.engine import screen_posting as neutral_posting
-            from ats_worker.screening.prompts import SCREEN_SCHEMA as neutral_schema
-            assert deterministic_screen is neutral_screen
-            assert screen_posting is neutral_posting
-            assert SCREEN_SCHEMA == neutral_schema
-        elif action == "screen-module":
-            from ats_worker import score
-            from ats_worker.screening.engine import screen_posting as neutral_posting
-            assert score.screen.screen_posting is neutral_posting
-        elif action == "usage-module":
-            import importlib
-            from ats_worker import score
-            assert score.usage is importlib.import_module("ats_worker.score.usage")
-            assert "usage" in score.__all__
+        elif action == "usage":
+            from ats_worker import usage
+            assert callable(usage.capture_usage)
+            assert "ats_worker.score" not in sys.modules
         elif action == "fit-factory":
             from ats_worker.score import make_codex_scorer
             assert callable(make_codex_scorer)
@@ -259,9 +246,7 @@ def test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh
         else:
             assert not fit_backends.intersection(sys.modules), fit_backends.intersection(sys.modules)
             assert not {"score.txt", "seniority.txt", "extract.txt"}.intersection(prompt_reads), prompt_reads
-            assert prompt_reads == (
-                ["screen.txt"] if action in {"screen", "screen-module"} else []
-            ), prompt_reads
+            assert prompt_reads == [], prompt_reads
         print("COMPATIBILITY_IMPORT_PASS:" + action)
     ''')
     worker = Path(__file__).resolve().parents[1]
@@ -270,9 +255,7 @@ def test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh
     for action in (
         "exception",
         "facade",
-        "screen",
-        "screen-module",
-        "usage-module",
+        "usage",
         "fit-factory",
     ):
         result = subprocess.run(
