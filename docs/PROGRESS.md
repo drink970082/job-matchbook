@@ -29,21 +29,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
   accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
   and owns the final decision. No runtime selection or activation is authorized.
-- **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
-  Isolated extraction/provenance/frame work exists; production cutover, additional model
-  runs and labels are not selected work. Candidate-evidence annotation ownership remains
-  unresolved. See [evaluation inventory](EVALUATION.md#corpus-inventory-and-interpretation)
-  and the [research boundary](superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
-- **`feat/fetch-detail-hydration` — retained branch claim, integration unverified**.
-  Inspect branch/main divergence before merging. Fresh full-JD quality remains relevant;
-  the large backfill and old scored-row counts need a current dry-run. Do not rescore
-  legacy verdicts as a side effect. Its working plan is operator-local.
-- **`docs/quota-levers-plan`, `fix/seniority-veto-evidence` — retained branch claims,
-  deferred experiments**. No default caching, veto-tuning or paid-run sequence. A new
-  measured problem is required before resuming; keep the negative cache result.
-- **`docs/corpus-expansion-groundwork`, `docs/luna-screen-result` — retained branch
-  references, reconciliation required**. Old single-run claims do not supersede the
-  repeated/expanded screen results. Do not merge research prose without current review.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive

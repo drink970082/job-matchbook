@@ -900,9 +900,7 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   Provider-free review-batch, rehearsal, profile, and replay imports guard this boundary
   in fresh processes: legacy fit/profile/runtime modules and `.txt` resource reads fail
-  immediately. `apps/worker/tools/screen_import_resource_demo.py --before <revision>
-  --after <revision>` reports the runtime import and prompt-resource delta between two
-  tracked revisions without loading operator configuration or private inputs.
+  immediately.
 
   Each standalone result's persistence timestamp is sampled after its provider call on
   the DB thread through the clock injected by `run.py`. This records when the worker is
