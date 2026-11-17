@@ -17,34 +17,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   columns (MCP reads the embedded screen verdict). The free gates and seniority
   pre-ordering stay for now; end state is fold into screen or drop, undecided.
 
-- **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
-  approval of the exact profile, policy, label guide, data scope and private-input access.
-  No private profile or local corpus has been opened for this work. It owns real source
-  roster completeness, grouping, labels and replay evidence; missing evidence remains
-  `INCONCLUSIVE`.
-- **#132 authorized provider pilot** — deferred behind #131 and separate explicit
-  provider/model, workload, retry, time and spend limits. No live provider call or
-  credential use is authorized. It owns actual tokenizer compatibility, request tokens,
-  rate evidence and observed charges.
-- **#112 comparative evaluation and GO/NO-GO** remains `INCONCLUSIVE`. It consumes the
-  accepted offline tooling plus #131/#132 evidence, compares against the current workflow,
-  and owns the final decision. No runtime selection or activation is authorized.
-- **`feat/fit-extraction-shadow` — retained branch claim, deferred research**.
-  Isolated extraction/provenance/frame work exists; production cutover, additional model
-  runs and labels are not selected work. Candidate-evidence annotation ownership remains
-  unresolved. See [evaluation inventory](EVALUATION.md#corpus-inventory-and-interpretation)
-  and the [research boundary](superpowers/plans/2026-08-03-fit-scoring-rebuild.md).
-- **`feat/fetch-detail-hydration` — retained branch claim, integration unverified**.
-  Inspect branch/main divergence before merging. Fresh full-JD quality remains relevant;
-  the large backfill and old scored-row counts need a current dry-run. Do not rescore
-  legacy verdicts as a side effect. Its working plan is operator-local.
-- **`docs/quota-levers-plan`, `fix/seniority-veto-evidence` — retained branch claims,
-  deferred experiments**. No default caching, veto-tuning or paid-run sequence. A new
-  measured problem is required before resuming; keep the negative cache result.
-- **`docs/corpus-expansion-groundwork`, `docs/luna-screen-result` — retained branch
-  references, reconciliation required**. Old single-run claims do not supersede the
-  repeated/expanded screen results. Do not merge research prose without current review.
-
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
   preflight record, and an unattended acceptance checklist are in [the Daily Brief
@@ -66,21 +38,10 @@ before changing them. No older research authorization schedules new provider cal
 
 ## Do next — the pick order
 
-1. [#131 real cohort and labels](https://github.com/drink970082/job-matchbook/issues/131)
-   owns approved profile/policy inputs, independent source-pool completeness, real grouping
-   and blind/adjudicated labels. Start only after version-scoped approval of the exact
-   inputs and private-input access; no private file has been read for this work.
-2. [#132 authorized provider pilot](https://github.com/drink970082/job-matchbook/issues/132)
-   owns actual request tokenization, adapter compatibility, pricing, usage/charge and
-   bounded pilot evidence. It requires #131, accepted offline tooling, #109 real decisions
-   and separate exact provider/model/resource-limit authorization; no provider call is
-   scheduled.
-3. #112 retains comparative/held-out evaluation, workflow-cost comparison, predeclared
-   tolerances and explicit GO/NO-GO/INCONCLUSIVE. Closing offline #110/#111/#116 does not
-   satisfy #112 or authorize production. #94/#96 live selection gates remain applicable.
-4. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
-   still needs unattended access/delivery evidence. #95 remains deferred; #113/#114
-   production integration and #115 unattended acceptance retain their own gates.
+1. [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135),
+   packages P1–P6 (#137–#142) in dependency order; open drafts #134, #143–#146.
+2. [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94)
+   still needs unattended access/delivery evidence. #95 remains deferred.
 
 [ROADMAP](ROADMAP.md) links every issue and dependency. Issues own status; this file
 owns active branch claims. Documentation plans do not launch agents or deploy services.
@@ -88,11 +49,6 @@ Astra/Sol owns architecture/docs/acceptance; all implementation/fixes go to Luna
 The current runtime Luna/medium screening configuration is a separate concern.
 
 ## Current implementation limitations
-
-- Frozen replay validates supplied artifacts but cannot establish independent real source
-  pool completeness or human labels. Replay therefore remains `INCONCLUSIVE` until #131
-  supplies those inputs. No provider inference, observed price, #112 GO or runtime selection
-  is authorized; #132 and #112 retain those gates.
 
 - The production landing page emits React hydration errors 418/423 before recovering
   on the client. The inventory/detail flow works; the same six errors reproduce with

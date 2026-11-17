@@ -26,6 +26,24 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   only. Quota telemetry moves from `score/usage.py` to the neutral `ats_worker/usage.py`,
   so a screen-only pass can record usage without importing the legacy fit package. First
   step of retiring the old fit scorer (JEV replaces it); no behavior change.
+### Fixed
+
+- CI: adding the `e2e` label to a PR now runs the gated E2E job. `pull_request` only
+  fired on opened/synchronize/reopened, so a label added after the last push never took
+  effect until another push.
+
+### Removed
+
+- Drop three finished one-off tools nothing calls: `tools/sponsor_diff.py` (its
+  `_quote_in` import no longer resolves), `apps/worker/tools/find_clearance_candidates.py`
+  (hardcoded an operator DB path), and `apps/worker/tools/screen_import_resource_demo.py`
+  (the fresh-process import-boundary tests guard the same invariant). Delete four stale
+  PROGRESS branch claims: `feat/fit-extraction-shadow` (#80) and
+  `feat/fetch-detail-hydration` (#82) are merged, `docs/quota-levers-plan` (#61) is
+  merged with its negative cache result in SCORING.md, and the other three refs no longer
+  exist.
+  Drop the #131/#132/#112 bullets too: those issues are closed as superseded by the JEV
+  epic #135.
 
 ### Changed
 
