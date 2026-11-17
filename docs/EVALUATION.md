@@ -46,11 +46,8 @@ model/effort remains unchanged.
 | Tool / target | Use | Status |
 |---|---|---|
 | `make eval-screen` / `tools/screen_eval.py` | Screen fact/verdict accuracy; zero false disqualification in any draw, recall reported | Retained manual, provider-using evaluation |
-| `make eval-score` / `tools/score_eval.py` | Legacy fit contract: zero hard violations/errors, agreement >=85%, flip-rate <20%; existing prompt gate requires two passing runs | Retained manual; corpus readiness must be established before interpreting a PASS |
-| `make eval-seniority` / `tools/seniority_eval.py` | Optional pre-ordering against stored strong-model labels | Agreement/stability diagnostic, not independent human truth |
+| `make eval-seniority` / `tools/seniority_eval.py` | The unwired seniority classifier against stored strong-model labels | Agreement/stability diagnostic, not independent human truth |
 | `--selftest` on those tools | Gate/parser/rule checks without model calls | Retained; does not certify model quality |
-| `label_golden.py`, `label_run.py`, `build_review_sheet.py`, `expand_golden.py` | Curate or review a corpus for a specifically chosen experiment | Not an automatic backlog-drain or relabelling workflow |
-| `pick_frame.py`, `extract_shadow.py` | Frozen-input extraction research | Deferred research; not wired into production scoring |
 | `preselection_profile.py`, `preselection_replay.py` | Allowlisted profile rendering and provider-free grouped replay with recency/role-coverage baselines | Offline tooling only; synthetic fixtures; no runtime selection or quality claim |
 | `preselection/extraction.py`, `questions.py`, `shadow.py`, `evaluation.py`; `preselection_evaluation.py` | JD-span/YOE evidence, typed questions, injected direct/extracted fake-provider runs, schema-4 bound journals and aggregate reports with split-seed fingerprinting and bounded input errors | Merged under #129; synthetic/provider-free verification only; no real price, quality claim, GO or runtime wiring |
 | `backfill_descriptions.py` | Explicit JD hydration maintenance | Data-quality tool, not an instruction to rescore or mutate applications |

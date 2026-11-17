@@ -16,9 +16,8 @@ the product overview.
 
 - Node.js 20+ and npm
 - Python 3.11+
-- (Optional, for the full pipeline) Docker + Docker Compose, Ollama, and either
-  the Codex CLI (`codex login` — the default fit-score backend) or an
-  Anthropic API key (`SCORE_BACKEND=claude-api`, the metered alternate)
+- (Optional, for the full pipeline) Docker + Docker Compose, and a screen backend:
+  Ollama (the free default), or the Codex/Claude CLI, or a metered API key
 
 ## Getting started
 

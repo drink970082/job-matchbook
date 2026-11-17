@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 """Hard-requirement accuracy eval for the SCREEN prompt — READ-ONLY, never writes the DB.
 
-The gate `screen.txt` never had. `score.txt` cannot change without two consecutive
-`tools/score_eval.py` PASS; the screen clauses shipped on inspection alone, and on
+The gate `screen.txt` needs. Screen clauses shipped on inspection alone once, and on
 2026-07-27 that cost four days of a clearance check running 83% wrong with nothing to
 surface it (no row is marked `failed`, and no eval existed).
 

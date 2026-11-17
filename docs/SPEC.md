@@ -91,11 +91,10 @@ SQLite database. Its Next.js web UI, native Python worker and host stdio read-on
 process provide complementary access to that data. The MCP is used by ChatGPT for
 research; the web app retains manual tracking and fit-oriented discovered-job views.
 
-The worker supports fetch-only, standalone screen-only and the default combined
-screen/fit/Telegram pipeline. The operator selects standalone Codex Luna/medium screening;
-fit and Telegram are bypassed in that deployment. Optional fit scoring still loads private
-candidate inputs and uses the existing configured provider. The pivot changes product
-ownership and priorities, not these CLI defaults or deployed behavior.
+A worker pass fetches postings and screens them against the candidate's hard
+requirements (`--fetch-only` stops before the screen). There is no fit scorer and no
+notification stage; the stored fit verdicts in `score`/`score_detail` are history the web
+and MCP still read. Ranking for review is the JEV track (`docs/PROGRESS.md`).
 
 ---
 
@@ -123,7 +122,7 @@ Two pains, addressed by the two services:
 - **Single, self-hosting user.** No multi-tenant accounts, no auth layer — you run
   it on your own machine against your own data.
 - **Human always in the loop.** The pipeline invests *nothing* in auto-apply. It
-  prepares (screen, score, notify); you review and submit by hand, then
+  prepares (fetch, screen); you review and submit by hand, then
   one-click "Mark Applied" records it.
 - **Privacy first.** Resume, secrets, target-company list, and the database are all
   gitignored; the repo ships only `*.example` templates so a clean clone runs
@@ -144,9 +143,7 @@ Two pains, addressed by the two services:
 
 - Track applications end-to-end with status history and visual analytics.
 - Discover jobs from company ATS boards on a schedule; support explicitly selected
-  screening and fit paths without requiring them for discovery/MCP record access.
-- Retain optional Telegram alerts for the combined pipeline's eligible matches;
-  fetch-only and screen-only do not require recommendation delivery.
+  screening without requiring it for discovery/MCP record access.
 - Keep the two services safely co-writing one SQLite database.
 - Stay runnable on a single host: `docker compose up` brings up the whole web
   stack, and the worker is one native command alongside it (§12).
@@ -163,11 +160,10 @@ Two pains, addressed by the two services:
   fetches every JD from the official board the listing's URL resolves to; aggregator
   *product* UIs (jobright.ai, simplify.jobs) remain out of scope.
 - **No mandatory model or notification service for local tracking/discovery.** Optional
-  assistance, ChatGPT/MCP and Telegram workflows depend on the selected services.
+  assistance and ChatGPT/MCP workflows depend on the selected services.
 - **No required provider or GPU for the core tracker/discovery path.** Optional
-  model stages require a supported configured backend. Adding every provider to fit
-  scoring is not a prerequisite for the source/tool product; current adapters and
-  defaults are specified in §7.1.
+  model stages require a supported configured backend; current adapters and defaults
+  are specified in §7.1.
 - **The worker issues no schema DDL** — Prisma owns the schema.
 
 ---
@@ -179,21 +175,14 @@ Two pains, addressed by the two services:
 The two-phase workflow:
 
 ```
-Phase 1 — Discovery & scoring (apps/worker, scheduled)
+Phase 1 — Discovery & screening (apps/worker, scheduled)
   watchlist (DB) ─► fetch (9 watchlist platform adapters + custom/browser recipes) ────┐
   feed (Simplify) ─► prefilter ─► resolve URL→board ─► fetch/fetch_one (reuse) ────────┤
                     (per-listing detail sources: Oracle/Jobvite)                       │
                     (unresolvable URL → feed_unresolved backlog)                       │
             (both paths upsert job_postings, deduped on source+id) ◄──┘
-            ─► screen (local Ollama, hard requirements) ─gate─► score (codex|claude, reason-first)
+            ─► screen (hard requirements; result in job_screenings)
                      [location: deterministic code gate off the board field, not the LLM]
-                                          [disqualified → discarded, fit call skipped]
-            ─► notify (Telegram message)   [gate: seniority=match AND domain=match,
-                                            NOT insufficient_context — score is display/ranking only]
-
-`--screen-only` is an operator-selected fetch/feed/expiry → standalone screen path that
-returns before fit scoring and notification. Its results live in `job_screenings`; the
-normal combined screen+fit path remains the default.
 
 Phase 2 — Triage & tracking (apps/web, browser)
   Discovered Jobs tab ─► review JD + match analysis
@@ -229,13 +218,13 @@ phases: it promotes a `job_postings` row into an `applications` row.
 *Class: **Snapshot** — current build; if code disagrees, update this spec.*
 
 ```
-            ATS boards          Ollama (host GPU)  Codex CLI/Claude   Telegram
-      11 platforms + custom/          │                 │              ▲
-        browser recipes               │                 │              │
-                  │                    ▼                 ▼              │
+            ATS boards          Ollama (host GPU)  Codex CLI/Claude
+      11 platforms + custom/          │                 │
+        browser recipes               │                 │
+                  │                    ▼                 ▼
    ┌──────────────┴────────────────────────────────────────────────────┐
    │  apps/worker  (Python 3.11, APScheduler)                          │
-   │     fetch ──► screen + score ──► notify (Telegram)                │
+   │     fetch ──► screen                                              │
    └───────────────┬───────────────────────────────────────────────────┘
                    │ writes job_postings rows
                    ▼
@@ -258,7 +247,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
-| fetch / screen / score / notify | **host** — `python -m ats_worker.run`, not containerized | board APIs, host Ollama, Codex CLI (fit score), Telegram API |
+| fetch / screen | **host** — `python -m ats_worker.run`, not containerized | board APIs, the screen backend (host Ollama or a CLI/API provider) |
 | ATS read-only MCP | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
 | Ollama | **host** (GPU) — not containerized | — |
 | SQLite db | `./db` directory, bind-mounted into the `web` container | — |
@@ -270,7 +259,7 @@ persistent deployment checkout while retaining the existing private configuratio
 shared database. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
 the Sure tunnel unchanged. A controlled production pass against one existing board
 uses five provider calls without error, plus deterministic-only results, and preserves
-all posting fields across the screen stage with zero fit/notify/quota invocations.
+all posting fields across the screen stage.
 Local stdio verification covers all eight models, pagination and full multi-chunk text.
 The operator confirms ChatGPT overview execution, and the connected ATS plugin passes
 19 remote tool calls exercising all ten tools: all eight models, `new` and `discarded`
@@ -418,7 +407,7 @@ a single-user localhost app, not a strict script CSP.
 | UI | React 18, Tailwind CSS 4, Radix UI primitives | — |
 | Charts | Recharts (donut) + hand-rolled SVG (heatmap, funnel, Sankey) | — |
 | Forms | react-hook-form + Zod | — |
-| External | — | Codex CLI subprocess (default fit scorer), Anthropic SDK (Claude, alternate), Ollama HTTP, Telegram Bot API |
+| External | — | Ollama HTTP (default screen), Codex/Claude CLI subprocesses, Anthropic/OpenAI APIs (metered screen backends) |
 | Tests | Jest + Testing Library + jest-mock-extended; Playwright e2e | pytest (fully mocked) |
 | Container | Alpine multi-stage, non-root | — (native on the host, not containerized) |
 
@@ -439,77 +428,45 @@ worker modules are pure and dependency-injected; real services are wired only in
   `range(0, 24, h)` into APScheduler's `hour=` string (`4` -> `0,4,8,12,16,20`), so
   passes land at 00:00/04:00/08:00 regardless of when the daemon started and a restart
   cannot re-phase the day. **The daemon runs NO pass at launch**; `--run-now` restores
-  that on demand and is rejected together with `--once`. Flags: `--config`,
-  `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
-  `--resume-dir` (directory of resume versions, default `resume/`),
+  that on demand and is rejected together with `--once`. A pass is fetch -> feed ->
+  expire -> standalone hard-requirements screen (`pipeline.run_screen`). Flags:
+  `--config`, `--env`, `--db` (`DB_PATH`, default `../web/prisma/applications.db`),
   `--model` (`OLLAMA_MODEL`, the Ollama model tag — only consulted when
-  `--screen-backend ollama`),
-  `--score-backend` (`SCORE_BACKEND`, `codex`|`claude-code`|`claude-api`),
-  `--screen-backend` (`SCREEN_BACKEND`, one of six values — documented under
-  `score/` below), `--screen-model` (`SCREEN_MODEL`, overrides the chosen screen
-  backend's default model; unset lets each backend fall back to its own default,
-  and on `claude-code` that default is the CLI's own, not a value hard-coded here),
-  `--screen-effort` (`SCREEN_EFFORT`, Codex reasoning effort; unset preserves the
-  backend default in legacy modes), `--screen-only` (normal fetch/feed/expiry followed
-  by standalone screening, then return before fit scoring, quota refresh, legacy retry,
-  notification delivery, or Telegram), `--screen-limit N` (positive provider-call cap
-  for screen-only mode, default 40), `--screen-unlimited` (explicitly remove that cap;
-  requires screen-only and conflicts with an explicit screen-limit), `--rescreen-screened` (clear successful screen
-  cache for eligible `new` rows before a one-shot screen pass; requires
-  `--screen-only --once`),
-  `--codex-score-model` (`CODEX_SCORE_MODEL`, fit scoring on the codex backend),
-  `--anthropic-score-model` (`ANTHROPIC_SCORE_MODEL`, fit scoring on the claude backend),
-  `--fetch-only` (run fetch/feed/expire/retry then stop before any screen/scorer call —
-  a quota-free board refresh), `--score-only` (skip the network ingest and score the
-  existing `new` backlog — the inverse of `--fetch-only`), `--score-limit N` (cap `new`
-  rows scored this pass, 0 = no cap — bounds the paid fit scorer on a large fresh intake),
-  `--score-max-id N` (score only `new` rows with `id <= N`, 0 = no bound — the selector
-  to `--score-limit`'s budget, applied first; **requires `--once`**, see §9),
+  `--screen-backend ollama`), `--screen-backend` (`SCREEN_BACKEND`, one of six values —
+  documented under `screening/` below), `--screen-model` (`SCREEN_MODEL`, overrides the
+  chosen backend's default model; Codex defaults to `gpt-5.6-luna`, and on `claude-code`
+  the default is the CLI's own), `--screen-effort` (`SCREEN_EFFORT`, Codex reasoning
+  effort, default `medium`), `--screen-limit N` (positive provider-call cap per pass,
+  default 40 or `SCREEN_LIMIT`), `--screen-unlimited` (explicitly remove that cap; the
+  provider breaker and successful-result cache stay active), `--screen-workers`
+  (default 1), `--rescreen-screened` (clear successful screen cache for eligible `new`
+  rows before a one-shot pass; requires `--once`), `--fetch-only` (run fetch/feed/expire
+  then stop before any screen call — a quota-free board refresh), `--screen-only`
+  (accepted no-op alias for the default pass, kept for existing service files),
   `--refresh-unscored --refresh-source smartrecruiters --refresh-limit N` (standalone,
   source-only refresh of eligible existing unscored rows; requires `--once`, an explicit
-  adapter, and a limit from 1 through 25; does not run intake, screening, fit, retry,
-  quota, or notification),
-  `--rescreen-discarded` (return every `discarded` row to `new` before this pass so it
-  is re-screened under the current candidate hard requirements — **requires `--once`**,
-  see §9),
-  `--no-notify` (score but send no Telegram alerts — for a bulk/unattended pass;
-  nothing is consumed, rows stay `scored` and alert on a later pass without the flag),
-  `--import-companies` (seed the DB watchlist from config and exit). Defaults:
-  screen `ollama` / `qwen3.5:4b`; fit score `codex` / `gpt-5.6-sol`. Each pass
-  **auto-seeds** `watched_companies` from `config.companies` when the table is empty,
-  reads the watchlist from the DB (not config), runs `run_fetch` over it, then runs
-  `run_feed` for each enabled feed. The only module that knows about
-  secrets/external services — and the only place the real network callables are
-  bound: `pipeline.run_fetch`/`run_feed`'s `fetch_fn`/`detail_fetch_fn` and
-  `score.screen_posting`'s `http` all default to `None` in their pure modules
-  (the fetch/screen seams never bind a real network callable as a default —
-  `notify.py`'s `http=requests` default is the one deliberate exception), and
-  `run.py` supplies `fetch_company`, `fetch_one_company`, and the screen's
-  `http=requests` explicitly at each call site. **One pass at a time per database:** every
-  pass (scheduled or `--once`) runs inside `pass_lock` — a non-blocking `fcntl.flock`
-  on `<resolved --db>.pass.lock`, taken per *pass*, not for the process lifetime, and
-  keyed on the `resolve()`d DB path so a relative `--db`, an absolute one and a
-  symlinked checkout all land on one file. A pass that cannot take it runs
-  nothing: `--once` exits non-zero naming the holder's pid, a scheduled firing skips
-  that slot and stays scheduled (§9). An **unwritable** lock file (the root-owned
-  leftover of one `sudo` run) degrades to an `O_RDONLY` hold rather than failing —
-  `flock` needs no write access, so the guard stays exclusive and only the pid record is
-  lost, which both sides announce. Failing there instead would leave the daemon `active
-  (running)` on a healthy-looking schedule while completing no pass, since with no eager
-  startup pass the error is raised inside the APScheduler job. Other open failures
-  (an unwritable DB directory, a file this user simply cannot read) still fail loud.
-  `--screen-only` retains the repo-wide Ollama default; if Codex is explicitly selected
-  without an override, it uses `gpt-5.6-luna` at `medium`. It defaults to one worker and
-  a 40-call cap, skips resume loading and fit-provider setup, and returns before legacy
-  failed-row retry, `--rescreen-discarded`, fit scoring, quota refresh, or notification.
-  `--screen-limit` must be positive; zero remains invalid. `--screen-unlimited`
-  overrides the default/environment cap and passes `None` to the runner, while the
-  existing provider breaker and successful-result cache remain active.
-  `--rescreen-screened` clears successful cached
-  results only for eligible `new` rows and is accepted only with `--screen-only --once`.
-  The mode rejects conflicts with `--fetch-only`, `--score-only`, and
-  `--rescreen-discarded` before network or DB work, both in the CLI and direct
-  `run_once` calls; invalid screen-call caps also fail before opening the database.
+  adapter, and a limit from 1 through 25; runs no intake or screening), and
+  `--import-companies` (seed the DB watchlist from config and exit). `--fetch-only`,
+  `--screen-only` and `--refresh-unscored` are mutually exclusive; invalid combinations
+  and a non-positive screen cap fail before config load or DB work, both in the CLI and
+  in direct `run_once` calls. Each pass **auto-seeds** `watched_companies` from
+  `config.companies` when the table is empty and reads the watchlist from the DB (not
+  config). The only module that knows about secrets/external services — and the only
+  place the real network callables are bound: `pipeline.run_fetch`/`run_feed`'s
+  `fetch_fn`/`detail_fetch_fn` and `screening.screen_posting`'s `http` all default to
+  `None` in their pure modules, and `run.py` supplies `fetch_company`,
+  `fetch_one_company`, and the screen's `http=requests` explicitly at each call site.
+  **One pass at a time per database:** every pass (scheduled or `--once`) runs inside
+  `pass_lock` — a non-blocking `fcntl.flock` on `<resolved --db>.pass.lock`, taken per
+  *pass*, not for the process lifetime, and keyed on the `resolve()`d DB path so a
+  relative `--db`, an absolute one and a symlinked checkout all land on one file. A pass
+  that cannot take it runs nothing: `--once` exits non-zero naming the holder's pid, a
+  scheduled firing skips that slot and stays scheduled (§9). An **unwritable** lock file
+  (the root-owned leftover of one `sudo` run) degrades to an `O_RDONLY` hold rather than
+  failing — `flock` needs no write access, so the guard stays exclusive and only the pid
+  record is lost, which both sides announce. Other open failures (an unwritable DB
+  directory, a file this user simply cannot read) still fail loud. The worker reads no
+  résumé or profile file.
 - **`config.py` — load/validate `config.yaml`.** Validates `source ∈ VALID_SOURCES`
   (the watchlist-capable boards: {greenhouse, lever, ashby, workday, pinpoint,
   smartrecruiters, workable, icims, phenom, custom, browser} — feed-only sources oracle/jobvite
@@ -535,13 +492,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   startup error. `feeds` is an optional mapping of feed-name → settings (only
   `simplify` is valid in v1: `enabled`, `categories` keep-list, optional `url`);
   `companies` is now consumed only by the one-time watchlist import (see `run.py`).
-  `fit_profile` is optional and is not consumed by the live fit/screen pipeline — it is
-  the concept vocabulary the shadow extraction experiment uses (§13). The default config
-  loader parses and validates it with `fit_profile.py`; standalone screen-only mode skips
-  only that unrelated validation block. Other config validation remains active. The parser
-  raises the same `ConfigError` at startup on a structural
-  mistake (unknown priority, an `anti_target` carrying a priority, a duplicate id, an
-  over-long description, no target concept, or a concept count over the ceiling).
+  A top-level `fit_profile` block (the retired fit scorer's vocabulary) is accepted and
+  ignored, so an existing `config.yaml` still loads.
 - **`fetch/` — board adapters.** One thin module per source, registered in
   `fetch/ADAPTERS`. Each returns the unified posting dict (`title`, `location`,
   `url`, full JD `description`, `external_id`). Two shapes:
@@ -784,23 +736,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   unscored states, no fit assessment or application link, oldest attempted first),
   `save_source_observation` (transactionally rechecks eligibility and exact identity;
   records inconclusive/closed/available outcomes; changes assessment inputs only after
-  validation), `get_by_status`
-  (selects rows by pipeline status), `get_notifiable` (the notify gate: `scored`
-  rows whose `score_detail` verdicts read `seniority=match AND domain=match AND
-  NOT insufficient_context`, via `json_extract`, **and** whose trimmed
-  `description` is ≥ 200 chars — the same low-context hold-back the web Matched
-  tab applies, §9), `save_score` (also clears
-  `pipeline_error`, so a row recovering via a retry requeue drops its stale
-  error), `mark_notified` (clears `pipeline_error`), `mark_failed` (terminal —
-  aside from `requeue_failed`, below), `record_notify_failure` (retry-aware:
-  keeps the row `scored` until the caller declares the budget exhausted, then
-  parks it `failed`), `requeue_failed(conn, now, max_attempts,
-  max_notify_attempts)` (bulk `UPDATE ... SET pipeline_status='new' WHERE
-  pipeline_status='failed' AND attempts < max_attempts AND notify_attempts <
-  max_notify_attempts`, returns rows requeued — both caps passed in by the caller
-  (`pipeline.RETRY_MAX_ATTEMPTS` / `NOTIFY_MAX_ATTEMPTS`), so this module stays
-  policy-free like every other mutator here; guarding both keeps a notify-exhausted
-  row terminal even though its score `attempts` may be 0). Watchlist + feed
+  validation), `get_by_status` (selects rows by pipeline status, best-scored first),
+  `mark_expired`, `touch`. Watchlist + feed
   helpers: `get_watchlist` (skips a `custom`/`browser` row with malformed recipe JSON,
   but keeps a platform-source row — it fetches without a recipe), `count_watchlist`,
   `import_watchlist` (idempotent), `record_unresolved` (upsert on `url`),
@@ -810,13 +747,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   priority group. Provider errors follow oldest-attempt-first; successful results stay cached until an
   explicit one-shot re-screen, and `save_screening` re-checks eligibility inside a
   transaction before writing. Issues no DDL.
-- **`screening/` and `score/` — active screening and legacy fit scoring.** The
-  provider-neutral `screening/` package owns the live hard-requirement engine, screen
-  schema/rendering, location resolver, and screen transports. The legacy `score/`
-  package holds only fit normalization and fit backends, resolved lazily so importing the
-  package or `score.errors` loads no fit backend or prompt; screen callers import
-  `screening` directly. Subscription quota telemetry is the neutral `ats_worker.usage`. The combined path remains
-  **SCREEN-gated**: the cheap hard-requirements screen runs FIRST and gates fit scoring.
+- **`screening/` — the hard-requirements screen.** The provider-neutral package owns
+  the hard-requirement engine, screen schema/rendering, location resolver, and screen
+  transports. There is no fit scorer. Subscription quota telemetry is the neutral
+  `ats_worker.usage` (§7.2's quota bar reads its snapshot); `seniority.py` holds an
+  unwired seniority classifier (see `docs/PROGRESS.md`).
 
   (1) The hard-requirements **SCREEN** is injected as one seam — `extract(prompt,
   schema) -> dict` (`screen_posting`'s `extract` kwarg) — so swapping backends is a
@@ -834,8 +769,7 @@ worker modules are pure and dependency-injected; real services are wired only in
     needs `OPENAI_API_KEY`).
   - **CLI subprocess + schema** — `codex` (the operator's ChatGPT-subscription CLI,
     default `gpt-5.6-sol`; runs **tool-less** — `--disable shell_tool`,
-    `web_search="disabled"` — the same security posture as the fit backend below,
-    since a JD is untrusted scraped text; the schema goes in as a **file**,
+    `web_search="disabled"`, since a JD is untrusted scraped text; the schema goes in as a **file**,
     `--output-schema`; an explicit `screen_effort` is forwarded as
     `model_reasoning_effort`), `claude-code` (the operator's Claude Code CLI subscription;
     **no** hard-coded default model, so an unset `--screen-model` takes whatever the
@@ -870,14 +804,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   money is explicit opt-in via `SCREEN_BACKEND` (`make doctor` reports what is
   actually available, and the operator — or `onboard-me` Step 0 — chooses from
   that). `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are read from the in-process `env`
-  dict only, same as the fit backend, never promoted to an argparse default (§12).
+  dict only, never promoted to an argparse default (§12).
 
-  **Standalone screen-only lifecycle.** `pipeline.run_screen` uses the same
-  `screen_posting` and deterministic hard-requirement rules without entering the legacy
-  combined `run_score` flow. It stores one latest result per posting in `job_screenings`,
+  **Screen lifecycle.** `pipeline.run_screen` applies `screen_posting` and the
+  deterministic hard-requirement rules. It stores one latest result per posting in `job_screenings`,
   leaving `job_postings.pipeline_status`, fit `score`/`score_detail`, score attempts,
   notification attempts and application links untouched. Successful results are reused
-  until `--rescreen-screened --screen-only --once` explicitly clears them for eligible
+  until `--rescreen-screened --once` explicitly clears them for eligible
   `new` postings. Provider errors remain retryable and are selected oldest-attempt-first
   after fresh rows, under the configured positive per-pass provider-call cap (default
   40), or without a call-count cap when `--screen-unlimited` is explicit. The existing
@@ -888,18 +821,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   posting is still `new`; a provider call interrupted before commit can be repeated on
   a later pass (at-least-once external execution).
 
-  **Import/config boundary.** The standalone `screening/` package and `--screen-only`
-  composition path do not import `score/`, `fit_profile.py`, or the root legacy prompt
-  module, and they do not load resumes. `score/__init__.py` is a lazy compatibility
-  facade: importing its neutral exception or screen exports loads no fit backend or fit
-  prompt; explicit fit-factory/schema access resolves the retained legacy modules. The
-  legacy `ScoreError` remains the same class as `ModelResponseError`. Screen-only config
-  loading skips only the unrelated legacy `fit_profile` validation block; watchlist,
-  candidate, intake, and operational configuration validation still runs. The default
-  loader used by combined legacy modes continues to validate `fit_profile`.
-
-  Provider-free review-batch, rehearsal, profile, and replay imports guard this boundary
-  in fresh processes: legacy fit/profile/runtime modules and `.txt` resource reads fail
+  **Import boundary.** No fit module exists to import, and no résumé is loaded.
+  Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
+  processes: legacy fit/profile/runtime module names and `.txt` resource reads fail
   immediately.
 
   Each standalone result's persistence timestamp is sampled after its provider call on
@@ -958,7 +882,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   rows, all three draws. Measured, not assumed.
 
   **Every uncertainty resolves toward KEEP**, because a discarded row is reviewed by
-  nobody while a miss costs one paid fit call and reaches the human. A label count that
+  nobody while a miss reaches the human. A label count that
   does not match the snippet count means the model answered a different question, so the
   check is dropped — and crucially it does **not** fall through to the floor. That path
   is where both IMC false positives came from: the 4B returned one label for three
@@ -976,9 +900,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   left `new`, the floor is skipped, and the breaker counts a failure. Without that,
   degree and clearance suppress themselves on absent data and the floor is the *only*
   surviving check: a blunt substring scan disqualifying on a JD the model never
-  condemned, while `run_score` records a breaker **success**, so the degraded backend
-  never trips it and walks the whole backlog. It costs no quota — the row is not
-  fit-scored. Realistic trigger is a wrong `--model` tag or a non-instruct model: `_post`
+  condemned, while the pass records a breaker **success**, so the degraded backend
+  never trips it and walks the whole backlog. Realistic trigger is a wrong `--model` tag or a non-instruct model: `_post`
   only checks that a dict came back and no hosted backend validates shape either.
   **Two response shapes are accepted, and the second is not hypothetical.** `verdict_block`
   reads `{"screen": {...}}` *and* the flat `{"degree": {...}, "clearance": {...}}` the local
@@ -996,9 +919,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   absent rather than recording a verdict. It is deterministic but blunt — a substring
   scan of the whole description — and on a working backend the model's labels overrule
   it while on a dead one nothing does, so running it during an outage discards precisely
-  the postings this design keeps. `run_score` leaves a `provider_error` row `new` rather
-  than fit-scoring it, so the absent key is never read and `merge_fallback_screen` is
-  never reached: no second model vote, and the next pass screens the row properly.
+  the postings this design keeps. `run_screen` stores a `provider_error` result as
+  retryable, so the next pass screens the row properly.
 
   **The retrieval vocabulary is `sponsor` alone, and the cost is stated rather than
   hidden.** Every false positive ever recorded on this path came from a word that is not
@@ -1013,12 +935,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   among them are foreign on-site roles `resolve_location` rejects independently.
 
   **`NO_SPONSOR_PHRASES` is the floor for SILENCE only** — `SCREEN_BACKEND=none`, a
-  provider error, or the fit scorer's Stage 4 shape. It can only *add* a
+  or a provider error. It can only *add* a
   disqualification, never veto a model pass. And `authorization` **always records a
   verdict** when the candidate configured it, even when nothing was retrieved and no
-  clause was asked and no LLM call was made: `merge_fallback_screen` fills only the keys
-  the screen left absent, and a second model vote on a disqualification is exactly what
-  that function is documented not to be.
+  clause was asked and no LLM call was made.
 
   **Superseded measurements.** The 2026-07-25 precision/recall table
   (`NO_SPONSOR_PHRASES` 81.8%/45.0%; shipped `_check_authorization` 90.9%/100% over 20
@@ -1077,10 +997,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   the same model sometimes *invents* a `master's` level, so it is unreliable in both
   directions; the honest fix for the remainder is routing a degree fail to the strong
   model rather than a fifth prompt rewrite (see PROGRESS).
-  **The fit scorer's Stage 4 block still emits the old single `required_degree`, on
-  purpose**, and `_check_degree` reads both shapes: that block runs on a strong model
-  where the minimum is a judgment it can make, and changing it would edit `score.txt`,
-  whose gate is two consecutive quota-spending `score_eval` runs.
+  `_check_degree` also reads the older single `required_degree` shape.
 
   **Clearance carries an EVIDENCE FLOOR, the same shape D1 gave sponsorship.**
   `_check_clearance` honours `requires_clearance: true` only when `CLEARANCE_TOKENS`
@@ -1093,11 +1010,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   token list is the measured one and stays that way: widening it re-opens the
   false-discard direction, which is why bare `sci` (matches "science"/"scientist") and
   bare `poly` are deliberately absent — the abbreviation is spelled `ts/sci`. A clearance
-  bar phrased with none of these words is a **miss**, which costs one paid fit call and
-  reaches the human; a false discard is reviewed by nobody. The floor is keep-direction
-  only — it can turn a discard into a keep, never the reverse — and it applies to
-  `merge_fallback_screen`'s Stage 4 extraction too, since that routes through the same
-  `_screen_verdict`. `degree` is **not** guarded this way: 38 of 38 live degree discards
+  bar phrased with none of these words is a **miss**, which reaches the human; a false discard is reviewed by nobody. The floor is keep-direction
+  only — it can turn a discard into a keep, never the reverse. `degree` is **not** guarded this way: 38 of 38 live degree discards
   are grounded (36 in the description, 2 in the title), so the same guard there would be
   speculative.
 
@@ -1157,97 +1071,18 @@ worker modules are pure and dependency-injected; real services are wired only in
   **rejected**: it discarded a US university building as Tanzania (via "Coast") and an
   Israeli site as Italy. US-state and remote strings keep, so a
   `locations`-only candidate makes no SCREEN call (any backend). The screen prompt
-  carries no location clause. The scoring prompts live in **two** files —
-  `prompts/score.txt` (fit rubric) and `prompts/screen.txt` (the SCREEN
-  hard-requirements checklist, shared by every backend). Separately, when
+  carries no location clause. The screen prompt is
+  `prompts/screen.txt`, shared by every backend. Separately, when
   `candidate.exclude_internships` is set,
   intern/co-op roles are disqualified by a whole-word match on the job title (no LLM
   call — runs even when no other screen clause is configured). A SCREEN **provider**
   failure errs toward keep (not disqualified) and stamps `provider_error` on the
-  verdict; `run_score` then leaves that row `new` rather than fit-scoring it unscreened,
-  and a run of them circuit-breaks the screen phase (§9). (2) The fit **SCORE** —
-  reached **only when the screen did not disqualify** (a discarded posting records `score` 0 and never pays
-  for a fit call) — comes from an injected **`score_fit(postings, resumes) -> list[dict]`**
-  callable: **batch-first, list in / list out**, one scorecard per input posting in the
-  same order. `run_score` itself calls it directly with each chunk's full batch of
-  postings (`fit_fn(postings)`, chunked by `batch_size`); `pipeline._persist_scored`
-  then normalizes every result in the returned list (`score._normalize_score(card)`) —
-  the batching happens at the `run_score` orchestration layer (§7.1/§9), not inside a
-  per-posting call. Two interchangeable twins
-  build it, picked by `run.make_scorer` (`--score-backend`/`SCORE_BACKEND`); both send
-  the **same prompt sections** (`_scorer_system_sections`) and the **same per-element
-  JSON schema** (`_score_schema`), so a score is comparable across them and a prompt
-  edit lands on both:
-  - **`codex` (default)** — `make_codex_scorer`, the Codex CLI on the operator's
-    **ChatGPT subscription** (flat-rate, not metered), and the **only backend with
-    batching machinery**: one `codex exec` per call can handle up to `batch_size`
-    postings at once (`--batch-size`/`CODEX_BATCH_SIZE`). That machinery was built on
-    the premise that the subscription's quota is MESSAGE-bound, so fewer `codex exec`
-    calls would be the saving; **the premise is false** — it is per-TOKEN credits
-    (measured 2026-07-31, SCORING §4.5), so a batch would only save the repeated prompt
-    prefix. **Parked at `DEFAULT_BATCH_SIZE=1` (`run.py`):** the batched==single
-    verdict-drift guard failed on cross-JD bleed (full post-mortem in §13); opt back
-    in via `--batch-size`/`CODEX_BATCH_SIZE` only once that guard passes.
-    Each JD gets its own `=== JOB job_ref=<posting id> ===` block in one prompt; the
-    schema wraps N per-posting elements as `{"results": [{job_ref, ...}, ...]}`, enforced
-    via `--output-schema`, JSON read back from `--output-last-message`. Results are
-    realigned to the input postings **by `job_ref`, not list position** (an LLM isn't
-    guaranteed to preserve order across N items) — a missing, duplicate, or unknown
-    `job_ref` raises `ScoreError` for the **whole batch** (silently misattributing a score
-    to the wrong job is worse than failing loudly). `batch_size=1` degrades to exactly
-    the pre-batching one-call-per-posting shape (no special-casing).
-    Auth is the operator's `codex login` state
-    (`auth_mode=chatgpt`), **not** an env key — but `CODEX_API_KEY`, if set, *overrides*
-    it and silently moves scoring onto metered API billing (`OPENAI_API_KEY` is ignored).
-    Model `gpt-5.6-sol` (`CODEX_SCORE_MODEL`/`--codex-score-model`), the CLI's own
-    default — chosen on the golden set, the only measurement that counts
-    (`gpt-5.6-terra` won a synthetic probe but lost on real JDs, gate agreement 76%
-    vs 86%; `gpt-5.6-luna` rejected outright, ~3× looser spread).
-    **Tool-less by construction** (`--disable shell_tool`, `web_search="disabled"`) — a
-    security boundary, since a JD is untrusted scraped text and `codex exec` is natively
-    an agent with a shell that `--sandbox read-only` still lets read any file; also worth
-    ~3.1k input tokens/call.
-    **Pinned `model_reasoning_effort=low` + `model_verbosity=low`.** Effort buys nothing
-    on this task shape (reasoning tokens were non-monotonic across levels) but **must** be
-    pinned anyway: the default is server-controlled and was seen flipping `low`→`medium`
-    →`low`. Verbosity is a no-op under `--output-schema`.
-    **No determinism:** codex exposes no `seed`/`temperature`, so score noise can't
-    be turned off — but routing turns on the verdicts, not the noisy number (§9),
-    and `make eval-score` gates verdict accuracy. If that gate ever fails, the
-    escape hatch is majority-of-K draws or A/B-ing `--score-backend claude-code`; the
-    residual ±10–15 score noise affects only display/ranking, never routing.
-    Scoring calls are unconditionally `--ephemeral`: nothing is written to
-    `~/.codex/sessions`, so the résumé+profile+JD prompt never reaches disk. (Before
-    2026-07-29 the quota bar forced `--ephemeral` off — see **Quota telemetry** below.)
-  - **`claude-code`** — `make_claude_cli_scorer` (Claude Code CLI on the operator's
-    **Claude subscription**, `claude-sonnet-5` by default, overridable via
-    `CLAUDE_CODE_SCORE_MODEL`/`--claude-code-score-model`); no API key. The
-    subscription twin of `codex` and the intended A/B partner: same prompt sections and
-    the same `{"results":[{"job_ref":...}]}` schema (both call `score._batch`), so a
-    disagreement between the two means the *models* disagree rather than the adapters.
-    Structured output is **enforced** by `--json-schema`, Claude Code's equivalent of
-    `codex exec --output-schema`; the validated object arrives pre-parsed on the
-    terminal result event's `structured_output`.
-    **Tool-less via `--tools ""`, not `--allowedTools ""`** — measured 2026-08-02: the
-    latter is a permission allowlist over a tool set that is still loaded, and left
-    Bash/Read/Write/WebFetch live in `permissionMode: "auto"`. Same security boundary as
-    codex's `--disable shell_tool`: a JD is untrusted scraped text. Combined with
-    `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands` and a
-    tmpdir cwd, harness overhead measured **38,643 → 9,193** cached input tokens/call.
-    **Never `--bare`** — it forces `ANTHROPIC_API_KEY` auth and would silently move this
-    backend onto metered billing.
-  - **`claude-api`** — `make_claude_scorer` (metered API, `claude-sonnet-5` by default —
-    structured outputs require it; `claude-sonnet-4-6` doesn't support
-    `output_config.format` — overridable via
-    `ANTHROPIC_SCORE_MODEL`/`--anthropic-score-model`); needs `ANTHROPIC_API_KEY`. Does
-    **not** batch — `fit` loops one `messages.create` call per posting regardless of
-    `batch_size` (harmless no-op chunking cadence on this backend): Claude's win is the
-    cached system prefix (already flat per-call marginal cost), not fewer round-trips,
-    so batching would only save request count, which doesn't matter on metered billing.
+  verdict; `run_screen` stores it as a retryable error, and a run of them
+  circuit-breaks the pass (§9).
 
-  **Quota telemetry (`ats_worker/usage.py`, free).** After a scoring pass that actually
-  built a scorer, `run_once` makes **one** HTTP GET against the active backend's own
-  usage endpoint and writes a snapshot to `scorer_usage.json` in the shared db dir
+  **Quota telemetry (`ats_worker/usage.py`, free).** `capture_usage(path, backend)`
+  makes **one** HTTP GET against a subscription backend's own usage endpoint and writes
+  a snapshot to `scorer_usage.json` in the shared db dir
   (`{backend, plan_type, as_of, limits:[{key, used_percent, window_minutes, resets_at}]}`).
   Best-effort by contract: `capture_usage` never raises, and a failed fetch leaves the
   PREVIOUS snapshot in place rather than truncating it — a transient 429 should dim the
@@ -1266,16 +1101,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   is named in the tuple rather than left to fall through silently. **Why this much:** a
   bare `False` cost two days on 2026-07-30/31, during which a 403, an expired token, a DNS
   blip and a malformed body were indistinguishable, and the pass that finally caught the
-  failure could still not say what it was. On top of that, `run_once` prints
-  `[quota] WARNING: no <backend> usage snapshot written`,
-  and the write stamps an offset-aware `as_of` into the snapshot itself — a stale
-  reading and a fresh one are otherwise indistinguishable to anything but `ls -la`, and
-  this file is the instrument the `--score-limit` decisions are made on. Endpoints:
+  failure could still not say what it was. The write also stamps an offset-aware `as_of` into the snapshot itself — a stale
+  reading and a fresh one are otherwise indistinguishable to anything but `ls -la`. No
+  worker pass calls it today; the web quota bar (§7.2) shows the last snapshot written.
+  Endpoints:
   - **codex** — `GET https://chatgpt.com/backend-api/codex/usage`, bearer token +
     `chatgpt-account-id` from `$CODEX_HOME/auth.json`. Yields `plan_type` and
     `rate_limit.primary_window`/`secondary_window` (`used_percent`,
     `limit_window_seconds` → `window_minutes`, `reset_at`). The observed `primary` is
-    the **weekly** window (10080 min). This is the SAME budget the scorer spends.
+    the **weekly** window (10080 min). This is the budget the `codex` screen spends.
     chatgpt.com is behind Cloudflare, which 403s urllib's default `Python-urllib/3.x`
     (and a browser-looking `Mozilla/5.0`), so an honest client `User-Agent` is sent.
   - **claude** — `GET https://api.anthropic.com/api/oauth/usage`, bearer token from
@@ -1284,94 +1118,17 @@ worker modules are pure and dependency-injected; real services are wired only in
     `scope.model.display_name` for the model-scoped weekly row) and falls back to the
     flat named buckets (`five_hour`, `seven_day`, …). ISO reset strings are parsed to
     epoch seconds so both backends share one field.
-    **This is the Claude Code SUBSCRIPTION budget, which is NOT what the claude scorer
-    spends** — `make_claude_scorer` bills `ANTHROPIC_API_KEY` (metered; no
-    percent-of-quota endpoint exists for it). The snapshot records `backend` and the
+    **This is the Claude Code SUBSCRIPTION budget, which is NOT what the `claude-api`
+    screen spends** — that bills `ANTHROPIC_API_KEY` (metered; no percent-of-quota
+    endpoint exists for it). The snapshot records `backend` and the
     bar states the distinction outright (§7.2) so the two are never conflated.
-
-  Before 2026-07-29 the codex figures were scraped from the session **rollout** (the
-  only place `codex exec` records `rate_limits`; `--json` stdout does not), which forced
-  `--ephemeral` off, left the résumé-bearing prompt on disk until a guarded reap, and
-  identified "our" rollout by mtime. The endpoint returns the same accounting directly,
-  so all of that is gone. A live "now" reading still isn't attempted per scoring call —
-  the snapshot reflects the last pass, a budget indicator rather than a live meter.
-
-  Every backend raises `ScoreError` on a failed call. On `claude-api` (single-call) that
-  fails **one** posting, same as before. On `codex` (batched) a raised `ScoreError` — or
-  any other exception, e.g. a transient API error from the `claude-api` backend surfacing
-  through the same `run_score` call site — fails the **whole batch call**; `run_score`'s
-  safety net (§9) catches that and retries the batch's postings **singly**, so one
-  malformed batch costs latency, not correctness, and only a single that still fails
-  marks just that one row `failed`. A non-zero `codex exec` exit never
-  yields a `0` score, because codex purges `~/.codex/auth.json` after repeated auth
-  failures and a logged-out cron must fail loudly, not score the queue 0.
-  `resumes` is the `{label: text}`
-  dict `run.py`'s `load_resumes` builds from every `*.txt` in `--resume-dir`: label =
-  filename minus a leading `resume_` (`resume.txt` → `resume`,
-  `resume_quant_dev.txt` → `quant_dev`), plus an optional `personal_profile.txt`
-  read separately as about-the-candidate context (goals/constraints/preferences,
-  never itself scored as a résumé); two files deriving the same label, or zero
-  resume files, is a config error (`SystemExit`, never a silent overwrite). The
-  scorer sends **all resume versions** (+ the profile, if present) and the rubric as
-  **one cached system prefix** (`cache_control: ephemeral`, byte-identical every
-  call in a run, only the JD is fresh) with **adaptive thinking**, returning
-  schema-constrained JSON: a structured **`assessment` scorecard** (ordered first so the
-  model works the verdicts before the number) + `score 0-100`. The scorecard carries
-  enum-constrained `seniority` (match/too_junior/too_senior) and `domain`
-  (match/adjacent/mismatch) verdicts + notes, split `must_haves` {met, missing} /
-  `nice_to_haves` {missing}, and a one-line `summary` (**S2.1** — replaced the flat
-  `matched_keywords`/`missing_keywords` lists + prose `reasoning`). The **`domain`
-  verdict is a target-fit rule** (redesigned 2026-07-17): the model records **three checks** in
-  the note — (1) ANTI-TARGETS, (2) which TARGET priority the role's *day-to-day work*
-  (not its title) falls under, (3) whether the RÉSUMÉ evidences the field — and collapses
-  them deterministically (`mismatch` if anti or no-target-and-no-background; `match` if
-  TARGET priority 1-3 and résumé-backed; `adjacent` otherwise) against the operator's
-  gitignored `personal_profile.txt` (TARGET tiers / ANTI-TARGETS / POSITIONING). This is
-  what makes the match/adjacent line — which the notify predicate turns on (§9) — a
-  checkable rule rather than a vibe, and drove the eval flip-rate from 24–38% to 5% (§13).
-  Because the verdict reads the profile, **verdict behavior is operator-tunable via the
-  profile, not only the prompt** — e.g. an "engineering-facing analyst with real tooling"
-  seat is a `match` or `adjacent` depending on how the profile's tier-3 qualifier is
-  drawn. The prompt scores
-  from the verdicts: a material seniority gap floors the score at 0–30 (**D3**), and
-  missing `nice_to_haves` barely move it (**D4**). The scorer also sets a top-level
-  **`insufficient_context`** boolean (**case #2**): true when the JD is too thin,
-  boilerplate, or truncated to assess fit with confidence — a signal (independent of the
-  0–100 score, which is still filled in as best it can) that routes the posting to the
-  **Low-context** bucket for human review rather than trusting the number. With **two or more** resume versions
-  the schema additionally requires `recommended_resume`, enum-constrained to the actual
-  labels (so the model can never name a nonexistent version) — the best-fitting version,
-  persisted in `score_detail` and surfaced as a `Resume: <label>` line in the Telegram
-  alert and an always-visible badge in the job detail modal; a single-resume setup omits
-  the field entirely. The JOB section sent to this call **omits the location line**
-  (`include_location=False`) so geography can't move the fit number (**D5** — location is
-  the screen gate's decision; the same role posted per city scores identically).
-  `pipeline._persist_scored` normalizes/clamps the result and validates the
-  scorecard via `score._normalize_score` (`ScoreError` on a missing score or an
-  out-of-enum verdict — the row is marked `failed` via `db.mark_failed` rather than
-  aborting the batch); the modal renders
-  the scorecard with a legacy matched/missing/reasoning fallback for pre-S2.1 rows.
-  **There is no local experience/years gate** — seniority is judged by the Claude
-  scorecard's verdict + floor, not a deterministic code check.
-- **`notify.py` — `notify_posting`.** Telegram `sendMessage` (company / title /
-  score / JD link, plus an optional `Fit: <summary>` line from
-  `score_detail.assessment.summary` and an optional `Resume: <label>` line when
-  `score_detail` carries `recommended_resume`) — a single atomic message per match; the
-  human
-  applies by hand. **Telegram is optional:** if `TELEGRAM_BOT_TOKEN` /
-  `TELEGRAM_CHAT_ID` are absent from `.env`, `run_once` skips `run_notify` and matched
-  rows stay `scored` — still visible in the web Discovered Jobs Matched bucket
-  (`pipeline_status IN ('scored','notified')`), just with no push alert.
 - **`pipeline.py` — orchestration.** Stateless stage functions over a db
   connection with injected worker callables and an explicit `now`:
-  `run_fetch` → (`run_feed`) → `run_expire` → `run_retry` → `run_score` →
-  `run_notify`. Every stage
-  wraps each item in try/except: one bad posting/company is recorded
-  (`db.mark_failed`; at the notify stage `db.record_notify_failure`, which retries —
-  §9) or skipped, and the batch continues. `run_fetch` runs the watchlist path: fetch
+  `run_fetch` → (`run_feed`) → `run_expire` → `run_screen`. Every stage wraps each item
+  in try/except: one bad posting/company is logged or recorded and the batch continues. `run_fetch` runs the watchlist path: fetch
   each company, apply `fetch.prefilter_postings` (title keep/exclude + max-age), then
   — when a `candidate` is configured — run the **same** deterministic intern/location
-  gate as the post-LLM screen (`score.deterministic_screen`, shared code, not a
+  gate as the post-LLM screen (`screening.deterministic_screen`, shared code, not a
   reimplementation) against each surviving posting *before* it is ever upserted. A
   gate miss is tagged `pipeline_status="discarded"` with a screen-shaped
   `score_detail` right there at fetch time — visible in the Discovered "Discarded"
@@ -1381,12 +1138,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   (`feed="watchlist"`, `reason="empty_description"`) — `_valid_posting`, the same
   body-required guard the feed path applies: a bodyless row is permanent
   (`upsert_postings` is `ON CONFLICT DO NOTHING`, so a later cycle never back-fills it)
-  and would reach the paid fit scorer blind, so a board whose list endpoint carries no
+  and would be screened blind, so a board whose list endpoint carries no
   JD simply yields nothing that cycle — while the `feed_unresolved` record surfaces the
   silently-broken scraper on the Unresolved board (dropping, not storing as `discarded`,
   keeps the id re-fetchable so the board self-heals if a later cycle returns the body).
   Rows already tagged `discarded` are exempt —
-  the stub gate returns those deliberately un-hydrated and they never reach the scorer. `screen_posting`
+  the stub gate returns those deliberately un-hydrated and they never reach the screen. `screen_posting`
   still runs `deterministic_screen` again post-LLM (preserving any degree/auth/
   clearance disqualification the SCREEN call found), so the feed path — which never
   goes through `run_fetch` — gates identically, just one stage later.
@@ -1422,162 +1179,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   broken` vs `N dead req(s), none unparseable`) because that line repeats every pass and
   an undiagnosable warning gets tuned out. Each kept posting is stamped with its
   `company_slug`.
-  `run_score` is **screen-all-then-batch-fit-survivors**, not one per-posting loop:
-  (1) every `new` row is screened (Ollama, per-item — one bad screen call marks only
-  that row `failed`), and a disqualified one is persisted `discarded` right here,
-  **never** reaching the fit call — **except a `degree`/`clearance`-only fail, which is
-  routed to the strong model for confirmation instead of being deleted**
-  (`score.demote_for_confirmation`). The selection rule is **measured false-disqualification
-  rate**, not "a model produced the verdict" — `authorization` is also a 4B labelling
-  retrieved prose, and it is excluded because its measured false-disqualification count on
-  the gate is **0** and it already carries the precision machinery the other two lack
-  (retrieve-then-classify, the offers/preference vetoes, quote verification), so a second
-  look is the wrong trade on the one check where a false positive is worst. Degree and
-  clearance measured **24%** (9 of 38 live discards) and **83%** (20 of 24) respectively —
-  both **pre-fix** figures, and the reason the routing was decided rather than a claim
-  about current behavior: the clearance evidence floor already catches all 20 for free and
-  the `degree_levels`/`min(rank)` rewrite cut degree's residual to 2-3 rows per eval run.
-  Routing is insurance for that residual, which is a 4B ceiling no prompt has closed in
-  four attempts. The demotion **clears**
-  the failing verdicts rather than flipping them to pass — that is what turns them into
-  gaps `merge_fallback_screen` fills from the fit scorer's own Stage 4 extraction, with
-  the same CODE applying the candidate's constraint — and records
-  `needs_confirmation: [checks]` in `score_detail`, kept whichever way the confirmation
-  goes. A row failing **any** other check — `authorization`, the location gazetteer, the
-  intern/co-op title regex — stays terminal and free. A
-  disqualification carrying **no per-check entries at all** is likewise not routed — an
-  unreadable shape is not evidence the verdict is wrong. It is a routing decision, not a
-  persisted state: screen and fit run in the same pass, so no row is ever stored
-  `needs_confirmation`, and the outcome is the usual `scored`/`discarded`; a screen survivor whose trimmed `description` is
-  shorter than `db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` (200, the shared low-context
-  threshold) is persisted `scored` + `insufficient_context` right here too — the
-  UI/notify gate hold back any scored row that thin, so a paid fit call would only buy
-  a verdict that is then hidden, and it is skipped; the row still shows under
-  Low-context for a human to eyeball; (2) the (substantial) survivors are chunked into
-  batches of `batch_size` (**default 1 — batching parked**, see below) and each chunk
-  is **one** `fit_fn` call; (3) a chunk whose call raises — `ScoreError` or any other
-  exception — falls back to scoring that chunk's postings **singly**, so one malformed
-  batch costs latency, not correctness, and a single that still fails marks only that
-  row `failed`. `batch_size` is harmless on the `claude-api` backend (which loops
-  internally regardless) and is the parked codex quota lever — default 1 until the
-  batched==single guard passes (§13). An optional `limit` caps how many `new` rows a
-  pass carries into the SCREEN phase (the `--score-limit` operator flag), bounding the
-  paid scorer over a large fresh intake; the remainder stays `new`. It does **not** cap
-  the free deterministic gates: `run_score` opens with a **phase 0 sweep**
-  (`_sweep_free_gates`) that runs `deterministic_screen` **and re-applies the operator's
-  own intake filters** (`stale_fn`, built in `run.py` from `prefilter_postings`) and
-  discards what they kill —
-  0.26 ms/row to scan, ~0.5 ms/row including the committed write (~4.5s for 3,480
-  discards over 9,390 rows), no model call, no quota — before `limit` is applied to what
-  survives. The sweep runs INSIDE the `max_id` window (`max_id` filters first), so an
-  operator's `--score-max-id` selection still bounds what it may touch.
-  **Why the TITLE filters are re-applied here, and the age one is not.**
-  `prefilter_postings` runs at INGEST only, so a row that entered before its filter
-  existed keeps its place and buys a PAID fit call on a posting this config refuses
-  today — **206 of the 5,941 rows that survive the deterministic gates**, measured
-  2026-07-31. `max_age_days` is deliberately excluded, and the asymmetry is the reason:
-  a title refusal is RECOVERABLE (widen `title_filter`, `--rescreen-discarded`, the row
-  survives phase 0 and returns), while an age refusal is not — the row only gets older,
-  so raising the knob never catches up with it. **474 of the 587 age-refusals were inside
-  the window when they were ingested**; they aged out *waiting in the queue*, and
-  discarding them is a queue-TTL policy that would terminally delete ~5,300 rows over 30
-  days. That is an operator decision to take deliberately, with a revert artifact — the
-  way the 2026-07-29 manual sweep was run — not something a pass does silently six times
-  a day. The verdict MERGES into the gate's screen dict rather than replacing it, so the
-  passing location evidence a row already earned survives (a passing intern check writes
-  no key, so there is none to keep), which matters because
-  `--rescreen-discarded` requeues real discards back through this same phase. It runs
-  only AFTER those gates, so a row they killed keeps their reason.
-  **A trap this measurement fell into first:** `_too_old` returns False when it cannot
-  parse `now` (err toward keep), so calling `prefilter_postings` without an explicit
-  `now` silently disables the age rule. Right for production, wrong for measurement —
-  pass `now` in any offline count.
-  **`limit` is still not a pure quota budget, and the residual is deliberate:** an LLM
-  screen-discard and a thin-JD row each consume a slot while spending no quota. Two
-  measurements of how big that is disagree on their denominators and neither is wrong —
-  **~18%** over the three live passes of 2026-07-29 (11/8/13 of 60 screened), **8.2%**
-  over the rows in DB history that would enter the screen phase under this code (40 of
-  486). Closing it would mean screening until `limit` *survivors* are found, which makes
-  the model work per pass unbounded; the bound is worth more than the last 8-18%, and on
-  the live data the difference is ~1.3 days of catch-up rather than ~16.
-  Charging a quota budget for work that spends no quota is what stalled the live pipeline
-  on 2026-07-31: `requeue_discarded` had returned 4,644 rows to `new`, where they sort
-  AHEAD of fresh intake, and the daemon then spent every pass re-killing location
-  discards for free while fit-scoring nothing.   **A free seniority PRE-ORDERING runs on what phase 0 leaves** (`score/seniority.py`,
-  wired only on the `ollama` screen backend and only when a candidate is configured — it
-  must cost no quota). It examines at most `2 x limit` rows: the model extracts
-  `stated_min_years` / `stated_rank` as the JD literally states them, CODE compares
-  against `candidate.years_experience`, and a row stating a bar the candidate does not
-  clear is stamped `deprioritized_at` — it **stays `new`**, keeps its place among its
-  peers, and sorts behind every undemoted row (`db.get_by_status`'s newest-first order
-  leads on `deprioritized_at IS NOT NULL`) while remaining IN the pass, so spare budget
-  still reaches it. Never a discard: the layer is measured against the strong scorer's
-  own verdicts rather than human labels, so it may decide which row gets the next paid
-  call and may not delete a posting. `UPDATE job_postings SET deprioritized_at=NULL`
-  reverses it row for row. The rationale, the measurement (P **0.975**, recall 0.793,
-  **46%** demoted, **0 false demotions on `domain=match` and 0 on notified rows**) and the
-  keep-direction vetoes are docs/SCORING.md §5.7, along with what a green eval does NOT
-  prove; the gate is `make eval-seniority`.
-  **Three code-side rules decide whether a stated figure is a bar, each added 2026-07-31
-  because its absence produced a wrong verdict.** (1) A years figure counts only where the
-  JD states it *as a requirement* — capped figures and ages are not bars, matched on word
-  boundaries and not when negated ("no less than N" is a minimum). (2) A years bar the JD
-  states nowhere is dropped, the mirror of the rank path's evidence check. (3) The
-  rank-cancelling veto compares the model's raw figure against the margin, not the clamped
-  one. **Only (2) is purely keep-direction**; (1) can raise a clamped bar and (3) reaches
-  the rank branch on rows that previously short-circuited, so both carry the
-  demote-direction evidence bar. Mechanisms, the two traps in (1), and the measured
-  trade-off in (3) are SCORING §5.7.
-  An optional `max_id` (the
-`--score-max-id` flag) restricts the pass to rows with `id <= N` and is applied
-**before** `limit` — the SELECTOR to `limit`'s BUDGET. The two are not
-interchangeable: the queue below is newest-first, so `limit` can only name rows from
-the new end, while a `--rescreen-discarded` recovery target sits at the old end
-(`requeue_discarded` stamps one `updated_at` across every discard, so they tie and
-break by `id DESC`). Like `--rescreen-discarded` it is **one-shot — `main` rejects it
-without `--once`** (§9): `once()` closes over the parsed args, so a bound left on the
-daemon would hold for every future firing and every pass after the first would score
-nothing while higher-id intake piled up behind it. A negative `N` is a parser error, not
-"no bound" — `run_score` tests `max_id > 0`, so a sign typo would otherwise pass the
-one-shot guard and silently disable the filter on a `--rescreen-discarded` pass. One
-documented promise bends under a bound: a `run_retry` requeue above `N` is **not**
-rescored that same pass (it keeps its original id, and the bound is applied to ids, not
-to recency). It burns no retry budget — `requeue_failed` does not touch `attempts` — so
-it simply waits for an unbounded pass. **The `new` queue is read
-  newest-id-first** (`get_by_status(..., newest_first=True)` — the one caller that asks
-  for it), which is what makes `limit` usable on a schedule: every `new` row has score
-  NULL, so the default `score DESC, id ASC` degenerates to oldest-first and a bounded
-  pass would work the back of the backlog while a posting discovered today waited
-  behind every older one. Newest-first spends the cap on the current pass's discoveries
-  and lets a backlog drain from its tail only when there is headroom, keeping "clear
-  the backlog" an explicit operator action rather than something the schedule does
-  silently and expensively. **Every pass ends with one summary
-  line** — `[score] N row(s): … screen-discarded, … thin-JD (no fit call), …
-  fit-scored, … sent for confirmation, … failed, … unreached, … left 'new'` — so a pass
-  that worked is distinguishable from one with nothing to do. `fit-scored` is the
-  quota-spending count; `sent for confirmation` **overlaps** the other counts rather than
-  adding to them — the row was demoted out of `screen-discarded`, reached the fit phase,
-  and landed wherever that phase put it (`fit-scored` normally, `failed` on a scorer
-  error, `unreached` behind a tripped breaker) — and it is on the line because it is the
-  number that moves a free outcome to a paid one. A demotion that lands in the **thin-JD**
-  path is deliberately **not** counted: no fit call runs, so nothing confirms it (the
-  `needs_confirmation` marker still rides along, naming a confirmation the row still
-  needs);
-  `unreached` is what a tripped breaker or an abort did not reach *within this pass's
-  slice*; `left 'new'` is the **whole queue**, counted from the DB rather than from the
-  slice, so a capped pass cannot report `0 left 'new'` while thousands wait. Both the
-  per-chunk fit calls run **concurrently** — the same read-serial / network-parallel /
-  write-serial shape `run_feed` uses above: a `ThreadPoolExecutor` fans out
-  `screen_fn`/`fit_fn` (each I/O-bound — an HTTP round trip or a subprocess spawn),
-  while every DB read/write stays on the calling thread, and futures are consumed in
-  **submission order** so a screen verdict or fit card is never mis-associated with
-  the wrong posting and writes stay deterministic. `--screen-workers`/
-  `--score-workers` (`SCREEN_WORKERS`/`SCORE_WORKERS`) bound each pool; the screen
-  pool defaults **per backend** (`run.DEFAULT_SCREEN_WORKERS`) — **1** for
-  `ollama`/`none` (a single GPU serializes the compute, so parallel requests
-  interleave rather than speed up the underlying inference), **4** for the
-  subprocess/hosted backends, which are latency- not compute-bound. The singles
-  fallback in (3) stays serial. Fit concurrency is quota-neutral (§11).
+  `run_screen` is the standalone screen (lifecycle under `screening/` above): it runs
+  `screen_fn` over eligible `new` rows with up to `--screen-workers` concurrent calls
+  (default 1), while every DB read/write stays on the calling thread.
   `run_expire` is the dead-link sweep: it re-fetches up to `EXPIRE_BATCH` (50) live
   (`scored`/`notified`) postings from **detail sources only** — the ones with a real
   per-job endpoint (`fetch.DETAIL_SOURCES`), so the check costs one honest request
@@ -1599,23 +1203,7 @@ it simply waits for an unbounded pass. **The `new` queue is read
   current source content/hash/revision and the source timestamps, without changing
   pipeline/application state or calling a model. The write transaction rechecks source
   identity and eligibility. A later valid observation reopens only source availability.
-  This one-shot mode does not run normal fetch, expiry, retry, screen, fit, quota, or
-  notify stages.
-  `run_retry` requeues every `failed` row with `attempts < RETRY_MAX_ATTEMPTS` (3)
-  **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3) back to `new` — one bulk
-  `db.requeue_failed` UPDATE, run **after** the fetch/feed ingest and **before**
-  `run_score` so a requeued row is rescored in the same pass. The retry semantics —
-  the separate score/notify budgets, the 3-failure ceiling each, `discarded`-on-retry
-  being legitimate — are contract; see §9 "Failure handling and recovery limits".
-  `db.requeue_discarded(conn, now)` is the operator-only counterpart for the other
-  terminal state: `--rescreen-discarded` returns every **hydrated** `discarded` row to
-  `new` immediately before `run_retry`, so a candidate hard-requirement edit doesn't
-  leave postings frozen under the old rule. Unbudgeted (a discard spends no `attempts`);
-  filtered on one thing only — a row with an empty `description` is a stub-gate discard
-  and is left alone, because requeueing it destroys it irreversibly (§9). Skipping it is
-  **not** a rescue either: nothing re-hydrates an existing row, so both outcomes are
-  terminal. The filter buys honest state, not recovery. `main` rejects the flag without
-  `--once` (§9).
+  This one-shot mode does not run normal fetch, expiry or screen stages.
   Stage gating in §[9](#9-behaviors-and-invariants).
 
 - **`mcp/` — optional, read-only ATS data service.** Install the pinned v2 SDK from
@@ -1804,8 +1392,8 @@ it simply waits for an unbounded pass. **The `new` queue is read
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
   to extend statuses/sources (categories are edited in-app, not here).** `MATCH_SCORE_THRESHOLD` was **removed** — the
   Discovered-Jobs matched/below-bar/discarded split is now the verdict predicate
-  (`matchedIds()` / `belowBarIds()` in `lib/actions.ts`, the former mirroring the worker's
-  `db.get_notifiable`), not a score cutoff; the fit score is display/ranking only.
+  (`matchedIds()` / `belowBarIds()` in `lib/actions.ts`) over the stored fit verdicts,
+  not a score cutoff; the fit score is display/ranking only.
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
   `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (All jobs first and
@@ -1833,10 +1421,10 @@ it simply waits for an unbounded pass. **The `new` queue is read
   Windows reports a CSV as `application/vnd.ms-excel`), `WatchlistTable`
   (list + add/remove watched companies), `PromotionSuggestions` (approve/dismiss feed→
   watchlist suggestions, shown in the Watchlist tab), `UnresolvedFeedsTable` (read-only
-  backlog), `ScorerUsageBar` (fit-backend quota bar on the Discovered Jobs view — polls
+  backlog), `ScorerUsageBar` (subscription quota bar on the Discovered Jobs view — polls
   `/api/scorer-usage`, one bar per window with % + "resets in Nd Hh" + "as of"; reflects
-  the last scoring pass, not a live reading. **Labels itself by backend** from the
-  snapshot, so switching `SCORE_BACKEND` relabels the bar instead of showing the other
+  the last captured snapshot, not a live reading. **Labels itself by backend** from the
+  snapshot, so switching backends relabels the bar instead of showing the other
   provider's numbers under the old name; two windows of the same length are
   disambiguated by the model scope in the key (`weekly · Fable`); on `claude` it states
   outright that it reads the Claude Code SUBSCRIPTION, not the `ANTHROPIC_API_KEY`
@@ -1897,12 +1485,12 @@ model job_postings {
   location        String?
   job_url         String
   description     String        // full JD text (fed to the LLM)
-  score           Int?          // 0-100 fit score (codex default / claude alternate)
+  score           Int?          // 0-100 fit score (history: no current writer)
   score_detail    String?       // JSON: assessment scorecard (seniority/domain/must_haves/nice_to_haves/summary), insufficient_context flag, screen, disqualification, recommended_resume, scorer provenance backend/model/scorer_version on fit-scored rows (pre-S2.1 rows: matched/missing keywords + reasoning)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired
-  pipeline_error  String?       // last stage/send error; cleared on successful notify
-  attempts        Int           @default(0)     // SCORE-stage failures (requeued until 3, then parks failed)
-  notify_attempts Int           @default(0)     // NOTIFY-stage send failures, separate budget (parks failed at 3)
+  pipeline_error  String?       // last stage error (history: no current writer)
+  attempts        Int           @default(0)     // fit-stage failures (history: no current writer)
+  notify_attempts Int           @default(0)     // notify send failures (history: no current writer)
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
@@ -2047,24 +1635,18 @@ them when changing behavior.
 
 ```
 fetch:   (new posting)            → new
+                                  → discarded      (code-only gate fail at ingest)
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
-retry:   failed, attempts < 3     → new             (requeued next pass, BEFORE score;
-                                                    attempts unchanged until re-failed)
-score:   new                      → scored        (default)
-                                  → discarded      (candidate hard-constraint fail)
-notify:  scored, seniority=match AND domain=match AND NOT insufficient_context → notified
-                                                   (else: stay scored, untouched;
-                                                    success clears pipeline_error)
-         on send error            → scored         (attempts+1, pipeline_error recorded;
-                                                    retried next pass — the 3rd cumulative
-                                                    failure parks the row failed)
+screen:  new                      → new            (result stored in job_screenings;
+                                                    lifecycle untouched)
 expire:  scored|notified, detail source, board 404/410 → expired
                                                    (terminal; capped at 50/pass,
                                                     least-recently-updated first;
                                                     any other error → left alone)
-fetch/score, on exception         → failed         (pipeline_error set; batch continues)
 UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
 ```
+`scored`, `notified` and `failed` are written by nothing today; rows in those states
+are the retired fit scorer's history, still read by the web and MCP.
 
 Source refresh is a separate one-shot observation, not a pipeline transition. It selects
 only `smartrecruiters` rows in `new`, `failed`, `discarded`, or `expired`, with no fit
@@ -2084,60 +1666,23 @@ to other adapters.
 
 Triage evidence with duplicate object members at its root, screen map, or check object is ambiguous and maps to `needs_review`. Legacy `source_content_revision` may be absent or null; when non-null, it must be a mathematically integral JSON number from 1 through JavaScript’s maximum safe integer. Decimal/exponent forms such as `3.0` and `3e0` are accepted when they represent an integer; booleans, fractions, non-positive, and unsafe values remain unresolved.
 
-- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it (`run_score`/`run_notify` ignore `removed` rows). Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
+- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it. Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
 
 - **`expired` is terminal too**, and like `removed` it drops the row out of every
   Discovered bucket (the live buckets filter on `scored`/`notified`). It's written
   only by `run_expire`, only on an unambiguous 404/410 from the board's own per-job
   endpoint — never on a timeout, bot wall, or 5xx.
 
-- **Stage gating is strict:** `run_retry` processes only `failed` rows with
-  `attempts < RETRY_MAX_ATTEMPTS`; `run_score` processes only `new`; standalone
-  `run_screen` processes eligible `new` rows without changing their lifecycle; `run_notify` only
-  `scored` rows the fit verdicts mark a strong match (`db.get_notifiable` —
-  `seniority=match AND domain=match AND NOT insufficient_context`; non-matching rows
-  stay `scored`, untouched). The score is not the gate — it quantizes to a rubric
-  band edge and flipped run-to-run near the old `≥75` threshold, while the verdicts
-  held stable across every draw (see §13). A failure in one posting never
-  aborts the batch (per-item try/except → `mark_failed`, or the notify stage's
-  bounded retry — see "Failure handling and recovery limits" below).
-- **Legacy `run_score` still composes screening and fit; screen-only is independently
-  persisted.** The combined path screens before fit and retains its existing lifecycle.
-  `--screen-only` instead records the hard-requirement result in `job_screenings` for
-  eligible `new` rows without changing their lifecycle or fit evidence. An empty
+- **Stage gating is strict:** `run_screen` processes eligible `new` rows without
+  changing their lifecycle or fit evidence; `run_expire` only live `scored`/`notified`
+  rows from detail sources. A failure in one posting never aborts the batch. An empty
   `candidate` block skips the model call; deterministic location/internship gates still
   run. Provider calls default to a positive cap of 40; explicit `--screen-unlimited`
-  removes only the count cap, retaining success caching and the provider breaker.
-  A legacy combined-path `discarded` row keeps its `score`/`score_detail` (including
+  removes only the count cap, retaining success caching and the provider breaker. An
+  ingest-gate `discarded` row keeps a screen-shaped `score_detail` (including
   `disqualification_reason`) so the UI can explain *why*.
-- **A batch-fit call can never silently misattribute a score to the wrong posting.**
-  `make_codex_scorer`'s batched `fit` realigns results by `job_ref` (the posting id),
-  not list position; a missing/duplicate/unknown `job_ref` raises `ScoreError` for the
-  **whole batch** rather than pairing a scorecard with the wrong JD. `run_score` (§7.1)
-  catches that (or any other exception the batch call raises) and retries the batch's
-  postings **singly** — one malformed batch costs latency, not correctness or
-  misattribution, and only a single that still fails marks just that one row `failed`.
-- **Concurrent screen/fit calls never reorder or mis-associate a write.** `run_score`
-  (§7.1) submits every `screen_fn`/`fit_fn` call to a thread pool up front, then
-  consumes the futures **in the same order they were submitted** — never
-  `as_completed` — so a slow call finishing late still lands its result on the
-  correct row, and every `db.*` write stays on the calling thread throughout.
-- **Every fit-scored row records who scored it — and only those rows.** `run.py`
-  (the sole wiring layer, which alone knows the scorer's identity) hands `run_score`
-  a `scorer_meta` of three fields — `backend`, `model`, `scorer_version` — and
-  `_score_detail` merges them into the persisted `score_detail` JSON, so there is no
-  schema change. They are stamped **only where a fit call actually ran**: both
-  `_persist_scored` outcomes (`scored`, and the fallback-disqualified `discarded`
-  that already paid for its call), never a screen-discarded or low-context row, which
-  would otherwise claim a backend it never reached. `model` branches on `backend`
-  alongside `make_scorer` (`run._scorer_meta`) so the stamp cannot name a model the
-  scorer wasn't built with, and `scorer_version` (`prompts.SCORER_VERSION`) is a
-  hand-bumped date string — bumped when `score.txt` or the profile/résumé inputs
-  change in a way that should invalidate existing scores. This makes a
-  `--score-backend` A/B readable off the data afterwards and lets a re-score select
-  the rows predating a rubric change instead of re-buying the whole table.
-  Deliberately **not** content hashes with automatic re-score triggering: that is a
-  cache-invalidation system for inputs the operator changes a handful of times a year.
+- **Concurrent screen calls never reorder or mis-associate a write.** Every `db.*`
+  write stays on the calling thread.
 - **`now` is injected** per run (ISO-8601 UTC ms), making the pipeline
   deterministic and testable without a clock or network.
 
@@ -2158,8 +1703,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   for both paths, so they cannot drift apart. Both gates run *before* the resolve,
   the earliest point that saves anything: a refused listing costs no URL resolve, no
   board detail fetch and no screen call. For a listing that would have *ingested*
-  those are one-time costs (`existing_external_ids` prunes it next pass and
-  `run_score` only reads `new`); what recurs every pass is the resolve for whatever
+  those are one-time costs (`existing_external_ids` prunes it next pass); what recurs every pass is the resolve for whatever
   never lands. A listing the operator's config refuses is dropped outright,
   **not** recorded in `feed_unresolved` (nothing about it is unresolved). The feed's
   own field names are translated first (`_feed_posting_view`): the feed publishes
@@ -2205,7 +1749,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   a posting that came back and failed `_valid_posting` as `reason="empty_description"` (a
   broken parser). Filing both under one string is what made the collapse warning unable to
   say which had happened. A source that resolves ids but keeps none additionally prints a
-  collapse warning naming the split. (Canary self-tests and proactive Telegram/banner alerting are
+  collapse warning naming the split. (Canary self-tests and proactive banner alerting are
   deferred — see PROGRESS.) These sources are **feed-only**: they
   cannot enumerate a board, so they are absent from `VALID_SOURCES` (not
   watch-listable) and excluded from promotion suggestions.
@@ -2237,15 +1781,13 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   **score is display/ranking only and gates nothing**: **matched** = `{scored, notified}`
   rows whose `score_detail` verdicts read `seniority=match AND domain=match AND NOT
   insufficient_context` (`matchedIds()`, a raw `json_extract` query), **minus low-context
-  rows**. Both the Matched tab and the worker's notify gate (`db.get_notifiable`) apply
-  the **same** low-context hold-back — the enum predicate **and** a thin-JD exclusion
-  (`insufficient_context` OR `LENGTH(TRIM(description)) < 200`,
-  `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) — so **the UI's Matched tab and the Telegram alert
-  agree**: a short-but-confident `match/match` JD is held back on both sides and shown
-  under **Low-context**. (The `200` is hand-synced between `get_notifiable` and web
+  rows**: the Matched tab applies a low-context hold-back — the enum predicate **and** a
+  thin-JD exclusion (`insufficient_context` OR `LENGTH(TRIM(description)) < 200`,
+  `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) — so a short-but-confident `match/match` JD is
+  shown under **Low-context**. (The `200` is hand-synced between worker `db.py` and web
   `constants.ts` — a cross-service constant, flagged in both.) The **keep** half of the
   verdicts always requires `seniority=match` — a seniority miss is disqualifying, not
-  partial (`prompts/score.txt`) — and then splits on domain: **belowbar** = `{scored,
+  partial — and then splits on domain: **belowbar** = `{scored,
   notified}` rows reading `seniority=match AND domain=adjacent` (`belowBarIds()`, the
   same raw-query shape as `matchedIds()`) — the **near miss**, worth a human glance;
   **discarded** = the audit view, **two** populations OR'd: (1) hard-constraint screen
@@ -2259,7 +1801,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   than claiming a row was "disqualified" when it wasn't;
   **lowcontext** = `{scored, notified}` rows too thin to score with confidence, by
   **either** signal (OR): a short JD body (`LENGTH(TRIM(description)) <
-  LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the fit scorer's
+  LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the stored
   persisted `insufficient_context: true` flag (case #2 — a full-length but boilerplate/
   truncated JD the LLM couldn't assess); **failed** = `pipeline_status='failed'`. All
   buckets exclude `removed` rows, and the buckets are **mutually exclusive** — the
@@ -2278,8 +1820,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   `%internship/co-op%`, `%prefilter:%`), layered as `id IN` on the discarded query.
   **`prefilter` is the one cause that is not a hard constraint**: the others name a
   requirement the candidate fails, it names the *operator's own* `title_filter`/
-  `title_exclude` refusing the posting in `run_score`'s free phase-0 sweep. It exists
-  because that sweep is the bulk producer of discards (1,504 rows as of 2026-07-31) and
+  `title_exclude` refusing an already-queued posting (written by the retired fit pass's
+  free sweep — 1,504 rows as of 2026-07-31) and
   without a cause they are visible in the bucket but not selectable, so they cannot be
   bulk-removed. The worker writes two `prefilter:` spellings; only the first is ever
   `discarded`, so the wildcard is deliberately not narrowed to it. `getJobPostings`
@@ -2338,115 +1880,19 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 
 **Failure handling and recovery limits:**
 
-- **`failed` is retried automatically, capped — not fully terminal.** A fetch/score
-  exception parks the row `failed` immediately (`db.mark_failed`, `attempts+1`,
-  `pipeline_error` set). `run_retry` requeues it back to `new` on the **next** pass
-  as long as `attempts < RETRY_MAX_ATTEMPTS` (3) — a bulk, non-per-item UPDATE
-  (`db.requeue_failed`), run before `run_score` so the requeued row is rescored
-  the same pass. Score and notify keep **separate counters**: `attempts` counts
-  score-stage failures (`mark_failed`), `notify_attempts` counts send failures
-  (`record_notify_failure`), so score hiccups can no longer pre-spend the delivery
-  budget. `run_retry` guards **both** (`attempts < RETRY_MAX_ATTEMPTS AND
-  notify_attempts < NOTIFY_MAX_ATTEMPTS`), so a row parked by `run_notify`'s
-  exhausted retries (`notify_attempts >= NOTIFY_MAX_ATTEMPTS`) never requeues even
-  though its `attempts` may be 0 — no other code path writes
-  `pipeline_status='failed'`. A requeued row re-runs the full screen+fit; flipping
-  to `discarded` on a retry is a legitimate outcome, not a bug. Persistent failures
-  requeue, fail, and repark each pass until the 3rd failure on either counter — a
-  hard ceiling of **3 score + 3 notify failures per row** — at which point
-  `run_retry` no longer requeues it and it stays parked for good; from there,
-  recovery is still the human act (`reopenJobPosting`/`bulkReopen` write `scored`,
-  resetting neither counter).
-- **`discarded` is terminal, with one operator-only way back.** Nothing automatic
-  re-screens a discard: the state exists precisely so a posting ruled out by a
-  candidate hard requirement stops costing calls. But the rule itself is editable
-  (`candidate.locations`, `highest_degree`, `work_authorization`,
-  `exclude_internships`), so without an escape hatch an edit — or a fix to the screen
-  itself — would leave every prior discard frozen under the old rule, and a **false**
-  discard permanent. `--rescreen-discarded` (`db.requeue_discarded`, one bulk UPDATE
-  run immediately before `run_retry`) returns them to `new` for this pass.
-  **It does NOT compose with `--score-limit`, and that is a real limitation rather than
-  a subtlety.** `requeue_discarded` stamps `updated_at`, so requeued rows do sort to the
-  front of the `new` queue — but the queue holds *every* requeued discard (the UPDATE is
-  unfiltered), so a bounded pass reaches an arbitrary prefix of thousands of them and
-  the operator cannot aim the cap at the rows the rescreen was for. Aiming at a
-  *specific* set is what `--score-max-id` is for (§7.1) — pair the two, not
-  `--score-limit`.
-  Unbudgeted: a discard spends no `attempts`, so there is no counter to guard the way
-  `run_retry` guards two. **Filtered on exactly one condition — the row must have a
-  non-empty `description`.** A stub-gate discard is stored deliberately un-hydrated
-  (`run_fetch` exempts `discarded` rows from the bodyless drop) because it never reaches
-  the scorer; requeueing one is *irreversible loss*, since it becomes `new`, the thin-JD
-  gate parks it `scored` at score 0, and `upsert_postings` is `ON CONFLICT DO NOTHING`
-  so no later pass back-fills the JD. **Skipping it is not a rescue either** — nothing
-  re-hydrates an existing un-hydrated row (the stub gate only decides whether to hydrate
-  *before* insert, and the row already exists), so both outcomes are terminal. What the
-  filter buys is honest state: the row keeps its real `discarded` reason and a live
-  `job_url` instead of being relabelled `scored`/0 as though it had been evaluated.
-  `run_once` prints the skipped count so the operator is told, not left to infer it.
-  Everything else comes back. It is
-  **one-shot** — `main` rejects it without `--once`, because on the schedule it would
-  resurrect the same discards every pass and re-charge the paid fit scorer for each
-  survivor indefinitely. `--run-now` does **not** unlock it either, despite also running
-  a pass promptly: `once()` closes over the flag, so it would still be set on every later
-  scheduled firing. Screening is free on the default ollama backend; the
-  fit calls that follow are bounded only by `--score-limit`, so pair the two on a
-  large backlog.
-- **A dead screen *provider* circuit-breaks the screen phase — and no unscreened row
-  is ever fit-scored.** `screen_posting` errs toward KEEP on any provider failure,
-  which is right for one flaky call and wrong for an outage: it raises no exception and
-  marks nothing `failed`, so before this the whole backlog was silently handed to the
-  **paid** fit scorer unscreened — the ~18% normally discarded for free became paid
-  calls, and the hard-requirement gate stopped filtering. The verdict now carries
-  `provider_error`, and `run_score` (a) leaves such a row `new` — untouched, no
-  `attempts` spent, screened properly next pass — unless a **deterministic** gate
-  (location/intern, which cost nothing and ran fine) disqualified it, in which case that
-  verdict stands; and (b) runs a second `_BackendBreaker` over the screen phase with the
-  same signature as the fit one (`_BREAKER_LIMIT` provider errors, zero successes),
-  aborting it and cancelling the queued remainder. One success disarms it. **A backend
-  that fails by answering blindly counts the same as one that raises** — a non-dict, or a
-  dict with no `screen` object, is a provider error, because a degraded backend that
-  returns healthy-looking JSON would otherwise record breaker successes forever (§7.1).
-  `extract=None`
-  (`SCREEN_BACKEND=none`) is **not** a provider error — there is no provider, the
-  deterministic gates run alone, and those rows score normally as documented.
-  (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
-- **A dead fit *backend* circuit-breaks the score pass — it does not convict every
-  posting.** `run_score` isolates a bad posting (per-item `mark_failed`), but a
-  *systemic* fit-backend outage (e.g. `codex exec` not logged in) would otherwise
-  mark the whole `new` backlog `failed`, burning its retry budget on the outage. A
-  shared `_BackendBreaker` watches for the outage signature — `_BREAKER_LIMIT` (5)
-  failures with **zero** successes this pass — and aborts scoring, leaving the
-  untouched remainder `new` (recoverable), with one operator-level line. One success
-  disarms it, so a flaky-but-alive backend never trips. The `batch_size==1` singles
-  fallback is guarded (`len(chunk) > 1`) so it no longer re-issues the identical
-  failed call. (PRINCIPLES "the four kinds of uncertainty" — circuit break.)
-- **A score run is interruptible and does not abandon finished work.** The fit phase
-  consumes futures via `as_completed` and persists each result on the calling thread
-  as it completes (associated to its row by a `future -> chunk` map), so a straggler
-  never holds finished, already-paid-for scores unwritten. On `KeyboardInterrupt` the
-  pool is torn down with `cancel_futures=True` — queued fit calls are **cancelled, not
-  drained** — so Ctrl-C stops launching new paid calls instead of waiting out the
-  whole backlog (the old `shutdown(wait=True)` made abort uninterruptible).
-- **Notify send errors are retried, bounded — but a systemic channel fault breaks the
-  pass instead.** `run_notify` treats a genuinely *per-posting* Telegram send error as
-  transient: the row **stays `scored`** (`notify_attempts+1`, `pipeline_error`
-  recorded) so the next scheduled pass retries the send — the match never leaves the
-  default Discovered-Jobs view while retrying. The `NOTIFY_MAX_ATTEMPTS`-th (3) send
-  failure parks it `failed` (terminal *for the notify stage*), so a *persistent* per-row
-  fault (a malformed message) surfaces in a visible queue instead of retrying silently
-  forever. A **systemic** fault, though, must never convict the postings riding on it:
-  a bad-token error (`_systemic_send_error` — 401/403 or an invalid-token body), or
-  `_BREAKER_LIMIT` consecutive failures with zero deliveries, **circuit-breaks the
-  pass** — every remaining matched row left `scored`, **no `notify_attempts` spent**,
-  one operator line. This closes the data-loss hole where a wrong token drove every
-  matched row to `failed` over three passes, unrecoverably. A successful send clears
-  `pipeline_error`. Delivery is **at-least-once**: the send is a single atomic
-  `sendMessage`, so a timeout after delivery can only duplicate the alert, never
-  half-send it — a duplicate ping beats a lost match. `notify_attempts` counts send
-  failures cumulatively, so a row manually reopened from `failed` gets one fresh notify
-  attempt per reopen. Design:
-  [`superpowers/specs/2026-07-09-notify-retry-design.md`](./superpowers/specs/2026-07-09-notify-retry-design.md).
+- **`failed` and `discarded` are terminal for the worker.** Nothing requeues them;
+  recovery is the human act (`reopenJobPosting`/`bulkReopen` write `scored`).
+- **A dead screen *provider* circuit-breaks the screen pass.** `screen_posting` errs
+  toward KEEP on any provider failure, which is right for one flaky call and wrong for
+  an outage. The verdict carries `provider_error`; `run_screen` stores a closed-category
+  retryable error (the posting stays `new`, retried oldest-attempt-first on a later
+  pass) unless a **deterministic** gate (location/intern) disqualified it, and a
+  `_BackendBreaker` (`_BREAKER_LIMIT` provider errors with zero successes) aborts the
+  pass. One success disarms it. **A backend that fails by answering blindly counts the
+  same as one that raises** — a non-dict, or a dict with no `screen` object, is a
+  provider error (§7.1). `extract=None` (`SCREEN_BACKEND=none`) is **not** a provider
+  error — there is no provider, and the deterministic gates run alone. (PRINCIPLES
+  "the four kinds of uncertainty" — circuit break.)
 
 - **Wall-clock slots systematically collide with the operator's habits, and the lock
   skips rather than queues.** Passes used to fire at launch time + N, which scattered
@@ -2470,8 +1916,7 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
   symlink to `db/applications.db`. APScheduler's `max_instances=1`
   stops the scheduler overlapping *itself* (a long pass makes the next firing skip), but
   not a hand-run pass landing inside a scheduled one — likelier the higher the cadence.
-  The asymmetry that makes it worth guarding: a duplicated notify costs one extra
-  Telegram message, a duplicated **score costs real paid quota**. `run.pass_lock` wraps
+  A duplicated pass re-spends screen-provider quota. `run.pass_lock` wraps
   the whole pass in a non-blocking exclusive `flock`. It is an `flock`, not a PID file,
   because that makes **staleness self-solving**: the kernel drops the lock when the
   holder dies, so a host killed mid-pass leaves a file the next pass takes immediately —
@@ -2564,7 +2009,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 
 | Invariant | Test(s) |
 |-----------|---------|
-| Discovery and read-only evidence access do not require fit scoring or delivery; combined fit/notify remain supported selected paths | `tests/test_run.py` (`fetch_only` and `screen_only` isolation cases), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
+| Discovery and read-only evidence access need no fit scoring or delivery | `tests/test_run.py` (`fetch_only` isolation case), `tests/test_screen_pipeline.py`, `tests/test_mcp_repository.py`, `tests/test_mcp_protocol.py`; existing behavior, unchanged by this documentation update |
 | Pipeline stage gating + per-item failure isolation | `worker/tests/test_pipeline.py`, `integration/test_pipeline_e2e.py` |
 | The synthetic rehearsal validates batch rows before associated evidence lookups, composes actual assessment and batch modules, allowlists monitoring output, reports per-selected-JD completeness/errors, scopes requisition evidence, and derives fallback only from complete current revalidation while retaining stale/unknown evidence and current exclusions | `apps/worker/tests/test_preselection_rehearsal.py` (`test_explicit_cli_composes_real_assessment_and_batch_modules`, `test_missing_monitoring_limit_is_reported_unknown_without_a_default`, `test_unknown_monitoring_value_is_not_echoed_by_the_cli`, `test_malformed_pool_candidate_fails_through_bounded_cli_validation`, `test_selected_job_description_completeness_is_per_candidate_and_visible`, `test_unscoped_requisition_evidence_stays_ambiguous_across_sources`, `test_fallback_fails_closed_when_current_revalidation_is_incomplete`) |
 | Provider-free review-batch and rehearsal imports do not load legacy scoring/profile modules or read legacy prompts, résumés or personal profile files | `apps/worker/tests/test_review_batch.py::test_fresh_import_does_not_load_runtime_db_network_or_scorer_modules`, `apps/worker/tests/test_preselection_rehearsal.py::test_consumer_import_does_not_need_runtime_or_private_data_modules` |
@@ -2577,56 +2022,31 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Shadow requirements and YOE policy use validated JD spans; direct/extracted fake-provider runs account for attempts and reject changed bound inputs and outside-cohort jobs before transport; evaluation validates outcomes against schema-4 journal provenance, fingerprints split seeds and reports aggregates only; malformed JSON and UTC overflow return bounded errors | `apps/worker/tests/test_preselection_extraction.py` (`test_synthetic_required_yoe_boundary_truth_table_uses_supported_jd_facts`, `test_yoe_policy_keeps_unknown_alternatives_unresolved_and_never_calls_them_passes`), `apps/worker/tests/test_preselection_shadow.py` (`test_instruction_injection_stays_in_jd_and_cannot_change_typed_contract`, `test_direct_assessment_payload_contains_exact_profile_one_full_job_and_questions`, `test_extractor_gets_only_full_jd_and_extracted_assessment_omits_original_jd`, `test_retry_is_counted_and_resume_reuses_success_without_duplicate_call`), `apps/worker/tests/test_preselection_evaluation.py` (`test_report_rejects_changed_validated_content_with_retained_provenance`, `test_report_uses_verified_snapshot_when_original_inputs_change_mid_report`, `test_synthetic_report_counts_recall_failures_fields_and_draw_stability_without_ids`, `test_cli_bounds_oversized_and_deep_json_errors`, `test_evaluation_and_journal_timestamps_bound_utc_normalization_overflow`, `test_run_binding_is_immutable_and_journal_schema_four_round_trips_it`, `test_run_binding_rejects_invalid_identity_and_late_journal_binding`), `apps/worker/tests/test_preselection_shadow_evaluation_integration.py` (`test_real_shadow_rejects_profile_or_questions_that_differ_from_bound_run_before_transport`, `test_bound_journal_rejects_changed_inputs_when_binding_argument_is_omitted`, `test_bound_journal_can_reuse_success_on_resume_without_binding_argument`, `test_frozen_cohort_rejects_outside_job_before_any_side_effect`, `test_bound_run_rejects_missing_or_incompatible_cohort`, `test_standalone_bound_extraction_cannot_bypass_cohort`, `test_execution_rechecks_frozen_content_models_and_budgets_before_side_effects`) |
 | Synthetic review batches use explicit K/policy and UTC intervals, keep stable posting identity separate from unique daily occurrence, group duplicates before terminal filtering while retaining member evidence, scope requisition application identity, freeze clock/inputs/final order and cursor identity, preserve unchanged source-state conflicts as active unresolved evidence, and cumulatively preserve invalidation/replacement history; work/time exhaustion visibly suppresses unchecked recommendations | `apps/worker/tests/test_review_batch.py` (`test_occurrence_identity_uses_pool_posting_and_source_revision_only`, `test_new_arrivals_use_half_open_resume_cutoff_and_historic_scope_is_explicit`, `test_exact_and_corroborated_duplicates_collapse_but_similarity_only_flags`, `test_confirmed_exclusion_survives_exact_and_corroborated_duplicate_grouping`, `test_requisition_application_evidence_is_scoped_or_visible_as_ambiguous`, `test_stable_posting_occurrences_are_unique_before_audit_sampling`, `test_clock_and_final_order_are_bound_to_batch_and_cursor_identity`, `test_revalidation_marks_changed_versions_and_replaces_within_caps_without_reordering`, `test_real_cli_revalidation_preserves_an_unchanged_duplicate_state_conflict`, `test_revalidation_work_cap_limits_full_analysis_and_hides_unverified_slots`, `test_revalidation_work_cap_counts_candidate_search_and_sorting`, `test_revalidation_time_cap_short_circuits_before_candidate_validation`, `test_real_cli_persisted_revalidation_keeps_history_and_cumulative_caps`, `test_committed_fixture_runs_real_projection_and_keeps_text_out_of_the_view`) |
 | Screen-only stores result/provenance separately, preserves posting/fit lifecycle fields, caches completed rows, retries provider errors oldest-first under the provider-call cap, and re-checks eligibility before commit | `test_screen_pipeline.py` (`test_screen_results_cache_and_leave_fit_lifecycle_unchanged`, `test_provider_cap_counts_failures_and_errors_retry_oldest_first`, `test_screen_result_is_not_saved_if_lifecycle_changes_during_provider_call`, `test_provider_exception_text_is_not_persisted`) |
-| Screen-only bypasses legacy retry, fit, quota refresh and notify, skips resume loading, rejects invalid mode combinations, and pins Luna/medium only for Codex when no overrides are set | `test_run.py` (`test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`, `test_run_once_screen_only_defaults_codex_to_luna_medium`, `test_screen_only_cli_skips_resume_loading_and_passes_mode`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
+| A pass is fetch then screen; `--screen-only` is an accepted alias; invalid mode combinations are rejected; Codex defaults to Luna/medium when no overrides are set | `test_run.py` (`test_run_once_defaults_codex_to_luna_medium`, `test_screen_only_is_an_accepted_alias_for_the_default_pass`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_rescreen_screened_requires_one_shot`), `test_backends_screen.py` |
 | Dedup `(source, external_id)` on ingest | `test_db.py`, `test_pipeline.py` |
 | WAL + `busy_timeout` pragmas on connect | `test_db.py` |
 | Web Prisma client's SQLite connection defaults `busy_timeout` ≥5000 ms (regression lock) | `db-pragma.int.test.ts` |
-| Disqualified → `discarded`; empty candidate skips the screen | `test_score.py`, `test_pipeline.py`, `test_run.py` |
-| Both LLM schemas are valid for strict structured output (every object lists every property in `required` **and** sets `additionalProperties: false`) — checked on `_batch_schema`, the payload codex actually receives | `test_score.py::test_schema_is_strict_mode_valid` |
-| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict, so `merge_fallback_screen` still sees the gap — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_score.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
-| Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the legacy single-`required_degree` shape the fit scorer emits still works | `test_score.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
-| A `degree`/`clearance`-**only** screen fail is routed to the strong model (`needs_confirmation` in `score_detail`, the failing verdicts cleared so the fallback fills them) instead of discarding; the strong model can still confirm the bar and discard; any other failing check — and a disqualification with no per-check entries, or an unreadable one — stays terminal and free; the routed count is reported separately from `screen-discarded`, is **not** counted on the thin-JD path (no fit call runs), and is not double-counted in the pass accounting | `test_pipeline.py` (`test_a_degree_only_fail_is_confirmed_by_the_strong_model_not_discarded`, `test_the_strong_model_can_still_confirm_the_bar_and_discard`, `test_a_location_fail_alongside_degree_is_still_discarded_free`, `test_a_disqualification_with_no_per_check_verdicts_is_not_routed`, `test_a_routed_row_reports_as_confirming_not_as_screen_discarded`, `test_a_thin_jd_demotion_is_not_counted_as_a_confirmation`, `test_a_confirming_row_is_not_double_counted_in_the_pass_accounting`), `test_score.py::test_only_a_degree_or_clearance_only_failure_is_demoted` |
-| `merge_fallback_screen` may only rule on the checks it FILLED: `_screen_verdict` re-rules every configured check, and `authorization` produces a floor verdict from no entry at all, so an unfiltered read would let the blunt `NO_SPONSOR_PHRASES` substring floor overturn a check the screen already answered — discarding a row whose own `score_detail` records that check as passing | `test_pipeline.py::test_the_fallback_cannot_overturn_a_check_the_screen_already_answered` |
-| Unknown `SCORE_BACKEND` fails at parse time, before fetch or `--rescreen-discarded` spends itself | `test_run.py::test_unknown_score_backend_fails_before_any_work` |
-| `--score-max-id` selects the id range **before** `--score-limit` bounds the spend; the documented recovery recipe survives argparse and arrives at `run_score`; refused without `--once` (on the schedule it would bound every future pass into scoring nothing) and refused when negative (which `max_id > 0` would read as "no bound") | `test_pipeline.py` (`test_run_score_max_id_selects_the_low_ids_the_cap_cannot_reach`, `test_run_score_max_id_applies_before_the_limit`), `test_run.py` (`test_score_max_id_reaches_run_score`, `test_the_documented_recovery_recipe_is_accepted_and_wired`, `test_a_negative_score_max_id_is_refused_not_read_as_no_bound`, `test_score_max_id_requires_once`) |
+| Disqualified → `discarded`; empty candidate skips the screen | `test_screen.py`, `test_pipeline.py`, `test_run.py` |
+| A blind degree/clearance extraction (null, blank, or any "unknown" spelling) materializes **no** verdict (a gap, not a pass) — including the two new degree spellings (a non-bool `degree_required`, and `degree_required: true` with no recognized level) | `test_screen.py` (`test_blind_screen_entry_still_leaves_a_gap_for_the_fallback`, `test_blind_degree_levels_leave_a_gap_for_the_fallback`) |
+| Degree disqualifies on the **lowest** level the posting names, never the highest, and a merely preferred degree is no bar; unrecognized levels are dropped rather than ranked 0; the older single-`required_degree` shape still works | `test_screen.py` (`test_degree_levels_take_the_lowest_not_the_highest`, `test_a_merely_preferred_degree_is_not_a_bar`, `test_unrecognized_degree_levels_are_dropped_not_ranked`, `test_higher_required_degree_disqualifies`) |
 | Wall-clock slots are evenly spaced and tile the day (`cron_hours`); `24` is one midnight slot, never an empty trigger that silently never fires | `test_run.py` (`test_the_schedule_is_evenly_spaced_wall_clock_slots`, `test_a_daily_schedule_is_one_midnight_slot_and_not_an_empty_list`) |
 | `schedule_hours` must divide 24: a non-divisor and anything `> 24` are both rejected at config load rather than silently running tighter than configured, or collapsing to daily | `test_config.py` (`test_rejects_a_schedule_that_does_not_divide_the_day`, `test_rejects_a_schedule_longer_than_a_day_instead_of_collapsing_it_to_daily`, `test_every_divisor_of_24_is_accepted`, `test_rejects_non_positive_schedule_hours`) |
-| The daemon runs NO pass at launch; `--run-now` runs exactly one before the scheduler blocks; `--run-now --once` is a parser error, and `--run-now` does not unlock `--rescreen-discarded` | `test_run.py` (`test_starting_the_daemon_runs_no_pass_at_launch`, `test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over`, `test_run_now_and_once_together_are_a_parser_error`, `test_run_now_does_not_open_the_rescreen_discarded_backdoor`) |
+| The daemon runs NO pass at launch; `--run-now` runs exactly one before the scheduler blocks; `--run-now --once` is a parser error | `test_run.py` (`test_starting_the_daemon_runs_no_pass_at_launch`, `test_run_now_runs_exactly_one_pass_before_the_scheduler_takes_over`, `test_run_now_and_once_together_are_a_parser_error`) |
 | One pass at a time per database (`pass_lock`, keyed on the resolved `--db` so a moved `TMPDIR` cannot dodge it and two different DBs do not block each other): a second acquisition is refused immediately (never blocks/queues), the lock is released on exception, a **stale** lockfile is taken without manual cleanup, and a refused pass runs nothing — `--once` exits non-zero, a scheduled firing skips the slot, stays scheduled, and says so at `logging.WARNING` rather than on stdout (the daemon installs a timestamped handler for it; a bare import installs none) | `test_run.py` (`test_a_second_pass_is_refused_while_the_first_holds_the_lock`, `test_the_lock_is_released_when_the_pass_raises`, `test_a_stale_lockfile_does_not_wedge_the_pipeline`, `test_main_once_refuses_to_start_inside_another_pass`, `test_a_scheduled_pass_skips_the_slot_instead_of_dying`, `test_main_once_takes_the_lock_and_gives_it_back`, `test_the_lock_is_keyed_on_the_db_not_on_the_temp_dir`); an unwritable lock still guards exclusively and says the pid is unrecorded (`test_an_unwritable_lock_still_guards_the_pass`) |
-| Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_score.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
-| Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_score.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
-| An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_score.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
-| The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_score.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
-| Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_score.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`, `test_fallback_screen_clearance_also_needs_evidence`) |
-| Deterministic location gate (`location_verdict`, pycountry + geonamescache, evidence-tiered): a NAMED country / US state decides alone and outranks the remote hint; city/subdivision evidence is diacritic-folded, votes for every reading it allows, and discards only when corroborated; region acronyms are a stoplist; any allowed evidence keeps | `test_location.py` (`test_resolve_location`, `test_location_verdict_marks_what_escalates`, `test_token_country_*`, `test_folding_is_the_same_function_everywhere`) + gate integration tests in `test_score.py` |
+| Sponsorship retrieval is deterministic and per-sentence: one snippet per `sponsor` sentence with a +/-1 window, adjacent hits **not** merged, abbreviations not splitting the sentence, and a JD that never says "sponsor" yielding nothing | `test_screen.py` (`test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side`, `test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent`, `test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it`, `test_a_jd_that_never_says_sponsor_yields_no_snippets`, `test_the_abbreviation_trap_pr22_sprang_does_not_split_early`) |
+| Sponsorship decision: any `offers` outranks any `refuses`; the offers/preference vetoes overturn a `refuses` but can never create one; hallucination cannot disqualify because the model supplies no text | `test_screen.py` (`test_an_offer_anywhere_outranks_a_refusal`, `test_a_scoped_refusal_beside_an_offer_keeps_the_posting`, `test_the_offers_veto_overrules_a_refuses_label_but_never_creates_one`, `test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal`, `test_hallucination_cannot_disqualify_because_the_model_supplies_no_text`) |
+| An unusable label list (wrong count, off-vocabulary, **or an empty array against retrieved snippets**) drops the check and KEEPS, and does **not** fall through to `NO_SPONSOR_PHRASES`; silence — and `[]` with nothing retrieved — still reaches the floor; `authorization` records a verdict even when no clause was asked and no LLM call was made | `test_screen.py` (`test_unusable_labels_drop_the_check_rather_than_guessing`, `test_a_miscounted_answer_does_not_fall_through_to_the_floor`, `test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_silence`, `test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor`, `test_the_phrase_floor_runs_only_when_no_labels_arrived`, `test_authorization_records_a_verdict_even_with_no_llm_call_at_all`) |
+| The `sponsor`-only vocabulary's recall trade is pinned in both directions — exactly 6 of 13 must-flag sentences retrievable, 7 deliberately given up — so it cannot drift silently, and no genuine offer is ever disqualified | `test_screen.py` (`test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up`, `test_every_must_keep_sentence_survives_the_code_path`) |
+| Clearance disqualifies only when a `CLEARANCE_TOKENS` match is present in the JD description **or** the title; an ungrounded `requires_clearance: true` keeps, science/scientist never grounds, and the Stage 4 fallback obeys the same floor | `test_screen.py` (`test_ungrounded_clearance_claim_keeps_the_posting`, `test_clearance_grounded_in_the_title_alone_disqualifies`, `test_science_words_do_not_ground_a_clearance_claim`) |
+| Deterministic location gate (`location_verdict`, pycountry + geonamescache, evidence-tiered): a NAMED country / US state decides alone and outranks the remote hint; city/subdivision evidence is diacritic-folded, votes for every reading it allows, and discards only when corroborated; region acronyms are a stoplist; any allowed evidence keeps | `test_location.py` (`test_resolve_location`, `test_location_verdict_marks_what_escalates`, `test_token_country_*`, `test_folding_is_the_same_function_everywhere`) + gate integration tests in `test_location.py` |
 | **Zero false discards** over every distinct location string in the live DB, gated in CI against a committed corpus labeled by an INDEPENDENT oracle (not by the code under test); the residual leak set is pinned EXACTLY, in both directions, so the accepted trade cannot drift silently | `test_location.py` (`test_no_us_eligible_string_is_ever_discarded`, `test_the_leak_set_is_pinned_exactly`, `test_the_corpus_is_labeled_the_way_the_gate_assumes`, `test_a_discard_always_names_a_country_the_string_actually_mentions`), `tests/fixtures/location_corpus.jsonl` |
 | Fetch-time max-age + title_exclude drop | `test_fetch.py::test_prefilter_*` |
 | Deterministic gate hoisted to fetch (discarded, no Ollama) | `test_pipeline.py::test_run_fetch_marks_location_miss_discarded` |
-| Multi-resume loading (`load_resumes`): label = stem minus `resume_`; `personal_profile.txt` → profile, never a version; sorted order; dotfiles skipped; zero files / duplicate label / non-UTF-8 → clean `SystemExit` | `test_run.py` (`test_load_resumes_*`) |
-| Multi-resume scoring: `recommended_resume` enum-constrained to the actual labels (≥2 versions), field omitted for a single resume; cached-prefix block layout (header → profile → resumes, `cache_control` on last); normalization pass-through | `test_score.py` (`test_score_schema_*`, `test_scorer_system_blocks_*`, `test_recommended_resume_*`) |
-| `recommended_resume` persisted in `score_detail`; Telegram `Resume:` line only when set — malformed/absent `score_detail` never crashes notify; modal badge renders when present, absent otherwise | `test_pipeline.py`, `test_notify.py`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
-| Telegram `Fit:` line carries the persisted `assessment.summary` (whitespace collapsed to one line, truncated at 300 chars, which bounds the only unbounded field against Telegram's 4096 cap — title/company/URL are not capped); absent/malformed `score_detail` or empty summary omits the line entirely; notify calls no model | `test_notify.py` (`test_message_carries_the_persisted_fit_summary`, `test_a_long_summary_is_truncated_rather_than_bursting_the_message_limit`, `test_message_omits_fit_line_when_absent_or_malformed`) |
-| A screen `provider_error` row is never fit-scored (left `new`, 0 `attempts`). The old "unless a deterministic gate disqualified it" case is **no longer producible through `screen_posting`** (2026-07-31: those gates return before the model call, so the two flags cannot co-occur) — `run_score`'s branch for it and `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, which hand-builds that verdict, are kept as defence in depth for any other caller; `_BREAKER_LIMIT` consecutive provider errors with zero successes abort the screen phase; one success disarms; `SCREEN_BACKEND=none` is not a provider error | `test_pipeline.py` (`test_run_score_never_pays_to_fit_score_an_unscreened_row`, `test_run_score_provider_error_still_discards_on_a_deterministic_gate`, `test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`, `test_run_score_circuit_breaks_a_dead_screen_provider`, `test_run_score_one_screen_success_disarms_the_breaker`), `test_score.py` (`test_extract_failure_is_flagged_provider_error`, `test_screen_backend_none_is_not_a_provider_error`, `test_a_deterministically_disqualified_row_never_reaches_the_provider`) |
-| The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone. `run_score` sweeps them over the whole `max_id` window in phase 0, outside `--score-limit`, so a **deterministic** discard consumes no budget slot — an LLM screen-discard and a thin-JD row still do | `test_score.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py` (`test_the_free_gates_do_not_consume_the_score_limit`) |
-| Phase 0 also re-applies the operator's CURRENT `title_filter`/`title_exclude` (NOT `max_age_days` — an age refusal is unrecoverable) to already-queued rows, discarding them free with a `prefilter: title refused` reason MERGED into the gate's screen dict; only after the location/intern gates, so a row they killed keeps its own reason; with no `stale_fn` the pass behaves exactly as before | `test_pipeline.py` (`test_a_row_the_current_filters_would_refuse_is_swept_free`, `test_the_stale_check_never_runs_on_a_row_a_gate_already_killed`, `test_no_stale_predicate_leaves_every_row_alone`), `test_run.py::test_run_once_wires_a_title_stale_predicate_built_from_the_operators_config` |
-| A row the phase-0 sweep cannot WRITE stays `new` (the pending UPDATE is rolled back, so the next row's commit cannot adopt it), is not counted, and is announced; but `_BREAKER_LIMIT` **consecutive** write failures re-raise (a successful write resets the run) rather than retrying a systemic fault row by row, pass after pass. Deliberately not `_BackendBreaker`'s zero-successes signature: a write failure has no provider that is up or down, so consecutiveness is the signal | `test_pipeline.py` (`test_an_unwritable_free_gate_discard_stays_new_and_says_so`, `test_a_systemic_sweep_write_failure_fails_loud_instead_of_retrying_forever`) |
-| A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_score.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
-| A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_score.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
-| The screen breaker **announces** its abort, and counts a raised exception the same as a `provider_error` verdict | `test_pipeline.py` (`test_run_score_screen_breaker_aborts_and_says_so`, `test_screen_breaker_counts_raised_failures_too`) — the two `circuit_breaks`/`disarms` tests above pass with the breaker stubbed out, so they are not on their own evidence that it works |
-| `--rescreen-discarded` never requeues an un-hydrated (`description=''`) stub-gate discard | `test_pipeline.py::test_requeue_discarded_leaves_un_hydrated_stub_discards_alone` |
-| `--no-notify` skips the notify stage without consuming anything (rows stay `scored`, alert on a later pass) | `test_run.py::test_run_once_no_notify_scores_without_alerting` |
-| Scorer provenance (`backend`/`model`/`scorer_version`) stamped into `score_detail` on fit-scored rows only — never screen-discarded or low-context; `model` tracks the backend `make_scorer` picks | `test_pipeline.py` (`test_run_score_stamps_provenance_only_on_fit_scored_rows`, `test_run_score_stamps_provenance_on_fallback_disqualified_rows`, `test_run_score_omits_provenance_when_no_scorer_meta`), `test_run.py` (`test_run_once_stamps_the_active_fit_backend_and_model`, `test_scorer_meta_model_tracks_the_backend_make_scorer_picks`) |
-| `discarded` is terminal except via `--rescreen-discarded` (`db.requeue_discarded`): all discards → `new`, no other status touched, one-shot (rejected without `--once`) | `test_pipeline.py` (`test_requeue_discarded_returns_rows_to_new_for_a_later_screen`, `test_requeue_discarded_leaves_every_other_status_alone`), `test_run.py` (`test_run_once_rescreen_discarded_requeues_before_scoring`, `test_rescreen_discarded_requires_once`) |
+| The code-side gates (intern title, location string) run BEFORE the model call and short-circuit it: a row they disqualify makes no backend call, carries no `provider_error`, and its reason is the deterministic one alone | `test_screen.py` (`test_a_deterministically_disqualified_row_never_reaches_the_provider`, `test_a_deterministic_gate_short_circuits_the_model_reason`, `test_multiple_failing_gates_join_reasons`), `test_pipeline.py`  |
+| A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_screen.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
+| A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
-| Per-posting notify send error → stays `scored` + `notify_attempts+1` (its own budget, not score `attempts`) + error recorded; parks `failed` at `NOTIFY_MAX_ATTEMPTS` (3); success clears `pipeline_error`; notified rows never re-alerted | `test_pipeline.py`, `test_db.py`, `integration/test_pipeline_e2e.py` |
-| A **systemic** send fault (bad token `_systemic_send_error`, or `_BREAKER_LIMIT` consecutive failures, zero deliveries) circuit-breaks the notify pass: rows left `scored`, **no `notify_attempts` spent** | `test_pipeline.py` (`test_run_notify_auth_error_circuit_breaks_without_charging`, `test_run_notify_circuit_breaks_after_consecutive_failures`) |
-| Score `attempts` and notify `notify_attempts` are independent — score hiccups never pre-spend the notify budget | `test_pipeline.py` (`test_notify_budget_survives_prior_score_hiccups`) |
-| A **dead fit backend** (`_BREAKER_LIMIT` failures, zero successes) circuit-breaks the score pass, leaving the untouched remainder `new`; the `batch_size==1` singles fallback is not re-issued | `test_pipeline.py` (`test_run_score_dead_fit_backend_circuit_breaks_leaving_rows_new`, `test_run_score_singles_fallback_not_reissued_at_batch_size_one`) |
-| A score run is interruptible (`KeyboardInterrupt` → `cancel_futures`, queued fit calls not drained) and persists finished work as it completes (`as_completed` + `future→chunk` map) | `test_pipeline.py` (`test_run_score_keyboard_interrupt_cancels_pending_keeps_done`) |
-| `run_retry` requeues `failed`→`new` only while `attempts < RETRY_MAX_ATTEMPTS` (3) **and** `notify_attempts < NOTIFY_MAX_ATTEMPTS` (3), caps at the 3rd failure on either, never requeues a notify-exhausted row, sets `updated_at` | `test_pipeline.py` (`test_run_retry_*`), `test_run.py` (`test_run_once_calls_five_stages_in_order`) |
-| A recovered row (score-fail → `run_retry` → successful re-score) clears `pipeline_error` and preserves `attempts` | `test_pipeline.py` (`test_run_retry_recovery_clears_pipeline_error_keeps_attempts`) |
 | Discovered-jobs verdict-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; keep needs `seniority=match`, then domain splits match→matched / adjacent→belowbar; discarded = hard-constraint failures **plus** fit-verdict rejects; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
-| Fit scorer emits a top-level `insufficient_context` boolean (schema-required, normalized, persisted); Below-bar why-cell shows seniority/domain verdict pills + top gap with a legacy-`reasoning` fallback; `recommended_resume` label under the score | `worker/tests/test_score.py`, `test_pipeline.py`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
 | `reopenJobPosting`→`scored`, `discardJobPosting`→`removed` (per-row dismiss), `bulkRemove`→`removed`, `bulkReopen`→`scored`, `removeAllInView` | `actions.test.ts`, `actions.int.test.ts` |
@@ -2643,8 +2063,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Feed prefilter (active / category / sponsorship) | `test_feed_prefilter.py` |
 | Feed inherits `title_filter`/`title_exclude`/`max_age_days` before the resolve; epoch-date and `title`->`job_title` translation | `test_feed_pipeline.py` |
 | The feed re-runs the age gate on the BOARD's `posted_at` before upsert, so a fresh-per-feed evergreen req is not stored older than `max_age_days` | `test_feed_pipeline.py` (`test_run_feed_re_gates_on_the_boards_date_not_the_feeds`) |
-| `new` queue read most-recently-touched-then-newest so `--score-limit` reaches today's discoveries **and** a `run_retry` requeue keeping its old id; other queues keep score-first | `test_db.py`, `test_pipeline.py` (`test_run_score_limit_takes_the_newest_rows_not_the_oldest`, `test_run_score_reaches_a_retried_row_inside_the_cap`) |
-| The score summary separates `unreached` (this pass's slice) from `left 'new'` (the whole queue), so a capped pass cannot report an empty queue | `test_pipeline.py` (`test_run_score_summary_reports_the_whole_queue_not_just_the_capped_slice`, `test_run_score_summary_counts_rows_a_breaker_never_reached`) |
 | An unreadable lock fails loud; a contender never names a dead pid as the holder, but does name a live one | `test_run.py` (`test_an_unreadable_lock_fails_loud_instead_of_degrading`, `test_a_contender_never_names_a_dead_pid_as_the_holder`, `test_a_contender_names_the_holder_when_the_pid_is_live`) |
 | `run_feed` keeps only surfaced ids, records unresolved, skips existing, isolates a bad board, stamps `company_slug` | `test_feed_pipeline.py`, `test_feed_simplify.py` |
 | Promotion suggestions (signal, exclude watched/dismissed + feed-only sources) + dismiss | `web/src/__tests__/promotion.test.ts`, `promotion.int.test.ts` |
@@ -2654,7 +2072,6 @@ automated coverage — those rely on code review or the human in the loop, not a
 | `feeds:` config parsing + defaults | `test_feed_config.py` |
 | Watchlist actions (list / add+validate+dedup / remove) | `web/src/__tests__/watchlist.test.ts`, `watchlist.int.test.ts` |
 | iCIMS + Phenom adapters (server-HTML cards; pcsx search + per-job detail) | `test_icims.py`, `test_phenom.py` |
-| The free seniority pre-ordering RE-ORDERS and never discards: a demoted row keeps `pipeline_status='new'` and its score/detail, is stamped `deprioritized_at`, sorts behind every undemoted row, and clearing the column restores the original order. **A demoted row stays IN the pass behind the undemoted ones**, so spare budget still reaches it — dropping it made it unreachable by any bounded pass. A blind response, an empty answer, a provider failure or a RAISING extraction is a KEEP; `_BREAKER_LIMIT` consecutive failures stop the pre-ordering and the pass continues unordered, which is what bounds a hung backend to ~15 min instead of 2-4 hours. A rank counts only if the posting names it. A years figure counts only where the JD states it AS A REQUIREMENT: a capped figure ("less than N", "up to N", and the rest of the closed phrase list, each matched on a WORD boundary and not when negated -- "no less than N" is a minimum) and an age ("N years of age/old") are not bars, and a years figure the JD states nowhere is dropped rather than trusted. A stated years figure the candidate clears beats a rank word only when the MODEL'S OWN figure clears it -- the clamped value must not cancel a rank, because `clamp_years` returns None iff its input is None, so testing the clamped value for existence tested the raw one. Two consequences are deliberate and measured: dropping a capped figure can RAISE the clamped bar and so create a demotion (an internship aside no longer cancels the role's requirement), and on a rank-titled posting a ladder rung the candidate clears no longer cancels the rank. It examines at most `2 x limit` rows per pass, does not re-examine an already-demoted row, and is off entirely without a local backend or a configured candidate | `test_seniority.py` (whole file; specifically `test_a_capped_or_age_figure_is_not_a_bar`, `test_every_cap_and_age_phrase_drops_the_figure`, `test_a_negated_cap_phrase_is_a_minimum_not_a_cap`, `test_a_cap_phrase_must_be_a_whole_word`, `test_dropping_a_capped_figure_can_RAISE_the_clamped_bar`, `test_an_unevidenced_years_bar_does_not_demote`, `test_a_clamped_bar_does_not_cancel_a_rank_the_posting_states`, `test_the_cost_of_rule_3_a_ladder_rung_no_longer_cancels_a_rank`), `test_pipeline.py` (`test_a_demoted_row_leaves_the_paid_slice_but_stays_queued`, `test_a_demoted_row_sorts_behind_the_queue_it_left`, `test_the_pre_ordering_examines_a_bounded_number_of_rows`, `test_an_already_demoted_row_is_not_re_examined`, `test_no_seniority_backend_leaves_the_queue_exactly_as_it_was`, `test_a_demoted_row_is_still_reachable_when_the_budget_has_room`, `test_a_dead_seniority_backend_stops_the_pre_ordering_rather_than_the_pass`, `test_a_backend_that_wedges_after_working_still_trips_the_breaker`, `test_one_raising_extraction_keeps_its_row_instead_of_aborting_the_pass`), `test_db.py::test_a_deprioritized_row_sorts_behind_every_undemoted_one` |
 | A stub-rejected phenom posting costs no detail GET | `test_phenom.py::test_stub_gate_hydrates_only_the_survivor` |
 | A phenom search **403** mid-pagination is a throttle: retried like a 429, and on a persistent one the pages already walked are kept rather than the board being lost, with the truncation announced; a 403 on the FIRST page still raises, on a bounded budget | `test_phenom.py` (`test_search_403_mid_pagination_is_retried_like_a_429`, `test_persistent_403_mid_pagination_keeps_the_pages_already_collected`, `test_a_403_on_the_first_page_still_raises`, `test_a_salvaged_board_says_so`) |
 | An unknown keep verdict fails open | `test_phenom.py::test_stub_gate_fails_open_on_an_unknown_verdict` |
@@ -2669,11 +2086,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Embedded-greenhouse enriching resolver (token scrape → greenhouse ingest) | `test_embedded_gh.py` |
 | SSRF guard (`is_safe_public_url` / `get_redirect_safe` re-validates every redirect hop) + util helpers | `test_util.py` |
 | Config load/validate (sources, slugs, recipes, candidate block, and screen-only fit-profile skip) | `test_config.py` |
-| Fresh-process screen-only isolation; lazy `score` exception/facade imports and the neutral `usage` module; explicit fit-factory loading and legacy fit pass | `test_screening_boundary.py` (`test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes`, `test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path`) |
 | `add_watched` CLI watchlist write boundary | `test_add_watched.py` |
 | Cross-service sync guard (source enums + low-context threshold + SPEC's source-coverage matrix) | `test_source_enums_sync.py` |
-| Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**, skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_score.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`, `test_codex_scorer_always_stays_ephemeral`), `test_run.py` (`test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored`, `test_run_once_skips_the_quota_fetch_when_nothing_was_scored`) |
-| A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_score.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py` (`test_a_failed_quota_capture_is_announced_not_swallowed`) |
+| Quota telemetry is one HTTP GET per pass against the ACTIVE backend's usage endpoint (codex `/backend-api/codex/usage`, Claude Code `/api/oauth/usage`), **retried up to `_ATTEMPTS` (4) on a retryable failure — 403/429/5xx and transport errors — while a 401/404 is a verdict and is not retried**, skipped when nothing was scored; `capture_usage` never raises and keeps the last-good snapshot on a failed fetch; codex scoring calls stay unconditionally `--ephemeral` | `test_usage.py` (`test_which_statuses_are_worth_retrying`, `test_a_retryable_failure_is_retried_and_the_recovery_is_kept`, `test_a_verdict_status_is_not_retried`, `test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults`, `test_fetch_codex_usage_normalizes_the_window`, `test_codex_usage_sends_a_non_default_user_agent`, `test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope`, `test_claude_usage_falls_back_to_the_flat_buckets`, `test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails`, `test_capture_usage_never_raises`), `test_run.py`  |
+| A failed quota capture is announced **with its cause**, not swallowed — every route to a `False` return names what happened (status+reason, exception type, or which precondition failed — including a 200 whose body is not an object, and on the claude path as well as codex), including `http.client.HTTPException`, which subclasses neither `OSError` nor `ValueError`; plus the `[quota] WARNING` on the `False` return, and an offset-aware `as_of` in every written snapshot so a stale reading is legible without an mtime check | `test_usage.py` (`test_get_json_names_the_http_status_when_the_provider_raises`, `test_get_json_names_the_exception_when_the_connection_fails`, `test_a_truncated_body_is_caught_and_named`, `test_a_200_with_no_usable_window_says_so_instead_of_going_quiet`, `test_a_200_that_is_not_the_expected_shape_says_so`, `test_a_200_whose_body_is_not_an_object_says_so`, `test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why`, `test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible`), `test_run.py`  |
 | `/api/health` 200/503 probe; `/api/scorer-usage` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `scorer-usage.test.ts`, `web/src/components/__tests__/ScorerUsageBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
 | All jobs inventory directly queries/counts every non-removed lifecycle without fit-bucket scans, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, scopes per-row actions and rejects All bulk mutations | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
@@ -2688,7 +2104,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Complete source content is hashed/revisioned; duplicate listings only advance seen time; completed fit and standalone assessments capture the source revision; changed content makes old screen evidence stale without a provider rerun | `test_source_lifecycle.py`, `test_db.py`, `test_screen_pipeline.py` |
 | Tracker shows confirmed source state, inconclusive attempt and separate fit/screen freshness in list and detail views; invalid source timestamps and invalid captured revisions remain null/unknown | `web/src/lib/__tests__/source-lifecycle.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/components/__tests__/JobDetailModal.test.tsx` |
 | Read-only MCP job list/detail exposes bounded source state and freshness summaries without leaking raw errors or JD text; invalid captured screen revisions remain unknown | `tests/test_mcp_repository.py::test_source_lifecycle_separates_state_from_fit_and_screen_freshness`, `test_source_lifecycle_invalid_screen_revisions_are_unknown_in_list_and_detail`, `test_source_lifecycle_rejects_boolean_screen_revisions`, `test_source_lifecycle_rejects_unsafe_current_fit_and_screen_revisions`, `test_source_lifecycle_accepts_maximum_safe_revision` |
-| Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker and fit/notify isolation; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`, `test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify`) |
+| Explicit unlimited screen mode processes more than 40 provider calls, reuses completed cache, preserves the dead-provider breaker; CLI rejects out-of-mode/conflicting use, and explicit unlimited overrides the environment cap while zero stays invalid | `tests/test_screen_pipeline.py` (`test_unlimited_screen_exceeds_default_cap_and_still_caches_success`, `test_unlimited_screen_retains_dead_provider_breaker`), `tests/test_run.py` (`test_screen_unlimited_cli_overrides_environment_limit`, `test_screen_only_invalid_combinations_fail_before_config_or_db`) |
 | Standalone screen calls preserve the existing deprioritized queue order under the provider-call cap; demoted rows remain reachable after priority rows | `tests/test_screen_pipeline.py::test_screen_provider_cap_preserves_existing_deprioritized_queue` |
 | Direct `run_once` rejects conflicting modes and invalid screen caps before opening or seeding a database | `tests/test_run.py::test_run_once_invalid_modes_fail_before_opening_database` |
 | MCP recipe list/detail reads redact conventional secret query keys even in malformed URLs, including percent-encoded keys | `tests/test_mcp_repository.py::test_malformed_url_query_secrets_are_redacted_in_all_recipe_reads` |
@@ -2696,7 +2112,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | MCP advisory standalone outcomes agree across filtering, list summaries, detail summaries and overview counts, keep legacy evidence separate, preserve unknown/contradictory cases, and bound/redact summary reasons | `tests/test_mcp_repository.py` (`test_standalone_screen_outcomes_share_synthetic_contract_fixture`, `test_screen_summaries_bound_and_redact_untrusted_reasons`, `test_assessment_time_unknowns_and_eligible_screen_counts_are_explicit`) |
 | MCP metadata/all-text search, escaped literal metacharacters, UTC assessment windows (including fractional precision), filter-scoped cursors, first-page id ceiling, current-state traversal and payload bounds behave as specified | `tests/test_mcp_repository.py` (`test_all_text_search_is_opt_in_literal_and_keeps_descriptions_chunk_only`, `test_screening_windows_use_utc_instants_and_id_ceiling`, `test_screening_windows_preserve_fractional_precision_beyond_microseconds`, `test_job_cursor_ceiling_and_live_pages_make_no_snapshot_claim`, `test_screening_change_behind_cursor_is_found_by_reconciliation`, `test_large_generated_all_text_search_filters_before_limit_and_bounds_payload`) |
 | MCP protocol advertises only read-only/closed-world tools, keeps all ten names, exposes research filters, returns structured data and safe errors, leaves application rows unchanged, and serves list → next page → get_job → all chunks through local stdio | `tests/test_mcp_protocol.py` (`test_in_memory_protocol_lists_read_only_tools_and_returns_structured_data`, `test_protocol_errors_are_actionable_without_exposing_database_paths`, `test_stdio_subprocess_uses_protocol_and_only_reads_its_configured_database`, `test_stdio_research_path_pages_gets_chunks_and_reports_safe_error`); CI installs `requirements-mcp.txt` so these cannot skip there |
-| Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_screen_only_defaults_codex_to_luna_medium` |
+| Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
@@ -2719,39 +2135,16 @@ automated coverage — those rely on code review or the human in the loop, not a
 - **Server Actions, not REST.** All mutations go through Server Actions; the one
   exception is the `GET /api/health` route — an HTTP-status probe the Docker
   healthcheck can call, which doesn't fit the Server Action model.
-- **Local + cloud LLM split.** The hard-requirements SCREEN is high-frequency
-  (every posting with candidate constraints configured) → stays on local Ollama on
-  the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card, `think:false`
-  so reasoning models still return JSON) — it only extracts JOB facts; CODE applies
-  the candidate's constraints, since a 4B model is unreliable at the pass/fail
-  judgment itself. The fit SCORE (every posting) goes to a **hosted** model: scoring
-  needs a real seniority/domain judgment the local model kept getting wrong
-  (mode-collapsed scores, missed disqualifiers). It runs by default on the **Codex CLI
-  against the operator's ChatGPT subscription** — a full re-score of the ~640-row queue
-  is a flat-rate pass instead of a metered one, which is what the cost of re-scoring
-  actually turns on. The codex fit call carries batching machinery built for that quota
-  on the belief that it was message-bound; it is per-token credits (SCORING §4.5), and
-  the machinery is **parked at `batch_size=1`** anyway — the
-  batched==single guard failed (§13). The Claude backend stays wired for a metered
-  A/B and deliberately does **not** batch: its cached system prefix already makes
-  the marginal posting cheap — the lever batching would have stood in for on codex.
-- **Résumé is authoritative for evidence; the profile only shapes fit.** The gitignored
-  `personal_profile.txt` may push a fit score *up* (genuine interest — the one legitimate
-  upward lever, since interest ≠ skill), *down* (honest caveats), or *sideways* (positioning
-  / target direction), but it **never injects a skill the résumé lacks** — a recruiter sees
-  the résumé, so a genuine gap is fix-the-résumé signal (put courses on the résumé), not
-  profile content. **Config vs profile seam:** `config.yaml` serves the machine — the
-  structured hard constraints feeding the deterministic screen gates (degree / auth /
-  clearance / location / internships) — and stays structured (dissolving it into prose would
-  regress the gates); the profile serves only the LLM fit score, so it holds target direction
-  (priority-ordered) · anti-targets · career stage · self-positioning · genuine interests ·
-  honest downward caveats, and **excludes** anything the résumé omits and any hard constraint
-  already in config. Kept concise + stable (a cached prefix on every score call).
+- **The screen extracts, code decides.** The hard-requirements SCREEN defaults to local
+  Ollama on the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card,
+  `think:false` so reasoning models still return JSON). It only extracts JOB facts; CODE
+  applies the candidate's constraints, since a 4B model is unreliable at the pass/fail
+  judgment itself — and keeping the judgment code-side makes every backend behave alike.
 - **Charts are mostly hand-rolled SVG.** Heatmap, funnel, and Sankey are written
   directly so they render exactly right on dark backgrounds without per-library
   theming; only the donut uses Recharts. The Sankey palette is deliberately
   desaturated so flow geometry leads, not color.
-- **Fully dependency-injected worker.** Every external (Ollama, Claude, Telegram) is
+- **Fully dependency-injected worker.** Every external (board APIs, screen providers) is
   injected, so the pytest suite runs anywhere with no network and no keys; real
   wiring lives only in `run.py`.
 - **UID/GID passthrough.** Containers run as the host user so bind-mount writes work
@@ -2774,53 +2167,20 @@ automated coverage — those rely on code review or the human in the loop, not a
   the blobs were purged from all history with `git filter-repo` and force-pushed
   (see CHANGELOG).
 - **Reliability / error recovery:** one bad posting or flaky external never aborts a
-  batch — the failure is recorded on the row and processing continues; failed rows
-  auto-retry under separate 3-failure budgets for the score (`attempts`) and notify
-  (`notify_attempts`) stages before parking for good, and recovery from there is a
-  manual reopen. A *systemic* fit-backend or notify-channel outage circuit-breaks its
-  stage (spending no budget, leaving rows recoverable) rather than convicting every
+  batch — the failure is recorded and processing continues. A *systemic* screen-provider
+  outage circuit-breaks the pass, leaving rows retryable, rather than convicting every
   posting (contract in §9, "Failure handling and recovery limits").
 - **Concurrency safety:** WAL + `busy_timeout=5000` ms + the directory mount, as
   §6/§10 describe — safe under low write-contention, not a guarantee under sustained
   dual-write load.
 - **Performance:** the local hard-requirements screen runs ~2 s/posting on an 8 GB
-  GPU; the fit score adds one hosted call per **batch of up to `batch_size` postings**
-  on the default `codex` backend — tens of seconds per `codex exec` turn, amortized
-  over the batch when `batch_size>1` — but `batch_size` defaults to **1** (batching
-  parked, see below), so in practice this is one `codex exec` turn per posting; or one
-  cached-prefix API call **per posting** on `claude` (unbatched by design; see §7.1).
+  GPU; a hosted screen backend is one call per posting.
   The root page is `force-dynamic` (no stale cache).
-- **Subscription quota is the real bound on a big re-score — flat-rate is NOT
-  unlimited.** Codex on ChatGPT Plus meters a **message budget** whose observed
-  binding limit is **weekly** (`window_minutes=10080`; the capture renders whatever
-  limits codex reports, §7.1). At the shipped `batch_size=1`, a ~640-row re-score is
-  ~640 messages — it must be **paced against remaining weekly headroom** (visible
-  via the codex usage bar, §7.2), not run in one sitting. Batching at 10 would have
-  cut that to ~64 `codex exec` calls and ~6× fewer input tokens, but it failed its
-  acceptance guard and is parked at every size >1 (post-mortem + numbers in §13) —
-  and a fix would need *stronger per-JD prompt isolation*, which is exactly what
-  one-JD-per-call already buys, so the win and the fix are in tension; the quota
-  problem needs pacing, not a bigger batch. **Concurrency (`--score-workers`, §7.1) is
-  a different lever from batching and does not change the message count**: N parallel
-  `codex exec` calls still spend N messages, exactly like N serial ones — only
-  wall-clock shrinks. So the weekly-window bound argues for **pacing** the fit loop
-  (`--score-limit`, run across multiple passes) against remaining headroom, not
-  against running those N calls concurrently. At the cap Codex hard-blocks (no
-  degraded fallback) and `codex exec` exits **1 with no distinct rate-limit code**,
-  so pacing logic must match the stderr text, not the exit status. Each call also
-  pays a fixed ~9.7 k input tokens of Codex scaffolding (12.8 k before the tools
-  were disabled) to emit ~80 tokens of JSON, and gets **no prompt-cache credit**
-  (`cached_input_tokens` stayed 0 on back-to-back identical prompts) — the opposite
-  of the `claude-api` backend's cached prefix, and the strongest standing argument for
-  the metered API if the flat rate ever stops paying for itself.
 - **Time zone:** the heatmap uses the server's local "today"; set `TZ` on the
   container if deploying in a different zone from where you live.
-- **Security:** the RESUME / PERSONAL PROFILE / JOB text is marked as *data, not
-  instructions* in the score prompt (a posting can't inject directives); secrets
-  live only in the gitignored `.env`, read by `run.py`. A Telegram send error's
-  exception text embeds the bot token (carried in the request URL); `run_notify`
-  scrubs it (replaced with `***`) before it reaches `job_postings.pipeline_error`
-  or stdout, so it never escapes `.env` into the shared DB or logs (see CHANGELOG).
+- **Security:** the JOB text is marked as *data, not instructions* in the screen
+  prompt (a posting can't inject directives); secrets live only in the gitignored
+  `.env`, read by `run.py`.
   Watchlist **slugs** are structurally validated at all three write boundaries
   (`actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
   in the slug additionally run the built host through `is_safe_public_url` in their
@@ -2857,11 +2217,10 @@ automated coverage — those rely on code review or the human in the loop, not a
     worker fetching a curated board list with `browser` sources gated off by
     default; the feed/custom paths re-validate every redirect hop before it is
     requested (`util.get_redirect_safe`, §7.1).
-  - **JD prompt-injection can skew a score, not leak a secret** — the codex scorer
-    is tool-less by construction (§7.1), so a hostile JD can't read or exfiltrate
-    anything; it could still talk the model into a wrong number/verdict. Probed
-    behaviorally (a canary JD demanding score 99 got 0); blast radius is one bogus
-    Telegram alert.
+  - **JD prompt-injection can skew a screen verdict, not leak a secret** — the CLI
+    screen backends run tool-less (§7.1), so a hostile JD can't read or exfiltrate
+    anything; it could still talk the model into a wrong extraction, and code decides
+    pass/fail from it.
   - **The optional ATS MCP deliberately sends selected business data to the connected
     model through Secure MCP Tunnel.** Its local process is stdio-only and exposes no
     write tool, but it has no per-record or per-user authorization layer. Tunnel and
@@ -2887,17 +2246,13 @@ form, the tracker-only vs. full-pipeline decision, and which settings live in
 not containerized (§6); for the hard-requirements screen, Ollama reachable — a
 local GPU, or a remote/cloud instance via `OLLAMA_HOST` — **or** one of five other
 `SCREEN_BACKEND` values (`codex`, `claude-code`, `claude-api`, `openai-api`,
-`none`; §7.1) if there is no GPU and no Ollama at all; the Codex CLI on the
-operator's ChatGPT subscription for fit scoring by default (`codex login`), or an
-Anthropic API key for the metered `claude` alternate; and **optionally** a
-Telegram bot for push alerts — without it, matches still surface in the web
-Discovered Jobs tab (§7), just with no push.
+`none`; §7.1) if there is no GPU and no Ollama at all.
 
 `make setup` bootstraps a checkout in one command (web + worker deps, `db-push`,
 and non-clobbering `*.example` template copies); `make doctor` is the preflight —
 one status line per prerequisite, exiting non-zero only when a *universal* one
-(worker deps + a set-up DB) is missing, while provider rows (ollama/codex/claude/
-telegram/…) report `ok`/`no` without failing the exit code.
+(worker deps + a set-up DB) is missing, while provider rows (ollama/codex/claude/…)
+report `ok`/`no` without failing the exit code.
 
 **Web app only (no pipeline):**
 
@@ -2909,10 +2264,8 @@ npx prisma db push          # if db/applications.db doesn't exist yet
 UID=$(id -u) GID=$(id -g) docker compose up web --build -d
 ```
 
-**Full pipeline:** `make setup` does deps, `db-push`, and steps 1 and 3's **config**
-copies (only when the target is absent); then fill in the copied files. It does *not*
-do step 2 — a placeholder `resume.txt` would be loaded as a real résumé version, so an
-absent file (which fails loudly) is safer. Longhand:
+**Full pipeline:** `make setup` does deps, `db-push`, and steps 1 and 2's **config**
+copies (only when the target is absent); then fill in the copied files. Longhand:
 
 1. `cp apps/worker/config.yaml.example apps/worker/config.yaml` — set `companies`
    (`source` ∈ the eleven watchlist-capable boards {greenhouse, lever, ashby,
@@ -2920,25 +2273,16 @@ absent file (which fails loudly) is safer. Longhand:
    board `slug`, `name`), optional `title_filter`, the `candidate` hard-constraint
    block, `schedule_hours` (24). Workday's `slug` packs `tenant/datacenter/site`
    (quote it).
-2. `cp apps/worker/resume/resume.txt.example …/resume.txt`, then replace with your
-   real resume (plain text, fed to the fit scorer) — or provide multiple
-   `resume_<label>.txt` versions plus an optional `personal_profile.txt` for
-   about-the-candidate context (`apps/worker/resume/README.md`).
-3. `cp apps/worker/.env.example apps/worker/.env` — fill `TELEGRAM_BOT_TOKEN`,
-   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST` (`http://localhost:11434`), plus
-   `ANTHROPIC_API_KEY` for `--score-backend claude-api` and/or
-   `--screen-backend claude-api`, or `OPENAI_API_KEY` for
-   `--screen-backend openai-api`. Optional overrides: `OLLAMA_MODEL`,
-   `SCORE_BACKEND`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `CODEX_SCORE_MODEL`,
-   `ANTHROPIC_SCORE_MODEL`, `OLLAMA_NUM_CTX`, `CODEX_BATCH_SIZE`.
-4. The default `codex` fit backend authenticates from the operator's `codex login`
-   state (`auth_mode=chatgpt`), not from `.env` — run `codex login` once on the
-   worker host and confirm with `codex doctor` (auth ok). A logged-out host fails
-   every fit call loudly; it never scores 0.
-5. On the host: `ollama pull qwen3.5:4b && ollama serve` — only needed for the
+2. `cp apps/worker/.env.example apps/worker/.env` — fill `OLLAMA_HOST`
+   (`http://localhost:11434`), plus `ANTHROPIC_API_KEY` for `--screen-backend
+   claude-api` or `OPENAI_API_KEY` for `--screen-backend openai-api`. Optional
+   overrides: `OLLAMA_MODEL`, `SCREEN_BACKEND`, `SCREEN_MODEL`, `SCREEN_EFFORT`,
+   `SCREEN_LIMIT`, `SCREEN_WORKERS`, `OLLAMA_NUM_CTX`. The `codex`/`claude-code` screen
+   backends authenticate from the CLI's own login, not from `.env`.
+3. On the host: `ollama pull qwen3.5:4b && ollama serve` — only needed for the
    default `SCREEN_BACKEND=ollama`; skip it entirely on one of the five other
    screen backends (§7.1).
-6. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
+4. From the repo root: `UID=$(id -u) GID=$(id -g) docker compose up --build -d`
    (or `make up`) starts the **web app + autoheal only** — the worker is **not**
    containerized (§6, removed 2026-07-16). Run it natively on the same host:
    `cd apps/worker && python -m ats_worker.run` — but for anything unattended install the
@@ -2994,8 +2338,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 | `make test-e2e` | Playwright (builds web, seeds a throwaway DB) |
 | `make test-coverage` | both suites with coverage gates |
 | `make check-schema` | fail if the worker SQL fixture drifts from `schema.prisma` |
-| `make eval-score` | verdict-accuracy gate for the fit-score prompt vs the golden set — PASS needs 0 hard-invariant violations, ≥85% per-dimension (`seniority`/`domain`) verdict agreement, <20% verdict flip-rate, **and every corpus row reachable** — a row that names no live posting and carries no inline `posting` payload used to drop out behind one stderr line, shrinking the gate instead of failing it (it ran 71 of 93 rows and reported PASS); the count is now measured up front, printed in the report header, and forces FAIL **in the exit code** (`render()` returns `(doc, passed)`; the default path used to `return 0` unconditionally, so the gate printed FAIL and exited green), for `--batched` too. A `marked` watch-list row is exempt in BOTH directions — the gate already excludes those from PASS, so its absence is reported without gating, otherwise the corpus could never go green; today's 22 orphans are 20 gating + 2 reported-only. **That exemption is bounded by a gate floor: PASS also requires that at least `GATE_MIN_FRACTION` (0.5) of the corpus reached the gate**, because `marked: true` is a one-word edit per line and would otherwise be the cheapest route from a RED gate to a green one — and because `verdicts_match({}, {})` is True, so `--batched` would report "0/0 agree → PASS" over nothing. Move the floor UP as the corpus is repaired, never down. `--drift-probe` refuses to start when a probe id is unreachable **or absent from the corpus** (the second case is what a `GOLDEN_SET` substitute and the "labelled or dropped" repair path both produce), since it would spend ~50 min of quota rendering `ALL DRAWS FAILED` (**manual, not a CI gate**; default `codex` backend, flat-rate ChatGPT subscription, ~70 read-only calls, free; `SCORE_BACKEND=claude-api` A/Bs the paid metered path (`claude` was split into `claude-code`/`claude-api` on 2026-08-02 and the bare value is now rejected), and `CODEX_SCORE_MODEL` / `ANTHROPIC_SCORE_MODEL` A/B the model — the same vars `run.py` reads, so eval-model == production-model by default and an override is honoured rather than silently ignored). **Two consecutive PASS 2026-07-17 (target-fit domain rubric): 100%, then 95% agreement; hard 10/10; 5% flip — ship-gate cleared.** Lone wobbler: id 26 (a borderline Aquatic Quant-Researcher seat that wavers match↔mismatch run-to-run — genuinely research-central, not a clean twin of the stable id 652). The golden set + operator profile are gitignored, so the gate is only reproducible with the operator's local files |
-| `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — the gate `screen.txt` never had. **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend, and the run mirrors production's model resolution exactly — `OLLAMA_MODEL` / `SCREEN_MODEL` **and** `OLLAMA_NUM_CTX`, which feeds both the screener and `screen_posting`'s `num_ctx*2` JD cap; the report header names the model actually used (the real `DEFAULT_*_SCREEN_MODEL`, not "backend default"), since that is what an A/B is diffed on. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants — including that a row labeled as a **bar** carries that requirement's vocabulary in its own excerpt+title (`unsupportable_bars`). That is a check on the CORPUS, not the model: an excerpt truncated before the sentence its label rests on is a guaranteed miss for any model or prompt, so recall computed over it is meaningless. Only the bar direction is asserted — for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
+| `make eval-screen` | hard-requirement accuracy gate for the **screen** prompt vs `apps/worker/eval/screen_golden.jsonl` — **PASS = zero false disqualification**, judged on *any* of K=3 draws, not the majority: a check that discards a good posting one time in three is not a passing check. Recall and flip-rate are **reported, never gated** — a miss costs one paid fit call and reaches the human, a false discard is reviewed by nobody. 83 rows / 249 calls on local Ollama, free, ~10 min (**manual, not a CI gate** — CI has no Ollama). `SCREEN_BACKEND` A/Bs a hosted backend, and the run mirrors production's model resolution exactly — `OLLAMA_MODEL` / `SCREEN_MODEL` **and** `OLLAMA_NUM_CTX`, which feeds both the screener and `screen_posting`'s `num_ctx*2` JD cap; the report header names the model actually used (the real `DEFAULT_*_SCREEN_MODEL`, not "backend default"), since that is what an A/B is diffed on. `--selftest` is a free hermetic check of the gate logic and the corpus's own invariants — including that a row labeled as a **bar** carries that requirement's vocabulary in its own excerpt+title (`unsupportable_bars`). That is a check on the CORPUS, not the model: an excerpt truncated before the sentence its label rests on is a guaranteed miss for any model or prompt, so recall computed over it is meaningless. Only the bar direction is asserted — for clearance and sponsorship, absence of the vocabulary *is* the evidence of no bar. The corpus is gitignored (`apps/worker/eval/`), so like `eval-score` the gate is only reproducible with the operator's local files |
 | `make db-push` | sync Prisma schema into SQLite |
 | `make up` / `make down` | Docker Compose stack up/down |
 
@@ -3005,7 +2348,7 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   seeded throwaway DB and is gated in CI.
 - **Worker:** pytest, **fully dependency-injected** — no network / Ollama / Claude
   needed. `integration` marker runs `run_once` end-to-end over
-  a temp SQLite. Coverage floor `fail_under = 85` (single source of truth in
+  a temp SQLite. Coverage floor `fail_under = 84` (single source of truth in
   `pyproject.toml`, read by both `make test-coverage` and CI).
 - **CI** (`.github/workflows/ci.yml`): runs both suites on push / PR / nightly, with
   coverage gates, web lint + `prisma generate`, the schema-drift and privacy guards,
@@ -3079,37 +2422,6 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
   overflow return bounded validation errors. The checked-in assessment and evaluation
   fixtures are synthetic. No live provider calls, real cost/quality claims,
   acceptance GO, production wiring, database writes or runtime selection are included.
-- **Shadow fit extraction — tooling only, gates nothing yet.** `score/extract.py` plus
-  `tools/extract_shadow.py` and `tools/pick_frame.py` implement steps 0–2 of the fit
-  rebuild ([`superpowers/plans/2026-08-03-fit-scoring-rebuild.md`](./superpowers/plans/2026-08-03-fit-scoring-rebuild.md)):
-  a bounded-extraction call that emits duties / qualifications / evidence in a closed
-  vocabulary and **no numbers**, a stratified 250-row sampling frame, and the four
-  provenance hashes (`concept_vocab` / `preference_policy` / `profile` / `resume`) every
-  artifact is stamped with. **Shadow is a correctness requirement, not caution:** the
-  live fit response carries the secondary `screen` block `merge_fallback_screen` refills
-  a removed degree/clearance check from, so swapping in an extraction record would
-  materialize a pass verdict from a blind check. Nothing here is imported by
-  `pipeline.py` or `run.py` (asserted by `test_extract.py`), writes a status, or touches
-  `score_detail`. There is no accuracy gate for it — `tools/score_eval.py`'s PASS is
-  defined over `seniority`/`domain`, both of which this schema deletes, so the harness
-  rewrite is part of the cutover step, not of this tooling.
-- **Batching acceptance gate — FAILED; `batch_size` is parked at 1.** Two **live,
-  quota-spending** checks in `tools/score_eval.py` (no `make` target, never run from
-  CI) tested whether batching N JDs into one `codex exec` call corrupts a JD's verdict
-  via context bleed from its batch-mates: `--batched` (the pass/fail gate — same rows
-  scored single vs. batched, PASS = identical `(seniority, domain)` verdicts) and
-  `--drift-probe` (a measurement, no PASS/FAIL — re-draws known drift rows K× at one
-  batch size per run, to separate bleed from ordinary draw noise). **Verdict: bleed is
-  real and scales with batch size**, and it is not confined to the `domain` verdict.
-  `batch_size=5` is not a safe middle ground — it can turn a correct stable verdict
-  into a confidently wrong one, which is worse than a flip because it never announces
-  itself. So batching does not ship at **any** size >1; the shipped default is
-  `batch_size=1` (§7.1, §9, §11) and the machinery stays only so a future fix has
-  something to test. The quota problem needs pacing, not a bigger batch (§11).
-  Run-by-run numbers, the per-row forensics, and the corrections the probe made to the
-  guard's original reasoning are in [`../CHANGELOG.md`](../CHANGELOG.md) (see the
-  batched-scoring and drift-probe entries); the design rationale is in
-  [`superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md`](./superpowers/specs/2026-07-16-enum-routing-and-batched-scoring-design.md).
 
 ---
 

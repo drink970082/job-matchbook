@@ -8,14 +8,16 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Retire the old fit scorer — `refactor/screen-off-score-facades` then `refactor/remove-fit-scorer`**
-  `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`, `screening/`, `ranking/` are
-  JEV's and untouched. Step 1 (this branch): screen callers off the `score.*` shims,
-  `usage` out of `score/`. Step 2: delete fit backends, prompts, `fit_profile`,
-  `run_score`/`_persist_scored`, fit CLI flags, fit eval tooling, and Telegram notify
-  (it keys on fit verdicts). Kept: the web quota bar and the `score`/`score_detail`
-  columns (MCP reads the embedded screen verdict). The free gates and seniority
-  pre-ordering stay for now; end state is fold into screen or drop, undecided.
+- **Retire the old fit scorer — `refactor/screen-off-score-facades` (#149) then
+  `refactor/remove-fit-scorer`** `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`,
+  `screening/`, `ranking/` are JEV's and untouched. Both steps are in review; a pass is
+  now fetch -> screen. Open after merge:
+  (1) `seniority.py` + `prompts/seniority.txt` + `make eval-seniority` are kept but
+  unwired — fold the classifier into the screen or delete it, undecided.
+  (2) `onboard-me`'s profile/résumé interview still describes inputs for the retired fit
+  scorer; rewrite once JEV settles what it reads.
+  (3) `fit_profile` stays an accepted-and-ignored `config.yaml` key; delete it once no
+  config carries the block.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive

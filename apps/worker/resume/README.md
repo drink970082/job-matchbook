@@ -4,9 +4,9 @@ This repo ships only a **`resume.txt.example` template**. Real resume files are
 **gitignored** (personal data) — never committed or pushed. Each user supplies
 their own.
 
-The worker loads **every `*.txt` in this directory** as a resume version
-(`--resume-dir`, default `resume/`). The version label is the filename minus a
-leading `resume_`:
+Nothing in the worker reads these files: the screen never sees a résumé. They are
+private candidate inputs for onboarding and profile tooling. The version label is the
+filename minus a leading `resume_`:
 
 | File | Label / purpose |
 |------|-----------------|

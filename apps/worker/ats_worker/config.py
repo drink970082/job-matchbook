@@ -90,12 +90,11 @@ class Candidate:
     locations: list[str] = field(default_factory=list)
     # Deterministic hard-constraint (decided in code from the job title, not the LLM):
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
-    # this, but the title is a clean signal. See score._is_internship.
+    # this, but the title is a clean signal. See screening.engine._is_internship.
     exclude_internships: bool = False
-    # Years of professional experience, read ONLY by the free seniority pre-ordering
-    # (score/seniority.py) to turn a bar the JD states into a verdict about THIS
-    # candidate. It is not a screen check and can never discard a posting: a bar this
-    # candidate does not clear sends the row to the back of the score queue.
+    # Years of professional experience, read ONLY by the seniority classifier
+    # (seniority.py, currently unwired) to turn a bar the JD states into a verdict about
+    # THIS candidate. It is not a screen check and can never discard a posting.
     # 0 = new grad / entry level, which is what the 2026-07-30 measurement calibrated on.
     years_experience: int = 0
 
@@ -133,10 +132,8 @@ class Config:
     # this many days. 0 = off. Dateless/unparseable posted_at is always kept.
     max_age_days: int = 0
     candidate: Candidate = field(default_factory=Candidate)
-    # The fit vocabulary (`fit_profile.py`): the operator's concept list and priority
-    # tiers. None = not configured, which is legal — it only makes the bounded-extraction
-    # path unavailable and changes nothing else. Typed loosely here so the annotation
-    # needs no import; the parser is its own module because it is 200 lines of validation.
+    # ponytail: the retired fit scorer's vocabulary block. Accepted and ignored so an
+    # existing config.yaml still loads; delete once no config carries the key.
     fit_profile: object | None = None
     feeds: list[Feed] = field(default_factory=list)
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
@@ -155,13 +152,12 @@ def _looks_like_yaml_text(value) -> bool:
 _LEGAL_SCHEDULE_HOURS = (1, 2, 3, 4, 6, 8, 12, 24)
 
 
-def load_config(source, *, validate_fit_profile: bool = True) -> Config:
+def load_config(source) -> Config:
     """Parse a Config from a path (str/PathLike) or a raw YAML string.
 
     Defaults are applied for any omitted top-level key; empty filters/companies
     are allowed. Raises ConfigError on an unknown company source or a company
-    entry missing a required field. Screen-only callers can skip the independent
-    legacy fit-profile parser while retaining all operational config validation.
+    entry missing a required field.
     """
     if hasattr(source, "read_text"):  # pathlib.Path
         text = source.read_text()
@@ -184,16 +180,6 @@ def load_config(source, *, validate_fit_profile: bool = True) -> Config:
             "removed — use `candidate.locations` for geography. See config.yaml.example."
         )
     _reject_unknown_keys(data, Config, "top-level config")
-    fit_profile = None
-    if validate_fit_profile:
-        # Imported here, not at module level: `fit_profile` raises this module's
-        # ConfigError, so a top-level import in both directions would be a cycle. It
-        # deliberately lives in `ats_worker/` rather than `ats_worker/score/` — importing
-        # the score package would execute `score/__init__.py` and pull `pycountry` into
-        # every config load.
-        from ats_worker.fit_profile import parse_fit_profile
-        fit_profile = parse_fit_profile(data.get("fit_profile"))
-
     companies = _parse_companies(data.get("companies") or [])
     title_filter = _parse_title_filter(data.get("title_filter") or [])
     candidate = _parse_candidate(data.get("candidate") or {})
@@ -229,7 +215,6 @@ def load_config(source, *, validate_fit_profile: bool = True) -> Config:
         title_exclude=_parse_title_filter(data.get("title_exclude") or []),
         max_age_days=_int_field(data, "max_age_days", 0),
         candidate=candidate,
-        fit_profile=fit_profile,
         feeds=feeds,
         schedule_hours=schedule_hours,
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),

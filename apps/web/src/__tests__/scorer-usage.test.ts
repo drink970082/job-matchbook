@@ -40,7 +40,7 @@ test('serves the snapshot with as_of from the file mtime', async () => {
 })
 
 test('passes the backend through so the bar can label whose quota this is', async () => {
-    // Switching SCORE_BACKEND must relabel the bar, not silently show the other
+    // Switching backends must relabel the bar, not silently show the other
     // provider's numbers under the old name.
     const mtime = new Date('2026-07-29T09:00:00.000Z')
     readFile.mockResolvedValue(JSON.stringify({

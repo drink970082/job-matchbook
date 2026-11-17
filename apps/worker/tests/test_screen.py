@@ -1,40 +1,16 @@
-"""TDD for Ollama-backed JD/resume scoring. No real network (injected http)."""
+"""Hard-requirements screen: extraction seam, code-decided verdicts, sponsorship
+retrieval, location. No real network (injected http)."""
 from __future__ import annotations
 
 import json
-import subprocess
-from datetime import datetime
 from pathlib import Path
-import urllib.error
 from unittest.mock import Mock
-
 import pytest
 import requests
-
-from ats_worker import score
 from ats_worker.screening import engine as screen_engine
 from ats_worker.screening import prompts as screen_prompts
 from ats_worker import screening
-from ats_worker import usage
-
-
-class _FakeResp:
-    """Minimal stand-in for urlopen's context-managed response."""
-
-    status = 200
-
-    def __init__(self, body: str):
-        self._body = body.encode("utf-8")
-
-    def read(self):
-        return self._body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
+from ats_worker.model_errors import ModelResponseError
 
 
 class FakeResponse:
@@ -81,6 +57,8 @@ POSTING = {
     "company_name": "Acme",
     "description": "We need Python, Django, and AWS experience.",
 }
+
+
 # A posting whose JD ACTUALLY states a clearance bar. `_check_clearance` needs one:
 # a bare `requires_clearance: true` over a JD with no clearance word is the 2026-07-27
 # defect (20 of 24 live discards), and the floor now keeps such a posting. The wording
@@ -90,96 +68,9 @@ CLEARED_POSTING = {
     "description": ("We need Python, Django, and AWS experience. Other Requirements: "
                     "Security Clearance Requirements: an active TS/SCI clearance."),
 }
+
+
 RESUME = "Experienced Python and Django developer."
-
-
-def _assessment(seniority="match", domain="match", met=None, missing=None,
-                nice=None, summary="ok"):
-    """A well-formed scorecard for the SCORE call's `assessment` (S2.1)."""
-    return {
-        "seniority": {"verdict": seniority, "note": ""},
-        "domain": {"verdict": domain, "note": ""},
-        "must_haves": {"met": met or [], "missing": missing or []},
-        "nice_to_haves": {"missing": nice or []},
-        "summary": summary,
-    }
-
-
-# --- _normalize_score: validates + coerces the SCORE call's raw output ----
-
-def test_normalize_score_threads_score_and_assessment_lists():
-    # _normalize_score must thread a well-formed scorecard through untouched:
-    # the score value and the match/missing keyword lists it returns are
-    # exactly what the scorer produced (not defaulted or coerced away).
-    card = {"score": 88, "assessment": _assessment(
-        met=["python", "django"], missing=["aws"], summary="Strong overlap.")}
-    out = score._normalize_score(card)
-    assert out["score"] == 88
-    assert out["assessment"]["must_haves"]["met"] == ["python", "django"]
-    assert out["assessment"]["must_haves"]["missing"] == ["aws"]
-    assert out["assessment"]["summary"] == "Strong overlap."
-
-
-def test_score_clamped_to_0_100():
-    out = score._normalize_score({"score": 130, "assessment": _assessment()})
-    assert out["score"] == 100
-    out2 = score._normalize_score({"score": -5, "assessment": _assessment()})
-    assert out2["score"] == 0
-
-
-def test_assessment_lists_and_notes_coerced_to_defaults():
-    # The scorecard's verdicts are required, but its keyword lists / notes / summary
-    # coerce to empty when the model omits them (lenient — they only feed the UI).
-    card = {"score": 50, "assessment": {
-        "seniority": {"verdict": "match"}, "domain": {"verdict": "adjacent"},
-        "must_haves": {}, "nice_to_haves": {}, "summary": None}}
-    out = score._normalize_score(card)
-    a = out["assessment"]
-    assert a["seniority"] == {"verdict": "match", "note": ""}
-    assert a["must_haves"] == {"met": [], "missing": []}
-    assert a["nice_to_haves"] == {"missing": []}
-    assert a["summary"] == ""
-
-
-def test_absent_score_key_raises_not_silently_zero():
-    # A scorer result without "score" must NOT be buried as a real 0.
-    with pytest.raises(score.ScoreError):
-        score._normalize_score({"assessment": _assessment()})
-
-
-def test_missing_or_malformed_assessment_raises():
-    # The scorecard is required and its verdicts must be in-enum — a missing assessment
-    # or a bogus verdict fails loudly (the per-dimension verdicts drive ranking + audit).
-    with pytest.raises(score.ScoreError):
-        score._normalize_score({"score": 80})
-    bad = {"score": 80, "assessment": {
-        "seniority": {"verdict": "kinda"}, "domain": {"verdict": "match"},
-        "must_haves": {"met": [], "missing": []}, "nice_to_haves": {"missing": []},
-        "summary": ""}}
-    with pytest.raises(score.ScoreError):
-        score._normalize_score(bad)
-
-
-def test_non_numeric_score_raises_score_error():
-    with pytest.raises(score.ScoreError):
-        score._normalize_score({"score": "high"})
-
-
-def test_float_and_string_scores_accepted():
-    out = score._normalize_score({"score": 85.7, "assessment": _assessment()})
-    assert out["score"] == 86                                 # rounded
-    out2 = score._normalize_score({"score": "72", "assessment": _assessment()})
-    assert out2["score"] == 72
-
-
-def test_assessment_keyword_coercion_tolerates_bare_string_and_nesting():
-    card = {"score": 50, "assessment": {
-        "seniority": {"verdict": "match"}, "domain": {"verdict": "match"},
-        "must_haves": {"met": "python", "missing": [["aws", "k8s"]]},
-        "nice_to_haves": {"missing": []}, "summary": ""}}
-    out = score._normalize_score(card)
-    assert out["assessment"]["must_haves"]["met"] == ["python"]
-    assert out["assessment"]["must_haves"]["missing"] == ["aws", "k8s"]
 
 
 def test_screen_posting_disqualifies_without_calling_fit():
@@ -207,8 +98,6 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     assert out["screen"] == {}
     assert len(http.calls) == 1                    # the (failed) SCREEN call
 
-
-# --- extract seam: the injected extract(prompt, schema) -> dict callable -
 
 def test_screen_posting_uses_injected_extract():
     # The screen's only backend-specific step is "give me JSON from this prompt".
@@ -238,7 +127,7 @@ def test_screen_posting_without_extract_runs_deterministic_gates_only():
 def test_extract_failure_errs_toward_keep():
     # A broken provider must NEVER discard the queue.
     def extract(prompt, schema):
-        raise score.ScoreError("provider down")
+        raise ModelResponseError("provider down")
 
     out = screen_engine.screen_posting(POSTING, extract=extract,
                                candidate={"highest_degree": "Master's"})
@@ -251,7 +140,7 @@ def test_extract_failure_is_flagged_provider_error():
     # fit-score it as though it had been screened. The verdict carries the fact, so
     # the caller can tell "screened and clean" from "never actually screened".
     def extract(prompt, schema):
-        raise score.ScoreError("provider down")
+        raise ModelResponseError("provider down")
 
     out = screen_engine.screen_posting(POSTING, extract=extract,
                                candidate={"highest_degree": "Master's"})
@@ -363,7 +252,7 @@ def test_a_deterministically_disqualified_row_never_reaches_the_provider():
 
     def extract(prompt, schema):
         calls.append(prompt)
-        raise score.ScoreError("provider down")
+        raise ModelResponseError("provider down")
 
     out = screen_engine.screen_posting({**POSTING, "location": "Shanghai, China"},
                                extract=extract,
@@ -386,7 +275,7 @@ def test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor():
     # The docstring's "a failure errs toward KEEP, never toward discard" and SPEC §7.1
     # both say so; the code did not.
     def extract(prompt, schema):
-        raise score.ScoreError("provider down")
+        raise ModelResponseError("provider down")
 
     jd = ("If you are eligible to work without sponsorship, we encourage you to apply. "
           "We build low-latency trading systems.")
@@ -411,8 +300,6 @@ def test_screen_backend_none_still_records_the_authorization_floor_verdict():
     assert out["screen"]["authorization"]["pass"] is False
 
 
-# --- determinism / Ollama options ----------------------------------------
-
 def test_screen_request_sends_deterministic_options():
     http = FakeHttp(_screen_resp({}))
     screen_engine.screen_posting(POSTING, extract=_ollama(http, seed=7, num_ctx=4096),
@@ -422,8 +309,6 @@ def test_screen_request_sends_deterministic_options():
     assert opts["seed"] == 7
     assert opts["num_ctx"] == 4096
 
-
-# --- structured identity renders constraint clauses ----------------------
 
 def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     # locations is deliberately omitted: it's a code gate now (resolve_location off
@@ -463,8 +348,6 @@ def test_empty_candidate_fields_render_no_screen_call():
         assert len(http.calls) == 0, candidate
         assert out["disqualified"] is False, candidate
 
-
-# --- screen: extracted facts + code gates --------------------------------
 
 def _screen_resp(screen):
     return json.dumps({"screen": screen})
@@ -666,11 +549,6 @@ def test_clearance_not_required_passes():
     assert out["disqualified"] is False
 
 
-# --- the clearance evidence floor (defect found 2026-07-27) ---------------
-# `requires_clearance` is a bare boolean from a 4B model. Acting on it unguarded made
-# 20 of 24 live discards wrong: the model reads "security" (the engineering domain) as
-# the government credential. CODE now requires a clearance token in the JD or title.
-
 def test_ungrounded_clearance_claim_keeps_the_posting():
     # THE DEFECT, pinned. Every one of the 20 wrong discards looked exactly like this:
     # "security" all over the JD, `requires_clearance: true`, and not one clearance word.
@@ -718,16 +596,6 @@ def test_science_words_do_not_ground_a_clearance_claim(text):
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
     out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
-    assert out["disqualified"] is False
-
-
-def test_fallback_screen_clearance_also_needs_evidence():
-    # The fit scorer's Stage 4 extraction routes through the SAME _screen_verdict, so
-    # it must not become a back door around the floor. Ungrounded -> kept.
-    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(empty, card, POSTING,
-                                      {"security_clearance": "none"})
     assert out["disqualified"] is False
 
 
@@ -798,8 +666,6 @@ def test_unconfigured_requirement_is_not_checked():
     assert "clearance" not in out["screen"]
 
 
-# --- transport failure (SCREEN call) --------------------------------------
-
 def _raw_http(envelope=None, *, raise_exc=None):
     """An http stub whose POST returns a RAW Ollama envelope (or raises), so the
     SCREEN call's transport branch is exercised (FakeHttp always wraps in a valid
@@ -827,8 +693,6 @@ def test_screen_transport_failure_errs_toward_keep():
     assert out["screen"] == {}
 
 
-# --- the core safety invariant: empty/garbled extraction never disqualifies --
-
 @pytest.mark.parametrize("gate,candidate", [
     ("degree", {"highest_degree": "Master's"}),
     ("authorization", {"work_authorization": "needs visa sponsorship"}),
@@ -851,8 +715,6 @@ def test_non_dict_gate_entry_is_treated_as_empty():
     assert out["disqualified"] is False
 
 
-# --- numeric boundaries (off-by-one mutation killers) --------------------
-
 def test_equal_required_degree_passes_pinning_greater_than():
     # required == candidate (master's) must PASS — pins `>` (not `>=`) in the gate.
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "master's"}}))
@@ -860,8 +722,6 @@ def test_equal_required_degree_passes_pinning_greater_than():
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
-
-# --- authorization negation + clearance holder ----------------------------
 
 def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
     posting = {**POSTING, "description": "We do not offer visa sponsorship."}
@@ -881,15 +741,6 @@ def test_candidate_holding_clearance_passes_when_role_requires_one():
     assert out["disqualified"] is False
 
 
-# --- multi-gate failure reason join --------------------------------------
-
-# --- sponsorship: CODE retrieves, MODEL labels, CODE decides -------------
-#
-# Rewritten 2026-07-28 with the check itself. The old block tested a quote the MODEL
-# retrieved and CODE classified with three regex vetoes; both halves were on the wrong
-# side. There is no quote to verify any more — the model labels text the code handed it,
-# so hallucination is impossible by construction rather than by an ex-post check.
-
 _NEEDS_VISA = {"work_authorization": "needs visa sponsorship"}
 
 
@@ -903,8 +754,6 @@ def _screen_labels(labels, description):
 def _sponsor_jd(sentence):
     return f"About the role. {sentence} Apply now."
 
-
-# --- retrieval (the half that is now deterministic) ----------------------
 
 def test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side():
     jd = ("We build trading systems. The team is small. "
@@ -965,8 +814,6 @@ def test_the_abbreviation_trap_pr22_sprang_does_not_split_early():
     sents = screen_engine._sentences("Roles are based in the U.S. Sponsorship is not required. Apply.")
     assert sents[0] == "Roles are based in the U.S. Sponsorship is not required."
 
-
-# --- the decision rule (the half CODE keeps) -----------------------------
 
 def test_a_refuses_label_disqualifies():
     out = _screen_labels(["refuses"], _sponsor_jd("We will not sponsor visas for this role."))
@@ -1092,38 +939,6 @@ def test_hallucination_cannot_disqualify_because_the_model_supplies_no_text():
     assert _screen_labels(["refuses"], jd)["disqualified"] is False   # ...so nothing to act on
 
 
-# --- demote_for_confirmation ---------------------------------------------
-
-def test_only_a_degree_or_clearance_only_failure_is_demoted():
-    ok = lambda: {"pass": True, "note": ""}
-    bad = lambda n="": {"pass": False, "note": n}
-    d = lambda checks: score.demote_for_confirmation(
-        {"screen": checks, "disqualified": True, "disqualification_reason": "x"})
-
-    # the two confirmable checks, alone or together, with passing checks alongside
-    assert d({"degree": bad("requires a PhD"), "authorization": ok()}) == {
-        "screen": {"authorization": ok()}, "disqualified": False,
-        "disqualification_reason": "", "needs_confirmation": ["degree"]}
-    assert d({"degree": bad(), "clearance": bad()})["needs_confirmation"] == \
-        ["clearance", "degree"]
-
-    # anything else in the failure set keeps the whole discard terminal and free
-    assert d({"degree": bad(), "location": bad()}) is None
-    assert d({"authorization": bad()}) is None
-    assert d({"internships": bad()}) is None
-
-    # nothing to classify -> not demoted. An unreadable ENTRY counts as unclassifiable
-    # too, or `location` below would ride through as though it had passed.
-    assert d({}) is None
-    assert d({"degree": ok()}) is None
-    assert score.demote_for_confirmation({"disqualified": True}) is None
-    assert score.demote_for_confirmation({"screen": [], "disqualified": True}) is None
-    assert d({"degree": bad(), "location": "not in USA"}) is None
-    assert d({"degree": bad(), "location": {"note": "no pass key"}}) is None
-
-
-# --- the closed-list floor -----------------------------------------------
-
 def test_the_phrase_floor_runs_only_when_no_labels_arrived():
     # SCREEN_BACKEND=none, a garbled response, or the fit scorer's Stage 4 shape.
     jd = "This employer does not sponsor applicants for work visas."
@@ -1191,8 +1006,6 @@ def test_the_retrieved_snippets_are_numbered_into_the_prompt():
     assert "sponsorship_labels" in prompt
     assert "1. About the role. We will not sponsor visas. Apply now." in prompt
 
-
-# --- the corpus, repointed at what this design actually decides ----------
 
 def _corpus():
     return json.loads((Path(__file__).parent / "fixtures" /
@@ -1269,8 +1082,6 @@ def test_a_deterministic_gate_short_circuits_the_model_reason():
     assert http.calls == []          # no GPU call bought for an already-dead row
 
 
-# --- pure-function units (precise coercion coverage) ---------------------
-
 @pytest.mark.parametrize("value", ["true", "yes", "1", "required", "TRUE", 1, True, 2.5])
 def test_flag_truthy_tokens(value):
     assert screen_engine._flag(value) is True
@@ -1309,20 +1120,6 @@ def test_truncate_boundary_and_disabled():
     assert screen_prompts._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
 
 
-# --- resolve_location: the gate's own unit table now lives in tests/test_location.py
-# (moved 2026-07-30 with the evidence-tier rebuild — the module under test is
-# score/location.py, and the surface roughly tripled). The SCREEN-level tests above
-# stay here: they exercise screen_posting's wiring, not the resolver.
-
-# --- real adapter: import safety ------------------------------------------
-
-def test_make_claude_scorer_builds_without_importing_sdk():
-    # The adapter must be import-safe: building it never imports anthropic (which
-    # the hermetic test env lacks), so run.py can construct it before first use.
-    fit = score.make_claude_scorer("sk-test", "claude-sonnet-4-6")
-    assert callable(fit)
-
-
 def test_job_block_omits_location_for_the_fit_score_call():
     # D5: the fit SCORE call drops the Location line so geography can't leak into the
     # fit number (location is decided by the screen gate, not the score); the SCREEN
@@ -1330,78 +1127,6 @@ def test_job_block_omits_location_for_the_fit_score_call():
     posting = {**POSTING, "location": "Chicago, IL"}
     assert "Location: Chicago, IL" in screen_prompts._job_block(posting, 0)                 # screen (default)
     assert "Location:" not in screen_prompts._job_block(posting, 0, include_location=False)  # score
-
-
-# --- prompts: split into score.txt (Claude) + screen.txt (Ollama) ---------
-
-def test_prompts_split_into_two_files_without_location_clause():
-    from ats_worker import prompts
-    assert "hiring manager" in prompts.SCORE_HEADER.lower()      # score.txt
-    assert "recruiter" in prompts.SCREEN_HEADER.lower()          # screen.txt
-    assert prompts.SCORE_C_DEGREE and prompts.SCREEN_FOOTER
-    assert not hasattr(prompts, "SCORE_C_LOCATION")              # location clause gone
-    assert "recommended_resume" in prompts.SCORE_HEADER       # multi-resume rubric
-    assert "PERSONAL PROFILE" in prompts.SCORE_HEADER         # profile block described
-
-
-# --- multi-resume: schema + system-prefix helpers ---------------------------
-
-def test_score_schema_single_resume_matches_today():
-    schema = score._score_schema(["resume"])
-    assert "recommended_resume" not in schema["properties"]
-    assert "recommended_resume" not in schema["required"]
-
-
-def test_score_schema_multi_resume_adds_enum_field():
-    schema = score._score_schema(["quant_dev", "swe"])
-    assert schema["properties"]["recommended_resume"] == {
-        "type": "string", "enum": ["quant_dev", "swe"]}
-    assert "recommended_resume" in schema["required"]
-    # the base schema must stay pristine (deep-copied, not mutated)
-    assert "recommended_resume" not in score._SCORE_SCHEMA["properties"]
-    assert "recommended_resume" not in score._SCORE_SCHEMA["required"]
-
-
-def _strict_mode_violations(node, path="$"):
-    """Every object in a schema sent to OpenAI structured output must list EVERY key of
-    `properties` in `required`, or the API rejects the whole request with a 400
-    (invalid_json_schema) before the model runs. Yields the offenders."""
-    if isinstance(node, list):
-        for i, item in enumerate(node):
-            yield from _strict_mode_violations(item, f"{path}[{i}]")
-        return
-    if not isinstance(node, dict):
-        return
-    props = node.get("properties")
-    if isinstance(props, dict):
-        missing = set(props) - set(node.get("required") or [])
-        if missing:
-            yield f"{path}: properties {sorted(missing)} not in required"
-        # The other half of the contract, and it raises the identical 400: strict mode
-        # requires additionalProperties:false on every object, not just `required`.
-        if node.get("additionalProperties") is not False:
-            yield f"{path}: object without additionalProperties: false"
-    for key, value in node.items():
-        yield from _strict_mode_violations(value, f"{path}.{key}")
-
-
-def test_schema_is_strict_mode_valid():
-    # The defect this pins cost a whole eval run: 66dfb65's `screen` block had
-    # `properties` and no `required`, so EVERY codex fit call 400'd -- the scorer was
-    # not degraded, it was dead, and only the ollama path (non-strict) still worked.
-    # SCREEN_SCHEMA carried the same defect on its own code path.
-    # aliased: a module-level test mirror shares this name, and hoisting the
-    # import would silently make the mirror test compare production to itself.
-    from ats_worker.score.backends_codex import _batch_schema as prod_batch_schema
-    from ats_worker.score.prompts import SCREEN_SCHEMA
-    # _batch_schema is what actually reaches `codex exec --output-schema`; the bare
-    # _score_schema never does. Checking only the latter would pass while a violation
-    # introduced into the `results` envelope 400s in production.
-    for name, schema in (("_batch_schema", prod_batch_schema(["resume"])),
-                         ("_score_schema", score._score_schema(["resume"])),
-                         ("SCREEN_SCHEMA", SCREEN_SCHEMA)):
-        bad = list(_strict_mode_violations(schema, name))
-        assert not bad, "strict-mode violations:\n" + "\n".join(bad)
 
 
 def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
@@ -1435,585 +1160,6 @@ def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
     assert out["disqualified"] is True
 
 
-def test_score_schema_carries_enum_constrained_assessment():
-    # S2.1: the scorecard replaces the flat reasoning/keyword fields; verdicts are
-    # enum-constrained so structured outputs enforce them.
-    schema = score._score_schema(["resume"])
-    # `screen` is in `required` because strict structured output has no optional keys —
-    # see test_schema_is_strict_mode_valid. Its VALUE is nullable, which is what keeps
-    # "a scorer with nothing to say must not fail the card" true.
-    assert schema["required"] == ["assessment", "score", "insufficient_context", "screen"]
-    assert schema["properties"]["insufficient_context"] == {"type": "boolean"}
-    for gone in ("reasoning", "matched_keywords", "missing_keywords"):
-        assert gone not in schema["properties"]
-    a = schema["properties"]["assessment"]
-    assert set(a["required"]) == {"seniority", "domain", "must_haves", "nice_to_haves", "summary"}
-    assert a["properties"]["seniority"]["properties"]["verdict"]["enum"] == \
-        ["match", "too_junior", "too_senior"]
-    assert a["properties"]["domain"]["properties"]["verdict"]["enum"] == \
-        ["match", "adjacent", "mismatch"]
-
-
-def test_scorer_system_blocks_layout_and_cache_control():
-    blocks = score._scorer_system_blocks(
-        {"quant_dev": "QD text", "swe": "SWE text"}, "profile text")
-    texts = [b["text"] for b in blocks]
-    assert texts[0].startswith("You are a hiring manager")     # SCORE_HEADER first
-    assert texts[1] == "=== PERSONAL PROFILE ===\nprofile text"
-    assert texts[2] == "=== RESUME (quant_dev) ===\nQD text"   # dict order preserved
-    assert texts[3] == "=== RESUME (swe) ===\nSWE text"
-    # cache_control on the LAST block only — caches the whole byte-identical prefix
-    assert blocks[-1]["cache_control"] == {"type": "ephemeral"}
-    assert all("cache_control" not in b for b in blocks[:-1])
-
-
-def test_scorer_system_blocks_empty_profile_omitted():
-    blocks = score._scorer_system_blocks({"resume": "text"}, "")
-    assert len(blocks) == 2                                    # header + one resume
-    assert blocks[1]["text"] == "=== RESUME (resume) ===\ntext"
-
-
-def test_recommended_resume_passed_through_normalization():
-    out = score._normalize_score(
-        {"score": 80, "assessment": _assessment(), "recommended_resume": "swe"})
-    assert out["recommended_resume"] == "swe"
-
-
-def test_insufficient_context_normalized_true():
-    out = score._normalize_score(
-        {"score": 40, "assessment": _assessment(), "insufficient_context": True})
-    assert out["insufficient_context"] is True
-
-
-def test_insufficient_context_absent_defaults_false():
-    out = score._normalize_score({"score": 40, "assessment": _assessment()})
-    assert out["insufficient_context"] is False   # absent -> False (err toward scoreable)
-
-
-def test_recommended_resume_absent_or_blank_is_omitted():
-    out = score._normalize_score({"score": 80, "assessment": _assessment()})
-    assert "recommended_resume" not in out
-    out2 = score._normalize_score(
-        {"score": 80, "assessment": _assessment(), "recommended_resume": "   "})
-    assert "recommended_resume" not in out2
-
-
-def test_make_claude_scorer_accepts_profile_kwarg():
-    # Still import-safe (no anthropic at build time), now with a baked-in profile.
-    fit = score.make_claude_scorer("sk-test", "claude-sonnet-5", profile="prefers quant")
-    assert callable(fit)
-
-
-# --- codex scorer: the ChatGPT-subscription twin (no network; subprocess mocked) ---
-
-# The raw scorecard fields codex returns for ONE job (pre-job_ref shape); the fake
-# CLI below wraps it in the batched {"results": [{"job_ref": ..., **payload}]}
-# envelope the real (post-B1) CLI is asked for.
-CODEX_PAYLOAD = {"assessment": {}, "score": 71, "insufficient_context": False}
-
-
-def _fake_codex(payload=CODEX_PAYLOAD, job_ref=1, returncode=0, capture=None):
-    """Stand in for `codex exec`: writes a single-result batch envelope,
-    {"results": [{"job_ref": job_ref, **payload}]}, to the --output-last-message path
-    the scorer passed — exactly the shape the real batched CLI returns for a
-    one-posting call."""
-    def run(cmd, **kwargs):
-        if capture is not None:
-            capture["cmd"] = cmd
-            capture["prompt"] = kwargs.get("input", "")
-            # Read the schema HERE — the scorer's TemporaryDirectory is gone by the
-            # time the test body runs.
-            with open(cmd[cmd.index("--output-schema") + 1], encoding="utf-8") as fh:
-                capture["schema"] = json.load(fh)
-        if returncode == 0:
-            out = cmd[cmd.index("--output-last-message") + 1]
-            with open(out, "w", encoding="utf-8") as fh:
-                json.dump({"results": [{"job_ref": job_ref, **payload}]}, fh)
-        return Mock(returncode=returncode, stdout="boom", stderr="")
-    return run
-
-
-def _batch_schema(labels: list) -> dict:
-    """Mirror of make_codex_scorer's internal schema wrap (the per-element
-    `_score_schema` plus an integer job_ref, wrapped in a results array) — used to
-    assert on the schema the scorer hands to --output-schema."""
-    element = json.loads(json.dumps(score._score_schema(labels)))
-    element["properties"]["job_ref"] = {"type": "integer"}
-    element["required"].append("job_ref")
-    return {
-        "type": "object",
-        "properties": {"results": {"type": "array", "items": element}},
-        "required": ["results"],
-        "additionalProperties": False,
-    }
-
-
-def test_codex_scorer_parses_the_output_file(monkeypatch):
-    # The CLI writes its final message to --output-last-message; the scorer realigns
-    # by job_ref and returns the parsed element (still carrying job_ref) verbatim
-    # (score._normalize_score normalizes it later), same contract as Claude, just
-    # batched — one scorecard per input posting, in input order.
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex())
-    fit = score.make_codex_scorer("gpt-5.6-sol")
-    got = fit([{**POSTING, "id": 1}], {"swe": "resume text"})
-    assert got == [{"job_ref": 1, **CODEX_PAYLOAD}]
-
-
-def test_codex_batch_size_one_matches_single_call_scorecard(monkeypatch):
-    # batch_size=1 equivalence: a one-posting batch's scorecard fields are identical
-    # to what today's single-call adapter produced — only the job_ref tag is new.
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex())
-    [got] = score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "resume text"})
-    assert got["score"] == CODEX_PAYLOAD["score"]
-    assert got["assessment"] == CODEX_PAYLOAD["assessment"]
-    assert got["insufficient_context"] == CODEX_PAYLOAD["insufficient_context"]
-
-
-def test_codex_scorer_sends_schema_and_prompt_without_location(monkeypatch):
-    # The per-element schema handed to --output-schema must be the SAME shape Claude
-    # gets (so the two backends are comparable) plus the job_ref tag, and the prompt
-    # must carry the résumé but not the Location line (D5 — geography must not move
-    # the fit score) — and must carry the job_ref tag for realignment.
-    seen: dict = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    fit = score.make_codex_scorer("gpt-5.6-sol", profile="prefers quant")
-    fit([{**POSTING, "location": "Chicago, IL", "id": 1}],
-        {"swe": "resume text", "quant_dev": "q"})
-
-    assert seen["schema"] == _batch_schema(["swe", "quant_dev"])
-    assert "prefers quant" in seen["prompt"]
-    assert "resume text" in seen["prompt"]
-    assert "Location: Chicago, IL" not in seen["prompt"]
-    assert "job_ref=1" in seen["prompt"]
-    assert "--ephemeral" in seen["cmd"]  # a 640-row pass must not litter session files
-
-
-def test_codex_scorer_runs_tool_less(monkeypatch):
-    # SECURITY: a JD is untrusted scraped text and plain `codex exec` holds a shell that
-    # --sandbox read-only still lets read ANY file (~/.codex/auth.json, .env) — so the
-    # tools must be REMOVED, not merely discouraged. web_search defaults ON; off here too.
-    seen: dict = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
-    cmd = seen["cmd"]
-    assert cmd[cmd.index("--disable") + 1] == "shell_tool"
-    assert 'web_search="disabled"' in cmd
-
-
-def test_codex_scorer_pins_effort_and_verbosity(monkeypatch):
-    # Both MUST be sent explicitly: codex's default reasoning level is server-controlled
-    # (models_cache.json is etag-fetched) and was seen flipping low->medium->low, which
-    # would change scoring behavior mid-batch with no code change. Pinning is the defense.
-    seen: dict = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex(capture=seen))
-    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
-    assert "model_reasoning_effort=low" in seen["cmd"]
-    assert "model_verbosity=low" in seen["cmd"]
-
-
-def test_codex_scorer_raises_on_nonzero_exit_never_a_zero_score(monkeypatch):
-    # A dead cron (e.g. codex purged auth.json) must fail the posting LOUDLY — a
-    # swallowed error would silently score the whole queue 0 and look like a real pass.
-    monkeypatch.setattr(score.subprocess, "run", _fake_codex(returncode=1))
-    fit = score.make_codex_scorer("gpt-5.6-sol")
-    with pytest.raises(score.ScoreError, match="exit 1"):
-        fit([{**POSTING, "id": 1}], {"swe": "resume text"})
-
-
-def test_codex_scorer_raises_when_output_is_not_json(monkeypatch):
-    def run(cmd, **kwargs):
-        out = cmd[cmd.index("--output-last-message") + 1]
-        with open(out, "w", encoding="utf-8") as fh:
-            fh.write("I couldn't score this.")
-        return Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    fit = score.make_codex_scorer("gpt-5.6-sol")
-    with pytest.raises(score.ScoreError, match="non-JSON"):
-        fit([{**POSTING, "id": 1}], {"swe": "resume text"})
-
-
-def test_codex_batch_duplicate_job_ref_raises(monkeypatch):
-    # Two results claiming the SAME job_ref is exactly the misalignment the guard
-    # exists to catch — it must fail the WHOLE batch loudly rather than silently
-    # pick one and pair a score with the wrong job.
-    def run(cmd, **kw):
-        out = cmd[cmd.index("--output-last-message") + 1]
-        with open(out, "w") as fh:
-            json.dump({"results": [
-                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False},
-                {"job_ref": 1, "score": 10, "assessment": {}, "insufficient_context": False}]}, fh)
-        return Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    with pytest.raises(score.ScoreError, match="job_ref"):
-        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
-
-
-def test_codex_batch_unknown_job_ref_raises(monkeypatch):
-    # A job_ref that names no input posting must also fail the whole batch — it's
-    # exactly as unsafe to trust as a missing or duplicate one.
-    def run(cmd, **kw):
-        out = cmd[cmd.index("--output-last-message") + 1]
-        with open(out, "w") as fh:
-            json.dump({"results": [
-                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False},
-                {"job_ref": 99, "score": 10, "assessment": {}, "insufficient_context": False}]}, fh)
-        return Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    with pytest.raises(score.ScoreError, match="job_ref"):
-        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
-
-
-def test_both_backends_share_one_prompt_prefix():
-    # The shared sections are what keep a prompt edit landing on both backends; if
-    # these drift, a Claude-vs-codex band comparison is measuring the prompt, not the model.
-    resumes = {"swe": "resume text"}
-    sections = score._scorer_system_sections(resumes, "prefers quant")
-    blocks = score._scorer_system_blocks(resumes, "prefers quant")
-    assert [b["text"] for b in blocks] == sections
-
-
-# --- B1: fit scorer is batch-first (list in, list out) --------------------
-
-def test_codex_batch_returns_one_scorecard_per_posting_in_order(monkeypatch):
-    def run(cmd, **kw):
-        out = cmd[cmd.index("--output-last-message") + 1]
-        with open(out, "w") as fh:
-            json.dump({"results": [
-                {"job_ref": 2, "score": 40, "assessment": {}, "insufficient_context": False},
-                {"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False}]}, fh)
-        return Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    fit = score.make_codex_scorer("gpt-5.6-sol")
-    got = fit([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
-    assert [g["score"] for g in got] == [80, 40]          # realigned by job_ref, input order
-
-
-def test_codex_batch_missing_job_ref_raises(monkeypatch):
-    def run(cmd, **kw):
-        out = cmd[cmd.index("--output-last-message") + 1]
-        with open(out, "w") as fh:
-            json.dump({"results": [{"job_ref": 1, "score": 80, "assessment": {}, "insufficient_context": False}]}, fh)
-        return Mock(returncode=0, stdout="", stderr="")
-    monkeypatch.setattr(score.subprocess, "run", run)
-    with pytest.raises(score.ScoreError, match="job_ref"):
-        score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
-
-
-# --- fit-backend quota telemetry (usage, provider usage endpoints) ---------
-#
-# Replaced the rollout-scraping capture on 2026-07-29: the figures now come from one
-# HTTP GET per pass. Every test here mocks `_get_json` — nothing reaches the network.
-
-CODEX_USAGE_BODY = {
-    "plan_type": "plus",
-    "rate_limit": {
-        "primary_window": {"used_percent": 11, "limit_window_seconds": 604800,
-                           "reset_at": 1785905532},
-        "secondary_window": None,
-    },
-}
-
-# The live 2026-07-29 shape: BOTH the flat named buckets and the richer `limits[]`
-# array, with a model-scoped weekly row beside the pooled one.
-CLAUDE_USAGE_BODY = {
-    "five_hour": {"utilization": 2.0, "resets_at": "2026-07-29T19:59:59.561596+00:00"},
-    "seven_day": {"utilization": 72.0, "resets_at": "2026-08-02T12:00:00.561620+00:00"},
-    "seven_day_opus": None,
-    "limits": [
-        {"kind": "session", "group": "session", "percent": 2,
-         "resets_at": "2026-07-29T19:59:59.561596+00:00", "scope": None},
-        {"kind": "weekly_all", "group": "weekly", "percent": 72,
-         "resets_at": "2026-08-02T12:00:00.561620+00:00", "scope": None},
-        {"kind": "weekly_scoped", "group": "weekly", "percent": 2,
-         "resets_at": "2026-08-02T11:59:59.561861+00:00",
-         "scope": {"model": {"id": None, "display_name": "Fable"}}},
-    ],
-}
-
-
-@pytest.fixture
-def codex_login(tmp_path, monkeypatch):
-    """A logged-in codex home (CODEX_HOME is codex's own override)."""
-    home = tmp_path / "codex"
-    home.mkdir()
-    (home / "auth.json").write_text(json.dumps(
-        {"tokens": {"access_token": "tok", "account_id": "acct"}}))
-    monkeypatch.setenv("CODEX_HOME", str(home))
-    return home
-
-
-@pytest.fixture
-def claude_login(tmp_path, monkeypatch):
-    home = tmp_path / "claude"
-    home.mkdir()
-    (home / ".credentials.json").write_text(json.dumps(
-        {"claudeAiOauth": {"accessToken": "tok"}}))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    return home
-
-
-def test_fetch_codex_usage_normalizes_the_window(codex_login, monkeypatch):
-    seen = {}
-
-    def get_json(url, headers):
-        seen["url"], seen["headers"] = url, headers
-        return CODEX_USAGE_BODY
-
-    monkeypatch.setattr(usage, "_get_json", get_json)
-    snap = usage.fetch_codex_usage()
-    assert snap == {"backend": "codex", "plan_type": "plus", "limits": [
-        {"key": "primary", "used_percent": 11, "window_minutes": 10080,
-         "resets_at": 1785905532}]}
-    # limit_window_seconds -> minutes, so the web's windowLabel reads it as "weekly".
-    assert snap["limits"][0]["window_minutes"] == 10080
-    assert seen["url"] == usage.CODEX_USAGE_URL
-    assert seen["headers"]["chatgpt-account-id"] == "acct"
-
-
-def _http_error(code):
-    return urllib.error.HTTPError("https://x/usage", code, "reason", {}, None)
-
-
-@pytest.mark.parametrize("code,retryable", [
-    (403, True),    # the measured failure — whatever produces it, another attempt may differ
-    (429, True),
-    (500, True),
-    (401, False),   # not logged in is a VERDICT: retrying only delays the same answer
-    (404, False),
-])
-def test_which_statuses_are_worth_retrying(code, retryable, monkeypatch):
-    # Drives the real status -> retryable mapping through urlopen. The earlier version of
-    # these tests monkeypatched `_get_json_once` and hand-wrote the flag, so they would
-    # have passed against an implementation that retried 401 too — i.e. they pinned the
-    # test's own opinion rather than the code's.
-    def boom(req, timeout=None):
-        raise _http_error(code)
-    monkeypatch.setattr(usage.urllib.request, "urlopen", boom)
-    assert usage._get_json_once("https://x/usage", {}) == (None, retryable)
-
-
-def test_a_retryable_failure_is_retried_and_the_recovery_is_kept(monkeypatch):
-    # MEASURED 2026-07-31: the 12:00 pass fit-scored 26 rows and the usage fetch returned
-    # 403; hand-calling straight after gave 403 / 200 / 403 within forty seconds. Without
-    # a retry the snapshot silently goes stale and every downstream quota decision reads
-    # an old number.
-    calls = []
-
-    def flaky(req, timeout=None):
-        calls.append(1)
-        if len(calls) == 1:
-            raise _http_error(403)
-        return _FakeResp(json.dumps({"ok": True}))
-
-    monkeypatch.setattr(usage.urllib.request, "urlopen", flaky)
-    assert usage._get_json("https://x/usage", {}, sleep=lambda _s: None) == {"ok": True}
-    assert len(calls) == 2
-
-
-def test_a_verdict_status_is_not_retried(monkeypatch):
-    calls = []
-
-    def denied(req, timeout=None):
-        calls.append(1)
-        raise _http_error(401)
-
-    monkeypatch.setattr(usage.urllib.request, "urlopen", denied)
-    assert usage._get_json("https://x/usage", {}, sleep=lambda _s: None) is None
-    assert len(calls) == 1
-
-
-def test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults(monkeypatch):
-    # Pins the DEFAULTS, not an argument the test supplies: the previous version passed
-    # attempts=3 explicitly, so raising _ATTEMPTS to 50 kept it green.
-    calls, slept = [], []
-    monkeypatch.setattr(usage.urllib.request,
-                        "urlopen", lambda req, timeout=None: calls.append(1) or
-                        (_ for _ in ()).throw(_http_error(403)))
-    monkeypatch.setattr(usage.time, "sleep", slept.append)
-    assert usage._get_json("https://x/usage", {}) is None
-    assert len(calls) == usage._ATTEMPTS
-    # one sleep BETWEEN attempts, never after the last, and growing past the only
-    # interval at which the endpoint was ever observed to change state
-    assert slept == list(usage._RETRY_SLEEPS)[:usage._ATTEMPTS - 1]
-    assert slept == sorted(slept) and slept[-1] >= 20.0
-
-
-def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
-    # chatgpt.com is behind Cloudflare, which 403s urllib's default Python-urllib/3.x.
-    # Without an explicit UA the bar silently never updates (verified 2026-07-29).
-    seen = {}
-    monkeypatch.setattr(usage, "_get_json",
-                        lambda url, headers: seen.update(headers) or CODEX_USAGE_BODY)
-    usage.fetch_codex_usage()
-    assert seen["User-Agent"] and not seen["User-Agent"].startswith("Python-urllib")
-
-
-def test_fetch_codex_usage_none_when_not_logged_in(tmp_path, monkeypatch):
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
-    monkeypatch.setattr(usage, "_get_json",
-                        lambda *a, **k: pytest.fail("must not call out without auth"))
-    assert usage.fetch_codex_usage() is None
-
-
-def test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope(
-        claude_login, monkeypatch):
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
-    snap = usage.fetch_claude_usage()
-    assert snap["backend"] == "claude"
-    # The scoped weekly row must stay distinguishable from the pooled one — both are
-    # "weekly", and 72% beside 2% under one label reads as a contradiction.
-    assert [(l["key"], l["used_percent"], l["window_minutes"]) for l in snap["limits"]] == [
-        ("session", 2, 300),
-        ("weekly_all", 72, 10080),
-        ("weekly_scoped (Fable)", 2, 10080),
-    ]
-
-
-def test_claude_usage_falls_back_to_the_flat_buckets(claude_login, monkeypatch):
-    # An account on the other side of the limits[] migration must still render.
-    body = {k: v for k, v in CLAUDE_USAGE_BODY.items() if k != "limits"}
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: body)
-    snap = usage.fetch_claude_usage()
-    assert [(l["key"], l["used_percent"]) for l in snap["limits"]] == [
-        ("five_hour", 2.0), ("seven_day", 72.0)]      # the null seven_day_opus is skipped
-
-
-def test_claude_usage_parses_iso_resets_into_epoch_seconds(claude_login, monkeypatch):
-    # Codex sends an int, Claude an ISO string; the web reads one epoch field.
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
-    resets = usage.fetch_claude_usage()["limits"][0]["resets_at"]
-    assert isinstance(resets, int)
-    assert resets == int(datetime.fromisoformat(
-        "2026-07-29T19:59:59.561596+00:00").timestamp())
-
-
-def test_epoch_tolerates_a_z_suffix_and_junk():
-    assert usage._epoch(1785905532) == 1785905532
-    assert usage._epoch("2026-07-29T19:59:59Z") == usage._epoch("2026-07-29T19:59:59+00:00")
-    assert usage._epoch("not-a-date") is None
-    assert usage._epoch(None) is None
-
-
-def test_capture_usage_writes_atomically_and_leaves_no_tmp(codex_login, tmp_path,
-                                                           monkeypatch):
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    path = str(tmp_path / "scorer_usage.json")
-    assert usage.capture_usage(path, "codex") is True
-    assert json.loads((tmp_path / "scorer_usage.json").read_text())["backend"] == "codex"
-    assert not list(tmp_path.glob("scorer_usage.json*.tmp"))
-
-
-def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, tmp_path,
-                                                                  monkeypatch):
-    # The instrument the quota decisions read. Without this field a stale snapshot and a
-    # fresh one look identical to anything but `ls -la` — which is how one --score-limit
-    # decision came out ~17 points optimistic.
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    path = tmp_path / "scorer_usage.json"
-    assert usage.capture_usage(str(path), "codex") is True
-    stamped = json.loads(path.read_text())["as_of"]
-    assert datetime.fromisoformat(stamped).tzinfo is not None   # local time, offset-aware
-
-
-def test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails(
-        codex_login, tmp_path, monkeypatch):
-    # A transient 429 / expired token must dim the bar's freshness, not blank it.
-    path = tmp_path / "scorer_usage.json"
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    usage.capture_usage(str(path), "codex")
-    monkeypatch.setattr(usage, "_get_json", lambda url, headers: None)
-    assert usage.capture_usage(str(path), "codex") is False
-    assert json.loads(path.read_text())["backend"] == "codex"   # previous reading intact
-
-
-def test_capture_usage_never_raises(tmp_path, monkeypatch):
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
-    assert usage.capture_usage("/nonexistent-dir/deep/none.json", "codex") is False
-    assert usage.capture_usage(str(tmp_path / "u.json"), "gemini") is False   # unknown backend
-
-
-def test_codex_scorer_always_stays_ephemeral(monkeypatch):
-    # The quota bar no longer needs the session rollout, so --ephemeral is unconditional
-    # again: a scoring pass writes NOTHING to ~/.codex/sessions, and the full
-    # résumé+profile+JD prompt is never on disk to be reaped.
-    seen = {}
-
-    def run(cmd, **kw):
-        seen["cmd"] = cmd
-        out = [a for a in cmd if a.endswith("out.json")][0]
-        with open(out, "w", encoding="utf-8") as fh:
-            json.dump({"results": [{"job_ref": 1, "score": 7}]}, fh)
-        return Mock(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(score.subprocess, "run", run)
-    score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}], {"swe": "r"})
-    assert "--ephemeral" in seen["cmd"]
-
-
-# --- scorer fallback screen check ----------------------------------------
-
-def test_fallback_screen_used_when_screen_produced_nothing():
-    # SCREEN_BACKEND=none: the screen has no verdict, so the scorer's extraction is
-    # the ONLY check. It must be consumed.
-    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(empty, card, CLEARED_POSTING,
-                                      {"security_clearance": "none"})
-    assert out["disqualified"] is True
-
-
-def test_fallback_screen_ignored_when_screen_already_ruled():
-    # On a working backend the screen wins. A second independent checker would double
-    # the false-positive surface, and a spurious "requires PhD" silently discards a
-    # good posting — the exact failure err-toward-keep exists to avoid.
-    ruled = {"screen": {"clearance": {"pass": True, "note": ""}},
-             "disqualified": False, "disqualification_reason": ""}
-    card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(ruled, card, POSTING,
-                                      {"security_clearance": "none"})
-    assert out["disqualified"] is False
-
-
-def test_fallback_sponsorship_quote_is_verified_too():
-    empty = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    card = {"screen": {"authorization": {"no_sponsorship_quote": "We never sponsor."}}}
-    posting = dict(POSTING, description="A perfectly normal JD.")
-    out = score.merge_fallback_screen(empty, card, posting,
-                                      {"work_authorization": "needs visa sponsorship"})
-    assert out["disqualified"] is False   # hallucinated quote -> keep, same as the screen
-
-
-def test_fallback_screen_returns_untouched_when_screen_already_disqualified():
-    # A screen that already disqualified has nothing left to gap-fill — and must not
-    # be handed to _screen_verdict at all, whose recompute could produce a different
-    # (or emptied) reason. This is the function's own guard, independent of any
-    # caller precondition.
-    screen = {"screen": {"degree": {"pass": False, "note": "requires master's"}},
-              "disqualified": True, "disqualification_reason": "degree: requires master's"}
-    card = {"screen": {"clearance": {"requires_clearance": True}}}
-    out = score.merge_fallback_screen(screen, card, POSTING,
-                                      {"highest_degree": "Bachelor's", "security_clearance": "none"})
-    assert out is screen or out == screen
-    assert out["screen"]["degree"] == {"pass": False, "note": "requires master's"}
-    assert out["disqualified"] is True
-
-
-def test_fallback_screen_fills_a_check_the_screen_returned_no_data_for():
-    # The screen RAN but the model returned nothing for `degree`. gate() used to
-    # materialize degree{pass:True} anyway (each _check_* errs toward pass on absent
-    # data), making a ran-but-blind check byte-identical to a genuinely-passed one --
-    # so merge_fallback_screen's `k not in already` gap test could never see it, and
-    # the fallback only ever reached a whole-backend absence.
-    candidate = {"highest_degree": "Bachelor's", "work_authorization": "citizen",
-                 "security_clearance": "none"}
-    screen = screen_engine.screen_posting(POSTING, candidate=candidate,
-                                  extract=lambda p, s: {"screen": {"authorization": {}}})
-    card = {"screen": {"degree": {"required_degree": "phd"}}}
-    out = score.merge_fallback_screen(screen, card, POSTING, candidate)
-    assert out["disqualified"] is True
-    assert out["screen"]["degree"]["pass"] is False
-
-
 def test_authorization_still_ruled_when_the_model_returns_no_entry():
     # The carve-out: unlike degree/clearance, authorization has an independent signal
     # (NO_SPONSOR_PHRASES over the JD), so it produces a real verdict with no model
@@ -2023,259 +1169,3 @@ def test_authorization_still_ruled_when_the_model_returns_no_entry():
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["screen"]["authorization"]["pass"] is False
     assert out["disqualified"] is True
-
-
-def test_fallback_screen_preserves_already_ruled_nongap_check():
-    # clearance is already ruled (a distinctive note the recompute would not produce);
-    # degree is the only genuine gap. The ruled clearance entry must survive verbatim
-    # -- not be overwritten by _screen_verdict's recomputation of the whole card,
-    # which would evaluate clearance too (candidate holds no clearance -> requires
-    # clearance -> {"pass": False, ...}, an entirely different verdict from the
-    # marker below).
-    screen = {"screen": {"clearance": {"pass": True, "note": "MARKER-not-recomputed"}},
-              "disqualified": False, "disqualification_reason": ""}
-    card = {"screen": {"clearance": {"requires_clearance": True},
-                       "degree": {"required_degree": "phd"}}}
-    out = score.merge_fallback_screen(screen, card, POSTING,
-                                      {"security_clearance": "none", "highest_degree": "Bachelor's"})
-    assert out["screen"]["clearance"] == {"pass": True, "note": "MARKER-not-recomputed"}
-    assert "degree" in out["screen"]   # the real gap was filled
-    assert out["screen"]["degree"]["pass"] is False   # PhD required, candidate holds Bachelor's
-
-
-# --- _get_json says WHY it failed -------------------------------------------
-# Every test above mocks `_get_json`; these are the only ones that exercise it. The
-# 2026-07-30 investigation had nothing but a False to go on and closed on a root cause
-# that was true of that window but not the whole story -- the 2026-07-31 08:00 pass
-# fit-scored 34 rows and still wrote no snapshot. A cause named in the log is what ends
-# that class of hunt.
-
-def test_get_json_names_the_http_status_when_the_provider_raises(capsys):
-    import urllib.error
-
-    def raising(req, timeout=None):
-        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage.urllib.request, "urlopen", raising)
-        assert usage._get_json("https://x/usage", {}, attempts=1) is None
-    out = capsys.readouterr().out
-    assert "429" in out and "https://x/usage" in out
-
-
-def test_get_json_names_the_exception_when_the_connection_fails(capsys):
-    import urllib.error
-
-    def raising(req, timeout=None):
-        raise urllib.error.URLError("name resolution failed")
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage.urllib.request, "urlopen", raising)
-        assert usage._get_json("https://x/usage", {}, attempts=1) is None
-    assert "URLError" in capsys.readouterr().out
-
-
-def test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why(
-        codex_login, tmp_path, capsys):
-    # The no-raise guarantee lives in capture_usage, not in _get_json -- that catch is
-    # narrow on purpose. But narrow is only defensible if the blanket catch SPEAKS:
-    # otherwise an exception type the fetchers do not anticipate produces silence, which
-    # is worse than one more 403. (The codex_login fixture is load-bearing: without it
-    # _codex_auth returns None and urlopen is never reached, so the test would pass
-    # while asserting nothing.)
-    def raising(req, timeout=None):
-        raise RuntimeError("something nobody anticipated")
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage.urllib.request, "urlopen", raising)
-        assert usage.capture_usage(str(tmp_path / "u.json"), "codex") is False
-    assert "RuntimeError" in capsys.readouterr().out
-
-
-def test_a_200_with_no_usable_window_says_so_instead_of_going_quiet(codex_login, capsys):
-    # The prime-suspect shape MINUS the status code: the endpoint answers 200 and the
-    # window carries a null used_percent. Nothing named this before, so the instrument
-    # could have missed the very failure it was built for.
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage, "_get_json",
-                   lambda url, headers: {"rate_limit": {"primary_window":
-                                                        {"used_percent": None}}})
-        assert usage.fetch_codex_usage() is None
-    assert "no usable window" in capsys.readouterr().out
-
-
-def test_a_200_that_is_not_the_expected_shape_says_so(codex_login, capsys):
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage, "_get_json", lambda url, headers: {"unexpected": 1})
-        assert usage.fetch_codex_usage() is None
-    assert "no rate_limit object" in capsys.readouterr().out
-
-
-def test_a_truncated_body_is_caught_and_named(capsys):
-    # IncompleteRead/BadStatusLine subclass neither OSError nor ValueError, so before
-    # this they escaped _get_json entirely and capture_usage swallowed them in silence.
-    import http.client
-
-    def raising(req, timeout=None):
-        raise http.client.IncompleteRead(b"partial")
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(usage.urllib.request, "urlopen", raising)
-        assert usage._get_json("https://x/usage", {}, attempts=1) is None
-    assert "IncompleteRead" in capsys.readouterr().out
-
-
-def test_a_200_whose_body_is_not_an_object_says_so(codex_login, capsys):
-    # The last silent path the pre-merge review found empirically: valid JSON that is
-    # not a dict parsed fine, so _get_json said nothing and the shape check returned
-    # None with zero output -- making SPEC's "every route names itself" literally untrue.
-    for body in ([], "nonsense", 3):
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(usage, "_get_json", lambda url, headers, b=body: b)
-            assert usage.fetch_codex_usage() is None
-        assert "not an object" in capsys.readouterr().out
-
-
-# --- claude-code scorer: the Claude-subscription twin (no network; subprocess mocked) --
-
-def _claude_events(structured, *, is_error=False, subtype="success", result=None):
-    """The `--output-format json` payload: an ARRAY of session events terminated by a
-    `type: "result"` event. Shape measured against Claude Code 2.1.220 on 2026-08-02 —
-    the CLI does NOT return a bare object, and the validated schema output arrives
-    pre-parsed on `structured_output` (with a JSON string on `result` as well)."""
-    event = {"type": "result", "subtype": subtype, "is_error": is_error,
-             "session_id": "s", "result": result if result is not None
-             else json.dumps(structured)}
-    if structured is not None:
-        event["structured_output"] = structured
-    return [{"type": "system", "subtype": "init", "tools": ["StructuredOutput"]},
-            {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed"}},
-            event]
-
-
-def _fake_claude(payload=CODEX_PAYLOAD, job_ref=1, returncode=0, capture=None,
-                 events=None):
-    """Stand in for `claude -p`: prints the event array on stdout (unlike codex, which
-    writes a file)."""
-    def run(cmd, **kwargs):
-        if capture is not None:
-            capture["cmd"] = cmd
-            capture["prompt"] = kwargs.get("input", "")
-            capture["cwd"] = kwargs.get("cwd")
-            capture["schema"] = json.loads(cmd[cmd.index("--json-schema") + 1])
-        body = events if events is not None else _claude_events(
-            {"results": [{"job_ref": job_ref, **payload}]})
-        return Mock(returncode=returncode, stdout=json.dumps(body), stderr="boom")
-    return run
-
-
-def test_claude_cli_scorer_parses_the_result_event(monkeypatch):
-    # Reads structured_output off the terminal result event and realigns by job_ref,
-    # returning the element verbatim — the same contract as the codex twin.
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude())
-    fit = score.make_claude_cli_scorer("claude-sonnet-5")
-    assert fit([{**POSTING, "id": 1}], {"swe": "resume text"}) == [
-        {"job_ref": 1, **CODEX_PAYLOAD}]
-
-
-def test_claude_cli_scorer_sends_the_same_schema_as_codex(monkeypatch):
-    # The whole point of running both backends is that a disagreement means the MODELS
-    # disagree. That only holds if they are asked for identical structure.
-    seen: dict = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(capture=seen))
-    score.make_claude_cli_scorer("claude-sonnet-5", profile="prefers quant")(
-        [{**POSTING, "location": "Chicago, IL", "id": 1}],
-        {"swe": "resume text", "quant_dev": "q"})
-
-    assert seen["schema"] == _batch_schema(["swe", "quant_dev"])
-    assert "prefers quant" in seen["prompt"]
-    assert "resume text" in seen["prompt"]
-    assert "Location: Chicago, IL" not in seen["prompt"]  # D5: geography must not score
-    assert "job_ref=1" in seen["prompt"]
-
-
-def test_claude_cli_scorer_removes_the_tools_not_just_the_permissions(monkeypatch):
-    # SECURITY, and the exact flag matters: `--allowedTools ""` was MEASURED on
-    # 2026-08-02 to leave Bash/Read/Write/WebFetch loaded in permissionMode "auto",
-    # because it is a permission allowlist over a tool set that is still present.
-    # `--tools ""` removes the built-in set. A JD is untrusted scraped text, so the
-    # capability must be gone, not merely denied.
-    seen: dict = {}
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(capture=seen))
-    score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"swe": "r"})
-    cmd = seen["cmd"]
-    assert cmd[cmd.index("--tools") + 1] == ""
-    assert "--strict-mcp-config" in cmd           # no MCP servers
-    assert cmd[cmd.index("--setting-sources") + 1] == ""  # no CLAUDE.md/plugins/hooks
-    assert "--disable-slash-commands" in cmd      # no skills
-    # `--bare` would force ANTHROPIC_API_KEY auth and silently move this onto METERED
-    # billing, which is the whole thing this backend exists to avoid.
-    assert "--bare" not in cmd
-    assert seen["cwd"] is not None                # tmpdir: no repo context in a score
-
-
-def test_claude_cli_scorer_raises_on_nonzero_exit(monkeypatch):
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(returncode=1))
-    with pytest.raises(score.ScoreError, match="exit 1"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_raises_on_error_result_despite_exit_zero(monkeypatch):
-    # An API error mid-session still exits 0; `is_error` is the CLI's own flag. Scoring
-    # 0 on a dead backend is unacceptable, so this must raise.
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
-        events=_claude_events(None, is_error=True, subtype="error_during_execution")))
-    with pytest.raises(score.ScoreError, match="error result"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_raises_when_no_result_event(monkeypatch):
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
-        events=[{"type": "system", "subtype": "init"}]))
-    with pytest.raises(score.ScoreError, match="no result event"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_falls_back_to_the_result_string(monkeypatch):
-    # structured_output is the documented field, but the schema is also satisfied by the
-    # JSON string on `result`; accept it rather than failing a well-formed score.
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(
-        events=_claude_events(None, result=json.dumps(
-            {"results": [{"job_ref": 1, **CODEX_PAYLOAD}]}))))
-    assert score.make_claude_cli_scorer("claude-sonnet-5")(
-        [{**POSTING, "id": 1}], {"s": "r"}) == [{"job_ref": 1, **CODEX_PAYLOAD}]
-
-
-@pytest.mark.parametrize("job_ref,match", [
-    (99, "unknown job_ref"),     # a ref that was never sent
-    (None, "unknown job_ref"),   # missing tag
-])
-def test_claude_cli_scorer_refuses_to_misattribute(monkeypatch, job_ref, match):
-    # Shared with codex via _batch.align_results: pairing a score with the wrong job is
-    # worse than failing the batch.
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(job_ref=job_ref))
-    with pytest.raises(score.ScoreError, match=match):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_rejects_a_bare_object(monkeypatch):
-    # `--output-format json` returns an ARRAY of events. A bare object means the CLI's
-    # output contract changed under us; fail loudly rather than mis-read it.
-    monkeypatch.setattr(score.subprocess, "run", _fake_claude(events={"type": "result"}))
-    with pytest.raises(score.ScoreError, match="expected an event array"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_raises_on_non_json_stdout(monkeypatch):
-    monkeypatch.setattr(score.subprocess, "run",
-                        lambda cmd, **kw: Mock(returncode=0, stdout="not json", stderr=""))
-    with pytest.raises(score.ScoreError, match="non-JSON output"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})
-
-
-def test_claude_cli_scorer_raises_on_timeout(monkeypatch):
-    def boom(cmd, **kw):
-        raise subprocess.TimeoutExpired(cmd, 600)
-    monkeypatch.setattr(score.subprocess, "run", boom)
-    with pytest.raises(score.ScoreError, match="timed out"):
-        score.make_claude_cli_scorer("claude-sonnet-5")([{**POSTING, "id": 1}], {"s": "r"})

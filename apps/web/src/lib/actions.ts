@@ -68,11 +68,10 @@ const CATEGORY_FALLBACK = 'Others'
 // Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
 // non-lowcontext bucket is mutually exclusive of the derived low-context id set.
 // The KEEP half of the fit verdicts requires seniority=match — a seniority miss is
-// disqualifying, not partial (see prompts/score.txt) — and then splits on domain:
+// disqualifying, not partial — and then splits on domain. These verdicts are the
+// retired fit scorer's stored output; nothing writes new ones.
 //   matched    — live (scored|notified) + seniority=match AND domain=match AND NOT
-//                insufficient_context (the actionable set — the SAME predicate the
-//                worker's notify gate uses, so the UI and the Telegram notification
-//                never disagree; see matchedIds)
+//                insufficient_context (the actionable set; see matchedIds)
 //   belowbar   — live + seniority=match AND domain=adjacent: the NEAR MISS, worth a
 //                human glance (see belowBarIds)
 //   discarded  — the audit view, two populations: hard-constraint screen failures
@@ -99,7 +98,7 @@ const DISQUALIFY_CAUSE_PATTERNS: Record<DisqualifyCause, string> = {
     clearance: '%clearance:%',
     internship: '%internship/co-op%',
     // Not a hard-constraint cause: the operator's own title/age filters, re-applied to
-    // already-queued rows by run_score's free phase-0 sweep. Without a cause these rows
+    // already-queued rows by the retired fit pass's free sweep. Without a cause these rows
     // are visible in the Discarded bucket (that filter keys on `disqualified`, not on
     // cause) but not selectable, so an operator cannot bulk-remove them — 1,504 rows as
     // of 2026-07-31.
@@ -433,8 +432,7 @@ function buildJobWhere(params: {
             id: { in: belowIds },
         }
     } else {
-        // matched — the SAME verdict predicate as the worker's notify gate
-        // (seniority=match AND domain=match AND NOT insufficient_context). An empty
+        // matched — seniority=match AND domain=match AND NOT insufficient_context. An empty
         // matchIds correctly yields `id IN ()` → no rows, so no guard needed here.
         bucketFilter = {
             pipeline_status: { in: [...ACTIVE_PIPELINE_STATUSES] },
@@ -580,10 +578,8 @@ async function lowContextIds(): Promise<number[]> {
     return rows.map((r) => Number(r.id))
 }
 
-// Ids of "matched" postings: the SAME verdict predicate as the worker's notify gate
-// (ats_worker/db.py get_notifiable) — seniority=match AND domain=match AND NOT
-// insufficient_context — so the UI's Matched tab and the Telegram notification never
-// disagree. Score alone is a rubric-band-quantized number that flips run-to-run near
+// Ids of "matched" postings: seniority=match AND domain=match AND NOT
+// insufficient_context, over the retired fit scorer's stored verdicts. Score alone is a rubric-band-quantized number that flips run-to-run near
 // the old threshold; the verdicts are stable (see PROGRESS.md). Prisma's typed
 // `where` can't reach into the score_detail JSON, so — mirroring lowContextIds — we
 // fetch the matching ids once with a raw query and layer them onto the matched/
@@ -605,7 +601,7 @@ async function matchedIds(): Promise<number[]> {
 // (and not flagged insufficient_context). Same raw-query shape as matchedIds, and the
 // two sets together are the whole KEEP half of the fit verdicts: domain=match is
 // actionable (Matched), domain=adjacent is worth a glance (Below bar). A seniority
-// miss never reaches either — prompts/score.txt treats seniority as disqualifying
+// miss never reaches either — the fit rubric treated seniority as disqualifying
 // rather than partial — so those rows fall through to the Discarded audit view.
 async function belowBarIds(): Promise<number[]> {
     const rows = await prisma.$queryRaw<Array<{ id: number | bigint }>>`

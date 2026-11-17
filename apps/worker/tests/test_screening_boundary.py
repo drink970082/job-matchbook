@@ -57,12 +57,6 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
 
         from ats_worker import run
 
-        class ForbiddenStage:
-            def __call__(self, *args, **kwargs):
-                raise AssertionError("screen-only reached a legacy fit/notify stage")
-        run.pipeline.run_retry = ForbiddenStage()
-        run.pipeline.run_score = ForbiddenStage()
-        run.pipeline.run_notify = ForbiddenStage()
 
         calls = []
         def fake_make_screener(backend, **kwargs):
@@ -97,8 +91,7 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
             connection.executescript(schema)
             connection.close()
             run.main(["--once", "--screen-only", "--screen-backend", "codex",
-                      "--screen-limit", "2", "--config", str(cfg), "--db", str(db),
-                      "--resume-dir", str(resume_dir)])
+                      "--screen-limit", "2", "--config", str(cfg), "--db", str(db)])
 
             connection = sqlite3.connect(db)
             posting = connection.execute(
@@ -126,145 +119,3 @@ def test_screen_only_pass_avoids_legacy_imports_prompts_and_resume_reads():
     assert result.returncode == 0, result.stdout + result.stderr
     assert "SCREEN_ONLY_ISOLATION_PASS" in result.stdout
 
-
-def test_explicit_legacy_run_still_validates_and_uses_legacy_fit_path():
-    script = dedent(r'''
-        import json
-        import sqlite3
-        import sys
-        import tempfile
-        from pathlib import Path
-
-        from ats_worker import run
-
-        fit_calls = []
-        card = {
-            "score": 88,
-            "assessment": {
-                "seniority": {"verdict": "match", "note": ""},
-                "domain": {"verdict": "match", "note": ""},
-                "must_haves": {"met": [], "missing": []},
-                "nice_to_haves": {"missing": []},
-                "summary": "synthetic fit result",
-            },
-            "insufficient_context": False,
-        }
-        def fake_scorer_factory(*args, **kwargs):
-            def fit(postings, resumes):
-                assert resumes == {"resume": "synthetic resume"}, resumes
-                fit_calls.extend(posting["external_id"] for posting in postings)
-                return [dict(card) for _ in postings]
-            return fit
-        run.make_codex_scorer = fake_scorer_factory
-        run.make_screener = lambda *args, **kwargs: None
-        run.capture_usage = lambda *args, **kwargs: True
-        run.fetch_company = lambda *args, **kwargs: [{
-            "source": "greenhouse", "external_id": "legacy-pass",
-            "company_name": "Synthetic", "job_title": "Software Engineer",
-            "location": "Remote", "job_url": "https://example.test/jobs/legacy",
-            "description": "Build backend services. " * 80,
-        }]
-
-        with tempfile.TemporaryDirectory() as raw_dir:
-            root = Path(raw_dir)
-            config = root / "config.yaml"
-            database = root / "applications.db"
-            resume_dir = root / "resumes"
-            resume_dir.mkdir()
-            (resume_dir / "resume.txt").write_text("synthetic resume")
-            config.write_text("companies:\n"
-                              "  - { source: greenhouse, slug: synthetic, name: Synthetic }\n")
-            connection = sqlite3.connect(database)
-            connection.executescript(Path("tests/fixtures/schema.sql").read_text())
-            connection.close()
-
-            run.main(["--once", "--score-backend", "codex", "--screen-backend", "none",
-                      "--config", str(config), "--db", str(database),
-                      "--resume-dir", str(resume_dir), "--env", str(root / ".env")])
-
-            connection = sqlite3.connect(database)
-            posting = connection.execute(
-                "SELECT pipeline_status, score FROM job_postings "
-                "WHERE external_id='legacy-pass'").fetchone()
-            connection.close()
-            assert posting == ("scored", 88), posting
-            assert fit_calls == ["legacy-pass"], fit_calls
-            for name in ("ats_worker.score", "ats_worker.fit_profile", "ats_worker.prompts"):
-                assert name in sys.modules, name
-        print("LEGACY_FIT_COMPATIBILITY_PASS")
-    ''')
-    worker = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(worker)
-    result = subprocess.run([sys.executable, "-c", script], cwd=worker, env=env,
-                            text=True, capture_output=True, check=False)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "LEGACY_FIT_COMPATIBILITY_PASS" in result.stdout
-
-
-def test_compatibility_facade_and_exception_imports_defer_fit_resources_in_fresh_processes():
-    script = dedent(r'''
-        import sys
-        from pathlib import Path
-
-        action = sys.argv[1]
-        prompt_reads = []
-        real_read_text = Path.read_text
-        def record_reads(path, *args, **kwargs):
-            if path.name in {"score.txt", "screen.txt", "seniority.txt", "extract.txt"}:
-                prompt_reads.append(path.name)
-            return real_read_text(path, *args, **kwargs)
-        Path.read_text = record_reads
-
-        if action == "exception":
-            from ats_worker.score.errors import ScoreError
-            from ats_worker.model_errors import ModelResponseError
-            assert ScoreError is ModelResponseError
-        elif action == "facade":
-            from ats_worker.score import ScoreError
-            from ats_worker.model_errors import ModelResponseError
-            assert ScoreError is ModelResponseError
-        elif action == "usage":
-            from ats_worker import usage
-            assert callable(usage.capture_usage)
-            assert "ats_worker.score" not in sys.modules
-        elif action == "fit-factory":
-            from ats_worker.score import make_codex_scorer
-            assert callable(make_codex_scorer)
-            assert "ats_worker.score.backends_codex" in sys.modules
-            assert "score.txt" in prompt_reads
-        else:
-            raise AssertionError(action)
-
-        fit_backends = {
-            "ats_worker.score.backends_codex",
-            "ats_worker.score.backends_claude",
-            "ats_worker.score.backends_claude_cli",
-        }
-        if action == "fit-factory":
-            assert fit_backends.intersection(sys.modules)
-        else:
-            assert not fit_backends.intersection(sys.modules), fit_backends.intersection(sys.modules)
-            assert not {"score.txt", "seniority.txt", "extract.txt"}.intersection(prompt_reads), prompt_reads
-            assert prompt_reads == [], prompt_reads
-        print("COMPATIBILITY_IMPORT_PASS:" + action)
-    ''')
-    worker = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(worker)
-    for action in (
-        "exception",
-        "facade",
-        "usage",
-        "fit-factory",
-    ):
-        result = subprocess.run(
-            [sys.executable, "-c", script, action],
-            cwd=worker,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert result.returncode == 0, f"{action}: {result.stdout}{result.stderr}"
-        assert f"COMPATIBILITY_IMPORT_PASS:{action}" in result.stdout

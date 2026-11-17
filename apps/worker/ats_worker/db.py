@@ -19,8 +19,6 @@ from .source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_input_hash,
 
 # A JD shorter than this is "low-context": too thin to trust a fit verdict on.
 # Hand-synced with apps/web/src/lib/constants.ts (LOW_CONTEXT_MAX_DESCRIPTION_LENGTH).
-# Used by get_notifiable's hold-back AND (imported) by pipeline.run_score to skip the
-# PAID fit call on a JD it would only bucket as low-context anyway.
 LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
 
 
@@ -213,41 +211,10 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 
 # --- queries --------------------------------------------------------------
 
-def get_by_status(conn: sqlite3.Connection, status: str, *, newest_first: bool = False):
-    """Rows in `status`, best-scored first by default.
-
-    `newest_first` exists for ONE caller: the 'new' queue `run_score` reads. Nearly
-    every 'new' row has score NULL — nothing has scored it yet, that being the point —
-    so `score DESC` is all but inert there and the default ordering degenerates to
-    oldest-id-first. (Not quite every: `requeue_discarded` and `requeue_failed` return
-    rows to 'new' carrying the score an earlier pass already wrote.) Under `--score-limit` that means a bounded pass always works the
-    *back* of the backlog and a posting discovered today waits behind every older
-    one; at 6 passes/day against a few thousand pending rows, that is weeks, which
-    defeats running on a schedule at all. The other queues (scored/discarded) have
-    real scores, so they keep the score-first ordering the UI and the operator expect.
-
-    It is `updated_at DESC, id DESC` and NOT plain `id DESC`, because a retried row
-    breaks the "newest id == most recent work" assumption. `run_retry` requeues a
-    'failed' row to 'new' with `updated_at=now` but its ORIGINAL id, and both SPEC §7.1
-    and `run_retry`'s own contract promise it is rescored THAT SAME pass — under
-    `id DESC` an old failed row would sort behind the entire backlog and never be
-    reached inside the cap. "Most recently touched, then newest" satisfies both:
-    `upsert_postings` leaves `updated_at` NULL on insert, so fresh intake ties with the
-    backlog and the id tiebreak orders it, while a requeued row carries a real
-    timestamp and sorts ahead of every NULL. COALESCE spells that out rather than
-    leaning on SQLite's NULL collation.
-    `test_run_score_reaches_a_retried_row_inside_the_cap` is what stops this from
-    silently regressing if `updated_at` ever starts being stamped at insert.
-    """
-    # `deprioritized_at IS NOT NULL` leads the ORDER BY, so a row the FREE seniority
-    # pre-ordering demoted sorts BEHIND every undemoted one while keeping its place
-    # among its peers. It is the only ordering key that is not about recency: a demotion
-    # says "spend the paid call on something else first", never "drop this". Clearing
-    # the column restores the row's original position exactly.
-    order = ("(deprioritized_at IS NOT NULL) ASC, COALESCE(updated_at,'') DESC, id DESC"
-             if newest_first else "score DESC, id ASC")
+def get_by_status(conn: sqlite3.Connection, status: str):
+    """Rows in `status`, best-scored first."""
     return conn.execute(
-        f"SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY {order}",
+        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
         [status],
     ).fetchall()
 
@@ -515,39 +482,14 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
         raise
 
 
-def get_notifiable(conn: sqlite3.Connection):
-    """Scored rows the fit verdicts mark a strong match — the notify gate.
-    Replaces the old score>=threshold gate: seniority AND domain must both be
-    `match`, and a **thin JD is held back** for human review two ways, so this gate
-    mirrors the web's Matched tab exactly (actions.ts `matchedIds()` minus
-    `lowContextIds()`): the model's own `insufficient_context` flag, OR a description
-    shorter than 200 chars (`LOW_CONTEXT_MAX_DESCRIPTION_LENGTH` — kept in sync by hand
-    with apps/web/src/lib/constants.ts; a short blurb the model may still rate
-    confidently). Without the length clause the worker would alert on thin JDs the UI
-    hides under Low-context. json_extract reads the verdicts out of score_detail."""
-    return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status='scored' "
-        "AND json_extract(score_detail,'$.assessment.seniority.verdict')='match' "
-        "AND json_extract(score_detail,'$.assessment.domain.verdict')='match' "
-        "AND COALESCE(json_extract(score_detail,'$.insufficient_context'),0)<>1 "
-        f"AND LENGTH(TRIM(description)) >= {LOW_CONTEXT_MAX_DESCRIPTION_LENGTH} "
-        "ORDER BY score DESC, id ASC"
-    ).fetchall()
-
-
 # --- state transitions ----------------------------------------------------
 
-# The only columns the state-transition helpers ever set (save_score,
-# mark_notified — attempts/application_id are written by fixed-SQL callers
-# instead, never through this dict path). `_update` builds its SET clause from
+# The only columns the state-transition helpers ever set (attempts/application_id
+# are written by fixed-SQL callers instead, never through this dict path). `_update` builds its SET clause from
 # dict keys, so gate them against this allowlist: a stray/untrusted key must
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({
     "score", "score_detail", "pipeline_status", "pipeline_error", "updated_at",
-    # Written only by the free seniority pre-ordering (mark_deprioritized). It is a
-    # QUEUE-ORDER field, not a state field: nothing else may set it, and clearing it
-    # restores the row's original position.
-    "deprioritized_at",
 })
 
 
@@ -559,49 +501,6 @@ def _update(conn: sqlite3.Connection, posting_id: int, sets: dict) -> None:
     params = {**sets, "id": posting_id}
     conn.execute(f"UPDATE job_postings SET {cols} WHERE id=:id", params)
     conn.commit()
-
-
-def save_score(conn, posting_id: int, *, score: int, score_detail, now: str,
-               status: str = "scored") -> None:
-    # status is normally 'scored'; the scorer can route a disqualified posting
-    # straight to 'discarded' (see pipeline.run_score) while still keeping its
-    # score + reason for the UI. pipeline_error is cleared so a row that
-    # recovered from a prior score failure (e.g. via a run_retry requeue)
-    # doesn't carry a stale error string — mirrors mark_notified's clear on
-    # the notify side.
-    detail = dict(score_detail)
-    row = conn.execute(
-        "SELECT source_content_revision FROM job_postings WHERE id=?", (posting_id,)
-    ).fetchone()
-    if ((has_fit_assessment(json.dumps(detail)) or isinstance(detail.get("screen"), dict))
-            and row is not None and row["source_content_revision"] is not None):
-        detail["source_content_revision"] = row["source_content_revision"]
-    _update(conn, posting_id, {
-        "score": score,
-        "score_detail": json.dumps(detail, ensure_ascii=False),
-        "pipeline_status": status,
-        "pipeline_error": None,
-        "updated_at": now,
-    })
-
-
-def mark_notified(conn, posting_id: int, *, now: str) -> None:
-    # pipeline_error is cleared so a row that recovered from a failed send
-    # doesn't carry a stale error string.
-    _update(conn, posting_id, {"pipeline_status": "notified", "pipeline_error": None,
-                               "updated_at": now})
-
-
-def mark_deprioritized(conn, posting_id: int, *, now: str) -> None:
-    """Send a row to the BACK of the `new` score queue without changing its status.
-
-    The free seniority pre-ordering's only write (score/seniority.py). The row stays
-    `new`, searchable and observable; it just stops competing for the paid budget with
-    rows that state no bar. Deliberately NOT `updated_at`: that column means "recently
-    touched" and the queue reads it as higher priority, which is the exact opposite.
-    `UPDATE job_postings SET deprioritized_at=NULL` un-demotes everything, row for row.
-    """
-    _update(conn, posting_id, {"deprioritized_at": now})
 
 
 def mark_expired(conn, posting_id: int, *, now: str) -> None:
@@ -616,91 +515,3 @@ def touch(conn, posting_id: int, *, now: str) -> None:
     _update(conn, posting_id, {"updated_at": now})
 
 
-def mark_failed(conn, posting_id: int, *, error: str, now: str) -> None:
-    # increment attempts atomically; keep it in one statement.
-    conn.execute(
-        "UPDATE job_postings SET pipeline_status='failed', pipeline_error=?, "
-        "attempts=attempts+1, updated_at=? WHERE id=?",
-        (error, now, posting_id),
-    )
-    conn.commit()
-
-
-def record_notify_failure(conn, posting_id: int, *, error: str, now: str,
-                          exhausted: bool) -> None:
-    """Record a failed notify send. Unlike mark_failed (terminal), the row keeps
-    its 'scored' status — so the next pass retries the send — until the caller
-    declares the retry budget exhausted, which parks it 'failed'. The charge lands
-    on notify_attempts (delivery's OWN budget, separate from score `attempts`), so
-    a retrying failure is visible, not swallowed, and score hiccups can't pre-spend
-    the notify budget."""
-    conn.execute(
-        "UPDATE job_postings SET pipeline_status=?, pipeline_error=?, "
-        "notify_attempts=notify_attempts+1, updated_at=? WHERE id=?",
-        ("failed" if exhausted else "scored", error, now, posting_id),
-    )
-    conn.commit()
-
-
-def requeue_failed(conn, now: str, max_attempts: int, max_notify_attempts: int) -> int:
-    """Requeue every 'failed' row that has burned NEITHER budget — score attempts
-    < max_attempts AND notify_attempts < max_notify_attempts — back to 'new'. Both
-    caps are passed in by the caller (pipeline.RETRY_MAX_ATTEMPTS / NOTIFY_MAX_ATTEMPTS)
-    rather than hard-coded here — this module stays policy-free, same as every other
-    mutator. Guarding both keeps a notify-exhausted row terminal even though its
-    score `attempts` may be 0. Returns the number of rows requeued."""
-    cur = conn.execute(
-        "UPDATE job_postings SET pipeline_status='new', updated_at=? "
-        "WHERE pipeline_status='failed' AND attempts < ? AND notify_attempts < ?",
-        (now, max_attempts, max_notify_attempts),
-    )
-    conn.commit()
-    return cur.rowcount
-
-
-def requeue_discarded(conn, now: str) -> tuple[int, int]:
-    """Return every 'discarded' row to 'new' so a later pass re-screens it. Operator-
-    driven only (run.py's --rescreen-discarded), never automatic: 'discarded' is
-    otherwise terminal, so editing a candidate hard requirement — locations,
-    highest_degree, work_authorization, exclude_internships — would leave every
-    posting frozen under the old rule, and a false discard permanent.
-
-    Unbudgeted by design: a discard spends no `attempts` (nothing failed), so there is
-    no counter to guard the way requeue_failed guards two, and the operator asked for
-    all of them.
-
-    FILTERED on one thing only — the row must have a description. A stub-gate discard
-    is stored deliberately UN-HYDRATED (`description=''`; see run_fetch's exemption from
-    the bodyless drop) because it never reaches the scorer. Requeueing one is
-    irreversible data loss: it becomes `new`, the thin-JD gate parks it `scored` with
-    score 0, and `upsert_postings` is ON CONFLICT DO NOTHING, so no later pass ever
-    back-fills the JD.
-
-    Be precise about what the filter buys, because an earlier draft of this docstring
-    overclaimed: the skipped row is NOT made recoverable. Nothing re-hydrates an existing
-    un-hydrated stub — the stub gate only decides whether to hydrate BEFORE insert, the
-    row already exists, and every later cycle dies at the same ON CONFLICT. Both outcomes
-    are terminal. What the filter preserves is honesty of state: the row stays
-    `discarded` under its real reason with a live `job_url`, rather than being relabelled
-    `scored`/0 as though it had been evaluated. Making these genuinely recoverable needs
-    a different mechanism — drop the row so its id is re-fetchable, the way `run_fetch`
-    handles bodyless board rows — and is tracked in PROGRESS.
-
-    Returns `(requeued, skipped)` — both, because the caller has to be able to SAY how
-    many rows it deliberately left behind. A bare requeued count reads as "that was all
-    of them"."""
-    cur = conn.execute(
-        "UPDATE job_postings SET pipeline_status='new', updated_at=? "
-        "WHERE pipeline_status='discarded' "
-        # TRIM() defaults to stripping U+0020 only; every other emptiness rule in the
-        # system uses Python .strip(), which also takes \t \n \r. Spell them out so a
-        # description of "\n" is not "hydrated" here and empty everywhere else.
-        "AND LENGTH(TRIM(COALESCE(description,''), ' ' || char(9) || char(10) "
-        "|| char(13))) > 0",
-        (now,),
-    )
-    conn.commit()
-    skipped = conn.execute(
-        "SELECT COUNT(*) FROM job_postings WHERE pipeline_status='discarded'"
-    ).fetchone()[0]
-    return cur.rowcount, skipped

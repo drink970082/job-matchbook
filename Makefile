@@ -10,7 +10,7 @@ COUNT  := 40                                 # rows for seed-dev
 
 .PHONY: help install setup doctor dev build lint test test-web test-worker \
         test-integration test-e2e test-coverage check-schema check-privacy up down health db-push seed-dev \
-        eval-score eval-screen eval-seniority
+        eval-screen eval-seniority
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -64,9 +64,6 @@ test-e2e: ## Run the Playwright e2e suite (builds web, seeds a throwaway DB)
 test-coverage: ## Run both suites with coverage (gated by thresholds)
 	cd $(WORKER) && $(PY) -m pytest --cov --cov-report=term-missing
 	cd $(WEB) && npm run test:coverage
-
-eval-score: ## Optional live fit eval; consumes subscription allowance or API spend. Check docs/EVALUATION.md and corpus readiness first
-	cd $(WORKER) && $(PY) tools/score_eval.py
 
 eval-screen: ## Optional live screen eval; backend-dependent allowance/cost. Gate: zero false disqualification; see docs/EVALUATION.md
 	cd $(WORKER) && PYTHONPATH=. $(PY) tools/screen_eval.py

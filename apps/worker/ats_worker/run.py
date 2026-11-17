@@ -4,7 +4,7 @@ WHY the env/adapter wiring lives only here: every other module is pure and
 injected, so this is the single place that knows about secrets and external
 services. `run_once` takes already-loaded config/secrets and the worker
 callables it builds from them, calling the pipeline stages in order (fetch,
-retry, score, notify).
+feed, expire, screen).
 
 APScheduler is imported lazily inside the cron path so the test environment —
 which lacks apscheduler — can still import and exercise this module.
@@ -26,10 +26,8 @@ import requests
 
 from . import config as config_mod
 from . import db, pipeline
-from .fetch import (fetch_company, fetch_one_company, prefilter_postings,
-                    smartrecruiters)
+from .fetch import fetch_company, fetch_one_company, smartrecruiters
 from .feed import embedded_gh, simplify
-from .notify import notify_posting
 from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
                         DEFAULT_OPENAI_SCREEN_MODEL, make_claude_api_extract,
                         make_claude_code_extract, make_codex_extract,
@@ -37,62 +35,10 @@ from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
                         screen_posting)
 
 # qwen3.5:4b runs fully on an 8GB GPU (~3GB resident) and returns clean JSON in
-# ~2s/posting with thinking disabled (see score.py). The 9b (6.6GB) spills to
+# ~2s/posting with thinking disabled. The 9b (6.6GB) spills to
 # CPU on an 8GB card (~100s/call), so it's a poor fit here. Override per-deploy
 # with --model or the OLLAMA_MODEL env var.
 DEFAULT_OLLAMA_MODEL = "qwen3.5:4b"
-# Fit scoring runs on the ChatGPT-subscription Codex CLI by default: flat-rate instead
-# of metered Claude, over a queue where a full re-score is ~640 paid calls. Auth is the
-# operator's `codex login` state (auth_mode=chatgpt), NOT an env key — a logged-out host
-# fails the pass loudly rather than scoring 0s.
-#
-# Three backends, and the names mirror SCREEN_BACKEND's (see DEFAULT_SCREEN_WORKERS):
-#   codex       — Codex CLI, ChatGPT subscription (default)
-#   claude-code — Claude Code CLI, Claude subscription. The A/B twin; also flat-rate.
-#   claude-api  — Anthropic SDK, METERED. The only backend that spends money per call,
-#                 and named so that is visible at the config line.
-# RENAMED 2026-08-02 (operator's call): `claude` used to mean the metered SDK, while
-# `score.usage` read the Claude Code SUBSCRIPTION for that same name — the quota bar
-# described a budget nothing spent. A stale `SCORE_BACKEND=claude` is now rejected
-# outright rather than silently selecting a different backend than it used to.
-DEFAULT_SCORE_BACKEND = "codex"
-SCORE_BACKENDS = ("codex", "claude-code", "claude-api")
-# gpt-5.6-sol — chosen on the GOLDEN SET, which is the only measurement that counts here.
-# A synthetic single-prompt probe said gpt-5.6-terra had a tighter spread at half the
-# credit rate; on real JDs terra was WORSE on both gate axes (agreement 76% vs 86%,
-# flip-rate 38% vs 29%) and calibrated visibly looser/more generous (id=64 a confident
-# keep(92,93,92) against a `near` label; id=70 threw a skip(28) between two keep(86+)).
-# Synthetic variance probes did not predict real-JD behavior — twice. Don't re-pick a
-# model without a full `make eval-score` run. (gpt-5.6-luna: rejected outright, ~3x looser
-# spread, despite the docs recommending it for "extraction/classification".)
-DEFAULT_CODEX_SCORE_MODEL = "gpt-5.6-sol"
-# Sonnet 5 scores fit (real seniority/domain judgment, unlike the local 4B model);
-# Sonnet 4.6 doesn't support structured outputs (output_config.format), so it can't
-# be used here. Override with --anthropic-score-model or ANTHROPIC_SCORE_MODEL.
-DEFAULT_ANTHROPIC_SCORE_MODEL = "claude-sonnet-5"
-# Same model over the Claude Code CLI (SCORE_BACKEND=claude-code), where it is billed
-# against the subscription rather than metered. Separate constant because the two paths
-# can legitimately diverge — the CLI takes model aliases the SDK does not.
-DEFAULT_CLAUDE_CODE_SCORE_MODEL = "claude-sonnet-5"
-# Max postings per fit_fn batch call. Batching was long described as the codex quota
-# win, on the assumption that the ChatGPT-subscription quota is MESSAGE-bound. That
-# assumption is FALSE (measured 2026-07-31 over 158 production calls, from the codex
-# rollout files' per-call token counts): the quota is per-TOKEN credits, so batching N
-# postings saves only the repeated ~5.5k-token rubric+profile+résumé prefix, not N-1
-# messages — a far smaller prize than the docs used to claim. See make_codex_scorer.
-# The parking below never rested on that argument anyway: it is PARKED at 1 for
-# CORRECTNESS. The batched==single guard
-# (score_eval.py --batched, 2026-07-16) FAILED 19/23 — concatenating JDs in one
-# call bled the DOMAIN verdict on borderline rows (adjacent→match on ids 111/125,
-# which would then wrongly notify), so per the design's rollout rule "if batched
-# verdicts drift, batching does not ship". batch_size=1 == the validated per-JD
-# path (one JD per codex exec, no cross-JD context to bleed). The batching code +
-# the guard stay so the drift can be re-measured, NOT because a smaller batch is a
-# fix worth taking — SCORING §8.5 measured batching dead at every size above 1, and
-# the token correction above removes the prize that made it tempting.
-# (claude's fit_fn loops per posting regardless, so batch_size is a no-op there.)
-DEFAULT_BATCH_SIZE = 1
-
 # Per-backend screen concurrency. Ollama defaults to 1: a single GPU SERIALIZES the
 # compute, so parallel requests interleave rather than speed up (weights load once and
 # are not duplicated per slot — only KV cache is, so RAM is the secondary constraint,
@@ -101,86 +47,21 @@ DEFAULT_BATCH_SIZE = 1
 DEFAULT_SCREEN_WORKERS = {"ollama": 1, "none": 1, "codex": 4, "claude-code": 4,
                           "claude-api": 4, "openai-api": 4}
 
-# The ONLY eleven .env keys argparse defaults read from os.environ (grepped across
-# the whole ats_worker package — see run.main below). Secrets (TELEGRAM_BOT_TOKEN,
-# TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every
-# consumer reads them from the in-process `env` dict (run_once(..., env=env) /
-# make_scorer / make_screener), never os.environ, so promoting them would only leak
-# them to subprocesses that inherit the full environment (the codex CLI — see
-# score/backends_codex.py).
+# The ONLY .env keys argparse defaults read from os.environ (see run.main below).
+# Secrets (ANTHROPIC_API_KEY, OPENAI_API_KEY) are deliberately excluded: every consumer
+# reads them from the in-process `env` dict (run_once(..., env=env) / make_screener),
+# never os.environ, so promoting them would only leak them to subprocesses that inherit
+# the full environment (the codex CLI).
 _ENV_ARGPARSE_KEYS = frozenset({
-    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL", "SCORE_BACKEND",
-    "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL", "CLAUDE_CODE_SCORE_MODEL",
-    "CODEX_BATCH_SIZE", "SCREEN_WORKERS", "SCREEN_EFFORT", "SCREEN_LIMIT",
-    "SCORE_WORKERS",
+    "DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
+    "SCREEN_WORKERS", "SCREEN_EFFORT", "SCREEN_LIMIT",
 })
-
-
-def make_codex_scorer(*args, **kwargs):
-    """Load the legacy fit backend only when a fit run builds its scorer."""
-    from .score import make_codex_scorer as build
-    return build(*args, **kwargs)
-
-
-def make_claude_cli_scorer(*args, **kwargs):
-    from .score import make_claude_cli_scorer as build
-    return build(*args, **kwargs)
-
-
-def make_claude_scorer(*args, **kwargs):
-    from .score import make_claude_scorer as build
-    return build(*args, **kwargs)
 
 
 def capture_usage(*args, **kwargs):
     from .usage import capture_usage as capture
     return capture(*args, **kwargs)
 
-
-def make_scorer(backend: str, *, env, profile="",
-                codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
-                claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL):
-    """Pick the fit-score backend. Both twins expose the same batch-first
-    `fit(postings, resumes) -> list[dict]` contract (one scorecard per input
-    posting, in order; a single posting is `fit([posting], resumes)[0]`), so
-    only this line changes. Quota telemetry is NOT wired here — it is one HTTP
-    GET per pass against the provider's usage endpoint (`score.capture_usage`),
-    independent of the scoring call."""
-    if backend == "codex":
-        return make_codex_scorer(codex_score_model, profile=profile)
-    if backend == "claude-code":
-        return make_claude_cli_scorer(claude_code_score_model, profile=profile)
-    if backend == "claude-api":
-        return make_claude_scorer(env["ANTHROPIC_API_KEY"], anthropic_score_model,
-                                  profile=profile)
-    raise ValueError(f"unknown score backend: {backend!r} (want one of {SCORE_BACKENDS})")
-
-
-def _scorer_meta(backend: str, *,
-                 codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-                 anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
-                 claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL) -> dict:
-    """Who scored it: the three provenance fields persisted into every fit-scored
-    row's score_detail. Branches on `backend` alongside make_scorer above so the
-    stamp can't claim a model the scorer wasn't built with.
-
-    Raises on an unknown backend exactly as make_scorer does, rather than falling
-    through to the Anthropic model. Failing open here writes a provenance stamp that is
-    silently WRONG — worse than no stamp, because the whole point of the field is to
-    tell you later which model produced a verdict. `--score-backend` has `choices=`, but
-    argparse does not validate an env-supplied `default`, so SCORE_BACKEND=openai in a
-    .env reaches this function unchecked."""
-    models = {"codex": codex_score_model, "claude-code": claude_code_score_model,
-              "claude-api": anthropic_score_model}
-    if backend not in models:
-        raise ValueError(f"unknown score backend: {backend!r} (want one of {SCORE_BACKENDS})")
-    from .prompts import SCORER_VERSION
-    return {
-        "backend": backend,
-        "model": models[backend],
-        "scorer_version": SCORER_VERSION,
-    }
 
 # The screen's default stays the free local backend. AUTO-DETECTION MUST NEVER SELECT
 # A PAID BACKEND — spending money is explicit opt-in via SCREEN_BACKEND. `make doctor`
@@ -267,35 +148,23 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
 
 
-def run_once(cfg, *, db_path, resumes, profile="", env,
+def run_once(cfg, *, db_path, env,
              ollama_model=DEFAULT_OLLAMA_MODEL,
              screen_backend=DEFAULT_SCREEN_BACKEND,
              screen_model=None,
-             screen_effort=None, screen_only: bool = False,
+             screen_effort=None,
              screen_limit: int | None = 40, rescreen_screened: bool = False,
-             score_backend=DEFAULT_SCORE_BACKEND,
-             codex_score_model=DEFAULT_CODEX_SCORE_MODEL,
-             anthropic_score_model=DEFAULT_ANTHROPIC_SCORE_MODEL,
-             claude_code_score_model=DEFAULT_CLAUDE_CODE_SCORE_MODEL,
-             batch_size: int = DEFAULT_BATCH_SIZE,
-             fetch_only: bool = False, score_only: bool = False,
-             score_limit: int = 0, score_max_id: int = 0, screen_workers: int = 0,
-             score_workers: int = 4, rescreen_discarded: bool = False,
-             no_notify: bool = False, refresh_unscored: bool = False,
+             fetch_only: bool = False, screen_workers: int = 0,
+             refresh_unscored: bool = False,
              refresh_source: str | None = None, refresh_limit: int = 25) -> None:
-    """Run fetch -> retry -> score -> notify exactly once. `resumes` is the
-    {label: text} dict of resume versions; `profile` is optional candidate
-    context — both are baked into the fit scorer (the Ollama SCREEN never
-    sees either)."""
-    if sum((fetch_only, score_only, screen_only)) > 1:
-        raise ValueError("fetch-only, score-only and screen-only are mutually exclusive")
-    if screen_only and rescreen_discarded:
-        raise ValueError("screen-only cannot be combined with rescreen-discarded")
-    if screen_only and screen_limit is not None and screen_limit <= 0:
-        raise ValueError("screen-only requires a positive --screen-limit")
+    """Run fetch -> feed -> expire -> screen exactly once (`fetch_only` stops before
+    the screen). The screen never sees the résumé or profile."""
+    if fetch_only and refresh_unscored:
+        raise ValueError("fetch-only and refresh-unscored are mutually exclusive")
+    if not fetch_only and screen_limit is not None and screen_limit <= 0:
+        raise ValueError("the screen pass requires a positive --screen-limit")
     if refresh_unscored:
-        if (fetch_only or score_only or screen_only or rescreen_discarded
-                or rescreen_screened or score_limit or score_max_id or no_notify):
+        if fetch_only or rescreen_screened:
             raise ValueError("unscored refresh is a standalone worker mode")
         if refresh_source != "smartrecruiters":
             raise ValueError("unscored refresh requires --refresh-source smartrecruiters")
@@ -347,243 +216,83 @@ def run_once(cfg, *, db_path, resumes, profile="", env,
                 "exclude_internships": cfg.candidate.exclude_internships,
             }
 
-        # --score-only skips the whole network ingest (fetch/feed/expire) and scores
-        # the existing 'new' backlog — the inverse of --fetch-only, so an operator can
-        # score a large intake without paying a full re-fetch first.
-        if not score_only:
-            pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
-                               fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
-                               max_age_days=cfg.max_age_days, candidate=candidate)
+        pipeline.run_fetch(conn, companies, cfg.title_filter, now=now,
+                           fetch_fn=fetch_company, title_exclude=cfg.title_exclude,
+                           max_age_days=cfg.max_age_days, candidate=candidate)
 
-            # Discovery feeds: broad listing streams resolved back to boards. Runs
-            # before scoring so feed-discovered 'new' rows are scored this same pass.
-            for feed in cfg.feeds:
-                if not feed.enabled:
-                    continue
-                if feed.name == "simplify":
-                    pipeline.run_feed(
-                        conn, now=now,
-                        feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
-                        keep_categories=feed.categories, feed_name=feed.name,
-                        # Bind a per-thread Session + shorter timeout into the network fns
-                        # so the concurrent fetches reuse connections and don't stall long.
-                        fetch_fn=lambda s, sl, n: fetch_company(
-                            s, sl, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                        detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
-                            s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                        resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
-                            url, session=_feed_session(), timeout=_FEED_TIMEOUT),
-                        # The same three coarse filters run_fetch gets above. The feed
-                        # is the firehose (~18k listings), so this is where they save
-                        # the most: without them the majority of what the feed's own
-                        # gate passes is material this config already refuses.
-                        title_filter=cfg.title_filter,
-                        title_exclude=cfg.title_exclude,
-                        max_age_days=cfg.max_age_days,
-                    )
+        # Discovery feeds: broad listing streams resolved back to boards. Runs
+        # before the screen so feed-discovered 'new' rows are screened this same pass.
+        for feed in cfg.feeds:
+            if not feed.enabled:
+                continue
+            if feed.name == "simplify":
+                pipeline.run_feed(
+                    conn, now=now,
+                    feed_fn=lambda f=feed: simplify.fetch(url=f.url or simplify.DEFAULT_URL),
+                    keep_categories=feed.categories, feed_name=feed.name,
+                    # Bind a per-thread Session + shorter timeout into the network fns
+                    # so the concurrent fetches reuse connections and don't stall long.
+                    fetch_fn=lambda s, sl, n: fetch_company(
+                        s, sl, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                        s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    resolve_embedded_fn=lambda url: embedded_gh.resolve_embedded(
+                        url, session=_feed_session(), timeout=_FEED_TIMEOUT),
+                    # The same three coarse filters run_fetch gets above. The feed
+                    # is the firehose (~18k listings), so this is where they save
+                    # the most: without them the majority of what the feed's own
+                    # gate passes is material this config already refuses.
+                    title_filter=cfg.title_filter,
+                    title_exclude=cfg.title_exclude,
+                    max_age_days=cfg.max_age_days,
+                )
 
-            # Re-check a capped batch of live postings and expire the dead ones, so a
-            # closed req stops sitting in the queue as a dead link.
-            gone = pipeline.run_expire(
-                conn, now=now,
-                detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
-                    s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
-            if gone:
-                print(f"expired {gone} dead posting(s)")
+        # Re-check a capped batch of live postings and expire the dead ones, so a
+        # closed req stops sitting in the queue as a dead link.
+        gone = pipeline.run_expire(
+            conn, now=now,
+            detail_fetch_fn=lambda s, sl, e, n: fetch_one_company(
+                s, sl, e, n, session=_feed_session(), timeout=_FEED_TIMEOUT))
+        if gone:
+            print(f"expired {gone} dead posting(s)")
 
-        if screen_only:
-            if rescreen_screened:
-                cleared = db.clear_completed_screenings(conn)
-                print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
-                      "new postings")
-            num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
-            effective_model = screen_model
-            if screen_backend == "codex" and not effective_model:
-                effective_model = DEFAULT_SCREEN_ONLY_CODEX_MODEL
-            elif screen_backend == "ollama" and not effective_model:
-                effective_model = ollama_model or DEFAULT_OLLAMA_MODEL
-            elif screen_backend == "claude-api" and not effective_model:
-                effective_model = DEFAULT_CLAUDE_SCREEN_MODEL
-            elif screen_backend == "openai-api" and not effective_model:
-                effective_model = DEFAULT_OPENAI_SCREEN_MODEL
-            effective_effort = (screen_effort or "medium") if screen_backend == "codex" else None
-            screen_extract = make_screener(
-                screen_backend, env=env, http=requests, model=ollama_model,
-                screen_model=effective_model, screen_effort=effective_effort,
-                num_ctx=num_ctx)
-
-            def screen_only_fn(posting):
-                return screen_posting(posting, extract=screen_extract,
-                                       candidate=candidate, num_ctx=num_ctx)
-
-            pipeline.run_screen(
-                conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
-                candidate=candidate, backend=screen_backend, model=effective_model,
-                effort=effective_effort, limit=screen_limit,
-                screen_workers=screen_workers or 1, clock=_now)
-            return
-
-        # Operator-only escape hatch from the terminal 'discarded' state: after a
-        # candidate hard-requirement edit, bring every discard back to 'new' so this
-        # same pass re-screens it under the new rules. Screening is free on the
-        # default ollama backend; the PAID fit call that follows for each survivor is
-        # what --score-limit bounds.
-        # --score-limit bounds the SPEND, not the SELECTION: requeue_discarded is
-        # unfiltered, so the cap lands on an arbitrary prefix of every requeued discard.
-        # Aiming at a specific set is --score-max-id's job (SPEC §7.1).
-        if rescreen_discarded:
-            # `skipped` names the rows deliberately left behind: un-hydrated stub-gate
-            # discards. Requeueing one destroys it, but skipping it is not a rescue
-            # either (nothing re-hydrates an existing row), so the operator is told
-            # rather than left to infer it from a count that looks short.
-            requeued, skipped = db.requeue_discarded(conn, now)
-            print(f"rescreen: requeued {requeued} discarded row(s) to 'new'")
-            if skipped:
-                print(f"rescreen: left {skipped} un-hydrated stub discard(s) alone — "
-                      "requeueing one parks it 'scored'/0 permanently (no JD to score, "
-                      "and upsert is ON CONFLICT DO NOTHING); they stay 'discarded'")
-
-        # Requeue any 'failed' row that hasn't exhausted its attempts budget, so
-        # it's rescored in this SAME pass alongside fresh ingests (§9 SPEC.md).
-        pipeline.run_retry(conn, now=now)
-
-        # Operator quota control: --fetch-only stops here so a board refresh (and
-        # its log) costs zero screen/scorer calls. The 'new' rows just wait for a
-        # later scoring pass — fetch is idempotent (upsert DO NOTHING).
+        # Operator quota control: --fetch-only stops here so a board refresh (and its
+        # log) costs zero screen calls. The 'new' rows wait for a later screen pass —
+        # fetch is idempotent (upsert DO NOTHING).
         if fetch_only:
             print(f"fetch-only: {len(db.get_by_status(conn, 'new'))} row(s) left "
-                  f"'new', skipping score/notify")
+                  f"'new', skipping screen")
             return
 
-        # num_ctx is set explicitly (Ollama's default is small enough to truncate
-        # long JDs); override per-deploy via OLLAMA_NUM_CTX without code changes.
+        if rescreen_screened:
+            cleared = db.clear_completed_screenings(conn)
+            print(f"rescreen-screened: cleared {cleared} cached result(s) for eligible "
+                  "new postings")
         num_ctx = int(env.get("OLLAMA_NUM_CTX", "8192"))
+        effective_model = screen_model
+        if screen_backend == "codex" and not effective_model:
+            effective_model = DEFAULT_SCREEN_ONLY_CODEX_MODEL
+        elif screen_backend == "ollama" and not effective_model:
+            effective_model = ollama_model or DEFAULT_OLLAMA_MODEL
+        elif screen_backend == "claude-api" and not effective_model:
+            effective_model = DEFAULT_CLAUDE_SCREEN_MODEL
+        elif screen_backend == "openai-api" and not effective_model:
+            effective_model = DEFAULT_OPENAI_SCREEN_MODEL
+        effective_effort = (screen_effort or "medium") if screen_backend == "codex" else None
+        screen_extract = make_screener(
+            screen_backend, env=env, http=requests, model=ollama_model,
+            screen_model=effective_model, screen_effort=effective_effort,
+            num_ctx=num_ctx)
 
-        screen_extract = make_screener(screen_backend, env=env, http=requests,
-                                       model=ollama_model, screen_model=screen_model,
-                                       screen_effort=screen_effort,
-                                       num_ctx=num_ctx)
-
-        def screen_fn(posting):
+        def screen_only_fn(posting):
             return screen_posting(posting, extract=screen_extract,
-                                  candidate=candidate, num_ctx=num_ctx)
+                                   candidate=candidate, num_ctx=num_ctx)
 
-        # The FREE seniority pre-ordering, and it is free ONLY on the local backend —
-        # so it is wired on `ollama` and nowhere else. On a paid screen backend the
-        # layer would spend money to SAVE money, which is not the trade it was measured
-        # for; it stays off and the queue keeps its plain newest-first order.
-        # It also stays off when nothing is configured, matching the screen's own rule
-        # (everything empty => no gate): an operator who has configured no candidate has
-        # not asked for their queue to be re-ordered around a seniority bar.
-        seniority_fn = None
-        if screen_backend == "ollama" and screen_extract is not None and candidate:
-            from .score import seniority
-            # SAY WHAT BAR IS BEING APPLIED. `years_experience` defaults to 0, and no
-            # existing config.yaml carries the key — so without this line a ten-year
-            # engineer's entire senior queue would be demoted on a new-grad assumption
-            # with nothing on screen but a count.
-            _bar = cfg.candidate.years_experience + seniority.YEARS_MARGIN
-            _rank = (" or naming a senior/lead/staff/principal rank"
-                     if cfg.candidate.years_experience < seniority.SENIOR_YEARS else "")
-            print(f"[seniority] pre-ordering ON (candidate at "
-                  f"{cfg.candidate.years_experience} years): postings stating >= {_bar} "
-                  f"years{_rank} sort to the back of the score queue")
-
-            def seniority_fn(posting):          # noqa: F811 — deliberate rebind
-                return seniority.assess(
-                    posting, screen_extract,
-                    years_experience=cfg.candidate.years_experience,
-                    max_desc_chars=num_ctx * 2)
-
-        # The operator's own TITLE filters, re-applied to rows already queued. They run at
-        # INGEST only, so a row that entered before its filter existed keeps its place and
-        # buys a paid fit call on a posting this very config refuses. Deterministic and
-        # free, so `run_score` applies it in the same unbudgeted phase as the
-        # location/intern gates.
-        #
-        # `max_age_days` is deliberately NOT re-applied here, and the asymmetry is the
-        # whole reason: a title refusal is RECOVERABLE (widen `title_filter`, run
-        # `--rescreen-discarded`, the row survives phase 0 and comes back), while an age
-        # refusal is not — the row only gets older, so raising the knob never catches up
-        # with it. And 474 of the 587 age-refusals measured on 2026-07-31 were INSIDE the
-        # window when they were ingested; they aged out waiting in the queue. Discarding
-        # those is a queue TTL policy, not "the config refuses this posting", and it would
-        # terminally delete ~5,300 rows over 30 days. That is the operator's call to make
-        # deliberately, with a revert artifact, the way the 2026-07-29 sweep was run —
-        # not something a pass does silently six times a day. See docs/BACKLOG.md.
-        def stale_fn(posting):
-            kept = prefilter_postings([posting], title_filter=cfg.title_filter,
-                                      title_exclude=cfg.title_exclude,
-                                      max_age_days=0, now=now)
-            if kept:
-                return None
-            return "prefilter: title refused by the current filters"
-
-        # Build the fit scorer lazily on first use (both twins are import-safe: the
-        # anthropic SDK import / the codex subprocess are deferred to the first call,
-        # so this closure is cheap and the hermetic tests touch neither).
-        _scorer_cell: list = []
-        _scorer_lock = threading.Lock()
-        # Land the quota snapshot next to the REAL db file (resolve the
-        # prisma/applications.db symlink) so it sits in the shared db/ mount the
-        # web reads as /data/scorer_usage.json. See docs/SPEC.md §7.1.
-        usage_path = os.path.join(
-            os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json")
-
-        def fit_fn(postings):
-            if not _scorer_cell:
-                # Double-checked lock: score_workers>1 means multiple threads can
-                # race here on the first call. Without the lock each would see the
-                # cell empty and construct + append its own scorer concurrently.
-                with _scorer_lock:
-                    if not _scorer_cell:
-                        _scorer_cell.append(
-                            make_scorer(score_backend, env=env, profile=profile,
-                                        codex_score_model=codex_score_model,
-                                        anthropic_score_model=anthropic_score_model,
-                                        claude_code_score_model=claude_code_score_model)
-                        )
-            return _scorer_cell[0](postings, resumes)
-
-        workers = screen_workers or DEFAULT_SCREEN_WORKERS.get(screen_backend, 1)
-        pipeline.run_score(conn, now=now, screen_fn=screen_fn, fit_fn=fit_fn,
-                           seniority_fn=seniority_fn,
-                           batch_size=batch_size, limit=score_limit,
-                           max_id=score_max_id,
-                           screen_workers=workers, score_workers=score_workers,
-                           candidate=candidate, stale_fn=stale_fn,
-                           scorer_meta=_scorer_meta(
-                               score_backend,
-                               codex_score_model=codex_score_model,
-                               anthropic_score_model=anthropic_score_model,
-                               claude_code_score_model=claude_code_score_model))
-        # Refresh the quota bar for whichever backend just scored — ONE free HTTP GET
-        # against the provider's own usage endpoint, after the pass so it reflects what
-        # the pass just spent. Only when the scorer was actually built: a pass that
-        # scored nothing spent nothing, and re-fetching would just move `as_of` forward
-        # on an unchanged reading. Best-effort by contract (never raises).
-        # A failed capture is announced rather than swallowed: quota is the binding
-        # constraint and this file is the instrument the spend decisions read, so a
-        # silently stale snapshot costs a wrong `--score-limit`, not just a dim bar.
-        if _scorer_cell and not capture_usage(usage_path, score_backend):
-            print(f"[quota] WARNING: no {score_backend} usage snapshot written — "
-                  f"{usage_path} still holds the PREVIOUS reading (check its as_of)")
-
-        # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
-        # rows show there at 'scored', not just 'notified') can run with no bot creds.
-        token, chat_id = env.get("TELEGRAM_BOT_TOKEN"), env.get("TELEGRAM_CHAT_ID")
-        if no_notify:
-            # Bulk/unattended scoring: alerting per match would be a burst nobody is
-            # there to read. Nothing is consumed — the rows stay 'scored', so a later
-            # pass notifies them normally, and they are in the web Discovered tab now.
-            print("--no-notify: skipping notify (matched rows are 'scored' and will "
-                  "alert on the next pass without it)")
-        elif token and chat_id:
-            pipeline.run_notify(conn, now=now, notify_fn=notify_posting,
-                                token=token, chat_id=chat_id)
-        else:
-            print("no TELEGRAM_BOT_TOKEN/CHAT_ID: skipping notify "
-                  "(matched rows are in the web Discovered Jobs tab)")
+        pipeline.run_screen(
+            conn, now=now, screen_fn=screen_only_fn, extract=screen_extract,
+            candidate=candidate, backend=screen_backend, model=effective_model,
+            effort=effective_effort, limit=screen_limit,
+            screen_workers=screen_workers or 1, clock=_now)
     finally:
         conn.close()
 
@@ -593,59 +302,12 @@ def _companies_as_dicts(cfg) -> list[dict]:
             for c in cfg.companies]
 
 
-def _read_text(path: str) -> str:
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return fh.read()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise SystemExit(
-            f"Could not read required resume file {path!r}: {exc}.\n"
-            f"Provide your resume in apps/worker/resume/ (see resume/README.md)."
-        ) from exc
-
-
-def load_resumes(dir_path: str) -> tuple[dict[str, str], str]:
-    """Load every *.txt in dir_path as a labeled resume version, plus the
-    optional personal_profile.txt as about-the-candidate context.
-
-    Label = filename stem minus a leading 'resume_' ('resume_quant_dev.txt' ->
-    'quant_dev'; bare 'resume.txt' -> 'resume'), so today's single-file layout
-    keeps working unchanged. Sorted by filename for a deterministic,
-    cache-stable prompt prefix. Zero resumes or two files deriving the same
-    label are config errors -> SystemExit (never a silent overwrite).
-    """
-    resumes: dict[str, str] = {}
-    seen: dict[str, str] = {}  # label -> filename that claimed it
-    profile = ""
-    for f in sorted(Path(dir_path).glob("*.txt")):
-        if f.name.startswith("."):
-            continue  # dotfiles (e.g. macOS ._resume.txt sidecars) are never resumes
-        if f.name == "personal_profile.txt":
-            profile = _read_text(str(f))
-            continue
-        label = f.stem.removeprefix("resume_") or f.stem
-        if label in seen:
-            raise SystemExit(
-                f"Resume label {label!r} comes from both {seen[label]} and "
-                f"{f.name} — rename one (label = filename minus 'resume_')."
-            )
-        seen[label] = f.name
-        resumes[label] = _read_text(str(f))
-    if not resumes:
-        raise SystemExit(
-            f"No resume *.txt files found in {dir_path!r}. Provide at least one "
-            f"(see resume/README.md)."
-        )
-    return resumes, profile
-
-
 # One pipeline pass at a time per DB. Keyed on the resolved --db path (see
 # `_lock_path_for`) rather than on the temp dir, because the temp dir is not something
 # two passes on the same host agree on: a systemd unit with PrivateTmp=yes, or a cron
 # job with a sanitized env, resolves a different one than an interactive shell that
-# exports TMPDIR — so both would acquire and both would fit-score the same rows, which
-# is the failure that costs paid quota. The DB path is what they DO agree on, and it
-# is the resource the guard actually protects (that DB plus the one scorer account).
+# exports TMPDIR — so both would acquire and both would screen the same rows, which
+# is the failure that costs provider quota. The DB path is what they DO agree on.
 # Only used when no db path is available (tests); real passes go through
 # `_lock_path_for`.
 _LOCK_PATH = Path(tempfile.gettempdir()) / "ats-worker-pass.lock"
@@ -778,7 +440,7 @@ def pass_lock(path=None, db_path=None):
             raise PassInProgress(
                 f"another pipeline pass is already running on this host "
                 f"(pid {_recorded_holder(fd)}, lock {path}) — refusing to start a "
-                f"second one; a duplicate pass would re-spend paid fit-scorer quota"
+                f"second one; a duplicate pass would re-spend screen-provider quota"
             ) from None
         if read_only:
             # The lock is held and doing its job; only the pid record is unavailable,
@@ -828,7 +490,7 @@ def _run_scheduler(job, schedule_hours: int) -> None:  # pragma: no cover
     # `minute=0` is set EXPLICITLY. CronTrigger's default for a field below the most
     # significant one supplied happens to be 0, which is what we want — but that is a
     # field-ordering rule, not something readable at this call site, and the failure if
-    # it ever changed is 60 passes per slot against a PAID fit scorer.
+    # it ever changed is 60 passes per slot against a paid screen provider.
     trigger = CronTrigger(hour=cron_hours(schedule_hours), minute=0)
 
     # basicConfig HERE, in the daemon branch only, so importing this module still
@@ -875,7 +537,7 @@ def _run_scheduler(job, schedule_hours: int) -> None:  # pragma: no cover
 
 def main(argv=None) -> None:
     # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
-    # --score-backend/--codex-score-model/--batch-size read os.environ, so a .env value
+    # --screen-backend/--screen-model read os.environ, so a .env value
     # has to be in os.environ by the time add_argument runs. setdefault = a real process
     # env var (e.g. a shell-exported DB_PATH) still wins and an explicit CLI flag
     # still overrides; --env is peeked first so a custom path is honored.
@@ -893,14 +555,12 @@ def main(argv=None) -> None:
                              "wall-clock schedule. Restores the old eager startup pass "
                              "on demand")
     parser.add_argument("--fetch-only", action="store_true",
-                        help="run fetch/feed/expire/retry then stop, before any "
-                             "screen or scorer call (quota-free board refresh)")
+                        help="run fetch/feed/expire then stop, before any screen call "
+                             "(quota-free board refresh)")
+    # ponytail: no-op alias since the fit scorer was removed; existing service files pass it.
     parser.add_argument("--screen-only", action="store_true",
-                        help="run fetch/feed/expire plus standalone hard-requirements "
-                             "screen; skip fit scoring, quota refresh and notify")
-    parser.add_argument("--score-only", action="store_true",
-                        help="skip the network ingest (fetch/feed/expire) and score "
-                             "the existing 'new' backlog — inverse of --fetch-only")
+                        help="accepted for compatibility: a pass is always "
+                             "fetch/feed/expire plus the hard-requirements screen")
     parser.add_argument("--refresh-unscored", action="store_true",
                         help="one-shot source-only refresh for existing unscored jobs; "
                              "requires --once and an explicit --refresh-source")
@@ -909,23 +569,6 @@ def main(argv=None) -> None:
                              "SmartRecruiters only)")
     parser.add_argument("--refresh-limit", type=int, default=25,
                         help="maximum source requests for --refresh-unscored (1-25)")
-    parser.add_argument("--score-limit", type=int, default=0,
-                        help="cap 'new' rows scored this pass (0 = no cap); bounds "
-                             "the paid fit scorer on a large fresh intake")
-    parser.add_argument("--score-max-id", type=int, default=0,
-                        help="score only 'new' rows with id <= N (0 = no bound). The "
-                             "selector to --score-limit's budget, applied first; "
-                             "requires --once")
-    parser.add_argument("--no-notify", action="store_true",
-                        help="score but send no Telegram alerts — for bulk/unattended "
-                             "passes; rows stay 'scored' and alert on a later pass")
-    parser.add_argument("--rescreen-discarded", action="store_true",
-                        help="return every 'discarded' row to 'new' first, so this "
-                             "pass re-screens them under the current candidate "
-                             "hard requirements. To recover a SPECIFIC set of discards "
-                             "pair it with --score-max-id, not --score-limit: the queue "
-                             "is newest-first, so a cap cannot name the old ids a "
-                             "recovery targets")
     parser.add_argument("--import-companies", action="store_true",
                         help="seed config.yaml companies into the DB watchlist and exit")
     parser.add_argument("--config", default="config.yaml")
@@ -934,18 +577,9 @@ def main(argv=None) -> None:
     # symlink onto the shared db/applications.db; override via DB_PATH or --db.
     parser.add_argument("--db",
                         default=os.environ.get("DB_PATH", "../web/prisma/applications.db"))
-    parser.add_argument("--resume-dir", default="resume",
-                        help="directory of resume *.txt versions (+ optional "
-                             "personal_profile.txt)")
     parser.add_argument("--model",
                         default=os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
-                        help="Ollama model tag used for scoring")
-    parser.add_argument("--score-backend", choices=SCORE_BACKENDS,
-                        default=os.environ.get("SCORE_BACKEND", DEFAULT_SCORE_BACKEND),
-                        help="fit-score backend: codex (ChatGPT subscription), "
-                             "claude-code (Claude subscription), or claude-api "
-                             "(METERED Anthropic API — the only one that costs money "
-                             "per call)")
+                        help="Ollama model tag used for the screen")
     parser.add_argument("--screen-backend", choices=SCREEN_BACKENDS,
                         default=os.environ.get("SCREEN_BACKEND",
                                                DEFAULT_SCREEN_BACKEND),
@@ -954,69 +588,25 @@ def main(argv=None) -> None:
                              "only and is LOW RECALL on sponsorship")
     parser.add_argument("--screen-model",
                         default=os.environ.get("SCREEN_MODEL"),
-                        help="model for the screen backend (screen-only Codex defaults "
-                             "to gpt-5.6-luna; legacy Codex defaults to gpt-5.6-sol)")
+                        help="model for the screen backend (Codex defaults to "
+                             "gpt-5.6-luna)")
     parser.add_argument("--screen-effort", choices=SCREEN_EFFORT_VALUES,
                         default=os.environ.get("SCREEN_EFFORT"),
-                        help="Codex screen reasoning effort; screen-only defaults to "
-                             "medium, legacy mode preserves the CLI default")
+                        help="Codex screen reasoning effort (default medium)")
     screen_budget = parser.add_mutually_exclusive_group()
     screen_budget.add_argument("--screen-limit", type=int,
-                               help="maximum provider calls per screen-only pass (default 40; "
-                                    "must be positive in screen-only mode)")
+                               help="maximum provider calls per screen pass (default 40; "
+                                    "must be positive)")
     screen_budget.add_argument("--screen-unlimited", action="store_true",
-                               help="explicitly remove the screen-only provider-call cap; "
-                                    "requires --screen-only and retains the provider breaker")
+                               help="explicitly remove the screen provider-call cap; "
+                                    "retains the provider breaker")
     parser.add_argument("--rescreen-screened", action="store_true",
                         help="clear successful screen cache for eligible 'new' rows; "
-                             "requires --screen-only --once")
-    parser.add_argument("--codex-score-model",
-                        default=os.environ.get("CODEX_SCORE_MODEL",
-                                               DEFAULT_CODEX_SCORE_MODEL),
-                        help="Codex CLI model used for fit scoring")
-    parser.add_argument("--anthropic-score-model",
-                        default=os.environ.get("ANTHROPIC_SCORE_MODEL",
-                                               DEFAULT_ANTHROPIC_SCORE_MODEL),
-                        help="Anthropic model used for fit scoring on claude-api "
-                             "(METERED)")
-    parser.add_argument("--claude-code-score-model",
-                        default=os.environ.get("CLAUDE_CODE_SCORE_MODEL",
-                                               DEFAULT_CLAUDE_CODE_SCORE_MODEL),
-                        help="model used for fit scoring on the claude-code CLI "
-                             "backend (subscription)")
-    parser.add_argument("--batch-size", type=int,
-                        default=int(os.environ.get("CODEX_BATCH_SIZE",
-                                                   str(DEFAULT_BATCH_SIZE))),
-                        help="max postings per fit_fn batch call. Default 1 "
-                             "(batching PARKED — failed the batched==single guard; "
-                             "see DEFAULT_BATCH_SIZE); raise once the domain-verdict "
-                             "drift is fixed. No-op on the claude backend (loops).")
+                             "requires --once")
     parser.add_argument("--screen-workers", type=int,
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
-                        help="concurrent screen calls (0 = per-backend default: 1 for "
-                             "ollama, 4 for the hosted backends)")
-    parser.add_argument("--score-workers", type=int,
-                        default=int(os.environ.get("SCORE_WORKERS", "4")),
-                        help="concurrent fit-scorer calls. Quota-neutral: parallel "
-                             "calls spend the same messages, only less wall-clock")
+                        help="concurrent screen calls (0 = 1)")
     args = parser.parse_args(argv)
-
-    # argparse enforces `choices` on a value it PARSES, never on an env-supplied
-    # `default` — so SCORE_BACKEND=openai in a .env reaches the pipeline unchecked and
-    # dies deep inside the pass, after the fetch, after the one-shot --rescreen-discarded
-    # has already been consumed. Fail here, before anything irreversible runs.
-    #
-    # `claude` is deliberately NOT accepted as a legacy alias. It used to mean the
-    # metered SDK backend and now would mean the subscription CLI, so silently accepting
-    # it would run a DIFFERENT backend than a pre-2026-08-02 .env intended. A stale value
-    # must fail here and be re-chosen by hand.
-    if args.score_backend not in SCORE_BACKENDS:
-        hint = ("`claude` was split on 2026-08-02 into 'claude-code' (subscription) "
-                "and 'claude-api' (metered) — pick one"
-                if args.score_backend == "claude"
-                else "check SCORE_BACKEND in your .env")
-        parser.error(f"unknown score backend {args.score_backend!r} (want one of "
-                     f"{SCORE_BACKENDS}) — {hint}")
 
     # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
     # for both is asking for two different programs, and the likely intent (just run one
@@ -1025,9 +615,9 @@ def main(argv=None) -> None:
         parser.error("--run-now is for daemon mode: it runs one pass and then STAYS on "
                      "the schedule. For a single pass that exits, use --once alone.")
 
-    if sum((args.fetch_only, args.score_only, args.screen_only, args.refresh_unscored)) > 1:
-        parser.error("--fetch-only, --score-only, --screen-only and --refresh-unscored "
-                     "are mutually exclusive")
+    if sum((args.fetch_only, args.screen_only, args.refresh_unscored)) > 1:
+        parser.error("--fetch-only, --screen-only and --refresh-unscored are mutually "
+                     "exclusive")
     if args.refresh_unscored:
         if not args.once:
             parser.error("--refresh-unscored is one-shot: pass --once")
@@ -1035,64 +625,31 @@ def main(argv=None) -> None:
             parser.error("--refresh-unscored requires --refresh-source smartrecruiters")
         if not 1 <= args.refresh_limit <= pipeline.UNSCORED_REFRESH_MAX:
             parser.error("--refresh-limit must be between 1 and 25")
-        if (args.score_limit or args.score_max_id or args.rescreen_discarded
-                or args.rescreen_screened or args.no_notify):
+        if args.rescreen_screened:
             parser.error("--refresh-unscored is a standalone worker mode")
     elif args.refresh_source is not None:
         parser.error("--refresh-source requires --refresh-unscored")
-    if args.screen_only and args.rescreen_discarded:
-        parser.error("--screen-only cannot be combined with --rescreen-discarded")
     if args.screen_unlimited:
-        if not args.screen_only:
-            parser.error("--screen-unlimited requires --screen-only")
+        if args.fetch_only:
+            parser.error("--screen-unlimited has no effect with --fetch-only")
         args.screen_limit = None
     elif args.screen_limit is None:
         try:
             args.screen_limit = int(os.environ.get("SCREEN_LIMIT", "40"))
         except ValueError:
             parser.error("SCREEN_LIMIT must be an integer")
-    if args.screen_only and args.screen_limit is not None and args.screen_limit <= 0:
-        parser.error("--screen-limit must be a positive provider-call cap in screen-only mode")
+    if not args.fetch_only and args.screen_limit is not None and args.screen_limit <= 0:
+        parser.error("--screen-limit must be a positive provider-call cap")
     if args.screen_workers < 0:
-        parser.error("--screen-workers must be >= 0 (0 selects the mode default)")
+        parser.error("--screen-workers must be >= 0 (0 selects the default)")
     if args.screen_effort and args.screen_effort not in SCREEN_EFFORT_VALUES:
         parser.error("SCREEN_EFFORT must be one of " + ", ".join(SCREEN_EFFORT_VALUES))
-    if args.rescreen_screened and not args.screen_only:
-        parser.error("--rescreen-screened requires --screen-only")
+    if args.rescreen_screened and args.fetch_only:
+        parser.error("--rescreen-screened has no effect with --fetch-only")
     if args.rescreen_screened and not args.once:
-        parser.error("--rescreen-screened is one-shot: pass --screen-only --once")
+        parser.error("--rescreen-screened is one-shot: pass --once")
 
-    # One-shot only: on the schedule this would resurrect the same discards every pass and
-    # re-charge the paid fit scorer for each survivor, indefinitely.
-    # `--run-now` is deliberately NOT accepted here even though it also runs one pass
-    # promptly: `once()` closes over `args.rescreen_discarded`, so the flag would still be
-    # set on every LATER scheduled firing — the whole discard pile, resurrected daily.
-    if args.rescreen_discarded and not args.once:
-        parser.error("--rescreen-discarded is a one-shot operator action: "
-                     "pass --once (then start the daemon normally)")
-
-    # A NEGATIVE bound must not read as "no bound". `run_score` tests `max_id > 0`, so a
-    # sign typo would sail past the one-shot guard below and then silently disable the
-    # filter — and the documented recipe pairs this flag with --rescreen-discarded, which
-    # requeues thousands of rows to 'new' first. The flag that exists to bound spend would
-    # become an unbounded paid pass over the whole requeued pile. 0 stays the explicit
-    # "no bound"; anything below it is a typo, not an intent.
-    if args.score_max_id < 0:
-        parser.error(f"--score-max-id must be >= 0 (got {args.score_max_id}); 0 means "
-                     "no bound, and a negative value would silently disable the filter")
-
-    # Same one-shot reasoning as --rescreen-discarded, opposite failure mode. `once()`
-    # closes over the parsed args, so a bound left on the daemon holds for EVERY scheduled
-    # firing: the first pass drains what sits under it, and every pass after screens
-    # nothing while higher-id intake piles up 'new' behind it — a daemon reporting healthy
-    # passes and scoring nothing. Refuse it at the boundary.
-    if args.score_max_id > 0 and not args.once:
-        parser.error("--score-max-id is a one-shot operator selector: pass --once. On "
-                     "the schedule it would bound every future pass, so nothing newer "
-                     f"than id {args.score_max_id} would ever be scored")
-
-    cfg = (config_mod.load_config(args.config, validate_fit_profile=False)
-           if args.screen_only else config_mod.load_config(args.config))
+    cfg = config_mod.load_config(args.config)
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
     # push newly-added config companies into the table; the normal run also
@@ -1106,11 +663,6 @@ def main(argv=None) -> None:
         print(f"imported {seeded} companies into the watchlist")
         return
 
-    if args.fetch_only or args.screen_only or args.refresh_unscored:
-        resumes, profile = {}, ""
-    else:
-        resumes, profile = load_resumes(args.resume_dir)
-
     def once(foreground: bool = False):
         # The predicate is "does a refused pass kill the caller", and it is passed
         # EXPLICITLY rather than inferred from `args.once`, because `--run-now` is neither
@@ -1122,30 +674,17 @@ def main(argv=None) -> None:
         # A whole pass runs under the lock for THIS db. APScheduler's max_instances=1 stops
         # the scheduler overlapping ITSELF, but not a hand-run pass landing inside a
         # scheduled one — likelier the higher the cadence, and a duplicated pass
-        # re-spends paid fit-scorer quota (a duplicated notify only costs one extra
-        # Telegram message).
+        # re-spends screen-provider quota.
         try:
             with pass_lock(db_path=args.db):
-                run_once(cfg, db_path=args.db, resumes=resumes, profile=profile,
-                         env=env, ollama_model=args.model,
+                run_once(cfg, db_path=args.db, env=env, ollama_model=args.model,
                          screen_backend=args.screen_backend,
                          screen_model=args.screen_model,
                          screen_effort=args.screen_effort,
-                         screen_only=args.screen_only,
                          screen_limit=args.screen_limit,
                          rescreen_screened=args.rescreen_screened,
-                         score_backend=args.score_backend,
-                         codex_score_model=args.codex_score_model,
-                         anthropic_score_model=args.anthropic_score_model,
-        claude_code_score_model=args.claude_code_score_model,
-                         batch_size=args.batch_size,
-                         fetch_only=args.fetch_only, score_only=args.score_only,
-                         score_limit=args.score_limit,
-                         score_max_id=args.score_max_id,
+                         fetch_only=args.fetch_only,
                          screen_workers=args.screen_workers,
-                         score_workers=args.score_workers,
-                         rescreen_discarded=args.rescreen_discarded,
-                         no_notify=args.no_notify,
                          refresh_unscored=args.refresh_unscored,
                          refresh_source=args.refresh_source,
                          refresh_limit=args.refresh_limit)

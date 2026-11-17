@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 // captures once per scoring pass from the provider's own usage endpoint). Reflects the
 // LAST pass — a budget indicator, not a live meter. Polls the local route while
 // mounted (free — reads a local file, never calls a provider). The snapshot names the
-// backend it describes, so switching SCORE_BACKEND relabels the bar on the next pass
+// backend it describes, so switching backends relabels the bar on the next capture
 // rather than silently showing the other provider's numbers. See docs/SPEC.md §7.2.
 
 export interface UsageLimit {

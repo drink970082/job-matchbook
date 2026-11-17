@@ -35,7 +35,7 @@ the task needs:
   scorer eval is owed for unrelated source/MCP/UI/docs work; provider runs need scoped
   authorization. Preserve useful scorer tools/tests and private research artifacts.
 - **`docs/SCORING.md`** — retained optional subsystem contracts and measured failure
-  modes. Read before touching `score/`, its prompts or evals. It is not the product queue.
+  modes. Read before touching the screen prompt or its evals; the fit scorer it describes is retired. It is not the product queue.
 
 When you change behavior, update the matching section of `SPEC.md`, `PROGRESS.md` and
 `CHANGELOG.md` **in the same commit**. Conventions in `CONTRIBUTING.md`.
@@ -125,9 +125,7 @@ database:
 - **SQLite is mounted as a directory** (`./db` -> `/data`), not a single file, so the WAL
   `-wal`/`-shm` sidecars are shared between the web container and the native worker. A
   single-file mount silently breaks WAL across the two processes.
-- **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web gated
+- **Coverage gates:** worker `fail_under = 84` (`apps/worker/pyproject.toml`); web gated
   via `jest.all.config.ts`. CI also runs the schema-drift guard.
-- Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on the
-  Codex CLI by default (`gpt-5.6-sol`), or Claude `claude-sonnet-5` when
-  `SCORE_BACKEND=claude-code` (Claude Code CLI, subscription) or `claude-api`
-(metered Anthropic API) — see SPEC §7.1.
+- Default screen model: local `qwen3.5:4b` (Ollama); the Codex screen defaults to `gpt-5.6-luna`.
+  Override via env / CLI — see SPEC §7.1.

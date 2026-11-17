@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from ats_worker.score import seniority
+from ats_worker import seniority
 
 JOB = {"job_title": "Software Engineer", "company_name": "Acme",
        "description": "Build things. 5+ years of experience required."}

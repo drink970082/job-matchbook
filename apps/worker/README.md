@@ -49,13 +49,8 @@ and registering it in `fetch/ADAPTERS` (and in `config.VALID_SOURCES`).
    pre-filter) + the `candidate` screening block (degree / work authorization /
    clearance / locations / internships; auto-discards conflicting postings) +
    schedule. See the committed sample.
-2. `resume/*.txt` — one or more labeled résumé versions (plus an optional
-   `personal_profile.txt` about-me context), used for keyword/fit scoring.
-   See `resume/README.md`.
-3. `.env` — copy `.env.example` → `.env` and fill in `TELEGRAM_BOT_TOKEN`,
-   `TELEGRAM_CHAT_ID`, `OLLAMA_HOST`. Fit-scoring auth is `codex login` (Codex
-   CLI, the default `SCORE_BACKEND`, no env var needed) or `ANTHROPIC_API_KEY`
-   only when `SCORE_BACKEND=claude-api`.
+2. `.env` — copy `.env.example` → `.env` and set `OLLAMA_HOST` (or pick another
+   `SCREEN_BACKEND`; only the metered API backends need a key).
 
 ## Run
 

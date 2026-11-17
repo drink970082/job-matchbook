@@ -77,13 +77,6 @@ def test_ollama_unreachable_is_soft(tmp_path):
             if c.core and not c.ok] == []
 
 
-def test_telegram_optional_and_soft():
-    both = _by_label(_run(env={"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}))
-    assert both["telegram"].ok
-    partial = _by_label(_run(env={"TELEGRAM_BOT_TOKEN": "t"}))  # chat id missing
-    assert not partial["telegram"].ok and not partial["telegram"].core
-
-
 def test_main_exit_zero_when_core_ok(tmp_path, monkeypatch, capsys):
     db = tmp_path / "applications.db"
     _make_db(str(db))

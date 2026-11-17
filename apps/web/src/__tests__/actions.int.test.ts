@@ -28,7 +28,7 @@ beforeEach(resetDb)
 afterAll(() => prisma.$disconnect())
 
 // The `matched` bucket keys on the fit verdicts (seniority=match AND domain=match),
-// the SAME predicate the worker's notify gate uses — NOT on score. Seed this into
+// the matched verdict predicate (see actions.ts matchedIds) — NOT on score. Seed this into
 // score_detail for any row a test expects to land in `matched`.
 const MATCH_VERDICT = JSON.stringify({
     assessment: { seniority: { verdict: 'match' }, domain: { verdict: 'match' } },
@@ -249,7 +249,7 @@ test('getJobPostings cause sub-filter narrows the discarded bucket by disqualifi
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'clr', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'clearance: requires security clearance' }) }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'int', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'internship/co-op role' }) }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'multi', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'degree: requires phd; internship/co-op role' }) }) })
-    // The prefilter cause covers BOTH strings the worker writes — run_score's phase-0
+    // The prefilter cause covers BOTH strings the worker wrote — the fit pass's phase-0
     // sweep and the operator's 2026-07-29 bulk sweep — which differ after the prefix.
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre1', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: title refused by the current filters' }) }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'pre2', score: 90, pipeline_status: 'discarded', score_detail: JSON.stringify({ disqualified: true, disqualification_reason: 'prefilter: refused by the current title/age filters' }) }) })
