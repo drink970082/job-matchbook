@@ -219,7 +219,7 @@ def _codex_login_required() -> dict:
     out = {**_snapshot("codex", None, []), "auth_required": True}
     if os.environ.get("CODEX_HOME"):
         real = _codex_home()
-        user = os.path.expanduser("~")
+        user = os.path.normpath(os.path.expanduser("~"))
         if real != os.path.join(user, ".codex"):
             out["codex_home"] = ("$HOME" + real[len(user):]
                                  if real.startswith(user + os.sep) else real)

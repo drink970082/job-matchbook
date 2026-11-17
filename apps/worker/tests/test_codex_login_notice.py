@@ -62,3 +62,9 @@ def test_a_tilde_codex_home_is_read_and_hinted_from_the_same_directory(tmp_path,
     monkeypatch.setenv('CODEX_HOME', '~/.codex-work')
     assert usage._codex_home() == str(tmp_path / '.codex-work')
     assert usage._codex_login_required()['codex_home'] == '$HOME/.codex-work'
+
+
+def test_a_trailing_slash_home_still_yields_a_home_relative_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv('HOME', str(tmp_path) + '/')
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / '.codex-work'))
+    assert usage._codex_login_required()['codex_home'] == '$HOME/.codex-work'
