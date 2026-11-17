@@ -19,7 +19,7 @@ human, never automated.
 - *Why:* the system's whole stance is "prepare everything, submit nothing" — trust
   survives only while the human stays the actor of record.
 - *In this repo:* no auto-apply (SPEC §4 non-goal); promotion *suggests*, never
-  auto-promotes (§9); notify only alerts; "Mark Applied" is a human click.
+  auto-promotes (§9); "Mark Applied" is a human click.
 - *Smell:* a change that removes a confirmation seam "for convenience" — auto-retrying
   an apply, auto-adding a watchlist entry, auto-sending anything beyond the alert.
 
@@ -52,12 +52,12 @@ make primary recommendations. Subscription inclusion is not unlimited allowance.
 - *Why:* source quality, retrieval and durable tracking are useful before any model
   verdict. Low-cost Luna/medium assistance remains valuable without duplicating the
   whole ChatGPT decision process in the worker.
-- *In this repo:* fetch-only and standalone screen-only are isolated modes; Codex
-  Luna/medium is selected for standalone screening. Fit scoring and Telegram remain
-  supported optional paths, with existing defaults and private inputs. MCP exposes
-  facts and separate assessment state without requiring fit scoring.
-- *Smell:* deleting the useful scorer to claim zero cost; making every job buy a fit
-  call before it is visible; treating a screen measurement as validation of a fit model;
+- *In this repo:* a worker pass is fetch -> screen (fetch-only stops before the screen);
+  Codex Luna/medium is selected for screening. There is no fit scorer. MCP exposes facts
+  and separate assessment state.
+- *Smell:* deleting useful assistance just to claim zero cost; making every job buy a
+  model call before it is visible; treating a screen measurement as validation of a
+  ranking model;
   adding a metered provider or rerunning a large eval without a concrete need.
 
 **5. Fail loud into a visible queue.** Breakage surfaces on a board a human reviews;
@@ -116,7 +116,7 @@ need a DB backup first.
   renamed without a backup note in the change.
 
 **10. Purity + DI in the worker; wiring only in `run.py`.** Every external (HTTP,
-Ollama, Claude, Telegram, clock) is injected.
+board APIs, screen providers, clock) is injected.
 - *Why:* the whole worker suite runs with zero network and zero keys, anywhere,
   forever — that property is worth more than any convenience import.
 - *In this repo:* modules are pure; `run.py` is the only place that knows about

@@ -8,7 +8,7 @@ import requests
 
 from ats_worker import db, pipeline
 from ats_worker.source_lifecycle import assessment_freshness, assessment_input_hash
-from tests._helpers import LONG_DESC, NOW, make_posting
+from tests._helpers import LONG_DESC, NOW, make_posting, set_scored
 
 LATER = "2026-06-04T09:00:00.000Z"
 
@@ -157,7 +157,7 @@ def test_combined_screen_only_discard_captures_revision_and_is_refreshable(db_pa
     conn = db.connect(db_path)
     row = _insert(conn, "combined", status="new")
     detail = {"screen": {"degree": {"pass": False}}, "disqualified": True}
-    db.save_score(conn, row["id"], score=0, score_detail=detail,
+    set_scored(conn, row["id"], score=0, score_detail=detail,
                   status="discarded", now=NOW)
     stored = json.loads(conn.execute("SELECT score_detail FROM job_postings WHERE id=?",
                                      (row["id"],)).fetchone()[0])
@@ -338,7 +338,7 @@ def test_completed_assessments_capture_posting_revision(db_path):
     assert captured == 1
 
     scored_row = _insert(conn, "versioned-fit")
-    db.save_score(conn, scored_row["id"], score=80, score_detail=detail, now=NOW)
+    set_scored(conn, scored_row["id"], score=80, score_detail=detail, now=NOW)
     scored = json.loads(conn.execute("SELECT score_detail FROM job_postings WHERE id=?",
                                      (scored_row["id"],)).fetchone()[0])
     assert scored["source_content_revision"] == 1

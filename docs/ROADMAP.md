@@ -2,8 +2,8 @@
 
 **Direction:** Job Matchbook supplies reliable job evidence, tracking and tools;
 ChatGPT supplies primary judgment, supplemental search and recommendation delivery.
-**Screening and the scorer remain supported optional assistance.** This is not a plan
-to delete them or require every posting to receive a fit score.
+**Screening remains supported optional assistance.** The old fit scorer and Telegram
+notifications are removed; review ranking is the JEV track (#135).
 
 This file orders future work. It does not claim the features below are shipped or
 change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
@@ -17,7 +17,6 @@ change CLI defaults. [ARCHITECTURE](ARCHITECTURE.md) defines boundaries;
 | Applications, history, CSV and watchlist UI | Shipped | Core; preserve data and manual workflows |
 | Read-only MCP and full-text chunks | Shipped | Core; improve research-oriented queries |
 | Standalone Luna/medium screening | Shipped, operator-selected | Retain as low-cost assistance |
-| Fit scorer and Telegram notifications | Shipped; bypassed by operator's screen-only mode | Retain opt-in compatibility; no automatic retirement |
 | Browsing unscored jobs in the UI | All-jobs inventory and advisory screening are available | Preserve the safe inventory and application-action boundaries |
 | Source lifecycle for unscored rows | Bounded one-shot refresh supports SmartRecruiters; other sources remain unsupported | Extend only with verified source-specific identity and closure signals |
 | Daily Brief using ATS plus web | User workflow, unattended acceptance outstanding | Preferred judgment/delivery experience |
@@ -34,15 +33,12 @@ Luna at max effort owns all implementation and fixes. See [DEVELOPMENT](DEVELOPM
 |---|---|---|---|
 | Workflow gate | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed read-only tunnel and account/workspace task access | Orchestrator verifies actual unattended access |
 | Conditional extension | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats and write design approval | Deferred |
-| Selected preparation | [#96 Luna fit pre-ranking](https://github.com/drink970082/job-matchbook/issues/96) | Operator reports approximately 200/day exceeds current review capacity | Offline #117–#119 and #129 are available; #131 real evidence awaits version-scoped input approval; #132/#112 retain live gates |
+| Selected preparation | [#135 JEV ranking → MCP](https://github.com/drink970082/job-matchbook/issues/135) | Operator reports approximately 200/day exceeds current review capacity | Packages P1–P6 (#137–#142); preselection offline tooling (#117–#119, #129) is its foundation |
 
 The source-lifecycle contract is in [SPEC](SPEC.md). The deployed read-only MCP exposes
 source state and check timestamps. Legacy rows without source evidence still require
 unknown freshness and official-page availability checks in the #94 Brief. #95 remains a
-conditional delivery-history extension. The operator selects provider-free #96 preparation;
-[#117/#118/#119's plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
-separates that work from #94 unattended evidence and #112 live-evaluation/GO gates.
-Retaining scorer code does not schedule deployment or a corpus rebuild.
+conditional delivery-history extension.
 
 ## R1 — Research queries and visible job inventory
 
@@ -94,28 +90,15 @@ An interactive chat does not prove unattended tunnel access. If scheduling is un
 record the blocker and manual fallback; do not silently introduce paid API orchestration.
 Cross-day recommendation dedup remains best-effort without #95's separately approved ledger.
 
-## R4 — Scorer as the final optional capability
+## R4 — Review ranking (JEV)
 
-Screen/fit adapters, result contracts, tests and manual eval tools remain supported.
-The deployed Luna/medium configuration is standalone screening; fit is not enabled by
-these plans. The operator reports that approximately 200 daily postings exceed the current
-workflow's capacity and explicitly selects pre-ranking preparation. This reported need is
-not a new benchmark, model selection, or accepted evaluation result.
-
-The offline assessment projection, fixed-batch replay and fixture consumer are available
-under the [preparation contract](superpowers/plans/2026-10-27-preselection-parallel-preparation.md).
-The profile/replay tooling is available on `main`; PR #129 adds direct/extracted shadow
-assessment and synthetic evaluation, with offline acceptance recorded under #130.
-[#131](https://github.com/drink970082/job-matchbook/issues/131)
-owns version-approved real inputs, independent complete source pools and blind/adjudicated
-labels; this work awaits explicit approval of the exact profile, policy, label guide, data
-scope and private-input access. [#132](https://github.com/drink970082/job-matchbook/issues/132)
-owns the separately authorized provider/tokenizer/pricing pilot. #109 retains live product
-decisions, and #112 retains comparative measurement and GO. Offline acceptance does not
-authorize private-input access, model calls or activation. Subsequent real persistence,
-MCP/UI integration and rollout stay gated. Existing model guards/rubric stay intact until
-separately validated. No whole-database scoring, legacy corpus rebuild, model downgrade or
-Telegram rollout is required for R1–R3. See [EVALUATION](EVALUATION.md).
+The old fit scorer is removed; screening stays. The operator reports that approximately
+200 daily postings exceed the current workflow's capacity and selects review ranking:
+the JEV track, epic [#135](https://github.com/drink970082/job-matchbook/issues/135),
+packages P1–P6 (#137–#142), built on the preselection offline tooling on `main`
+(#117–#119, #129). This reported need is not a benchmark, model selection or accepted
+evaluation result; ranking activation stays gated by those packages. See
+[EVALUATION](EVALUATION.md).
 
 ## Deferred extensions and pick rule
 

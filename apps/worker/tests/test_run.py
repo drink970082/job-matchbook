@@ -8,23 +8,10 @@ import pytest
 
 from ats_worker import config as cfgmod
 from ats_worker import db as dbmod
-from ats_worker import prompts
 from ats_worker import run
 from tests._helpers import bootstrap_db, make_posting
 
 
-def _assessment(**over):
-    """A minimally-valid fit assessment scorecard (passes score._normalize_score's
-    enum checks) so a fake fit closure's card doesn't itself raise ScoreError."""
-    base = {
-        "seniority": {"verdict": "match", "note": ""},
-        "domain": {"verdict": "match", "note": ""},
-        "must_haves": {"met": [], "missing": []},
-        "nice_to_haves": {"missing": []},
-        "summary": "",
-    }
-    base.update(over)
-    return base
 
 
 def test_feed_session_is_per_thread():
@@ -67,56 +54,10 @@ def test_load_env_on_a_directory_returns_empty_not_crash(tmp_path):
     assert run.load_env(str(d)) == {}
 
 
-def test_run_once_calls_five_stages_in_order(monkeypatch):
+def test_run_once_fetch_only_stops_before_the_screen(monkeypatch):
+    # --fetch-only must return BEFORE any screen call (a quota-free board refresh).
     order = []
-
-    monkeypatch.setattr(run.pipeline, "run_fetch",
-                        lambda *a, **k: order.append("fetch") or 0)
-    monkeypatch.setattr(run.pipeline, "run_expire",
-                        lambda *a, **k: order.append("expire") or 0)
-    monkeypatch.setattr(run.pipeline, "run_retry",
-                        lambda *a, **k: order.append("retry") or 0)
-    monkeypatch.setattr(run.pipeline, "run_score",
-                        lambda *a, **k: order.append("score"))
-    monkeypatch.setattr(run.pipeline, "run_notify",
-                        lambda *a, **k: order.append("notify"))
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    # The watchlist now comes from the DB; stub the reads so this stage-order test
-    # doesn't need a real connection (feeds are off, so run_feed isn't called).
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-
-    from ats_worker import config as cfgmod
-    cfg = cfgmod.load_config(
-        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
-    )
-
-    run.run_once(
-        cfg,
-        db_path=":memory:",
-        resumes={"resume": "resume"},
-        env={
-            "ANTHROPIC_API_KEY": "k",
-            "TELEGRAM_BOT_TOKEN": "t",
-            "TELEGRAM_CHAT_ID": "c",
-            "OLLAMA_HOST": "h",
-        },
-    )
-    assert order == ["fetch", "expire", "retry", "score", "notify"]
-
-
-def test_run_once_fetch_only_stops_before_score(monkeypatch):
-    # --fetch-only must run through retry then return BEFORE any screen/scorer call
-    # (a quota-free board refresh) — so score/notify never run.
-    order = []
-    for stage, ret in (("run_fetch", 0), ("run_expire", 0), ("run_retry", 0),
-                       ("run_score", None), ("run_notify", None)):
+    for stage, ret in (("run_fetch", 0), ("run_expire", 0), ("run_screen", None)):
         monkeypatch.setattr(run.pipeline, stage,
                             lambda *a, _s=stage, **k: order.append(_s))
 
@@ -132,21 +73,21 @@ def test_run_once_fetch_only_stops_before_score(monkeypatch):
 
     from ats_worker import config as cfgmod
     cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
+    run.run_once(cfg, db_path=":memory:", env=_ENV,
                  fetch_only=True)
-    assert order == ["run_fetch", "run_expire", "run_retry"]  # no score, no notify
+    assert order == ["run_fetch", "run_expire"]  # no screen
 
 
 def test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode(db_path, monkeypatch):
     calls = []
     monkeypatch.setattr(run.pipeline, "run_unscored_refresh",
                         lambda conn, **kwargs: calls.append(kwargs) or {})
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
+    for stage in ("run_fetch", "run_expire", "run_screen"):
         monkeypatch.setattr(run.pipeline, stage,
                             lambda *a, _stage=stage, **k: pytest.fail(f"unexpected {_stage}"))
     cfg = cfgmod.load_config("companies: []\n")
     run.run_once(
-        cfg, db_path=db_path, resumes={}, env={}, refresh_unscored=True,
+        cfg, db_path=db_path, env={}, refresh_unscored=True,
         refresh_source="smartrecruiters", refresh_limit=3,
     )
     assert len(calls) == 1
@@ -155,66 +96,7 @@ def test_run_once_unscored_refresh_runs_as_an_isolated_source_only_mode(db_path,
     assert callable(calls[0]["observation_fn"])
 
 
-def test_run_once_score_only_skips_ingest(monkeypatch):
-    # --score-only must skip the network ingest (fetch/feed/expire) and go straight
-    # to retry -> score -> notify over the existing backlog.
-    order = []
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
-        monkeypatch.setattr(run.pipeline, stage,
-                            lambda *a, _s=stage, **k: order.append(_s) or 0)
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-
-    from ats_worker import config as cfgmod
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
-                 score_only=True)
-    assert order == ["run_retry", "run_score", "run_notify"]  # no fetch/expire
-
-
-@pytest.mark.parametrize("screen_limit", [40, None])
-def test_run_once_screen_only_skips_legacy_retry_fit_quota_and_notify(
-        monkeypatch, tmp_path, screen_limit):
-    dbfile = bootstrap_db(tmp_path / "screen-only.db")
-    conn = dbmod.connect(str(dbfile))
-    dbmod.upsert_postings(conn, [make_posting("screen-only")],
-                          now="2026-06-04T08:00:00.000Z")
-    conn.close()
-    cfg = cfgmod.load_config("companies: []\n")
-
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("screen-only reached a fit/retry/notify side effect")
-
-    monkeypatch.setattr(run.pipeline, "run_retry", forbidden)
-    monkeypatch.setattr(run.pipeline, "run_score", forbidden)
-    monkeypatch.setattr(run.pipeline, "run_notify", forbidden)
-    monkeypatch.setattr(run, "make_scorer", forbidden)
-    monkeypatch.setattr(run, "capture_usage", forbidden)
-    monkeypatch.setattr(run, "notify_posting", forbidden)
-
-    run.run_once(cfg, db_path=str(dbfile), resumes={}, env={}, screen_backend="none",
-                 screen_only=True, screen_limit=screen_limit)
-
-    conn = dbmod.connect(str(dbfile))
-    try:
-        posting = conn.execute(
-            "SELECT pipeline_status, score, score_detail, attempts, notify_attempts "
-            "FROM job_postings WHERE external_id='screen-only'"
-        ).fetchone()
-        assert tuple(posting) == ("new", None, None, 0, 0)
-        assert conn.execute("SELECT state FROM job_screenings").fetchone()[0] == "complete"
-    finally:
-        conn.close()
-
-
-def test_run_once_screen_only_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
+def test_run_once_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
     cfg = cfgmod.load_config("companies: []\n")
     dbfile = bootstrap_db(tmp_path / "screen-only-codex.db")
     captured = {}
@@ -226,8 +108,7 @@ def test_run_once_screen_only_defaults_codex_to_luna_medium(monkeypatch, tmp_pat
     monkeypatch.setattr(run.pipeline, "run_screen", lambda *_args, **kwargs:
                         captured.update(run_screen=kwargs))
 
-    run.run_once(cfg, db_path=str(dbfile), resumes={}, env={}, screen_backend="codex",
-                 screen_only=True)
+    run.run_once(cfg, db_path=str(dbfile), env={}, screen_backend="codex")
 
     assert captured["make_screener"][1]["screen_model"] == "gpt-5.6-luna"
     assert captured["make_screener"][1]["screen_effort"] == "medium"
@@ -238,32 +119,6 @@ def test_run_once_screen_only_defaults_codex_to_luna_medium(monkeypatch, tmp_pat
     assert captured["run_screen"]["clock"] is run._now
 
 
-def test_run_once_without_telegram_skips_notify(monkeypatch, capsys):
-    # Telegram is optional: a user who only reviews the Discovered Jobs tab (matched
-    # rows show there at 'scored', not just 'notified') runs the worker with no bot
-    # creds. run_once must score then skip notify, not KeyError.
-    order = []
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
-        monkeypatch.setattr(run.pipeline, stage,
-                            lambda *a, _s=stage, **k: order.append(_s) or 0)
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-
-    from ats_worker import config as cfgmod
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"},
-                 env={"ANTHROPIC_API_KEY": "k", "OLLAMA_HOST": "h"})  # no telegram
-    assert order == ["run_fetch", "run_expire", "run_retry", "run_score"]  # no notify
-    assert "notify" in capsys.readouterr().out.lower()
-
-
 # --- watchlist bootstrap + feed wiring ------------------------------------
 
 _ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
@@ -271,7 +126,7 @@ _ENV = {"ANTHROPIC_API_KEY": "k", "TELEGRAM_BOT_TOKEN": "t",
 
 
 def _stub_stages(monkeypatch):
-    for stage in ("run_fetch", "run_retry", "run_score", "run_notify"):
+    for stage in ("run_fetch", "run_screen"):
         monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
 
 
@@ -283,7 +138,7 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
         "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
         "  - { source: lever, slug: b, name: B }\n"
     )
-    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    run.run_once(cfg, db_path=str(dbfile), env=_ENV)
 
     conn = dbmod.connect(str(dbfile))
     assert dbmod.get_watchlist(conn) == [
@@ -291,7 +146,7 @@ def test_run_once_seeds_watchlist_from_config_when_empty(monkeypatch, tmp_path):
         {"source": "lever", "slug": "b", "name": "B", "recipe": None},
     ]
     # a second pass does not duplicate (watchlist no longer empty)
-    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    run.run_once(cfg, db_path=str(dbfile), env=_ENV)
     assert dbmod.count_watchlist(dbmod.connect(str(dbfile))) == 2
 
 
@@ -312,12 +167,12 @@ def test_run_once_gates_browser_sources(monkeypatch, tmp_path):
 
     # default: browser rows filtered out of the fetch
     run.run_once(cfgmod.load_config("companies: []\n"),
-                 db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+                 db_path=str(dbfile), env=_ENV)
     assert "browser" not in seen["sources"] and "greenhouse" in seen["sources"]
 
     # enable_browser_sources: they pass through
     run.run_once(cfgmod.load_config("companies: []\nenable_browser_sources: true\n"),
-                 db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+                 db_path=str(dbfile), env=_ENV)
     assert "browser" in seen["sources"]
 
 
@@ -333,12 +188,12 @@ def test_run_once_runs_enabled_feed_and_skips_disabled(monkeypatch, tmp_path):
     cfg_on = cfgmod.load_config(
         "companies: []\nfeeds:\n  simplify:\n    enabled: true\n    categories: [Software]\n"
     )
-    run.run_once(cfg_on, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    run.run_once(cfg_on, db_path=str(dbfile), env=_ENV)
     assert calls == [("simplify", ["Software"])]
 
     calls.clear()
     cfg_off = cfgmod.load_config("companies: []\nfeeds:\n  simplify:\n    enabled: false\n")
-    run.run_once(cfg_off, db_path=str(dbfile), resumes={"resume": "r"}, env=_ENV)
+    run.run_once(cfg_off, db_path=str(dbfile), env=_ENV)
     assert calls == []
 
 
@@ -350,8 +205,7 @@ def test_run_once_screen_backend_none_makes_no_provider_call(monkeypatch, tmp_pa
                         lambda backend, **kw: seen.setdefault("backend", backend))
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
-    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile),
-                 resumes={"resume": "r"}, env=_ENV, screen_backend="none")
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV, screen_backend="none")
     assert seen["backend"] == "none"
 
 
@@ -366,8 +220,7 @@ def test_run_once_uses_screen_model_override(monkeypatch, tmp_path):
         lambda key, model, **kw: seen.update(model=model) or (lambda p, s: {}))
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
-    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile),
-                 resumes={"resume": "r"}, env=_ENV, screen_backend="claude-api",
+    run.run_once(cfgmod.load_config("companies: []\n"), db_path=str(dbfile), env=_ENV, screen_backend="claude-api",
                  screen_model="claude-sonnet-5")
     assert seen["model"] == "claude-sonnet-5"
 
@@ -375,13 +228,10 @@ def test_run_once_uses_screen_model_override(monkeypatch, tmp_path):
 # --- run_once builds the candidate + plumbs Ollama env (the real wiring) ---
 
 def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
-    """Drive the REAL run_score over one 'new' row, capturing the kwargs the wired
-    screen_fn passes to screen_posting, plus the kwargs the REAL make_screener (not
-    mocked here) passes on to make_ollama_extract — that is where OLLAMA_HOST now
-    lands, since it is no longer a screen_posting kwarg (Task 2). fetch/notify are
-    stubbed, and the fit scorer's BUILD is stubbed to a trivial hermetic callable —
-    the fake screen always survives (not disqualified), so run_score's fit phase does
-    run, and it must not shell out to a real codex/Claude backend."""
+    """Run run_once with the screen stage feeding one posting to the wired screen_fn,
+    capturing the kwargs it passes to screen_posting, plus the kwargs the REAL
+    make_screener (not mocked here) passes on to make_ollama_extract — that is where
+    OLLAMA_HOST lands, since it is not a screen_posting kwarg."""
     captured = {}
 
     def fake_screen_posting(posting, **kwargs):
@@ -395,13 +245,9 @@ def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
 
     monkeypatch.setattr(run, "screen_posting", fake_screen_posting)
     monkeypatch.setattr(run, "make_ollama_extract", fake_make_ollama_extract)
-    monkeypatch.setattr(
-        run, "make_scorer",
-        lambda backend, **kw: (lambda postings, resumes: [
-            {"score": 70, "assessment": _assessment()} for _ in postings]),
-    )
     monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
+    monkeypatch.setattr(run.pipeline, "run_screen",
+                        lambda conn, *, screen_fn, **k: screen_fn(make_posting("1")))
 
     dbfile = tmp_path / "applications.db"
     bootstrap_db(str(dbfile))
@@ -409,7 +255,7 @@ def _run_once_capturing_screen(monkeypatch, tmp_path, cfg, env):
     dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
     conn.close()
 
-    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=env)
+    run.run_once(cfg, db_path=str(dbfile), env=env)
     return captured
 
 
@@ -430,299 +276,10 @@ def test_run_once_builds_candidate_and_honors_num_ctx(monkeypatch, tmp_path):
     assert cand["exclude_internships"] is False        # defaults off; plumbed through
     assert kw["num_ctx"] == 4096                       # OLLAMA_NUM_CTX honored
     assert captured["extract_kwargs"]["ollama_host"] == "http://ol:11434"
-    # (fit-scorer wiring — which backend/model builds fit_fn — is verified by the
-    # score-model/backend tests below via make_scorer/make_claude_scorer/
-    # make_codex_scorer; screen_posting has no score_fit kwarg to inspect here.)
 
 
-def _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env, *, score_model,
-                                  score_backend="claude-api"):
-    """Like _run_once_capturing_screen, but leaves make_claude_scorer/
-    make_codex_scorer for the caller to monkeypatch (to capture the model kwarg
-    fit_fn's lazy build calls it with). screen_fn is stubbed to a hermetic
-    always-survives fake so control reaches fit_fn regardless of candidate
-    config (backend defaults to claude-api here: the default run backend is codex
-    now)."""
-    monkeypatch.setattr(run, "screen_posting", lambda posting, **kw: {"disqualified": False})
-    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
-    dbfile = tmp_path / "applications.db"
-    bootstrap_db(str(dbfile))
-    conn = dbmod.connect(str(dbfile))
-    dbmod.upsert_postings(conn, [make_posting("1")], now="2026-01-01T00:00:00.000Z")
-    conn.close()
-    # score_backend=None -> omit it, so run_once's own default applies.
-    extra = {} if score_backend is None else {"score_backend": score_backend}
-    run.run_once(cfg, db_path=str(dbfile), resumes={"resume": "r"}, env=env,
-                 anthropic_score_model=score_model, **extra)
 
 
-def test_run_once_uses_score_model_override(monkeypatch, tmp_path):
-    seen = {}
-
-    def fake_make_claude_scorer(key, model, **kw):
-        seen["model"] = model
-        return lambda postings, resumes: [{"score": 70} for _ in postings]
-
-    monkeypatch.setattr(run, "make_claude_scorer", fake_make_claude_scorer)
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    env = {"OLLAMA_HOST": "h", "ANTHROPIC_API_KEY": "k",
-           "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env,
-                                  score_model="claude-opus-4-8")
-    assert seen["model"] == "claude-opus-4-8"
-
-
-def test_make_scorer_picks_the_backend(monkeypatch):
-    # One seam, two twins: codex (ChatGPT subscription) is the default; claude stays
-    # reachable for a metered A/B. Codex must never need ANTHROPIC_API_KEY.
-    monkeypatch.setattr(run, "make_codex_scorer",
-                        lambda model, **kw: ("codex", model, kw.get("profile")))
-    monkeypatch.setattr(run, "make_claude_scorer",
-                        lambda key, model, **kw: ("claude-api", key, model))
-    monkeypatch.setattr(run, "make_claude_cli_scorer",
-                        lambda model, **kw: ("claude-code", model))
-    assert run.DEFAULT_SCORE_BACKEND == "codex"
-    assert run.make_scorer("codex", env={}, profile="p") == (
-        "codex", run.DEFAULT_CODEX_SCORE_MODEL, "p")
-    assert run.make_scorer("claude-api", env={"ANTHROPIC_API_KEY": "k"}) == (
-        "claude-api", "k", run.DEFAULT_ANTHROPIC_SCORE_MODEL)
-    # claude-code is the SUBSCRIPTION twin and must never touch ANTHROPIC_API_KEY.
-    assert run.make_scorer("claude-code", env={}) == (
-        "claude-code", run.DEFAULT_CLAUDE_CODE_SCORE_MODEL)
-
-
-def _run_once_capturing_run_score(monkeypatch, **kw):
-    """Run one pass with every stage stubbed, returning run_score's kwargs."""
-    seen: dict = {}
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_notify"):
-        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_score",
-                        lambda conn, **k: seen.update(k))
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV, **kw)
-    return seen
-
-
-def test_run_once_stamps_the_active_fit_backend_and_model(monkeypatch):
-    # The scorer's identity is known only at the wiring layer (run.py), so run_once
-    # hands it to run_score for persistence — a row scored on codex/gpt-5.6-sol must
-    # be distinguishable afterwards from one scored on claude/claude-sonnet-5.
-    codex = _run_once_capturing_run_score(monkeypatch)["scorer_meta"]
-    assert codex == {"backend": "codex", "model": run.DEFAULT_CODEX_SCORE_MODEL,
-                     "scorer_version": prompts.SCORER_VERSION}
-
-    claude = _run_once_capturing_run_score(
-        monkeypatch, score_backend="claude-api",
-        anthropic_score_model="claude-sonnet-5")["scorer_meta"]
-    assert claude["backend"] == "claude-api"
-    assert claude["model"] == "claude-sonnet-5"
-
-
-def _run_once_capturing_usage(monkeypatch, *, scored: bool, usage_ok: bool = True, **kw):
-    """Run one pass whose run_score optionally exercises `fit_fn` once, returning the
-    `(path, backend)` capture_usage was called with — or None if it wasn't."""
-    seen: list = []
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_notify"):
-        monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
-
-    def run_score(conn, **k):
-        if scored:
-            k["fit_fn"]([{"id": 1, "job_title": "t", "description": "d"}])
-
-    monkeypatch.setattr(run.pipeline, "run_score", run_score)
-    # The scorer itself must never be built for real (no codex subprocess in tests).
-    monkeypatch.setattr(run, "make_scorer", lambda *a, **k: lambda postings, resumes: [])
-    # Returns True: the real one reports whether a snapshot was written, and run_once
-    # warns on False (see the test below).
-    monkeypatch.setattr(run, "capture_usage",
-                        lambda path, backend: seen.append((path, backend)) or usage_ok)
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV, **kw)
-    return seen[0] if seen else None
-
-
-def test_run_once_refreshes_the_quota_bar_for_whichever_backend_scored(monkeypatch):
-    # The bar must follow SCORE_BACKEND: capturing codex's quota while claude did the
-    # scoring would show a budget nothing is spending. The snapshot lands beside the
-    # shared DB so the web container can read it.
-    path, backend = _run_once_capturing_usage(monkeypatch, scored=True)
-    assert backend == "codex"
-    assert path.endswith("scorer_usage.json")
-
-    _, backend = _run_once_capturing_usage(monkeypatch, scored=True,
-                                           score_backend="claude-code")
-    assert backend == "claude-code"
-
-
-def test_a_failed_quota_capture_is_announced_not_swallowed(monkeypatch, capsys):
-    # capture_usage is best-effort by contract and swallows every exception, so a pass
-    # that fails to refresh the snapshot used to look identical to one that refreshed it
-    # — and the stale file is what the --score-limit decisions are made on.
-    _run_once_capturing_usage(monkeypatch, scored=True, usage_ok=False)
-    out = capsys.readouterr().out
-    assert "[quota] WARNING" in out and "scorer_usage.json" in out
-
-    _run_once_capturing_usage(monkeypatch, scored=True, usage_ok=True)
-    assert "[quota] WARNING" not in capsys.readouterr().out
-
-
-def test_run_once_skips_the_quota_fetch_when_nothing_was_scored(monkeypatch):
-    # A pass that built no scorer spent nothing; re-fetching would only move the bar's
-    # `as_of` forward on an unchanged reading.
-    assert _run_once_capturing_usage(monkeypatch, scored=False) is None
-
-
-def test_scorer_meta_model_tracks_the_backend_make_scorer_picks():
-    # The two must not drift: whatever model make_scorer hands the backend is the
-    # model the provenance stamp claims.
-    assert run._scorer_meta("codex", codex_score_model="m")["model"] == "m"
-    assert run._scorer_meta("claude-api", anthropic_score_model="m")["model"] == "m"
-    assert run._scorer_meta("claude-code", claude_code_score_model="m")["model"] == "m"
-
-
-def test_run_once_no_notify_scores_without_alerting(monkeypatch, capsys):
-    # An unattended bulk-scoring pass would otherwise fire a Telegram alert per match.
-    # --no-notify scores silently; the matches still surface in the web Discovered tab,
-    # and the rows stay 'scored' so a later pass CAN notify them (nothing is consumed).
-    order = []
-    for stage in ("run_fetch", "run_expire", "run_retry", "run_score", "run_notify"):
-        monkeypatch.setattr(run.pipeline, stage,
-                            lambda *a, _s=stage, **k: order.append(_s) or 0)
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "r"}, env=_ENV,
-                 no_notify=True)
-    assert "run_score" in order and "run_notify" not in order
-    assert "notify" in capsys.readouterr().out.lower()   # says so, never silently
-
-
-def test_run_once_rescreen_discarded_requeues_before_scoring(monkeypatch):
-    # The flag is the only way back from 'discarded' (terminal). Off by default:
-    # a normal pass must never resurrect discards behind the operator's back.
-    calls: list = []
-    # (requeued, skipped) -- skipped names the un-hydrated stub discards left behind
-    monkeypatch.setattr(run.db, "requeue_discarded",
-                        lambda conn, now: (calls.append(now), (3, 2))[1])
-
-    _run_once_capturing_run_score(monkeypatch)
-    assert calls == []
-
-    _run_once_capturing_run_score(monkeypatch, rescreen_discarded=True)
-    assert len(calls) == 1
-
-
-def test_unknown_score_backend_fails_before_any_work(monkeypatch, capsys):
-    # argparse enforces `choices` on a parsed value, never on an env-supplied default,
-    # so SCORE_BACKEND=openai in a .env used to reach _scorer_meta deep inside the pass
-    # -- AFTER the fetch and AFTER --rescreen-discarded had spent its one shot. main()
-    # must reject it at parse time, before anything irreversible.
-    # Via the ENV default specifically -- argparse's `choices` already rejects the
-    # flag, which is exactly why the env path was the one that slipped through.
-    monkeypatch.setenv("SCORE_BACKEND", "openai")
-    with pytest.raises(SystemExit):
-        run.main(["--once"])
-    assert "unknown score backend" in capsys.readouterr().err
-
-
-def test_rescreen_discarded_requires_once(monkeypatch, tmp_path, capsys):
-    # In daemon mode the flag would fire EVERY pass — resurrecting the same discards
-    # every 6h and re-charging the paid fit scorer for each survivor, forever. It is
-    # a one-shot operator action, so refuse the combination instead of leaking money.
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    with pytest.raises(SystemExit):
-        run.main(["--rescreen-discarded", "--config", str(cfg),
-                  "--env", str(tmp_path / "none.env")])
-    assert "--once" in capsys.readouterr().err
-
-
-def test_score_max_id_reaches_run_score(monkeypatch):
-    # The selector is useless if run_once swallows it: PROGRESS queue item 2 needs the
-    # bound to arrive at run_score, which is the only place the queue is sliced.
-    assert _run_once_capturing_run_score(monkeypatch)["max_id"] == 0
-    assert _run_once_capturing_run_score(monkeypatch, score_max_id=1417)["max_id"] == 1417
-
-
-def test_the_documented_recovery_recipe_is_accepted_and_wired(monkeypatch, tmp_path):
-    # The half the two tests either side of this one MISS. One calls run_once directly
-    # and the other only pins the refusal, so nothing exercised main() -> run_once: both
-    # "the guard refuses the flag even with --once" and "args.score_max_id never reaches
-    # run_once" left the whole suite green. This drives the exact recipe PROGRESS queue
-    # item 2 documents, through argparse, and asserts it arrives.
-    seen: dict = {}
-    monkeypatch.setattr(run, "run_once", lambda cfg, **k: seen.update(k))
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    resumes = tmp_path / "resume"
-    resumes.mkdir()
-    (resumes / "resume_main.txt").write_text("a resume")
-
-    run.main(["--once", "--rescreen-discarded", "--score-max-id", "1417",
-              "--config", str(cfg), "--env", str(tmp_path / "none.env"),
-              "--db", str(tmp_path / "x.db"), "--resume-dir", str(resumes)])
-    assert seen["score_max_id"] == 1417
-    assert seen["rescreen_discarded"] is True
-
-
-def test_a_negative_score_max_id_is_refused_not_read_as_no_bound(monkeypatch, tmp_path,
-                                                                 capsys):
-    # run_score tests `max_id > 0`, so a sign typo would pass the one-shot guard and then
-    # silently disable the filter. Paired with --rescreen-discarded (3,232 rows requeued
-    # to 'new' first) that turns the flag that bounds spend into an unbounded paid pass.
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    with pytest.raises(SystemExit):
-        run.main(["--once", "--score-max-id", "-1417", "--config", str(cfg),
-                  "--env", str(tmp_path / "none.env")])
-    assert "must be >= 0" in capsys.readouterr().err
-
-
-def test_score_max_id_requires_once(monkeypatch, tmp_path, capsys):
-    # Opposite failure mode to --rescreen-discarded's, same guard. `once()` closes over
-    # the parsed args, so a bound left on the daemon holds for every future firing: the
-    # first pass drains what is under it and every pass after scores NOTHING while fresh
-    # intake (always higher ids) piles up behind the bound. A daemon that logs healthy
-    # passes and never scores is the one failure this repo has already paid for once.
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    with pytest.raises(SystemExit):
-        run.main(["--score-max-id", "1417", "--config", str(cfg),
-                  "--env", str(tmp_path / "none.env")])
-    assert "--once" in capsys.readouterr().err
-
-
-def test_make_scorer_rejects_an_unknown_backend():
-    # A typo'd --score-backend must fail loudly, not silently fall back to a paid API.
-    with pytest.raises(ValueError, match="unknown score backend"):
-        run.make_scorer("gpt", env={})
 
 
 def test_make_screener_none_returns_no_extract():
@@ -776,7 +333,7 @@ def test_make_screener_codex_wires_reasoning_effort(monkeypatch):
         "codex", "gpt-5.6-luna", "medium")
 
 
-def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypatch):
+def test_screen_only_is_an_accepted_alias_for_the_default_pass(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text("")
     captured = {}
@@ -791,23 +348,17 @@ def test_screen_only_cli_skips_resume_loading_and_passes_mode(tmp_path, monkeypa
         "--once", "--screen-only", "--screen-backend", "none",
         "--config", "unused.yaml", "--env", str(env_file),
         "--db", str(tmp_path / "applications.db"),
-        "--resume-dir", str(tmp_path / "does-not-exist"),
     ])
 
-    assert captured["resumes"] == {}
-    assert captured["profile"] == ""
-    assert captured["config_options"] == {"validate_fit_profile": False}
-    assert captured["screen_only"] is True
+    assert captured["config_options"] == {}
+    assert captured["fetch_only"] is False
     assert captured["screen_limit"] == 40
 
 
 @pytest.mark.parametrize("mode_args", [
     ["--screen-only", "--fetch-only"],
-    ["--screen-only", "--score-only"],
-    ["--screen-only", "--rescreen-discarded"],
-    ["--rescreen-screened"],
+    ["--rescreen-screened", "--fetch-only"],
     ["--screen-only", "--screen-limit", "0"],
-    ["--screen-unlimited"],
     ["--fetch-only", "--screen-unlimited"],
     ["--screen-only", "--screen-unlimited", "--screen-limit", "1"],
 ])
@@ -900,28 +451,11 @@ def test_default_screen_backend_is_free():
                              model="m") is not None
 
 
-def test_run_once_defaults_to_the_codex_scorer(monkeypatch, tmp_path):
-    # The default pass builds the codex scorer and never reads ANTHROPIC_API_KEY —
-    # env here deliberately omits it, so a regression to Claude raises KeyError.
-    seen = {}
-
-    def fake_make_codex_scorer(model, **kw):
-        seen["model"] = model
-        return lambda postings, resumes: [{"score": 70} for _ in postings]
-
-    monkeypatch.setattr(run, "make_codex_scorer", fake_make_codex_scorer)
-    cfg = cfgmod.load_config("companies:\n  - { source: greenhouse, slug: a, name: A }\n")
-    env = {"OLLAMA_HOST": "h", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "c"}
-    _run_once_capturing_fit_model(monkeypatch, tmp_path, cfg, env,
-                                  score_model="unused", score_backend=None)
-    assert seen["model"] == run.DEFAULT_CODEX_SCORE_MODEL
-
-
 def test_run_once_threads_fetch_filters(monkeypatch):
     captured = {}
     monkeypatch.setattr(run.pipeline, "run_fetch",
                         lambda *a, **k: captured.update(k) or 0)
-    for stage in ("run_expire", "run_retry", "run_score", "run_notify"):
+    for stage in ("run_expire", "run_screen"):
         monkeypatch.setattr(run.pipeline, stage, lambda *a, **k: 0)
 
     class FakeConn:
@@ -940,7 +474,7 @@ def test_run_once_threads_fetch_filters(monkeypatch):
         "title_exclude: [intern]\n"
         "candidate: { locations: [USA] }\n"
     )
-    run.run_once(cfg, db_path=":memory:", resumes={"resume": "resume"}, env=_ENV)
+    run.run_once(cfg, db_path=":memory:", env=_ENV)
     assert captured["max_age_days"] == 30
     assert captured["title_exclude"] == ["intern"]
     assert captured["candidate"]["locations"] == ["USA"]
@@ -955,73 +489,25 @@ def test_run_once_empty_candidate_skips_screening(monkeypatch, tmp_path):
     assert kw["num_ctx"] == 8192                        # default when env omits it
 
 
-# --- multi-resume loading ---------------------------------------------------
-
-def test_load_resumes_labels_profile_and_order(tmp_path):
-    (tmp_path / "resume_swe.txt").write_text("SWE", encoding="utf-8")
-    (tmp_path / "resume_quant_dev.txt").write_text("QD", encoding="utf-8")
-    (tmp_path / "personal_profile.txt").write_text("my goals", encoding="utf-8")
-    resumes, profile = run.load_resumes(str(tmp_path))
-    # labels strip the resume_ prefix; sorted by filename -> deterministic,
-    # cache-stable prompt order (quant_dev before swe)
-    assert resumes == {"quant_dev": "QD", "swe": "SWE"}
-    assert list(resumes) == ["quant_dev", "swe"]
-    assert profile == "my goals"
-
-
-def test_load_resumes_bare_resume_txt_is_single_version(tmp_path):
-    (tmp_path / "resume.txt").write_text("me", encoding="utf-8")
-    resumes, profile = run.load_resumes(str(tmp_path))
-    assert resumes == {"resume": "me"}
-    assert profile == ""
-
-
-def test_load_resumes_no_files_exits_with_hint(tmp_path):
-    with pytest.raises(SystemExit) as e:
-        run.load_resumes(str(tmp_path))
-    assert "resume" in str(e.value).lower()
-
-
-def test_load_resumes_duplicate_label_exits_naming_both(tmp_path):
-    (tmp_path / "resume_swe.txt").write_text("a", encoding="utf-8")
-    (tmp_path / "swe.txt").write_text("b", encoding="utf-8")
-    with pytest.raises(SystemExit) as e:
-        run.load_resumes(str(tmp_path))
-    assert "resume_swe.txt" in str(e.value) and "swe.txt" in str(e.value)
-
-
-def test_load_resumes_non_utf8_file_exits_not_traceback(tmp_path):
-    (tmp_path / "resume.txt").write_bytes(b"\xff\xfe caf\xe9")  # not valid UTF-8
-    with pytest.raises(SystemExit) as e:
-        run.load_resumes(str(tmp_path))
-    assert "resume.txt" in str(e.value)
-
-
-def test_load_resumes_skips_dotfiles(tmp_path):
-    (tmp_path / "resume.txt").write_text("me", encoding="utf-8")
-    (tmp_path / "._resume.txt").write_bytes(b"\x00\x05\x16\x07 AppleDouble junk")
-    resumes, _ = run.load_resumes(str(tmp_path))
-    assert resumes == {"resume": "me"}
-
 
 # --- main() honors .env for argparse defaults -------------------------------
 
 def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
-    # SCORE_BACKEND / OLLAMA_MODEL / DB_PATH / CODEX_SCORE_MODEL set in .env must reach
+    # SCREEN_BACKEND / OLLAMA_MODEL / DB_PATH / SCREEN_MODEL set in .env must reach
     # run_once — regression guard for the bug where load_env's dict was never merged
     # into os.environ (so the os.environ-derived argparse defaults ignored .env).
     import os as _os
     monkeypatch.setattr(_os, "environ", dict(_os.environ))
-    for k in ("SCORE_BACKEND", "OLLAMA_MODEL", "DB_PATH", "CODEX_SCORE_MODEL"):
+    for k in ("SCREEN_BACKEND", "OLLAMA_MODEL", "DB_PATH", "SCREEN_MODEL"):
         _os.environ.pop(k, None)
 
     envfile = tmp_path / ".env"
     envfile.write_text(
-        "SCORE_BACKEND=claude-api\n"
+        "SCREEN_BACKEND=claude-api\n"
         "OLLAMA_MODEL=custom:1b\n"
         "DB_PATH=/tmp/from-env.db\n"
-        "CODEX_SCORE_MODEL=gpt-from-env\n"
-        "ANTHROPIC_API_KEY=k\nTELEGRAM_BOT_TOKEN=t\nTELEGRAM_CHAT_ID=c\n"
+        "SCREEN_MODEL=claude-from-env\n"
+        "ANTHROPIC_API_KEY=k\n"
     )
 
     captured = {}
@@ -1032,22 +518,20 @@ def test_main_merges_env_file_into_argparse_defaults(monkeypatch, tmp_path):
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
     run.main(["--once", "--env", str(envfile)])
 
-    assert captured["score_backend"] == "claude-api"
+    assert captured["screen_backend"] == "claude-api"
     assert captured["ollama_model"] == "custom:1b"
     assert captured["db_path"] == "/tmp/from-env.db"
-    assert captured["codex_score_model"] == "gpt-from-env"
-    assert captured["env"]["TELEGRAM_BOT_TOKEN"] == "t"   # dict still plumbed to run_once
+    assert captured["screen_model"] == "claude-from-env"
+    assert captured["env"]["ANTHROPIC_API_KEY"] == "k"   # dict still plumbed to run_once
 
 
 def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     # Regression guard for the secret-scoping regression: main() must only promote
-    # the eight argparse-read config keys from .env into os.environ, never secrets —
-    # a leaked os.environ secret would be inherited by the codex CLI subprocess
-    # (subprocess.run with no env= in score/backends_codex.py).
+    # the argparse-read config keys from .env into os.environ, never secrets — a
+    # leaked os.environ secret would be inherited by the codex CLI subprocess.
     import os as _os
     monkeypatch.setattr(_os, "environ", dict(_os.environ))
     for k in ("DB_PATH", "OLLAMA_MODEL", "SCREEN_BACKEND", "SCREEN_MODEL",
@@ -1078,19 +562,18 @@ def test_main_env_merge_excludes_secrets(monkeypatch, tmp_path):
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
     run.main(["--once", "--env", str(envfile)])
 
-    # The eight argparse-read config keys must be promoted into os.environ.
+    # The argparse-read config keys must be promoted into os.environ.
     assert _os.environ["DB_PATH"] == "/tmp/from-env.db"
     assert _os.environ["OLLAMA_MODEL"] == "custom:1b"
     assert _os.environ["SCREEN_BACKEND"] == "claude-api"
     assert _os.environ["SCREEN_MODEL"] == "claude-opus-4-8"
-    assert _os.environ["SCORE_BACKEND"] == "claude-api"
-    assert _os.environ["CODEX_SCORE_MODEL"] == "gpt-from-env"
-    assert _os.environ["ANTHROPIC_SCORE_MODEL"] == "claude-from-env"
-    assert _os.environ["CODEX_BATCH_SIZE"] == "3"
+    # Retired fit-scorer keys are no longer argparse defaults, so they stay out too.
+    for retired in ("SCORE_BACKEND", "CODEX_SCORE_MODEL", "ANTHROPIC_SCORE_MODEL",
+                    "CODEX_BATCH_SIZE"):
+        assert retired not in _os.environ
 
     # Secrets must never be promoted into os.environ (would leak to codex subprocess).
     assert "TELEGRAM_BOT_TOKEN" not in _os.environ
@@ -1310,7 +793,6 @@ def test_main_once_refuses_to_start_inside_another_pass(monkeypatch, tmp_path):
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
     # Hold the lock for the SAME db main() will resolve — that is what the lock is keyed
     # on, so a test naming a different db would contend with nothing and pass vacuously.
@@ -1342,7 +824,6 @@ def test_a_scheduled_pass_skips_the_slot_instead_of_dying(monkeypatch, tmp_path,
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
     db = str(tmp_path / "applications.db")
     with run.pass_lock(db_path=db):
@@ -1365,7 +846,6 @@ def test_main_once_takes_the_lock_and_gives_it_back(monkeypatch, tmp_path):
     real_load_config = cfgmod.load_config
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config("companies: []\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
 
     db = str(tmp_path / "applications.db")
     run.main(["--once", "--db", db, "--env", str(tmp_path / "none.env")])
@@ -1427,7 +907,6 @@ def _daemon_harness(monkeypatch, schedule_hours=4):
     monkeypatch.setattr(run.config_mod, "load_config",
                         lambda path: real_load_config(
                             f"companies: []\nschedule_hours: {schedule_hours}\n"))
-    monkeypatch.setattr(run, "load_resumes", lambda d: ({"resume": "r"}, ""))
     return started, passes, order
 
 
@@ -1460,18 +939,6 @@ def test_run_now_and_once_together_are_a_parser_error(monkeypatch, tmp_path):
     _daemon_harness(monkeypatch)
     with pytest.raises(SystemExit) as exc:
         run.main(["--run-now", "--once", "--env", str(tmp_path / "none.env")])
-    assert exc.value.code == 2
-
-
-def test_run_now_does_not_open_the_rescreen_discarded_backdoor(monkeypatch, tmp_path):
-    # `--rescreen-discarded` is one-shot because `once()` closes over the flag: allowing it
-    # alongside --run-now would leave it set on every LATER scheduled firing too, and
-    # resurrect the entire discard pile — thousands of rows — into the paid scorer daily.
-    # It stays bound to --once, which exits before a second firing can exist.
-    _daemon_harness(monkeypatch)
-    with pytest.raises(SystemExit) as exc:
-        run.main(["--run-now", "--rescreen-discarded",
-                  "--env", str(tmp_path / "none.env")])
     assert exc.value.code == 2
 
 
@@ -1580,78 +1047,11 @@ def test_the_daemon_installs_a_timestamped_logging_handler(monkeypatch):
         root.handlers = saved
 
 
-def test_run_once_wires_a_title_stale_predicate_built_from_the_operators_config(monkeypatch):
-    # Nothing else pins this wiring: run_score's stale_fn defaults to None, so a
-    # regression that stopped passing it would leave every test green while the check
-    # silently became a no-op. Assert the predicate exists AND that it reads the
-    # operator's own title_filter/title_exclude.
-    captured = {}
-
-    monkeypatch.setattr(run.pipeline, "run_fetch", lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_expire", lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_retry", lambda *a, **k: 0)
-    monkeypatch.setattr(run.pipeline, "run_score",
-                        lambda *a, **k: captured.update(k))
-    monkeypatch.setattr(run.pipeline, "run_notify", lambda *a, **k: None)
-
-    class FakeConn:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.db, "connect", lambda path: FakeConn())
-    monkeypatch.setattr(run.db, "count_watchlist", lambda conn: 1)
-    monkeypatch.setattr(run.db, "get_watchlist",
-                        lambda conn: [{"source": "greenhouse", "slug": "a", "name": "A"}])
-
-    from ats_worker import config as cfgmod
-    cfg = cfgmod.load_config(
-        "companies:\n  - { source: greenhouse, slug: a, name: A }\n"
-        "title_filter: [engineer]\ntitle_exclude: [intern]\nmax_age_days: 30\n"
-    )
-    run.run_once(cfg, db_path=":memory:", resumes={"r": "r"},
-                 env={"ANTHROPIC_API_KEY": "k", "OLLAMA_HOST": "h"})
-
-    stale_fn = captured.get("stale_fn")
-    assert stale_fn is not None
-    assert stale_fn({"job_title": "Software Engineer", "posted_at": "2026-07-30"}) is None
-    assert "title refused" in stale_fn({"job_title": "Sales Rep",
-                                        "posted_at": "2026-07-30"})
-    assert "title refused" in stale_fn({"job_title": "Engineer Intern",
-                                        "posted_at": "2026-07-30"})
-    # max_age_days is deliberately NOT re-applied: an age refusal is unrecoverable
-    # (the row only gets older), unlike a title one. A 2020 posting stays.
-    assert stale_fn({"job_title": "Software Engineer", "posted_at": "2020-01-01"}) is None
-
-
-def test_stale_score_backend_claude_fails_loudly(monkeypatch, capsys):
-    """`claude` used to mean the METERED SDK and now names nothing.
-
-    Accepting it as an alias for either new value would run a DIFFERENT backend than a
-    pre-2026-08-02 .env intended — silently onto (or off) metered billing. argparse
-    enforces `choices` only on a value it PARSES, never on an env-supplied default, so
-    this has to be caught by the explicit check in run.main.
-    """
-    monkeypatch.setenv("SCORE_BACKEND", "claude")
-    with pytest.raises(SystemExit):
-        run.main(["--once"])
-    err = capsys.readouterr().err
-    assert "unknown score backend 'claude'" in err
-    assert "claude-code" in err and "claude-api" in err  # names both replacements
-
-
-def test_scorer_meta_rejects_the_retired_backend_name():
-    # The provenance stamp must not fall through to a model the scorer wasn't built
-    # with — a silently wrong `backend`/`model` stamp is worse than no stamp.
-    with pytest.raises(ValueError, match="unknown score backend"):
-        run._scorer_meta("claude")
-
-
 @pytest.mark.parametrize('modes', [
-    {'screen_only': True, 'fetch_only': True},
-    {'screen_only': True, 'score_only': True},
-    {'fetch_only': True, 'score_only': True},
-    {'screen_only': True, 'rescreen_discarded': True},
-    {'screen_only': True, 'screen_limit': 0},
+    {'fetch_only': True, 'refresh_unscored': True},
+    {'screen_limit': 0},
+    {'refresh_unscored': True, 'rescreen_screened': True,
+     'refresh_source': 'smartrecruiters'},
 ])
 def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypatch, modes):
     def unexpected_connect(*args, **kwargs):
@@ -1660,7 +1060,7 @@ def test_run_once_invalid_modes_fail_before_opening_database(tmp_path, monkeypat
     monkeypatch.setattr(run.db, 'connect', unexpected_connect)
     cfg = cfgmod.Config(companies=[cfgmod.Company('greenhouse', 'acme', 'Acme')])
     with pytest.raises(ValueError):
-        run.run_once(cfg, db_path=str(tmp_path / 'must-not-exist.db'), resumes={},
+        run.run_once(cfg, db_path=str(tmp_path / 'must-not-exist.db'),
                      env={}, **modes)
     assert not (tmp_path / 'must-not-exist.db').exists()
 
@@ -1676,7 +1076,21 @@ def test_screen_unlimited_cli_overrides_environment_limit(tmp_path, monkeypatch,
         return object()
     monkeypatch.setattr(run.config_mod, "load_config", load_screen_config)
     monkeypatch.setattr(run, "run_once", lambda cfg, **kw: captured.update(kw))
-    run.main(["--once", "--screen-only", "--screen-unlimited", "--env", str(env_file),
+    run.main(["--once", "--screen-unlimited", "--env", str(env_file),
               "--db", str(tmp_path / "db.sqlite")])
     assert captured["screen_limit"] is None
-    assert captured["config_options"] == {"validate_fit_profile": False}
+    assert captured["config_options"] == {}
+
+
+def test_retired_fit_flags_are_ignored_not_fatal(tmp_path, monkeypatch, capsys):
+    # An old service file passing `--score-limit 40` must still start the worker.
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    captured = {}
+    monkeypatch.setattr(run.config_mod, "load_config", lambda _path: object())
+    monkeypatch.setattr(run, "run_once", lambda _cfg, **kw: captured.update(kw))
+    run.main(["--once", "--score-limit", "40", "--no-notify", "--env", str(env_file),
+              "--db", str(tmp_path / "db.sqlite")])
+    assert captured["fetch_only"] is False
+    out = capsys.readouterr().out
+    assert "--score-limit" in out and "--no-notify" in out

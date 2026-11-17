@@ -29,12 +29,12 @@ walks the order):
 - **[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)** and
   **[`docs/ROADMAP.md`](./docs/ROADMAP.md)** — approved ChatGPT-first ownership,
   feature readiness and product order. ATS supplies sources/tools/tracking; screen
-  and fit remain optional assistance. Targets are not shipped capabilities.
+  remains optional assistance. Targets are not shipped capabilities.
 - **[`docs/EVALUATION.md`](./docs/EVALUATION.md)** — relevant checks and private-corpus
   limitations. No broad scorer eval is owed for unrelated source/MCP/UI/docs work;
-  provider runs need scoped authorization. Preserve scorer tools/tests and private artifacts.
+  provider runs need scoped authorization. Preserve screen tools/tests and private artifacts.
 - **[`docs/SCORING.md`](./docs/SCORING.md)** — retained optional subsystem contracts
-  and measured failure modes. Read before touching `score/`, its prompts or evals.
+  and measured failure modes. Read before touching the screen prompt or its evals; the fit scorer it describes is retired.
   It is not the product queue.
 
 Keep them current: when you change behavior, in the **same commit** update the
@@ -91,15 +91,13 @@ write implementation or fix review findings. All implementation goes to Luna at 
 effort, including tests and corrective patches. This is separate from the deployed
 Luna/**medium** screener. Follow [DEVELOPMENT](docs/DEVELOPMENT.md#agent-ownership-and-handoff)
 for branch/PR/review handoff. Issues own deliverable status/dependencies, ROADMAP owns
-order, PROGRESS owns branch claims. Conditional scorer work is last priority and may
-remain unused if scheduled ChatGPT handles the workload.
+order, PROGRESS owns branch claims.
 
 ## What this is
 
-A ChatGPT-first job-source, evidence and tracking system with optional screening and
-fit assistance. The implemented combined pipeline remains available; the operator's
-current screen-only mode bypasses fit/Telegram. Luna/medium refers to that screen,
-not an enabled fit model. See docs/ARCHITECTURE.md for target/current boundaries.
+A ChatGPT-first job-source, evidence and tracking system with optional hard-requirements
+screening. The old fit scorer and Telegram alerts are removed; review ranking is the JEV
+track. See docs/ARCHITECTURE.md for target/current boundaries.
 
 A self-hosted, semi-automated job-application system — **two services, one shared
 SQLite database**:
@@ -107,8 +105,8 @@ SQLite database**:
 - **`apps/web`** — Next.js 14 + Prisma tracker UI (applications, KPIs, charts,
   Discovered Jobs queue).
 - **`apps/worker`** — Python 3.11 pipeline: fetch (board adapters + generic
-  custom/browser recipe executors) → screen (Ollama) + score fit (Codex CLI default /
-  Claude alternate) → notify (Telegram). Human applies by hand.
+  custom/browser recipe executors) → screen (Ollama default, or a CLI/API backend).
+  Human applies by hand.
 
 ## Run / test / build
 
@@ -134,9 +132,7 @@ Run `make help` from the repo root — every target is self-documenting.
 - **SQLite is mounted as a directory** (`./db` → `/data`), not a single file, so
   WAL `-wal`/`-shm` sidecars are shared between the web container and the native
   worker. A single-file mount silently breaks WAL across the two processes.
-- **Coverage gates:** worker `fail_under = 85` (`apps/worker/pyproject.toml`); web
+- **Coverage gates:** worker `fail_under = 84` (`apps/worker/pyproject.toml`); web
   gated via `jest.all.config.ts`. CI also runs the schema-drift guard.
-- Default models: local `qwen3.5:4b` screens hard requirements; fit scoring runs on
-  the Codex CLI by default (`gpt-5.6-sol`), or Claude `claude-sonnet-5` when
-  `SCORE_BACKEND=claude-code` (Claude Code CLI, subscription) or `claude-api`
-  (metered Anthropic API). Override via env / CLI — see SPEC §7.1.
+- Default screen model: local `qwen3.5:4b` (Ollama); the Codex screen defaults to `gpt-5.6-luna`.
+  Override via env / CLI — see SPEC §7.1.

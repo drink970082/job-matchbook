@@ -357,8 +357,8 @@ def capture_usage(path: str, backend: str) -> bool:
     the file mtime as `as_of`), not blank it. That is exactly why the write stamps
     `as_of` INTO the snapshot as well: a stale reading and a fresh one are otherwise
     indistinguishable to anyone reading the file (a `cat`, a CLI, an agent), and a
-    silently stale reading has already made one `--score-limit` decision come out ~17
-    points optimistic. The caller announces a `False` return; see run.run_once.
+    silently stale reading has already made one spend decision come out ~17 points
+    optimistic. Callers announce a `False` return.
 
     The web reads `path` across the container boundary, so the write is atomic
     (tmp + os.replace); the tmp filename is per-call-unique (pid + thread id) so two

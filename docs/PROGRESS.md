@@ -1,21 +1,23 @@
 # Job Matchbook — active work
 
 Job Matchbook is a job-source, tracking and tool layer for ChatGPT-led research and
-recommendations. Optional screening **and fit scoring remain supported**.
+recommendations. Optional hard-requirements screening is supported; the fit scorer is removed.
 [ROADMAP](ROADMAP.md) owns product order; [ARCHITECTURE](ARCHITECTURE.md) separates
 current implementation from target responsibilities; [SPEC](SPEC.md) describes shipped
 behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **Retire the old fit scorer — `refactor/screen-off-score-facades` then `refactor/remove-fit-scorer`**
-  `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`, `screening/`, `ranking/` are
-  JEV's and untouched. Step 1 (this branch): screen callers off the `score.*` shims,
-  `usage` out of `score/`. Step 2: delete fit backends, prompts, `fit_profile`,
-  `run_score`/`_persist_scored`, fit CLI flags, fit eval tooling, and Telegram notify
-  (it keys on fit verdicts). Kept: the web quota bar and the `score`/`score_detail`
-  columns (MCP reads the embedded screen verdict). The free gates and seniority
-  pre-ordering stay for now; end state is fold into screen or drop, undecided.
+- **Retire the old fit scorer — `refactor/screen-off-score-facades` (#149) then
+  `refactor/remove-fit-scorer`** `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`,
+  `screening/`, `ranking/` are JEV's and untouched. Both steps are in review; a pass is
+  now fetch -> screen. Open after merge:
+  (1) `seniority.py` + `prompts/seniority.txt` + `make eval-seniority` are kept but
+  unwired — fold the classifier into the screen or delete it, undecided.
+  (2) `onboard-me`'s profile/résumé interview still describes inputs for the retired fit
+  scorer; rewrite once JEV settles what it reads.
+  (3) `fit_profile` stays an accepted-and-ignored `config.yaml` key; delete it once no
+  config carries the block.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
@@ -73,8 +75,7 @@ artifacts. No live eval was run for the pivot. Subscription-backed Luna assistan
 acceptable; its allowance is finite, and old strong-fit token/cache measurements are not
 current Luna/medium budget forecasts. The roadmap does not require draining every row.
 
-The operator-selected worker remains standalone screen-only; combined fit/Telegram
-capabilities and CLI defaults remain available. Current operational mode is in
+A worker pass is fetch -> screen. Current operational mode is in
 [SPEC §6](SPEC.md#6-architecture). Use fresh telemetry before making workload decisions.
 
 ## Other work

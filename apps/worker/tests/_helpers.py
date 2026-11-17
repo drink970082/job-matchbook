@@ -17,7 +17,7 @@ LATER = "2026-06-04T09:00:00.000Z"
 FIXTURES = Path(__file__).parent / "fixtures"
 
 # Realistic JD length (>= 200 chars) so a match/match seeded row clears
-# get_notifiable's description-length low-context gate (mirrors the web
+# the description-length low-context gate (mirrors the web
 # LOW_CONTEXT_MAX_DESCRIPTION_LENGTH). A short default would make every notify
 # test row non-notifiable — the thin-JD case the gate deliberately holds back.
 LONG_DESC = "Build backend services in Python and Go across data pipelines. " * 4
@@ -71,9 +71,29 @@ def seed_scored(conn, scores, *, detail=None, description=None):
     for r in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
         if r["external_id"] not in scores:
             continue
-        db.save_score(conn, r["id"], score=scores[r["external_id"]],
-                      score_detail=detail, now=NOW)
+        set_scored(conn, r["id"], score=scores[r["external_id"]],
+                   score_detail=detail, now=NOW)
 
+
+
+
+def set_scored(conn, posting_id: int, *, score: int, score_detail, now: str,
+               status: str = "scored") -> None:
+    """Seed a row as the retired fit scorer left it (score, score_detail with its
+    source-revision stamp, status). The web and MCP still read these historical rows."""
+    import json
+    from ats_worker.source_lifecycle import has_fit_assessment
+    detail = dict(score_detail)
+    row = conn.execute("SELECT source_content_revision FROM job_postings WHERE id=?",
+                       (posting_id,)).fetchone()
+    if ((has_fit_assessment(json.dumps(detail)) or isinstance(detail.get("screen"), dict))
+            and row is not None and row["source_content_revision"] is not None):
+        detail["source_content_revision"] = row["source_content_revision"]
+    conn.execute(
+        "UPDATE job_postings SET score=?, score_detail=?, pipeline_status=?, "
+        "pipeline_error=NULL, updated_at=? WHERE id=?",
+        (score, json.dumps(detail, ensure_ascii=False), status, now, posting_id))
+    conn.commit()
 
 # --- requests-style HTTP fakes (for adapter fetch() wrappers) -------------
 

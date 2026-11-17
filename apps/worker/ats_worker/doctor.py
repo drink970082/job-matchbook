@@ -3,7 +3,7 @@
 Prints one ASCII status line per check and exits non-zero ONLY when a universal
 prerequisite is missing (worker python deps + a set-up database). Every other row
 — ollama, codex CLI, claude CLI, anthropic api key, openai api key, node, docker,
-telegram, daemon dep, worker daemon — prints ok/no but never fails the exit code:
+daemon dep, worker daemon — prints ok/no but never fails the exit code:
 which provider is "right" depends on the path the user picks, and `onboard-me`
 Step 0 reads these lines to pick it.
 
@@ -123,7 +123,6 @@ def _daemon_row(run_cmd) -> Check:
 def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) -> list[Check]:
     """Pure check core — all I/O is injected, so tests pass fakes and the real
     main() wires importlib / shutil / requests / sqlite3 / subprocess."""
-    telegram_ok = bool(env.get("TELEGRAM_BOT_TOKEN") and env.get("TELEGRAM_CHAT_ID"))
     anthropic_ok = bool(env.get("ANTHROPIC_API_KEY"))
     openai_ok = bool(env.get("OPENAI_API_KEY"))
     return [
@@ -134,16 +133,13 @@ def run_checks(*, env, find_spec, which, http_get, connect, db_path, run_cmd) ->
         _which_row("claude CLI", "claude", which),
         Check("anthropic api key", anthropic_ok,
               "set" if anthropic_ok
-              else "unset (needed for SCORE_BACKEND=claude or SCREEN_BACKEND=claude-api)",
+              else "unset (needed for SCREEN_BACKEND=claude-api)",
               core=False),
         Check("openai api key", openai_ok,
               "set" if openai_ok
               else "unset (needed only for SCREEN_BACKEND=openai-api)", core=False),
         _which_row("node", "node", which),
         _which_row("docker", "docker", which),
-        Check("telegram", telegram_ok,
-              "configured" if telegram_ok
-              else "unset (optional — matches show in the Discovered Jobs tab)", core=False),
         _daemon_dep_row(find_spec),
         _daemon_row(run_cmd),
     ]

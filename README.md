@@ -8,9 +8,8 @@
 Job Matchbook collects jobs from official company boards, stores their descriptions,
 and tracks applications in a self-hosted SQLite database. Its read-only MCP tools let
 ChatGPT inspect jobs and application history for personal analysis and a Daily Job Brief.
-Screening and résumé-fit scoring remain available as **optional assistance**. Fit
-pre-ranking is a last-priority option for a demonstrated volume bottleneck; if scheduled
-ChatGPT handles the workload, no fit rollout is needed.
+Hard-requirements screening is available as **optional assistance**; review ranking is
+the JEV track.
 
 > **Collect and preserve job evidence → query with ChatGPT → review and apply by hand → track.**
 
@@ -31,9 +30,8 @@ See the [feature readiness matrix](docs/ROADMAP.md#feature-ownership-and-readine
   chunks, standalone screenings, applications/history and the other ATS record types.
 - **Track:** manual application entry, Mark Applied, status history, CSV import/export,
   KPIs and charts; a web-managed watchlist.
-- **Assist optionally:** standalone hard-requirement screening, the existing résumé-fit
-  scorer and Telegram alerts. The operator currently uses Codex Luna/medium screen-only;
-  fit and Telegram are bypassed in that mode. Combined scoring remains the CLI default.
+- **Assist optionally:** hard-requirement screening (local Ollama by default, or a
+  CLI/API backend). Review ranking is the JEV track.
 
 A ChatGPT task must be configured and tested separately for unattended daily delivery.
 MCP is currently read-only: it cannot import web jobs, record Brief delivery, save an
@@ -41,8 +39,8 @@ agent assessment or update applications. Context-based cross-day deduplication i
 best-effort until a persistent delivery ledger exists.
 
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
-configuration, résumé files and databases are gitignored. Optional fit scoring sends
-selected JD and personal inputs to the configured provider; connecting ChatGPT exposes
+configuration, résumé files and databases are gitignored. A hosted screen backend
+receives JD text and your hard requirements; connecting ChatGPT exposes
 the data returned by the enabled MCP tools to that chat.
 
 ## Quick start
@@ -75,10 +73,8 @@ python -m ats_worker.run --screen-only --screen-backend codex \
 ```
 
 Run `codex login` on the host first. `--screen-unlimited` is an explicit alternative to
-`--screen-limit`, not unlimited subscription entitlement. Screening is distinct from fit;
-this command does not enable Luna fit scoring. Running without a mode flag selects the
-existing combined pipeline and may invoke fit scoring and Telegram. Read
-[SETUP](docs/SETUP.md) before selecting it or enabling a metered provider.
+`--screen-limit`, not unlimited subscription entitlement. Read [SETUP](docs/SETUP.md)
+before enabling a metered provider.
 
 ## Sources and components
 
@@ -97,8 +93,8 @@ See [current and target architecture](docs/ARCHITECTURE.md) and the detailed
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Current implementation, target ownership and boundaries |
 | [Roadmap](docs/ROADMAP.md) | Feature readiness, R1–R4 priorities and acceptance |
-| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction with optional scorer retained |
-| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/scorer and MCP paths |
+| [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction |
+| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen and MCP paths |
 | [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
 | [Progress](docs/PROGRESS.md) | Branch claims, next work and current limitations |
 | [Backlog](docs/BACKLOG.md) | Current triage; links to deferred technical investigations |

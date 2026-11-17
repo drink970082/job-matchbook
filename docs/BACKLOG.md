@@ -31,20 +31,15 @@ Their status/dependencies live on GitHub; this file retains background and unsel
 ideas. Fit pre-ranking (#96) is last priority and may never be enabled if scheduled
 ChatGPT meets the need. Recommendation history (#95) is conditional on observed repeats.
 
-## Optional scorer work
+## Screening work
 
-- Keep screening and fit code, prompts, adapters and hermetic tests. Do not delete them
-  as cleanup. Current Luna/medium deployment is screening; optional fit remains separate.
 - The expanded Luna screen result has no recorded effort. Do not claim medium-specific
   accuracy or start a large unchanged eval to repair provenance automatically.
-- Legacy fit gate labels need supported inline inputs and human review before a fit
-  behavior change can rely on them. Finishing the blind-review/rebuild campaign is not
-  selected work. Inventory and gate scope are in [EVALUATION](EVALUATION.md).
 - Bullet-list sponsorship snippets, blind/empty answer handling and local-model degree/
   clearance limitations remain relevant when changing the screen. Read SCORING and
   REJECTED before revisiting them.
-- More providers, score calibration, cache experiments and seniority-veto tuning require
-  a demonstrated need and a specific evaluation question; none blocks R1–R3.
+- More screen providers, cache experiments and seniority tuning require a demonstrated
+  need and a specific evaluation question.
 
 ## Deferred extensions
 

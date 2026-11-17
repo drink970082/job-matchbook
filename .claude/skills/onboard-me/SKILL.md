@@ -27,10 +27,10 @@ you interview instead of handing them a checklist. On success the payoff is a fi
 pipeline pass that surfaces real matches — so drive toward that, don't just create
 files.
 
-**Never touch `apps/worker/ats_worker/prompts/score.txt`.** Generality is supposed to live
-in the profile and résumé, not the rubric — scorer-prompt edits have destabilized
-verdicts before (see CHANGELOG / SPEC §7.1). If a role scores wrong, fix the
-*profile*, not the prompt.
+**Never touch `apps/worker/ats_worker/prompts/screen.txt`.** Generality is supposed to live
+in the user's data (hard requirements, profile, résumé), not the prompt. The running
+pipeline only *screens* postings against hard requirements; it does not score fit. The
+profile and résumé are kept for the ranking work, not read by the worker today.
 
 ## What you'll produce (all gitignored personal data)
 
@@ -74,10 +74,9 @@ pick this user's path; never demand all of them go green.
 |---|---|
 | worker python deps · database | **Blocking** — re-run `make setup`; nothing runs without these |
 | ollama | The screen has no backend. Start Ollama, **or** point `OLLAMA_HOST` at a remote/cloud instance — a local GPU is *not* required |
-| codex CLI | Default fit backend unavailable — either `codex login`, or switch to `SCORE_BACKEND=claude` + `ANTHROPIC_API_KEY` |
-| claude CLI | Needed for the `claude-code` fit backend (subscription, no key) |
-| anthropic api key | Only needed for the `claude-api` fit backend (metered) |
-| telegram | **Fine — alerts are optional.** Matches still land in the Discovered Jobs tab |
+| codex CLI | Only needed for `SCREEN_BACKEND=codex` (ChatGPT subscription, `codex login`) |
+| claude CLI | Only needed for `SCREEN_BACKEND=claude-code` (subscription, no key) |
+| anthropic api key | Only needed for `SCREEN_BACKEND=claude-api` (metered) |
 | node · docker | Only for the web app, not the pipeline |
 
 Report what's actually missing *for the path they want*, in a line. Never fabricate a
@@ -204,13 +203,9 @@ is left is filling in values **only the user can give you**. Fill them into
 
 - `OLLAMA_HOST` — `http://localhost:11434` locally, or the URL of a remote/cloud
   Ollama. Set it whenever the `ollama` row was `[no]` but they have one elsewhere.
-- **Fit-score backend** — default `codex` uses a ChatGPT subscription, *not* a key
-  (`codex login`). Have a Claude subscription instead? Set
-`SCORE_BACKEND=claude-code` (no key needed). Neither? Set `SCORE_BACKEND=claude-api` and supply
-  `ANTHROPIC_API_KEY` (metered).
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — **optional.** Push alerts from BotFather.
-  Without them the worker runs fine and matches appear in the Discovered Jobs tab, so
-  offer this rather than gating the setup on it.
+- **Screen backend** — default `ollama` is free and local. No GPU? `SCREEN_BACKEND=codex`
+  (ChatGPT subscription, `codex login`) or `claude-code` (Claude subscription) need no
+  key; `claude-api` / `openai-api` need a key and are metered.
 
 **Verify, don't fabricate.** Never invent a token or key. If a prereq is genuinely
 missing, say so plainly and point at `docs/SETUP.md` — a clear "you still need X" is
@@ -224,22 +219,20 @@ End on the activation event — one pass, so they see it work:
 cd apps/worker && python -m ats_worker.run --once
 ```
 
-Matches land in the web app's **Discovered Jobs** tab — and in Telegram too, if they
-configured a bot. Once they're
+Screened postings land in the web app's **Discovered Jobs** tab. Once they're
 happy, dropping `--once` runs it on the schedule (`schedule_hours`, default 24h).
 That's the finish line — a personalized pipeline surfacing real roles.
 
 ## Guardrails
 
-- **Personalization is data, never the rubric.** Never edit
-  `ats_worker/prompts/score.txt`. Wrong verdict → fix the profile.
+- **Personalization is data, never the prompt.** Never edit
+  `ats_worker/prompts/screen.txt`. Wrong screen verdict → fix the hard requirements.
 - **DB writes go through the bundled script; files you edit directly.** Categories and
   watchlist touch SQLite (script / `onboard-board`); the profile, `config.yaml`, and
   résumé are files you write.
 - **Don't fabricate secrets or prereqs.** Verify what exists, name what's missing.
 - **`make doctor` reports; it doesn't gate.** Only its core rows (worker deps,
-  database) block a run. Ollama/codex/claude/telegram/node/docker are provider rows —
-  use them to pick this user's path, never as a checklist they must complete. Telegram
-  in particular is optional.
+  database) block a run. Ollama/codex/claude/node/docker are provider rows — use them
+  to pick this user's path, never as a checklist they must complete.
 - **One board add ≠ onboarding.** If all they want is a single company on the
   watchlist, that's `onboard-board`, not this.

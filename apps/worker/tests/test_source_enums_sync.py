@@ -110,8 +110,7 @@ def test_spec_matrix_matches_adapters():
 
 
 def test_low_context_threshold_matches_web():
-    # The worker now names the threshold once (db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH,
-    # used by both get_notifiable's SQL and pipeline.run_score's pre-fit gate); assert
-    # that single constant equals the web's, rather than regexing the SQL literal.
+    # The worker names the threshold once (db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH); assert
+    # that constant equals the web's, rather than regexing a SQL literal.
     assert db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH == _ts_int(
         "LOW_CONTEXT_MAX_DESCRIPTION_LENGTH")

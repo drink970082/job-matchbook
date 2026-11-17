@@ -1,4 +1,6 @@
-"""The FREE seniority pre-ordering layer — a prioritizer, never a filter.
+"""The seniority classifier — a prioritizer, never a filter. CURRENTLY UNWIRED: it
+ordered the retired fit scorer's queue; folding it into the screen or deleting it is an
+open decision (docs/PROGRESS.md).
 
 96% of paid fit calls come back a "no", and 54% of those are `seniority=too_junior`
 (docs/PROGRESS.md, the 2026-07-30 verdict matrix). That half is reachable by a *free*
@@ -10,9 +12,7 @@ The shape is the one §8.1 arrived at for degree, and it is the whole design: th
 **extracts** what the posting literally states (`stated_min_years`, `stated_rank`) and
 **code** compares that against the candidate. The model never decides.
 
-What a `too_junior` verdict here does is send the row to the BACK of the score queue —
-it stays `new`, observable and searchable, and a later deliberate pass still reaches it.
-It is NOT a discard: these labels were learned against *Sol's verdicts, not human
+A `too_junior` verdict orders work; it is NOT a discard: these labels were learned against *Sol's verdicts, not human
 labels*, so they inherit Sol's errors and are good enough to order work, not to delete
 a posting (SCORING §9.3, discard-direction floors).
 """
@@ -20,8 +20,13 @@ from __future__ import annotations
 
 import re
 
-from .. import prompts
-from .prompts import _job_block
+from .screening.prompts import _job_block, _sections
+
+_seniority = _sections("seniority.txt")
+SENIORITY_HEADER: str = _seniority["seniority_header"] + "\n"
+SENIORITY_LIST_HEADER: str = _seniority["seniority_list_header"]
+SENIORITY_C_SENIORITY: str = _seniority["c_seniority"]
+SENIORITY_FOOTER: str = _seniority["seniority_footer"]
 
 # The closed vocabulary. Four ranks, because these are the four SCORING §4.2 counts as
 # a stated seniority bar; "manager"/"director"/"VP" are a different axis and "junior"/
@@ -83,10 +88,10 @@ def _capped(prefix: str) -> bool:
 def build_prompt(posting: dict, max_desc_chars: int) -> str:
     """The one-requirement prompt. Same skeleton as the screen call (header, list
     header, one clause, footer, job block) so both read the same way."""
-    return (prompts.SENIORITY_HEADER
-            + prompts.SENIORITY_LIST_HEADER + "\n"
-            + prompts.SENIORITY_C_SENIORITY + "\n"
-            + prompts.SENIORITY_FOOTER + "\n"
+    return (SENIORITY_HEADER
+            + SENIORITY_LIST_HEADER + "\n"
+            + SENIORITY_C_SENIORITY + "\n"
+            + SENIORITY_FOOTER + "\n"
             + "\n" + _job_block(posting, max_desc_chars))
 
 

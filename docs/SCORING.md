@@ -1,15 +1,15 @@
 # Optional scoring — implementation reference
 
-This is the technical reference for the retained optional screen and fit subsystem,
+This is the technical reference for the screen and for the retired fit subsystem,
 not the product roadmap or an instruction to rebuild it. [ARCHITECTURE](ARCHITECTURE.md)
 defines ChatGPT-primary judgment; [ROADMAP](ROADMAP.md) prioritizes source/tools work;
 [EVALUATION](EVALUATION.md) scopes checks and inventories private corpora.
 
-Screen-only uses Codex Luna/medium in the operator deployment. The fit default/model
-validation is unchanged; keeping the scorer does not enable Luna fit scoring. Detailed
-contracts below describe existing optional paths, including combined fit/Telegram.
-Measured negative results remain constraints; old experiment counts are not current
-production backlog or subscription forecasts.
+**The fit scorer, its prompts, backends, eval tools and Telegram notify are removed from
+the code; only the screen remains** (operator deployment: Codex Luna/medium). The fit
+sections below are kept as the reference for its measured history: negative results
+remain constraints on any future ranking work (JEV); they describe no shipped path, and
+old experiment counts are not current backlog or subscription forecasts.
 
 Scope: how one job posting becomes a score, a set of verdicts, and a keep/discard/notify
 decision. Out of scope: fetching postings, storing them, notifying, and the web UI.

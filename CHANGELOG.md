@@ -18,6 +18,23 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   rather than a re-pick. It guards on the `.csv` extension rather than the MIME type,
   because Excel on Windows reports a CSV as `application/vnd.ms-excel` and a type check
   would reject real exports.
+### Removed
+
+- **The old fit scorer and Telegram notify.** A worker pass is now fetch -> feed ->
+  expire -> hard-requirements screen; `--screen-only` is an accepted no-op alias. Gone:
+  `score/` (codex/claude/claude-api fit backends, batching, fit prompts, extraction),
+  `fit_profile.py`, the top-level `prompts.py`, `notify.py`, `prompts/score.txt` and
+  `extract.txt`, `pipeline.run_score`/`run_notify`/`run_retry` with the free-gate sweep and
+  seniority pre-ordering glue, the fit/notify DB writers, `run.load_resumes`, the flags
+  `--score-*`, `--batch-size`, `--no-notify`, `--rescreen-discarded`, `--resume-dir`, the
+  fit eval tools (`score_eval`, `extract_shadow`, `pick_frame`, `label_*`,
+  `expand_golden`, `build_review_sheet`) and `make eval-score`, and the doctor's Telegram
+  row. Kept: the `score`/`score_detail` columns and the web/MCP views that read their
+  history, the web quota bar (`ats_worker/usage.py`), and the seniority classifier as
+  unwired `ats_worker/seniority.py`. A `fit_profile` block in `config.yaml` is accepted and
+  ignored, and the retired fit flags (`--score-limit`, `--no-notify`, ...) are accepted
+  and ignored with a warning, so an old service file still starts. Worker coverage gate
+  85 -> 84: the deleted code was near-fully covered.
 
 ### Changed
 

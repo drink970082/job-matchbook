@@ -1,4 +1,4 @@
-"""Gate the FREE seniority pre-ordering layer (ats_worker/score/seniority.py).
+"""Gate the seniority classifier (ats_worker/seniority.py, currently unwired).
 
 FREE: local Ollama only, zero paid calls, and READ-ONLY on the database.
 
@@ -46,7 +46,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "worker"))
 from ats_worker import run  # noqa: E402  (needs apps/worker on the path)
-from ats_worker.score import seniority  # noqa: E402
+from ats_worker import seniority  # noqa: E402
 from ats_worker.screening import make_ollama_extract  # noqa: E402
 
 GOLDEN = ROOT / "apps/worker/eval/seniority_golden.jsonl"

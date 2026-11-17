@@ -11,9 +11,9 @@ sets ownership. [SPEC](SPEC.md) describes shipped behavior;
 |---|---|---|
 | Discovery | Scheduled board/feed collection, official URLs, full JD storage | Supplemental web discovery outside the watchlist |
 | Evidence | Posting identity, source text, timestamps, availability and data quality | Read evidence; verify official pages before recommending |
-| Judgment | Optional screen/scorer assistance, separately identified | Primary eligibility interpretation, fit, career value and final ranking |
-| Personal context | Existing private inputs remain supported for optional scoring | Primary résumé, background, preferences and recommendation rubric |
-| Delivery | Existing Telegram path remains supported; service health stays local | Preferred daily recommendation and notification workflow |
+| Judgment | Optional hard-requirements screen, separately identified | Primary eligibility interpretation, fit, career value and final ranking |
+| Personal context | Candidate hard requirements in `config.yaml`; private résumé/profile inputs are not read by the worker | Primary résumé, background, preferences and recommendation rubric |
+| Delivery | None from the worker; service health stays local | Preferred daily recommendation and notification workflow |
 | Tracking | Applications, status history, watchlist, backups and manual UI | Consult application history and distinguish possible duplicates |
 
 ```mermaid
@@ -21,7 +21,7 @@ flowchart LR
     Sources[Official boards and discovery feeds] --> Fetch[Fetch and hydrate]
     Fetch --> DB[(SQLite evidence and application records)]
     DB --> UI[Local tracker and job browser]
-    DB --> Assist[Optional screen and scorer]
+    DB --> Assist[Optional hard-requirements screen]
     Assist --> DB
     DB --> MCP[Read-only MCP tools]
     MCP --> Chat[ChatGPT judgment and Daily Brief]
@@ -41,10 +41,8 @@ The UI remains the manual persistence path.
 - Fetch, hydration, feed resolution, coarse intake filters and application tracking exist.
 - The operator-selected worker runs fetch/feed/expiry followed by standalone Codex
   `gpt-5.6-luna`, medium effort screening, one worker and explicit unlimited call count.
-  Completed results are cached; provider circuit breaking remains. This is **screening**,
-  not a Luna fit-scoring deployment.
-- The combined screen/fit/Telegram pipeline remains the CLI default. The operator's
-  screen-only mode bypasses fit and Telegram; this documentation does not change defaults.
+  Completed results are cached; provider circuit breaking remains.
+- A worker pass is fetch -> screen; there is no fit scorer or Telegram stage.
 - `job_screenings` is separate from fit `score_detail` and `pipeline_status`. A `new`
   posting can have a completed disqualification. Missing facts and provider errors are
   not evidence of eligibility.
@@ -56,7 +54,7 @@ The UI remains the manual persistence path.
 **Evidence vs. judgment.** Retain raw JD and official identity independently of model
 assessments. Query eligibility must not depend on having a score. Existing fetch-time
 candidate/title filtering must be inventoried before moving preferences to ChatGPT;
-changing the scorer alone does not restore jobs excluded during intake.
+changing the screen alone does not restore jobs excluded during intake.
 
 **Optional assistance.** Keep both screening and fit-scoring capabilities. Fit pre-ranking
 is the last optional step, selected only if actual scheduled ChatGPT retrieval/judgment
@@ -76,8 +74,7 @@ then, a stored posting is not proof that a requisition is still open.
 
 **Personal context.** ChatGPT's durable task instructions or accessible profile document
 should define current preferences and background; conversational memory alone is not a
-versioned configuration. Do not remove private scorer inputs while optional fit scoring
-still reads them. No private résumé or settings belong in public documentation.
+versioned configuration. No private résumé or settings belong in public documentation.
 
 **Incremental research.** Current MCP filters use posting creation/publication dates,
 not screen-completion dates. List rows expose completion metadata but not the full screen
