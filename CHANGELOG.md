@@ -36,6 +36,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `feat/fetch-detail-hydration` (#82) are merged, `docs/quota-levers-plan` (#61) is
   merged with its negative cache result in SCORING.md, and the other three refs no longer
   exist.
+  Drop the #131/#132/#112 bullets too: those issues are closed as superseded by the JEV
+  epic #135.
 
 ### Changed
 
