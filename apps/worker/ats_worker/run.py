@@ -293,6 +293,11 @@ def run_once(cfg, *, db_path, env,
             candidate=candidate, backend=screen_backend, model=effective_model,
             effort=effective_effort, limit=screen_limit,
             screen_workers=screen_workers or 1, clock=_now)
+        # Refresh the quota bar (and its re-login notice) for the subscription the
+        # screen just spent; one free GET, best-effort by contract.
+        if screen_backend == "codex":
+            capture_usage(os.path.join(
+                os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json"), "codex")
     finally:
         conn.close()
 

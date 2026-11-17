@@ -108,6 +108,9 @@ def test_run_once_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
     monkeypatch.setattr(run.pipeline, "run_screen", lambda *_args, **kwargs:
                         captured.update(run_screen=kwargs))
 
+    monkeypatch.setattr(run, "capture_usage", lambda path, backend:
+                        captured.update(usage=(path, backend)) or True)
+
     run.run_once(cfg, db_path=str(dbfile), env={}, screen_backend="codex")
 
     assert captured["make_screener"][1]["screen_model"] == "gpt-5.6-luna"
@@ -117,6 +120,7 @@ def test_run_once_defaults_codex_to_luna_medium(monkeypatch, tmp_path):
     assert captured["run_screen"]["limit"] == 40
     assert captured["run_screen"]["screen_workers"] == 1
     assert captured["run_screen"]["clock"] is run._now
+    assert captured["usage"] == (str(tmp_path / "scorer_usage.json"), "codex")
 
 
 # --- watchlist bootstrap + feed wiring ------------------------------------

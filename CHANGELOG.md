@@ -9,6 +9,13 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- Show a Codex re-login command in the usage bar when worker credentials are missing or
+  rejected (HTTP 401), refreshing usage at the end of each `codex` screen pass. The
+  command is plain `codex login --device-auth`, prefixed with the worker's `CODEX_HOME`
+  only when that is non-default.
+
+### Added
+
 - **A real import dialog, so the CSV contract is visible before the file is picked.**
   Import CSV opened a bare OS file chooser: the required columns, the date format and the
   exact `status` vocabulary lived only in `actions.ts`, so the first sign of a wrong header
