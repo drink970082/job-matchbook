@@ -992,7 +992,7 @@ than it claims.
 entry here said the premise was unverifiable, because the obvious test (two calls of very
 different token counts, watch the meter) needs resolution the meter does not have:
 `used_percent` is an **integer** and the provider's `limits[]` carries no credits/units
-field (`score/usage.py` passes the value through unmodified), so a single call moves it by
+field (`ats_worker/usage.py` passes the value through unmodified), so a single call moves it by
 roughly 0.05% and reads as zero. The meter was the wrong instrument. The codex **rollout
 files** carry exact per-call `input_tokens` / `cached_input_tokens` / `output_tokens`;
 read over 158 production calls they show per-token billing directly. Two figures worth

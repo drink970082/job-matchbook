@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "worker"))
 from ats_worker import run  # noqa: E402  (needs apps/worker on the path)
 from ats_worker.score import seniority  # noqa: E402
-from ats_worker.score.screen import make_ollama_extract  # noqa: E402
+from ats_worker.screening import make_ollama_extract  # noqa: E402
 
 GOLDEN = ROOT / "apps/worker/eval/seniority_golden.jsonl"
 OUT = ROOT / "apps/worker/eval/last_seniority_run.md"

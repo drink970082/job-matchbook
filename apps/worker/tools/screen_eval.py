@@ -6,7 +6,7 @@ The gate `screen.txt` never had. `score.txt` cannot change without two consecuti
 2026-07-27 that cost four days of a clearance check running 83% wrong with nothing to
 surface it (no row is marked `failed`, and no eval existed).
 
-Reuses the production wiring (`run.make_screener` -> `score.screen_posting` ->
+Reuses the production wiring (`run.make_screener` -> `screening.engine.screen_posting` ->
 `_screen_verdict`), draws each golden row K=3x, and judges the MAJORITY verdict for the
 requirement that row was drawn for against a hand-labeled JD FACT.
 
@@ -42,7 +42,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "apps" / "worker"))
-from ats_worker import run, score  # noqa: E402  (needs apps/worker on the path)
+from ats_worker import run  # noqa: E402
+from ats_worker.screening import engine as screen_engine  # noqa: E402  (needs apps/worker on the path)
 
 K = 3
 GOLDEN = ROOT / "apps/worker/eval/screen_golden.jsonl"
@@ -78,7 +79,7 @@ def fact_is_a_bar(drawn_for: str, facts: dict) -> bool | None:
         required = facts.get("required_degree")
         if required in (None, "unclear"):
             return None
-        return score.screen._degree_rank(required) > score.screen._degree_rank(
+        return screen_engine._degree_rank(required) > screen_engine._degree_rank(
             CANDIDATE["highest_degree"])
     if drawn_for == "sponsorship":
         label = facts.get("sponsorship")
@@ -108,7 +109,7 @@ VERDICT_KEY = {"clearance": "clearance", "degree": "degree",
 # retrieval vocabulary (`sponsor` alone), since a bar phrased without that word is a
 # pinned, accepted recall loss — a corpus premise the eval measures, not a corpus defect.
 BAR_VOCAB = {
-    "clearance": score.screen.CLEARANCE_TOKENS,
+    "clearance": screen_engine.CLEARANCE_TOKENS,
     "sponsorship": re.compile(
         r"sponsor|visa|citizen|authoriz|right to work|immigration|work permit|"
         r"green card|permanent resident|\bh-?1b\b|\bead\b|opt\b", re.IGNORECASE),
@@ -283,7 +284,7 @@ def run_live() -> int:
         posting = posting_of(row)
         draws = []
         for _ in range(K):
-            out = score.screen_posting(posting, extract=extract, candidate=CANDIDATE,
+            out = screen_engine.screen_posting(posting, extract=extract, candidate=CANDIDATE,
                                        num_ctx=num_ctx)
             if out.get("provider_error"):
                 print(f"\nprovider error on row {row['id']} — the backend is down; "

@@ -21,6 +21,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- Screen callers import `ats_worker.screening` directly; the `score/` screen, location and
+  screen-backend re-export shims are deleted, and the package facade exports fit names
+  only. Quota telemetry moves from `score/usage.py` to the neutral `ats_worker/usage.py`,
+  so a screen-only pass can record usage without importing the legacy fit package. First
+  step of retiring the old fit scorer (JEV replaces it); no behavior change.
+
+### Changed
+
 - Separate offline preselection completion (#130 and revised #110/#111/#116) from
   real cohort/labels (#131), authorized provider/token/cost pilot (#132), and final
   comparative decision (#112). Select offline acceptance and landing first; preserve

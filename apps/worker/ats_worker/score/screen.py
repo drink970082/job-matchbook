@@ -1,12 +1,8 @@
-"""Legacy fit normalization/fallback with active screen compatibility exports."""
+"""Legacy fit normalization and fallback-screen merge. Screening lives in `screening`."""
 from __future__ import annotations
 
 from ats_worker.model_errors import ModelResponseError as ScoreError
-from ats_worker.screening import engine as _engine
-
-for _name in dir(_engine):
-    if not _name.startswith("__"):
-        globals()[_name] = getattr(_engine, _name)
+from ats_worker.screening.engine import _as_str_list, _screen_verdict
 
 _SENIORITY_VERDICTS = frozenset(("match", "too_junior", "too_senior"))
 

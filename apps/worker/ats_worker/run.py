@@ -133,7 +133,7 @@ def make_claude_scorer(*args, **kwargs):
 
 
 def capture_usage(*args, **kwargs):
-    from .score import capture_usage as capture
+    from .usage import capture_usage as capture
     return capture(*args, **kwargs)
 
 

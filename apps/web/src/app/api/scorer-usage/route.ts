@@ -25,7 +25,7 @@ export async function GET() {
         const [raw, stat] = await Promise.all([fs.readFile(file, 'utf-8'), fs.stat(file)])
         const snap = JSON.parse(raw)
         // File mtime is the "as of" time. The worker also stamps its own `as_of` at
-        // write time (score/usage.py), and this overrides it deliberately: the two are
+        // write time (ats_worker/usage.py), and this overrides it deliberately: the two are
         // the same instant, and mtime is the only one a pre-stamp snapshot carries.
         return NextResponse.json({ ...snap, as_of: stat.mtime.toISOString() })
     } catch {

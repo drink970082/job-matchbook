@@ -8,6 +8,15 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Retire the old fit scorer — `refactor/screen-off-score-facades` then `refactor/remove-fit-scorer`**
+  `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`, `screening/`, `ranking/` are
+  JEV's and untouched. Step 1 (this branch): screen callers off the `score.*` shims,
+  `usage` out of `score/`. Step 2: delete fit backends, prompts, `fit_profile`,
+  `run_score`/`_persist_scored`, fit CLI flags, fit eval tooling, and Telegram notify
+  (it keys on fit verdicts). Kept: the web quota bar and the `score`/`score_detail`
+  columns (MCP reads the embedded screen verdict). The free gates and seniority
+  pre-ordering stay for now; end state is fold into screen or drop, undecided.
+
 - **#131 real cohort and blind/adjudicated labels** — deferred pending version-scoped
   approval of the exact profile, policy, label guide, data scope and private-input access.
   No private profile or local corpus has been opened for this work. It owns real source

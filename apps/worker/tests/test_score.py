@@ -12,6 +12,10 @@ import pytest
 import requests
 
 from ats_worker import score
+from ats_worker.screening import engine as screen_engine
+from ats_worker.screening import prompts as screen_prompts
+from ats_worker import screening
+from ats_worker import usage
 
 
 class _FakeResp:
@@ -31,7 +35,6 @@ class _FakeResp:
     def __exit__(self, *exc):
         return False
 
-from ats_worker.score import screen as screen_mod  # a few checks are not re-exported
 
 
 class FakeResponse:
@@ -70,7 +73,7 @@ def _ollama(http, **kw):
     """Build the Ollama extract for tests that assert on the HTTP request shape."""
     kw.setdefault("ollama_host", "h")
     kw.setdefault("model", "m")
-    return score.make_ollama_extract(http=http, **kw)
+    return screening.make_ollama_extract(http=http, **kw)
 
 
 POSTING = {
@@ -184,7 +187,7 @@ def test_screen_posting_disqualifies_without_calling_fit():
     # it at all, so it structurally cannot pay for a fit call — pipeline.run_score is
     # what gates on `disqualified` before ever calling the injected fit_fn.
     http = FakeHttp(json.dumps({"screen": {"clearance": {"requires_clearance": True}}}))
-    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"}, num_ctx=8192)
     assert out["disqualified"] is True
     assert "screen" in out
@@ -195,7 +198,7 @@ def test_screen_parse_failure_falls_back_to_scored_not_screened():
     # A garbled SCREEN response must NOT discard the posting: the design errs toward
     # keep on garbled extraction — not disqualified, and the screen verdict is empty.
     http = FakeHttp("this is not json {{{")
-    out = score.screen_posting(
+    out = screen_engine.screen_posting(
         POSTING, extract=_ollama(http),
         candidate={"highest_degree": "Master's"},
     )
@@ -215,7 +218,7 @@ def test_screen_posting_uses_injected_extract():
         seen["prompt"] = prompt
         return {"screen": {"clearance": {"requires_clearance": True}}}
 
-    out = score.screen_posting(CLEARED_POSTING, extract=extract,
+    out = screen_engine.screen_posting(CLEARED_POSTING, extract=extract,
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "clearance: requires security clearance"
@@ -225,7 +228,7 @@ def test_screen_posting_uses_injected_extract():
 def test_screen_posting_without_extract_runs_deterministic_gates_only():
     # SCREEN_BACKEND=none: no LLM call, but the intern/location gates still fire.
     posting = dict(POSTING, job_title="Software Engineering Intern")
-    out = score.screen_posting(posting, extract=None,
+    out = screen_engine.screen_posting(posting, extract=None,
                                candidate={"exclude_internships": True,
                                           "security_clearance": "none"})
     assert out["disqualified"] is True
@@ -237,7 +240,7 @@ def test_extract_failure_errs_toward_keep():
     def extract(prompt, schema):
         raise score.ScoreError("provider down")
 
-    out = score.screen_posting(POSTING, extract=extract,
+    out = screen_engine.screen_posting(POSTING, extract=extract,
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert out["screen"] == {}
@@ -250,13 +253,13 @@ def test_extract_failure_is_flagged_provider_error():
     def extract(prompt, schema):
         raise score.ScoreError("provider down")
 
-    out = score.screen_posting(POSTING, extract=extract,
+    out = screen_engine.screen_posting(POSTING, extract=extract,
                                candidate={"highest_degree": "Master's"})
     assert out["provider_error"] is True
 
 
 def test_working_extract_sets_no_provider_error():
-    out = score.screen_posting(POSTING, extract=lambda p, s: {"screen": {}},
+    out = screen_engine.screen_posting(POSTING, extract=lambda p, s: {"screen": {}},
                                candidate={"highest_degree": "Master's"})
     assert "provider_error" not in out
 
@@ -276,7 +279,7 @@ def test_a_blind_response_is_a_provider_error_not_a_verdict(blind):
     # whole backlog. Realistic trigger is a wrong `--model` tag or a non-instruct model.
     jd = ("If you are eligible to work without sponsorship, we encourage you to apply. "
           "We build low-latency trading systems.")
-    out = score.screen_posting({**POSTING, "description": jd},
+    out = screen_engine.screen_posting({**POSTING, "description": jd},
                                extract=lambda p, s: blind,
                                candidate={"work_authorization": "requires H-1B sponsorship"})
     assert out["provider_error"] is True
@@ -294,7 +297,7 @@ def test_the_flat_shape_is_a_verdict_and_is_honoured():
     # was `["phd", "master's"]`, which correctly does NOT bar a Master's candidate.
     flat = {"degree": {"degree_levels": ["phd"], "degree_required": True},
             "clearance": {"requires_clearance": False}}
-    out = score.screen_posting(POSTING, extract=lambda p, s: flat,
+    out = screen_engine.screen_posting(POSTING, extract=lambda p, s: flat,
                                candidate={"highest_degree": "Master's",
                                           "security_clearance": "none"})
     assert "provider_error" not in out
@@ -310,7 +313,7 @@ def test_the_observed_flat_response_is_kept_not_discarded():
     # SCREENED and kept, rather than deferred as a provider error.
     seen = {"degree": {"degree_levels": ["phd", "master's"], "degree_required": True},
             "clearance": {"requires_clearance": False}}
-    out = score.screen_posting(POSTING, extract=lambda p, s: seen,
+    out = screen_engine.screen_posting(POSTING, extract=lambda p, s: seen,
                                candidate={"highest_degree": "Master's",
                                           "security_clearance": "none"})
     assert "provider_error" not in out
@@ -322,8 +325,8 @@ def test_the_flat_shape_and_the_schema_shape_agree():
     # One reader for both shapes, so they cannot drift apart.
     inner = {"degree": {"degree_levels": ["phd"], "degree_required": True}}
     candidate = {"highest_degree": "Master's"}
-    flat = score.screen_posting(POSTING, extract=lambda p, s: inner, candidate=candidate)
-    nested = score.screen_posting(POSTING, extract=lambda p, s: {"screen": inner},
+    flat = screen_engine.screen_posting(POSTING, extract=lambda p, s: inner, candidate=candidate)
+    nested = screen_engine.screen_posting(POSTING, extract=lambda p, s: {"screen": inner},
                                  candidate=candidate)
     assert flat == nested
 
@@ -334,7 +337,7 @@ def test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor():
     # that says so outright is caught with no model data. Widening the blind check to
     # cover this would contradict the four tests that pin the floor.
     jd = "We will not sponsor employment visas for this position."
-    out = score.screen_posting({**POSTING, "description": jd},
+    out = screen_engine.screen_posting({**POSTING, "description": jd},
                                extract=lambda p, s: {"screen": {}},
                                candidate={"work_authorization": "requires H-1B sponsorship"})
     assert "provider_error" not in out
@@ -345,7 +348,7 @@ def test_screen_backend_none_is_not_a_provider_error():
     # SCREEN_BACKEND=none has no provider to fail: the deterministic gates run alone
     # and the row is legitimately scored, exactly as documented. It must not be
     # mistaken for an outage.
-    out = score.screen_posting(POSTING, extract=None,
+    out = screen_engine.screen_posting(POSTING, extract=None,
                                candidate={"highest_degree": "Master's"})
     assert "provider_error" not in out
 
@@ -362,7 +365,7 @@ def test_a_deterministically_disqualified_row_never_reaches_the_provider():
         calls.append(prompt)
         raise score.ScoreError("provider down")
 
-    out = score.screen_posting({**POSTING, "location": "Shanghai, China"},
+    out = screen_engine.screen_posting({**POSTING, "location": "Shanghai, China"},
                                extract=extract,
                                candidate={"highest_degree": "Master's",
                                           "locations": ["remote", "USA"]})
@@ -387,7 +390,7 @@ def test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor():
 
     jd = ("If you are eligible to work without sponsorship, we encourage you to apply. "
           "We build low-latency trading systems.")
-    out = score.screen_posting({**POSTING, "description": jd}, extract=extract,
+    out = screen_engine.screen_posting({**POSTING, "description": jd}, extract=extract,
                                candidate={"work_authorization": "requires H-1B sponsorship"})
     assert out["provider_error"] is True
     assert out["disqualified"] is False
@@ -401,7 +404,7 @@ def test_screen_backend_none_still_records_the_authorization_floor_verdict():
     # floor IS the intended whole verdict, and dropping it here would silently retire
     # the only sponsorship signal SCREEN_BACKEND=none has.
     jd = "We will not sponsor employment visas for this position."
-    out = score.screen_posting({**POSTING, "description": jd}, extract=None,
+    out = screen_engine.screen_posting({**POSTING, "description": jd}, extract=None,
                                candidate={"work_authorization": "requires H-1B sponsorship"})
     assert "provider_error" not in out
     assert out["disqualified"] is True
@@ -412,7 +415,7 @@ def test_screen_backend_none_still_records_the_authorization_floor_verdict():
 
 def test_screen_request_sends_deterministic_options():
     http = FakeHttp(_screen_resp({}))
-    score.screen_posting(POSTING, extract=_ollama(http, seed=7, num_ctx=4096),
+    screen_engine.screen_posting(POSTING, extract=_ollama(http, seed=7, num_ctx=4096),
                          num_ctx=4096, candidate={"highest_degree": "Master's"})
     opts = http.calls[0][1]["json"]["options"]
     assert opts["temperature"] == 0          # deterministic by default
@@ -429,7 +432,7 @@ def test_structured_candidate_renders_extraction_clauses_in_screen_call():
     # The authorization clause only renders when CODE retrieved something to classify,
     # so the JD has to mention sponsorship for all three clauses to appear.
     posting = dict(POSTING, description="We need Python. We cannot sponsor visas.")
-    score.screen_posting(
+    screen_engine.screen_posting(
         posting, extract=_ollama(http),
         candidate={
             "highest_degree": "Master's",
@@ -455,7 +458,7 @@ def test_empty_candidate_fields_render_no_screen_call():
     # and nothing is disqualified.
     for candidate in (None, {"highest_degree": "", "locations": []}):
         http = FakeHttp()
-        out = score.screen_posting(POSTING, extract=_ollama(http),
+        out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                    candidate=candidate)
         assert len(http.calls) == 0, candidate
         assert out["disqualified"] is False, candidate
@@ -470,7 +473,7 @@ def _screen_resp(screen):
 # location: gated in CODE off posting["location"] (pycountry), not the LLM screen
 def test_foreign_location_disqualifies_from_board_string():
     posting = {**POSTING, "location": "Shanghai, China"}
-    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
+    out = screen_engine.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "location: on-site in China"
@@ -479,7 +482,7 @@ def test_foreign_location_disqualifies_from_board_string():
 
 def test_us_state_only_location_kept():
     posting = {**POSTING, "location": "New York, New York"}
-    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
+    out = screen_engine.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is False
     assert out["screen"]["location"]["pass"] is True
@@ -488,7 +491,7 @@ def test_us_state_only_location_kept():
 def test_locations_only_candidate_makes_no_ollama_call():
     posting = {**POSTING, "location": "Sydney, Australia"}
     http = FakeHttp()
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"locations": ["remote", "USA"]})
     assert len(http.calls) == 0                               # location needs no LLM
     assert out["disqualified"] is True
@@ -496,7 +499,7 @@ def test_locations_only_candidate_makes_no_ollama_call():
 
 def test_missing_board_location_is_kept():
     posting = {**POSTING, "location": None}
-    out = score.screen_posting(posting, extract=_ollama(FakeHttp()),
+    out = screen_engine.screen_posting(posting, extract=_ollama(FakeHttp()),
                                candidate={"locations": ["remote", "USA"]})
     assert out["disqualified"] is False                       # err toward keep
 
@@ -504,7 +507,7 @@ def test_missing_board_location_is_kept():
 def test_deterministic_screen_flags_intern_and_location():
     base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     posting = {"job_title": "Data Science Intern", "location": "Shanghai, China"}
-    out = score.deterministic_screen(
+    out = screen_engine.deterministic_screen(
         base, posting, {"exclude_internships": True, "locations": ["remote", "USA"]})
     assert out["disqualified"] is True
     assert out["screen"]["internships"]["pass"] is False
@@ -516,13 +519,13 @@ def test_deterministic_screen_flags_intern_and_location():
 def test_deterministic_screen_passes_clean_row():
     base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
     posting = {"job_title": "Software Engineer", "location": "New York, New York"}
-    out = score.deterministic_screen(base, posting, {"locations": ["remote", "USA"]})
+    out = screen_engine.deterministic_screen(base, posting, {"locations": ["remote", "USA"]})
     assert out["disqualified"] is False
 
 
 def test_deterministic_screen_noop_without_candidate():
     base = {"screen": {}, "disqualified": False, "disqualification_reason": ""}
-    out = score.deterministic_screen(base, {"job_title": "Intern"}, None)
+    out = screen_engine.deterministic_screen(base, {"job_title": "Intern"}, None)
     assert out == {"screen": {}, "disqualified": False, "disqualification_reason": ""}
 
 
@@ -531,7 +534,7 @@ def test_deterministic_screen_noop_without_candidate():
 # shape below is the fit scorer's Stage 4 block, still read for the fallback path.
 def test_higher_required_degree_disqualifies():
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is True
     assert "degree" in out["disqualification_reason"]
@@ -540,7 +543,7 @@ def test_higher_required_degree_disqualifies():
 def test_lower_or_no_required_degree_passes():
     for req in ("bachelor's", "none", ""):
         http = FakeHttp(_screen_resp({"degree": {"required_degree": req}}))
-        out = score.screen_posting(POSTING, extract=_ollama(http),
+        out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                    candidate={"highest_degree": "Master's"})
         assert out["disqualified"] is False, req
 
@@ -548,7 +551,7 @@ def test_lower_or_no_required_degree_passes():
 def _degree_screen(levels, required, cand="Master's"):
     http = FakeHttp(_screen_resp(
         {"degree": {"degree_levels": levels, "degree_required": required}}))
-    return score.screen_posting(POSTING, extract=_ollama(http),
+    return screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                 candidate={"highest_degree": cand})
 
 
@@ -593,10 +596,10 @@ def test_blind_degree_levels_leave_a_gap_for_the_fallback():
                   {"degree_levels": None, "degree_required": "yes-ish"},
                   {"degree_levels": [], "degree_required": True},
                   {"degree_levels": ["unclear"], "degree_required": True}):
-        out = score.screen._screen_verdict({"screen": {"degree": entry}}, cand, "JD")
+        out = screen_engine._screen_verdict({"screen": {"degree": entry}}, cand, "JD")
         assert "degree" not in out["screen"], entry
     # "no degree required" needs no levels — it is a real answer, not a gap.
-    out = score.screen._screen_verdict(
+    out = screen_engine._screen_verdict(
         {"screen": {"degree": {"degree_levels": [], "degree_required": False}}}, cand, "JD")
     assert out["screen"]["degree"]["pass"] is True
 
@@ -609,14 +612,14 @@ def test_blind_degree_levels_leave_a_gap_for_the_fallback():
 def test_no_sponsorship_disqualifies_when_jd_says_so():
     posting = {**POSTING, "description": "We will not sponsor visas for this role."}
     http = FakeHttp(_screen_resp({"authorization": {}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
 
 
 def test_citizen_never_fails_authorization():
     http = FakeHttp(_screen_resp({"authorization": {"no_sponsorship_quote": "We do not sponsor."}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"work_authorization": "US citizen"})
     assert out["disqualified"] is False
 
@@ -632,7 +635,7 @@ def test_authorization_ignores_sponsor_boilerplate():
     ):
         posting = {**POSTING, "description": desc}
         http = FakeHttp(_screen_resp({"authorization": {}}))
-        out = score.screen_posting(posting, extract=_ollama(http),
+        out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                    candidate={"work_authorization": "needs visa sponsorship"})
         assert out["disqualified"] is False, desc
 
@@ -642,7 +645,7 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
     # floor, not model trust, decides here.
     posting = {**POSTING, "description": "Strong team. This position offers no visa sponsorship."}
     http = FakeHttp(_screen_resp({"authorization": {}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["disqualified"] is True
 
@@ -651,14 +654,14 @@ def test_authorization_fails_only_on_explicit_no_sponsorship_phrase():
 # JD to actually SAY so (the evidence floor; see the CLEARANCE_TOKENS block below).
 def test_clearance_required_disqualifies():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
 
 
 def test_clearance_not_required_passes():
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": False}}))
-    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is False
 
@@ -676,7 +679,7 @@ def test_ungrounded_clearance_claim_keeps_the_posting():
                                 "security, application security reviews, and secure "
                                 "coding practices across the platform."))
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is False
     assert out["screen"]["clearance"]["pass"] is True
@@ -688,7 +691,7 @@ def test_clearance_grounded_in_the_title_alone_disqualifies():
     # clearance floor reads both rather than the description only.
     posting = dict(POSTING, job_title="TS/SCI Cleared Systems Engineer")
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "clearance: requires security clearance"
@@ -713,7 +716,7 @@ def test_science_words_do_not_ground_a_clearance_claim(text):
     # spells the abbreviation as `ts/sci`, so these three keep.
     posting = dict(POSTING, description=text)
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"security_clearance": "none"})
     assert out["disqualified"] is False
 
@@ -733,7 +736,7 @@ def test_fallback_screen_clearance_also_needs_evidence():
 def test_exclude_internships_disqualifies_intern_title():
     posting = {**POSTING, "job_title": "Software Engineer Intern"}
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert out["disqualified"] is True
     assert "internship/co-op role" in out["disqualification_reason"]
@@ -741,7 +744,7 @@ def test_exclude_internships_disqualifies_intern_title():
 
 def test_exclude_internships_passes_non_intern_title():
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert out["disqualified"] is False
 
@@ -750,7 +753,7 @@ def test_intern_title_not_excluded_without_the_flag():
     # No exclude_internships -> an intern title is not auto-disqualified.
     posting = {**POSTING, "job_title": "Software Engineer Intern"}
     http = FakeHttp(_screen_resp({}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -760,7 +763,7 @@ def test_exclude_internships_only_makes_no_screen_call():
     # not trigger a SCREEN Ollama call.
     posting = {**POSTING, "job_title": "Backend Intern"}
     http = FakeHttp()
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"exclude_internships": True})
     assert len(http.calls) == 0
     assert out["disqualified"] is True
@@ -768,18 +771,18 @@ def test_exclude_internships_only_makes_no_screen_call():
 
 def test_is_internship_whole_word_matching():
     # Real intern/co-op titles match; "internal"/"international" must not.
-    assert score._is_internship("Software Engineer Intern")
-    assert score._is_internship("2026 Summer Internship")
-    assert score._is_internship("Data Science Co-op")
-    assert not score._is_internship("Internal Tools Engineer")
-    assert not score._is_internship("International Sales Lead")
+    assert screen_engine._is_internship("Software Engineer Intern")
+    assert screen_engine._is_internship("2026 Summer Internship")
+    assert screen_engine._is_internship("Data Science Co-op")
+    assert not screen_engine._is_internship("Internal Tools Engineer")
+    assert not screen_engine._is_internship("International Sales Lead")
 
 
 def test_skill_gap_and_unknown_keys_do_not_disqualify():
     # An invented key (skills) is ignored; a passing configured gate doesn't fail.
     http = FakeHttp(_screen_resp({"skills": {"pass": False, "note": "no C++"},
                                   "degree": {"required_degree": "bachelor's"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert "skills" not in out["screen"]
@@ -789,7 +792,7 @@ def test_unconfigured_requirement_is_not_checked():
     # Candidate sets only degree; a stray clearance extraction must be ignored.
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True},
                                   "degree": {"required_degree": "bachelor's"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert "clearance" not in out["screen"]
@@ -818,7 +821,7 @@ def test_screen_transport_failure_errs_toward_keep():
     # contract is "extract raised", full stop — screen_posting doesn't distinguish
     # transport failures from parse failures, so neither can discard the posting.
     http = _raw_http(raise_exc=requests.HTTPError("ollama 500"))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
     assert out["screen"] == {}
@@ -835,7 +838,7 @@ def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
     # Each gate is CONFIGURED, but the model returns an empty fact for it. The
     # design never discards on absent data, so disqualified must be False.
     http = FakeHttp(_screen_resp({gate: {}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate=candidate)
     assert out["disqualified"] is False, gate
 
@@ -843,7 +846,7 @@ def test_empty_extraction_per_gate_never_disqualifies(gate, candidate):
 def test_non_dict_gate_entry_is_treated_as_empty():
     # A garbled (non-dict) extraction for a configured gate must not crash or fail.
     http = FakeHttp(_screen_resp({"degree": "nonsense"}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -853,7 +856,7 @@ def test_non_dict_gate_entry_is_treated_as_empty():
 def test_equal_required_degree_passes_pinning_greater_than():
     # required == candidate (master's) must PASS — pins `>` (not `>=`) in the gate.
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "master's"}}))
-    out = score.screen_posting(POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(POSTING, extract=_ollama(http),
                                candidate={"highest_degree": "Master's"})
     assert out["disqualified"] is False
 
@@ -864,7 +867,7 @@ def test_candidate_not_needing_sponsorship_passes_even_if_jd_says_no():
     posting = {**POSTING, "description": "We do not offer visa sponsorship."}
     http = FakeHttp(_screen_resp(
         {"authorization": {"no_sponsorship_quote": "We do not offer visa sponsorship."}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "no sponsorship needed"})
     assert out["disqualified"] is False
 
@@ -873,7 +876,7 @@ def test_candidate_holding_clearance_passes_when_role_requires_one():
     # CLEARED_POSTING so the evidence floor is SATISFIED — this pins the holder
     # short-circuit, not the floor keeping an ungrounded row by accident.
     http = FakeHttp(_screen_resp({"clearance": {"requires_clearance": True}}))
-    out = score.screen_posting(CLEARED_POSTING, extract=_ollama(http),
+    out = screen_engine.screen_posting(CLEARED_POSTING, extract=_ollama(http),
                                candidate={"security_clearance": "Secret"})
     assert out["disqualified"] is False
 
@@ -894,7 +897,7 @@ def _screen_labels(labels, description):
     """Screen `description` with the model returning `labels`, one per retrieved snippet."""
     http = FakeHttp(json.dumps({"screen": {"authorization": {"sponsorship_labels": labels}}}))
     posting = dict(POSTING, description=description)
-    return score.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
+    return screen_engine.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
 
 
 def _sponsor_jd(sentence):
@@ -906,7 +909,7 @@ def _sponsor_jd(sentence):
 def test_snippets_are_the_sponsor_sentence_plus_one_neighbour_each_side():
     jd = ("We build trading systems. The team is small. "
           "We do not offer visa sponsorship. You will own your work. Apply today.")
-    snips = score.sponsorship_snippets(jd)
+    snips = screen_engine.sponsorship_snippets(jd)
     assert len(snips) == 1
     assert snips[0] == ("The team is small. We do not offer visa sponsorship. "
                         "You will own your work.")
@@ -916,14 +919,14 @@ def test_a_bare_sentence_would_lose_its_antecedent_so_the_window_carries_it():
     # The reason the window is +/-1 and not the sentence alone: "Sponsorship is not
     # among them" is unlabelable without the sentence before it.
     jd = "We offer relocation and a signing bonus. Sponsorship is not among them."
-    assert score.sponsorship_snippets(jd) == [
+    assert screen_engine.sponsorship_snippets(jd) == [
         "We offer relocation and a signing bonus. Sponsorship is not among them."]
 
 
 def test_a_jd_that_never_says_sponsor_yields_no_snippets():
     # No snippets means no clause in the prompt and nothing to classify — the check
     # simply does not run, which is why silence keeps.
-    assert score.sponsorship_snippets(
+    assert screen_engine.sponsorship_snippets(
         "A normal job description with no mention of immigration status.") == []
 
 
@@ -933,13 +936,13 @@ def test_one_snippet_per_sponsor_sentence_even_when_they_are_adjacent():
     # exactly that, which made live IMC rows 465/490 come back `refuses` on a paragraph
     # that refuses three named nationalities AND offers sponsorship to Ukrainians.
     # Repeating a shared neighbour costs a few hundred prompt chars; merging cost a job.
-    assert score.sponsorship_snippets(
+    assert screen_engine.sponsorship_snippets(
         "Intro. We sponsor visas. We also sponsor conferences. Outro.") == [
         "Intro. We sponsor visas. We also sponsor conferences.",
         "We sponsor visas. We also sponsor conferences. Outro."]
     jd = ("We sponsor a robotics team. " + "Filler sentence. " * 5
           + "We cannot sponsor work visas. We are hiring now.")
-    snips = score.sponsorship_snippets(jd)
+    snips = screen_engine.sponsorship_snippets(jd)
     assert len(snips) == 2
     assert "robotics" in snips[0] and "work visas" in snips[1]
 
@@ -949,7 +952,7 @@ def test_a_scoped_refusal_beside_an_offer_keeps_the_posting():
     jd = ("Apply today. We are unable to obtain sponsorship for candidates from certain "
           "countries. If you hold a biometric passport we can obtain sponsorship for you. "
           "Contact recruitment.")
-    snips = score.sponsorship_snippets(jd)
+    snips = screen_engine.sponsorship_snippets(jd)
     assert len(snips) == 2
     assert _screen_labels(["refuses", "offers"], jd)["disqualified"] is False
 
@@ -959,7 +962,7 @@ def test_the_abbreviation_trap_pr22_sprang_does_not_split_early():
     # "based in the U.S. Citizenship is not required" into a fake citizenship bar.
     # Under this design a mis-split only widens the window — the model still reads the
     # words — but the guard is cheap and the case is a real posting.
-    sents = score._sentences("Roles are based in the U.S. Sponsorship is not required. Apply.")
+    sents = screen_engine._sentences("Roles are based in the U.S. Sponsorship is not required. Apply.")
     assert sents[0] == "Roles are based in the U.S. Sponsorship is not required."
 
 
@@ -982,7 +985,7 @@ def test_an_offer_anywhere_outranks_a_refusal():
     # wrongly-deleted opportunity is the expensive error. Offer wins.
     jd = ("Intro. We sponsor Skilled Worker visas. " + "Filler. " * 4
           + "We do not sponsor interns. Outro.")
-    assert len(score.sponsorship_snippets(jd)) == 2
+    assert len(screen_engine.sponsorship_snippets(jd)) == 2
     assert _screen_labels(["offers", "refuses"], jd)["disqualified"] is False
 
 
@@ -1006,7 +1009,7 @@ def test_a_preference_is_vetoed_too_because_the_classifier_calls_it_a_refusal():
     # It is keep-direction only: it cannot turn a real refusal into a keep just because
     # the word "prefer" appears far from the sponsorship clause.
     hard = _sponsor_jd("We prefer candidates based in London. We will not sponsor visas.")
-    assert _screen_labels(["refuses"] * len(score.sponsorship_snippets(hard)),
+    assert _screen_labels(["refuses"] * len(screen_engine.sponsorship_snippets(hard)),
                           hard)["disqualified"] is True
 
 
@@ -1045,7 +1048,7 @@ def test_a_miscounted_answer_does_not_fall_through_to_the_floor():
     # count is not silence, and must not re-enable the ungated gate this design replaces.
     jd = _sponsor_jd("If you are eligible to work without sponsorship, we encourage you "
                      "to apply. We also sponsor conferences.")
-    assert len(score.sponsorship_snippets(jd)) == 2
+    assert len(screen_engine.sponsorship_snippets(jd)) == 2
     assert "without sponsorship" in jd                    # the floor WOULD match
     assert _screen_labels(["neither"], jd)["disqualified"] is False   # 1 label, 2 snippets
     assert _screen_labels(["yes", "yes"], jd)["disqualified"] is False  # off-vocabulary
@@ -1060,7 +1063,7 @@ def test_an_empty_label_array_against_retrieved_snippets_is_a_bad_count_not_sile
     # floor phrase, so it passed either way; this one pins the direction that costs a job.
     jd = _sponsor_jd("If you are eligible to work without sponsorship, we encourage you "
                      "to apply. We also sponsor conferences.")
-    assert len(score.sponsorship_snippets(jd)) == 2       # a question WAS asked...
+    assert len(screen_engine.sponsorship_snippets(jd)) == 2       # a question WAS asked...
     assert "without sponsorship" in jd                    # ...and the floor WOULD match
     assert _screen_labels([], jd)["disqualified"] is False
 
@@ -1077,7 +1080,7 @@ def test_an_empty_label_array_with_nothing_retrieved_still_reaches_the_floor():
     # the floor silently. Called directly because this check is not re-exported.
     jd = "We will not sponsor employment visas for this position."
     entry = {"sponsorship_labels": []}
-    assert screen_mod._check_authorization("requires H-1B sponsorship", jd, entry, []) \
+    assert screen_engine._check_authorization("requires H-1B sponsorship", jd, entry, []) \
         == (False, "no visa sponsorship offered")
 
 
@@ -1085,7 +1088,7 @@ def test_hallucination_cannot_disqualify_because_the_model_supplies_no_text():
     # THE security property, now structural. The model returns a label over a snippet
     # CODE retrieved; there is no channel for invented text to reach the decision.
     jd = "Great role. We welcome applicants from all backgrounds."
-    assert score.sponsorship_snippets(jd) == []          # nothing retrieved...
+    assert screen_engine.sponsorship_snippets(jd) == []          # nothing retrieved...
     assert _screen_labels(["refuses"], jd)["disqualified"] is False   # ...so nothing to act on
 
 
@@ -1143,7 +1146,7 @@ def test_candidate_not_needing_sponsorship_is_never_gated():
     http = FakeHttp(json.dumps(
         {"screen": {"authorization": {"sponsorship_labels": ["refuses"]}}}))
     posting = dict(POSTING, description="We will not sponsor.")
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"work_authorization": "citizen"})
     assert out["disqualified"] is False
 
@@ -1154,7 +1157,7 @@ def test_the_authorization_clause_is_omitted_when_nothing_was_retrieved():
     # and the fit scorer never gets a second vote on a disqualification (SPEC §7.1).
     http = FakeHttp(_screen_resp({}))
     posting = dict(POSTING, description="A normal JD with no mention of immigration.")
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={**_NEEDS_VISA, "highest_degree": "Master's"})
     prompt = http.calls[0][1]["json"]["prompt"]
     # Assert on the CLAUSE, not the key: the header's worked example names every key.
@@ -1169,13 +1172,13 @@ def test_authorization_records_a_verdict_even_with_no_llm_call_at_all():
     # merge_fallback_screen fills only ABSENT keys, and letting the fit scorer supply a
     # second opinion on a disqualification is what SPEC §7.1 forbids.
     posting = dict(POSTING, description="A normal JD with no mention of immigration.")
-    out = score.screen_posting(posting, extract=lambda p, s: pytest.fail("no call"),
+    out = screen_engine.screen_posting(posting, extract=lambda p, s: pytest.fail("no call"),
                                candidate=_NEEDS_VISA)
     assert out["screen"]["authorization"]["pass"] is True
     assert out["disqualified"] is False
     # ...and the floor still stands on that no-call path.
     blunt = dict(POSTING, description="This employer does not sponsor work visas.")
-    out = score.screen_posting(blunt, extract=None, candidate=_NEEDS_VISA)
+    out = screen_engine.screen_posting(blunt, extract=None, candidate=_NEEDS_VISA)
     assert out["disqualified"] is True
     assert out["disqualification_reason"] == "authorization: no visa sponsorship offered"
 
@@ -1183,7 +1186,7 @@ def test_authorization_records_a_verdict_even_with_no_llm_call_at_all():
 def test_the_retrieved_snippets_are_numbered_into_the_prompt():
     http = FakeHttp(_screen_resp({}))
     posting = dict(POSTING, description=_sponsor_jd("We will not sponsor visas."))
-    score.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
+    screen_engine.screen_posting(posting, extract=_ollama(http), candidate=_NEEDS_VISA)
     prompt = http.calls[0][1]["json"]["prompt"]
     assert "sponsorship_labels" in prompt
     assert "1. About the role. We will not sponsor visas. Apply now." in prompt
@@ -1206,13 +1209,13 @@ def test_every_must_keep_sentence_survives_the_code_path():
     leaked = []
     for q in _corpus()["must_keep"]:
         jd = _sponsor_jd(q)
-        n = len(score.sponsorship_snippets(jd))
+        n = len(screen_engine.sponsorship_snippets(jd))
         if n and _screen_labels(["refuses"] * n, jd)["disqualified"]:
             leaked.append(q)
     # The off-topic and EEO shapes are no longer code's problem — they carry no `sponsor`
     # token, or the model labels them `neither`. What must still hold is that a genuine
     # OFFER can never be turned into a discard by a mislabel.
-    offers = [q for q in _corpus()["must_keep"] if score._offers_sponsorship(q.lower())]
+    offers = [q for q in _corpus()["must_keep"] if screen_engine._offers_sponsorship(q.lower())]
     assert len(offers) >= 8, "the offers-veto corpus shrank"
     assert not [q for q in offers if q in leaked], (
         "a genuine offer was disqualified:\n" + "\n".join(leaked))
@@ -1226,7 +1229,7 @@ def test_the_narrowed_vocabulary_names_exactly_which_bars_it_gives_up():
     # posting reaches the human. This pins the SIZE of that trade so it cannot grow
     # silently, in either direction.
     flag = _corpus()["must_flag"]
-    retrievable = [q for q in flag if score.sponsorship_snippets(_sponsor_jd(q))]
+    retrievable = [q for q in flag if screen_engine.sponsorship_snippets(_sponsor_jd(q))]
     missed = [q for q in flag if q not in retrievable]
     assert len(retrievable) == 6 and len(missed) == 7, (
         f"the recall trade moved: {len(retrievable)} retrievable, {len(missed)} missed\n"
@@ -1243,7 +1246,7 @@ def test_multiple_failing_gates_join_reasons():
     # one: the deterministic gate short-circuits the call — see the test below.)
     posting = {**POSTING, "location": "Singapore",
                "job_title": "Software Engineering Intern"}
-    out = score.screen_posting(posting, extract=None,
+    out = screen_engine.screen_posting(posting, extract=None,
                                candidate={"locations": ["USA"],
                                           "exclude_internships": True})
     assert out["disqualified"] is True
@@ -1258,7 +1261,7 @@ def test_a_deterministic_gate_short_circuits_the_model_reason():
     # row is identical (discarded); what is given up is extra detail on a dead row.
     posting = {**POSTING, "location": "Singapore"}
     http = FakeHttp(_screen_resp({"degree": {"required_degree": "phd"}}))
-    out = score.screen_posting(posting, extract=_ollama(http),
+    out = screen_engine.screen_posting(posting, extract=_ollama(http),
                                candidate={"highest_degree": "Master's",
                                           "locations": ["USA"]})
     assert out["disqualified"] is True
@@ -1270,12 +1273,12 @@ def test_a_deterministic_gate_short_circuits_the_model_reason():
 
 @pytest.mark.parametrize("value", ["true", "yes", "1", "required", "TRUE", 1, True, 2.5])
 def test_flag_truthy_tokens(value):
-    assert score._flag(value) is True
+    assert screen_engine._flag(value) is True
 
 
 @pytest.mark.parametrize("value", ["no", "false", "maybe", "", None, 0, False, "remote"])
 def test_flag_falsy_tokens(value):
-    assert score._flag(value) is False
+    assert screen_engine._flag(value) is False
 
 
 @pytest.mark.parametrize("text,rank", [
@@ -1285,7 +1288,7 @@ def test_flag_falsy_tokens(value):
     ("Master's", 4), ("PhD", 5), ("Doctorate", 5),
 ])
 def test_degree_rank_ladder(text, rank):
-    assert score._degree_rank(text) == rank
+    assert screen_engine._degree_rank(text) == rank
 
 
 @pytest.mark.parametrize("auth,needs", [
@@ -1297,13 +1300,13 @@ def test_degree_rank_ladder(text, rank):
     ("permanent resident", False),
 ])
 def test_needs_sponsorship(auth, needs):
-    assert score._needs_sponsorship(auth) is needs
+    assert screen_engine._needs_sponsorship(auth) is needs
 
 
 def test_truncate_boundary_and_disabled():
-    assert score._truncate("abcde", 5) == "abcde"          # exact length: not cut
-    assert "truncated" in score._truncate("abcdef", 5)     # one over: cut
-    assert score._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
+    assert screen_prompts._truncate("abcde", 5) == "abcde"          # exact length: not cut
+    assert "truncated" in screen_prompts._truncate("abcdef", 5)     # one over: cut
+    assert screen_prompts._truncate("abcdef", 0) == "abcdef"        # max_chars<=0: disabled
 
 
 # --- resolve_location: the gate's own unit table now lives in tests/test_location.py
@@ -1325,8 +1328,8 @@ def test_job_block_omits_location_for_the_fit_score_call():
     # fit number (location is decided by the screen gate, not the score); the SCREEN
     # call keeps it (default).
     posting = {**POSTING, "location": "Chicago, IL"}
-    assert "Location: Chicago, IL" in score._job_block(posting, 0)                 # screen (default)
-    assert "Location:" not in score._job_block(posting, 0, include_location=False)  # score
+    assert "Location: Chicago, IL" in screen_prompts._job_block(posting, 0)                 # screen (default)
+    assert "Location:" not in screen_prompts._job_block(posting, 0, include_location=False)  # score
 
 
 # --- prompts: split into score.txt (Claude) + screen.txt (Ollama) ---------
@@ -1418,13 +1421,13 @@ def test_blind_screen_entry_still_leaves_a_gap_for_the_fallback():
                   "not stated", "not mentioned", "unclear", "TBD", "varies", "?"):
         data = {"screen": {"degree": {"required_degree": blank},
                            "clearance": {"requires_clearance": None}}}
-        out = score.screen._screen_verdict(data, cand, "JD text")
+        out = screen_engine._screen_verdict(data, cand, "JD text")
         assert "degree" not in out["screen"], f"blind degree materialized for {blank!r}"
         assert "clearance" not in out["screen"]
         assert out["disqualified"] is False
 
     # A real answer still materializes -- including `False`, which is a fact, not a gap.
-    out = score.screen._screen_verdict(
+    out = screen_engine._screen_verdict(
         {"screen": {"degree": {"required_degree": "phd"},
                     "clearance": {"requires_clearance": False}}}, cand, "JD text")
     assert out["screen"]["clearance"]["pass"] is True
@@ -1696,7 +1699,7 @@ def test_codex_batch_missing_job_ref_raises(monkeypatch):
         score.make_codex_scorer("gpt-5.6-sol")([{**POSTING, "id": 1}, {**POSTING, "id": 2}], {"swe": "r"})
 
 
-# --- fit-backend quota telemetry (score.usage, provider usage endpoints) ---------
+# --- fit-backend quota telemetry (usage, provider usage endpoints) ---------
 #
 # Replaced the rollout-scraping capture on 2026-07-29: the figures now come from one
 # HTTP GET per pass. Every test here mocks `_get_json` — nothing reaches the network.
@@ -1756,14 +1759,14 @@ def test_fetch_codex_usage_normalizes_the_window(codex_login, monkeypatch):
         seen["url"], seen["headers"] = url, headers
         return CODEX_USAGE_BODY
 
-    monkeypatch.setattr(score.usage, "_get_json", get_json)
-    snap = score.fetch_codex_usage()
+    monkeypatch.setattr(usage, "_get_json", get_json)
+    snap = usage.fetch_codex_usage()
     assert snap == {"backend": "codex", "plan_type": "plus", "limits": [
         {"key": "primary", "used_percent": 11, "window_minutes": 10080,
          "resets_at": 1785905532}]}
     # limit_window_seconds -> minutes, so the web's windowLabel reads it as "weekly".
     assert snap["limits"][0]["window_minutes"] == 10080
-    assert seen["url"] == score.usage.CODEX_USAGE_URL
+    assert seen["url"] == usage.CODEX_USAGE_URL
     assert seen["headers"]["chatgpt-account-id"] == "acct"
 
 
@@ -1785,8 +1788,8 @@ def test_which_statuses_are_worth_retrying(code, retryable, monkeypatch):
     # test's own opinion rather than the code's.
     def boom(req, timeout=None):
         raise _http_error(code)
-    monkeypatch.setattr(score.usage.urllib.request, "urlopen", boom)
-    assert score.usage._get_json_once("https://x/usage", {}) == (None, retryable)
+    monkeypatch.setattr(usage.urllib.request, "urlopen", boom)
+    assert usage._get_json_once("https://x/usage", {}) == (None, retryable)
 
 
 def test_a_retryable_failure_is_retried_and_the_recovery_is_kept(monkeypatch):
@@ -1802,8 +1805,8 @@ def test_a_retryable_failure_is_retried_and_the_recovery_is_kept(monkeypatch):
             raise _http_error(403)
         return _FakeResp(json.dumps({"ok": True}))
 
-    monkeypatch.setattr(score.usage.urllib.request, "urlopen", flaky)
-    assert score.usage._get_json("https://x/usage", {}, sleep=lambda _s: None) == {"ok": True}
+    monkeypatch.setattr(usage.urllib.request, "urlopen", flaky)
+    assert usage._get_json("https://x/usage", {}, sleep=lambda _s: None) == {"ok": True}
     assert len(calls) == 2
 
 
@@ -1814,8 +1817,8 @@ def test_a_verdict_status_is_not_retried(monkeypatch):
         calls.append(1)
         raise _http_error(401)
 
-    monkeypatch.setattr(score.usage.urllib.request, "urlopen", denied)
-    assert score.usage._get_json("https://x/usage", {}, sleep=lambda _s: None) is None
+    monkeypatch.setattr(usage.urllib.request, "urlopen", denied)
+    assert usage._get_json("https://x/usage", {}, sleep=lambda _s: None) is None
     assert len(calls) == 1
 
 
@@ -1823,15 +1826,15 @@ def test_the_attempt_bound_and_the_sleep_schedule_are_the_module_defaults(monkey
     # Pins the DEFAULTS, not an argument the test supplies: the previous version passed
     # attempts=3 explicitly, so raising _ATTEMPTS to 50 kept it green.
     calls, slept = [], []
-    monkeypatch.setattr(score.usage.urllib.request,
+    monkeypatch.setattr(usage.urllib.request,
                         "urlopen", lambda req, timeout=None: calls.append(1) or
                         (_ for _ in ()).throw(_http_error(403)))
-    monkeypatch.setattr(score.usage.time, "sleep", slept.append)
-    assert score.usage._get_json("https://x/usage", {}) is None
-    assert len(calls) == score.usage._ATTEMPTS
+    monkeypatch.setattr(usage.time, "sleep", slept.append)
+    assert usage._get_json("https://x/usage", {}) is None
+    assert len(calls) == usage._ATTEMPTS
     # one sleep BETWEEN attempts, never after the last, and growing past the only
     # interval at which the endpoint was ever observed to change state
-    assert slept == list(score.usage._RETRY_SLEEPS)[:score.usage._ATTEMPTS - 1]
+    assert slept == list(usage._RETRY_SLEEPS)[:usage._ATTEMPTS - 1]
     assert slept == sorted(slept) and slept[-1] >= 20.0
 
 
@@ -1839,23 +1842,23 @@ def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
     # chatgpt.com is behind Cloudflare, which 403s urllib's default Python-urllib/3.x.
     # Without an explicit UA the bar silently never updates (verified 2026-07-29).
     seen = {}
-    monkeypatch.setattr(score.usage, "_get_json",
+    monkeypatch.setattr(usage, "_get_json",
                         lambda url, headers: seen.update(headers) or CODEX_USAGE_BODY)
-    score.fetch_codex_usage()
+    usage.fetch_codex_usage()
     assert seen["User-Agent"] and not seen["User-Agent"].startswith("Python-urllib")
 
 
 def test_fetch_codex_usage_none_when_not_logged_in(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
-    monkeypatch.setattr(score.usage, "_get_json",
+    monkeypatch.setattr(usage, "_get_json",
                         lambda *a, **k: pytest.fail("must not call out without auth"))
-    assert score.fetch_codex_usage() is None
+    assert usage.fetch_codex_usage() is None
 
 
 def test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope(
         claude_login, monkeypatch):
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
-    snap = score.fetch_claude_usage()
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
+    snap = usage.fetch_claude_usage()
     assert snap["backend"] == "claude"
     # The scoped weekly row must stay distinguishable from the pooled one — both are
     # "weekly", and 72% beside 2% under one label reads as a contradiction.
@@ -1869,33 +1872,33 @@ def test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope(
 def test_claude_usage_falls_back_to_the_flat_buckets(claude_login, monkeypatch):
     # An account on the other side of the limits[] migration must still render.
     body = {k: v for k, v in CLAUDE_USAGE_BODY.items() if k != "limits"}
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: body)
-    snap = score.fetch_claude_usage()
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: body)
+    snap = usage.fetch_claude_usage()
     assert [(l["key"], l["used_percent"]) for l in snap["limits"]] == [
         ("five_hour", 2.0), ("seven_day", 72.0)]      # the null seven_day_opus is skipped
 
 
 def test_claude_usage_parses_iso_resets_into_epoch_seconds(claude_login, monkeypatch):
     # Codex sends an int, Claude an ISO string; the web reads one epoch field.
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
-    resets = score.fetch_claude_usage()["limits"][0]["resets_at"]
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CLAUDE_USAGE_BODY)
+    resets = usage.fetch_claude_usage()["limits"][0]["resets_at"]
     assert isinstance(resets, int)
     assert resets == int(datetime.fromisoformat(
         "2026-07-29T19:59:59.561596+00:00").timestamp())
 
 
 def test_epoch_tolerates_a_z_suffix_and_junk():
-    assert score._epoch(1785905532) == 1785905532
-    assert score._epoch("2026-07-29T19:59:59Z") == score._epoch("2026-07-29T19:59:59+00:00")
-    assert score._epoch("not-a-date") is None
-    assert score._epoch(None) is None
+    assert usage._epoch(1785905532) == 1785905532
+    assert usage._epoch("2026-07-29T19:59:59Z") == usage._epoch("2026-07-29T19:59:59+00:00")
+    assert usage._epoch("not-a-date") is None
+    assert usage._epoch(None) is None
 
 
 def test_capture_usage_writes_atomically_and_leaves_no_tmp(codex_login, tmp_path,
                                                            monkeypatch):
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
     path = str(tmp_path / "scorer_usage.json")
-    assert score.capture_usage(path, "codex") is True
+    assert usage.capture_usage(path, "codex") is True
     assert json.loads((tmp_path / "scorer_usage.json").read_text())["backend"] == "codex"
     assert not list(tmp_path.glob("scorer_usage.json*.tmp"))
 
@@ -1905,9 +1908,9 @@ def test_capture_usage_stamps_as_of_so_a_stale_reading_is_legible(codex_login, t
     # The instrument the quota decisions read. Without this field a stale snapshot and a
     # fresh one look identical to anything but `ls -la` — which is how one --score-limit
     # decision came out ~17 points optimistic.
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
     path = tmp_path / "scorer_usage.json"
-    assert score.capture_usage(str(path), "codex") is True
+    assert usage.capture_usage(str(path), "codex") is True
     stamped = json.loads(path.read_text())["as_of"]
     assert datetime.fromisoformat(stamped).tzinfo is not None   # local time, offset-aware
 
@@ -1916,17 +1919,17 @@ def test_capture_usage_keeps_the_last_good_snapshot_when_the_fetch_fails(
         codex_login, tmp_path, monkeypatch):
     # A transient 429 / expired token must dim the bar's freshness, not blank it.
     path = tmp_path / "scorer_usage.json"
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
-    score.capture_usage(str(path), "codex")
-    monkeypatch.setattr(score.usage, "_get_json", lambda url, headers: None)
-    assert score.capture_usage(str(path), "codex") is False
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: CODEX_USAGE_BODY)
+    usage.capture_usage(str(path), "codex")
+    monkeypatch.setattr(usage, "_get_json", lambda url, headers: None)
+    assert usage.capture_usage(str(path), "codex") is False
     assert json.loads(path.read_text())["backend"] == "codex"   # previous reading intact
 
 
 def test_capture_usage_never_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
-    assert score.capture_usage("/nonexistent-dir/deep/none.json", "codex") is False
-    assert score.capture_usage(str(tmp_path / "u.json"), "gemini") is False   # unknown backend
+    assert usage.capture_usage("/nonexistent-dir/deep/none.json", "codex") is False
+    assert usage.capture_usage(str(tmp_path / "u.json"), "gemini") is False   # unknown backend
 
 
 def test_codex_scorer_always_stays_ephemeral(monkeypatch):
@@ -2003,7 +2006,7 @@ def test_fallback_screen_fills_a_check_the_screen_returned_no_data_for():
     # the fallback only ever reached a whole-backend absence.
     candidate = {"highest_degree": "Bachelor's", "work_authorization": "citizen",
                  "security_clearance": "none"}
-    screen = score.screen_posting(POSTING, candidate=candidate,
+    screen = screen_engine.screen_posting(POSTING, candidate=candidate,
                                   extract=lambda p, s: {"screen": {"authorization": {}}})
     card = {"screen": {"degree": {"required_degree": "phd"}}}
     out = score.merge_fallback_screen(screen, card, POSTING, candidate)
@@ -2016,7 +2019,7 @@ def test_authorization_still_ruled_when_the_model_returns_no_entry():
     # (NO_SPONSOR_PHRASES over the JD), so it produces a real verdict with no model
     # data and must keep writing its key.
     posting = dict(POSTING, description="We do not sponsor work visas.")
-    out = score.screen_posting(posting, extract=lambda p, s: {"screen": {}},
+    out = screen_engine.screen_posting(posting, extract=lambda p, s: {"screen": {}},
                                candidate={"work_authorization": "needs visa sponsorship"})
     assert out["screen"]["authorization"]["pass"] is False
     assert out["disqualified"] is True
@@ -2054,8 +2057,8 @@ def test_get_json_names_the_http_status_when_the_provider_raises(capsys):
         raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
+        mp.setattr(usage.urllib.request, "urlopen", raising)
+        assert usage._get_json("https://x/usage", {}, attempts=1) is None
     out = capsys.readouterr().out
     assert "429" in out and "https://x/usage" in out
 
@@ -2067,8 +2070,8 @@ def test_get_json_names_the_exception_when_the_connection_fails(capsys):
         raise urllib.error.URLError("name resolution failed")
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
+        mp.setattr(usage.urllib.request, "urlopen", raising)
+        assert usage._get_json("https://x/usage", {}, attempts=1) is None
     assert "URLError" in capsys.readouterr().out
 
 
@@ -2084,8 +2087,8 @@ def test_an_unanticipated_failure_cannot_colour_the_pass_and_still_says_why(
         raise RuntimeError("something nobody anticipated")
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage.capture_usage(str(tmp_path / "u.json"), "codex") is False
+        mp.setattr(usage.urllib.request, "urlopen", raising)
+        assert usage.capture_usage(str(tmp_path / "u.json"), "codex") is False
     assert "RuntimeError" in capsys.readouterr().out
 
 
@@ -2094,17 +2097,17 @@ def test_a_200_with_no_usable_window_says_so_instead_of_going_quiet(codex_login,
     # window carries a null used_percent. Nothing named this before, so the instrument
     # could have missed the very failure it was built for.
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage, "_get_json",
+        mp.setattr(usage, "_get_json",
                    lambda url, headers: {"rate_limit": {"primary_window":
                                                         {"used_percent": None}}})
-        assert score.usage.fetch_codex_usage() is None
+        assert usage.fetch_codex_usage() is None
     assert "no usable window" in capsys.readouterr().out
 
 
 def test_a_200_that_is_not_the_expected_shape_says_so(codex_login, capsys):
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage, "_get_json", lambda url, headers: {"unexpected": 1})
-        assert score.usage.fetch_codex_usage() is None
+        mp.setattr(usage, "_get_json", lambda url, headers: {"unexpected": 1})
+        assert usage.fetch_codex_usage() is None
     assert "no rate_limit object" in capsys.readouterr().out
 
 
@@ -2117,8 +2120,8 @@ def test_a_truncated_body_is_caught_and_named(capsys):
         raise http.client.IncompleteRead(b"partial")
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(score.usage.urllib.request, "urlopen", raising)
-        assert score.usage._get_json("https://x/usage", {}, attempts=1) is None
+        mp.setattr(usage.urllib.request, "urlopen", raising)
+        assert usage._get_json("https://x/usage", {}, attempts=1) is None
     assert "IncompleteRead" in capsys.readouterr().out
 
 
@@ -2128,8 +2131,8 @@ def test_a_200_whose_body_is_not_an_object_says_so(codex_login, capsys):
     # None with zero output -- making SPEC's "every route names itself" literally untrue.
     for body in ([], "nonsense", 3):
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(score.usage, "_get_json", lambda url, headers, b=body: b)
-            assert score.usage.fetch_codex_usage() is None
+            mp.setattr(usage, "_get_json", lambda url, headers, b=body: b)
+            assert usage.fetch_codex_usage() is None
         assert "not an object" in capsys.readouterr().out
 
 

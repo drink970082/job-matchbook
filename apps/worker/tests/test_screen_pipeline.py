@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from ats_worker import db, pipeline, score
+from ats_worker import db, pipeline
+from ats_worker.screening import engine as screen_engine
 from tests._helpers import NOW, bootstrap_db, make_posting
 
 
@@ -24,14 +25,14 @@ def _run(conn, screen_fn, *, now=NOW, candidate=None, limit=40, extract=object()
 
 def test_provider_preflight_matches_screening_gates():
     extract = object()
-    assert score.screen_requires_provider(
+    assert screen_engine.screen_requires_provider(
         make_posting("needs"), extract=extract, candidate={"highest_degree": "bachelor"})
-    assert not score.screen_requires_provider(
+    assert not screen_engine.screen_requires_provider(
         make_posting("none"), extract=extract, candidate=None)
-    assert not score.screen_requires_provider(
+    assert not screen_engine.screen_requires_provider(
         make_posting("no-provider"), extract=None,
         candidate={"highest_degree": "bachelor"})
-    assert not score.screen_requires_provider(
+    assert not screen_engine.screen_requires_provider(
         make_posting("intern", job_title="Software Intern"), extract=extract,
         candidate={"highest_degree": "bachelor", "exclude_internships": True})
 
@@ -155,7 +156,7 @@ def test_deterministic_rows_finish_after_provider_cap(tmp_path):
             return {"screen": {}}
 
         def screen_fn(posting):
-            return score.screen_posting(posting, extract=extract, candidate=candidate)
+            return screen_engine.screen_posting(posting, extract=extract, candidate=candidate)
 
         _run(conn, screen_fn, candidate=candidate, limit=1, extract=extract)
         assert len(provider_calls) == 1
