@@ -171,11 +171,11 @@ def test_codex_usage_sends_a_non_default_user_agent(codex_login, monkeypatch):
     assert seen["User-Agent"] and not seen["User-Agent"].startswith("Python-urllib")
 
 
-def test_fetch_codex_usage_none_when_not_logged_in(tmp_path, monkeypatch):
+def test_fetch_codex_usage_requests_login_when_not_logged_in(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "absent"))
     monkeypatch.setattr(usage, "_get_json",
                         lambda *a, **k: pytest.fail("must not call out without auth"))
-    assert usage.fetch_codex_usage() is None
+    assert usage.fetch_codex_usage()["auth_required"] is True
 
 
 def test_fetch_claude_usage_prefers_the_limits_array_and_keeps_the_model_scope(
