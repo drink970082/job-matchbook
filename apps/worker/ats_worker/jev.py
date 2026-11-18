@@ -30,7 +30,7 @@ MAX_REQUEST_BYTES = 32768
 RULE_VERSION = "jev-keep-skip-v1"
 PREFERENCE_Q = "preference"
 YOE_Q = "required_yoe_for_candidate"
-ERROR_CATEGORIES = frozenset({"provider_error", "timeout", "request_too_large",
+ERROR_CATEGORIES = frozenset({"provider_error", "request_too_large",
                               "invalid_response", "unknown_charge"})
 
 
@@ -128,7 +128,12 @@ class OpenRouterClient:
                 headers={"Authorization": "Bearer " + self._key,
                          "Content-Type": "application/json"})
         except Exception as exc:  # noqa: BLE001 - exception text may echo request data
-            raise JevError("timeout" if "Timeout" in type(exc).__name__ else "provider_error") from None
+            name = type(exc).__name__
+            if "Connect" in name:  # never reached the provider: nothing was charged
+                raise JevError("provider_error") from None
+            if "Timeout" in name:  # sent but unanswered: the call may have been charged
+                raise JevError("unknown_charge") from None
+            raise JevError("provider_error") from None
         if response.status_code != 200:
             raise JevError("provider_error")
         try:
@@ -137,7 +142,7 @@ class OpenRouterClient:
             cost = Decimal(str(usage["cost"]))
         except (ValueError, KeyError, TypeError, InvalidOperation):
             raise JevError("unknown_charge") from None
-        if usage.get("is_byok", False):
+        if usage.get("is_byok", False) or not cost.is_finite() or cost < 0:
             raise JevError("unknown_charge")
         return value, cost
 

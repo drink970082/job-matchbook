@@ -555,6 +555,7 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
     """
     if limit <= 0:
         raise ValueError("jev limit must be positive")
+    db.upsert_setting(conn, db.JEV_POLICY_SETTING, policy_sha, now=now)
     rows = db.get_jev_candidates(conn, policy_sha)
     tally = {"attempted": 0, "keep": 0, "skip": 0, "errors": 0, "deferred": 0,
              "spent_usd": Decimal(0), "stopped": None}

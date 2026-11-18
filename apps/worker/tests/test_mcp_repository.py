@@ -970,6 +970,14 @@ def test_jev_filter_hides_only_current_skips_by_default(db_path):
     with pytest.raises(QueryInputError, match="jev"):
         repo.list_jobs(jev="maybe")
 
+    # A skip never hides a posting that has left `new` (JEV does not revisit those).
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE job_postings SET pipeline_status='applied' WHERE id=?", (skip,))
+    assert skip in {r["id"] for r in repo.list_jobs(limit=100)["items"]}
+    assert repo.list_jobs(jev="skip")["items"] == []
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE job_postings SET pipeline_status='new' WHERE id=?", (skip,))
+
     detail = repo.get_job(skip)["jev"]
     assert detail["status"] == "skip" and detail["model"] == "fake-jev"
     assert detail["reasons"] == ["preference_weak"]
@@ -991,3 +999,16 @@ def test_jev_filter_cursor_is_bound_to_the_filter(db_path):
     assert second["jev_filter"]["hidden_skip_count"] is None
     with pytest.raises(QueryInputError):
         repo.list_jobs(limit=1, jev="all", cursor=first["next_cursor"])
+
+
+def test_jev_skip_from_an_older_policy_is_stale_and_shown(db_path):
+    with sqlite3.connect(db_path) as conn:
+        old = _job(conn, title="old-policy skip")
+        _insert_jev(conn, old, verdict="skip")  # policy_sha256 'p'
+        conn.execute("INSERT INTO app_settings(key,value) VALUES('jev_current_policy_sha256','p')")
+    repo = ReadOnlyATSRepository(db_path)
+    assert repo.list_jobs()["items"] == []
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE app_settings SET value='p2' WHERE key='jev_current_policy_sha256'")
+    items = repo.list_jobs()["items"]
+    assert [r["id"] for r in items] == [old] and items[0]["jev"]["status"] == "stale"

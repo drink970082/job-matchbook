@@ -173,7 +173,11 @@ def test_client_parses_cost_and_resolves_model():
     (_Session(_Resp(value={"usage": {}})), "unknown_charge"),
     (_Session(_Resp(value={"usage": {"cost": 0.1, "is_byok": True}})), "unknown_charge"),
     (_Session(_Resp(error=ValueError("not json"))), "unknown_charge"),
-    (_Session(raises=TimeoutError("slow")), "timeout"),
+    (_Session(_Resp(value={"usage": {"cost": -0.1}})), "unknown_charge"),
+    (_Session(_Resp(value={"usage": {"cost": "NaN"}})), "unknown_charge"),
+    (_Session(raises=TimeoutError("slow")), "unknown_charge"),  # sent: may be charged
+    (_Session(raises=type("ReadTimeout", (OSError,), {})()), "unknown_charge"),
+    (_Session(raises=type("ConnectTimeout", (OSError,), {})()), "provider_error"),
     (_Session(raises=OSError("reset")), "provider_error"),
 ])
 def test_client_failures_map_to_closed_categories(session, category):
@@ -247,13 +251,13 @@ def test_run_jev_errors_are_stored_and_retried_after_fresh_work(tmp_path):
 
     def flaky(posting):
         if posting["external_id"] == "a":
-            raise jev.JevError("timeout")
+            raise jev.JevError("provider_error")
         return _assess_with()(posting)
     tally = _run(conn, flaky)
     assert tally["errors"] == 1 and tally["keep"] == 1
     row = _rows(conn)["a"]
     assert row["state"] == "provider_error" and row["verdict"] is None
-    assert row["error_category"] == "timeout"
+    assert row["error_category"] == "provider_error"
     order = [r["external_id"] for r in db.get_jev_candidates(conn, "policy-a")]
     assert order == ["a"]
     assert _run(conn, _assess_with())["keep"] == 1
@@ -350,6 +354,7 @@ def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
     (["--jev-limit", "0"], "--jev-limit"),
     (["--jev-max-usd", "abc"], "--jev-max-usd"),
     (["--jev-max-usd", "0"], "--jev-max-usd"),
+    (["--jev-max-usd", "Infinity"], "--jev-max-usd"),
 ])
 def test_cli_validates_jev_flags(tmp_path, capsys, extra, message):
     cfg = tmp_path / "config.yaml"
@@ -365,3 +370,20 @@ def test_cli_jev_requires_jev_dir(tmp_path, capsys):
     with pytest.raises(SystemExit):
         run.main(["--once", "--config", str(cfg), "--jev"])
     assert "jev_dir" in capsys.readouterr().err
+
+
+def test_run_jev_records_the_current_policy_for_mcp(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+    _run(conn, _assess_with(), sha="policy-z")
+    assert conn.execute("SELECT value FROM app_settings WHERE key=?",
+                        (db.JEV_POLICY_SETTING,)).fetchone()[0] == "policy-z"
+
+
+def test_oversized_requests_are_not_retried_until_their_input_changes(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+
+    def too_big(posting):
+        raise jev.JevError("request_too_large")
+    assert _run(conn, too_big)["errors"] == 1
+    assert db.get_jev_candidates(conn, "policy-a") == []
+    assert len(db.get_jev_candidates(conn, "policy-b")) == 1

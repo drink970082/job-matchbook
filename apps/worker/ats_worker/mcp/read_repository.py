@@ -288,9 +288,20 @@ def _triage_rule_only_sql(result: str) -> str:
 
 
 def _jev_status_sql() -> str:
+    # Stale = the posting's source changed, or the verdict predates the policy of the
+    # latest JEV pass (app_settings, written by the worker); no recorded policy yet
+    # means no pass ever ran under a different one.
     return ("CASE WHEN j.id IS NULL THEN 'unassessed' WHEN j.state<>'complete' THEN 'failed' "
             "WHEN j.source_content_revision IS NOT p.source_content_revision THEN 'stale' "
+            "WHEN j.policy_sha256 IS NOT COALESCE((SELECT value FROM app_settings "
+            "WHERE key='jev_current_policy_sha256'), j.policy_sha256) THEN 'stale' "
             "WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END")
+
+
+def _jev_hidden_sql() -> str:
+    # Only a current skip on a still-`new` posting is hidden: once a posting is scored,
+    # applied to or otherwise moves on, JEV never revisits it and must never hide it.
+    return f"(p.pipeline_status='new' AND ({_jev_status_sql()})='skip')"
 
 
 _JEV_JOIN = " LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
@@ -1189,9 +1200,9 @@ class ReadOnlyATSRepository:
             raise QueryInputError("cursor is malformed")
         unfiltered_clauses, unfiltered_params = list(clauses), list(params)
         if jev == "keep":
-            clauses.append(f"({_jev_status_sql()}) <> 'skip'")
+            clauses.append(f"NOT {_jev_hidden_sql()}")
         elif jev == "skip":
-            clauses.append(f"({_jev_status_sql()}) = 'skip'")
+            clauses.append(_jev_hidden_sql())
 
         with self._connection() as conn:
             # The first page fixes an insertion ceiling in the same read snapshot as
@@ -1205,7 +1216,7 @@ class ReadOnlyATSRepository:
             hidden_skip = None
             if jev == "keep" and not decoded:
                 skip_where = " WHERE " + " AND ".join(
-                    [*unfiltered_clauses, f"({_jev_status_sql()}) = 'skip'"])
+                    [*unfiltered_clauses, _jev_hidden_sql()])
                 hidden_skip = int(conn.execute(
                     "SELECT COUNT(*) FROM job_postings p LEFT JOIN job_screenings s "
                     "ON s.job_posting_id=p.id" + _JEV_JOIN + skip_where,

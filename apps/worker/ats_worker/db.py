@@ -152,8 +152,10 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
 
 # --- app settings ---------------------------------------------------------
 # A web-owned key-value preferences table (app_settings). The worker never reads
-# it; this single mutator exists only so an onboarding script can seed a preference
-# (the category vocabulary) through the same Python DB layer as the watchlist.
+# it. This mutator seeds onboarding preferences (the category vocabulary) and records
+# JEV_POLICY_SETTING, the policy hash of the latest JEV pass, which MCP compares
+# against each assessment to label older verdicts stale.
+JEV_POLICY_SETTING = "jev_current_policy_sha256"
 
 def upsert_setting(conn: sqlite3.Connection, key: str, value: str, *, now: str) -> None:
     """Insert or overwrite one app_settings row. `value` is stored verbatim (the
@@ -333,6 +335,9 @@ def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str) -> list[dict]:
         "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
         "JOIN job_jev_assessments j ON j.job_posting_id=p.id "
         f"WHERE {_JEV_ELIGIBLE} AND NOT {stale} AND j.state='provider_error' "
+        # An oversized request never changes until its source or policy does (which
+        # re-queues it as fresh work above); retrying it would only burn limit slots.
+        "AND j.error_category IS NOT 'request_too_large' "
         "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha,)).fetchall()
     return [dict(row) for row in (*fresh, *errors)]
 

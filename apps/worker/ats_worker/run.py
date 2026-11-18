@@ -721,8 +721,8 @@ def main(argv=None) -> None:
             args.jev_max_usd = Decimal(args.jev_max_usd)
         except ArithmeticError:
             parser.error("--jev-max-usd must be a number")
-        if not args.jev_max_usd > 0:
-            parser.error("--jev-max-usd must be positive")
+        if not (args.jev_max_usd.is_finite() and args.jev_max_usd > 0):
+            parser.error("--jev-max-usd must be a positive finite number")
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
     # push newly-added config companies into the table; the normal run also

@@ -835,9 +835,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   experience context, the resolved model, the rule version) or the posting's source
   revision changes; provider errors retry oldest-first after fresh work. A pass is
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
-  `--jev-max-usd` (default 0.10, settled charges including partial failures); an
-  unknown charge stops the pass and a dead backend trips the shared breaker. A request
-  over 32,768 bytes is never sent and is stored as `request_too_large`. Without
+  `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
+  before each posting, so a pass can exceed it by one posting's two calls). An unknown
+  charge (missing/negative/non-finite cost, BYOK, or a timeout after sending) stops the
+  pass; a dead backend trips the shared breaker. A request over 32,768 bytes is never
+  sent, is stored as `request_too_large`, and is not retried until its source or policy
+  changes. Each pass records its policy hash in `app_settings`
+  (`jev_current_policy_sha256`) so MCP can label older verdicts stale. Without
   `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
   screen have already run. Inputs are four private files under config `jev_dir`
   (`config.yaml.example`). Measured basis (2026-11, model-proxy, not human truth):
@@ -1259,9 +1263,10 @@ worker modules are pure and dependency-injected; real services are wired only in
   withheld because they cannot be safely parsed. Tool errors contain actionable
   repository messages but never a database path or driver text. Server instructions
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
-  `list_jobs` takes `jev` (`keep` default, `skip`, `all`): `keep` hides only postings
-  whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count` on the
-  first page; unassessed, failed and stale (source revision changed) postings are shown.
+  `list_jobs` takes `jev` (`keep` default, `skip`, `all`): `keep` hides only `new`
+  postings whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count`
+  on the first page; unassessed, failed, non-`new` and stale (source revision changed,
+  or a policy other than the latest pass recorded) postings are shown.
   Each row carries `jev.status`/`reasons`; `get_job` adds model, policy hash and attempt
   times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`.
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
