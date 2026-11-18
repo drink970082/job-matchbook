@@ -337,6 +337,7 @@ def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str) -> list[dict]:
         f"WHERE {_JEV_ELIGIBLE} AND NOT {stale} AND j.state='provider_error' "
         # An oversized request never changes until its source or policy does (which
         # re-queues it as fresh work above); retrying it would only burn limit slots.
+        # Raising jev.MAX_REQUEST_BYTES does not re-queue these: bump RULE_VERSION too.
         "AND j.error_category IS NOT 'request_too_large' "
         "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha,)).fetchall()
     return [dict(row) for row in (*fresh, *errors)]

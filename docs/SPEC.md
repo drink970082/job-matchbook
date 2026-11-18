@@ -837,7 +837,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
   `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
   before each posting, so a pass can exceed it by one posting's two calls). An unknown
-  charge (missing/negative/non-finite cost, BYOK, or a timeout after sending) stops the
+  charge (missing/negative/non-finite cost, BYOK, or any transport failure other than a
+  connect timeout) stops the
   pass; a dead backend trips the shared breaker. A request over 32,768 bytes is never
   sent, is stored as `request_too_large`, and is not retried until its source or policy
   changes. Each pass records its policy hash in `app_settings`

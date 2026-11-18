@@ -128,12 +128,12 @@ class OpenRouterClient:
                 headers={"Authorization": "Bearer " + self._key,
                          "Content-Type": "application/json"})
         except Exception as exc:  # noqa: BLE001 - exception text may echo request data
-            name = type(exc).__name__
-            if "Connect" in name:  # never reached the provider: nothing was charged
+            # Only a connect timeout proves the request never left. requests re-raises
+            # a mid-body read timeout or a dropped connection as ConnectionError, so
+            # every other failure may have been charged: count it unknown (stops the pass).
+            if type(exc).__name__ == "ConnectTimeout":
                 raise JevError("provider_error") from None
-            if "Timeout" in name:  # sent but unanswered: the call may have been charged
-                raise JevError("unknown_charge") from None
-            raise JevError("provider_error") from None
+            raise JevError("unknown_charge") from None
         if response.status_code != 200:
             raise JevError("provider_error")
         try:

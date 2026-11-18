@@ -178,7 +178,9 @@ def test_client_parses_cost_and_resolves_model():
     (_Session(raises=TimeoutError("slow")), "unknown_charge"),  # sent: may be charged
     (_Session(raises=type("ReadTimeout", (OSError,), {})()), "unknown_charge"),
     (_Session(raises=type("ConnectTimeout", (OSError,), {})()), "provider_error"),
-    (_Session(raises=OSError("reset")), "provider_error"),
+    # requests wraps a mid-body read timeout / dropped connection as ConnectionError.
+    (_Session(raises=type("ConnectionError", (OSError,), {})()), "unknown_charge"),
+    (_Session(raises=OSError("reset")), "unknown_charge"),
 ])
 def test_client_failures_map_to_closed_categories(session, category):
     with pytest.raises(jev.JevError) as err:
