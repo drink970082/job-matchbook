@@ -235,7 +235,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
                   │ reads postings / writes applications
                   ▼
    ┌───────────────────────────────────────────────────────────────────┐
-   │  apps/web  (Next.js 14, Server Actions + 1 API route)             │
+   │  apps/web  (Next.js 14, Server Actions + /api/v1 write API)       │
    │   Discovered Jobs tab  ──"Mark Applied"──►  Applications + charts  │
    └───────────────────────────────────────────────────────────────────┘
                   ▲
@@ -246,7 +246,7 @@ phases: it promotes a `job_postings` row into an `applications` row.
 
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
-| Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications) |
+| Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications); serves `/api/v1` on the same loopback port, enabled by `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` (§7.2) |
 | fetch / screen | **host** — `python -m ats_worker.run`, not containerized | board APIs, the screen backend (host Ollama or a CLI/API provider) |
 | ATS read-only MCP | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
 | Ollama | **host** (GPU) — not containerized | — |
@@ -1366,6 +1366,18 @@ worker modules are pure and dependency-injected; real services are wired only in
   including the `backend` it describes — plus `as_of` (the file mtime).
   Missing/unparseable → empty state (`{backend:null, limits:[], as_of:null}`, still
   `200`), since the worker may not have scored yet.
+- **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
+  validation exists once in `lib/actions.ts`. Each route is a thin wrapper over one
+  action, stamping `actor='mcp'`: `POST applications` (`addApplication`), `PATCH
+  applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
+  applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
+  jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `bucket=all`), `POST
+  watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`).
+  Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
+  (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
+  (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
+  action's `{success:false}` -> `400` with the action's own error text. No route
+  deletes an application or history row.
 - **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
   shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical
@@ -1507,6 +1519,7 @@ model applications {
   status          String           // one of STATUSES
   notes           String?
   last_updated    String?
+  actor           String           @default("web") // who created it: web | mcp (ACTORS)
   status_history  status_history[]
   job_postings    job_postings[]   // back-link from a promoted posting
 }
@@ -1516,6 +1529,7 @@ model status_history {
   application_id Int
   status         String
   timestamp      String
+  actor          String       @default("web") // who made the change: web | mcp
   applications   applications @relation(fields: [application_id], references: [id],
                                          onDelete: Cascade, onUpdate: NoAction)
 
@@ -2207,9 +2221,10 @@ automated coverage — those rely on code review or the human in the loop, not a
   shared; a single-file mount breaks this silently.
 - **Prisma owns the schema.** One source of truth; the worker aligns its columns
   and issues no DDL. A CI schema-drift guard keeps the worker's SQL fixture honest.
-- **Server Actions, not REST.** All mutations go through Server Actions; the one
-  exception is the `GET /api/health` route — an HTTP-status probe the Docker
-  healthcheck can call, which doesn't fit the Server Action model.
+- **Server Actions, not REST.** The UI mutates through Server Actions. The
+  `/api/v1` routes exist for the MCP server only and wrap the same actions, so there
+  is one write path; `GET /api/health` is an HTTP-status probe for the Docker
+  healthcheck.
 - **The screen extracts, code decides.** The hard-requirements SCREEN defaults to local
   Ollama on the GPU, free and rate-limit-free, `qwen3.5:4b` (fits an 8 GB card,
   `think:false` so reasoning models still return JSON). It only extracts JOB facts; CODE
@@ -2279,6 +2294,10 @@ automated coverage — those rely on code review or the human in the loop, not a
     server-side web-request attack surfaces that presume a reachable, adversarial
     network client — not a concern for a server that only accepts connections from
     `127.0.0.1`. Revisit at the next Next.js major upgrade.
+  - **`/api/v1` keys are static bearer secrets** read from the env, compared in
+    constant time, with no rotation or expiry. The API is reachable only on the
+    loopback bind (or the operator's `WEB_BIND` mesh) and is off unless a key is set;
+    the Server Actions beside it remain unauthenticated by design.
   - **`autoheal` holds the Docker socket** — `docker-compose.yml` mounts
     `/var/run/docker.sock` (root-equivalent host control) into
     `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the

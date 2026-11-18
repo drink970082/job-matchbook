@@ -41,6 +41,10 @@ services:
       # gitignored root `.env` to your own zone (e.g. TZ=America/New_York) and they
       # agree; leave it unset and the server keeps its previous UTC behavior.
       TZ: "${TZ:-UTC}"
+      # Bearer keys for the /api/v1 write API the MCP server calls (SPEC §7.2). Set them
+      # in the gitignored root `.env`; both empty = the API answers 503 (disabled).
+      ATS_API_KEY_READ_WRITE: "${ATS_API_KEY_READ_WRITE:-}"
+      ATS_API_KEY_READ: "${ATS_API_KEY_READ:-}"
     volumes:
       - ./db:/data            # shared SQLite directory (db + WAL sidecars)
     restart: unless-stopped

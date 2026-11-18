@@ -8,6 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **MCP write path, first slice — `feat/web-write-api`** `[WEB · M]` (#153 -> #154 ->
+  #159, epic #152). #153 (key-scoped `/api/v1` write API + `actor` columns) is on this
+  branch; #154 (MCP write tools calling it) and #159 (workflow text) follow. Deploying
+  needs `make db-push` (additive `actor`) and a key in the root `.env`.
+
 - **JEV keep/skip filter — deployed, backlog draining until about early December** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
   main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).

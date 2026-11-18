@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { ACTORS, type Actor, STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
@@ -64,6 +64,12 @@ function searchClause(search: string) {
 // user-editable vocabulary and can legitimately stop containing 'Others', while this
 // fallback must not move with it.
 const CATEGORY_FALLBACK = 'Others'
+
+// Server Actions are callable with arbitrary arguments, so the actor is checked, not trusted.
+function checkedActor(actor: unknown): Actor {
+    if (!(ACTORS as readonly unknown[]).includes(actor)) throw new Error('Invalid actor')
+    return actor as Actor
+}
 
 // Discovered Jobs collapses to score-aware buckets (we're testing scoring). Every
 // non-lowcontext bucket is mutually exclusive of the derived low-context id set.
@@ -919,8 +925,9 @@ export async function removeAllInView(filter: JobViewScope) {
     }
 }
 
-export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope) {
+export async function markJobApplied(id: number, category: string | undefined, scope: JobViewScope, actor: Actor = 'web') {
     try {
+        checkedActor(actor)
         validateJobPostingsFilter(scope, true, false)
         return await prisma.$transaction(async (tx) => {
             const posting = await findPostingInView(tx, id, scope)
@@ -962,6 +969,7 @@ export async function markJobApplied(id: number, category: string | undefined, s
                     status: 'Applied',
                     notes: '',
                     last_updated: new Date().toISOString(),
+                    actor,
                 },
             })
 
@@ -990,8 +998,9 @@ export async function addApplication(data: {
     status?: string
     application_url?: string
     notes?: string
-}) {
+}, actor: Actor = 'web') {
     try {
+        checkedActor(actor)
         if (!data.company_name || !data.job_title || !data.date_applied) {
             return { success: false, error: 'Missing required fields' }
         }
@@ -1023,6 +1032,7 @@ export async function addApplication(data: {
                     application_url: data.application_url || '',
                     notes: data.notes || '',
                     last_updated: new Date().toISOString(),
+                    actor,
                 },
             })
         })
@@ -1035,17 +1045,19 @@ export async function addApplication(data: {
 
 export async function updateApplicationDetails(
     id: number,
+    // A field left undefined is left unchanged (the API sends partial updates; the UI
+    // sends every field). A blank category still falls back to CATEGORY_FALLBACK.
     data: {
-        company_name: string
-        job_title: string
-        category: string
+        company_name?: string
+        job_title?: string
+        category?: string
         application_url?: string
         date_applied?: string
         notes?: string
     }
 ) {
     try {
-        const category = data.category?.trim() || CATEGORY_FALLBACK
+        const category = data.category === undefined ? undefined : data.category.trim() || CATEGORY_FALLBACK
 
         await prisma.applications.update({
             where: { id },
@@ -1065,8 +1077,9 @@ export async function updateApplicationDetails(
     }
 }
 
-export async function updateApplicationStatus(id: number, status: string, date?: string) {
+export async function updateApplicationStatus(id: number, status: string, date?: string, actor: Actor = 'web') {
     try {
+        checkedActor(actor)
         if (!STATUSES.includes(status as any)) {
             return { success: false, error: 'Invalid status' }
         }
@@ -1094,6 +1107,7 @@ export async function updateApplicationStatus(id: number, status: string, date?:
                     application_id: id,
                     status,
                     timestamp,
+                    actor,
                 },
             })
         })
