@@ -137,6 +137,8 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   independent #113 assessment-view, #114 batch-replay and #115 synthetic-rehearsal
   preparation (#117–#119). Preserve live evaluation, schema, integration and activation
   gates.
+- Ignore local `job_search_profile_*_with_evidence/` source archives and extend the
+  privacy gate's path checks and self-test to cover candidate-profile source evidence.
 
 - Add derived Web/MCP job-triage summaries, filters and partition counts for supported
   deterministic rejections, standalone screening rejections, retained candidates and
