@@ -140,6 +140,9 @@ class Config:
     # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the
     # optional Playwright extra). Off by default so a normal run stays pure `requests`.
     enable_browser_sources: bool = False
+    # Directory of the private JEV filter inputs (see ats_worker/jev.py). Empty = the
+    # filter cannot run; `--jev` refuses to start without it.
+    jev_dir: str = ""
 
 
 def _looks_like_yaml_text(value) -> bool:
@@ -218,6 +221,7 @@ def load_config(source) -> Config:
         feeds=feeds,
         schedule_hours=schedule_hours,
         enable_browser_sources=bool(data.get("enable_browser_sources", False)),
+        jev_dir=str(data.get("jev_dir") or ""),
     )
 
 

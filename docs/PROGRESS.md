@@ -8,6 +8,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **JEV keep/skip filter — `feat/jev-keep-skip`** `[JEV · M]` (#139). Code ships behind
+  `--jev` (SPEC §7.1); nothing runs until the operator deploys: production
+  (`ats-runtime`) is pinned at #108, so deployment = back up the DB, `make db-push`
+  (additive `job_jev_assessments`), move `ats-runtime` to main, add `--jev` to the
+  worker drop-in, put `OPENROUTER_API_KEY` in the worker `.env`, restart the worker and
+  MCP tunnel. Rollback = drop `--jev`. The approved profile's `level` line now says 3
+  years (private `resume/pivot/jev-prod-v1/`); re-measured, 11 of 768 verdicts moved.
+
 - **Retire the old fit scorer — `refactor/screen-off-score-facades` (#149) then
   `refactor/remove-fit-scorer`** `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`,
   `screening/`, `ranking/` are JEV's and untouched. Both steps are in review; a pass is
