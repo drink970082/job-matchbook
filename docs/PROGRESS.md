@@ -8,11 +8,11 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV keep/skip filter — deployed 2026-11-18, backlog draining** `[JEV · M]` (#139).
+- **JEV keep/skip filter — deployed, backlog draining until about early December** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
   main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).
   About 6,000 screened candidates predate the filter and drain at 300 per daily pass
-  (about USD 0.08 each, about three weeks); until then most of the inventory lists as
+  (about USD 0.08 per pass); until then most of the inventory lists as
   `unassessed` and is shown. Rollback = drop `--jev` from
   `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
