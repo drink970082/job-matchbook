@@ -136,3 +136,11 @@ schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every 
 # Off by default so a normal run stays pure `requests` and never imports Playwright.
 # Requires: pip install -r requirements-browser.txt && playwright install chromium
 enable_browser_sources: false
+
+# OPTIONAL: the JEV keep/skip filter (`--jev`, paid OpenRouter calls, OPENROUTER_API_KEY).
+# A directory of PRIVATE inputs — keep it outside git (e.g. under apps/worker/resume/):
+#   profile-binding.json  approved profile sent with the preference question
+#   question-pack.json    the preference question pack (must contain `preference`)
+#   yoe-pack.json         the required-experience pack (`required_yoe_for_candidate`)
+#   yoe-context.txt       education/experience facts sent with the experience question
+# jev_dir: resume/jev

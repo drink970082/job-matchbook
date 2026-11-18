@@ -18,9 +18,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from decimal import Decimal
 from urllib.parse import urlparse
 
 from . import db, screening
+from .jev import JevError
 from .fetch import (DETAIL_SOURCES, STUB_GATE_NOW_SOURCES, STUB_GATE_SOURCES,
                     prefilter_postings)
 from .feed import prefilter as _prefilter
@@ -540,6 +542,61 @@ class _BackendBreaker:
 
 
 SCREEN_EVALUATOR_VERSION = "screen-v1"
+
+
+def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
+            max_usd, clock: Callable[[], str] | None = None) -> dict:
+    """Persist JEV keep/skip verdicts for screened, not-disqualified `new` postings.
+
+    Sequential, no retries within a pass. Stops at `limit` postings or once settled
+    spend reaches `max_usd` (a Decimal). An unknown charge stops the pass outright:
+    spend that cannot be counted must not keep spending. A dead backend trips the
+    breaker. Failures are stored as provider_error and retried next pass.
+    """
+    if limit <= 0:
+        raise ValueError("jev limit must be positive")
+    db.upsert_setting(conn, db.JEV_POLICY_SETTING, policy_sha, now=now)
+    rows = db.get_jev_candidates(conn, policy_sha)
+    tally = {"attempted": 0, "keep": 0, "skip": 0, "errors": 0, "deferred": 0,
+             "spent_usd": Decimal(0), "stopped": None}
+    breaker = _BackendBreaker()
+    for row in rows:
+        if breaker.tripped:
+            tally["stopped"] = "breaker"
+        elif tally["attempted"] >= limit:
+            tally["stopped"] = "limit"
+        elif tally["spent_usd"] >= max_usd:
+            tally["stopped"] = "max_usd"
+        if tally["stopped"]:
+            tally["deferred"] = len(rows) - tally["attempted"]
+            break
+        tally["attempted"] += 1
+        saved_at = clock() if clock is not None else now
+        try:
+            out = jev_fn(dict(row))
+        except JevError as exc:
+            tally["spent_usd"] += exc.cost
+            tally["errors"] += 1
+            if exc.category != "request_too_large":
+                breaker.record_failure()
+            db.save_jev(conn, int(row["id"]), state="provider_error", verdict=None, reasons=None,
+                        result=None, error_category=exc.category, model=model,
+                        policy_sha=policy_sha, cost_usd=str(exc.cost), now=saved_at)
+            if exc.category == "unknown_charge":
+                tally["stopped"] = "unknown_charge"
+                tally["deferred"] = len(rows) - tally["attempted"]
+                break
+            continue
+        breaker.record_success()
+        tally["spent_usd"] += Decimal(out["cost_usd"])
+        tally[out["verdict"]] += 1
+        db.save_jev(conn, int(row["id"]), state="complete", verdict=out["verdict"],
+                    reasons=out["reasons"], result=out["result"], error_category=None,
+                    model=model, policy_sha=policy_sha, cost_usd=out["cost_usd"], now=saved_at)
+    print(f"[jev] {tally['attempted']} assessed: {tally['keep']} keep, {tally['skip']} skip, "
+          f"{tally['errors']} error(s), {tally['deferred']} deferred, "
+          f"USD {tally['spent_usd']}" + (f", stopped: {tally['stopped']}" if tally["stopped"] else ""))
+    return tally
 
 
 def _screen_error_category(exc: Exception | None) -> str:

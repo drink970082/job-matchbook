@@ -9,6 +9,12 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **JEV keep/skip filter** (`--jev`). After the screen, two OpenRouter JEV questions
+  per screened posting mark it `skip` on a weak preference or a 3+ year mandatory
+  experience floor; the MCP `list_jobs` default now hides those and reports how many
+  it hid (`jev='skip'`/`'all'` read them). New additive table `job_jev_assessments`.
+  Ranking within the kept set was measured and dropped: it tied publication-time order.
+
 - Show a Codex re-login command in the usage bar when worker credentials are missing or
   rejected (HTTP 401), refreshing usage at the end of each `codex` screen pass. The
   command is plain `codex login --device-auth`, prefixed with the worker's `CODEX_HOME`

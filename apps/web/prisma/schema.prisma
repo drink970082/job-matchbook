@@ -47,6 +47,7 @@ model job_postings {
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
+  jev_assessment  job_jev_assessments?
   created_at      String
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
@@ -86,6 +87,29 @@ model job_screenings {
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
+
+  @@index([state, last_attempted_at])
+}
+
+// JEV keep/skip filter (worker `run_jev`). One latest assessment per posting; a skip
+// only hides the row from the MCP default list, it never changes pipeline_status.
+model job_jev_assessments {
+  id                      Int          @id @default(autoincrement())
+  job_posting_id          Int          @unique
+  state                   String       // complete | provider_error
+  verdict                 String?      // keep | skip; null on provider error
+  reasons_json            String?      // JSON array of closed reason codes
+  result_json             String?      // native answers of both questions
+  error_category          String?
+  model                   String?
+  policy_sha256           String       // profile + question packs + model binding
+  source_content_revision Int?
+  cost_usd                String?
+  last_attempted_at       String
+  completed_at            String?
+  created_at              String
+  updated_at              String?
+  job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 
   @@index([state, last_attempted_at])
 }

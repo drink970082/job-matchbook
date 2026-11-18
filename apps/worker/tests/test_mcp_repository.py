@@ -928,3 +928,87 @@ def test_large_generated_all_text_search_filters_before_limit_and_bounds_payload
     assert len(payload) < 8_000
     assert "ordinary synthetic body" not in payload
     assert "description" not in result["items"][0]
+
+
+def _insert_jev(conn, job_id, *, state="complete", verdict="keep", reasons=(), revision=None):
+    conn.execute(
+        "INSERT INTO job_jev_assessments(job_posting_id,state,verdict,reasons_json,model,"
+        "policy_sha256,source_content_revision,cost_usd,last_attempted_at,completed_at,created_at) "
+        "VALUES(?,?,?,?,'fake-jev','p',?,'0.0002','2026-10-22T10:00:00Z',?,'2026-10-22T10:00:00Z')",
+        (job_id, state, verdict if state == "complete" else None, json.dumps(list(reasons)),
+         revision, "2026-10-22T10:00:00Z" if state == "complete" else None))
+
+
+def test_jev_filter_hides_only_current_skips_by_default(db_path):
+    with sqlite3.connect(db_path) as conn:
+        keep = _job(conn, title="keep")
+        skip = _job(conn, title="skip")
+        stale = _job(conn, title="stale")
+        failed = _job(conn, title="failed")
+        unassessed = _job(conn, title="unassessed")
+        _insert_jev(conn, keep)
+        _insert_jev(conn, skip, verdict="skip", reasons=["preference_weak"])
+        _insert_jev(conn, stale, verdict="skip", revision=3)  # posting revision is NULL now
+        _insert_jev(conn, failed, state="provider_error")
+    repo = ReadOnlyATSRepository(db_path)
+
+    default = repo.list_jobs(limit=100)
+    assert {r["id"] for r in default["items"]} == {keep, stale, failed, unassessed}
+    assert default["jev_filter"]["applied"] == "keep"
+    assert default["jev_filter"]["hidden_skip_count"] == 1
+    status = {r["id"]: r["jev"]["status"] for r in default["items"]}
+    assert status == {keep: "keep", stale: "stale", failed: "failed", unassessed: "unassessed"}
+
+    skipped = repo.list_jobs(jev="skip")
+    assert [r["id"] for r in skipped["items"]] == [skip]
+    assert skipped["items"][0]["jev"]["reasons"] == ["preference_weak"]
+    assert skipped["jev_filter"]["hidden_skip_count"] is None
+    assert len(repo.list_jobs(jev="all", limit=100)["items"]) == 5
+    # Filters still compose with the JEV hide-count.
+    assert repo.list_jobs(search="skip")["jev_filter"]["hidden_skip_count"] == 1
+    assert repo.list_jobs(search="keep")["jev_filter"]["hidden_skip_count"] == 0
+    with pytest.raises(QueryInputError, match="jev"):
+        repo.list_jobs(jev="maybe")
+
+    # A skip never hides a posting that has left `new` (JEV does not revisit those).
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE job_postings SET pipeline_status='applied' WHERE id=?", (skip,))
+    assert skip in {r["id"] for r in repo.list_jobs(limit=100)["items"]}
+    assert repo.list_jobs(jev="skip")["items"] == []
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE job_postings SET pipeline_status='new' WHERE id=?", (skip,))
+
+    detail = repo.get_job(skip)["jev"]
+    assert detail["status"] == "skip" and detail["model"] == "fake-jev"
+    assert detail["reasons"] == ["preference_weak"]
+    assert repo.get_job(unassessed)["jev"]["status"] == "unassessed"
+
+    counts = {row["status"]: row["count"]
+              for row in repo.get_ats_overview()["jev_filter_counts"]["counts"]}
+    assert counts == {"keep": 1, "skip": 1, "unassessed": 1, "failed": 1, "stale": 1}
+
+
+def test_jev_filter_cursor_is_bound_to_the_filter(db_path):
+    with sqlite3.connect(db_path) as conn:
+        for i in range(3):
+            _job(conn, title=f"job{i}")
+    repo = ReadOnlyATSRepository(db_path)
+    first = repo.list_jobs(limit=1)
+    assert first["has_more"] is True
+    second = repo.list_jobs(limit=1, cursor=first["next_cursor"])
+    assert second["jev_filter"]["hidden_skip_count"] is None
+    with pytest.raises(QueryInputError):
+        repo.list_jobs(limit=1, jev="all", cursor=first["next_cursor"])
+
+
+def test_jev_skip_from_an_older_policy_is_stale_and_shown(db_path):
+    with sqlite3.connect(db_path) as conn:
+        old = _job(conn, title="old-policy skip")
+        _insert_jev(conn, old, verdict="skip")  # policy_sha256 'p'
+        conn.execute("INSERT INTO app_settings(key,value) VALUES('jev_current_policy_sha256','p')")
+    repo = ReadOnlyATSRepository(db_path)
+    assert repo.list_jobs()["items"] == []
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE app_settings SET value='p2' WHERE key='jev_current_policy_sha256'")
+    items = repo.list_jobs()["items"]
+    assert [r["id"] for r in items] == [old] and items[0]["jev"]["status"] == "stale"

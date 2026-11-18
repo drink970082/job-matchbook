@@ -152,8 +152,10 @@ def import_watchlist(conn: sqlite3.Connection, companies, *, now: str) -> int:
 
 # --- app settings ---------------------------------------------------------
 # A web-owned key-value preferences table (app_settings). The worker never reads
-# it; this single mutator exists only so an onboarding script can seed a preference
-# (the category vocabulary) through the same Python DB layer as the watchlist.
+# it. This mutator seeds onboarding preferences (the category vocabulary) and records
+# JEV_POLICY_SETTING, the policy hash of the latest JEV pass, which MCP compares
+# against each assessment to label older verdicts stale.
+JEV_POLICY_SETTING = "jev_current_policy_sha256"
 
 def upsert_setting(conn: sqlite3.Connection, key: str, value: str, *, now: str) -> None:
     """Insert or overwrite one app_settings row. `value` is stored verbatim (the
@@ -303,6 +305,82 @@ def save_screening(conn: sqlite3.Connection, posting_id: int, *, state: str,
              eligible["source_content_revision"] if state == "complete" else None,
              now, now),
         )
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
+_JEV_ELIGIBLE = (
+    "p.pipeline_status='new' AND s.state='complete' AND json_valid(s.result_json) "
+    "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0"
+)
+
+
+def get_jev_candidates(conn: sqlite3.Connection, policy_sha: str) -> list[dict]:
+    """Screened, not-disqualified `new` postings needing a JEV verdict under `policy_sha`.
+
+    Fresh work first (no row, or a row bound to another policy or source revision),
+    newest-first; then same-binding provider errors, oldest attempt first.
+    """
+    stale = ("(j.id IS NULL OR j.policy_sha256 IS NOT ? "
+             "OR j.source_content_revision IS NOT p.source_content_revision)")
+    fresh = conn.execute(
+        "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
+        "LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id "
+        f"WHERE {_JEV_ELIGIBLE} AND {stale} "
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC", (policy_sha,)).fetchall()
+    errors = conn.execute(
+        "SELECT p.* FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
+        "JOIN job_jev_assessments j ON j.job_posting_id=p.id "
+        f"WHERE {_JEV_ELIGIBLE} AND NOT {stale} AND j.state='provider_error' "
+        # An oversized request never changes until its source or policy does (which
+        # re-queues it as fresh work above); retrying it would only burn limit slots.
+        # Raising jev.MAX_REQUEST_BYTES does not re-queue these: bump RULE_VERSION too.
+        "AND j.error_category IS NOT 'request_too_large' "
+        "ORDER BY j.last_attempted_at ASC, p.id ASC", (policy_sha,)).fetchall()
+    return [dict(row) for row in (*fresh, *errors)]
+
+
+def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: str | None,
+             reasons: list[str] | None, result: dict | None, error_category: str | None,
+             model: str | None, policy_sha: str, cost_usd: str | None, now: str) -> bool:
+    """Persist one posting's latest JEV verdict if it is still `new`.
+
+    Like save_screening: provider errors store only a closed category, never provider
+    output, and the source revision is captured in the same transaction.
+    """
+    if state not in {"complete", "provider_error"}:
+        raise ValueError(f"invalid jev state: {state!r}")
+    if state == "complete" and verdict not in {"keep", "skip"}:
+        raise ValueError("a completed jev assessment requires keep or skip")
+    if state == "provider_error" and (verdict is not None or result is not None):
+        raise ValueError("provider errors cannot carry a verdict")
+    dump = lambda v: json.dumps(v, ensure_ascii=False, separators=(",", ":")) if v is not None else None
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        eligible = conn.execute(
+            "SELECT source_content_revision FROM job_postings WHERE id=? AND pipeline_status='new'",
+            (posting_id,)).fetchone()
+        if eligible is None:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO job_jev_assessments (job_posting_id,state,verdict,reasons_json,result_json,"
+            "error_category,model,policy_sha256,source_content_revision,cost_usd,last_attempted_at,"
+            "completed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(job_posting_id) DO UPDATE SET state=excluded.state,"
+            "verdict=excluded.verdict,reasons_json=excluded.reasons_json,"
+            "result_json=excluded.result_json,error_category=excluded.error_category,"
+            "model=excluded.model,policy_sha256=excluded.policy_sha256,"
+            "source_content_revision=excluded.source_content_revision,cost_usd=excluded.cost_usd,"
+            "last_attempted_at=excluded.last_attempted_at,completed_at=excluded.completed_at,"
+            "updated_at=excluded.updated_at",
+            (posting_id, state, verdict, dump(reasons), dump(result),
+             error_category if state == "provider_error" else None, model, policy_sha,
+             eligible["source_content_revision"], cost_usd, now,
+             now if state == "complete" else None, now, now))
         conn.commit()
         return True
     except Exception:

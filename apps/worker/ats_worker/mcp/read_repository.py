@@ -104,6 +104,10 @@ TRIAGE_STATUSES = (
     "rule_disqualified", "screen_disqualified", "candidate", "needs_review",
 )
 _TRIAGE_STATUS_SET = frozenset(TRIAGE_STATUSES)
+# JEV keep/skip filter status of a posting. Only `skip` is hidden by default; a posting
+# never assessed, whose assessment failed, or whose source changed since is shown.
+JEV_STATUSES = ("keep", "skip", "unassessed", "failed", "stale")
+_JEV_FILTERS = frozenset({"keep", "skip", "all"})
 _KNOWN_PIPELINE_STATUSES = frozenset(PIPELINE_STATUSES)
 _ACTIVE_CANDIDATE_STATUSES = frozenset({"new", "scored", "notified"})
 _SUPPORTED_SCREEN_CHECKS = frozenset({
@@ -281,6 +285,36 @@ def _triage_rule_only_sql(result: str) -> str:
         AND EXISTS (SELECT 1 FROM json_each({result}, '$.screen') AS triage_check
                     WHERE CASE WHEN triage_check.type='object'
                                THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"""
+
+
+def _jev_status_sql() -> str:
+    # Stale = the posting's source changed, or the verdict predates the policy of the
+    # latest JEV pass (app_settings, written by the worker); no recorded policy yet
+    # means no pass ever ran under a different one.
+    return ("CASE WHEN j.id IS NULL THEN 'unassessed' WHEN j.state<>'complete' THEN 'failed' "
+            "WHEN j.source_content_revision IS NOT p.source_content_revision THEN 'stale' "
+            "WHEN j.policy_sha256 IS NOT COALESCE((SELECT value FROM app_settings "
+            "WHERE key='jev_current_policy_sha256'), j.policy_sha256) THEN 'stale' "
+            "WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END")
+
+
+def _jev_hidden_sql() -> str:
+    # Only a current skip on a still-`new` posting is hidden: once a posting is scored,
+    # applied to or otherwise moves on, JEV never revisits it and must never hide it.
+    return f"(p.pipeline_status='new' AND ({_jev_status_sql()})='skip')"
+
+
+_JEV_JOIN = " LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
+
+
+def _jev_reasons(raw: Any) -> list[str]:
+    parsed = None
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+    return [r for r in parsed if isinstance(r, str)][:8] if isinstance(parsed, list) else []
 
 
 def _triage_status_sql() -> str:
@@ -1000,6 +1034,9 @@ class ReadOnlyATSRepository:
             ).fetchall()
             triage_count_map = {row["status"]: int(row["count"])
                                 for row in triage_count_rows}
+            jev_count_map = {row["status"]: int(row["count"]) for row in conn.execute(
+                f"SELECT {_jev_status_sql()} AS status,COUNT(*) AS count FROM job_postings p"
+                + _JEV_JOIN + " WHERE p.pipeline_status='new' GROUP BY status").fetchall()}
             screening_records = self._group_counts(conn, "job_screenings", "state")
             pipeline_counts = self._group_counts(conn, "job_postings", "pipeline_status")
             application_counts = self._group_counts(conn, "applications", "status")
@@ -1040,6 +1077,12 @@ class ReadOnlyATSRepository:
                         for status in TRIAGE_STATUSES
                     ],
                 },
+                "jev_filter_counts": {
+                    "scope": "pipeline_status=new",
+                    "counts": [{"status": status, "count": jev_count_map.get(status, 0)}
+                               for status in JEV_STATUSES],
+                    "semantics": "list_jobs hides only skip by default (jev='keep')",
+                },
                 "eligible_screen_backlog": {
                     "scope": "pipeline_status=new",
                     "fresh": int(eligible_counts["fresh"] or 0),
@@ -1063,9 +1106,12 @@ class ReadOnlyATSRepository:
                   posted_from: str | None = None, posted_to: str | None = None,
                   screening_updated_from: str | None = None,
                   screening_updated_to: str | None = None,
-                  application_id: int | None = None, limit: int = DEFAULT_PAGE_SIZE,
+                  application_id: int | None = None, jev: str = "keep",
+                  limit: int = DEFAULT_PAGE_SIZE,
                   cursor: str | None = None) -> dict[str, Any]:
         limit = _page_size(limit)
+        if jev not in _JEV_FILTERS:
+            raise QueryInputError("jev must be keep, skip or all")
         search = _bounded_text(search, "search", MAX_SEARCH_CHARS)
         source = _bounded_text(source, "source", MAX_FILTER_CHARS)
         pipeline_status = _bounded_text(pipeline_status, "pipeline_status", MAX_FILTER_CHARS)
@@ -1105,7 +1151,7 @@ class ReadOnlyATSRepository:
                    "screening_updated_to": screening_updated_to,
                    "created_from": created_from,
                    "created_to": created_to, "posted_from": posted_from,
-                   "posted_to": posted_to, "application_id": application_id}
+                   "posted_to": posted_to, "application_id": application_id, "jev": jev}
         scope = _filter_scope("jobs", filters)
         decoded = _cursor_decode(cursor, scope, "int", composite=True)
         clauses: list[str] = []
@@ -1152,6 +1198,11 @@ class ReadOnlyATSRepository:
             params.append(posted_to)
         if decoded and decoded.extra is not None and decoded.key > decoded.extra:
             raise QueryInputError("cursor is malformed")
+        unfiltered_clauses, unfiltered_params = list(clauses), list(params)
+        if jev == "keep":
+            clauses.append(f"NOT {_jev_hidden_sql()}")
+        elif jev == "skip":
+            clauses.append(_jev_hidden_sql())
 
         with self._connection() as conn:
             # The first page fixes an insertion ceiling in the same read snapshot as
@@ -1162,6 +1213,14 @@ class ReadOnlyATSRepository:
             if ceiling:
                 clauses.append("p.id <= ?")
                 params.append(ceiling)
+            hidden_skip = None
+            if jev == "keep" and not decoded:
+                skip_where = " WHERE " + " AND ".join(
+                    [*unfiltered_clauses, _jev_hidden_sql()])
+                hidden_skip = int(conn.execute(
+                    "SELECT COUNT(*) FROM job_postings p LEFT JOIN job_screenings s "
+                    "ON s.job_posting_id=p.id" + _JEV_JOIN + skip_where,
+                    unfiltered_params).fetchone()[0])
             if decoded:
                 clauses.append("p.id < ?")
                 params.append(decoded.key)
@@ -1198,8 +1257,10 @@ class ReadOnlyATSRepository:
                 f"{MAX_SCREEN_REASON_CHARS + 1}) ELSE NULL END ELSE NULL END AS screening_reason,"
                 "CASE WHEN json_valid(p.score_detail) THEN CASE "
                 "WHEN json_type(p.score_detail,'$.screen')='object' THEN 1 ELSE 0 END "
-                "ELSE 0 END AS legacy_screen_evidence_available "
-                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id" + where +
+                "ELSE 0 END AS legacy_screen_evidence_available,"
+                f"{_jev_status_sql()} AS jev_status,j.reasons_json AS jev_reasons_json "
+                "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id"
+                + _JEV_JOIN + where +
                 " ORDER BY p.id DESC LIMIT ?"
             )
             params.append(limit + 1)
@@ -1232,7 +1293,19 @@ class ReadOnlyATSRepository:
             row.pop("fit_assessment_available", None)
             row.pop("fit_content_revision", None)
             row.pop("score_detail", None)
+            status = row.pop("jev_status")
+            reasons = _jev_reasons(row.pop("jev_reasons_json"))
+            row["jev"] = {"status": status,
+                          "reasons": reasons if status in {"keep", "skip"} else []}
         page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
+        page["jev_filter"] = {
+            "applied": jev,
+            "hidden_skip_count": hidden_skip,
+            "semantics": ("keep (default) hides only postings JEV marked skip; unassessed, "
+                          "failed and stale postings are shown. hidden_skip_count is "
+                          "reported on the first page of a keep listing only. A skip is "
+                          "advisory; read them with jev='skip'."),
+        }
         page["traversal"] = {
             "id_ceiling": ceiling,
             "snapshot": False,
@@ -1292,6 +1365,22 @@ class ReadOnlyATSRepository:
             }
             result["source_lifecycle"] = _source_lifecycle_summary(result, lifecycle_screen)
             _strip_source_lifecycle_fields(result)
+            jev_row = conn.execute(
+                f"SELECT {_jev_status_sql()} AS status,j.reasons_json,j.model,j.policy_sha256,"
+                "j.completed_at,j.last_attempted_at,j.error_category,j.cost_usd "
+                "FROM job_postings p" + _JEV_JOIN + " WHERE p.id=?", (job_id,)).fetchone()
+            status = jev_row["status"]
+            result["jev"] = {
+                "status": status,
+                "reasons": _jev_reasons(jev_row["reasons_json"]) if status in {"keep", "skip"} else [],
+                "model": jev_row["model"],
+                "policy_sha256": jev_row["policy_sha256"],
+                "completed_at": jev_row["completed_at"],
+                "last_attempted_at": jev_row["last_attempted_at"],
+                "error_category": jev_row["error_category"],
+                "cost_usd": jev_row["cost_usd"],
+                "semantics": "advisory keep/skip filter; never a lifecycle or eligibility change",
+            }
             return result
 
     def get_job_description(self, job_id: int, *, offset: int = 0,

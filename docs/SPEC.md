@@ -823,6 +823,34 @@ worker modules are pure and dependency-injected; real services are wired only in
   posting is still `new`; a provider call interrupted before commit can be repeated on
   a later pass (at-least-once external execution).
 
+  **JEV keep/skip filter** (`jev.py`, `pipeline.run_jev`, opt-in `--jev`). After the
+  screen, each screened, not-disqualified `new` posting gets two native OpenRouter JEV
+  calls (`typesafe/jev-1.13`): the preference question pack with the approved profile,
+  and a one-question required-experience pack with education/experience facts only. The
+  verdict is `skip` when preference is `weak` or the applicable mandatory experience
+  floor is `three_plus` years (the route matching the candidate's degree; ranges use
+  the lower bound); everything else, including `unknown`, is `keep`. One latest row per
+  posting lives in `job_jev_assessments`; `pipeline_status` and screen state are never
+  touched. A row is re-queued when the policy hash (profile, both packs, the
+  experience context, the resolved model, the rule version) or the posting's source
+  revision changes; provider errors retry oldest-first after fresh work. A pass is
+  sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
+  `--jev-max-usd` (default 0.10, settled charges including partial failures, checked
+  before each posting, so a pass can exceed it by one posting's two calls). An unknown
+  charge (missing/negative/non-finite cost, BYOK, or any transport failure other than a
+  connect timeout) stops the
+  pass; a dead backend trips the shared breaker. A request over 32,768 bytes is never
+  sent, is stored as `request_too_large`, and is not retried until its source or policy
+  changes. Each pass records its policy hash in `app_settings`
+  (`jev_current_policy_sha256`) so MCP can label older verdicts stale. Without
+  `OPENROUTER_API_KEY` or model metadata the stage is skipped with a log line; fetch and
+  screen have already run. Inputs are four private files under config `jev_dir`
+  (`config.yaml.example`). Measured basis (2026-11, model-proxy, not human truth):
+  preference skips 57-69% of screened candidates per day with 0 of 7 real applications
+  skipped; the experience question agreed with a blind review on 50 of 52; together they
+  leave about a quarter of screened candidates. Ranking within `keep` was measured and
+  rejected (it tied publication-time order).
+
   **Import boundary.** No fit module exists to import, and no résumé is loaded.
   Provider-free review-batch, rehearsal, profile, and replay imports are guarded in fresh
   processes: legacy fit/profile/runtime module names and `.txt` resource reads fail
@@ -1236,6 +1264,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   withheld because they cannot be safely parsed. Tool errors contain actionable
   repository messages but never a database path or driver text. Server instructions
   mark job descriptions, application notes, recipes and scraped text as untrusted data.
+  `list_jobs` takes `jev` (`keep` default, `skip`, `all`): `keep` hides only `new`
+  postings whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count`
+  on the first page; unassessed, failed, non-`new` and stale (source revision changed,
+  or a policy other than the latest pass recorded) postings are shown.
+  Each row carries `jev.status`/`reasons`; `get_job` adds model, policy hash and attempt
+  times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`.
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
   and description bodies remain available only through the chunk tool. Its optional
@@ -1456,9 +1490,9 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Eight tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Nine tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `feed_unresolved`,
-`promotion_dismissed`, `app_settings`, `job_screenings`). Dates are stored as **ISO-8601 strings** for sortability and
+`promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1507,6 +1541,7 @@ model job_postings {
   application_id  Int?          // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
+  jev_assessment  job_jev_assessments?
   created_at      String
   updated_at      String?
   posted_at       String?       // board posting date YYYY-MM-DD; scrape-date fallback for dateless boards; null on legacy pre-backfill rows
@@ -1542,6 +1577,29 @@ model job_screenings {
   created_at        String
   updated_at        String?
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
+
+  @@index([state, last_attempted_at])
+}
+
+// JEV keep/skip filter (worker `run_jev`). One latest assessment per posting; a skip
+// only hides the row from the MCP default list, it never changes pipeline_status.
+model job_jev_assessments {
+  id                      Int          @id @default(autoincrement())
+  job_posting_id          Int          @unique
+  state                   String       // complete | provider_error
+  verdict                 String?      // keep | skip; null on provider error
+  reasons_json            String?      // JSON array of closed reason codes
+  result_json             String?      // native answers of both questions
+  error_category          String?
+  model                   String?
+  policy_sha256           String       // profile + question packs + model binding
+  source_content_revision Int?
+  cost_usd                String?
+  last_attempted_at       String
+  completed_at            String?
+  created_at              String
+  updated_at              String?
+  job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 
   @@index([state, last_attempted_at])
 }
@@ -1652,6 +1710,8 @@ fetch:   (new posting)            → new
 feed:    (surfaced posting, JD via board adapter) → new   (optional, alongside fetch)
 screen:  new                      → new            (result stored in job_screenings;
                                                     lifecycle untouched)
+jev:     new (screened, not dq)   → new            (keep/skip in job_jev_assessments;
+                                                    lifecycle untouched; --jev only)
 expire:  scored|notified, detail source, board 404/410 → expired
                                                    (terminal; capped at 50/pass,
                                                     least-recently-updated first;
@@ -2129,6 +2189,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
+| JEV: skip only on weak preference or a 3+ year floor; caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---

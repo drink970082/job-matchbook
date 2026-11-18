@@ -20,12 +20,13 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 import requests
 
 from . import config as config_mod
-from . import db, pipeline
+from . import db, jev, pipeline
 from .fetch import fetch_company, fetch_one_company, smartrecruiters
 from .feed import embedded_gh, simplify
 from .screening import (DEFAULT_CLAUDE_SCREEN_MODEL, DEFAULT_CODEX_SCREEN_MODEL,
@@ -156,7 +157,9 @@ def run_once(cfg, *, db_path, env,
              screen_limit: int | None = 40, rescreen_screened: bool = False,
              fetch_only: bool = False, screen_workers: int = 0,
              refresh_unscored: bool = False,
-             refresh_source: str | None = None, refresh_limit: int = 25) -> None:
+             refresh_source: str | None = None, refresh_limit: int = 25,
+             jev_enabled: bool = False, jev_limit: int = 300,
+             jev_max_usd: Decimal = Decimal("0.10")) -> None:
     """Run fetch -> feed -> expire -> screen exactly once (`fetch_only` stops before
     the screen). The screen never sees the résumé or profile."""
     if fetch_only and refresh_unscored:
@@ -298,8 +301,31 @@ def run_once(cfg, *, db_path, env,
         if screen_backend == "codex":
             capture_usage(os.path.join(
                 os.path.dirname(os.path.realpath(db_path)), "scorer_usage.json"), "codex")
+        if jev_enabled:
+            _run_jev(conn, cfg, env=env, limit=jev_limit, max_usd=jev_max_usd, now=now)
     finally:
         conn.close()
+
+
+def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
+    """Wire the real OpenRouter transport into pipeline.run_jev. A missing key or an
+    unreachable model endpoint skips the stage loudly; fetch and screen already ran."""
+    key = (env.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not key:
+        print("[jev] OPENROUTER_API_KEY is not set; skipping the JEV filter this pass")
+        return
+    inputs = jev.load_inputs(cfg.jev_dir)
+    client = jev.OpenRouterClient(requests.Session(), key)
+    try:
+        resolved = client.resolve_model()
+    except Exception as exc:  # noqa: BLE001 - a dead endpoint must not fail the pass
+        print(f"[jev] model metadata unavailable ({type(exc).__name__}); skipping this pass")
+        return
+    pipeline.run_jev(
+        conn, now=now, policy_sha=inputs.policy_sha(resolved), model=resolved,
+        limit=limit, max_usd=max_usd, clock=_now,
+        jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
+                                          resolved_model=resolved))
 
 
 def _companies_as_dicts(cfg) -> list[dict]:
@@ -615,6 +641,13 @@ def main(argv=None) -> None:
     parser.add_argument("--rescreen-screened", action="store_true",
                         help="clear successful screen cache for eligible 'new' rows; "
                              "requires --once")
+    parser.add_argument("--jev", action="store_true",
+                        help="after the screen, run the JEV keep/skip filter (OpenRouter, "
+                             "paid; needs jev_dir in config and OPENROUTER_API_KEY)")
+    parser.add_argument("--jev-limit", type=int, default=300,
+                        help="max postings the JEV filter assesses per pass")
+    parser.add_argument("--jev-max-usd", default="0.10",
+                        help="stop the JEV filter once a pass has spent this much (USD)")
     parser.add_argument("--screen-workers", type=int,
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
                         help="concurrent screen calls (0 = 1)")
@@ -676,6 +709,20 @@ def main(argv=None) -> None:
         parser.error("--rescreen-screened is one-shot: pass --once")
 
     cfg = config_mod.load_config(args.config)
+    if args.jev:
+        if args.fetch_only or args.refresh_unscored:
+            parser.error("--jev runs after the screen; it cannot combine with "
+                         "--fetch-only or --refresh-unscored")
+        if not cfg.jev_dir:
+            parser.error("--jev needs `jev_dir` in config.yaml (see config.yaml.example)")
+        if args.jev_limit <= 0:
+            parser.error("--jev-limit must be positive")
+        try:
+            args.jev_max_usd = Decimal(args.jev_max_usd)
+        except ArithmeticError:
+            parser.error("--jev-max-usd must be a number")
+        if not (args.jev_max_usd.is_finite() and args.jev_max_usd > 0):
+            parser.error("--jev-max-usd must be a positive finite number")
 
     # Force-seed the DB watchlist from config and exit (idempotent). Useful to
     # push newly-added config companies into the table; the normal run also
@@ -713,7 +760,9 @@ def main(argv=None) -> None:
                          screen_workers=args.screen_workers,
                          refresh_unscored=args.refresh_unscored,
                          refresh_source=args.refresh_source,
-                         refresh_limit=args.refresh_limit)
+                         refresh_limit=args.refresh_limit,
+                         jev_enabled=args.jev, jev_limit=args.jev_limit,
+                         jev_max_usd=Decimal(str(args.jev_max_usd)))
         except PassInProgress as exc:
             # A hand run exits non-zero so a wrapper script sees the refusal; a
             # scheduled firing skips this slot and waits for the next one. Neither

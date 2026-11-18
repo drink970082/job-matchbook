@@ -113,6 +113,11 @@ def create_server(repository: ReadOnlyATSRepository | None = None) -> MCPServer:
             description="Exclusive offset-aware RFC3339 assessment instant; filters job_screenings.updated_at.")] = None,
         application_id: Annotated[int | None, Field(
             ge=1, description="Filter to postings linked to this application.")] = None,
+        jev: Annotated[Literal["keep", "skip", "all"], Field(
+            description=("JEV keep/skip filter. keep (default) hides postings JEV judged "
+                         "skip (weak preference or a 3+ year experience floor) and reports "
+                         "hidden_skip_count; unassessed postings are always shown. skip "
+                         "lists only those; all disables the filter."))] = "keep",
         limit: Annotated[int, Field(
             ge=1, le=MAX_PAGE_SIZE, description="Page size, at most 100.")] = DEFAULT_PAGE_SIZE,
         cursor: Annotated[str | None, Field(max_length=MAX_CURSOR_CHARS,
@@ -136,7 +141,7 @@ def create_server(repository: ReadOnlyATSRepository | None = None) -> MCPServer:
             posted_from=posted_from, posted_to=posted_to,
             screening_updated_from=screening_updated_from,
             screening_updated_to=screening_updated_to,
-            application_id=application_id, limit=limit, cursor=cursor,
+            application_id=application_id, jev=jev, limit=limit, cursor=cursor,
         )
 
     @server.tool(annotations=_READ_ONLY)

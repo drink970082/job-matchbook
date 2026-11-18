@@ -1,0 +1,391 @@
+"""Hermetic tests for the JEV keep/skip filter: verdict rule, transport, pipeline, CLI."""
+from __future__ import annotations
+
+from decimal import Decimal
+import json
+
+import pytest
+
+from ats_worker import db, jev, pipeline, run
+from tests._helpers import NOW, bootstrap_db, make_posting
+
+MODEL = "fake-jev-resolved-v1"
+C_PACK = {"version": "synthetic-c-v1", "questions": [
+    {"id": "preference", "type": "choice", "instructions": "Synthetic preference.",
+     "criteria": {"strong": "s", "plausible": "p", "weak": "w", "unknown": "u"}},
+    {"id": "domain", "type": "choice", "instructions": "Synthetic domain.",
+     "criteria": {"swe": "s", "unknown": "u"}},
+]}
+YOE_PACK = {"version": "synthetic-yoe-v1", "questions": [
+    {"id": "required_yoe_for_candidate", "type": "choice", "instructions": "Synthetic years.",
+     "criteria": {"under_3": "a", "three_plus": "b", "not_stated": "c", "unclear": "d"}},
+]}
+
+
+def _inputs():
+    return jev.JevInputs(profile_text='{"profile":"synthetic"}', c_pack=C_PACK,
+                         yoe_pack=YOE_PACK, yoe_context="Synthetic MS, no full-time years.")
+
+
+def _choice(criteria, pick):
+    rest = (1.0 - 0.7) / (len(criteria) - 1)
+    return {"type": "choice", "choice": pick, "confidence": 0.7,
+            "probabilities": {k: (0.7 if k == pick else rest) for k in criteria}}
+
+
+def _reply(questions, picks, cost=0.0001):
+    return {"id": "r", "model": MODEL, "provider": "synthetic",
+            "answers": {q["id"]: _choice(q["criteria"], picks[q["id"]]) for q in questions},
+            "usage": {"input_tokens": 10, "output_tokens": 2, "cost": cost, "is_byok": False}}
+
+
+def fake_post(preference="plausible", yoe="not_stated", calls=None):
+    picks = {"preference": preference, "domain": "swe", "required_yoe_for_candidate": yoe}
+
+    def post(raw):
+        body = json.loads(raw)
+        if calls is not None:
+            calls.append(body)
+        pack = C_PACK if "preference" in body["questions"] else YOE_PACK
+        return _reply(pack["questions"], picks), Decimal("0.0001")
+    return post
+
+
+@pytest.mark.parametrize("preference,yoe,verdict,reasons", [
+    ("plausible", "not_stated", "keep", []),
+    ("unknown", "unclear", "keep", []),
+    ("strong", "under_3", "keep", []),
+    ("weak", "under_3", "skip", ["preference_weak"]),
+    ("plausible", "three_plus", "skip", ["required_yoe_3_plus"]),
+    ("weak", "three_plus", "skip", ["preference_weak", "required_yoe_3_plus"]),
+])
+def test_decide_skips_only_weak_preference_or_three_plus_years(preference, yoe, verdict, reasons):
+    assert jev.decide(preference, yoe) == (verdict, reasons)
+
+
+def test_assess_sends_both_questions_with_their_own_context():
+    calls = []
+    out = jev.assess(make_posting("1"), inputs=_inputs(), post=fake_post(calls=calls),
+                     resolved_model=MODEL)
+    assert out["verdict"] == "keep" and out["cost_usd"] == "0.0002"
+    assert out["result"]["yoe"] == {"required_yoe_for_candidate": "not_stated"}
+    c_body, yoe_body = calls
+    assert c_body["state"]["candidate_context"] == '{"profile":"synthetic"}'
+    assert yoe_body["state"]["candidate_context"].startswith("Synthetic MS")
+    assert c_body["model"] == jev.REQUESTED_MODEL and "id" not in c_body["questions"]["preference"]
+
+
+def test_request_body_is_the_measured_canonical_shape():
+    raw = jev.request_body(make_posting("1", location=None), YOE_PACK, "ctx")
+    assert raw == jev.enc(json.loads(raw))  # sorted keys, compact separators
+    assert json.loads(raw)["state"]["location"] == ""
+
+
+def test_assess_refuses_an_overbound_request_before_sending():
+    calls = []
+    posting = make_posting("1", description="x" * (jev.MAX_REQUEST_BYTES + 1))
+    with pytest.raises(jev.JevError) as err:
+        jev.assess(posting, inputs=_inputs(), post=fake_post(calls=calls), resolved_model=MODEL)
+    assert err.value.category == "request_too_large" and calls == []
+
+
+def test_assess_invalid_answer_keeps_the_settled_charge():
+    def post(raw):
+        return {"model": "other-model", "answers": {}, "usage": {"cost": 0.1}}, Decimal("0.1")
+    with pytest.raises(jev.JevError) as err:
+        jev.assess(make_posting("1"), inputs=_inputs(), post=post, resolved_model=MODEL)
+    assert err.value.category == "invalid_response" and err.value.cost == Decimal("0.1")
+
+
+def test_assess_transport_failure_on_second_call_reports_first_charge():
+    good = fake_post()
+    seen = []
+
+    def post(raw):
+        seen.append(raw)
+        if len(seen) == 2:
+            raise jev.JevError("provider_error")
+        return good(raw)
+    with pytest.raises(jev.JevError) as err:
+        jev.assess(make_posting("1"), inputs=_inputs(), post=post, resolved_model=MODEL)
+    assert err.value.cost == Decimal("0.0001")
+
+
+def test_policy_sha_moves_with_every_input():
+    base = _inputs()
+    shas = {base.policy_sha(MODEL), base.policy_sha("other-model"),
+            jev.JevInputs("other", C_PACK, YOE_PACK, base.yoe_context).policy_sha(MODEL),
+            jev.JevInputs(base.profile_text, C_PACK, YOE_PACK, "other").policy_sha(MODEL)}
+    assert len(shas) == 4
+
+
+def test_load_inputs_requires_both_questions(tmp_path):
+    (tmp_path / "profile-binding.json").write_text("{}")
+    (tmp_path / "question-pack.json").write_text(json.dumps(C_PACK))
+    (tmp_path / "yoe-pack.json").write_text(json.dumps(YOE_PACK))
+    (tmp_path / "yoe-context.txt").write_text(" ctx \n")
+    loaded = jev.load_inputs(tmp_path)
+    assert loaded.yoe_context == "ctx" and loaded.c_pack == C_PACK
+    (tmp_path / "yoe-pack.json").write_text(json.dumps(C_PACK))
+    with pytest.raises(ValueError, match="required_yoe_for_candidate"):
+        jev.load_inputs(tmp_path)
+
+
+class _Resp:
+    def __init__(self, status=200, value=None, error=None):
+        self.status_code, self._value, self._error = status, value, error
+
+    def json(self):
+        if self._error:
+            raise self._error
+        return self._value
+
+
+class _Session:
+    def __init__(self, response=None, raises=None, meta=None):
+        self.response, self.raises, self.meta, self.posts = response, raises, meta, []
+
+    def post(self, url, **kw):
+        self.posts.append((url, kw))
+        if self.raises:
+            raise self.raises
+        return self.response
+
+    def get(self, url, **kw):
+        return _Resp(value=self.meta)
+
+
+def test_client_parses_cost_and_resolves_model():
+    reply = _reply(YOE_PACK["questions"], {"required_yoe_for_candidate": "under_3"}, cost=0.0003)
+    session = _Session(_Resp(value=reply),
+                       meta={"data": {"id": jev.REQUESTED_MODEL, "canonical_slug": MODEL}})
+    client = jev.OpenRouterClient(session, "sk-test")
+    assert client.resolve_model() == MODEL
+    value, cost = client.post(b"{}")
+    assert cost == Decimal("0.0003") and value["model"] == MODEL
+    url, kw = session.posts[0]
+    assert url == jev.CALL_URL and kw["headers"]["Authorization"] == "Bearer sk-test"
+    assert kw["allow_redirects"] is False
+
+
+@pytest.mark.parametrize("session,category", [
+    (_Session(_Resp(status=429)), "provider_error"),
+    (_Session(_Resp(value={"usage": {}})), "unknown_charge"),
+    (_Session(_Resp(value={"usage": {"cost": 0.1, "is_byok": True}})), "unknown_charge"),
+    (_Session(_Resp(error=ValueError("not json"))), "unknown_charge"),
+    (_Session(_Resp(value={"usage": {"cost": -0.1}})), "unknown_charge"),
+    (_Session(_Resp(value={"usage": {"cost": "NaN"}})), "unknown_charge"),
+    (_Session(raises=TimeoutError("slow")), "unknown_charge"),  # sent: may be charged
+    (_Session(raises=type("ReadTimeout", (OSError,), {})()), "unknown_charge"),
+    (_Session(raises=type("ConnectTimeout", (OSError,), {})()), "provider_error"),
+    # requests wraps a mid-body read timeout / dropped connection as ConnectionError.
+    (_Session(raises=type("ConnectionError", (OSError,), {})()), "unknown_charge"),
+    (_Session(raises=OSError("reset")), "unknown_charge"),
+])
+def test_client_failures_map_to_closed_categories(session, category):
+    with pytest.raises(jev.JevError) as err:
+        jev.OpenRouterClient(session, "sk-test").post(b"{}")
+    assert err.value.category == category
+
+
+def test_client_rejects_bad_key_and_wrong_model_metadata():
+    with pytest.raises(ValueError):
+        jev.OpenRouterClient(_Session(), "")
+    with pytest.raises(jev.JevError):
+        jev.OpenRouterClient(_Session(meta={"data": {"id": "other"}}), "k").resolve_model()
+
+
+# --- pipeline.run_jev + db ------------------------------------------------
+
+def _screened_db(tmp_path, ids, *, disqualified=()):
+    conn = db.connect(bootstrap_db(tmp_path / "jev.db"))
+    db.upsert_postings(conn, [make_posting(i) for i in ids], now=NOW)
+    for row in conn.execute("SELECT id, external_id FROM job_postings").fetchall():
+        db.save_screening(conn, row["id"], state="complete",
+                          result={"screen": {}, "disqualified": row["external_id"] in disqualified},
+                          error_category=None, backend="codex", model="m", effort="medium",
+                          evaluator_version="screen-v1", now=NOW)
+    return conn
+
+
+def _run(conn, jev_fn, *, limit=10, max_usd="1", sha="policy-a"):
+    return pipeline.run_jev(conn, now=NOW, jev_fn=jev_fn, policy_sha=sha, model=MODEL,
+                            limit=limit, max_usd=Decimal(max_usd))
+
+
+def _assess_with(preference="plausible", yoe="not_stated"):
+    return lambda posting: jev.assess(posting, inputs=_inputs(),
+                                      post=fake_post(preference, yoe), resolved_model=MODEL)
+
+
+def _rows(conn):
+    return {r["external_id"]: dict(r) for r in conn.execute(
+        "SELECT p.external_id, p.pipeline_status, j.* FROM job_jev_assessments j "
+        "JOIN job_postings p ON p.id=j.job_posting_id").fetchall()}
+
+
+def test_run_jev_persists_verdicts_and_leaves_lifecycle_alone(tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b", "dq"], disqualified={"dq"})
+    tally = _run(conn, _assess_with("weak"))
+    rows = _rows(conn)
+    assert set(rows) == {"a", "b"} and tally["skip"] == 2
+    assert rows["a"]["verdict"] == "skip" and json.loads(rows["a"]["reasons_json"]) == ["preference_weak"]
+    assert rows["a"]["pipeline_status"] == "new" and rows["a"]["cost_usd"] == "0.0002"
+    # Cached under the same policy: a second pass assesses nothing.
+    assert _run(conn, _assess_with())["attempted"] == 0
+    # A new policy or a changed source revision re-queues the row.
+    assert _run(conn, _assess_with(), sha="policy-b")["attempted"] == 2
+    conn.execute("UPDATE job_postings SET source_content_revision=7 WHERE external_id='a'")
+    conn.commit()
+    assert _run(conn, _assess_with(), sha="policy-b")["attempted"] == 1
+    assert _rows(conn)["a"]["source_content_revision"] == 7
+
+
+def test_run_jev_limit_and_spend_cap_defer_the_rest(tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b", "c"])
+    assert _run(conn, _assess_with(), limit=1)["deferred"] == 2
+    tally = _run(conn, _assess_with(), max_usd="0.0002")
+    assert tally["attempted"] == 1 and tally["stopped"] == "max_usd" and tally["deferred"] == 1
+
+
+def test_run_jev_errors_are_stored_and_retried_after_fresh_work(tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b"])
+
+    def flaky(posting):
+        if posting["external_id"] == "a":
+            raise jev.JevError("provider_error")
+        return _assess_with()(posting)
+    tally = _run(conn, flaky)
+    assert tally["errors"] == 1 and tally["keep"] == 1
+    row = _rows(conn)["a"]
+    assert row["state"] == "provider_error" and row["verdict"] is None
+    assert row["error_category"] == "provider_error"
+    order = [r["external_id"] for r in db.get_jev_candidates(conn, "policy-a")]
+    assert order == ["a"]
+    assert _run(conn, _assess_with())["keep"] == 1
+
+
+def test_run_jev_unknown_charge_stops_the_pass(tmp_path):
+    conn = _screened_db(tmp_path, ["a", "b", "c"])
+
+    def unknown(posting):
+        raise jev.JevError("unknown_charge")
+    tally = _run(conn, unknown)
+    assert tally["attempted"] == 1 and tally["stopped"] == "unknown_charge" and tally["deferred"] == 2
+
+
+def test_run_jev_breaker_trips_on_a_dead_backend(tmp_path):
+    conn = _screened_db(tmp_path, [str(i) for i in range(8)])
+
+    def dead(posting):
+        raise jev.JevError("provider_error")
+    tally = _run(conn, dead)
+    assert tally["stopped"] == "breaker" and tally["attempted"] == pipeline._BREAKER_LIMIT
+
+
+def test_run_jev_rejects_a_nonpositive_limit(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+    with pytest.raises(ValueError):
+        _run(conn, _assess_with(), limit=0)
+
+
+def test_save_jev_validates_state_and_skips_non_new_rows(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+    pid = conn.execute("SELECT id FROM job_postings").fetchone()[0]
+    kw = dict(reasons=None, result=None, error_category=None, model=MODEL,
+              policy_sha="p", cost_usd=None, now=NOW)
+    with pytest.raises(ValueError):
+        db.save_jev(conn, pid, state="done", verdict="keep", **kw)
+    with pytest.raises(ValueError):
+        db.save_jev(conn, pid, state="complete", verdict="maybe", **kw)
+    with pytest.raises(ValueError):
+        db.save_jev(conn, pid, state="provider_error", verdict="keep", **kw)
+    conn.execute("UPDATE job_postings SET pipeline_status='discarded'")
+    conn.commit()
+    assert db.save_jev(conn, pid, state="complete", verdict="keep", **kw) is False
+
+
+# --- run.py wiring --------------------------------------------------------
+
+class _Cfg:
+    jev_dir = "unused"
+
+
+def test_run_jev_without_a_key_skips_loudly(capsys):
+    run._run_jev(None, _Cfg(), env={}, limit=1, max_usd=Decimal("1"), now=NOW)
+    assert "OPENROUTER_API_KEY" in capsys.readouterr().out
+
+
+def test_run_jev_wires_the_client_into_the_pipeline(monkeypatch, tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(jev, "load_inputs", lambda d: _inputs())
+
+    class Client:
+        def __init__(self, session, key):
+            assert key == "sk-x"
+
+        def resolve_model(self):
+            return MODEL
+
+        post = staticmethod(fake_post("plausible", "three_plus"))
+    monkeypatch.setattr(jev, "OpenRouterClient", Client)
+    run._run_jev(conn, _Cfg(), env={"OPENROUTER_API_KEY": "sk-x"}, limit=5,
+                 max_usd=Decimal("1"), now=NOW)
+    row = _rows(conn)["a"]
+    assert row["verdict"] == "skip" and row["policy_sha256"] == _inputs().policy_sha(MODEL)
+
+
+def test_run_jev_metadata_failure_skips_the_stage(monkeypatch, capsys):
+    monkeypatch.setattr(jev, "load_inputs", lambda d: _inputs())
+
+    class Client:
+        def __init__(self, session, key):
+            pass
+
+        def resolve_model(self):
+            raise OSError("down")
+    monkeypatch.setattr(jev, "OpenRouterClient", Client)
+    run._run_jev(None, _Cfg(), env={"OPENROUTER_API_KEY": "k"}, limit=1,
+                 max_usd=Decimal("1"), now=NOW)
+    assert "metadata unavailable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("extra,message", [
+    (["--fetch-only"], "--jev runs after the screen"),
+    (["--jev-limit", "0"], "--jev-limit"),
+    (["--jev-max-usd", "abc"], "--jev-max-usd"),
+    (["--jev-max-usd", "0"], "--jev-max-usd"),
+    (["--jev-max-usd", "Infinity"], "--jev-max-usd"),
+])
+def test_cli_validates_jev_flags(tmp_path, capsys, extra, message):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("jev_dir: /tmp/x\n")
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--config", str(cfg), "--jev", *extra])
+    assert message in capsys.readouterr().err
+
+
+def test_cli_jev_requires_jev_dir(tmp_path, capsys):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("max_age_days: 1\n")
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--config", str(cfg), "--jev"])
+    assert "jev_dir" in capsys.readouterr().err
+
+
+def test_run_jev_records_the_current_policy_for_mcp(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+    _run(conn, _assess_with(), sha="policy-z")
+    assert conn.execute("SELECT value FROM app_settings WHERE key=?",
+                        (db.JEV_POLICY_SETTING,)).fetchone()[0] == "policy-z"
+
+
+def test_oversized_requests_are_not_retried_until_their_input_changes(tmp_path):
+    conn = _screened_db(tmp_path, ["a"])
+
+    def too_big(posting):
+        raise jev.JevError("request_too_large")
+    assert _run(conn, too_big)["errors"] == 1
+    assert db.get_jev_candidates(conn, "policy-a") == []
+    assert len(db.get_jev_candidates(conn, "policy-b")) == 1
