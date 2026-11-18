@@ -8,13 +8,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV keep/skip filter — `feat/jev-keep-skip`** `[JEV · M]` (#139). Code ships behind
-  `--jev` (SPEC §7.1); nothing runs until the operator deploys: production
-  (`ats-runtime`) is pinned at #108, so deployment = back up the DB, `make db-push`
-  (additive `job_jev_assessments`), move `ats-runtime` to main, add `--jev` to the
-  worker drop-in, put `OPENROUTER_API_KEY` in the worker `.env`, restart the worker and
-  MCP tunnel. Rollback = drop `--jev`. The approved profile's `level` line now says 3
-  years (private `resume/pivot/jev-prod-v1/`); re-measured, 11 of 768 verdicts moved.
+- **JEV keep/skip filter — deployed 2026-11-18, backlog draining** `[JEV · M]` (#139).
+  The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
+  main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).
+  About 6,000 screened candidates predate the filter and drain at 300 per daily pass
+  (about USD 0.08 each, about three weeks); until then most of the inventory lists as
+  `unassessed` and is shown. Rollback = drop `--jev` from
+  `ats-worker.service.d/20-screen-only.conf` and restart; the table is additive.
 
 - **Retire the old fit scorer — `refactor/screen-off-score-facades` (#149) then
   `refactor/remove-fit-scorer`** `[SCORE · L]`. JEV replaces it; `preselection/`, `mcp/`,
