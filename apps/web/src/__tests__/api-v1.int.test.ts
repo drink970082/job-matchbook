@@ -10,6 +10,7 @@ import { POST as postApplied } from '@/app/api/v1/jobs/[id]/applied/route'
 import { POST as addWatch } from '@/app/api/v1/watchlist/route'
 import { POST as setTriage, DELETE as clearTriage } from '@/app/api/v1/jobs/[id]/triage/route'
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
+import { PUT as putPreferences } from '@/app/api/v1/preferences/route'
 import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany, updateApplicationStatus } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting } from '@/test-utils/factories'
@@ -205,5 +206,52 @@ test('triage override rejects a bad decision, a missing job and a clear with not
     expect([none.status, (await none.json()).error]).toEqual([400, `Job ${job.id} has no triage override`])
     const long = await setTriage(req({ decision: 'keep', reason: 'x'.repeat(501) }, RW), params(job.id))
     expect(long.status).toBe(400)
+    expect(await prisma.audit_log.count()).toBe(0)
+})
+
+test('preferences: first set creates v1, a change bumps the version, a no-op writes nothing', async () => {
+    const put = (body: unknown) => putPreferences(req(body, RW, 'PUT'))
+    const first = await put({ work_authorization: 'Needs Visa Sponsorship', locations: [' remote ', ''] })
+    expect(first.status).toBe(200)
+    const v1 = (await first.json()).data
+    expect([v1.version, v1.work_authorization, v1.locations, v1.actor, v1.unchanged]).toEqual([1, 'needs visa sponsorship', ['remote'], 'mcp', false])
+    expect(v1.changed_at).toBeTruthy()
+
+    const same = (await (await put({ locations: ['remote'] })).json()).data
+    expect([same.version, same.unchanged]).toEqual([1, true])
+
+    const v2 = (await (await put({ highest_degree: "Master's", exclude_internships: true })).json()).data
+    expect([v2.version, v2.highest_degree, v2.exclude_internships, v2.locations]).toEqual([2, "Master's", true, ['remote']])
+
+    const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
+    expect(log.map((l) => [l.actor, l.action, l.entity, l.entity_id])).toEqual([
+        ['mcp', 'add', 'candidate_preferences', 1],
+        ['mcp', 'update', 'candidate_preferences', 1],
+    ])
+    expect(JSON.parse(log[1].payload).before.version).toBe(1)
+})
+
+test('preferences reject off-vocabulary, wrong types, unknown fields and an empty body', async () => {
+    const bad = async (body: unknown) => {
+        const res = await putPreferences(req(body, RW, 'PUT'))
+        return [res.status, (await res.json()).error]
+    }
+    expect(await bad({ work_authorization: 'F-1 OPT' })).toEqual([400, expect.stringContaining('work_authorization must be blank or one of')])
+    expect(await bad({ locations: 'remote' })).toEqual([400, 'locations must be a list of strings'])
+    expect(await bad({ exclude_internships: 'yes' })).toEqual([400, 'exclude_internships must be true or false'])
+    expect(await bad({ years_experience: 3 })).toEqual([400, 'Unknown preference field(s): years_experience'])
+    expect(await bad({})).toEqual([400, 'No preference fields given'])
+    expect((await putPreferences(req({ highest_degree: 'PhD' }, READ, 'PUT'))).status).toBe(403)
+    expect(await prisma.candidate_preferences.count()).toBe(0)
+    expect(await prisma.audit_log.count()).toBe(0)
+})
+
+test('restating the worker-seeded values is a no-op (same bytes as db.seed_preferences)', async () => {
+    await prisma.$executeRawUnsafe(
+        "INSERT INTO candidate_preferences (id, work_authorization, locations, exclude_internships, version, actor, updated_at) " +
+        `VALUES (1, 'needs visa sponsorship', '["remote","Z\u00fcrich"]', 1, 1, 'config', '2026-11-18T00:00:00Z')`)
+    const res = await putPreferences(req({ work_authorization: 'Needs Visa Sponsorship', locations: ['remote', 'Z\u00fcrich'], exclude_internships: true }, RW, 'PUT'))
+    const data = (await res.json()).data
+    expect([data.unchanged, data.version, data.changed_at]).toEqual([true, 1, null])
     expect(await prisma.audit_log.count()).toBe(0)
 })

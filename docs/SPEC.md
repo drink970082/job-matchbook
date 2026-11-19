@@ -472,7 +472,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   note the deliberate asymmetry — the keep-list is substring, this is not), `max_age_days`
   (fetch-time freshness gate — drop a posting whose `posted_at` is older than N days;
   `0`/omitted = off; a null/unparseable `posted_at` is always kept), `candidate` (with
-  `is_empty()`), `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
+  `is_empty()`; a one-time seed: the screen reads the DB-owned `candidate_preferences` row,
+  inserted from this block only when no row exists — after that the row wins and a
+  differing block is logged each pass, not applied; an empty block seeds nothing), `feeds`, `schedule_hours` (hours between wall-clock passes; must be a
   **divisor of 24** — `1, 2, 3, 4, 6, 8, 12, 24` — and `config.py` raises `ConfigError`
   otherwise, with a separate message for `0`/negative. Two failure modes justify the
   bound: a non-divisor leaves a `24 % h` gap across midnight that is always *tighter*
@@ -968,7 +970,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   `candidate.work_authorization` is a **closed vocabulary** validated at config load
   (`citizen` | `permanent resident` | `authorized-no-sponsorship` | `needs visa
-  sponsorship`, case-insensitive; blank = don't screen on it). It has to be closed
+  sponsorship`, case-insensitive; blank = don't screen on it), enforced again by the web
+  API on `set_preferences` and by the worker when it reads the stored row. It has to be closed
   because `_needs_sponsorship` reads the value by substring — an off-vocabulary string
   like `F-1 OPT` would read as "needs no sponsorship" and silently disable the whole
   authorization check, so `config.py` raises `ConfigError` instead.
@@ -1305,14 +1308,21 @@ worker modules are pure and dependency-injected; real services are wired only in
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
   status, date?)`, `add_source(source, slug, name)` (known-ATS boards; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
-  removed row), `override_triage(job_id, keep|skip|clear, reason?)`, and `update_application_notes(application_id, text)`, which appends
+  removed row), `override_triage(job_id, keep|skip|clear, reason?)`, `set_preferences`
+  (the screen's hard requirements; omitted fields keep their value, `locations` replaces
+  the list), and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
   `destructiveHint=false`, except `remove_source` (`destructiveHint=true`), the one
   removal; it is audited in web and re-addable. `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
-  that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`. Web's error text becomes the `ToolError`;
+  that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
+  `get_preferences` returns the `candidate_preferences` row (or null); `get_setup_status`
+  returns `missing` (no requirements set, no sources), the requirements `version`, and
+  `new_postings_screened_before_change` — `new` postings whose completed screen predates
+  `changed_at`; they keep that verdict until the operator re-screens (postings already
+  `discarded` under the old requirements are not counted). Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and
@@ -1398,7 +1408,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `DELETE jobs/{id}/triage` (`setTriageOverride` / `clearTriageOverride`: one override
   per posting, reason at most 500 chars, recorded with the posting's current revision;
   each set, replace (`update`, payload `{before, after}`) and clear lands in
-  `audit_log`).
+  `audit_log`), `PUT preferences` (`setCandidatePreferences`: merges the given fields over
+  row id=1; an actual change bumps `version`, sets `changed_at` and is audited as
+  `add`/`update`; a no-op returns `unchanged: true` and writes nothing).
   Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
@@ -1529,10 +1541,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Eleven tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Twelve tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
 `promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`,
-`job_triage_overrides`). Dates are stored as **ISO-8601 strings** for sortability and
+`job_triage_overrides`, `candidate_preferences`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1704,6 +1716,19 @@ model app_settings {             // web-only key-value prefs (worker never reads
   key         String  @id        // e.g. 'categories'
   value       String             // JSON — for 'categories', the user's label list
   updated_at  String?
+}
+
+model candidate_preferences {    // the screen's hard requirements; one row, id=1
+  id                  Int     @id
+  highest_degree      String  @default("")
+  work_authorization  String  @default("")   // closed vocabulary (§7.1)
+  security_clearance  String  @default("")
+  locations           String  @default("[]") // JSON string array
+  exclude_internships Boolean @default(false)
+  version             Int     @default(1)    // +1 per actual change
+  actor               String                 // config (seed) | web | mcp
+  changed_at          String?                // last change after the seed; null = seeded values
+  updated_at          String
 }
 ```
 

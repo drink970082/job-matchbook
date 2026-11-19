@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { ACTORS, type Actor, STATUSES, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
+import { ACTORS, type Actor, STATUSES, WORK_AUTHORIZATIONS, DEFAULT_CATEGORIES, VALID_SOURCES, RECIPE_SOURCES, LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
 import { todayISO } from '@/lib/utils'
 import { legacyScreenEvidence, SCREEN_OUTCOMES, standaloneScreenSummary, type ScreenOutcome } from '@/lib/screen-summary'
 import { sourceLifecycleSummary } from '@/lib/source-lifecycle'
@@ -1684,6 +1684,77 @@ export async function clearTriageOverride(jobId: number, actor: Actor = 'web') {
         })
         if (!removed) return { success: false, error: `Job ${jobId} has no triage override` }
         return { success: true, data: removed }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+// --- Candidate preferences (#157): the screen's hard requirements --------------
+// One row (id=1) the worker reads each pass. A set merges the given fields over the
+// stored ones; an actual change bumps `version`, stamps `changed_at` (screens completed
+// before it are stale) and is audited with the row it replaced. A no-op writes nothing.
+
+const MAX_PREFERENCE_TEXT = 100
+const MAX_LOCATIONS = 50
+const PREFERENCE_TEXT = ['highest_degree', 'work_authorization', 'security_clearance'] as const
+
+function parsePreferences(input: Record<string, unknown>) {
+    const unknown = Object.keys(input).filter((k) =>
+        !(PREFERENCE_TEXT as readonly string[]).includes(k) && k !== 'locations' && k !== 'exclude_internships')
+    if (unknown.length) throw new Error(`Unknown preference field(s): ${unknown.join(', ')}`)
+    if (!Object.keys(input).length) throw new Error('No preference fields given')
+    const out: Record<string, string | boolean> = {}
+    for (const key of PREFERENCE_TEXT) {
+        if (input[key] === undefined) continue
+        if (typeof input[key] !== 'string') throw new Error(`${key} must be a string`)
+        const value = (input[key] as string).trim()
+        if (value.length > MAX_PREFERENCE_TEXT) throw new Error(`${key} is over ${MAX_PREFERENCE_TEXT} characters`)
+        out[key] = value
+    }
+    if (out.work_authorization !== undefined) {
+        out.work_authorization = (out.work_authorization as string).toLowerCase()
+        if (out.work_authorization && !(WORK_AUTHORIZATIONS as readonly string[]).includes(out.work_authorization)) {
+            throw new Error(`work_authorization must be blank or one of: ${WORK_AUTHORIZATIONS.join(', ')}`)
+        }
+    }
+    if (input.locations !== undefined) {
+        const list = input.locations
+        if (!Array.isArray(list) || list.some((l) => typeof l !== 'string')) throw new Error('locations must be a list of strings')
+        const clean = (list as string[]).map((l) => l.trim()).filter(Boolean)
+        if (clean.length > MAX_LOCATIONS) throw new Error(`locations has over ${MAX_LOCATIONS} entries`)
+        if (clean.some((l) => l.length > MAX_PREFERENCE_TEXT)) throw new Error(`a location is over ${MAX_PREFERENCE_TEXT} characters`)
+        out.locations = JSON.stringify(clean)
+    }
+    if (input.exclude_internships !== undefined) {
+        if (typeof input.exclude_internships !== 'boolean') throw new Error('exclude_internships must be true or false')
+        out.exclude_internships = input.exclude_internships
+    }
+    return out
+}
+
+export async function setCandidatePreferences(input: Record<string, unknown>, actor: Actor = 'web') {
+    checkedActor(actor)
+    try {
+        const fields = parsePreferences(input)
+        const data = await prisma.$transaction(async (tx) => {
+            const before = await tx.candidate_preferences.findUnique({ where: { id: 1 } })
+            if (before && Object.entries(fields).every(([k, v]) => (before as Record<string, unknown>)[k] === v)) {
+                return { ...before, unchanged: true }
+            }
+            const now = new Date().toISOString()
+            const stamp = { ...fields, actor, changed_at: now, updated_at: now }
+            const row = await tx.candidate_preferences.upsert({
+                where: { id: 1 },
+                create: { id: 1, version: 1, ...stamp },
+                update: { ...stamp, version: { increment: 1 } },
+            })
+            await tx.audit_log.create({ data: {
+                at: now, actor, action: before ? 'update' : 'add', entity: 'candidate_preferences', entity_id: 1,
+                payload: JSON.stringify(before ? { before, after: row } : row),
+            } })
+            return { ...row, unchanged: false }
+        })
+        return { success: true, data: { ...data, locations: JSON.parse(data.locations) } }
     } catch (error: any) {
         return { success: false, error: error.message }
     }

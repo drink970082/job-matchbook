@@ -1054,6 +1054,49 @@ class ReadOnlyATSRepository:
             "unresolved_30d": int(unresolved),
         }
 
+    def get_preferences(self) -> dict[str, Any]:
+        """The screen's stored hard requirements (null when none are set yet)."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM candidate_preferences WHERE id=1").fetchone()
+        if row is None:
+            return {"preferences": None}
+        out = dict(row)
+        out["locations"] = json.loads(out["locations"] or "[]")
+        out["exclude_internships"] = bool(out["exclude_internships"])
+        return {"preferences": out}
+
+    def get_setup_status(self) -> dict[str, Any]:
+        """What a fresh install still needs, plus screens predating the last requirement change."""
+        with self._connection() as conn:
+            conn.execute("BEGIN")
+            pref = conn.execute(
+                "SELECT version,changed_at,highest_degree,work_authorization,security_clearance,"
+                "locations,exclude_internships FROM candidate_preferences WHERE id=1").fetchone()
+            sources = conn.execute("SELECT COUNT(*) FROM watched_companies").fetchone()[0]
+            categories = conn.execute(
+                "SELECT COUNT(*) FROM app_settings WHERE key='categories'").fetchone()[0]
+            stale = None
+            if pref is not None and pref["changed_at"]:
+                stale = conn.execute(
+                    "SELECT COUNT(*) FROM job_screenings s JOIN job_postings p ON p.id=s.job_posting_id "
+                    "WHERE p.pipeline_status='new' AND s.state='complete' "
+                    "AND ats_instant_cmp(s.completed_at, ?) < 0", (pref["changed_at"],)).fetchone()[0]
+        configured = pref is not None and any((
+            pref["highest_degree"].strip(), pref["work_authorization"].strip(),
+            pref["security_clearance"].strip(), json.loads(pref["locations"] or "[]"),
+            pref["exclude_internships"]))
+        missing = [step for step, done in (
+            ("preferences: set_preferences (hard requirements the screen disqualifies on)", configured),
+            ("sources: add_source (company boards to fetch)", sources > 0)) if not done]
+        return {
+            "preferences": {"configured": configured, "version": pref["version"] if pref else None,
+                            "changed_at": pref["changed_at"] if pref else None,
+                            "new_postings_screened_before_change": stale},
+            "sources": int(sources),
+            "categories_customized": bool(categories),
+            "missing": missing,
+        }
+
     def get_ats_overview(self) -> dict[str, Any]:
         with self._connection() as conn:
             # One read snapshot keeps grouped totals internally reconcilable while the

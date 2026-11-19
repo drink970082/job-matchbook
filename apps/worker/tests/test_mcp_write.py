@@ -16,7 +16,7 @@ from mcp import Client  # noqa: E402
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
 
-WRITE_TOOLS = {"record_application", "mark_job_applied", "update_application_status", "override_triage",
+WRITE_TOOLS = {"set_preferences", "record_application", "mark_job_applied", "update_application_status", "override_triage",
                "update_application_notes"}
 
 
@@ -350,4 +350,23 @@ async def test_override_triage_sets_and_clears_through_the_api(tmp_path):
     assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
         ("POST", "/api/v1/jobs/7/triage", {"decision": "keep", "reason": "wanted"}),
         ("DELETE", "/api/v1/jobs/7/triage", None),
+    ]
+
+
+# --- preferences (#157) ----------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_set_preferences_sends_only_given_fields_through_the_api(tmp_path):
+    writer, session = _client(FakeResponse(200, {"data": {"version": 2}}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        ok = await client.call_tool("set_preferences", {"locations": ["remote"], "exclude_internships": False})
+        assert ok.structured_content == {"preferences": {"version": 2}}
+        bad = await client.call_tool("set_preferences", {"work_authorization": "F-1 OPT"})
+        assert bad.is_error is True
+        empty = await client.call_tool("set_preferences", {})
+        assert empty.is_error is True
+        assert empty.content[0].text.endswith("Give at least one preference field")
+    assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
+        ("PUT", "/api/v1/preferences", {"locations": ["remote"], "exclude_internships": False}),
     ]

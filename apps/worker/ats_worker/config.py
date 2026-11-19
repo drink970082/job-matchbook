@@ -319,7 +319,8 @@ def _parse_candidate(raw) -> Candidate:
         raise ConfigError("`candidate` must be a mapping")
     _reject_unknown_keys(raw, Candidate, "candidate")
     locations = [str(l) for l in (raw.get("locations") or []) if str(l).strip()]
-    work_authorization = str(raw.get("work_authorization") or "").strip()
+    # Lowercased: the stored row and the web API hold the canonical form.
+    work_authorization = str(raw.get("work_authorization") or "").strip().lower()
     if work_authorization and work_authorization.lower() not in VALID_WORK_AUTHORIZATION:
         raise ConfigError(
             f"candidate.work_authorization {work_authorization!r} is not one of "
