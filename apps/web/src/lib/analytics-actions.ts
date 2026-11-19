@@ -3,13 +3,16 @@
 import { prisma } from '@/lib/db'
 import { CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
-// Active = not Offer/Accepted/Rejected/Withdrew and touched in the last 60 days: with
-// Ghosted gone (#205), an application that went silent stops counting after 60 days.
+// Active = not Offer/Accepted/Rejected/Withdrew and something happened in the last 60
+// days (latest status-history date, else date_applied): with Ghosted gone (#205), an
+// application that went silent stops counting. Not `last_updated`: that is the write
+// time, so a CSV import or a backdated add would read as recent.
 const ACTIVE_WINDOW_DAYS = 60
 
 export async function getKPIs() {
-    const apps = await prisma.applications.findMany({ select: { status: true, last_updated: true, date_applied: true } })
-    const since = new Date(Date.now() - ACTIVE_WINDOW_DAYS * 86_400_000).toISOString()
+    const apps = await prisma.applications.findMany({ select: { status: true, date_applied: true,
+        status_history: { select: { timestamp: true }, orderBy: { timestamp: 'desc' }, take: 1 } } })
+    const since = new Date(Date.now() - ACTIVE_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10)
     const stats = { total: apps.length, active: 0, screening: 0, interviewing: 0, rejected: 0, offer: 0 }
     for (const app of apps) {
         if (app.status === 'Screening') stats.screening += 1
@@ -17,7 +20,8 @@ export async function getKPIs() {
         else if (app.status === 'Rejected') stats.rejected += 1
         else if (app.status === 'Offer' || app.status === 'Accepted') stats.offer += 1
         const terminal = ['Offer', 'Accepted', 'Rejected', 'Withdrew'].includes(app.status)
-        if (!terminal && (app.last_updated ?? app.date_applied) >= since) stats.active += 1
+        const last = [app.date_applied, app.status_history?.[0]?.timestamp ?? ''].sort().at(-1)!.slice(0, 10)
+        if (!terminal && last >= since) stats.active += 1
     }
     return stats
 }

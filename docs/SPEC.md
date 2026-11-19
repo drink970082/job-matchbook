@@ -1977,8 +1977,8 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   recent remaining history entry, or `Applied` if none remain — the delete +
   recompute + status update run in one `$transaction`.
 - **KPIs** (`getKPIs`): `total` = every application; `active` = not Offer / Accepted /
-  Rejected / Withdrew and `last_updated` (else `date_applied`) within 60 days, so a
-  silent application drops out; `screening`, `interviewing`, `rejected`; `offer`
+  Rejected / Withdrew and the latest status-history date (else `date_applied`) within
+  60 days, so a silent application drops out (not `last_updated`, the write stamp); `screening`, `interviewing`, `rejected`; `offer`
   counts Offer + Accepted.
 - **CSV import** requires columns `company_name, job_title, date_applied`; a pre-#205
   status name is mapped through `LEGACY_STATUS_MAP`; other unknown

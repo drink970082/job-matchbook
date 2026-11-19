@@ -128,19 +128,22 @@ test('updateApplicationStatus refuses a no-op same-status transition', async () 
 // --- getKPIs: every status arm + the active arithmetic --------------------
 
 test('getKPIs aggregates all status buckets and the 60-day active window', async () => {
-    const recent = new Date().toISOString()
+    const today = new Date().toISOString().slice(0, 10)
     const statuses = ['Applied', 'Applied', 'Screening', 'Interviewing', 'Interviewing', 'Offer', 'Accepted', 'Rejected', 'Withdrew']
-    for (const s of statuses) await prisma.applications.create({ data: makeApplication({ status: s, last_updated: recent }) })
-    // Silent for over 60 days: still counted in Total, no longer Active.
-    await prisma.applications.create({ data: makeApplication({ status: 'Applied', last_updated: '2020-01-01T00:00:00.000Z' }) })
+    for (const s of statuses) await prisma.applications.create({ data: makeApplication({ status: s, date_applied: today }) })
+    // Applied long ago and silent since (an import stamps last_updated=now): not Active.
+    await prisma.applications.create({ data: makeApplication({ status: 'Applied', date_applied: '2020-01-01', last_updated: new Date().toISOString() }) })
+    // Applied long ago, but a recent status change: Active.
+    const moved = await prisma.applications.create({ data: makeApplication({ status: 'Screening', date_applied: '2020-01-01' }) })
+    await prisma.status_history.create({ data: { application_id: moved.id, status: 'Screening', timestamp: new Date().toISOString() } })
 
     const k = await getKPIs()
-    expect(k.total).toBe(10)
-    expect(k.screening).toBe(1)
+    expect(k.total).toBe(11)
+    expect(k.screening).toBe(2)
     expect(k.interviewing).toBe(2)
     expect(k.rejected).toBe(1)
     expect(k.offer).toBe(2)               // Offer + Accepted
-    expect(k.active).toBe(5)              // 2 Applied + Screening + 2 Interviewing, all recent
+    expect(k.active).toBe(6)              // 2 Applied + 2 Screening + 2 Interviewing
 })
 
 

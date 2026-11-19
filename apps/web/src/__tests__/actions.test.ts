@@ -196,11 +196,11 @@ describe('Backend Actions', () => {
     it('should calculate KPIs correctly', async () => {
       const recent = new Date().toISOString()
       const mockApps = [
-        { status: 'Applied', last_updated: recent, date_applied: '2026-01-01' },
-        { status: 'Applied', last_updated: null, date_applied: '2020-01-01' }, // silent > 60 days
-        { status: 'Rejected', last_updated: recent, date_applied: '2026-01-01' },
-        { status: 'Offer', last_updated: recent, date_applied: '2026-01-01' },
-        { status: 'Interviewing', last_updated: recent, date_applied: '2026-01-01' },
+        { status: 'Applied', date_applied: recent.slice(0, 10), status_history: [] },
+        { status: 'Applied', date_applied: '2020-01-01', status_history: [] }, // silent > 60 days
+        { status: 'Rejected', date_applied: '2020-01-01', status_history: [{ timestamp: recent }] },
+        { status: 'Offer', date_applied: '2020-01-01', status_history: [{ timestamp: recent }] },
+        { status: 'Interviewing', date_applied: '2020-01-01', status_history: [{ timestamp: recent }] },
       ]
 
       mockPrisma.applications.findMany.mockResolvedValue(mockApps as any)

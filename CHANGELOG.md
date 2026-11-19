@@ -41,7 +41,7 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   becomes Rejected — in `prisma/migrate-statuses-205.mjs` (data-only, idempotent; back up
   `db/` first) and on CSV import of an older export. MCP `update_application_status`
   accepts only the new names. KPIs read Total / Active / Screening / ...; Active now
-  excludes applications untouched for 60 days. The Status Funnel is gone (the Sankey
+  excludes applications with no status change or application date in 60 days. The Status Funnel is gone (the Sankey
   shows the same flow); the timeline fits a year without scrolling; the table links job
   titles to their URL, renames History to Details, shows the year on older dates and
   sorts by Company / Date / Status.

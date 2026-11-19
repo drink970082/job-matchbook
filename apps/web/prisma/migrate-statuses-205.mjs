@@ -23,6 +23,6 @@ const result = await prisma.$transaction(async (tx) => {
     const dupes = rows.filter((r, i) => i > 0 && rows[i - 1].application_id === r.application_id && rows[i - 1].status === r.status)
     for (const r of dupes) await tx.$executeRaw`DELETE FROM status_history WHERE id = ${r.id}`
     return { applications: apps, status_history: history, duplicates_dropped: dupes.length }
-})
+}, { timeout: 120_000 })
 console.log(JSON.stringify(result))
 await prisma.$disconnect()

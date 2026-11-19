@@ -23,7 +23,7 @@ export async function getApplications(params: {
     const historicalStatus = params.historicalStatus === 'all' ? undefined : params.historicalStatus
     const category = params.category === 'all' ? undefined : params.category
     const search = params.search || ''
-    const sortKey = params.sort && params.sort in SORT_FIELD ? params.sort : 'date'
+    const sortKey = params.sort && Object.hasOwn(SORT_FIELD, params.sort) ? params.sort : 'date'
     const dir = params.dir === 'asc' ? 'asc' : 'desc'
 
     const where: Prisma.applicationsWhereInput = {
