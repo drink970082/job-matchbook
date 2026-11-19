@@ -80,6 +80,25 @@ def test_client_maps_failures_to_safe_messages(resp, message):
         client.call("POST", "/x")
 
 
+def test_long_web_errors_are_bounded():
+    client, _ = _client(FakeResponse(400, {"error": "e" * 5000}))
+    with pytest.raises(WriteAPIError) as exc:
+        client.call("POST", "/x")
+    assert len(str(exc.value)) == 300
+
+
+@pytest.mark.anyio
+async def test_instructions_match_the_write_mode(tmp_path):
+    repo = ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db"))
+    writer, _ = _client()
+    async with Client(create_server(repo), raise_exceptions=True) as client:
+        ro = client.instructions
+    async with Client(create_server(repo, writer), raise_exceptions=True) as client:
+        rw = client.instructions
+    assert ro.startswith("Read-only") and "cannot change" in ro
+    assert "Read-only" not in rw and "never replaced" in rw
+
+
 def test_from_env_needs_a_key_and_defaults_to_loopback():
     assert write_client_from_env({}) is None
     assert write_client_from_env({"ATS_API_KEY": "  "}) is None

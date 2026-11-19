@@ -45,7 +45,8 @@ class ATSWriteClient:
             raise WriteAPIError("ATS write API is disabled: no key is configured on the web side")
         if resp.status_code in (401, 403):
             raise WriteAPIError("ATS write API rejected this server's key (needs a read_write key)")
-        raise WriteAPIError(str(payload.get("error") or f"ATS write failed (HTTP {resp.status_code})"))
+        # Web returns the action's own text; a driver failure can be long, so bound it.
+        raise WriteAPIError(str(payload.get("error") or f"ATS write failed (HTTP {resp.status_code})")[:300])
 
 
 def write_client_from_env(env: dict[str, str] | None = None) -> ATSWriteClient | None:

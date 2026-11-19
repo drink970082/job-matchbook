@@ -1315,7 +1315,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `record_application` (date defaults to today, status from the `STATUSES` enum),
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
   status, date?)`, and `update_application_notes(application_id, text)`, which appends
-  after a blank line and never replaces. Annotations are `readOnlyHint=false`,
+  after a blank line and never replaces. The append is read-then-`PATCH` of the whole
+  field with no version check: a web edit to the same notes in that window is
+  overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
   `destructiveHint=false`; nothing deletes. Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
