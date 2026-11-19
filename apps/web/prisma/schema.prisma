@@ -228,3 +228,18 @@ model candidate_preferences {
   changed_at          String?
   updated_at          String
 }
+
+// The JEV keep/skip filter's inputs (#157): one row, id=1. Seeded once from config
+// `jev_dir` (texts exactly as read: the policy hash covers them); after that this row
+// wins. A change bumps `version` and re-queues every in-window posting for JEV.
+model jev_profile {
+  id           Int     @id
+  profile_text String  // profile-binding.json, verbatim
+  c_pack       String  // question-pack.json (JSON text; seed/file only)
+  yoe_pack     String  // yoe-pack.json (JSON text; seed/file only)
+  yoe_context  String  // education/experience facts for the YOE question
+  version      Int     @default(1)
+  actor        String  // config | web | mcp
+  changed_at   String?
+  updated_at   String
+}

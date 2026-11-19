@@ -35,6 +35,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **JEV profile in the DB (#157)**: a `jev_profile` row, seeded once from `jev_dir` with
+  the texts as read (same policy hash), then authoritative. MCP `get_jev_profile`
+  (includes how many postings a change re-assesses) and `set_jev_profile` (profile text
+  and experience context; packs stay seed-only) via `PUT /api/v1/jev-profile`.
 - **Hard requirements in the DB (#157)**: a `candidate_preferences` row (one, versioned)
   replaces `config.yaml` `candidate:` as what the screen reads; the block seeds it once
   and is then ignored (logged). MCP `get_preferences`, `set_preferences` (via `PUT

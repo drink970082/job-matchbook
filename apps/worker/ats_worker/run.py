@@ -298,7 +298,10 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
     if not key:
         print("[jev] OPENROUTER_API_KEY is not set; skipping the JEV filter this pass")
         return
-    inputs = jev.load_inputs(cfg.jev_dir)
+    inputs = _jev_inputs(conn, cfg, now=now)
+    if inputs is None:
+        print("[jev] no stored JEV profile and no jev_dir; skipping the JEV filter this pass")
+        return
     client = jev.OpenRouterClient(requests.Session(), key)
     try:
         resolved = client.resolve_model()
@@ -310,6 +313,35 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
         limit=limit, max_usd=max_usd, clock=_now,
         jev_fn=lambda posting: jev.assess(posting, inputs=inputs, post=client.post,
                                           resolved_model=resolved))
+
+
+def _has_stored_jev_profile(db_path) -> bool:
+    """Read-only probe (never creates the file): is there a stored JEV profile row?"""
+    import sqlite3
+    try:
+        with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as conn:
+            return conn.execute("SELECT 1 FROM jev_profile WHERE id=1").fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _jev_inputs(conn, cfg, *, now: str):
+    """The JEV inputs from the DB row, seeded once from `jev_dir` when absent; after
+    that the row wins and differing files are reported, not applied. None = neither."""
+    stored = db.get_jev_profile(conn)
+    files = jev.read_files(cfg.jev_dir) if cfg.jev_dir else None
+    if stored is None and files is not None:
+        jev.inputs_from_texts(files)          # validate before storing
+        db.seed_jev_profile(conn, files, now=now)
+        print("[jev] seeded the JEV profile from jev_dir")
+        stored = db.get_jev_profile(conn)
+    if stored is None:
+        return None
+    texts = {k: stored[k] for k in jev.INPUT_TEXTS}
+    if files is not None and files != texts:
+        print("[jev] jev_dir files differ from the stored JEV profile; using the stored one "
+              "(change it with the MCP set_jev_profile tool)")
+    return jev.inputs_from_texts(texts)
 
 
 def _candidate_dict(c) -> dict:
@@ -725,8 +757,9 @@ def main(argv=None) -> None:
         if args.fetch_only or args.refresh_unscored:
             parser.error("--jev runs after the screen; it cannot combine with "
                          "--fetch-only or --refresh-unscored")
-        if not cfg.jev_dir:
-            parser.error("--jev needs `jev_dir` in config.yaml (see config.yaml.example)")
+        if not cfg.jev_dir and not _has_stored_jev_profile(args.db):
+            parser.error("--jev needs `jev_dir` in config.yaml (see config.yaml.example) "
+                         "or a stored JEV profile")
         if args.jev_limit <= 0:
             parser.error("--jev-limit must be positive")
         try:
@@ -792,11 +825,13 @@ def main(argv=None) -> None:
         once(foreground=True)
         return
 
-    # Seed the requirements at startup, not at the first wall-clock slot: until a row
-    # exists, MCP reports them missing and a set_preferences would pre-empt the seed.
+    # Seed the stored settings at startup, not at the first wall-clock slot: until a row
+    # exists MCP reports it missing, and a set_preferences would pre-empt the seed.
     conn = db.connect(args.db)
     try:
         _candidate_for_pass(conn, cfg, now=_now())
+        if args.jev:
+            _jev_inputs(conn, cfg, now=_now())
     finally:
         conn.close()
 

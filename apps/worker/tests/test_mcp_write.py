@@ -16,7 +16,7 @@ from mcp import Client  # noqa: E402
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
 
-WRITE_TOOLS = {"set_preferences", "record_application", "mark_job_applied", "update_application_status", "override_triage",
+WRITE_TOOLS = {"set_preferences", "set_jev_profile", "record_application", "mark_job_applied", "update_application_status", "override_triage",
                "update_application_notes"}
 
 
@@ -369,4 +369,19 @@ async def test_set_preferences_sends_only_given_fields_through_the_api(tmp_path)
         assert empty.content[0].text.endswith("Give at least one preference field")
     assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
         ("PUT", "/api/v1/preferences", {"locations": ["remote"], "exclude_internships": False}),
+    ]
+
+
+@pytest.mark.anyio
+async def test_set_jev_profile_sends_the_text_verbatim(tmp_path):
+    writer, session = _client(FakeResponse(200, {"data": {"version": 2, "unchanged": False}}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    text = '{\n  "profile": {"wants": "infra"}\n}  '
+    async with Client(server, raise_exceptions=True) as client:
+        ok = await client.call_tool("set_jev_profile", {"profile_text": text})
+        assert ok.structured_content == {"jev_profile": {"version": 2, "unchanged": False}}
+        empty = await client.call_tool("set_jev_profile", {})
+        assert empty.content[0].text.endswith("Give profile_text and/or yoe_context")
+    assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
+        ("PUT", "/api/v1/jev-profile", {"profile_text": text}),
     ]

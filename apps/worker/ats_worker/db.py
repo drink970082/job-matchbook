@@ -186,6 +186,24 @@ def seed_preferences(conn: sqlite3.Connection, candidate: dict, *, now: str) -> 
     return cur.rowcount == 1
 
 
+# --- JEV profile --------------------------------------------------------------
+# The JEV inputs are DB-owned (one `jev_profile` row, id=1); config `jev_dir` seeds it
+# once when absent. Texts are stored exactly as read so the policy hash is unchanged.
+
+def get_jev_profile(conn: sqlite3.Connection) -> dict | None:
+    row = conn.execute("SELECT * FROM jev_profile WHERE id=1").fetchone()
+    return dict(row) if row else None
+
+
+def seed_jev_profile(conn: sqlite3.Connection, texts: dict, *, now: str) -> bool:
+    cur = conn.execute(
+        "INSERT INTO jev_profile (id, profile_text, c_pack, yoe_pack, yoe_context, version, "
+        "actor, updated_at) VALUES (1, :profile_text, :c_pack, :yoe_pack, :yoe_context, 1, "
+        "'config', :now) ON CONFLICT(id) DO NOTHING", {**texts, "now": now})
+    conn.commit()
+    return cur.rowcount == 1
+
+
 # --- app settings ---------------------------------------------------------
 # A web-owned key-value preferences table (app_settings). The worker never reads
 # it. This mutator seeds onboarding preferences (the category vocabulary) and records

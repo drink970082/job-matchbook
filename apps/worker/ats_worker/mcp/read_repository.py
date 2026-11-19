@@ -20,6 +20,8 @@ from ..source_lifecycle import (SOURCE_ERROR_CATEGORIES, assessment_freshness,
                                 has_embedded_screen, has_fit_assessment)
 
 
+# Must match pipeline.JEV_MAX_AGE_DAYS (the read side does not import the worker).
+JEV_WINDOW_DAYS = 7
 DEFAULT_BUSY_TIMEOUT_MS = 5_000
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -1064,6 +1066,33 @@ class ReadOnlyATSRepository:
         out["locations"] = json.loads(out["locations"] or "[]")
         out["exclude_internships"] = bool(out["exclude_internships"])
         return {"preferences": out}
+
+    def get_jev_profile(self) -> dict[str, Any]:
+        """The stored JEV inputs the operator may edit, the question ids of the seeded packs,
+        and how many in-window postings a change would re-queue for a paid assessment."""
+        since = (self._clock() - timedelta(days=JEV_WINDOW_DAYS)).astimezone(timezone.utc).date().isoformat()
+        with self._connection() as conn:
+            conn.execute("BEGIN")
+            row = conn.execute("SELECT * FROM jev_profile WHERE id=1").fetchone()
+            in_window = conn.execute(
+                "SELECT COUNT(*) FROM job_postings p JOIN job_screenings s ON s.job_posting_id=p.id "
+                "WHERE p.pipeline_status='new' AND s.state='complete' AND json_valid(s.result_json) "
+                "AND COALESCE(json_extract(s.result_json,'$.disqualified'),0)=0 "
+                "AND substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ?", (since,)).fetchone()[0]
+        if row is None:
+            return {"jev_profile": None, "reassess_on_change": int(in_window)}
+
+        def question_ids(text: str) -> list[str]:
+            try:
+                return [q["id"] for q in json.loads(text)["questions"]]
+            except (ValueError, KeyError, TypeError):
+                return []
+        return {"jev_profile": {
+            "profile_text": row["profile_text"], "yoe_context": row["yoe_context"],
+            "version": row["version"], "actor": row["actor"], "changed_at": row["changed_at"],
+            "pack_questions": {"preference_pack": question_ids(row["c_pack"]),
+                               "yoe_pack": question_ids(row["yoe_pack"])}},
+            "reassess_on_change": int(in_window)}
 
     def get_setup_status(self) -> dict[str, Any]:
         """What a fresh install still needs, plus screens predating the last requirement change."""

@@ -11,6 +11,7 @@ import { POST as addWatch } from '@/app/api/v1/watchlist/route'
 import { POST as setTriage, DELETE as clearTriage } from '@/app/api/v1/jobs/[id]/triage/route'
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
 import { PUT as putPreferences } from '@/app/api/v1/preferences/route'
+import { PUT as putJevProfile } from '@/app/api/v1/jev-profile/route'
 import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany, updateApplicationStatus } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting } from '@/test-utils/factories'
@@ -253,5 +254,38 @@ test('restating the worker-seeded values is a no-op (same bytes as db.seed_prefe
     const res = await putPreferences(req({ work_authorization: 'Needs Visa Sponsorship', locations: ['remote', 'Z\u00fcrich'], exclude_internships: true }, RW, 'PUT'))
     const data = (await res.json()).data
     expect([data.unchanged, data.version, data.changed_at]).toEqual([true, 1, null])
+    expect(await prisma.audit_log.count()).toBe(0)
+})
+
+const SEEDED_JEV = { id: 1, profile_text: '{"profile": {"a": 1}}', c_pack: '{"questions":[]}', yoe_pack: '{"questions":[]}', yoe_context: 'MS.', actor: 'config', updated_at: '2026-11-19T00:00:00Z' }
+
+test('jev profile: verbatim update bumps the version and audits; a restatement is a no-op', async () => {
+    await prisma.jev_profile.create({ data: SEEDED_JEV })
+    const put = async (body: unknown) => (await (await putJevProfile(req(body, RW, 'PUT'))).json()).data
+    const text = '{\n  "profile": {"b": 2}  }\n'
+    const v2 = await put({ profile_text: text, yoe_context: '  MS, 1 year.  ' })
+    expect([v2.version, v2.unchanged]).toEqual([2, false])
+    const row = await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })
+    expect([row.profile_text, row.yoe_context, row.actor, row.c_pack]).toEqual([text, 'MS, 1 year.', 'mcp', SEEDED_JEV.c_pack])
+    expect((await put({ yoe_context: 'MS, 1 year.' })).unchanged).toBe(true)
+    const log = await prisma.audit_log.findMany()
+    expect(log.map((l) => [l.actor, l.action, l.entity])).toEqual([['mcp', 'update', 'jev_profile']])
+    expect(JSON.parse(log[0].payload).before.version).toBe(1)
+})
+
+test('jev profile rejects packs, non-object JSON, an empty body and a missing seed', async () => {
+    const bad = async (body: unknown) => {
+        const res = await putJevProfile(req(body, RW, 'PUT'))
+        return [res.status, (await res.json()).error]
+    }
+    expect(await bad({ profile_text: '{}' })).toEqual([400, expect.stringContaining('No JEV profile is stored yet')])
+    await prisma.jev_profile.create({ data: SEEDED_JEV })
+    expect(await bad({ c_pack: '{}' })).toEqual([400, expect.stringContaining('question packs come from jev_dir')])
+    expect(await bad({ profile_text: '[1]' })).toEqual([400, 'profile_text must be a JSON object'])
+    expect(await bad({ profile_text: 'not json' })).toEqual([400, 'profile_text must be a JSON object'])
+    expect(await bad({ yoe_context: '   ' })).toEqual([400, 'yoe_context must not be empty'])
+    expect(await bad({})).toEqual([400, 'Give profile_text and/or yoe_context'])
+    expect((await putJevProfile(req({ yoe_context: 'x' }, READ, 'PUT'))).status).toBe(403)
+    expect((await prisma.jev_profile.findUniqueOrThrow({ where: { id: 1 } })).version).toBe(1)
     expect(await prisma.audit_log.count()).toBe(0)
 })
