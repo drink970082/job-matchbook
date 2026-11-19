@@ -859,7 +859,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   **`--jev-backend` / `JEV_BACKEND`** (#178): `openrouter-native` (default; everything
   above) or `extract`, which renders each pack as a prompt plus an enum JSON schema and
   sends it through the screen backend's `extract` seam (`jev.assess_extract`), one call
-  per pack. Its policy hash names `extract:<screen backend>:<model>:<effort>`, so
+  per pack, so the screen provider receives the JEV profile and experience context.
+  The JD is truncated to `num_ctx * 2` characters as in the screen; Ollama ignores the
+  schema (`format="json"`), so there the enum is enforced only by post-validation. Its policy hash names `extract:<screen backend>:<model>:<effort>`, so
   switching re-queues every verdict. The seam reports no cost: `--jev-limit` is the only
   cap and `--jev-max-usd` does not apply; no OpenRouter key is needed. Refused with
   `--screen-backend none`. **UNVALIDATED**: the measured basis above is native-only.

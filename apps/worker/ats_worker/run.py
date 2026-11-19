@@ -142,7 +142,12 @@ def run_once(cfg, *, db_path, env,
              jev_max_usd: Decimal = Decimal("0.10"),
              jev_backend: str = "openrouter-native") -> None:
     """Run fetch -> feed -> expire -> screen exactly once (`fetch_only` stops before
-    the screen). The screen never sees the résumé or profile."""
+    the screen). The screen never sees the résumé or profile; `jev_backend="extract"`
+    sends the JEV profile and experience context to the screen provider."""
+    if jev_enabled and jev_backend not in JEV_BACKENDS:
+        raise ValueError(f"unknown jev backend: {jev_backend!r}")
+    if jev_enabled and jev_backend == "extract" and screen_backend == "none":
+        raise ValueError("jev backend extract needs a screen backend other than none")
     if fetch_only and refresh_unscored:
         raise ValueError("fetch-only and refresh-unscored are mutually exclusive")
     if not fetch_only and screen_limit is not None and screen_limit <= 0:
@@ -270,6 +275,7 @@ def run_once(cfg, *, db_path, env,
         if jev_enabled:
             if jev_backend == "extract":
                 _run_jev_extract(conn, cfg, extract=screen_extract, limit=jev_limit, now=now,
+                                 max_description_chars=num_ctx * 2,
                                  model=f"extract:{screen_backend}:{effective_model}:"
                                        f"{effective_effort}")
             else:
@@ -302,7 +308,8 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
                                           resolved_model=resolved))
 
 
-def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str) -> None:
+def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str,
+                     max_description_chars: int | None = None) -> None:
     """JEV_BACKEND=extract: the packs through the screen provider. `model` names the
     backend, model and effort, so it joins policy_sha and a switch re-queues every verdict.
     The seam reports no cost: --jev-limit is the cap and --jev-max-usd never trips."""
@@ -310,11 +317,12 @@ def _run_jev_extract(conn, cfg, *, extract, limit: int, model: str, now: str) ->
     if inputs is None:
         print("[jev] no stored JEV profile and no jev_dir; skipping the JEV filter this pass")
         return
-    print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps calls)")
+    print(f"[jev] backend {model} (UNVALIDATED; no cost reported, --jev-limit caps postings)")
     pipeline.run_jev(
         conn, now=now, policy_sha=inputs.policy_sha(model), model=model,
         limit=limit, max_usd=Decimal("Infinity"), clock=_now,
-        jev_fn=lambda posting: jev.assess_extract(posting, inputs=inputs, extract=extract))
+        jev_fn=lambda posting: jev.assess_extract(posting, inputs=inputs, extract=extract,
+                                                  max_description_chars=max_description_chars))
 
 
 def _has_stored_jev_profile(db_path) -> bool:
@@ -689,8 +697,9 @@ def main(argv=None) -> None:
                         help="clear successful screen cache for eligible 'new' rows; "
                              "requires --once")
     parser.add_argument("--jev", action="store_true",
-                        help="after the screen, run the JEV keep/skip filter (OpenRouter, "
-                             "paid; needs jev_dir in config and OPENROUTER_API_KEY)")
+                        help="after the screen, run the JEV keep/skip filter (needs jev_dir in "
+                             "config; the default openrouter-native backend is paid and "
+                             "needs OPENROUTER_API_KEY)")
     parser.add_argument("--jev-backend", default=os.environ.get("JEV_BACKEND", "openrouter-native"),
                         help="openrouter-native (default, measured) or extract (the screen "
                              "backend answers the same packs; UNVALIDATED, no USD cap)")
