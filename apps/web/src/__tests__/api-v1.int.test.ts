@@ -129,3 +129,10 @@ test('watchlist add and remove', async () => {
     expect((await removeWatch(req(undefined, RW, 'DELETE'), params(row.id))).status).toBe(200)
     expect(await prisma.watched_companies.count()).toBe(0)
 })
+
+test('an unknown status on create is a 400, not a silent Applied', async () => {
+    const res = await createApplication(req({ ...NEW_APP, status: 'Offerr' }, RW))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('Invalid status')
+    expect(await prisma.applications.count()).toBe(0)
+})

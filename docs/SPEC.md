@@ -1368,7 +1368,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have scored yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in `lib/actions.ts`. Each route is a thin wrapper over one
-  action, stamping `actor='mcp'`: `POST applications` (`addApplication`), `PATCH
+  action; creating an application and changing a status stamp `actor='mcp'` (detail
+  edits and watchlist rows carry no actor): `POST applications` (`addApplication`; an
+  unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
   jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `bucket=all`), `POST
@@ -2297,7 +2299,8 @@ automated coverage — those rely on code review or the human in the loop, not a
   - **`/api/v1` keys are static bearer secrets** read from the env, compared in
     constant time, with no rotation or expiry. The API is reachable only on the
     loopback bind (or the operator's `WEB_BIND` mesh) and is off unless a key is set;
-    the Server Actions beside it remain unauthenticated by design.
+    the Server Actions beside it remain unauthenticated by design, so `actor` is an
+    attribution aid, not proof: any loopback client of an action can stamp `mcp`.
   - **`autoheal` holds the Docker socket** — `docker-compose.yml` mounts
     `/var/run/docker.sock` (root-equivalent host control) into
     `willfarrell/autoheal:1.2.0`, pinned by mutable tag, running as root — the
