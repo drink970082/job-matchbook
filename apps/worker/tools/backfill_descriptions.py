@@ -8,7 +8,7 @@ that a healthy board produces.
 This re-runs the now-capable fetch for a board and UPDATEs `description` where the fresh
 one is materially longer. Dry-run by default.
 
-**It never re-scores, and never touches `score`, `score_detail` or `pipeline_status`.**
+**It never re-scores, and never touches `score_detail` or `pipeline_status`.**
 665 of these rows already hold a paid fit verdict computed from a teaser. Re-scoring them
 is a quota decision, and quota is the standing priority — so this reports what changed and
 stops. Deciding what to do about the stale verdicts is the operator's.
@@ -173,7 +173,7 @@ def main() -> int:
     if total and not args.apply:
         print("Re-run with --apply to write.")
     if total and args.apply:
-        print("\nNOTE: `score`, `score_detail` and `pipeline_status` were NOT touched.\n"
+        print("\nNOTE: `score_detail` and `pipeline_status` were NOT touched.\n"
               "Rows already scored still hold the verdict computed from the teaser.\n"
               "Re-scoring them costs quota and is your call.")
     return 0

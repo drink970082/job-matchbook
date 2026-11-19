@@ -93,23 +93,21 @@ def test_refetch_does_not_clobber_scored_posting(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1", job_title="Original")], now=NOW)
     pid = _one(conn)["id"]
-    set_scored(conn, pid, score=88, score_detail={"k": 1}, now=LATER)  # -> scored
+    set_scored(conn, pid, score_detail={"k": 1}, now=LATER)  # -> scored
     # The fetcher sees the same (source, external_id) again next run.
     inserted = db.upsert_postings(conn, [posting("1", job_title="Changed")], now=EVEN_LATER)
     row = _one(conn)
     assert inserted == 0
     assert row["pipeline_status"] == "scored"   # not reset to 'new'
-    assert row["score"] == 88                    # score survives
+    assert row["score_detail"] == '{"k": 1}'      # assessment survives
     assert row["job_title"] == "Original"        # not overwritten
     assert row["created_at"] == NOW              # original insert time kept
 
 
-def test_insert_leaves_updated_at_null_and_attempts_zero(db_path):
+def test_insert_leaves_updated_at_null(db_path):
     conn = db.connect(db_path)
     db.upsert_postings(conn, [posting("1")], now=NOW)
-    row = _one(conn)
-    assert row["updated_at"] is None
-    assert row["attempts"] == 0
+    assert _one(conn)["updated_at"] is None
 
 
 def test_null_location_round_trips(db_path):
@@ -126,11 +124,11 @@ def test_null_location_round_trips(db_path):
 
 # --- get_by_status ordering --
 
-def test_get_by_status_orders_by_score_then_id(db_path):
+def test_get_by_status_orders_by_id(db_path):
     conn = db.connect(db_path)
     seed_scored(conn, {"a": 90, "b": 90, "c": 40}, detail={})
     rows = db.get_by_status(conn, "scored")
-    assert [r["external_id"] for r in rows] == ["a", "b", "c"]  # 90s by id, then 40
+    assert [r["external_id"] for r in rows] == ["a", "b", "c"]
 
 
 def test_upsert_stores_board_posted_at(db_path):

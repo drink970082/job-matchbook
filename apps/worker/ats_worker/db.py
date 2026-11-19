@@ -42,11 +42,11 @@ def connect(path: str, *, timeout: float = 5.0) -> sqlite3.Connection:
 _INSERT = """
 INSERT INTO job_postings
     (source, external_id, company_slug, company_name, job_title, location, job_url,
-     description, posted_at, score_detail, pipeline_status, attempts, created_at,
+     description, posted_at, score_detail, pipeline_status, created_at,
      source_state, source_last_seen_at, source_content_hash, source_content_revision)
 VALUES
     (:source, :external_id, :company_slug, :company_name, :job_title, :location, :job_url,
-     :description, :posted_at, :score_detail, :pipeline_status, 0, :created_at,
+     :description, :posted_at, :score_detail, :pipeline_status, :created_at,
      'available', :created_at, :source_content_hash, :source_content_revision)
 ON CONFLICT(source, external_id) DO NOTHING
 """

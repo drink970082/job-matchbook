@@ -22,7 +22,6 @@ async function createScreenedPosting(name: string, state: string | null, resultJ
             external_id: name,
             job_title: name,
             pipeline_status: 'new',
-            score: null,
             score_detail: null,
             ...extra,
         }),
@@ -56,7 +55,6 @@ test('All stage: puts a recent unscored row ahead of more than one page of older
                 external_id: `old-${index}`,
                 job_title: `Older scored ${index}`,
                 pipeline_status: 'scored',
-                score: 99,
                 score_detail: index === 0 ? '{malformed legacy JSON' : null,
                 created_at: '2026-01-01T00:00:00.000Z',
             }),
@@ -67,7 +65,6 @@ test('All stage: puts a recent unscored row ahead of more than one page of older
             external_id: 'recent-new',
             job_title: 'Recent unscored role',
             pipeline_status: 'new',
-            score: null,
             score_detail: '{malformed legacy JSON',
             created_at: '2026-10-22T12:00:00.000Z',
         }),
@@ -110,7 +107,6 @@ test('standalone filters keep large matches in SQL without binding one ID per po
     const postings = Array.from({ length: 1_050 }, (_, index) => makeJobPosting({
         external_id: `large-unscored-${index}`,
         pipeline_status: 'new',
-        score: null,
         score_detail: null,
     }))
     await prisma.job_postings.createMany({ data: postings })

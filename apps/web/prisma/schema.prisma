@@ -39,12 +39,9 @@ model job_postings {
   location        String?
   job_url         String
   description     String // full JD text (fed to the LLM)
-  score           Int? // 0-100 fit score (codex CLI default / claude alternate); screen verdicts are local (Ollama)
   score_detail    String? // JSON: { assessment:{seniority,domain,must_haves,nice_to_haves,summary}, screen, [disqualified,disqualification_reason], [recommended_resume] } (worker output; pre-S2.1 rows carry matched_keywords/missing_keywords/reasoning instead)
   pipeline_status String        @default("new") // new|scored|notified|applied|discarded|failed|removed|expired ('expired' = the board 404/410'd the listing; terminal, drops out of the live buckets like 'removed')
   pipeline_error  String? // last stage/send error (kept while a notify retry is pending; cleared on successful notify)
-  attempts        Int           @default(0) // SCORE-stage failure count; failed rows requeue to 'new' (run_retry) while attempts < 3, else parked terminal
-  notify_attempts Int           @default(0) // NOTIFY-stage send-failure count, kept separate so score hiccups can't pre-spend the delivery budget; a notify-exhausted row (>= 3) never requeues
   application_id  Int? // back-link once marked applied
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
@@ -53,7 +50,6 @@ model job_postings {
   created_at      String
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
-  deprioritized_at String? // set by the FREE seniority pre-ordering (score/seniority.py) when the JD states a bar this candidate does not clear: the row stays 'new' and searchable but sorts to the BACK of the score queue. NOT a discard -- the labels behind it are the strong scorer's verdicts, not human ones. Clearing the column un-demotes, row for row.
   source_state                    String  @default("unknown") // unknown | available | closed; independent of pipeline_status
   source_last_seen_at             String? // latest exact identity seen in a listing or detail response
   source_last_check_attempted_at  String? // latest selected detail refresh attempt
@@ -188,17 +184,6 @@ model feed_unresolved {
 
   @@unique([url]) // upsert key — no pile-up across passes
   @@index([reason])
-}
-
-// Companies the user dismissed from the promotion-suggestion list (feed →
-// watchlist). A dismissed (source, slug) is filtered out of future suggestions.
-model promotion_dismissed {
-  id         Int    @id @default(autoincrement())
-  source     String
-  slug       String
-  created_at String
-
-  @@unique([source, slug])
 }
 
 // Generic key-value store for web-app user preferences. Currently one row,

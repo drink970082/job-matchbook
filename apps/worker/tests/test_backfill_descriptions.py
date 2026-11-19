@@ -39,7 +39,7 @@ def seeded(tmp_path):
         make_posting("gone", description="teaser " * 30),
     ], now="2026-08-01T00:00:00.000Z")
     conn.execute("UPDATE job_postings SET company_slug='acme'")
-    conn.execute("UPDATE job_postings SET score=88, score_detail='{\"fit\":1}', "
+    conn.execute("UPDATE job_postings SET score_detail='{\"fit\":1}', "
                  "pipeline_status='scored' WHERE external_id='keep-me'")
     conn.commit()
     return conn
@@ -69,12 +69,11 @@ def test_apply_replaces_only_the_description(seeded, monkeypatch):
     _fake_fetch(mod, monkeypatch, [make_posting("keep-me", description="F" * 4000)])
     mod.backfill(seeded, BOARD, apply_changes=True, min_gain=1.2)
     row = seeded.execute(
-        "SELECT LENGTH(description) n, score, score_detail, pipeline_status "
+        "SELECT LENGTH(description) n, score_detail, pipeline_status "
         "FROM job_postings WHERE external_id='keep-me'").fetchone()
     assert row["n"] == 4000
     # The whole point: a stale verdict stays stale and visible, it is not silently
     # recomputed (that costs quota) nor silently reset (that hides it).
-    assert row["score"] == 88
     assert row["score_detail"] == '{"fit":1}'
     assert row["pipeline_status"] == "scored"
 

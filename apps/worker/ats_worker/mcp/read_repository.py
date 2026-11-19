@@ -43,7 +43,6 @@ REQUIRED_TABLES = frozenset({
     "status_history",
     "watched_companies",
     "feed_unresolved",
-    "promotion_dismissed",
     "app_settings",
 })
 
@@ -68,7 +67,6 @@ ENTITY_KEYS: dict[str, tuple[str, str, str]] = {
     "status_history": ("status_history", "id", "int"),
     "watched_companies": ("watched_companies", "id", "int"),
     "feed_unresolved": ("feed_unresolved", "id", "int"),
-    "promotion_dismissed": ("promotion_dismissed", "id", "int"),
     "app_settings": ("app_settings", "key", "str"),
 }
 

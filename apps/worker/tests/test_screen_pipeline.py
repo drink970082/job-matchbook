@@ -43,13 +43,12 @@ def test_screen_results_cache_and_leave_fit_lifecycle_unchanged(tmp_path):
     try:
         db.upsert_postings(conn, [make_posting("old"), make_posting("new")], now=NOW)
         conn.execute(
-            "UPDATE job_postings SET score=61, score_detail='legacy bytes', attempts=2, "
-            "notify_attempts=1 WHERE external_id='new'"
+            "UPDATE job_postings SET score_detail='legacy bytes' WHERE external_id='new'"
         )
         conn.commit()
         before = tuple(conn.execute(
-            "SELECT pipeline_status, score, score_detail, attempts, notify_attempts, "
-            "application_id FROM job_postings WHERE external_id='new'"
+            "SELECT pipeline_status, score_detail, application_id FROM job_postings "
+            "WHERE external_id='new'"
         ).fetchone())
         calls = []
 
@@ -60,8 +59,8 @@ def test_screen_results_cache_and_leave_fit_lifecycle_unchanged(tmp_path):
         _run(conn, screen_fn, candidate={"highest_degree": "bachelor"}, limit=1)
         assert calls == ["new"]
         after = tuple(conn.execute(
-            "SELECT pipeline_status, score, score_detail, attempts, notify_attempts, "
-            "application_id FROM job_postings WHERE external_id='new'"
+            "SELECT pipeline_status, score_detail, application_id FROM job_postings "
+            "WHERE external_id='new'"
         ).fetchone())
         assert after == before
         saved = conn.execute(

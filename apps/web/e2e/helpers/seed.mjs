@@ -109,7 +109,6 @@ async function clear(prisma) {
     await prisma.applications.deleteMany()
     await prisma.watched_companies.deleteMany()
     await prisma.feed_unresolved.deleteMany()
-    await prisma.promotion_dismissed.deleteMany()
     await prisma.app_settings.deleteMany()
     await prisma.app_settings.create({ data: CATEGORIES })
 }

@@ -70,11 +70,6 @@ def test_candidate_selection_uses_fit_assessment_and_protected_link(db_path):
     candidates = db.get_unscored_refresh_candidates(conn, "smartrecruiters", 25)
     ids = {row["external_id"] for row in candidates}
     assert ids == {"new", "failed", "discarded", "expired", "linked"} - {"linked"}
-    # A numeric score or malformed score_detail is not a fit assessment.
-    conn.execute("UPDATE job_postings SET score=0 WHERE external_id='new'")
-    conn.commit()
-    assert "new" in {row["external_id"] for row in
-                      db.get_unscored_refresh_candidates(conn, "smartrecruiters", 25)}
     assert fit["external_id"] == "fit"
     assert not db.save_source_observation(
         conn, linked["id"], expected_source="smartrecruiters", expected_external_id="linked",
@@ -157,7 +152,7 @@ def test_combined_screen_only_discard_captures_revision_and_is_refreshable(db_pa
     conn = db.connect(db_path)
     row = _insert(conn, "combined", status="new")
     detail = {"screen": {"degree": {"pass": False}}, "disqualified": True}
-    set_scored(conn, row["id"], score=0, score_detail=detail,
+    set_scored(conn, row["id"], score_detail=detail,
                   status="discarded", now=NOW)
     stored = json.loads(conn.execute("SELECT score_detail FROM job_postings WHERE id=?",
                                      (row["id"],)).fetchone()[0])
@@ -338,7 +333,7 @@ def test_completed_assessments_capture_posting_revision(db_path):
     assert captured == 1
 
     scored_row = _insert(conn, "versioned-fit")
-    set_scored(conn, scored_row["id"], score=80, score_detail=detail, now=NOW)
+    set_scored(conn, scored_row["id"], score_detail=detail, now=NOW)
     scored = json.loads(conn.execute("SELECT score_detail FROM job_postings WHERE id=?",
                                      (scored_row["id"],)).fetchone()[0])
     assert scored["source_content_revision"] == 1

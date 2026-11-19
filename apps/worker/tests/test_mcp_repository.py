@@ -361,13 +361,12 @@ def test_all_ats_entities_are_allowlisted_and_json_is_reported(db_path):
         conn.execute("INSERT INTO feed_unresolved(feed,url,company_name,job_title,host,reason,created_at) "
                      "VALUES('feed','https://board.test/apply?api_key=feed-secret','Acme','Engineer',"
                      "'board.test','unsupported_host','now')")
-        conn.execute("INSERT INTO promotion_dismissed(source,slug,created_at) VALUES('custom','old','now')")
         conn.execute("INSERT INTO app_settings(key,value,updated_at) VALUES('categories','[\"Engineering\"]','now')")
         conn.execute("INSERT INTO app_settings(key,value,updated_at) VALUES('private-key','secret-setting','now')")
     repo = ReadOnlyATSRepository(db_path)
     entities = (
         "applications", "job_postings", "job_screenings", "status_history",
-        "watched_companies", "feed_unresolved", "promotion_dismissed", "app_settings",
+        "watched_companies", "feed_unresolved", "app_settings",
     )
     assert all(repo.list_ats_records(entity)["items"] for entity in entities)
     assert repo.get_ats_record("job_screenings", "1")["result_json_parsed"] == {"ok": True}
