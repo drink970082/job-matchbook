@@ -2,32 +2,11 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-    getApplications,
-    addApplication,
-    updateApplicationStatus,
-    deleteApplication,
-    getApplicationHistory,
-    getKPIs,
-    deleteHistoryItem,
-    getStatusFlow,
-    getTimelineData,
-    getCategoryData,
-    updateApplicationDetails,
-    exportApplicationsCSV,
-    importApplicationsCSV,
-    getJobPostings,
-    markJobApplied,
-    discardJobPosting,
-    reopenJobPosting,
-    bulkRemove,
-    bulkReopen,
-    removeAllInView,
-    getWatchedCompanies,
-    getWatchlistActivity,
-    addWatchedCompany,
-    removeWatchedCompany,
-} from '@/lib/actions'
+import { getApplications, addApplication, updateApplicationStatus, deleteApplication, getApplicationHistory, deleteHistoryItem, updateApplicationDetails } from '@/lib/application-actions'
+import { getKPIs, getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
+import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
+import { getWatchedCompanies, getWatchlistActivity, addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
+import { getJobPostings, markJobApplied, discardJobPosting, reopenJobPosting, bulkRemove, bulkReopen, removeAllInView } from '@/lib/job-actions'
 import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { todayISO } from '@/lib/utils'
@@ -46,7 +25,7 @@ import { ImportCSVDialog } from './ImportCSVDialog'
 import { Button } from '@/components/ui/button'
 import { Download, Upload, Tags, Settings as SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import type { JobViewScope } from '@/lib/actions'
+import type { JobViewScope } from '@/lib/job-actions'
 
 // Page size for the Discovered Jobs table (must match page.tsx's initial load,
 // which calls getJobPostings with the action's default size).

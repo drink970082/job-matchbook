@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db'
-import { getJobPostings } from '@/lib/actions'
+import { getJobPostings } from '@/lib/job-actions'
 import { mockDeep, mockReset } from 'jest-mock-extended'
 import { PrismaClient } from '@prisma/client'
 

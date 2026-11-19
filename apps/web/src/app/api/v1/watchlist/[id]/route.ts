@@ -1,4 +1,4 @@
-import { removeWatchedCompany } from '@/lib/actions'
+import { removeWatchedCompany } from '@/lib/watchlist-actions'
 import { idParam, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

@@ -1,4 +1,4 @@
-import { setCandidatePreferences } from '@/lib/actions'
+import { setCandidatePreferences } from '@/lib/preference-actions'
 import { write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

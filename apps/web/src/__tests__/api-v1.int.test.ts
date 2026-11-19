@@ -1,6 +1,6 @@
 /**
  * The key-scoped loopback write API (/api/v1/*). Route handlers are called directly
- * against the throwaway integration DB; they wrap lib/actions.ts, so these tests pin
+ * against the throwaway integration DB; they wrap the lib/*-actions.ts Server Actions, so these tests pin
  * the auth contract and that the API and the UI share one validation path.
  */
 import { POST as createApplication } from '@/app/api/v1/applications/route'
@@ -12,7 +12,8 @@ import { POST as setTriage, DELETE as clearTriage } from '@/app/api/v1/jobs/[id]
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
 import { PUT as putPreferences } from '@/app/api/v1/preferences/route'
 import { PUT as putJevProfile } from '@/app/api/v1/jev-profile/route'
-import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany, updateApplicationStatus } from '@/lib/actions'
+import { updateApplicationStatus } from '@/lib/application-actions'
+import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany } from '@/lib/watchlist-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting } from '@/test-utils/factories'
 

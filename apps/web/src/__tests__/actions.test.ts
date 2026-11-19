@@ -1,15 +1,7 @@
 import { prisma } from '@/lib/db'
-import {
-  getApplications,
-  addApplication,
-  updateApplicationStatus,
-  updateApplicationDetails,
-  getKPIs,
-  getJobPostings,
-  discardJobPosting,
-  reopenJobPosting,
-  markJobApplied,
-} from '@/lib/actions'
+import { getApplications, addApplication, updateApplicationStatus, updateApplicationDetails } from '@/lib/application-actions'
+import { getKPIs } from '@/lib/analytics-actions'
+import { getJobPostings, discardJobPosting, reopenJobPosting, markJobApplied } from '@/lib/job-actions'
 import { mockDeep, mockReset } from 'jest-mock-extended'
 import { PrismaClient } from '@prisma/client'
 

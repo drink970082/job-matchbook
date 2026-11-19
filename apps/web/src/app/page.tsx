@@ -1,5 +1,8 @@
 
-import { getApplications, getKPIs, getStatusFlow, getTimelineData, getCategoryData, getJobPostings, getCategories } from '@/lib/actions'
+import { getApplications } from '@/lib/application-actions'
+import { getKPIs, getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
+import { getJobPostings } from '@/lib/job-actions'
+import { getCategories } from '@/lib/category-actions'
 import { Dashboard } from '@/components/Dashboard'
 
 export const dynamic = 'force-dynamic'

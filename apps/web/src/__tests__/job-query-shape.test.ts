@@ -1,12 +1,5 @@
 import { prisma } from '@/lib/db'
-import {
-    getJobPostings,
-    removeAllInView,
-    bulkRemove,
-    bulkReopen,
-    discardJobPosting,
-    reopenJobPosting,
-} from '@/lib/actions'
+import { getJobPostings, removeAllInView, bulkRemove, bulkReopen, discardJobPosting, reopenJobPosting } from '@/lib/job-actions'
 import { mockDeep, mockReset } from 'jest-mock-extended'
 import { PrismaClient } from '@prisma/client'
 
@@ -33,7 +26,7 @@ const MATCH_IDS = [1, 2]
 const BELOW_IDS = [3, 4]
 const CAUSE_IDS = [5, 6]
 
-// actions.ts ACTIVE_PIPELINE_STATUSES — the live rows a bucket query can return.
+// job-actions.ts ACTIVE_PIPELINE_STATUSES — the live rows a bucket query can return.
 const ACTIVE = ['scored', 'notified']
 
 /**

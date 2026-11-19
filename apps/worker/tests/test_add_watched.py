@@ -1,7 +1,7 @@
 """Guard the third watchlist write boundary: the onboard-board CLI.
 
 `.claude/skills/onboard-board/scripts/add_watched.py` writes `args.slug` straight to
-`db.import_watchlist`. Unlike the web (`actions.ts`) and worker-config (`config.py`)
+`db.import_watchlist`. Unlike the web (`watchlist-actions.ts`) and worker-config (`config.py`)
 write boundaries, it never validated the slug charset — an unsafe slug scraped from an
 untrusted careers page (e.g. a host-injection payload) could land in `watched_companies`
 and get interpolated into a fetch URL every cycle. This test loads the *real* script (not

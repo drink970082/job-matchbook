@@ -786,7 +786,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   deterministically-killed row no longer carries `provider_error` (nothing was
   attempted), and a reason string no longer joins a model-derived reason to a
   deterministic one — which the web's Discarded-bucket cause facet reads
-  (`DISQUALIFY_CAUSE_PATTERNS` in `apps/web/src/lib/actions.ts` matches
+  (`DISQUALIFY_CAUSE_PATTERNS` in `apps/web/src/lib/job-actions.ts` matches
   `disqualification_reason LIKE '%degree:%'` and friends), so a row failing location
   *and* degree now appears under `location` only.
 
@@ -1407,8 +1407,8 @@ worker modules are pure and dependency-injected; real services are wired only in
   Missing/unparseable → empty state (`{backend:null, limits:[], as_of:null}`, still
   `200`), since the worker may not have scored yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
-  validation exists once in `lib/actions.ts`. Each route is a thin wrapper over one
-  action; creating an application, changing a status and a watchlist add/remove stamp
+  validation exists once in the `lib/*-actions.ts` Server Actions. Each route is a
+  thin wrapper over one action; creating an application, changing a status and a watchlist add/remove stamp
   `actor='mcp'` (detail edits carry no actor): `POST applications` (`addApplication`; an
   unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
@@ -1431,8 +1431,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   action's `{success:false}` -> `400` with the action's own error text. No route
   deletes an application or history row. The application history dialog marks an
   MCP-created application "logged via MCP" and each MCP status row "via MCP".
-- **`lib/actions.ts`** — all mutations and aggregations as Server Actions (return
-  shape `{ success, ... }` or `{ data, total }`). Key actions:
+- **`lib/*-actions.ts`** — all mutations and aggregations as Server Actions, one
+  `'use server'` file per domain (`application-`, `analytics-`, `csv-`, `watchlist-`,
+  `job-`, `preference-`, `category-`, `promotion-`, `unresolved-actions.ts`); shared
+  sync helpers live in `action-helpers.ts`, which is not `'use server'` so they are not
+  public endpoints (return shape `{ success, ... }` or `{ data, total }`). Key actions:
   - *Applications:* `getApplications` (paginated; filters: status, historical
     status, category, free-text; `date_applied desc`), `addApplication`,
     `updateApplicationDetails`, `updateApplicationStatus` (validates against
@@ -1481,8 +1484,8 @@ worker modules are pure and dependency-injected; real services are wired only in
     interpolated into a fetch URL host/path by the worker, so this blocks
     host-injection metacharacters while still allowing multi-part slugs like
     workday's `tenant/dc/site`), `removeWatchedCompany`.
-  - *Promotion / unresolved* (in separate `lib/promotion-actions.ts` /
-    `lib/unresolved-actions.ts`, not `actions.ts`): `getPromotionSuggestions` (raw-SQL
+  - *Promotion / unresolved* (`lib/promotion-actions.ts` /
+    `lib/unresolved-actions.ts`): `getPromotionSuggestions` (raw-SQL
     aggregate over `job_postings` by `(source, company_slug)`, watchlist-capable sources
     only, excluding watched + dismissed; signal in §9), `dismissPromotion`;
     `getUnresolvedFeeds` (groups
@@ -1504,7 +1507,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
   to extend statuses/sources (categories are edited in-app, not here).** `MATCH_SCORE_THRESHOLD` was **removed** — the
   Discovered-Jobs matched/below-bar/discarded split is now the verdict predicate
-  (`matchedIds()` / `belowBarIds()` in `lib/actions.ts`) over the stored fit verdicts,
+  (`matchedIds()` / `belowBarIds()` in `lib/job-actions.ts`) over the stored fit verdicts,
   not a score cutoff; the fit score is display/ranking only.
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
@@ -1973,7 +1976,7 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   calling `addWatchedCompany`; `dismissPromotion` records `(source, slug)` (idempotent)
   to suppress it. The watchlist only ever grows by an explicit human action.
 
-**Web ↔ pipeline seam** (`lib/actions.ts`):
+**Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
 - **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, belowbar, discarded,
   lowcontext, failed}, default `matched`). Verdict-aware, not score-aware — the fit
@@ -2385,7 +2388,7 @@ automated coverage — those rely on code review or the human in the loop, not a
   prompt (a posting can't inject directives); secrets live only in the gitignored
   `.env`, read by `run.py`.
   Watchlist **slugs** are structurally validated at all three write boundaries
-  (`actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
+  (`watchlist-actions.ts`, `config.py`, `add_watched.py`); the two sources that pack a hostname
   in the slug additionally run the built host through `is_safe_public_url` in their
   `_parts` (`phenom` — the segment *is* the host; `workday` — belt-and-braces, its
   `.myworkdayjobs.com` suffix is hardcoded), so an internal-IP slug raises instead
@@ -2646,5 +2649,5 @@ wrap all of this — see §[13](#13-testing-and-quality) and `make help`.
 - **Setup front door:** [`SETUP.md`](./SETUP.md)
 - **Service READMEs:** [`../apps/web`](../apps/web), [`../apps/worker/README.md`](../apps/worker/README.md)
 - **Code anchors:** schema `apps/web/prisma/schema.prisma` · enums
-  `apps/web/src/lib/constants.ts` · server actions `apps/web/src/lib/actions.ts` ·
+  `apps/web/src/lib/constants.ts` · server actions `apps/web/src/lib/*-actions.ts` ·
   pipeline `apps/worker/ats_worker/pipeline.py` · wiring `apps/worker/ats_worker/run.py`

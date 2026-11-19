@@ -1,7 +1,7 @@
 """HTTP client for the web app's key-scoped write API (/api/v1, SPEC §7.2).
 
 The MCP server never opens a writable database handle: every write goes through web,
-so the validation in apps/web/src/lib/actions.ts exists once.
+so the validation in the apps/web/src/lib/*-actions.ts Server Actions exists once.
 """
 
 from __future__ import annotations

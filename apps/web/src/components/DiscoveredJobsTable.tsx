@@ -23,7 +23,7 @@ import { Pagination } from './Pagination'
 import { safeHref } from '@/lib/utils'
 import { verdictClass, verdictLabel, safeParseDetail, parseAssessment } from '@/lib/score-detail'
 import { LOW_CONTEXT_MAX_DESCRIPTION_LENGTH } from '@/lib/constants'
-import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/actions'
+import type { JobBucket, DisqualifyCause, JobSort, JobViewScope, JobSearchScope } from '@/lib/job-actions'
 import type { ScreenOutcome, ScreenSummary, LegacyScreenEvidence } from '@/lib/screen-summary'
 import { TRIAGE_STATUS_LABELS } from '@/lib/triage-summary'
 import type { JobTriageSummary, TriageStatus } from '@/lib/triage-summary'
@@ -218,7 +218,7 @@ function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; 
     if (bucket === 'belowbar') return <VerdictShortfall detail={detail} />
 
     if (bucket === 'discarded') {
-        // Two populations share this bucket (see actions.ts). A hard-constraint screen
+        // Two populations share this bucket (see job-actions.ts). A hard-constraint screen
         // failure has a keyed disqualification_reason; a fit-verdict reject has none, and
         // reads as the same shortfall line Below bar uses. Falling back to the literal
         // "disqualified" for a row that was never disqualified would be a lie.
@@ -232,7 +232,7 @@ function WhyCell({ bucket, job, detail }: { bucket: JobBucket; job: JobPosting; 
     }
 
     if (bucket === 'lowcontext') {
-        // Low-context has TWO causes (actions.ts lowContextIds) and they read differently:
+        // Low-context has TWO causes (job-actions.ts lowContextIds) and they read differently:
         // a genuinely short body, or a full-length JD the fit scorer itself flagged as
         // too boilerplate/truncated to trust. Reporting a 4,560-char JD as "Thin JD" was
         // simply wrong — say which rule caught it.

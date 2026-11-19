@@ -1,4 +1,4 @@
-import { setJevProfile } from '@/lib/actions'
+import { setJevProfile } from '@/lib/preference-actions'
 import { write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

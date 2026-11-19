@@ -1,4 +1,4 @@
-import { addWatchedCompany } from '@/lib/actions'
+import { addWatchedCompany } from '@/lib/watchlist-actions'
 import { str, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

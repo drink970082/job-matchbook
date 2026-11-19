@@ -26,7 +26,7 @@ export const WORK_AUTHORIZATIONS = ['citizen', 'permanent resident', 'authorized
 
 // The vocabulary the CHARTS key on: every real status plus 'No Response', the
 // pseudo-status getStatusFlow synthesizes for an application that never left
-// 'Applied' (see actions.ts). It is deliberately not a real status — nothing is ever
+// 'Applied' (see analytics-actions.ts). It is deliberately not a real status — nothing is ever
 // stored as 'No Response' — which is why it lives here and not in STATUSES.
 //
 // SankeyChart and StatusFunnel each hold a hand-authored color per member. A color
@@ -39,7 +39,7 @@ export type ChartStatus = (typeof CHART_STATUSES)[number]
 
 // Default application-category vocabulary — the SEED / fallback for a fresh install.
 // Users pick their own labels at onboarding or via the Categories editor (stored in
-// the app_settings table; see actions.ts getCategories/setCategories), so this list is
+// the app_settings table; see category-actions.ts getCategories/setCategories), so this list is
 // only what shows before they choose. Categories are free-form; keep an 'Others'
 // catch-all. Broad and cross-industry on purpose — the app is not tech-only.
 export const DEFAULT_CATEGORIES = [
@@ -84,7 +84,7 @@ export const RECIPE_SOURCES = ['custom', 'browser'] as const
 // visibly distinct rather than silently scored alongside confidently-parsed JDs.
 // Single tuning knob (derived at query time — no persisted flag / schema change):
 // raise it to catch more borderline-thin JDs, lower it to catch only the barest
-// stubs. See getJobPostings / lowContextIds in lib/actions.ts.
+// stubs. See getJobPostings / lowContextIds in lib/job-actions.ts.
 export const LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
 
 /** Map status to a display color class */

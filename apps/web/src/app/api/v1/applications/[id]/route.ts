@@ -1,4 +1,4 @@
-import { updateApplicationDetails } from '@/lib/actions'
+import { updateApplicationDetails } from '@/lib/application-actions'
 import { idParam, str, write } from '@/lib/api-v1'
 
 export const dynamic = 'force-dynamic'

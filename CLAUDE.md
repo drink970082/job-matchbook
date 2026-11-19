@@ -109,8 +109,8 @@ Run `make help` from the repo root — every target is self-documenting.
   Status/category enums live in `apps/web/src/lib/constants.ts`.
 - **Worker modules are pure + dependency-injected.** Real services are wired only
   in `ats_worker/run.py`; tests mock everything (no network/keys). Keep it that way.
-- **Web:** mutations go through Server Actions (`lib/actions.ts`); the `/api/v1`
-  route handlers are thin wrappers over them. Run `make lint` before pushing.
+- **Web:** mutations go through Server Actions (`lib/*-actions.ts`, one file per
+  domain); the `/api/v1` route handlers are thin wrappers over them. Run `make lint` before pushing.
 - **Branches:** never force-push `main`.
 - **Privacy:** never commit `.env`, `resume/`, `config.yaml`, or `db/` — enforced by
   `.gitignore`, `make check-privacy` in CI, and a PreToolUse hook.
