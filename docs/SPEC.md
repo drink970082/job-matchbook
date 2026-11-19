@@ -755,14 +755,15 @@ worker modules are pure and dependency-injected; real services are wired only in
   fails startup naming `api`.
   - **HTTP** — `ollama` (**default**; free, local, native `/api/chat` via
     `screening.make_ollama_extract`, `think: false`, `num_ctx` from
-    `OLLAMA_NUM_CTX`, model from `--screen-model`, else `--model`/`OLLAMA_MODEL`, else
-    `qwen3.5:4b`), `api` (metered for hosted vendors; any OpenAI-compatible
+    `OLLAMA_NUM_CTX`, model from `--model`/`OLLAMA_MODEL` only — a leftover
+    `SCREEN_MODEL` never reaches it — else `qwen3.5:4b`), `api` (metered for hosted vendors; any OpenAI-compatible
     `chat/completions` endpoint over plain `requests` — OpenAI, OpenRouter, Gemini's
     compatible endpoint, LM Studio, vLLM. `SCREEN_API_BASE_URL` (default
     `https://api.openai.com/v1`), `SCREEN_API_KEY` (optional; no `Authorization` header
-    without it), `SCREEN_MODEL` **required** — startup of the screen fails without
-    it. Sends `response_format: json_schema` strict; a **400** is retried once
-    without `response_format` and that mode sticks for the pass. The reply is parsed
+    without it), `SCREEN_MODEL` **required** — `run.main` fails before any fetch
+    without it. Sends `response_format: json_schema` strict; a **400** is retried once
+    without `response_format`, and only a successful retry makes that mode stick for
+    the pass (logged once); a retry that also fails raises and keeps strict mode. The reply is parsed
     after stripping `<think>` blocks and code fences; any other HTTP error raises).
   - **CLI subprocess + schema** — `codex` (the operator's ChatGPT-subscription CLI,
     default `gpt-5.6-luna`; runs **tool-less** — `--disable shell_tool`,

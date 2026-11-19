@@ -27,9 +27,10 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
   `claude-code`, `api` and `none`; `run.py` and `doctor` read it instead of if-chains.
   `api` reaches OpenAI, OpenRouter, Gemini, LM Studio, vLLM and the like via
   `SCREEN_API_BASE_URL` / `SCREEN_API_KEY` / `SCREEN_MODEL` (required), sends strict
-  `json_schema` and retries once without it on a 400. `claude-code` passes now record
-  quota too. The codex default model is `gpt-5.6-luna` everywhere (it already was for
-  real passes); for `ollama`, `--screen-model` now wins over `--model`.
+  `json_schema` and, on a 400, retries once without it (non-strict sticks only if that
+  retry succeeds, with a log line). `claude-code` passes now record quota too. The
+  codex default model is `gpt-5.6-luna` everywhere (it already was for real passes);
+  `ollama` provenance now records the `--model` it actually called, not `SCREEN_MODEL`.
   **Breaking:** `SCREEN_BACKEND=openai-api` / `claude-api` fail startup (use `api`;
   Claude via OpenRouter), `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are no longer read, and
   the `anthropic` dependency is gone. The quota bar is renamed with its file:

@@ -77,6 +77,18 @@ def test_api_extract_falls_back_once_when_strict_schema_is_rejected():
     assert len(http.calls) == 3 and "response_format" not in http.calls[2]["json"]
 
 
+def test_api_extract_a_400_that_survives_the_retry_raises_and_keeps_strict():
+    # A 400 with another cause (over-long prompt, bad model) must not silently switch
+    # the rest of the pass to non-strict.
+    http = _FakeHttp(({"error": "context_length_exceeded"}, 400), ({"error": "x"}, 400),
+                     _ok('{"a": 1}'))
+    extract = _api(http)
+    with pytest.raises(RuntimeError):
+        extract("p", {})
+    assert extract("p", {}) == {"a": 1}
+    assert "response_format" in http.calls[2]["json"]
+
+
 def test_api_extract_other_http_errors_raise():
     http = _FakeHttp(({"error": "nope"}, 401))
     with pytest.raises(RuntimeError):
@@ -84,7 +96,7 @@ def test_api_extract_other_http_errors_raise():
 
 
 def test_api_extract_tolerates_think_tags_and_fences():
-    raw = '<think>let me see</think>\n```json\n{"a": 1}\n```'
+    raw = '<think>let me see</think>\nHere you go:\n```json\n{"a": 1}\n```'
     assert _api(_FakeHttp(_ok(raw)))("p", {}) == {"a": 1}
 
 

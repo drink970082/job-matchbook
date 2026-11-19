@@ -451,6 +451,24 @@ def test_make_screener_api_requires_a_model():
         run.make_screener("api", env={"SCREEN_API_KEY": "k"})
 
 
+def test_ollama_ignores_a_leftover_screen_model():
+    assert run.screen_model_for("ollama", screen_model="gpt-5.6-luna",
+                                ollama_model="custom:1b") == "custom:1b"
+    assert run.screen_model_for("ollama", screen_model="gpt-5.6-luna") == "qwen3.5:4b"
+
+
+def test_main_rejects_api_without_a_model_before_any_work(tmp_path, monkeypatch, capsys):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SCREEN_BACKEND=api\n")
+    monkeypatch.setattr(run.os, "environ", dict(run.os.environ))
+    for k in ("SCREEN_BACKEND", "SCREEN_MODEL"):
+        run.os.environ.pop(k, None)
+    monkeypatch.setattr(run, "run_once", lambda *a, **k: pytest.fail("must not run"))
+    with pytest.raises(SystemExit):
+        run.main(["--once", "--env", str(env_file), "--db", str(tmp_path / "d.db")])
+    assert "needs SCREEN_MODEL" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("retired", ["openai-api", "claude-api"])
 def test_main_rejects_retired_backends_before_any_work(retired, tmp_path, monkeypatch, capsys):
     env_file = tmp_path / ".env"

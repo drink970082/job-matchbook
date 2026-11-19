@@ -40,14 +40,14 @@ def _parse(raw: str, provider: str) -> dict:
 
 
 _THINK = re.compile(r"<think>.*?</think>", re.S)
-_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
+_FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.S)
 
 
 def _strip_wrappers(text: str) -> str:
     """Drop a reasoning model's `<think>` block and a ```json fence around the reply —
     what a non-strict endpoint commonly returns instead of bare JSON."""
     text = _THINK.sub("", text or "").strip()
-    m = _FENCE.match(text)
+    m = _FENCE.search(text)
     return m.group(1) if m else text
 
 
@@ -59,10 +59,11 @@ def make_api_extract(*, base_url: str, api_key: str | None, model: str, http,
     fake transport and no network. `api_key=None` sends no Authorization header (a
     keyless local server).
 
-    Sends `response_format: json_schema` strict first. An endpoint that rejects it with
-    a 400 is retried once without `response_format`, and that mode sticks for the
-    rest of this extract's life so a non-strict endpoint does not pay two requests per
-    posting. The prompt already asks for JSON; the reply is parsed after stripping
+    Sends `response_format: json_schema` strict first. A 400 is retried once without
+    `response_format`; only when that retry succeeds does non-strict mode stick (with
+    one log line) for the rest of this extract's life, so a non-strict endpoint does
+    not pay two requests per posting while a 400 with another cause (an over-long
+    prompt, a bad model) raises and leaves strict mode on. The prompt already asks for JSON; the reply is parsed after stripping
     `<think>` blocks and code fences. Any other HTTP error raises.
     """
     headers = {"Content-Type": "application/json"}
@@ -83,6 +84,11 @@ def make_api_extract(*, base_url: str, api_key: str | None, model: str, http,
         if strict[0] and resp.status_code == 400:
             strict[0] = False
             resp = post(prompt, schema)
+            if 200 <= resp.status_code < 300:
+                print(f"[screen] {base_url} rejected strict json_schema (HTTP 400); "
+                      "continuing without response_format")
+            else:
+                strict[0] = True
         resp.raise_for_status()
         payload = resp.json()
         choices = payload.get("choices") if isinstance(payload, dict) else None

@@ -64,13 +64,13 @@ SCREEN_BACKENDS = tuple(PROVIDERS)
 
 
 def screen_model_for(backend: str, *, screen_model=None, ollama_model=None):
-    """The model a pass actually uses (and records as provenance): --screen-model, else
-    --model for ollama, else the provider's default (None lets the claude CLI pick)."""
-    if screen_model:
-        return screen_model
-    if backend == "ollama" and ollama_model:
-        return ollama_model
-    return PROVIDERS[backend].default_model
+    """The model a pass actually uses (and records as provenance). Ollama takes
+    --model/OLLAMA_MODEL only, so a SCREEN_MODEL left over from a hosted backend never
+    reaches it; every other backend takes --screen-model, else its default (None lets
+    the claude CLI pick)."""
+    if backend == "ollama":
+        return ollama_model or PROVIDERS["ollama"].default_model
+    return screen_model or PROVIDERS[backend].default_model
 
 
 def make_screener(backend: str, *, env, http=None, model=None, screen_model=None,
@@ -683,6 +683,9 @@ def main(argv=None) -> None:
                 if args.screen_backend in RETIRED else "")
         parser.error(f"unknown screen backend {args.screen_backend!r} "
                      f"(want one of {', '.join(SCREEN_BACKENDS)}){hint}")
+    if PROVIDERS[args.screen_backend].model_required and not args.screen_model:
+        parser.error(f"SCREEN_BACKEND={args.screen_backend} needs SCREEN_MODEL "
+                     "(or --screen-model)")
 
     # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
     # for both is asking for two different programs, and the likely intent (just run one
