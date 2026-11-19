@@ -291,7 +291,6 @@ export function Dashboard({
         setTotalJobs(0)
         try {
             const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
-            getJobStageCounts().then((c) => { if (version === jobRequestVersion.current) setJobCounts(c) }).catch(() => {})
             if (version !== jobRequestVersion.current) return
             setJobPostings(data)
             setTotalJobs(total)
@@ -421,6 +420,7 @@ export function Dashboard({
         const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope)
         if (result.success) {
             toast.success('Marked as applied')
+            getJobStageCounts().then(setJobCounts).catch(() => {})
             setApplyJob(null)
             setSelectedJob(null)
             await refreshJobPostings()

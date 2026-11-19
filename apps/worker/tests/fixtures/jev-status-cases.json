@@ -13,6 +13,8 @@
     {"name": "posting revision null, assessment 1", "posting_revision": null, "assessment": {"state": "complete", "verdict": "keep", "policy_sha256": "p1", "source_content_revision": 1}, "override": null, "current_policy": "p1", "status": "stale", "model_status": "stale"},
     {"name": "keep override on a skip", "posting_revision": 2, "assessment": {"state": "complete", "verdict": "skip", "policy_sha256": "p1", "source_content_revision": 2}, "override": {"decision": "keep", "source_content_revision": 2}, "current_policy": "p1", "status": "keep", "model_status": "skip"},
     {"name": "override lapsed by a content change", "posting_revision": 3, "assessment": {"state": "complete", "verdict": "skip", "policy_sha256": "p1", "source_content_revision": 3}, "override": {"decision": "keep", "source_content_revision": 2}, "current_policy": "p1", "status": "skip", "model_status": "skip"},
+    {"name": "override revision 1 on a null posting revision", "posting_revision": null, "assessment": null, "override": {"decision": "keep", "source_content_revision": 1}, "current_policy": "p1", "status": "keep", "model_status": "unassessed"},
+    {"name": "override with an unknown decision is ignored", "posting_revision": 1, "assessment": {"state": "complete", "verdict": "skip", "policy_sha256": "p1", "source_content_revision": 1}, "override": {"decision": "maybe", "source_content_revision": 1}, "current_policy": "p1", "status": "skip", "model_status": "skip"},
     {"name": "legacy null override revision on revision 1", "posting_revision": 1, "assessment": null, "override": {"decision": "skip", "source_content_revision": null}, "current_policy": "p1", "status": "skip", "model_status": "unassessed"}
   ]
 }

@@ -189,6 +189,7 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
     // `new`, else `other`. Each stage filter returns exactly its rows.
     const stageOf = (item: any) => item.expected_status === 'rule_disqualified' ? 'rule_rejected'
         : item.expected_status === 'screen_disqualified' ? 'screen_rejected'
+            : item.expected_status === 'needs_review' && item.pipeline_status === 'discarded' ? 'screen_rejected'
             : item.pipeline_status === 'new' ? 'unassessed' : 'other'
     for (const item of triageFixture.cases) {
         expect([item.name, byId.get(expectedIds.get(item.name)!)!.stage]).toEqual([item.name, stageOf(item)])
