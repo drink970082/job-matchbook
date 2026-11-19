@@ -12,10 +12,6 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
 
-- **Web Settings dialog — PR open** `[WEB · S]` (#158 scope change, branch
-  `feat/158-settings-dialog`). The operator wants the dashboard to edit the stored
-  settings too, so #158's read-only rule exempts Settings as well as Applications.
-
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
   in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches
