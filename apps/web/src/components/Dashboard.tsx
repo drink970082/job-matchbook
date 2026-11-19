@@ -6,7 +6,7 @@ import { getApplications, addApplication, updateApplicationStatus, deleteApplica
 import { getKPIs, getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
 import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
 import { getWatchedCompanies, getWatchlistActivity, addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
-import { getJobPostings, markJobApplied, discardJobPosting, reopenJobPosting, bulkRemove, bulkReopen, removeAllInView } from '@/lib/job-actions'
+import { getJobPostings, getJobStageCounts, markJobApplied } from '@/lib/job-actions'
 import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { todayISO } from '@/lib/utils'
@@ -31,16 +31,10 @@ import type { JobViewScope } from '@/lib/job-actions'
 // which calls getJobPostings with the action's default size).
 const JOB_PAGE_SIZE = 25
 const DEFAULT_JOB_FILTERS: JobTableFilters = {
-    bucket: 'all',
+    stage: 'keep',
     search: '',
     searchScope: 'metadata',
     sort: 'created',
-    sortExplicit: false,
-}
-
-function jobActionFilters(filters: JobTableFilters) {
-    const { sortExplicit: _sortExplicit, ...query } = filters
-    return query
 }
 
 interface DashboardProps {
@@ -82,6 +76,7 @@ export function Dashboard({
     const [jobsLoading, setJobsLoading] = useState(false)
     const [jobsError, setJobsError] = useState(false)
     const [jobFilters, setJobFilters] = useState<JobTableFilters>(DEFAULT_JOB_FILTERS)
+    const [jobCounts, setJobCounts] = useState<Record<string, number> | undefined>(undefined)
     const [jobPage, setJobPage] = useState(0)
     const [selectedJob, setSelectedJob] = useState<any>(null)
     const [isJobDetailOpen, setIsJobDetailOpen] = useState(false)
@@ -295,7 +290,7 @@ export function Dashboard({
         setJobPostings([])
         setTotalJobs(0)
         try {
-            const { data, total } = await getJobPostings({ ...jobActionFilters(filters), page, size: JOB_PAGE_SIZE })
+            const { data, total } = await getJobPostings({ ...filters, page, size: JOB_PAGE_SIZE })
             if (version !== jobRequestVersion.current) return
             setJobPostings(data)
             setTotalJobs(total)
@@ -341,6 +336,7 @@ export function Dashboard({
         refreshWatchlist()
         refreshPromotions()
         refreshUnresolved()
+        getJobStageCounts().then(setJobCounts).catch(() => {})
     }, [])
 
     // First run (no categories saved yet): open the picker once so the user sets
@@ -424,67 +420,11 @@ export function Dashboard({
         const result = await markJobApplied(applyJob.id, category, applyJob.__viewScope)
         if (result.success) {
             toast.success('Marked as applied')
+            getJobStageCounts().then(setJobCounts).catch(() => {})
             setApplyJob(null)
             setSelectedJob(null)
             await refreshJobPostings()
             await refreshData()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleDiscardJob = async (id: number, scope?: JobViewScope) => {
-        const result = await discardJobPosting(id, scope ?? selectedJob?.__viewScope ?? jobFilters)
-        if (result.success) {
-            toast.success('Job discarded')
-            setIsJobDetailOpen(false)
-            setSelectedJob(null)
-            await refreshJobPostings()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleReopenJob = async (id: number, scope?: JobViewScope) => {
-        const result = await reopenJobPosting(id, scope ?? selectedJob?.__viewScope ?? jobFilters)
-        if (result.success) {
-            toast.success('Job reopened')
-            setIsJobDetailOpen(false)
-            setSelectedJob(null)
-            await refreshJobPostings()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleBulkRemove = async (jobIds: number[], scope: JobViewScope) => {
-        // ponytail: native confirm — same pattern as handleDeleteApplication.
-        if (!confirm(`Remove ${jobIds.length} job${jobIds.length === 1 ? '' : 's'}? They'll be hidden from all tabs.`)) return
-        const result = await bulkRemove(jobIds, scope)
-        if (result.success) {
-            toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
-            await refreshJobPostings()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleBulkReopen = async (jobIds: number[], scope: JobViewScope) => {
-        const result = await bulkReopen(jobIds, scope)
-        if (result.success) {
-            toast.success(`Reopened ${result.count} job${result.count === 1 ? '' : 's'}`)
-            await refreshJobPostings()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleRemoveAllInView = async (filter: any) => {
-        if (!confirm(`Remove all ${totalJobs} job${totalJobs === 1 ? '' : 's'} in this view? They'll be hidden from all tabs.`)) return
-        const result = await removeAllInView(filter)
-        if (result.success) {
-            toast.success(`Removed ${result.count} job${result.count === 1 ? '' : 's'}`)
-            await refreshJobPostings()
         } else {
             toast.error(result.error)
         }
@@ -588,13 +528,9 @@ export function Dashboard({
                     loadError={jobsError}
                     onPageChange={handleJobPageChange}
                     onFilterChange={handleJobFilterChange}
+                    counts={jobCounts}
                     onMarkApplied={handleMarkApplied}
-                    onDiscard={handleDiscardJob}
-                    onReopen={handleReopenJob}
                     onViewJD={handleViewJD}
-                    onBulkRemove={handleBulkRemove}
-                    onBulkReopen={handleBulkReopen}
-                    onRemoveAllInView={handleRemoveAllInView}
                 />
             ) : activeTab === 'watchlist' ? (
                 <WatchlistTab
@@ -636,8 +572,6 @@ export function Dashboard({
                     }}
                     job={selectedJob}
                     onMarkApplied={handleMarkApplied}
-                    onDiscard={handleDiscardJob}
-                    onReopen={handleReopenJob}
                 />
             )}
 

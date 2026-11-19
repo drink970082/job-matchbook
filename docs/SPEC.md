@@ -1461,31 +1461,22 @@ worker modules are pure and dependency-injected; real services are wired only in
     predicates stay in bound SQL and do not materialize fit-derived ID lists. Standalone
     screening result JSON is projected into the bounded summary rather than returned;
     full JD text is not rendered in the table and remains available to the detail modal
-    through the stored description, without a provider call. The
-    score-aware `matched`/`belowbar`/`discarded`/`lowcontext`/`failed` buckets and their
-    existing membership remain available; their default sort is score. All views support
-    paginated `page`/`size`; optional `minScore` and the discarded-bucket
-    disqualification-`cause` ∈ authorization/location/degree/clearance/internship
-    sub-filter remain. Per-row actions validate current view scope; bulk lifecycle actions
-    are rejected for All jobs and are confined to legacy buckets. `discardJobPosting`,
-    `reopenJobPosting`, `bulkRemove(ids, scope)` (terminal `removed`, UI-only hide,
-    worker-inert), `bulkReopen(ids, scope)`, `removeAllInView(bucket, filters)`,
-    `markJobApplied(id, category, scope)`
+    through the stored description, without a provider call. Postings are
+    filtered by one funnel `stage` (§9 "Discovered Jobs funnel"); all views page with
+    `page`/`size`. The only job mutation is `markJobApplied(id, category, scope)`
     (category chosen at apply time from the user-configured vocabulary — free-form,
-    default `Others` when blank), `getCategories`/`setCategories` (the user-editable
-    category list, stored in `app_settings`).
-    Bucket definitions and `removed` semantics in §9.
+    default `Others` when blank); `getCategories`/`setCategories` edit the category list
+    in `app_settings`.
     Each row also carries a source-lifecycle summary: source state, last seen/check times,
-    safe inconclusive category, current content revision, and independent fit/screen
+    safe inconclusive category, current content revision, and independent screen
     freshness. Unknown legacy revisions and provider errors stay explicitly unknown/error.
     Rows and job detail also carry a derived `triage_summary`: rule-based rejection,
     standalone screening rejection, candidate retained for fit research, or needs review.
-    The All jobs view accepts an optional triage filter in bound SQL before pagination and
-    count; MCP overview separately reports four disjoint counts that partition all postings. A rule-only standalone result
+    Triage feeds the funnel stage, filtered in bound SQL before pagination and count; MCP overview separately reports four disjoint counts that partition all postings. A rule-only standalone result
     can be deterministic even though it is stored in `job_screenings`; storage alone does
     not prove model invocation. Missing standalone evidence alone does not establish that
-    screening never ran. Raw `screen_outcome`, the five-value standalone filter, and legacy
-    fit-bucket membership remain unchanged; candidates are not presented as qualified.
+    screening never ran. Raw `screen_outcome` and the five-value standalone filter are
+    unchanged; candidates are not presented as qualified.
   - *Watchlist:* `getWatchedCompanies` (name asc), `addWatchedCompany` (validates
     `source ∈ VALID_SOURCES`, dedups `(source, slug)`, and rejects a `slug` outside
     `[A-Za-z0-9._/-]` or containing `..`/leading-trailing-doubled `/` — the slug is
@@ -1511,31 +1502,20 @@ worker modules are pure and dependency-injected; real services are wired only in
   managed in the UI, no longer a fixed enum),
   `VALID_SOURCES` (11 watchlist-capable boards, mirrors the worker; feed-only sources
   are not listed), `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`
-  (200; the trimmed-`description` char count below which a scored posting is bucketed
-  Low-context — the single tuning knob for that heuristic), `getStatusColor`. **Edit here
-  to extend statuses/sources (categories are edited in-app, not here).** `MATCH_SCORE_THRESHOLD` was **removed** — the
-  Discovered-Jobs matched/below-bar/discarded split is now the verdict predicate
-  (`matchedIds()` / `belowBarIds()` in `lib/job-actions.ts`) over the stored fit verdicts,
-  not a score cutoff; the fit score is display/ranking only.
+  (200; below this trimmed-`description` length the table labels a row "Short JD"), `getStatusColor`. **Edit here
+  to extend statuses/sources (categories are edited in-app, not here).**
 - **`components/`** — `Dashboard` (Applications ↔ Discovered Jobs ↔ Watchlist ↔
   Unresolved tabs, each delegated to a `*Tab` wrapper), `ApplicationTable` (inline status edit), `KPIGrid`,
-  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (All jobs first and
-  selected by default, with Matched/Below-bar/Discarded/Failed/Low-context buckets
-  retained; filters are controlled by `Dashboard` and survive tab unmount/remount, while
-  request-version checks discard stale responses and pending/error states hide old rows;
-  All jobs offers literal metadata/all-text search, standalone outcome filters, discovery
-  recency/score/posted sorting, lifecycle labels and no bulk controls; row actions carry
-  the exact active filter scope. Screen summaries show advisory outcome, bounded reason,
-  backend/model/effort and assessment time when present, separately from legacy fit-record
-  screen evidence. A bucket-aware per-row "why" subline (a shared `VerdictShortfall` —
-  seniority/domain verdict pills +
-  top missing must-have — for below-bar AND for the fit-reject half of discarded, falling
-  back to the legacy one-line `reasoning` for pre-S2.1 rows; the keyed disqualification
-  reason when there is one; **which** low-context rule caught the row — a short body
-  ("Thin JD (N chars)") vs the scorer's own `insufficient_context` flag on a full-length
-  JD; pipeline error); a `recommended_resume` label under the score;
-  folded Company/location/source and Posted/Fetched date columns + legacy-bucket bulk
-  Remove/Reopen/Remove-all-in-view + job-title links to the live posting),
+  `StatusHistoryModal`, `AddApplicationForm`, `DiscoveredJobsTable` (the funnel: stage tabs
+  Keep (default) / Unassessed / JEV skip / Screen rejected / Rule rejected / Applied-closed
+  / All, each with its count from `getJobStageCounts`; filters are controlled by
+  `Dashboard` and survive tab unmount/remount, request-version checks discard stale
+  responses and pending/error states hide old rows; literal metadata/all-text search,
+  standalone outcome filter, fetched/posted sort; a JEV column with the verdict, its
+  reasons and any override; screen summaries (advisory outcome, bounded reason,
+  backend/model/effort, assessment time) separate from legacy fit-record screen evidence;
+  source lifecycle, Short-JD labels, Posted/Fetched dates and job-title links; row actions
+  are View JD and Mark Applied only, carrying the exact active filter scope),
   `Pagination` (reusable: first/last, numbered pages, go-to), `ApplyCategoryDialog`
   (category picker on Mark Applied), `ImportCSVDialog` (drag-and-drop or browse file
   picker behind the Import CSV button, with the column contract — required columns,
@@ -1848,7 +1828,7 @@ expire:  new|scored|notified, detail source, board 404/410 → expired
                                                    (terminal; capped at 50/pass,
                                                     least-recently-updated first;
                                                     any other error → left alone)
-UI:      any non-applied row      → removed        (terminal; bulk Remove; UI-only hide)
+(legacy) removed                → removed        (terminal; the retired bulk Remove wrote it)
 ```
 `scored`, `notified` and `failed` are written by nothing today; rows in those states
 are the retired fit scorer's history, still read by the web and MCP.
@@ -1867,14 +1847,13 @@ the adapter boundary; it does not close the row or advance its source-seen time.
 missing `active` value remains compatible with normal ingestion. This does not extend
 to other adapters.
 
-- **All jobs inventory view.** The default Discovered Jobs view lists every posting except terminal `removed`, including `new`, `applied`, expired and unrecognized lifecycle values; unknown statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Default order is `created_at desc, id desc`; optional score/posted sorts retain an id tie-breaker. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. Derived triage status is `rule_disqualified`, `screen_disqualified`, `candidate`, or `needs_review`. It uses the same typed evidence rules in Web and MCP; unknown lifecycle states, unsuccessful or malformed assessments, conflicting pass/lifecycle state, unsupported legacy data, and absent evidence remain `needs_review`. A narrow deterministic rejection can be supported by a rule-only `job_screenings` result or by a legacy discarded record with no fit evidence; a standalone row does not establish that a provider was invoked. Candidate requires a valid standalone pass on `new`, `scored`, or `notified`, and means retained for fit research, not qualified. No standalone record alone does not mean unprocessed. The All jobs triage filter runs in SQL before pagination and count; the MCP overview counts partition all postings. The table labels each triage category and the detail modal shows bounded reason/provenance. Raw standalone outcome semantics and legacy fit-bucket membership remain unchanged. The table and detail modal show source state/check timing and separate fit/screen freshness; a failed latest attempt does not overwrite the last confirmed state/time. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Source lifecycle timestamps use the same strict calendar/offset-aware validation and invalid values are null; non-positive, non-integer, boolean, or JavaScript-unsafe assessment revisions are unknown in Web and MCP. Per-row apply/discard/reopen actions revalidate the exact current view/filter scope at the server boundary. Apply retains duplicate protection and transaction behavior. All jobs has no bulk controls or bulk lifecycle action path; supported legacy buckets keep their validated bulk flows. Pending or failed list requests do not display a previous page as though it matched the current filters.
+- **Discovered Jobs funnel.** Every posting except terminal `removed` is in exactly one stage, evaluated in SQL before paging and count (`lib/job-stages.ts`): `rule_rejected` / `screen_rejected` (triage `rule_disqualified` / `screen_disqualified`; a `discarded` row whose triage is `needs_review`, a legacy fit-pipeline screen discard, is `screen_rejected` too), else `other` when no longer `new`, else `keep` / `jev_skip` by the effective JEV status, else `unassessed` (no, failed or stale verdict). The effective JEV status is the MCP rule — an override on the posting's current revision wins, else the model status `unassessed`/`failed`/`stale`/`keep`/`skip` — pinned for both sides by `worker/tests/fixtures/jev-status-cases.json`. `keep` is the default view; `all` lists every stage. Against MCP `get_ats_overview`: `rule_rejected` equals triage `rule_disqualified` less `removed` rows; `keep`/`jev_skip` equal the overview's `new` keep/skip except for a rejected `new` posting carrying a verdict or override, which the funnel files under its rejection; the overview's `unassessed` also counts rejected `new` postings, so it is larger. Stage counts load on mount and after Mark Applied, not per filter change, including `new`, `applied`, expired and unrecognized lifecycle values; unknown statuses, including names inherited from JavaScript Object prototypes, are shown as stored. Its list and count query `job_postings` directly and do not run fit-derived membership scans. Default order is `created_at desc, id desc`; the posted sort retains an id tie-breaker. Metadata search is default, and `all_text` adds description search with literal escaped `%`, `_` and `!`. Standalone outcome filters and summaries use only `job_screenings`: no row is `not_screened`; persisted provider failure is `provider_error`; a complete `disqualified=true` result requires typed failing-check evidence; `disqualified=false` with a typed passing check and no typed failing check is `no_disqualifier_found`; malformed, incomplete, contradictory or unrecognized data is `unknown`. Every outcome is advisory. Legacy `score_detail.screen` remains separately labeled evidence and never fabricates a standalone result. Derived triage status is `rule_disqualified`, `screen_disqualified`, `candidate`, or `needs_review`. It uses the same typed evidence rules in Web and MCP; unknown lifecycle states, unsuccessful or malformed assessments, conflicting pass/lifecycle state, unsupported legacy data, and absent evidence remain `needs_review`. A narrow deterministic rejection can be supported by a rule-only `job_screenings` result or by a legacy discarded record with no fit evidence; a standalone row does not establish that a provider was invoked. Candidate requires a valid standalone pass on `new`, `scored`, or `notified`, and means retained for fit research, not qualified. No standalone record alone does not mean unprocessed. The MCP overview counts partition all postings. The table labels each triage category and the detail modal shows bounded reason/provenance. Raw standalone outcome semantics are unchanged. The table and detail modal show source state/check timing and screen freshness; a failed latest attempt does not overwrite the last confirmed state/time. Standalone screening result JSON is projected into the bounded summary; full JD text is not rendered in the table and remains available to the detail modal through the stored description, without a provider call. `created_at` describes discovery time; screen assessment time is never presented as source freshness. Invalid calendar dates and times have a null assessment time, matching the MCP summary contract. Source lifecycle timestamps use the same strict calendar/offset-aware validation and invalid values are null; non-positive, non-integer, boolean, or JavaScript-unsafe assessment revisions are unknown in Web and MCP. The view is read-only except Mark Applied, which revalidates the exact current view/filter scope at the server boundary and keeps duplicate protection and transaction behavior; no component of the view imports a server action (`readonly-dashboard.test.ts`). Pending or failed list requests do not display a previous page as though it matched the current filters.
 
 Triage evidence with duplicate object members at its root, screen map, or check object is ambiguous and maps to `needs_review`. Legacy `source_content_revision` may be absent or null; when non-null, it must be a mathematically integral JSON number from 1 through JavaScript’s maximum safe integer. Decimal/exponent forms such as `3.0` and `3e0` are accepted when they represent an integer; booleans, fractions, non-positive, and unsafe values remain unresolved.
 
-- **`removed` is a terminal, UI-only status.** Set by `bulkRemove` / `removeAllInView` and by the per-row dismiss (`discardJobPosting`); the worker never writes it and never transitions away from it. Invisible to all buckets in the Discovered Jobs view; effectively hides the row without deleting it.
+- **`removed` is a terminal legacy status.** The retired bulk Remove wrote it; nothing writes it now, the worker never transitions away from it, and the Discovered Jobs view hides it from every stage.
 
-- **`expired` is terminal too**, and like `removed` it drops the row out of every
-  Discovered bucket (the live buckets filter on `scored`/`notified`). It's written
+- **`expired` is terminal too**; it is in the `other` stage. It's written
   only by `run_expire`, only on an unambiguous 404/410 from the board's own per-job
   endpoint — never on a timeout, bot wall, or 5xx.
 
@@ -1986,74 +1965,17 @@ Triage evidence with duplicate object members at its root, screen map, or check 
 
 **Web ↔ pipeline seam** (`lib/job-actions.ts`):
 
-- **Discovered-jobs buckets** (`getJobPostings`, `bucket` ∈ {matched, belowbar, discarded,
-  lowcontext, failed}, default `matched`). Verdict-aware, not score-aware — the fit
-  **score is display/ranking only and gates nothing**: **matched** = `{scored, notified}`
-  rows whose `score_detail` verdicts read `seniority=match AND domain=match AND NOT
-  insufficient_context` (`matchedIds()`, a raw `json_extract` query), **minus low-context
-  rows**: the Matched tab applies a low-context hold-back — the enum predicate **and** a
-  thin-JD exclusion (`insufficient_context` OR `LENGTH(TRIM(description)) < 200`,
-  `LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`) — so a short-but-confident `match/match` JD is
-  shown under **Low-context**. (The `200` is hand-synced between worker `db.py` and web
-  `constants.ts` — a cross-service constant, flagged in both.) The **keep** half of the
-  verdicts always requires `seniority=match` — a seniority miss is disqualifying, not
-  partial — and then splits on domain: **belowbar** = `{scored,
-  notified}` rows reading `seniority=match AND domain=adjacent` (`belowBarIds()`, the
-  same raw-query shape as `matchedIds()`) — the **near miss**, worth a human glance;
-  **discarded** = the audit view, **two** populations OR'd: (1) hard-constraint screen
-  failures, `pipeline_status='discarded'` with the screen's `disqualified:true`
-  (substring-matched in `score_detail`, tolerating `"disqualified": true` /
-  `"disqualified":true` spacing), and (2) **fit-verdict rejects** — live rows in neither
-  the matched nor the below-bar id set, i.e. a seniority miss (`too_junior`/`too_senior`)
-  or `domain=mismatch`. Together the three buckets cover every scored row, so nothing is
-  orphaned. Only population (1) carries a keyed `disqualification_reason`, so the
-  discarded why-cell falls back to the same verdict-shortfall line Below bar uses rather
-  than claiming a row was "disqualified" when it wasn't;
-  **lowcontext** = `{scored, notified}` rows too thin to score with confidence, by
-  **either** signal (OR): a short JD body (`LENGTH(TRIM(description)) <
-  LOW_CONTEXT_MAX_DESCRIPTION_LENGTH`, default 200 — case #1) **or** the stored
-  persisted `insufficient_context: true` flag (case #2 — a full-length but boilerplate/
-  truncated JD the LLM couldn't assess); **failed** = `pipeline_status='failed'`. All
-  buckets exclude `removed` rows, and the buckets are **mutually exclusive** — the
-  low-context set is a *derived* (query-time, part-persisted) id set from one raw query
-  (`LENGTH(...) < N OR json_extract(score_detail,'$.insufficient_context') = 1`) layered
-  as `id IN` on the low-context bucket and `id NOT IN` on the others, so a low-context
-  scored row appears only under Low-context, never in Matched/Below-bar. Each is **paginated**
-  (`page`/`size`, default 25) and sortable (`JobSort` ∈ `score`/`posted`, default
-  `score desc`; `posted` orders by `posted_at desc, id desc`). Optional filters: a
-  `minScore` floor (any bucket) and, within discarded, a disqualification-`cause` ∈
-  {authorization, location, degree, clearance, internship, **prefilter**} sub-filter — a
-  *derived* id set
-  (mirroring low-context) from a raw query matching the worker's keyed
-  `disqualification_reason` via `json_extract(score_detail,'$.disqualification_reason') LIKE`
-  the cause pattern (`%authorization:%`, `%location:%`, `%degree:%`, `%clearance:%`,
-  `%internship/co-op%`, `%prefilter:%`), layered as `id IN` on the discarded query.
-  **`prefilter` is the one cause that is not a hard constraint**: the others name a
-  requirement the candidate fails, it names the *operator's own* `title_filter`/
-  `title_exclude` refusing an already-queued posting (written by the retired fit pass's
-  free sweep — 1,504 rows as of 2026-07-31) and
-  without a cause they are visible in the bucket but not selectable, so they cannot be
-  bulk-removed. The worker writes two `prefilter:` spellings; only the first is ever
-  `discarded`, so the wildcard is deliberately not narrowed to it. `getJobPostings`
-  returns every row's `created_at` + `posted_at` (the table shows both dates).
+- **Discovered-jobs stages** (`getJobPostings`, `stage` ∈ the funnel stages or `all`,
+  default `keep`; `getJobStageCounts` counts each). The retired fit score and verdicts
+  gate nothing and are not shown; `bucket`, `minScore`, `cause`, `triageStatus` and the
+  `score` sort are rejected filter keys. Every row carries `stage` and
+  `jev {status, model_status, reasons, override}`.
 - **`markJobApplied(id, category?)`** runs in a `$transaction`: it refuses if an
   application with the same `(company_name, job_title)` exists, else creates the
   application (`status='Applied'`, `category` chosen by the user at apply time from the
   configured vocabulary — free-form, default `Others` when blank — url from `job_url`) and atomically
   sets the posting to `pipeline_status='applied'` + `application_id`. Application and
   back-link are created together or not at all.
-- **`reopenJobPosting(id)`** reverses a disqualification (from the Discarded view) back
-  to `scored`, preserving `score_detail`.
-- **`discardJobPosting(id)`** — the per-row dismiss — sets `pipeline_status='removed'`
-  (hidden, like bulk Remove), **not** `discarded`: the Discarded bucket is disqualified-only,
-  so a hand-dismissed row must not masquerade as an auto-disqualification.
-- **`bulkRemove(ids)`** sets `pipeline_status='removed'` for the given ids (terminal;
-  the Remove-selected button is offered in every bucket whenever rows are selected).
-- **`bulkReopen(ids)`** sets `pipeline_status='scored'` for the given ids (available in
-  the Discarded bucket; reverses a prior discard or bulk-remove back to scored).
-- **`removeAllInView(bucket, filters)`** applies `bulkRemove` to every row matching the
-  current bucket + filter (available in the Discarded bucket; respects the disqualification-
-  `cause` sub-filter + `minScore`).
 
 **Application invariants:**
 
@@ -2091,7 +2013,8 @@ CI guard (`tools/check_schema_drift.mjs`, `make check-schema`).
 **Failure handling and recovery limits:**
 
 - **`failed` and `discarded` are terminal for the worker.** Nothing requeues them;
-  recovery is the human act (`reopenJobPosting`/`bulkReopen` write `scored`).
+  No reopen path exists (the web's Reopen went with #158): a wrong screen discard stays
+  discarded, visible under Screen rejected with its kept `disqualification_reason`.
 - **A dead screen *provider* circuit-breaks the screen pass.** `screen_posting` errs
   toward KEEP on any provider failure, which is right for one flaky call and wrong for
   an outage. The verdict carries `provider_error`; `run_screen` stores a closed-category
@@ -2187,7 +2110,7 @@ guarantee:
   code check, now floored on JD evidence (`CLEARANCE_TOKENS` over description + title,
   §7.1) so an ungrounded `requires_clearance` can no longer discard — the residual is a
   **miss**: a clearance bar phrased in none of those words costs one paid fit call.
-  The kept `disqualification_reason` + `reopenJobPosting` let a human override.
+  The kept `disqualification_reason` shows the human why; there is no override path.
 - **Location** (`location_verdict`, **D2**, §7.1) errs toward keep. It is **now gated**:
   `test_location.py` measures **0 false discards** across all 1,611 distinct location
   strings in the live DB, in CI, against a committed corpus whose labels come from an
@@ -2196,8 +2119,8 @@ guarantee:
   highest-population bearer is foreign still discards when the posting meant a smaller US
   namesake ("Manchester" → GB, though Manchester NH exists; real boards append the state,
   which the US-state guard keeps), and a string the gazetteer cannot resolve still keeps.
-  Both are backed by the human in the loop (kept `disqualification_reason` +
-  `reopenJobPosting`).
+  The human sees both under Screen rejected (kept `disqualification_reason`); there is no
+  override path.
 
 **Offline synthetic assessment-view projection.** A version-1 snapshot must be marked
 synthetic and carry complete expected and captured identities. Matching identities yield
@@ -2256,10 +2179,10 @@ automated coverage — those rely on code review or the human in the loop, not a
 | A provider error never disqualifies on the sponsorship **phrase floor** — the deterministic gates still stand, but the blunt whole-description scan is skipped and `authorization` is left absent; `SCREEN_BACKEND=none`, which has no provider to fail, still records that floor verdict | `test_screen.py` (`test_a_provider_error_never_disqualifies_on_the_sponsorship_phrase_floor`, `test_screen_backend_none_still_records_the_authorization_floor_verdict`) |
 | A **blind** live backend (nothing usable: not a dict, or neither a `screen` object nor any requirement key) is a `provider_error`, not a verdict; the FLAT shape the 4B emits ~1 call in 100 is a real verdict and is honoured, byte-identical to the nested shape — so it cannot discard on the phrase floor and cannot record breaker successes; the narrow scope is pinned on the other side, where an empty `screen` dict is an answer and keeps the floor | `test_screen.py` (`test_a_blind_response_is_a_provider_error_not_a_verdict`, `test_an_empty_screen_object_is_a_verdict_and_keeps_the_floor`, `test_the_flat_shape_is_a_verdict_and_is_honoured`, `test_the_flat_shape_and_the_schema_shape_agree`, `test_the_observed_flat_response_is_kept_not_discarded`) |
 | `mark_failed` → terminal `failed` + `attempts+1` (fetch/score paths) | `test_db.py` |
-| Discovered-jobs verdict-aware buckets (matched/belowbar/discarded/lowcontext/failed, mutually exclusive; keep needs `seniority=match`, then domain splits match→matched / adjacent→belowbar; discarded = hard-constraint failures **plus** fit-verdict rejects; low-context = thin-JD **or** `insufficient_context` flag) + sort (score/posted) + pagination + disqualification-cause sub-filter + bulk remove/reopen/removeAllInView; per-row dismiss → `removed` | `web/src/__tests__/actions.test.ts`, `actions.int.test.ts`, `web/src/components/__tests__/DiscoveredJobsTable.test.tsx` |
+| Discovered Jobs funnel: each posting in exactly one stage, keep by default, per-stage counts, effective JEV status identical in Web and MCP, Mark Applied scoped to its view, retired filter keys rejected | `web/src/__tests__/jev-status-parity.int.test.ts`, `worker/tests/test_jev_status_parity.py` (shared `jev-status-cases.json`), `web/src/__tests__/inventory-contract.int.test.ts` |
+| Discovered Jobs is read-only except Mark Applied (no server-action import in its components; no discard/reopen/bulk export) | `web/src/__tests__/readonly-dashboard.test.ts`, `web/e2e/discovered.spec.ts` |
 | `markJobApplied` atomic create + back-link + dedup | `actions.test.ts`, `actions.int.test.ts` (real-Prisma tx) |
 | `updateApplicationStatus` validates `STATUSES`, appends history | `actions.test.ts`, `actions.int.test.ts` |
-| `reopenJobPosting`→`scored`, `discardJobPosting`→`removed` (per-row dismiss), `bulkRemove`→`removed`, `bulkReopen`→`scored`, `removeAllInView` | `actions.test.ts`, `actions.int.test.ts` |
 | `deleteHistoryItem` recomputes current status | `actions.int.test.ts` |
 | KPI aggregation buckets | `actions.test.ts`, `actions.int.test.ts` |
 | Chart-data aggregation (`getStatusFlow`/`getTimelineData`/`getCategoryData`): Sankey chain dedup/collapse + multi-hop, T-split day counts, category counts incl. ties/`null`->Others | `charts.int.test.ts` |
@@ -2304,7 +2227,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Screen backends come from one stdlib-only registry (`screen_providers.py`); only `api` is metered and the default is free; retired `openai-api`/`claude-api` fail startup naming `api`; `api` sends strict `json_schema`, falls back once on a 400 and keeps that mode, needs `SCREEN_MODEL`, sends no `Authorization` without a key, and tolerates `<think>`/fenced replies | `test_screen_providers.py`, `test_backends_screen.py` (`test_api_extract_*`), `test_run.py` (`test_make_screener_api_*`, `test_main_rejects_retired_backends_before_any_work`), `test_doctor.py::test_backend_row_lists_the_registry_and_flags_an_unknown_value` |
 | `/api/health` 200/503 probe; `/api/quota` snapshot route (incl. backend passthrough); usage-bar labelling | `web/src/__tests__/health.test.ts`, `quota.test.ts`, `web/src/components/__tests__/QuotaBar.test.tsx` |
 | Core UI rendering (tabs, KPI grid, application table, add form, pagination, history modal) | `web/src/components/__tests__/` (`Dashboard`, `KPIGrid`, `ApplicationTable`, `AddApplicationForm`, `Pagination`, `StatusHistoryModal`) |
-| All jobs inventory directly queries/counts every non-removed lifecycle without fit-bucket scans, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, scopes per-row actions and rejects All bulk mutations | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
+| The job query directly queries/counts every non-removed lifecycle in SQL, defaults to stable discovery recency, matches the shared standalone outcome fixture, escapes literal full-text search, and scopes Mark Applied | `web/src/__tests__/inventory-query-shape.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts` |
 | Web/MCP triage classification, SQL filtering before paging, overview partition, raw screen-outcome compatibility, legacy rule-only detection, duplicate-member rejection, mathematically integral JS-safe legacy revisions, unknown-lifecycle priority and bounded summaries agree on the shared synthetic contract fixture | `web/src/lib/__tests__/triage-summary.test.ts`, `web/src/__tests__/inventory-contract.int.test.ts`, `web/src/__tests__/inventory-query-shape.test.ts`, `worker/tests/test_mcp_repository.py::test_job_triage_contract_fixture`, `test_job_triage_filter_summary_and_overview_share_one_partition`, `worker/tests/test_mcp_protocol.py` |
 | Inventory filter/page requests hide stale rows, retain the selected view across tabs, and discard an older response after a newer request resolves | `web/src/components/__tests__/Dashboard.test.tsx` (`overlapping inventory requests never show stale rows under newer filters`), `web/e2e/discovered.spec.ts` |
 | Unknown lifecycle names cannot crash inventory rendering; impossible calendar dates and invalid assessment times remain null with shared Python/web timestamp fixtures | `web/src/components/__tests__/DiscoveredJobsTable.test.tsx`, `web/src/lib/__tests__/screen-summary.test.ts`, `worker/tests/test_mcp_repository.py` |

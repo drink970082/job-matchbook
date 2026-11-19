@@ -29,6 +29,7 @@ jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-
 // destructure doesn't throw an unhandled rejection after the test.
 beforeEach(() => {
     ;(jobActions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(jobActions.getJobStageCounts as jest.Mock).mockResolvedValue({ keep: 4, jev_skip: 9, unassessed: 0, screen_rejected: 0, rule_rejected: 0, other: 0 })
     ;(applicationActions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(watchlistActions.getWatchlistActivity as jest.Mock).mockResolvedValue({ data: [] })
     ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
@@ -71,22 +72,23 @@ test('switching to the Discovered Jobs tab shows the discovered view', async () 
     expect(screen.getAllByText('Discovered Jobs').length).toBeGreaterThanOrEqual(2)
     // The discovered table's search box (distinct "...or job titles" placeholder).
     expect(screen.getByPlaceholderText(/companies, roles, or locations/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'All jobs' })).toHaveClass('bg-background')
+    expect(screen.getByRole('tab', { name: /^Keep/ })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^JEV skip/ })).toHaveTextContent('9'))
 })
 
-test('selected legacy bucket and filters survive switching away from Discovered Jobs', async () => {
+test('selected stage and filters survive switching away from Discovered Jobs', async () => {
     const user = userEvent.setup()
     render(<Dashboard {...props} />)
     await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
-    await user.click(screen.getByRole('button', { name: 'Discarded' }))
-    const search = screen.getByPlaceholderText(/search companies or job titles/i)
+    await user.click(screen.getByRole('tab', { name: /^JEV skip/ }))
+    const search = screen.getByPlaceholderText(/search companies, roles/i)
     fireEvent.change(search, { target: { value: 'kept selection' } })
 
     await user.click(screen.getByRole('button', { name: /^Applications$/i }))
     await user.click(screen.getByRole('button', { name: /Discovered Jobs/i }))
 
-    expect(screen.getByRole('button', { name: 'Discarded' })).toHaveClass('bg-background')
-    expect(screen.getByPlaceholderText(/search companies or job titles/i)).toHaveValue('kept selection')
+    expect(screen.getByRole('tab', { name: /^JEV skip/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByPlaceholderText(/search companies, roles/i)).toHaveValue('kept selection')
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
@@ -109,14 +111,14 @@ test('overlapping inventory requests never show stale rows under newer filters',
 
     const search = screen.getByPlaceholderText(/companies, roles, or locations/i)
     fireEvent.change(search, { target: { value: 'A' } })
-    expect(screen.getByText('Loading jobs…')).toBeInTheDocument()
+    expect(screen.getByText('Loading jobs...')).toBeInTheDocument()
     expect(screen.queryByText('Old page row')).not.toBeInTheDocument()
     fireEvent.change(search, { target: { value: 'B' } })
 
     await act(async () => {
         first.resolve({ data: [{ ...initialRow, id: 2, company_name: 'A', job_title: 'A result' }], total: 1 })
     })
-    expect(screen.getByText('Loading jobs…')).toBeInTheDocument()
+    expect(screen.getByText('Loading jobs...')).toBeInTheDocument()
     expect(screen.queryByText('A result')).not.toBeInTheDocument()
 
     await act(async () => {

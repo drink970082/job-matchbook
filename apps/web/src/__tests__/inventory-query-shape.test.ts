@@ -12,7 +12,7 @@ const mockPrisma = prisma as unknown as ReturnType<typeof mockDeep<PrismaClient>
 
 beforeEach(() => mockReset(mockPrisma))
 
-describe('All jobs direct query', () => {
+describe('Discovered Jobs query', () => {
     it('uses one bounded SQL list/count predicate and bypasses every fit-derived ID scan', async () => {
         mockPrisma.$queryRaw
             .mockResolvedValueOnce([] as any)
@@ -20,6 +20,7 @@ describe('All jobs direct query', () => {
 
         await getJobPostings({})
 
+        expect((mockPrisma.$queryRaw.mock.calls[0][0] as any).values).toContain('keep')
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2)
         expect(mockPrisma.job_postings.findMany).not.toHaveBeenCalled()
         expect(mockPrisma.job_postings.count).not.toHaveBeenCalled()
@@ -39,7 +40,7 @@ describe('All jobs direct query', () => {
             .mockResolvedValueOnce([{ total: 0 }] as any)
 
         await getJobPostings({
-            bucket: 'all',
+            stage: 'all',
             search: '100%_! complete',
             searchScope: 'all_text',
             screenOutcome: 'unknown',
@@ -62,12 +63,12 @@ describe('All jobs direct query', () => {
         expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([20, 10]) })
     })
 
-    it('filters derived triage in SQL before pagination and count without fit ID scans', async () => {
+    it('filters the funnel stage in SQL before pagination and count, joining JEV and overrides', async () => {
         mockPrisma.$queryRaw
             .mockResolvedValueOnce([] as any)
             .mockResolvedValueOnce([{ total: 0 }] as any)
 
-        await getJobPostings({ bucket: 'all', triageStatus: 'rule_disqualified', page: 1, size: 10 })
+        await getJobPostings({ stage: 'rule_rejected', page: 1, size: 10 })
 
         const calls = mockPrisma.$queryRaw.mock.calls
         expect(calls).toHaveLength(2)
@@ -81,9 +82,10 @@ describe('All jobs direct query', () => {
             expect(sql).toContain("'screen_disqualified'")
             expect(sql).toContain("'candidate'")
             expect(sql).toContain("'needs_review'")
-            expect(sql).not.toContain('matchedIds')
+            expect(sql).toContain('LEFT JOIN job_jev_assessments j')
+            expect(sql).toContain('LEFT JOIN job_triage_overrides o')
             expect(sql).not.toContain('id IN (')
-            expect(values).toContain('rule_disqualified')
+            expect(values).toContain('rule_rejected')
         }
         expect(calls[0][0]).toMatchObject({ values: expect.arrayContaining([10, 10]) })
     })

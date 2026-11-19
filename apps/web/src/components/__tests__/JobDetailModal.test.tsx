@@ -14,7 +14,6 @@ const workerShapedJob: any = {
     location: 'Remote',
     job_url: 'https://example.com/jobs/1',
     description: 'Build scalable services.',
-    score: 91,
     score_detail: JSON.stringify({
         matched_keywords: ['python', 'aws'],
         missing_keywords: ['kubernetes'],
@@ -28,65 +27,10 @@ const props = {
     onClose: jest.fn(),
     job: workerShapedJob,
     onMarkApplied: jest.fn(),
-    onDiscard: jest.fn(),
-    onReopen: jest.fn(),
 }
 
 describe('JobDetailModal score_detail rendering', () => {
-    it('renders matched + missing keywords from the worker shape (behind the details toggle)', () => {
-        render(<JobDetailModal {...props} />)
-        fireEvent.click(screen.getByText(/match details/i))
-        expect(screen.getByText('Matched')).toBeInTheDocument()
-        expect(screen.getByText('python')).toBeInTheDocument()
-        expect(screen.getByText('aws')).toBeInTheDocument()
-        expect(screen.getByText('Missing')).toBeInTheDocument()
-        expect(screen.getByText('kubernetes')).toBeInTheDocument()
-        expect(screen.getByText('Strong backend match.')).toBeInTheDocument()
-    })
-
-    it('renders the S2.1 assessment scorecard (verdicts, must/nice-haves, summary)', () => {
-        const scored = {
-            ...props,
-            job: {
-                ...workerShapedJob,
-                score_detail: JSON.stringify({
-                    assessment: {
-                        seniority: { verdict: 'too_junior', note: 'role wants 3+ yrs' },
-                        domain: { verdict: 'match', note: 'quant dev' },
-                        must_haves: { met: ['python'], missing: ['c++'] },
-                        nice_to_haves: { missing: ['kdb'] },
-                        summary: 'Strong core, seniority gap.',
-                    },
-                }),
-            },
-        }
-        render(<JobDetailModal {...scored} />)
-        fireEvent.click(screen.getByText(/fit assessment/i))
-        expect(screen.getByText('too_junior')).toBeInTheDocument()
-        expect(screen.getByText('role wants 3+ yrs')).toBeInTheDocument()
-        expect(screen.getByText('Must-haves met')).toBeInTheDocument()
-        expect(screen.getByText('python')).toBeInTheDocument()
-        expect(screen.getByText('c++')).toBeInTheDocument()
-        expect(screen.getByText(/Nice-to-haves missing/i)).toBeInTheDocument()
-        expect(screen.getByText('kdb')).toBeInTheDocument()
-        expect(screen.getByText('Strong core, seniority gap.')).toBeInTheDocument()
-    })
-
-    it('still tolerates the legacy matched/missing keys', () => {
-        const legacy = {
-            ...props,
-            job: {
-                ...workerShapedJob,
-                score_detail: JSON.stringify({ matched: ['go'], missing: ['rust'] }),
-            },
-        }
-        render(<JobDetailModal {...legacy} />)
-        fireEvent.click(screen.getByText(/match details/i))
-        expect(screen.getByText('go')).toBeInTheDocument()
-        expect(screen.getByText('rust')).toBeInTheDocument()
-    })
-
-    it('shows the disqualification reason up-front (no toggle) and offers Reopen when discarded', () => {
+    it('shows the disqualification reason up-front and offers no discard/reopen action', () => {
         const disqualified = {
             ...props,
             job: {
@@ -105,9 +49,7 @@ describe('JobDetailModal score_detail rendering', () => {
         // Decision is reachable without expanding anything.
         expect(screen.getByText('Disqualified')).toBeInTheDocument()
         expect(screen.getByText(/requires 8\+ years/)).toBeInTheDocument()
-        // Discarded rows get a Reopen action instead of Discard.
-        expect(screen.getByRole('button', { name: /reopen/i })).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /reopen|discard|remove/i })).not.toBeInTheDocument()
     })
 
     it('renders the per-requirement gate breakdown from screen', () => {
@@ -211,30 +153,6 @@ describe('JobDetailModal score_detail rendering', () => {
         expect(screen.getByText('Description is empty.')).toBeInTheDocument()
     })
 
-    it('shows the recommended resume without expanding anything', () => {
-        const withRec = {
-            ...props,
-            job: {
-                ...workerShapedJob,
-                score_detail: JSON.stringify({
-                    matched_keywords: ['python'],
-                    missing_keywords: [],
-                    recommended_resume: 'quant_dev',
-                }),
-            },
-        }
-        render(<JobDetailModal {...withRec} />)
-        expect(screen.getByText('Recommended resume')).toBeInTheDocument()
-        expect(screen.getByText('quant_dev')).toBeInTheDocument()
-    })
-
-    it('omits the recommended-resume row when the field is absent', () => {
-        render(<JobDetailModal {...props} />)
-        expect(screen.queryByText('Recommended resume')).not.toBeInTheDocument()
-    })
-})
-
-describe('JobDetailModal source lifecycle', () => {
     it('shows confirmed source state, failed retry, and separate assessment freshness', () => {
         render(<JobDetailModal {...props} job={{
             ...workerShapedJob,
@@ -252,12 +170,21 @@ describe('JobDetailModal source lifecycle', () => {
         }} />)
         expect(screen.getByText('Available at source')).toBeInTheDocument()
         expect(screen.getByText(/Latest detail attempt inconclusive \(timeout\).*Attempted 2026-10-25.*Last conclusive detail check 2026-10-22.*Last seen 2026-10-24/)).toBeInTheDocument()
-        expect(screen.getByText(/Fit freshness: Stale/)).toBeInTheDocument()
+        expect(screen.queryByText(/Fit freshness/)).not.toBeInTheDocument()
         expect(screen.getByText(/Standalone screen: Provider error/)).toBeInTheDocument()
     })
 })
 
-describe('JobDetailModal actions', () => {
+describe('JobDetailModal JEV and actions', () => {
+    it('shows the JEV verdict, reasons and a lapsed override', () => {
+        render(<JobDetailModal {...props} job={{ ...workerShapedJob, jev: { status: 'skip', model_status: 'skip',
+            reasons: ['preference_weak'], override: { decision: 'keep', reason: 'liked it', actor: 'mcp', set_at: 'x', applies: false } } } as any} />)
+        expect(screen.getByText('JEV keep/skip filter')).toBeInTheDocument()
+        expect(screen.getByText('skip')).toBeInTheDocument()
+        expect(screen.getByText('preference_weak')).toBeInTheDocument()
+        expect(screen.getByText(/Override keep lapsed: the posting changed since it was set - liked it/)).toBeInTheDocument()
+    })
+
     it('calls onMarkApplied with the job id when Mark Applied is clicked', async () => {
         const user = userEvent.setup()
         const onMarkApplied = jest.fn()
@@ -265,32 +192,6 @@ describe('JobDetailModal actions', () => {
 
         await user.click(screen.getByRole('button', { name: /mark applied/i }))
         expect(onMarkApplied).toHaveBeenCalledWith(1)
-    })
-
-    it('calls onDiscard with the job id for a non-discarded job', async () => {
-        const user = userEvent.setup()
-        const onDiscard = jest.fn()
-        // workerShapedJob defaults to pipeline_status 'scored' (not discarded).
-        render(<JobDetailModal {...props} onDiscard={onDiscard} />)
-
-        expect(screen.queryByRole('button', { name: /reopen/i })).not.toBeInTheDocument()
-        await user.click(screen.getByRole('button', { name: /remove/i }))
-        expect(onDiscard).toHaveBeenCalledWith(1)
-    })
-
-    it('calls onReopen with the job id for a discarded job', async () => {
-        const user = userEvent.setup()
-        const onReopen = jest.fn()
-        const discarded = {
-            ...props,
-            job: { ...workerShapedJob, pipeline_status: 'discarded' },
-        }
-        render(<JobDetailModal {...discarded} onReopen={onReopen} />)
-
-        // Discarded jobs swap Discard for a Reopen action.
-        expect(screen.queryByRole('button', { name: /discard/i })).not.toBeInTheDocument()
-        await user.click(screen.getByRole('button', { name: /reopen/i }))
-        expect(onReopen).toHaveBeenCalledWith(1)
     })
 
     it('does not offer another mark-applied or remove action for an applied posting', () => {

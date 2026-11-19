@@ -5,9 +5,10 @@ test.beforeEach(async () => {
     await seed()
 })
 
-test('marking an All jobs row applied keeps it visibly applied and adds it to Applications', async ({ page }) => {
+test('marking a posting applied moves it to Applied / closed and adds it to Applications', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: /Discovered Jobs/i }).click()
+    await page.getByRole('tab', { name: /^Unassessed/ }).click()
 
     const recent = page.locator('tr', { hasText: 'Recent Synthetic Systems' })
     await recent.getByTitle('Mark Applied').click()
@@ -16,7 +17,9 @@ test('marking an All jobs row applied keeps it visibly applied and adds it to Ap
     // dialog: the row's icon button also has the accessible name "Mark Applied".
     await page.getByRole('dialog').getByRole('button', { name: 'Mark Applied' }).click()
 
-    // All jobs keeps the row visible with its applied lifecycle status.
+    // It leaves Unassessed and shows under Applied / closed with its lifecycle status.
+    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toHaveCount(0)
+    await page.getByRole('tab', { name: /^Applied \/ closed/ }).click()
     await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toContainText('Applied')
 
     // ...and shows up under Applications.

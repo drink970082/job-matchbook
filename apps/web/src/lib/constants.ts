@@ -78,13 +78,8 @@ export const VALID_SOURCES = [
 // config.RECIPE_SOURCES.
 export const RECIPE_SOURCES = ['custom', 'browser'] as const
 
-// A scored posting whose JD body (trimmed) is shorter than this many characters is
-// treated as "low-context": too thin to screen/score with confidence. Such rows are
-// pulled out of Matched/Discarded into their own Low-context bucket so they're
-// visibly distinct rather than silently scored alongside confidently-parsed JDs.
-// Single tuning knob (derived at query time — no persisted flag / schema change):
-// raise it to catch more borderline-thin JDs, lower it to catch only the barest
-// stubs. See getJobPostings / lowContextIds in lib/job-actions.ts.
+// Below this trimmed JD length the Discovered Jobs table labels a row "Short JD" (too
+// thin to judge with confidence). Hand-synced with the worker's db.py constant.
 export const LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
 
 /** Map status to a display color class */

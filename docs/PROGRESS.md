@@ -8,6 +8,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **Web read-only dashboard — in progress** `[WEB · L]` (#158, branch
+  `feat/158-readonly-dashboard`). First PR: Discovered Jobs becomes the stage funnel
+  (Keep default, JEV skip audit, per-stage counts), read-only except Mark Applied; fit
+  buckets, score, discard/reopen/bulk removed. Next: Sources tab (Watchlist + Unresolved,
+  read-only; promotions removed) and the Activity panel. Open question for the operator:
+  with Reopen gone, a wrong screen discard has no override path.
+
 - **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
   for a policy change (hash verified equal at deploy); then delete this entry**
   `[WORKER+WEB · M]` (#157).
@@ -28,7 +35,8 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 - **Fit-scorer residue — unclaimed** `[SCORE · S]` (#174). Left: drop the columns
   nothing writes — `job_postings.score`, `attempts`, `notify_attempts`,
-  `deprioritized_at` — after #158 removes the web reads.
+  `deprioritized_at`. The web no longer reads them (#158 Discovered Jobs PR); check MCP
+  and the worker before dropping.
 
 - **Daily Brief instructions for issue #94 — unattended acceptance remains open**
   [ORCH · M · branch docs/issue-94-daily-brief]. Public task instructions, an interactive
