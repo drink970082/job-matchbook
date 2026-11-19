@@ -389,3 +389,18 @@ def test_oversized_requests_are_not_retried_until_their_input_changes(tmp_path):
     assert _run(conn, too_big)["errors"] == 1
     assert db.get_jev_candidates(conn, "policy-a") == []
     assert len(db.get_jev_candidates(conn, "policy-b")) == 1
+
+
+def test_run_jev_assesses_only_the_last_seven_days(tmp_path):
+    # NOW is 2026-06-04: 05-28 is exactly 7 days back (kept), 05-27 is 8 (left unassessed),
+    # and a full ISO posted_at compares on its date part.
+    conn = _screened_db(tmp_path, ["fresh", "edge", "old", "iso"])
+    for ext, posted in (("edge", "2026-05-28"), ("old", "2026-05-27"), ("iso", "2026-05-29T23:00:00Z")):
+        conn.execute("UPDATE job_postings SET posted_at=? WHERE external_id=?", (posted, ext))
+    conn.commit()
+    tally = _run(conn, _assess_with())
+    assert tally["keep"] == 3
+    assert set(_rows(conn)) == {"fresh", "edge", "iso"}
+    # A policy change re-queues only postings inside the window.
+    assert db.get_jev_candidates(conn, "policy-b", "2026-05-29") and not [
+        r for r in db.get_jev_candidates(conn, "policy-b", "2026-05-29") if r["external_id"] in ("edge", "old")]

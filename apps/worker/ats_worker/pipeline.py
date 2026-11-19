@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from urllib.parse import urlparse
 
@@ -544,6 +544,12 @@ class _BackendBreaker:
 SCREEN_EVALUATOR_VERSION = "screen-v1"
 
 
+# JEV assesses only postings from the last week: older ones are not worth a paid call
+# for this operator, so they stay `unassessed` (shown) instead of queueing a backlog.
+# ponytail: a constant; make it a CLI flag if another install wants a different window.
+JEV_MAX_AGE_DAYS = 7
+
+
 def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
             max_usd, clock: Callable[[], str] | None = None) -> dict:
     """Persist JEV keep/skip verdicts for screened, not-disqualified `new` postings.
@@ -556,7 +562,9 @@ def run_jev(conn, *, now: str, jev_fn, policy_sha: str, model: str, limit: int,
     if limit <= 0:
         raise ValueError("jev limit must be positive")
     db.upsert_setting(conn, db.JEV_POLICY_SETTING, policy_sha, now=now)
-    rows = db.get_jev_candidates(conn, policy_sha)
+    since = (datetime.fromisoformat(now.replace("Z", "+00:00"))
+             - timedelta(days=JEV_MAX_AGE_DAYS)).date().isoformat()
+    rows = db.get_jev_candidates(conn, policy_sha, since)
     tally = {"attempted": 0, "keep": 0, "skip": 0, "errors": 0, "deferred": 0,
              "spent_usd": Decimal(0), "stopped": None}
     breaker = _BackendBreaker()
