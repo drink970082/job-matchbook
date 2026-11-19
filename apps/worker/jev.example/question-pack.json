@@ -7,8 +7,8 @@
       "instructions": "Using only the candidate_context profile and the job posting, judge how well the role matches what the candidate says they want. Judge the work itself, not the company or the location.",
       "criteria": {
         "strong": "The core work is squarely what the profile says the candidate wants.",
-        "plausible": "The work overlaps with what the candidate wants or is open to, even if not a perfect match.",
-        "weak": "The core work is something the profile excludes or does not mention at all.",
+        "plausible": "The work overlaps with what the candidate wants or is open to, or is adjacent to it and not excluded.",
+        "weak": "The core work is something the profile explicitly excludes.",
         "unknown": "The posting does not say enough about the work to judge."
       }
     }

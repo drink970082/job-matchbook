@@ -687,3 +687,16 @@ def test_example_packs_validate_on_the_native_path():
         return _reply(pack["questions"], pick), Decimal("0.0001")
     out = jev.assess(make_posting("a"), inputs=inputs, post=post, resolved_model=MODEL)
     assert out["verdict"] == "keep"
+
+
+def test_invalid_stored_profile_skips_the_stage_with_a_repair_hint(tmp_path, capsys):
+    conn = _screened_db(tmp_path, ["a"])
+    no_skip = json.loads(json.dumps(YOE_PACK))
+    no_skip["questions"][0]["criteria"].pop("three_plus")
+    db.seed_jev_profile(conn, {"profile_text": "{}", "c_pack": json.dumps(C_PACK),
+                               "yoe_pack": json.dumps(no_skip), "yoe_context": "c"}, now=NOW)
+
+    class Cfg:
+        jev_dir = None
+    assert run._jev_inputs(conn, Cfg(), now=NOW) is None
+    assert "DELETE FROM jev_profile" in capsys.readouterr().out

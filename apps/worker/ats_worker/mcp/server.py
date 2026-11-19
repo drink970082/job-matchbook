@@ -199,7 +199,8 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
             ge=1, description="Filter to postings linked to this application.")] = None,
         jev: Annotated[Literal["keep", "skip", "all"], Field(
             description=("JEV keep/skip filter. keep (default) hides postings JEV judged "
-                         "skip (weak preference or a 3+ year experience floor) and reports "
+                         "skip (weak preference, or a required-experience floor above the "
+                         "configured one: 3+ years or the candidate's own years) and reports "
                          "hidden_skip_count; unassessed postings are always shown. skip "
                          "lists only those; all disables the filter."))] = "keep",
         limit: Annotated[int, Field(
@@ -334,7 +335,8 @@ def create_server(repository: ReadOnlyATSRepository | None = None,
         """The JEV keep/skip filter's stored profile (profile_text, a JSON document sent to
         the model verbatim) and yoe_context (education/experience facts), the question ids
         of its seeded packs, and reassess_on_change: how many postings a change would send
-        back for a paid assessment (about USD 0.0003 each). Read before set_jev_profile."""
+        back for a new assessment (about USD 0.0003 each on the default OpenRouter backend).
+        Read before set_jev_profile."""
         return read(repo.get_jev_profile)
 
     @server.tool(annotations=_READ_ONLY)

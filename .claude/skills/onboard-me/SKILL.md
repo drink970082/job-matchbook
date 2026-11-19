@@ -31,7 +31,8 @@ files.
 **Never touch `apps/worker/ats_worker/prompts/screen.txt`.** Generality is supposed to live
 in the user's data (hard requirements, profile, résumé), not the prompt. The running
 pipeline only *screens* postings against hard requirements; it does not score fit.
-**The worker never reads the profile or résumé.** They are private inputs for the AI
+**The worker never reads the profile or résumé** (only the optional keep/skip filter's
+own copy, below). They are private inputs for the AI
 client (ChatGPT / Claude / Codex) that reviews jobs over MCP — the user attaches them
 to that client's project or task. The optional JEV keep/skip filter reads its own
 `jev_dir` packs (Step 7); the worker copies them into the DB once, and the profile is
@@ -84,7 +85,7 @@ pick this user's path; never demand all of them go green.
 | codex CLI | Only needed for `SCREEN_BACKEND=codex` (ChatGPT subscription, `codex login`) |
 | claude CLI | Only needed for `SCREEN_BACKEND=claude-code` (subscription, no key) |
 | screen api | Only needed for `SCREEN_BACKEND=api` (metered for hosted vendors): `SCREEN_MODEL` is required |
-| openrouter api key | Only needed for the optional paid `--jev` filter |
+| openrouter api key | Only needed for the optional `--jev` filter on its default `openrouter-native` backend |
 | node · docker | Only for the web app, not the pipeline |
 
 Report what's actually missing *for the path they want*, in a line. Never fabricate a
@@ -217,11 +218,14 @@ is left is filling in values **only the user can give you**. Fill them into
 - **Keep/skip filter** — ask separately from the screen; off is a fine answer. If
   they want it: in `apps/worker`, `mkdir -p resume/jev && cp jev.example/* resume/jev/`,
   rewrite `profile-binding.json` and `yoe-context.txt` from what they told you, and set
-  `jev_dir: resume/jev` in `config.yaml`. `yoe-context.txt` **must state their degree
+  `jev_dir: resume/jev` in `config.yaml`. Keep `profile-binding.json` a valid JSON
+  object (later edits through MCP require it). `yoe-context.txt` **must state their degree
   and full-time years** — the experience question skips postings that require more
   than that, so a missing or wrong number hides real matches. Then `JEV_BACKEND=openrouter-native` (default, metered; needs
   `OPENROUTER_API_KEY`) or `JEV_BACKEND=extract` (reuses the screen backend, no extra
-  key, sends the profile to it). Both are unmeasured with the example packs. The stage
+  key). **Tell them plainly: either backend sends `profile-binding.json` and
+  `yoe-context.txt` with every posting to that provider (OpenRouter, or their screen
+  provider).** Both are unmeasured with the example packs. The stage
   runs only with `--jev` (Step 8). Never set `OPENROUTER_API_KEY` for any other
   purpose. Leave the question packs as shipped.
 

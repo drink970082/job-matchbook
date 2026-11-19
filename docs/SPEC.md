@@ -873,7 +873,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 
   **Pack format** (`jev_dir`, four files; a synthetic set is committed as
   `apps/worker/jev.example/`). `profile-binding.json` and `yoe-context.txt` are sent
-  verbatim as candidate context (any text; the example profile is JSON). The two packs
+  verbatim as candidate context; the profile must be a JSON object (web/MCP
+  `set_jev_profile` rejects anything else). The two packs
   are `{"version": str, "questions": [...]}`; each question is `{"id", "type",
   "instructions"}` plus `criteria` — an object of `key: description` for `choice`, an
   ordered list of labels for `score`, none for `noul` (`ranking/native.py` validates).
@@ -2265,7 +2266,7 @@ automated coverage — those rely on code review or the human in the loop, not a
 | Standalone screen assessment times are sampled after each provider result on the DB thread and passed from `run.py` | `tests/test_screen_pipeline.py::test_screen_saves_sample_clock_after_each_result_on_the_db_thread`, `tests/test_run.py::test_run_once_defaults_codex_to_luna_medium` |
 | Synthetic assessment projection compares the complete opaque identity, keeps freshness separate from latest attempt, preserves saved results after malformed or failed attempts, bounds/redacts the view, matches ASCII timestamp and boundary-truncation behavior across Python/TypeScript, and labels shortened text in the panel | `worker/tests/test_preselection_view.py::test_fixture_cli_keeps_saved_success_when_latest_attempt_state_is_unhashable`, `web/src/lib/__tests__/assessment-view.test.ts`, `web/src/components/__tests__/AssessmentPanel.test.tsx` |
 | Worker SQL fixture ↔ `schema.prisma`, including `job_screenings`, in sync | `test_schema_sync.py` + `tools/check_schema_drift.mjs` (CI) |
-| JEV: skip only on weak preference or a 3+ year floor; caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
+| JEV: skip only on weak preference or a YOE skip key (`three_plus` / `above_candidate`); caps, re-queue on policy/source change, unknown charge stops the pass; MCP default hides only current skips | `test_jev.py`, `test_mcp_repository.py::test_jev_filter_*` |
 | No private file (`.env` / résumé / db / `config.yaml`) tracked by git | `tools/check_privacy.mjs` (+ `--self-test`; CI) |
 
 ---
