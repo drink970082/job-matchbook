@@ -42,9 +42,9 @@ skill, not an adapter):
 
 1. `fetch/<source>.py` with `SOURCE` and `fetch` (lists a board), `fetch_one` (one job
    by id, for a feed-only source), or both.
-2. In `fetch/__init__.py`: the `from . import (...)` list, `__all__` and one `ADAPTERS` line; add
-   it to `RECIPE_SOURCES`, `STUB_GATE_SOURCES` or `STUB_GATE_NOW_SOURCES` only if its
-   `fetch` takes that kwarg.
+2. In `fetch/__init__.py`: the `from . import (...)` list, `__all__` and one
+   `ADAPTERS` line; add it to `RECIPE_SOURCES`, `STUB_GATE_SOURCES` or
+   `STUB_GATE_NOW_SOURCES` only if its `fetch` takes that kwarg.
 3. If it is watchlist-capable: `config.VALID_SOURCES` (and `RECIPE_SOURCES` if it
    takes a recipe), mirrored in the web's `src/lib/constants.ts`.
 4. If the discovery feed should reach it (always, for a feed-only source): a host
