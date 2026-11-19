@@ -479,3 +479,21 @@ def test_cli_jev_accepts_a_stored_profile_without_jev_dir(tmp_path, monkeypatch)
     run.main(["--once", "--config", str(cfg), "--jev", "--db", str(tmp_path / "p.db"),
               "--env", str(tmp_path / "none.env")])
     assert seen == [True]
+
+
+def test_stored_profile_survives_a_missing_jev_dir_and_packs_may_carry_a_bom(tmp_path, capsys):
+    jev_dir = _write_jev_dir(tmp_path / "jev")
+    pack = jev_dir / "question-pack.json"
+    pack.write_bytes(b"\xef\xbb\xbf" + pack.read_bytes())
+    conn = db.connect(bootstrap_db(tmp_path / "p.db"))
+    first = run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW)
+    assert first.policy_sha(MODEL) == _inputs_from(jev_dir).policy_sha(MODEL)
+    for f in jev_dir.iterdir():
+        f.unlink()
+    capsys.readouterr()
+    assert run._jev_inputs(conn, _DirCfg(jev_dir), now=NOW).policy_sha(MODEL) == first.policy_sha(MODEL)
+    assert "jev_dir is unreadable" in capsys.readouterr().out
+
+
+def _inputs_from(jev_dir):
+    return jev.load_inputs(jev_dir)

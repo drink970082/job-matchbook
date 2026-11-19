@@ -83,8 +83,10 @@ INPUT_TEXTS = ("profile_text", "c_pack", "yoe_pack", "yoe_context")
 def read_files(directory: str | Path) -> dict[str, str]:
     d = Path(directory)
     return {"profile_text": (d / "profile-binding.json").read_text(encoding="utf-8"),
-            "c_pack": (d / "question-pack.json").read_text(encoding="utf-8"),
-            "yoe_pack": (d / "yoe-pack.json").read_text(encoding="utf-8"),
+            # Packs hash as parsed JSON, so a BOM may go (json.loads of bytes accepted one);
+            # the profile keeps its exact text because the hash covers it.
+            "c_pack": (d / "question-pack.json").read_bytes().decode("utf-8-sig"),
+            "yoe_pack": (d / "yoe-pack.json").read_bytes().decode("utf-8-sig"),
             "yoe_context": (d / "yoe-context.txt").read_text(encoding="utf-8").strip()}
 
 

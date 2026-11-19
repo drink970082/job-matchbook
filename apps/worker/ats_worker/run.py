@@ -318,8 +318,9 @@ def _run_jev(conn, cfg, *, env, limit: int, max_usd: Decimal, now: str) -> None:
 def _has_stored_jev_profile(db_path) -> bool:
     """Read-only probe (never creates the file): is there a stored JEV profile row?"""
     import sqlite3
+    from contextlib import closing
     try:
-        with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as conn:
+        with closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as conn:
             return conn.execute("SELECT 1 FROM jev_profile WHERE id=1").fetchone() is not None
     except sqlite3.Error:
         return False
@@ -329,7 +330,14 @@ def _jev_inputs(conn, cfg, *, now: str):
     """The JEV inputs from the DB row, seeded once from `jev_dir` when absent; after
     that the row wins and differing files are reported, not applied. None = neither."""
     stored = db.get_jev_profile(conn)
-    files = jev.read_files(cfg.jev_dir) if cfg.jev_dir else None
+    files = None
+    if cfg.jev_dir:
+        try:
+            files = jev.read_files(cfg.jev_dir)
+        except OSError:
+            if stored is None:
+                raise                     # nothing stored: the seed is the only source
+            print("[jev] jev_dir is unreadable; using the stored JEV profile")
     if stored is None and files is not None:
         jev.inputs_from_texts(files)          # validate before storing
         db.seed_jev_profile(conn, files, now=now)
