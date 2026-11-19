@@ -198,14 +198,11 @@ test('getJobPostings paginates', async () => {
     expect(p1.data).toHaveLength(2)                       // skip 5 -> 2 remain
 })
 
-test('getJobPostings sorts newest fetched by default, or newest posted', async () => {
+test('getJobPostings sorts newest posted only', async () => {
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'old', posted_at: '2026-01-01', created_at: '2026-06-02T00:00:00.000Z' }) })
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'new', posted_at: '2026-06-01', created_at: '2026-06-01T00:00:00.000Z' }) })
-
-    const byFetched = await getJobPostings({ stage: 'all' })
-    expect(byFetched.data.map((d) => d.external_id)).toEqual(['old', 'new'])
-    const byPosted = await getJobPostings({ stage: 'all', sort: 'posted' })
-    expect(byPosted.data.map((d) => d.external_id)).toEqual(['new', 'old'])
+    expect((await getJobPostings({ stage: 'all' })).data.map((d) => d.external_id)).toEqual(['new', 'old'])
+    await expect(getJobPostings({ stage: 'all', sort: 'created' } as any)).rejects.toThrow('Unsupported job sort')
 })
 
 test('the (source, external_id) unique constraint is enforced', async () => {

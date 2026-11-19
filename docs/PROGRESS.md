@@ -28,8 +28,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   (`apps/web/prisma/migrate-statuses-205.mjs`) has not run on the deployed DB, which
   holds no pre-#205 status today. #206 adds `candidate_preferences.exclude_contract`:
   the deployed DB needs `make db-push` (back up `db/` first) before the new web or
-  worker runs against it. #207 also owns the Jobs badge: it counts JEV keep
-  only, so it reads 0 without JEV until #207's "postings for you" predicate replaces it.
+  worker runs against it.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

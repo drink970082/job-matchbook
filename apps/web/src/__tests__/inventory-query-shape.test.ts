@@ -20,7 +20,7 @@ describe('Discovered Jobs query', () => {
 
         await getJobPostings({})
 
-        expect((mockPrisma.$queryRaw.mock.calls[0][0] as any).values).toContain('keep')
+        expect((mockPrisma.$queryRaw.mock.calls[0][0] as any).sql).toContain('FROM jev_profile') // "for you" by default
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2)
         expect(mockPrisma.job_postings.findMany).not.toHaveBeenCalled()
         expect(mockPrisma.job_postings.count).not.toHaveBeenCalled()

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { getJobPostings, getJobStageCounts, markJobApplied } from '@/lib/job-actions'
+import { getJobPostings, markJobApplied } from '@/lib/job-actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeJobPosting } from '@/test-utils/factories'
 
@@ -190,13 +190,12 @@ test('web triage summaries, SQL filters, counts, and detail match the shared wor
     for (const item of triageFixture.cases) {
         expect([item.name, byId.get(expectedIds.get(item.name)!)!.stage]).toEqual([item.name, stageOf(item)])
     }
-    const counts = await getJobStageCounts()
     for (const stage of ['rule_rejected', 'screen_rejected', 'unassessed', 'other'] as const) {
         const expected = triageFixture.cases.filter((item: any) => stageOf(item) === stage)
             .map((item: any) => expectedIds.get(item.name)).sort((a: number, b: number) => a - b)
         const filtered = await getJobPostings({ stage, size: 100 })
         expect(filtered.data.map((row) => row.id).sort((a, b) => a - b)).toEqual(expected)
-        expect([filtered.total, counts[stage]]).toEqual([expected.length, expected.length])
+        expect(filtered.total).toBe(expected.length)
     }
 })
 

@@ -24,13 +24,15 @@ test('setup is complete once requirements, a board and a posting exist; AI clien
     expect((await getSetupStatus()).steps.aiClient).toBe(true)
 })
 
-test('the Jobs badge counts only keep postings first fetched in the last 24h', async () => {
+test('the Jobs badge counts only postings for you first fetched in the last 24h (JEV mode)', async () => {
     const now = Date.now()
     const keep = async (external_id: string, created_at: string) => {
         const p = await prisma.job_postings.create({ data: makeJobPosting({ external_id, created_at, pipeline_status: 'new', source_content_revision: 1 }) })
         await prisma.job_jev_assessments.create({ data: { job_posting_id: p.id, state: 'complete', verdict: 'keep',
             reasons_json: '[]', policy_sha256: 'p', source_content_revision: 1, last_attempted_at: 'x', created_at: 'x' } })
     }
+    await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}', yoe_context: '',
+        actor: 'config', updated_at: 'x' } })
     await keep('fresh', new Date(now - 3_600_000).toISOString())
     await keep('old', new Date(now - 2 * 86_400_000).toISOString())
     await prisma.job_postings.create({ data: makeJobPosting({ external_id: 'unassessed', pipeline_status: 'new', created_at: new Date(now).toISOString() }) })

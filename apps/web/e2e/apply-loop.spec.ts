@@ -5,24 +5,14 @@ test.beforeEach(async () => {
     await seed()
 })
 
-test('marking a posting applied moves it to Applied / closed and adds it to Applications', async ({ page }) => {
+test('marking a posting applied removes it from the list and adds it to Applications', async ({ page }) => {
     await page.goto('/jobs')
-    await page.getByRole('tab', { name: /^Unassessed/ }).click()
-
-    const recent = page.locator('tr', { hasText: 'Recent Synthetic Systems' })
-    await recent.getByTitle('Mark Applied').click()
-
-    // Confirm in the category dialog (defaults to the first category). Scope to the
-    // dialog: the row's icon button also has the accessible name "Mark Applied".
+    await page.locator('tr', { hasText: 'Acme Robotics' }).getByRole('button', { name: 'Mark applied' }).click()
+    // Confirm in the category dialog (defaults to the first category).
     await page.getByRole('dialog').getByRole('button', { name: 'Mark Applied' }).click()
+    await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(0)
 
-    // It leaves Unassessed and shows under Applied / closed with its lifecycle status.
-    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toHaveCount(0)
-    await page.getByRole('tab', { name: /^Applied \/ closed/ }).click()
-    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toContainText('Applied')
-
-    // ...and shows up under Applications.
     await page.getByRole('link', { name: 'Applications' }).click()
-    await page.getByPlaceholder(/Search companies/i).fill('Recent Synthetic Systems')
-    await expect(page.locator('tr', { hasText: 'Recent Synthetic Systems' })).toHaveCount(1)
+    await page.getByPlaceholder(/Search companies/i).fill('Acme Robotics')
+    await expect(page.locator('tr', { hasText: 'Acme Robotics' })).toHaveCount(1)
 })

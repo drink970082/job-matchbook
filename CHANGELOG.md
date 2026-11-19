@@ -35,6 +35,14 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **Discovered Jobs is a job board (#207)**: one "postings for you" list - JEV keep, or
+  hard-requirement passes when no JEV is configured, never applied, closed or
+  not-interested postings - with title, company, location, posted age and Apply / Mark
+  applied / Not interested / View JD. The stage tabs and counts, screen-outcome filter,
+  "Newest fetched" sort and per-row screen/source/JEV cells are gone; filters are search,
+  Search in JD and posted within 24h / 7d / 30d. Not interested is a new web write (a
+  triage `skip` override with Undo). The Jobs badge uses the same predicate; `QuotaBar`
+  moved to Activity.
 - **No country is assumed in the location screen** (#206): the worker no longer keeps
   every US posting regardless of `locations`; only the places listed count. A config of
   only `remote` (the old example) now skips on-site US postings — list every country or

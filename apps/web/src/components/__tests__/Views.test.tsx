@@ -31,7 +31,6 @@ jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-
 // destructure doesn't throw an unhandled rejection after the test.
 beforeEach(() => {
     ;(jobActions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
-    ;(jobActions.getJobStageCounts as jest.Mock).mockResolvedValue({ keep: 4, jev_skip: 9, unassessed: 0, screen_rejected: 0, rule_rejected: 0, other: 0 })
     ;(applicationActions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(watchlistActions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [
         { id: 1, source: 'greenhouse', slug: 'acme', name: 'Acme', postings_30d: 12 },
@@ -53,7 +52,7 @@ const appProps = {
     initialCategories: [],
     categoryOptions: ['SWE', 'Others'],
 }
-const jobProps = { initialJobPostings: [], totalJobPostings: 0, categoryOptions: ['SWE', 'Others'] }
+const jobProps = { initialJobPostings: [], totalJobPostings: 0, categoryOptions: ['SWE', 'Others'], mode: 'jev' as const }
 
 function deferred<T>() {
     let resolve!: (value: T) => void
@@ -69,11 +68,22 @@ test('the Applications view shows the KPI grid and the CSV actions', () => {
     expect(screen.getByRole('button', { name: /Import CSV/i })).toBeInTheDocument()
 })
 
-test('the Jobs view opens on the Keep stage and loads stage counts', async () => {
-    render(<JobsView {...jobProps} />)
-    expect(screen.getByPlaceholderText(/companies, roles, or locations/i)).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /^Keep/ })).toHaveAttribute('aria-selected', 'true')
-    await waitFor(() => expect(screen.getByRole('tab', { name: /^JEV skip/ })).toHaveTextContent('9'))
+test('the Jobs view states its mode and the 7-day window, and has no stage tabs', () => {
+    const { unmount } = render(<JobsView {...jobProps} />)
+    expect(screen.getByText(/JEV assesses postings from the last 7 days only/)).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    unmount()
+    render(<JobsView {...jobProps} mode="screen" />)
+    expect(screen.getByText(/showing postings that passed your hard requirements/)).toBeInTheDocument()
+})
+
+test('Not interested writes a skip override and offers Undo', async () => {
+    const row = { id: 7, source: 's', company_name: 'Acme', job_title: 'Eng', job_url: 'https://x.test/7', pipeline_status: 'new' }
+    ;(jobActions.setTriageOverride as jest.Mock).mockResolvedValue({ success: true })
+    render(<JobsView {...jobProps} initialJobPostings={[row]} totalJobPostings={1} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Not interested' }))
+    await waitFor(() => expect(jobActions.setTriageOverride).toHaveBeenCalledWith(7, 'skip', 'Not interested (web)'))
+    await waitFor(() => expect(jobActions.getJobPostings).toHaveBeenCalled())
 })
 
 test('overlapping inventory requests never show stale rows under newer filters', async () => {
