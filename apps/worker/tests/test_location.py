@@ -220,8 +220,33 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     ("Hyderabad, TS", ["Canada", "USA", "remote"], True, ""),   # accepted miss, now escalated
     ("Atlanta, Georgia", ["remote", "USA"], True, ""),          # state beats country
     ("885 GEORGIA ST W:VANCOUVER", ["remote", "USA"], True, ""),  # ...and in free text too
-    ("Chicago, IL", ["New York"], True, ""),                    # US postal code, not Israel
-    ("Sacramento, CA", ["New York"], True, ""),                 # CA=California, not Canada
+    ("Chicago, IL", ["USA"], True, ""),                    # US postal code, not Israel
+    # #206: no country is assumed - only listed places count.
+    ("New York, NY", ["Canada"], False, "on-site in United States"),
+    ("New York, NY", ["remote"], False, "on-site in United States"),
+    # A listed state or city resolves to its country (#206 review): never a false discard.
+    ("San Francisco, CA", ["California"], True, ""),
+    ("Austin, TX", ["Texas"], True, ""),
+    ("Brooklyn, NY", ["New York"], True, ""),
+    ("Boston, MA", ["Boston, MA"], True, ""),
+    ("Seattle, Washington, United States", ["Seattle, WA"], True, ""),
+    ("Bangalore, India", ["California"], False, "on-site in India"),
+    # A region keeps when it contains a listed country.
+    ("Remote - North America", ["Canada", "remote"], True, "remote"),
+    ("Americas", ["Mexico"], True, ""),
+    ("Atlanta, GA", ["Georgia"], True, ""),             # state AND country: both count
+    ("Toronto, Ontario, Canada", ["North America"], True, ""),
+    ("San Francisco, CA", ["Bay Area"], False, "on-site in United States"),  # no guessed country
+    ("Manila, Philippines", ["Bay Area"], False, "on-site in Philippines"),
+    ("Austin, TX", ["Ontario"], False, "on-site in United States"),
+    ("Austin, TX", ["US Remote"], True, ""),
+    ("Washington, D.C.", ["Washington D.C."], True, ""),
+    ("Arlington, VA", ["Washington, DC"], True, ""),
+    ("Casablanca, Morocco", ["Boston, MA"], False, "on-site in Morocco"),
+    ("Bangalore, India", ["Indianapolis, IN"], False, "on-site in India"),
+    ("Sydney, NSW, Australia", ["New South Wales"], True, ""),
+    ("London, UK", ["New South Wales"], False, "on-site in United Kingdom"),
+    ("Sacramento, CA", ["USA"], True, ""),                 # CA=California, not Canada
     ("", ["remote", "USA"], True, ""),
     (None, ["remote", "USA"], True, ""),
 ])

@@ -35,6 +35,19 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Changed
 
+- **No country is assumed in the location screen** (#206): the worker no longer keeps
+  every US posting regardless of `locations`; only the places listed count. A config of
+  only `remote` (the old example) now skips on-site US postings — list every country or
+  state you will work in. Settings says so, and so does the onboard-me skill.
+- **Settings: hard-requirement controls, employment type, JEV profile form** (#206):
+  degree and clearance are selects with `(do not screen)`; blank locations read "open
+  to anywhere" and remote is a checkbox. New `exclude_contract` (candidate_preferences
+  column; web, `/api/v1/preferences`, MCP `set_preferences`) skips contract / part-time /
+  temporary titles, deterministically like internships. The JEV profile is a form
+  (target roles, open to, not interested, education, experience) that renders the
+  profile text; MCP `set_jev_profile` takes the same fields, and the raw text stays
+  under Advanced. Run `make db-push` for the new column.
+
 - **Applications: 7 statuses** (#205): `Applied / Screening / Interviewing / Offer /
   Accepted / Rejected / Withdrew` replace the 14. Online Assessment and Phone Screen
   become Screening, the interview rounds and Final Round become Interviewing, Ghosted

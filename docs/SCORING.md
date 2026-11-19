@@ -118,9 +118,10 @@ means "do not run this check at all".
   "work_authorization":   str,   # one of: "citizen" | "permanent resident"
                                  #         | "authorized-no-sponsorship"
                                  #         | "needs visa sponsorship"
-  "security_clearance":   str,   # "" or "none" means the candidate holds none
-  "locations":            [str], # allowed places, e.g. ["USA", "Remote"]
+  "security_clearance":   str,   # "" = do not screen; "none" = holds none
+  "locations":            [str], # allowed places, e.g. ["USA", "Remote"]; nothing assumed
   "exclude_internships":  bool,
+  "exclude_contract":     bool,  # contract / part-time / temporary, by title
 }
 ```
 

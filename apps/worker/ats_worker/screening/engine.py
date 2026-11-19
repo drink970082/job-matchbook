@@ -24,6 +24,31 @@ CLEARANCE_TOKENS = re.compile(
 
 _INTERN_TITLE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
+# Contract / part-time / temporary in the TITLE (#206; job_postings stores no
+# employment-type field). A hard-requirement discard errs toward keep, so only the
+# unambiguous shapes count: a bracket or a trailing segment that IS the qualifier
+# ("(Contract)", "- 6 Month Contract", ", Part-Time"), or a title leading with
+# "Part-Time" / "Contract-to-Hire". Words inside a role ("Smart Contract Engineer",
+# "Seasonal Forecasting Scientist", "(Contract Compliance)") keep; so does "full-time".
+_QUALIFIER = (r"(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?"
+              r"(?:contract(?:[\s-]to[\s-]hire)?|contractor|part[\s-]?time|temporary|temp|"
+              r"fixed[\s-]?term|seasonal|freelance|per[\s-]?diem)"
+              r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?")
+_FULL_TIME = re.compile(r"\bfull[\s-]?time\b", re.IGNORECASE)
+_QUALIFIER_BRACKET = re.compile(r"[(\[]\s*" + _QUALIFIER + r"\s*[)\]]", re.IGNORECASE)
+# Trailing: only after a " - " / "|" / ":" separator, and only for the words that are not
+# also a market or client group ("Account Executive, Contract", "Buyer - Seasonal",
+# "Territory Manager - Contractor" are full-time jobs).
+_QUALIFIER_TRAILING = re.compile(
+    r"(?:\s[-\u2013\u2014]|[|:]|\s-(?=\S))\s*(?:\d+[\s-]*(?:months?|mos?|weeks?)\s+)?"
+    r"(?:contract(?:[\s-]to[\s-]hire)?|part[\s-]?time|temporary|temp|fixed[\s-]?term|per[\s-]?diem)"
+    r"(?:\s+(?:role|position|assignment|basis|opportunity|only))?\s*(?:[(\[][^)\]]*[)\]])?\s*$",
+    re.IGNORECASE)
+# After a comma only the words no market or client group uses ("Analyst, Part-Time").
+_QUALIFIER_AFTER_COMMA = re.compile(
+    r",\s*(?:part[\s-]?time|temporary|fixed[\s-]?term|per[\s-]?diem)\s*$", re.IGNORECASE)
+_QUALIFIER_LEADING = re.compile(r"^(?:part[\s-]?time|contract[\s-]to[\s-]hire)\b", re.IGNORECASE)
+
 def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) -> dict:
     """Apply the two CODE-only screen gates — intern/co-op title, and location string
     (resolve_location off posting['location']) — merging their verdicts into `screen`
@@ -39,6 +64,15 @@ def deterministic_screen(screen: dict, posting: dict, candidate: dict | None) ->
         screen["disqualification_reason"] = (
             f"{prior}; internship/co-op role" if prior else "internship/co-op role"
         )
+    if candidate and candidate.get("exclude_contract") and _is_non_fulltime(
+        str(posting.get("job_title") or "")
+    ):
+        screen.setdefault("screen", {})["employment_type"] = {
+            "pass": False, "note": "contract/part-time/temporary role"}
+        prior = screen.get("disqualification_reason") or ""
+        reason = "contract/part-time/temporary role"
+        screen["disqualified"] = True
+        screen["disqualification_reason"] = f"{prior}; {reason}" if prior else reason
     if candidate and candidate.get("locations"):
         passed, note = resolve_location(posting.get("location"), candidate["locations"])
         screen.setdefault("screen", {})["location"] = {"pass": passed, "note": note}
@@ -579,6 +613,14 @@ def _check_clearance(entry: dict, cand_clearance, evidence: str = "") -> tuple[b
     if _flag(entry.get("requires_clearance")) and CLEARANCE_TOKENS.search(evidence or ""):
         return False, "requires security clearance"
     return True, ""
+
+def _is_non_fulltime(title: str) -> bool:
+    """Contract/part-time/temporary named as the title's employment type (see above)."""
+    t = str(title or "").strip()
+    if not t or _FULL_TIME.search(t):
+        return False
+    return bool(_QUALIFIER_BRACKET.search(t) or _QUALIFIER_TRAILING.search(t) or _QUALIFIER_AFTER_COMMA.search(t)
+                or _QUALIFIER_LEADING.search(t))
 
 def _is_internship(title: str) -> bool:
     """Whole-word intern/internship/co-op match on the job title."""

@@ -81,6 +81,11 @@ data before selecting it.
 
 ## Screening work
 
+- **Location gate: country aliases and regions.** `Russia`, `Turkey`/`Türkiye`, `Korea`
+  and `Ivory Coast` resolve to no country (alias gaps in `_country_code`), and only North
+  America / Americas are regions (`Europe`, `EMEA` name no members), so a user who lists
+  one of those discards postings in it. Matters more since #206 removed the assumed US.
+
 - The expanded Luna screen result has no recorded effort. Do not claim medium-specific
   accuracy or start a large unchanged eval to repair provenance automatically.
 - **Sponsorship sentence window on bullet lists:** `_sentences` splits only on `[.!?]`

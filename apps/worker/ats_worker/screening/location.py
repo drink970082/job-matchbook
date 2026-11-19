@@ -92,6 +92,17 @@ _US_INCLUSIVE_REGIONS = frozenset({
     "americas", "amer", "amers", "nam", "namer", "north america",
 })
 
+# The countries each of those regions contains (#206): with no country assumed, a
+# region keeps for a user who listed any member ("Remote - North America" for Canada).
+_NORTH_AMERICA = frozenset({"US", "CA", "MX"})
+_AMERICAS = _NORTH_AMERICA | frozenset({
+    "AR", "BO", "BR", "BZ", "CL", "CO", "CR", "CU", "DO", "EC", "GT", "GY", "HN", "HT",
+    "JM", "NI", "PA", "PE", "PR", "PY", "SR", "SV", "TT", "UY", "VE", "BS", "BB",
+})
+_REGION_MEMBERS = {"north america": _NORTH_AMERICA, "nam": _NORTH_AMERICA,
+                   "namer": _NORTH_AMERICA, "americas": _AMERICAS, "amer": _AMERICAS,
+                   "amers": _AMERICAS}
+
 # US subdivisions (states + territories), built once at import. Used to KEEP a US
 # role whose location string names only a state ("New York, New York", "Austin, TX")
 # and to win the state/country name collision ("Atlanta, Georgia": Georgia is a US
@@ -426,6 +437,34 @@ def _expand_unresolved(classified: list) -> list:
     return out
 
 
+def _allowed_entry_codes(entry) -> set[str]:
+    """The countries an allowed entry names, classified exactly as a posting's tokens are
+    (`_classify_token`: a US state wins over the country sharing its code, so "Boston, MA"
+    is the US, not Morocco): countries, US states, a region's members, a country inside a
+    phrase ("US Remote"), and "Georgia" as both state and country. A city/area reading
+    counts only when it names exactly one country ("Washington D.C."); an ambiguous one
+    ("Bay Area", "Ontario") adds nothing, so a wrong guess cannot widen the user's list,
+    and such an entry still keeps postings that name it through the direct match."""
+    text = str(entry)
+    codes: set[str] = set()
+    weak: list[set[str]] = []
+    for t in dict.fromkeys([text, *_tokenize(text)]):
+        kind, code = _classify_token(t)
+        if kind == "region":
+            codes |= _REGION_MEMBERS.get(_fold(t), {"US"})
+        elif kind in ("country", "us_state") and code:
+            codes.add(code)
+            if kind == "us_state" and len(t.strip()) > 2 and _country_code(t):
+                codes.add(_country_code(t))
+        elif kind in ("city", "subdivision"):
+            weak.append(_weak_readings(t))
+    if not codes and weak:
+        codes |= set().union(*(w for w in weak if len(w) == 1))
+    if not codes:  # last resort: a country named inside a phrase ("US Remote")
+        codes |= {c for _, c in _phrase_countries(text)}
+    return codes
+
+
 def _tokenize(location_str) -> list[str]:
     """Split a board location string on its separators: commas, slashes, semicolons,
     pipes, the word ' or ', and a SPACE-PADDED dash (en/em too). A bare hyphen is NOT a
@@ -479,11 +518,11 @@ def location_verdict(location_str, allowed_locations) -> dict:
 
     allowed_norm = {_norm_loc(a) for a in allowed_locations if str(a).strip()}
     remote_allowed = any(_fold(a) == "remote" for a in allowed_locations)
-    allowed_codes = {c for c in (_country_code(a) for a in allowed_locations) if c}
-    # ponytail: US always keep-worthy — the operator is US-based, and the shipped example
-    # config is `locations: ["remote"]`, which resolves to NO country codes at all. Without
-    # this, "New York, NY" would discard.
-    keep_codes = allowed_codes | {"US"}
+    allowed_codes = set().union(*(_allowed_entry_codes(a) for a in allowed_locations
+                                  if str(a).strip() and _fold(a) != "remote"))
+    # Only the places the user listed count (#206): no country is assumed, so a user who
+    # will work in the US must list it.
+    keep_codes = allowed_codes
 
     tokens = _tokenize(location_str)
     classified = _expand_unresolved([(t, *_classify_token(t)) for t in tokens])
@@ -496,6 +535,11 @@ def location_verdict(location_str, allowed_locations) -> dict:
     # (B) direct match — geography only; "remote" is handled at (D), never as a place.
     geo_allowed = allowed_norm - {"remote"}
     if geo_allowed & {_norm_loc(t) for t in tokens}:
+        return {"keep": True, "note": "remote" if said_remote else "",
+                "resolved": True, "ask_llm": False, "codes": codes}
+
+    # A region keeps when it contains any listed country.
+    if any(keep_codes & _REGION_MEMBERS.get(_fold(t), frozenset()) for t in tokens):
         return {"keep": True, "note": "remote" if said_remote else "",
                 "resolved": True, "ask_llm": False, "codes": codes}
 

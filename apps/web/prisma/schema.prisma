@@ -208,6 +208,7 @@ model candidate_preferences {
   security_clearance  String  @default("")
   locations           String  @default("[]") // JSON string array
   exclude_internships Boolean @default(false)
+  exclude_contract    Boolean @default(false) // contract / part-time / temporary titles (#206)
   version             Int     @default(1)
   actor               String  // config | web | mcp
   changed_at          String?

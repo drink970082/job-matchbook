@@ -17,7 +17,7 @@ export async function getSetupStatus() {
     ])
     const requirements = !!pref && (
         [pref.highest_degree, pref.work_authorization, pref.security_clearance].some((v) => v.trim())
-        || pref.locations.trim() !== '[]' && pref.locations.trim() !== '' || pref.exclude_internships)
+        || pref.locations.trim() !== '[]' && pref.locations.trim() !== '' || pref.exclude_internships || pref.exclude_contract)
     const steps = {
         // ponytail: "connected" = the MCP server has written through /api/v1 at least once;
         // a read-only connection never ticks it (the step is optional).

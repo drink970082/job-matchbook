@@ -90,6 +90,8 @@ class Candidate:
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
     # this, but the title is a clean signal. See screening.engine._is_internship.
     exclude_internships: bool = False
+    # Same shape, for contract / part-time / temporary titles (engine._is_non_fulltime).
+    exclude_contract: bool = False
 
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
@@ -99,6 +101,7 @@ class Candidate:
             self.security_clearance.strip(),
             self.locations,
             self.exclude_internships,
+            self.exclude_contract,
         ))
 
 
@@ -327,4 +330,5 @@ def _parse_candidate(raw) -> Candidate:
         security_clearance=str(raw.get("security_clearance") or "").strip(),
         locations=locations,
         exclude_internships=bool(raw.get("exclude_internships")),
+        exclude_contract=bool(raw.get("exclude_contract")),
     )

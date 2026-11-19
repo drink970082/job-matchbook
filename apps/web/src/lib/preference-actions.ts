@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/db'
 import { type Actor, WORK_AUTHORIZATIONS } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
+import { JEV_FORM_KEYS, parseJevProfile, renderJevProfile, validateJevForm } from '@/lib/jev-profile-form'
 
 // --- Candidate preferences (#157): the screen's hard requirements --------------
 // One row (id=1) the worker reads each pass. A set merges the given fields over the
@@ -12,10 +13,11 @@ import { checkedActor } from '@/lib/action-helpers'
 const MAX_PREFERENCE_TEXT = 100
 const MAX_LOCATIONS = 50
 const PREFERENCE_TEXT = ['highest_degree', 'work_authorization', 'security_clearance'] as const
+const PREFERENCE_FLAGS = ['exclude_internships', 'exclude_contract'] as const
 
 function parsePreferences(input: Record<string, unknown>) {
     const unknown = Object.keys(input).filter((k) =>
-        !(PREFERENCE_TEXT as readonly string[]).includes(k) && k !== 'locations' && k !== 'exclude_internships')
+        !(PREFERENCE_TEXT as readonly string[]).includes(k) && k !== 'locations' && !(PREFERENCE_FLAGS as readonly string[]).includes(k))
     if (unknown.length) throw new Error(`Unknown preference field(s): ${unknown.join(', ')}`)
     if (!Object.keys(input).length) throw new Error('No preference fields given')
     const out: Record<string, string | boolean> = {}
@@ -40,9 +42,10 @@ function parsePreferences(input: Record<string, unknown>) {
         if (clean.some((l) => l.length > MAX_PREFERENCE_TEXT)) throw new Error(`a location is over ${MAX_PREFERENCE_TEXT} characters`)
         out.locations = JSON.stringify(clean)
     }
-    if (input.exclude_internships !== undefined) {
-        if (typeof input.exclude_internships !== 'boolean') throw new Error('exclude_internships must be true or false')
-        out.exclude_internships = input.exclude_internships
+    for (const key of PREFERENCE_FLAGS) {
+        if (input[key] === undefined) continue
+        if (typeof input[key] !== 'boolean') throw new Error(`${key} must be true or false`)
+        out[key] = input[key] as boolean
     }
     return out
 }
@@ -110,8 +113,22 @@ export async function getSettings() {
 export async function setJevProfile(input: Record<string, unknown>, actor: Actor = 'web') {
     checkedActor(actor)
     try {
+        // Structured form (#206): the fields given replace the stored form's; the rest
+        // keep their stored value. Renders profile_text and yoe_context; raw text is the
+        // Advanced path below.
+        if (input.form !== undefined) {
+            if (Object.keys(input).length > 1) throw new Error('Give either form or profile_text/yoe_context, not both')
+            const given = input.form && typeof input.form === 'object' && !Array.isArray(input.form) ? input.form as Record<string, unknown> : null
+            if (!given) throw new Error('form must be an object')
+            const stored = await prisma.jev_profile.findUnique({ where: { id: 1 }, select: { profile_text: true, yoe_context: true } })
+            const base = stored ? parseJevProfile(stored.profile_text, stored.yoe_context) : null
+            if (!base && JEV_FORM_KEYS.some((k) => given[k] === undefined)) {
+                throw new Error(`The stored profile is free text; give all of ${JEV_FORM_KEYS.join(', ')}`)
+            }
+            input = renderJevProfile(validateJevForm({ ...base, ...given }))
+        }
         const unknown = Object.keys(input).filter((k) => k !== 'profile_text' && k !== 'yoe_context')
-        if (unknown.length) throw new Error(`Only profile_text and yoe_context can be set (got ${unknown.join(', ')}); question packs come from jev_dir`)
+        if (unknown.length) throw new Error(`Only form, or profile_text and yoe_context, can be set (got ${unknown.join(', ')}); question packs come from jev_dir`)
         const fields: { profile_text?: string; yoe_context?: string } = {}
         if (input.profile_text !== undefined) {
             if (typeof input.profile_text !== 'string') throw new Error('profile_text must be a string')

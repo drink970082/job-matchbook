@@ -118,8 +118,9 @@ candidate:
   highest_degree: "Master's"          # none | High School | Associate | Bachelor's | Master's | PhD
   work_authorization: "needs visa sponsorship"   # citizen | permanent resident | authorized-no-sponsorship | needs visa sponsorship
   security_clearance: "none"          # none | confidential | secret | top secret
-  locations: ["remote"]               # where you can actually work (on-site roles elsewhere are discarded)
+  locations: ["USA", "remote"]        # EVERY country/state you will work in (+ remote); nothing is assumed
   exclude_internships: true           # deterministic: discard intern/co-op roles by job title (no LLM)
+  exclude_contract: false             # deterministic: discard contract/part-time/temporary titles
 
 schedule_hours: 24         # hours between WALL-CLOCK passes (00:00, then every N).
                            # Must divide 24: 1, 2, 3, 4, 6, 8, 12, 24. Anything else
