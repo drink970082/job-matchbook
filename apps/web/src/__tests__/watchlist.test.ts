@@ -19,6 +19,8 @@ const mockPrisma = prisma as unknown as ReturnType<typeof mockDeep<PrismaClient>
 
 beforeEach(() => {
   mockReset(mockPrisma)
+  // Interactive transactions run against the same mock client.
+  mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma))
 })
 
 describe('Watchlist actions', () => {
@@ -91,6 +93,9 @@ describe('Watchlist actions', () => {
       const result = await removeWatchedCompany(1)
       expect(result.success).toBe(true)
       expect(mockPrisma.watched_companies.delete).toHaveBeenCalledWith({ where: { id: 1 } })
+      expect(mockPrisma.audit_log.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ actor: 'web', action: 'remove', entity_id: 1 }),
+      })
     })
   })
 })

@@ -8,6 +8,12 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
+- **MCP source tools — deploy and acceptance open** `[MCP · S]` (#156, epic #152,
+  branch `feat/mcp-source-tools-156`). Needs a production `db push` (new `audit_log`
+  table; back up first), a web rebuild and an MCP restart. Open: in ChatGPT, "track
+  company X" adds a known-ATS board, the next worker pass fetches it, and a removal
+  shows "via MCP" with Re-add in the Watchlist tab.
+
 - **JEV keep/skip filter — deployed, backlog draining until about early December** `[JEV · M]` (#139).
   The worker unit runs `--jev --jev-limit 300 --jev-max-usd 0.10` from `ats-runtime` at
   main; private inputs are `resume/pivot/jev-prod-v1/` (profile `level` line at 3 years).

@@ -22,6 +22,7 @@ jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-
 beforeEach(() => {
     ;(actions.getJobPostings as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(actions.getApplications as jest.Mock).mockResolvedValue({ data: [], total: 0 })
+    ;(actions.getWatchlistActivity as jest.Mock).mockResolvedValue({ data: [] })
     ;(actions.getWatchedCompanies as jest.Mock).mockResolvedValue({ data: [], total: 0 })
     ;(promotionActions.getPromotionSuggestions as jest.Mock).mockResolvedValue({ data: [] })
     ;(unresolvedActions.getUnresolvedFeeds as jest.Mock).mockResolvedValue({ data: [], total: 0 })

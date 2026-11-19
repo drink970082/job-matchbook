@@ -9,7 +9,7 @@ import { POST as postStatus } from '@/app/api/v1/applications/[id]/status/route'
 import { POST as postApplied } from '@/app/api/v1/jobs/[id]/applied/route'
 import { POST as addWatch } from '@/app/api/v1/watchlist/route'
 import { DELETE as removeWatch } from '@/app/api/v1/watchlist/[id]/route'
-import { updateApplicationStatus } from '@/lib/actions'
+import { addWatchedCompany, getWatchlistActivity, removeWatchedCompany, updateApplicationStatus } from '@/lib/actions'
 import { prisma, resetDb } from '@/test-utils/db'
 import { makeApplication, makeJobPosting } from '@/test-utils/factories'
 
@@ -122,12 +122,47 @@ test('bad id and bad JSON -> 400', async () => {
     expect((await createApplication(bad)).status).toBe(400)
 })
 
-test('watchlist add and remove', async () => {
+test('watchlist add and remove are audited with the full row and actor=mcp', async () => {
     const res = await addWatch(req({ source: 'greenhouse', slug: 'acme', name: 'Acme' }, RW))
     expect(res.status).toBe(200)
     const row = await prisma.watched_companies.findFirstOrThrow()
-    expect((await removeWatch(req(undefined, RW, 'DELETE'), params(row.id))).status).toBe(200)
+    const del = await removeWatch(req(undefined, RW, 'DELETE'), params(row.id))
+    expect(del.status).toBe(200)
+    expect((await del.json()).data).toEqual(row)
     expect(await prisma.watched_companies.count()).toBe(0)
+    const log = await prisma.audit_log.findMany({ orderBy: { id: 'asc' } })
+    expect(log.map((l) => [l.actor, l.action, l.entity, l.entity_id])).toEqual([
+        ['mcp', 'add', 'watched_companies', row.id],
+        ['mcp', 'remove', 'watched_companies', row.id],
+    ])
+    expect(JSON.parse(log[1].payload)).toEqual(row)
+})
+
+test('an invalid slug is rejected with the UI message and nothing is audited', async () => {
+    const res = await addWatch(req({ source: 'greenhouse', slug: 'evil.com/@x', name: 'X' }, RW))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('slug contains invalid characters')
+    expect(await prisma.audit_log.count()).toBe(0)
+})
+
+test('removing a missing watchlist row is a 400 and nothing is audited', async () => {
+    const res = await removeWatch(req(undefined, RW, 'DELETE'), params(99))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('Watchlist entry 99 not found')
+    expect(await prisma.audit_log.count()).toBe(0)
+})
+
+test('UI watchlist writes are audited as web, newest first in the activity list', async () => {
+    const added = await addWatchedCompany({ source: 'lever', slug: 'beta', name: 'Beta' })
+    expect(added.success).toBe(true)
+    await removeWatchedCompany(added.data!.id)
+    const { data } = await getWatchlistActivity()
+    expect(data.map((a) => [a.action, a.actor, a.payload.slug])).toEqual([
+        ['remove', 'web', 'beta'],
+        ['add', 'web', 'beta'],
+    ])
+    await expect(addWatchedCompany({ source: 'lever', slug: 'x', name: 'X' }, 'root' as any))
+        .rejects.toThrow('Invalid actor')
 })
 
 test('an unknown status on create is a 400, not a silent Applied', async () => {

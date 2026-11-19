@@ -141,6 +141,21 @@ model watched_companies {
   @@unique([source, slug]) // dedup key
 }
 
+// Append-only record of watchlist adds/removes (#156). A removal's payload is the
+// full deleted row (JSON) so web can show it and offer a re-add. Web writes it; the
+// worker never reads it.
+model audit_log {
+  id        Int    @id @default(autoincrement())
+  at        String // ISO timestamp
+  actor     String // web | mcp (lib/constants.ts ACTORS)
+  action    String // add | remove
+  entity    String // table name, e.g. watched_companies
+  entity_id Int
+  payload   String // JSON of the row as added / as it was before removal
+
+  @@index([entity, id])
+}
+
 // "Record fail instances for next step": feed listings whose apply URL the
 // resolver could not map to a supported board+slug (workday deferred, embedded
 // greenhouse without a slug, or an unsupported ATS host). A prioritised backlog

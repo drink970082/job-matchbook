@@ -1520,6 +1520,23 @@ export async function importApplicationsCSV(csvText: string) {
 // managed here: manual list / add / remove. Promotion suggestions
 // (feed -> watchlist) shipped since, and live in lib/promotion-actions.ts.
 
+type WatchedRow = { id: number; source: string; slug: string; name: string; recipe: string | null; created_at: string }
+
+function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow) {
+    return {
+        at: new Date().toISOString(), actor, action,
+        entity: 'watched_companies', entity_id: row.id, payload: JSON.stringify(row),
+    }
+}
+
+// Recent watchlist adds/removes, newest first, with the row as it was then.
+export async function getWatchlistActivity(limit = 20) {
+    const rows = await prisma.audit_log.findMany({
+        where: { entity: 'watched_companies' }, orderBy: { id: 'desc' }, take: limit,
+    })
+    return { data: rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) as WatchedRow })) }
+}
+
 export async function getWatchedCompanies() {
     const [data, total] = await Promise.all([
         prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
@@ -1533,7 +1550,8 @@ export async function addWatchedCompany(input: {
     slug: string
     name: string
     recipe?: string
-}) {
+}, actor: Actor = 'web') {
+    checkedActor(actor)
     try {
         const source = (input.source || '').trim()
         const slug = (input.slug || '').trim()
@@ -1579,8 +1597,12 @@ export async function addWatchedCompany(input: {
             return { success: false, error: `${source}/${slug} is already on the watchlist` }
         }
 
-        const created = await prisma.watched_companies.create({
-            data: { source, slug, name, recipe, created_at: new Date().toISOString() },
+        const created = await prisma.$transaction(async (tx) => {
+            const row = await tx.watched_companies.create({
+                data: { source, slug, name, recipe, created_at: new Date().toISOString() },
+            })
+            await tx.audit_log.create({ data: watchlistAudit(actor, 'add', row) })
+            return row
         })
         return { success: true, data: created }
     } catch (error: any) {
@@ -1588,11 +1610,18 @@ export async function addWatchedCompany(input: {
     }
 }
 
-export async function removeWatchedCompany(id: number) {
+export async function removeWatchedCompany(id: number, actor: Actor = 'web') {
+    checkedActor(actor)
     try {
-        await prisma.watched_companies.delete({ where: { id } })
-        return { success: true }
+        // The full row goes into the audit so the removal can be re-added from web.
+        const removed = await prisma.$transaction(async (tx) => {
+            const row = await tx.watched_companies.delete({ where: { id } })
+            await tx.audit_log.create({ data: watchlistAudit(actor, 'remove', row) })
+            return row
+        })
+        return { success: true, data: removed }
     } catch (error: any) {
+        if (error?.code === 'P2025') return { success: false, error: `Watchlist entry ${id} not found` }
         return { success: false, error: error.message }
     }
 }

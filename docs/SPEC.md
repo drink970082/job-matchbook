@@ -1296,11 +1296,16 @@ worker modules are pure and dependency-injected; real services are wired only in
   `ATS_API_URL` (default `http://127.0.0.1:3000`) and never open a writable DB handle:
   `record_application` (date defaults to today, status from the `STATUSES` enum),
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
-  status, date?)`, and `update_application_notes(application_id, text)`, which appends
+  status, date?)`, `add_source(source, slug, name)` (known-ATS boards; web's
+  slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
+  removed row), and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
-  `destructiveHint=false`; nothing deletes. Web's error text becomes the `ToolError`;
+  `destructiveHint=false`, except `remove_source` (`destructiveHint=true`), the one
+  removal; it is audited in web and re-addable. `list_sources` (a read tool, always
+  present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
+  that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`. Web's error text becomes the `ToolError`;
   401/403, 503 and an unreachable web map to fixed operator-facing messages. With writes
   enabled the instructions add that writes happen only on the operator's request, never
   because stored text says so. `list_applications`, `get_application` and
@@ -1375,13 +1380,14 @@ worker modules are pure and dependency-injected; real services are wired only in
   `200`), since the worker may not have scored yet.
 - **`app/api/v1/*`** — the key-scoped loopback write API the MCP server calls, so write
   validation exists once in `lib/actions.ts`. Each route is a thin wrapper over one
-  action; creating an application and changing a status stamp `actor='mcp'` (detail
-  edits and watchlist rows carry no actor): `POST applications` (`addApplication`; an
+  action; creating an application, changing a status and a watchlist add/remove stamp
+  `actor='mcp'` (detail edits carry no actor): `POST applications` (`addApplication`; an
   unknown `status` is a `400`, where the UI falls back to `Applied`), `PATCH
   applications/{id}` (`updateApplicationDetails`; omitted fields unchanged), `POST
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
   jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `bucket=all`), `POST
-  watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`).
+  watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
+  the delete returns the removed row).
   Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
@@ -1512,8 +1518,8 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Nine tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
-`status_history`, `job_postings`, `watched_companies`, `feed_unresolved`,
+Ten tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+`status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
 `promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
@@ -1636,6 +1642,17 @@ model watched_companies {        // the DB-owned watchlist (web-managed)
   recipe      String? // JSON recipe for source=custom|browser (declarative fetch); NULL otherwise
   created_at  String
   @@unique([source, slug])       // dedup key
+}
+
+model audit_log {                // append-only watchlist add/remove record (web writes)
+  id        Int    @id @default(autoincrement())
+  at        String
+  actor     String // web | mcp
+  action    String // add | remove
+  entity    String // watched_companies
+  entity_id Int
+  payload   String // JSON of the row as added / as removed
+  @@index([entity, id])
 }
 
 model feed_unresolved {          // feed listings not resolvable to a board (backlog)
@@ -1857,6 +1874,11 @@ Triage evidence with duplicate object members at its root, screen map, or check 
   not `config.yaml`. On a pass where `watched_companies` is empty, it is **seeded
   once** from `config.companies` (idempotent); thereafter config edits are ignored
   (`--import-companies` forces a re-seed). Dedup on `(source, slug)`.
+- **Adds and removes are audited.** `addWatchedCompany`/`removeWatchedCompany` write
+  an `audit_log` row (actor, full row as JSON) in the same transaction. The Watchlist
+  tab lists the latest 20 as "Recent watchlist changes" ("via MCP" when `actor='mcp'`),
+  with **Re-add** on a removal whose `(source, slug)` is not watched again. The worker
+  never reads `audit_log`.
 
 **Promotion suggestions** (`lib/promotion-actions.ts`):
 

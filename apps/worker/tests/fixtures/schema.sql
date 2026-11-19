@@ -105,6 +105,16 @@ CREATE TABLE "watched_companies" (
     "created_at" TEXT NOT NULL
 );
 
+CREATE TABLE "audit_log" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "at" TEXT NOT NULL,
+    "actor" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "entity" TEXT NOT NULL,
+    "entity_id" INTEGER NOT NULL,
+    "payload" TEXT NOT NULL
+);
+
 CREATE TABLE "feed_unresolved" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "feed" TEXT NOT NULL,
@@ -140,6 +150,7 @@ CREATE INDEX "job_jev_assessments_state_last_attempted_at_idx" ON "job_jev_asses
 CREATE INDEX "job_screenings_state_last_attempted_at_idx" ON "job_screenings"("state", "last_attempted_at");
 CREATE UNIQUE INDEX "job_postings_source_external_id_key" ON "job_postings"("source", "external_id");
 CREATE UNIQUE INDEX "watched_companies_source_slug_key" ON "watched_companies"("source", "slug");
+CREATE INDEX "audit_log_entity_id_idx" ON "audit_log"("entity", "id");
 CREATE UNIQUE INDEX "feed_unresolved_url_key" ON "feed_unresolved"("url");
 CREATE INDEX "feed_unresolved_reason_idx" ON "feed_unresolved"("reason");
 CREATE INDEX "status_history_application_id_idx" ON "status_history"("application_id");
