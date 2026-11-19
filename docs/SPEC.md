@@ -16,7 +16,7 @@
 - **Project:** Job Matchbook (`job-matchbook`) — a self-hosted, semi-automated
   job-application system
 - **Repo:** https://github.com/drink970082/job-matchbook
-- **Version:** 1.0.0 (first public release) · **Spec last updated:** 2026-10-26 · **License:** MIT
+- **Version:** 1.0.0 (first public release) · **License:** MIT
 
 ---
 
@@ -25,16 +25,14 @@
 [The approved pivot](superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md)
 positions ATS as a job-source, evidence, tracking and tool layer, with ChatGPT as the
 primary personal judgment/recommendation interface. **Hard-requirements screening is
-supported optional assistance; the fit scorer is removed.** The operator selects provider-free pre-ranking
-preparation for a reported approximately 200-posting daily load that exceeds the current
-workflow's capacity. The [preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md)
-defines the available offline assessment view, fixed-batch replay and synthetic consumer
-rehearsal. These modules do not select a live model or production policy. Production
-evaluation, persistence, MCP/inventory integration and activation retain their separate
-gates; #112 has no GO decision and #94 still needs actual unattended evidence.
-The operator values Luna/medium within an existing
-subscription; inclusion does not remove allowance limits. The shipped Luna/medium
-configuration is standalone screening, not a fit-model change.
+supported optional assistance; the fit scorer is removed.** The opt-in JEV keep/skip
+filter (`--jev`, §7.1) runs after the screen and narrows a reported approximately
+200-posting daily load; MCP `list_jobs` hides its current `skip` verdicts by default.
+Ranking within `keep` stays gated (#135). The offline preselection tooling
+([preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md))
+is its provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped
+loopback write API (`/api/v1`, §7.2) is shipped; MCP write tools and a read-only web
+dashboard are planned (#154, #158). #94 still needs actual unattended evidence.
 
 [ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
 [ROADMAP](ROADMAP.md) lists feature readiness and outstanding slices;
@@ -88,13 +86,15 @@ are explanatory. Each section is tagged with its class under its heading.
 
 Job Matchbook collects official job evidence and tracks applications in a shared
 SQLite database. Its Next.js web UI, native Python worker and host stdio read-only MCP
-process provide complementary access to that data. The MCP is used by ChatGPT for
-research; the web app retains manual tracking and fit-oriented discovered-job views.
+process provide complementary access to that data. The MCP is used by an AI assistant
+for research; the web app retains manual tracking and fit-oriented discovered-job views,
+and serves a key-scoped loopback write API (`/api/v1`).
 
 A worker pass fetches postings and screens them against the candidate's hard
-requirements (`--fetch-only` stops before the screen). There is no fit scorer and no
+requirements (`--fetch-only` stops before the screen), then, with `--jev`, runs the
+paid JEV keep/skip filter over screened survivors. There is no fit scorer and no
 notification stage; the stored fit verdicts in `score`/`score_detail` are history the web
-and MCP still read. Ranking for review is the JEV track (`docs/PROGRESS.md`).
+and MCP still read.
 
 ---
 
@@ -247,41 +247,28 @@ phases: it promotes a `job_postings` row into an `applications` row.
 | Piece | Runs in | Talks to |
 |-------|---------|----------|
 | Next.js web app | `web` service (`ats-web` container) | shared SQLite (read postings, write applications); serves `/api/v1` on the same loopback port, enabled by `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` (§7.2) |
-| fetch / screen | **host** — `python -m ats_worker.run`, not containerized | board APIs, the screen backend (host Ollama or a CLI/API provider) |
+| fetch / screen / JEV | **host** — `python -m ats_worker.run`, not containerized | board APIs, the screen backend (host Ollama or a CLI/API provider), OpenRouter with `--jev` |
 | ATS MCP (reads `mode=ro`; writes via web `/api/v1` when `ATS_API_KEY` is set) | **host** — stdio child of its dedicated tunnel-client user service | shared SQLite (`mode=ro`, `query_only`) |
 | Ollama | **host** (GPU) — not containerized | — |
 | SQLite db | `./db` directory, bind-mounted into the `web` container | — |
 
 **Operator runtime:** the native worker service uses `--screen-only` with explicit
-Codex `gpt-5.6-luna`, medium effort, explicit `--screen-unlimited` and one screen worker. Fit,
-notification and quota refresh are disabled in this mode. It runs from a separate
-persistent deployment checkout while retaining the existing private configuration and
-shared database. The `ats-web` container (compose project `ats`) is built from that same checkout; a
-local, git-excluded `docker-compose.override.yml` there mounts the original checkout's
-`db/` directory by absolute path, and its `.env` carries `ATS_API_KEY_READ_WRITE`. The dedicated ATS tunnel service is enabled, healthy/ready, and leaves
-the Sure tunnel unchanged. A controlled production pass against one existing board
-uses five provider calls without error, plus deterministic-only results, and preserves
-all posting fields across the screen stage.
-Local stdio verification covers all eight models, pagination and full multi-chunk text.
-The operator confirms ChatGPT overview execution, and the connected ATS plugin passes
-19 remote tool calls exercising all ten tools: all eight models, `new` and `discarded`
-job details, application notes/history, non-overlapping pages and a full two-chunk JD.
-The deployed Web includes the default job inventory and source evidence in job details.
-The deployed MCP supports advisory outcome/full-text queries, screening-update windows,
-and source-lifecycle summaries. Local stdio and connected remote checks exercise all ten
-read-only tools, pagination, detail/text retrieval and the advanced query inputs. A
-SQLite backup and before/after original-column digests verify schema-upgrade preservation
-across all eight tables. Legacy rows retain unknown source state/revision until evidence
-is observed; no source refresh or model pass is triggered by deployment. Browser checks
-exercise inventory and source/screen detail panels; the landing page retains the same
-React hydration errors 418/423 observed with the preceding production image.
-These deployment choices do not change CLI defaults.
+Codex `gpt-5.6-luna`, medium effort, explicit `--screen-unlimited` and one screen worker,
+plus `--jev --jev-limit 300 --jev-max-usd 0.10`. Quota refresh is disabled in this mode.
+It runs from a separate persistent deployment checkout with the existing private
+configuration and shared database, and a dedicated tunnel serves the MCP to the AI
+assistant. The `ats-web` container (compose project `ats`) is built from that same
+checkout; a local, git-excluded `docker-compose.override.yml` there mounts the original
+checkout's `db/` directory by absolute path, and its `.env` carries
+`ATS_API_KEY_READ_WRITE`. Legacy rows keep unknown source state/revision until evidence
+is observed; no source refresh or model pass is triggered by deployment. The landing page
+emits React hydration errors 418/423 before recovering on the client. These deployment
+choices do not change CLI defaults.
 
-The worker is **not containerized** (the `ats-worker` service was removed 2026-07-16):
-the default fit-score backend shells out to the **Codex CLI**, which authenticates from
-the operator's `~/.codex/auth.json` (`codex login`) — containerizing it would mean
-baking a 285 MB binary into the image *and* mounting a live subscription token into it,
-for a process Ollama's GPU already pinned to the host.
+The worker is **not containerized**: Ollama's GPU pins it to the host, and the CLI
+screen backends (`codex`, `claude-code`) authenticate from the operator's own CLI login —
+containerizing them would mean baking the CLI into the image *and* mounting a live
+subscription token into it.
 
 Both writers rely on SQLite's `busy_timeout` to survive brief co-writes: the worker
 sets it explicitly (`db.py:connect`, 5000 ms); the web Prisma client (`lib/db.ts`,
@@ -368,10 +355,10 @@ forever against a tracker holding no data. Naming a real table turns that into `
 table: job_postings` → 503 → autoheal restarts. The cost is that a checkout whose schema was
 never pushed reports unhealthy — correct, since that web container genuinely cannot serve.
 
-**Guarding the guard.** The sidecar's health check was, until 2026-07-28, the image's
+**Guarding the guard.** The sidecar's health check is not the image's
 `pgrep -f autoheal` — a check that **cannot fail while the container runs**, because
 `Cmd=["autoheal"]` puts that string in the process's own argv and the check matches
-itself. Zero signal. It is now a socket **ping** (`curl --unix-socket … /_ping`), which
+itself. It is a socket **ping** (`curl --unix-socket … /_ping`), which
 asks the question that matters: can this sidecar still reach the Docker API. Measured in a
 socket-less container held up artificially, with a faster interval than shipped:
 socket-ping reached `unhealthy`, `pgrep` reported healthy throughout. At the shipped 30s
@@ -965,18 +952,13 @@ worker modules are pure and dependency-injected; real services are wired only in
   are historical damage predating the 2026-07-25 relevance gate, and the genuine ones
   among them are foreign on-site roles `resolve_location` rejects independently.
 
-  **`NO_SPONSOR_PHRASES` is the floor for SILENCE only** — `SCREEN_BACKEND=none`, a
+  **`NO_SPONSOR_PHRASES` is the floor for SILENCE only** — `SCREEN_BACKEND=none`
   or a provider error. It can only *add* a
   disqualification, never veto a model pass. And `authorization` **always records a
   verdict** when the candidate configured it, even when nothing was retrieved and no
   clause was asked and no LLM call was made.
 
-  **Superseded measurements.** The 2026-07-25 precision/recall table
-  (`NO_SPONSOR_PHRASES` 81.8%/45.0%; shipped `_check_authorization` 90.9%/100% over 20
-  known true positives, via the now-retired `tools/sponsor_diff.py`) described the quote
-  design and no longer describes shipped behavior; it is kept in
-  [`../CHANGELOG.md`](../CHANGELOG.md) as history. The standing rule it established still
-  holds and now applies to the veto patterns: **the vocabulary is measured, not guessed**
+  **The vocabulary is measured, not guessed** (applies to the veto patterns too)
   — a round of speculative terms (`opt `, `cpt `, `e-3`, `us person`) each collided with
   common boilerplate and was reverted, because on a disqualification path a collision
   costs a real job. Add a term only with a must-flag sentence that needs it and must-keep
@@ -1119,7 +1101,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   PREVIOUS snapshot in place rather than truncating it — a transient 429 should dim the
   bar's freshness (the web reads file mtime as `as_of`), not blank it. The write is
   atomic (tmp + `os.replace`, tmp name keyed by pid+thread). **A failed capture is
-  announced WITH ITS CAUSE** (strengthened 2026-07-31): every route to a `False` return
+  announced WITH ITS CAUSE**: every route to a `False` return
   prints what happened — a non-200 with its status and reason, an `HTTPError` (which
   `urlopen` *raises*, so the status check never sees a 4xx), a connection or truncated-body
   failure with its exception type, "not logged in", a 200 whose body is not an object at all, a 200
@@ -1129,10 +1111,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   default. The narrow `_get_json` catch
   is only defensible because that blanket one speaks: `http.client.HTTPException`
   (`IncompleteRead`, `BadStatusLine`) subclasses neither `OSError` nor `ValueError`, so it
-  is named in the tuple rather than left to fall through silently. **Why this much:** a
-  bare `False` cost two days on 2026-07-30/31, during which a 403, an expired token, a DNS
-  blip and a malformed body were indistinguishable, and the pass that finally caught the
-  failure could still not say what it was. The write also stamps an offset-aware `as_of` into the snapshot itself — a stale
+  is named in the tuple rather than left to fall through silently. **Why this much:** with a
+  bare `False`, a 403, an expired token, a DNS blip and a malformed body are
+  indistinguishable. The write also stamps an offset-aware `as_of` into the snapshot itself — a stale
   reading and a fresh one are otherwise indistinguishable to anything but `ls -la`. A
   pass on the `codex` screen backend calls it at the end of the pass; the web quota bar
   (§7.2) shows the last snapshot written.
@@ -1224,7 +1205,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   treated as alive, because wrongly expiring a live match costs the operator a job
   while a missed dead link costs one stale row. A successful check rewrites
   `updated_at`, which rotates the row to the back of the queue — that's the whole
-  scheduling mechanism, no extra column. This is unchanged for scored/notified rows.
+  scheduling mechanism, no extra column. **Limitation:** nothing writes
+  `scored`/`notified` any more, so this sweep only revisits legacy rows; a `new` posting is
+  never rechecked and a stored one is not proof the requisition is open.
   The separate `run_unscored_refresh` mode accepts only the explicit
   `smartrecruiters` adapter and 1–25 requests. It selects `new`, `failed`, `discarded`,
   or `expired` rows without a fit assessment or application link, least recently

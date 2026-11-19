@@ -103,8 +103,6 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
         {"screen": {}, "disqualified": False, "disqualification_reason": ""},
         posting, candidate)
     if gated["disqualified"]:
-        # No `demote_for_confirmation` here on purpose: `_CONFIRMABLE_CHECKS` is
-        # degree/clearance, and neither gate above can produce one of those.
         return gated
 
     job = _job_block(posting, num_ctx * 2)
@@ -158,11 +156,9 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     out = deterministic_screen(screen, posting, candidate)
     # `authorization` must ALWAYS record a verdict when the candidate configured it —
     # even when nothing was retrieved, so no clause was asked and no LLM call was made
-    # at all. `merge_fallback_screen` fills only the keys the screen left ABSENT, and a
-    # second model vote on a disqualification is precisely what that function is
-    # documented not to be (SPEC §7.1): it would double the false-positive surface on
-    # the one check where a false positive silently deletes a real job.
-    # With no labels this is the closed-list floor, which is deterministic and cannot
+    # at all. An absent key reads as "not checked", and a second model vote on a
+    # disqualification would double the false-positive surface on the one check where
+    # a false positive silently deletes a real job. With no labels this is the closed-list floor, which is deterministic and cannot
     # invent evidence — the same reason the location gate's verdict stands here too.
     #
     # NOT on a provider error, though. The floor is deterministic in the sense that the
@@ -171,10 +167,8 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     # without sponsorship, we encourage you to apply"* — an invitation. On a working
     # backend the model's labels overrule it; on a dead one nothing does, so an Ollama
     # outage would terminally discard exactly the postings this check was rebuilt to
-    # stop discarding. Keeping the key ABSENT here costs nothing: `run_score` leaves a
-    # provider_error row `new` instead of fit-scoring it, so `merge_fallback_screen`
-    # is never reached and no second model vote can occur — the next pass screens it
-    # properly. The docstring's "a failure errs toward KEEP, never toward discard" and
+    # stop discarding. Keeping the key ABSENT here costs nothing: a provider_error row
+    # stays `new`, and the next pass screens it properly. The docstring's "a failure errs toward KEEP, never toward discard" and
     # SPEC §7.1 both say this out loud.
     if candidate and str(candidate.get("work_authorization") or "").strip() \
             and not provider_error \
@@ -341,11 +335,11 @@ def _screen_verdict(data: dict, candidate: dict, description: str = "",
     # degree/clearance are gated on the model ACTUALLY returning a VALUE, not just on
     # the candidate configuring the check. Both err toward pass on absent data, so
     # materializing the key anyway makes a ran-but-blind check byte-identical to a
-    # genuinely-passed one — and `merge_fallback_screen` can then never see the gap.
+    # genuinely-passed one, and the gap becomes invisible downstream.
     # The test is the value, not the entry dict: under a strict schema the model must
     # emit every key, so `{"required_degree": null}` is a non-empty dict that says
-    # NOTHING. Reading the dict's truthiness here would silently retire the Stage 4
-    # fallback the moment the schema became strict.
+    # NOTHING. Reading the dict's truthiness here would hide every blind extraction
+    # the moment the schema became strict.
     # `authorization` deliberately still writes its key on an empty entry: it has an
     # independent signal (NO_SPONSOR_PHRASES over the JD) and produces a real verdict
     # with no model data at all.
@@ -401,8 +395,8 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
 def _degree_extracted(entry: dict) -> bool:
     """Did the model actually ANSWER the degree question?
 
-    A blind extraction must record no verdict at all, so `merge_fallback_screen` can
-    still see the gap — materializing a pass badge from an extraction that said nothing
+    A blind extraction must record no verdict at all, so the gap stays visible —
+    materializing a pass badge from an extraction that said nothing
     is the original 2026-07-23 defect. `degree_required` must be a real bool (the same
     closed test `clearance` uses); when it says a degree IS required, at least one
     RECOGNIZED level has to come with it, or there is nothing to compare against.

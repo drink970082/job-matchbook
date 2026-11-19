@@ -5,21 +5,24 @@
 Job Matchbook is a **single-user, self-hosted** application — there is no supported
 multi-user or public-facing deployment. The web app is designed to run on
 `127.0.0.1` only (see `docker-compose.yml`'s port bind and
-[`docs/SPEC.md`](./docs/SPEC.md) §6/§11): there is deliberately **no
+[`docs/SPEC.md`](./docs/SPEC.md) §6/§11): the UI has deliberately **no
 authentication layer**, because the threat model assumes the only thing that
-can reach the app is the operator's own loopback interface. If you expose this
+can reach the app is the operator's own loopback interface. The one exception is
+the write API under `/api/v1`, which requires a bearer key from
+`ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` and answers `503` when neither is set;
+the key scopes callers, it does not make the app safe to expose. If you expose this
 app beyond loopback (a public host, `0.0.0.0`, a reverse proxy without its own
 auth, etc.) you are outside the supported threat model and take on that risk
 yourself.
 
 The worker (`apps/worker`) runs natively on the host, not in a container, and
 talks to external services (board APIs, Ollama, an optional CLI/API screen
-backend, OpenRouter for the optional JEV filter) using operator-supplied credentials in a gitignored `.env` /
-`config.yaml`. It is not a network-facing service.
+backend, OpenRouter for the optional JEV filter) using operator-supplied
+credentials in a gitignored `.env` / `config.yaml`. It is not a network-facing service.
 
 An optional ATS MCP process is launched locally over stdio and reads the shared
 database through SQLite `mode=ro` plus `query_only`; it does not bind a listener
-or expose write tools. When an operator connects it through OpenAI Secure MCP
+or expose write tools (MCP writes through `/api/v1` are planned, #154). When an operator connects it through OpenAI Secure MCP
 Tunnel, approved ChatGPT users can read the ATS records and send returned job
 text, application notes, and other selected data to the connected model. Tunnel
 access and ChatGPT workspace policy define that additional trust boundary. The

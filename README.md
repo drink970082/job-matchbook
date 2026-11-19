@@ -1,22 +1,20 @@
 # Job Matchbook
 
-**Your job sources, evidence and application history — available to ChatGPT.**
+**Your job sources, evidence and application history — available to your AI assistant.**
 
 [![CI](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml/badge.svg)](https://github.com/drink970082/job-matchbook/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 Job Matchbook collects jobs from official company boards, stores their descriptions,
-and tracks applications in a self-hosted SQLite database. Its read-only MCP tools let
-ChatGPT inspect jobs and application history for personal analysis and a Daily Job Brief.
-Hard-requirements screening is available as **optional assistance**; review ranking is
-the JEV track.
+and tracks applications in a self-hosted SQLite database. Its MCP tools let an AI
+assistant such as ChatGPT inspect jobs and application history for personal analysis and
+a Daily Job Brief. Hard-requirements screening and a JEV keep/skip filter are available
+as **optional assistance**.
 
-> **Collect and preserve job evidence → query with ChatGPT → review and apply by hand → track.**
+> **Collect and preserve job evidence → query with your AI assistant → review and apply by hand → track.**
 
-ChatGPT-led judgment and delivery are the product direction, not a claim that every
-roadmap feature is implemented. The current web Discovered Jobs view still uses fit
-buckets; an unscored job or standalone screen is not necessarily visible in Matched.
-See the [feature readiness matrix](docs/ROADMAP.md#feature-ownership-and-readiness).
+AI-led judgment and delivery are the product direction, not a claim that every roadmap
+feature is implemented; see the [feature readiness matrix](docs/ROADMAP.md#feature-readiness).
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Current tracker dashboard" width="900">
@@ -31,16 +29,18 @@ See the [feature readiness matrix](docs/ROADMAP.md#feature-ownership-and-readine
 - **Track:** manual application entry, Mark Applied, status history, CSV import/export,
   KPIs and charts; a web-managed watchlist.
 - **Assist optionally:** hard-requirement screening (local Ollama by default, or a
-  CLI/API backend). Review ranking is the JEV track.
+  CLI/API backend) and the paid JEV keep/skip filter (OpenRouter).
+- **Write API:** a key-scoped loopback `/api/v1` for applications and the watchlist,
+  off until a key is set. MCP write tools on top of it are planned (#154).
 
-A ChatGPT task must be configured and tested separately for unattended daily delivery.
-MCP is currently read-only: it cannot import web jobs, record Brief delivery, save an
-agent assessment or update applications. Context-based cross-day deduplication is
-best-effort until a persistent delivery ledger exists.
+A scheduled assistant task must be configured and tested separately for unattended daily
+delivery. MCP tools are read-only today. Cross-day deduplication is best-effort until a
+persistent delivery ledger exists.
 
 No auto-apply, no public multi-tenant service and no CAPTCHA workarounds. Private
 configuration, résumé files and databases are gitignored. A hosted screen backend
-receives JD text and your hard requirements; connecting ChatGPT exposes
+receives JD text and your hard requirements, the JEV filter sends JD text and your
+private `jev_dir` profile to OpenRouter, and connecting an assistant exposes
 the data returned by the enabled MCP tools to that chat.
 
 ## Quick start
@@ -61,9 +61,8 @@ cd apps/worker
 python -m ats_worker.run --fetch-only --once
 ```
 
-Fetch-only does not call the screen or fit model, but still uses configured intake
-filters and the existing expiry/retry flow. It does not yet implement the target
-unscored-inventory UI or freshness improvements.
+Fetch-only calls no model, but still uses configured intake filters and the existing
+expiry/retry flow.
 
 To opt into standalone subscription-backed screening:
 
@@ -74,7 +73,7 @@ python -m ats_worker.run --screen-only --screen-backend codex \
 
 Run `codex login` on the host first. `--screen-unlimited` is an explicit alternative to
 `--screen-limit`, not unlimited subscription entitlement. Read [SETUP](docs/SETUP.md)
-before enabling a metered provider.
+before enabling a metered provider or the JEV filter (`--jev`).
 
 ## Sources and components
 
@@ -91,15 +90,15 @@ See [current and target architecture](docs/ARCHITECTURE.md) and the detailed
 
 | Document | Purpose |
 |---|---|
-| [Architecture](docs/ARCHITECTURE.md) | Current implementation, target ownership and boundaries |
-| [Roadmap](docs/ROADMAP.md) | Feature readiness, R1–R4 priorities and acceptance |
+| [Architecture](docs/ARCHITECTURE.md) | Ownership boundary and current implementation |
+| [Roadmap](docs/ROADMAP.md) | Feature readiness and delivery order |
 | [Pivot decision](docs/superpowers/specs/2026-10-22-chatgpt-first-pivot-design.md) | Approved ChatGPT-primary direction |
-| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen and MCP paths |
+| [Setup](docs/SETUP.md) | Tracker, discovery, optional screen/JEV, MCP and write-API paths |
 | [Spec](docs/SPEC.md) | Shipped capabilities, contracts, data model and operational reference |
 | [Progress](docs/PROGRESS.md) | Branch claims, next work and current limitations |
-| [Backlog](docs/BACKLOG.md) | Current triage; links to deferred technical investigations |
-| [Evaluation](docs/EVALUATION.md) | Relevant checks, retained eval tools and private corpus limitations |
-| [Scoring reference](docs/SCORING.md) | Optional subsystem contracts and measured failure modes |
+| [Backlog](docs/BACKLOG.md) | Open and deferred work |
+| [Evaluation](docs/EVALUATION.md) | Which checks apply, eval tools and private corpus limitations |
+| [Scoring reference](docs/SCORING.md) | Screen contracts and measured failure modes |
 | [Principles](docs/PRINCIPLES.md) / [Development](docs/DEVELOPMENT.md) | Design and contribution protocol |
 | [Rejected proposals](docs/REJECTED.md) | Negative findings to consult before redesign |
 | [Contributing](CONTRIBUTING.md) / [Security](SECURITY.md) | Tests, conventions and accepted-risk scope |

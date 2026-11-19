@@ -1,6 +1,6 @@
 # Setup
 
-Choose a path explicitly. The web app and native worker share SQLite; read-only MCP
+Choose a path explicitly. The web app and native worker share SQLite; the read-only MCP
 is a separate host process. [SPEC §12](SPEC.md#12-setup-and-deployment) supplies detailed
 commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from targets.
 
@@ -13,7 +13,9 @@ commands; [ARCHITECTURE](ARCHITECTURE.md) distinguishes implemented paths from t
 | Python 3.11+ | Native worker and MCP |
 | Configured public job sources/network access | Discovery |
 | A selected screen backend | Optional screening; no model needed for fetch-only |
-| MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | ChatGPT reading local ATS data |
+| OpenRouter key + private `jev_dir` inputs | Optional JEV keep/skip filter |
+| MCP SDK extra, absolute `ATS_DB_PATH`, tunnel/plugin connection | An AI assistant reading local ATS data |
+| `ATS_API_KEY_READ_WRITE` / `ATS_API_KEY_READ` in the root `.env` | The loopback write API `/api/v1` (off without a key) |
 
 A local GPU/Ollama and a résumé are not prerequisites for the tracker or fetch-only
 discovery. Subscription inference consumes allowance; metered APIs can incur separate
@@ -42,8 +44,7 @@ Fill the private config for intended sources/intake first. `make setup` does not
 existing files. Doctor reports the broader installation; a missing optional screen backend
 is not a requirement to enable it. Fetch-only still applies configured title/candidate/age
 filters and runs the existing expiry/retry behavior. Dropping `--once` enables the
-configured schedule. The web's fit-oriented view is not yet a complete unscored-job
-browser; use MCP for current record access.
+configured schedule. The web's All-jobs inventory lists every fetched posting.
 
 ## Path C — optional standalone screening
 
@@ -59,7 +60,20 @@ need none. Explicit `--screen-unlimited` replaces the numeric limit while preser
 cache/breaker behavior, but does not remove subscription limits. The operator uses that
 explicit unlimited mode with one worker; this bounded example is not a deployment change.
 
-## Path D — ChatGPT access
+## Path C2 — optional JEV keep/skip filter
+
+Set `jev_dir` in `config.yaml` (four private input files, see `config.yaml.example`)
+and `OPENROUTER_API_KEY` in `apps/worker/.env`, then add the flags to a screening run:
+
+```bash
+python -m ats_worker.run --screen-only ... --jev --jev-limit 300 --jev-max-usd 0.10 --once
+```
+
+Calls are metered; `--jev-max-usd` caps settled spend per pass. Verdicts live in
+`job_jev_assessments`; MCP `list_jobs` hides a current `skip` by default. Without the key
+the stage logs a line and is skipped.
+
+## Path D — AI-assistant access (MCP)
 
 Follow [SPEC §12](SPEC.md#12-setup-and-deployment) for the MCP extra, stdio command,
 absolute database path and private tunnel configuration. Connect and test the ATS plugin
@@ -67,8 +81,10 @@ in ChatGPT; verify overview, pagination, full JD chunks and application records.
 No API key, tunnel identity or private profile belongs in the repo.
 
 Daily Brief instructions/background and a scheduled task are separate user-controlled
-configuration. Test an actual unattended run, not only an interactive call. MCP cannot
-save recommendations or import jobs today; the manual tracker remains available.
+configuration. Test an actual unattended run, not only an interactive call. MCP tools are
+read-only today; MCP writes through `/api/v1` are planned (#154). To enable the write API,
+set `ATS_API_KEY_READ_WRITE` (and optionally `ATS_API_KEY_READ`) to long random values in
+the root `.env` and restart the web container; with neither set it answers `503`.
 
 ## Where settings live
 
@@ -77,9 +93,8 @@ save recommendations or import jobs today; the manual tracker remains available.
 | Collection filters, candidate facts, schedule | Private `config.yaml` | Existing intake/screen semantics; edit and restart intentionally |
 | Watchlist | Config seed, then DB | After initial seed, manage in web; config edits do not replace DB rows |
 | Provider selection/secrets | Private `.env` and CLI flags | Choose an explicit mode; metered providers are opt-in |
-| Private résumé/profile | `apps/worker/resume/` | Not read by the worker; private inputs for onboarding and ranking work |
+| Private résumé/profile | `apps/worker/resume/` | Read by the worker only through `jev_dir` (JEV inputs); otherwise private onboarding material |
 | Primary personal judgment rubric | ChatGPT task/project or accessible user-controlled document | Keep current and available to each run; memory is not a versioned config |
 | Application history and job evidence | Shared SQLite directory | Back up with SQLite-aware tools; preserve WAL sidecars |
 
-All private config, résumé and database paths remain gitignored. No runtime migration is
-performed by this documentation update.
+All private config, résumé and database paths are gitignored.

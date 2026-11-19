@@ -1,6 +1,8 @@
 # ChatGPT-first Job Matchbook direction
 
 **Status:** approved product direction; implementation slices require their own scoped designs.
+Amended since: the fit scorer and Telegram are removed (#149, #150), JEV is the review
+filter (#139), and MCP gains writes (epic #152).
 
 ## Decision
 

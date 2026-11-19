@@ -7,6 +7,21 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ## [Unreleased]
 
+### Removed
+
+- **Pre-launch cleanup.** 35 `docs/superpowers` specs/plans/notes for shipped or
+  removed work (recoverable at `7f0b297`); fit-scorer and Telegram wording across docs,
+  skills, templates, the deploy unit and compose; the unused `DEFAULT_SCREEN_WORKERS`.
+  `SCORING.md` is now the screen reference (1760 -> 863 lines); `REJECTED.md` and
+  `ENGINEERING_CATALOGUE.md` lose their removed-code entries.
+
+### Fixed
+
+- **`config.yaml.bak-*` was untracked and unignored.** `.gitignore` and
+  `make check-privacy` now cover every `config.yaml*` except the `.example`.
+- `make doctor` reports `OPENROUTER_API_KEY` (needed by `--jev`); `.env.example`
+  documents it. CI runs with a read-only token and cancels superseded PR runs.
+
 ### Added
 
 - **Web shows MCP writes**: the application history dialog marks an MCP-created
