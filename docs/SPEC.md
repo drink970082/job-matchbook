@@ -32,7 +32,7 @@ Ranking within `keep` stays gated (#135). The offline preselection tooling
 ([preparation plan](superpowers/plans/2026-10-27-preselection-parallel-preparation.md))
 is its provider-free foundation. Epic #152 makes MCP the main channel: the key-scoped
 loopback write API (`/api/v1`, §7.2), the MCP application write tools over it (#154) and
-the MCP workflow prompts (#159) are shipped; a read-only web dashboard is planned (#158). #94 still needs actual unattended evidence.
+the MCP workflow prompts (#159) are shipped; a web dashboard read-only except Applications and Settings is planned (#158). #94 still needs actual unattended evidence.
 
 [ARCHITECTURE](ARCHITECTURE.md) separates target ownership from existing implementation;
 [ROADMAP](ROADMAP.md) lists feature readiness and outstanding slices;
@@ -1800,6 +1800,12 @@ not change other adapters.
   Engineering, Data & Analytics, Product, Design, Finance, Marketing, Operations, Sales,
   Others) is only the seed/fallback before the user chooses. Category values are free-form
   labels — nothing in the pipeline reads them.
+- **Settings:** the header **Settings** button opens a dialog over the two stored worker
+  settings (§8): the hard requirements (`setCandidatePreferences`) and the JEV profile
+  text and experience context (`setJevProfile`), with actor `web`. It loads on open
+  (`getSettings`, which also counts the in-window postings a JEV change re-assesses) and
+  asks for confirmation, with that count and an estimated cost, before a JEV save. With no
+  stored JEV profile it explains the `jev_dir` seed instead of offering an editor.
 
 **Schema changes and migrations.** The schema is applied with `prisma db push`
 (`make db-push`), so there is **no migration history**. This is a deliberate tradeoff

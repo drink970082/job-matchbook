@@ -1769,6 +1769,29 @@ export async function setCandidatePreferences(input: Record<string, unknown>, ac
 const MAX_JEV_PROFILE = 16000
 const MAX_YOE_CONTEXT = 2000
 
+// The Settings dialog's read: both stored rows (null until seeded or set) and how many
+// postings a JEV profile change would re-assess. The count mirrors the worker's JEV
+// eligibility (db._JEV_ELIGIBLE + pipeline.JEV_MAX_AGE_DAYS) and MCP get_jev_profile.
+export async function getSettings() {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+    const [prefs, jev, counted] = await Promise.all([
+        prisma.candidate_preferences.findUnique({ where: { id: 1 } }),
+        prisma.jev_profile.findUnique({
+            where: { id: 1 }, select: { profile_text: true, yoe_context: true, version: true, actor: true, changed_at: true },
+        }),
+        prisma.$queryRaw<{ n: bigint | number }[]>`SELECT COUNT(*) AS n FROM job_postings p
+            JOIN job_screenings s ON s.job_posting_id = p.id
+            WHERE p.pipeline_status = 'new' AND s.state = 'complete' AND json_valid(s.result_json)
+              AND COALESCE(json_extract(s.result_json, '$.disqualified'), 0) = 0
+              AND substr(COALESCE(p.posted_at, p.created_at), 1, 10) >= ${since}`,
+    ])
+    return {
+        preferences: prefs ? { ...prefs, locations: JSON.parse(prefs.locations) as string[] } : null,
+        jev,
+        reassessOnChange: Number(counted[0]?.n ?? 0),
+    }
+}
+
 export async function setJevProfile(input: Record<string, unknown>, actor: Actor = 'web') {
     checkedActor(actor)
     try {

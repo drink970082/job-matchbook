@@ -8,11 +8,13 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 
 ## In flight
 
-- **JEV profile into the DB — PR open** `[WORKER+WEB · M]` (#157, second slice, branch
-  `feat/157-jev-profile-db`). `jev_dir` seeds a `jev_profile` row; MCP
-  `get_jev_profile`/`set_jev_profile`. Deploy: schema push, then restart the worker
-  (seeds at startup), then web and MCP; check the first JEV pass after it re-queues
-  nothing (same policy hash).
+- **JEV profile in the DB — deployed; acceptance: tonight's JEV pass re-queues nothing
+  for a policy change (hash verified equal at deploy); then delete this entry**
+  `[WORKER+WEB · M]` (#157).
+
+- **Web Settings dialog — PR open** `[WEB · S]` (#158 scope change, branch
+  `feat/158-settings-dialog`). The operator wants the dashboard to edit the stored
+  settings too, so #158's read-only rule exempts Settings as well as Applications.
 
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:

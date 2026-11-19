@@ -41,9 +41,10 @@ import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
 import { StatusHistoryModal } from './StatusHistoryModal'
 import { CategoriesDialog } from './CategoriesDialog'
+import { SettingsDialog } from './SettingsDialog'
 import { ImportCSVDialog } from './ImportCSVDialog'
 import { Button } from '@/components/ui/button'
-import { Download, Upload, Tags } from 'lucide-react'
+import { Download, Upload, Tags, Settings as SettingsIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import type { JobViewScope } from '@/lib/actions'
 
@@ -121,6 +122,7 @@ export function Dashboard({
     const [categoryOptions, setCategoryOptions] = useState<string[]>(initialCategoryOptions)
     const [categoriesConfigured, setCategoriesConfigured] = useState(initialCategoriesConfigured)
     const [categoriesDialogOpen, setCategoriesDialogOpen] = useState(false)
+    const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
     const [selectedApp, setSelectedApp] = useState<any>(null)
     const [historyData, setHistoryData] = useState<any[]>([])
@@ -519,6 +521,9 @@ export function Dashboard({
                         <Button variant="outline" size="sm" onClick={() => setCategoriesDialogOpen(true)}>
                             <Tags className="mr-2 h-4 w-4" /> Categories
                         </Button>
+                        <Button variant="outline" size="sm" onClick={() => setSettingsDialogOpen(true)}>
+                            <SettingsIcon className="mr-2 h-4 w-4" /> Settings
+                        </Button>
                         <Button variant="outline" size="sm" onClick={handleExportCSV}>
                             <Download className="mr-2 h-4 w-4" /> Export CSV
                         </Button>
@@ -695,6 +700,9 @@ export function Dashboard({
                     setCategoriesConfigured(true)
                 }}
             />
+
+            {/* Stored worker settings: hard requirements and the JEV profile (#157) */}
+            <SettingsDialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen} />
 
             {/* CSV import: drag-and-drop / browse, with the column contract inline */}
             <ImportCSVDialog

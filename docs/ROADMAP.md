@@ -27,7 +27,7 @@ issues own scope and status.
 
 | Order | Deliverable | Dependencies | State |
 |---|---|---|---|
-| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 read-only web dashboard, #159 workflow text in MCP | #153 (merged) | In flight |
+| 1 | [#152 AI-orchestrated ATS](https://github.com/drink970082/job-matchbook/issues/152): #155 triage override, #156 watchlist tools, #157 preferences/profile in the DB, #158 web dashboard read-only except Applications and Settings, #159 workflow text in MCP | #153 (merged) | In flight |
 | 2 | [#94 Scheduled Daily Brief](https://github.com/drink970082/job-matchbook/issues/94) | Deployed tunnel and account/workspace task access | Unattended acceptance outstanding |
 | 3 | [#135 JEV ranking -> MCP](https://github.com/drink970082/job-matchbook/issues/135) | Keep/skip filter (#139) deployed | Ranking activation gated |
 | Conditional | [#95 Delivery ledger](https://github.com/drink970082/job-matchbook/issues/95) | #94; observed repeats | Deferred |

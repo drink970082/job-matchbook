@@ -94,7 +94,7 @@ database:**
   the MCP server (`ats_worker/mcp/`).
 - **`apps/web`** — Next.js 14 + Prisma tracker UI, plus the key-scoped loopback
   `/api/v1` write API the MCP server calls. Becoming a read-only dashboard except
-  Applications (#158).
+  Applications and Settings (#158).
 
 A human applies by hand. The old fit scorer and Telegram alerts are removed.
 
