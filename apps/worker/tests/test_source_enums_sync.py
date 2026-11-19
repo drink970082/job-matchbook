@@ -114,3 +114,8 @@ def test_low_context_threshold_matches_web():
     # that constant equals the web's, rather than regexing a SQL literal.
     assert db.LOW_CONTEXT_MAX_DESCRIPTION_LENGTH == _ts_int(
         "LOW_CONTEXT_MAX_DESCRIPTION_LENGTH")
+
+
+def test_application_statuses_match_web():
+    from ats_worker.mcp.read_repository import APPLICATION_STATUS_ORDER
+    assert list(APPLICATION_STATUS_ORDER) == _ts_array("STATUSES")

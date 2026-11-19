@@ -36,16 +36,13 @@ const LOCATIONS = ['Remote', 'NYC', 'SF Bay Area', 'Seattle', 'Austin', 'Boston'
 // shape you'd expect (lots of no-response / early rejects, few offers).
 const TRAJECTORIES = [
     { path: ['Applied'], weight: 8 }, // awaiting response
-    { path: ['Applied', 'Rejected'], weight: 5 },
-    { path: ['Applied', 'Ghosted'], weight: 3 },
-    { path: ['Applied', 'Online Assessment'], weight: 3 },
-    { path: ['Applied', 'Online Assessment', 'Rejected'], weight: 3 },
-    { path: ['Applied', 'Online Assessment', 'Phone Screen', 'Rejected'], weight: 2 },
-    { path: ['Applied', 'Phone Screen', 'Interviewing: 1st round'], weight: 3 },
-    { path: ['Applied', 'Phone Screen', 'Interviewing: 1st round', 'Rejected'], weight: 2 },
-    { path: ['Applied', 'Phone Screen', 'Interviewing: 1st round', 'Interviewing: 2nd round', 'Final Round', 'Rejected'], weight: 1 },
-    { path: ['Applied', 'Phone Screen', 'Interviewing: 1st round', 'Interviewing: 2nd round', 'Final Round', 'Offer'], weight: 1 },
-    { path: ['Applied', 'Online Assessment', 'Phone Screen', 'Interviewing: 1st round', 'Final Round', 'Offer', 'Accepted'], weight: 1 },
+    { path: ['Applied', 'Rejected'], weight: 8 },
+    { path: ['Applied', 'Screening'], weight: 3 },
+    { path: ['Applied', 'Screening', 'Rejected'], weight: 5 },
+    { path: ['Applied', 'Screening', 'Interviewing'], weight: 3 },
+    { path: ['Applied', 'Screening', 'Interviewing', 'Rejected'], weight: 3 },
+    { path: ['Applied', 'Screening', 'Interviewing', 'Offer'], weight: 1 },
+    { path: ['Applied', 'Screening', 'Interviewing', 'Offer', 'Accepted'], weight: 1 },
     { path: ['Applied', 'Withdrew'], weight: 1 },
 ]
 

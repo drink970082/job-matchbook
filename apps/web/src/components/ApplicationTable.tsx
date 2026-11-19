@@ -18,9 +18,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select'
-import { Trash2, History } from 'lucide-react'
+import { Trash2, FileText, ArrowUp, ArrowDown } from 'lucide-react'
 import { Pagination } from './Pagination'
 import { STATUSES, getStatusColor } from '@/lib/constants'
+import { safeHref } from '@/lib/utils'
+import type { ApplicationSort } from '@/lib/application-actions'
 
 interface Application {
     id: number
@@ -30,6 +32,16 @@ interface Application {
     category: string
     date_applied: string
     notes: string
+    application_url?: string | null
+}
+
+type SortKey = ApplicationSort['sort']
+
+// `Nov 3`, plus the year when it is not this year.
+export function formatAppliedDate(iso: string, now = new Date()) {
+    const d = new Date(iso + 'T00:00:00')
+    return d.toLocaleDateString('en-US', d.getFullYear() === now.getFullYear()
+        ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 interface ApplicationTableProps {
@@ -39,7 +51,7 @@ interface ApplicationTableProps {
     page: number
     size: number
     onPageChange: (page: number) => void
-    onFilterChange: (filters: { status?: string; historicalStatus?: string; category?: string; search?: string }) => void
+    onFilterChange: (filters: { status?: string; historicalStatus?: string; category?: string; search?: string } & Partial<ApplicationSort>) => void
     onStatusChange: (id: number, status: string) => void
     onDelete: (id: number) => void
     onHistory: (id: number) => void
@@ -61,14 +73,28 @@ export function ApplicationTable({
     const [statusFilter, setStatusFilter] = useState('all')
     const [historicalStatusFilter, setHistoricalStatusFilter] = useState('all')
     const [categoryFilter, setCategoryFilter] = useState('all')
+    const [sort, setSort] = useState<ApplicationSort>({ sort: 'date', dir: 'desc' })
 
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            onFilterChange({ search, status: statusFilter, historicalStatus: historicalStatusFilter, category: categoryFilter })
+            onFilterChange({ search, status: statusFilter, historicalStatus: historicalStatusFilter, category: categoryFilter, ...sort })
         }, 300)
         return () => clearTimeout(timer)
-    }, [search, statusFilter, historicalStatusFilter, categoryFilter, onFilterChange])
+    }, [search, statusFilter, historicalStatusFilter, categoryFilter, sort, onFilterChange])
+
+    // Click a header: sort by it (asc first, date desc first), click again to flip.
+    const SortHead = ({ k, label, className }: { k: SortKey; label: string; className: string }) => (
+        <TableHead className={className} aria-sort={sort.sort === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}>
+            <button type="button" className="inline-flex items-center gap-1 hover:text-foreground"
+                onClick={() => setSort(sort.sort === k
+                    ? { sort: k, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+                    : { sort: k, dir: k === 'date' ? 'desc' : 'asc' })}>
+                {label}
+                {sort.sort === k && (sort.dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+            </button>
+        </TableHead>
+    )
 
     return (
         <div className="space-y-4">
@@ -119,11 +145,11 @@ export function ApplicationTable({
                 <Table className="table-fixed w-full">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[18%] whitespace-normal">Company</TableHead>
+                            <SortHead k="company" label="Company" className="w-[18%] whitespace-normal" />
                             <TableHead className="w-[26%] whitespace-normal">Job Title</TableHead>
                             <TableHead className="w-[14%] whitespace-normal">Category</TableHead>
-                            <TableHead className="w-[10%] whitespace-normal">Date</TableHead>
-                            <TableHead className="w-[18%] whitespace-normal">Status</TableHead>
+                            <SortHead k="date" label="Date" className="w-[12%] whitespace-normal" />
+                            <SortHead k="status" label="Status" className="w-[16%] whitespace-normal" />
                             <TableHead className="w-[14%] whitespace-normal text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -143,7 +169,10 @@ export function ApplicationTable({
                                             {app.company_name}
                                         </TableCell>
                                         <TableCell className="whitespace-normal text-sm text-muted-foreground" title={app.job_title}>
-                                            {app.job_title}
+                                            {app.application_url && safeHref(app.application_url) !== '#' ? (
+                                                <a href={safeHref(app.application_url)} target="_blank" rel="noopener noreferrer"
+                                                    className="underline-offset-2 hover:underline">{app.job_title}</a>
+                                            ) : app.job_title}
                                         </TableCell>
                                         <TableCell>
                                             <span 
@@ -154,7 +183,7 @@ export function ApplicationTable({
                                             </span>
                                         </TableCell>
                                         <TableCell className="text-muted-foreground text-xs">
-                                            {new Date(app.date_applied + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            {formatAppliedDate(app.date_applied)}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-1">
@@ -176,10 +205,11 @@ export function ApplicationTable({
                                                     variant="ghost"
                                                     size="icon"
                                                     onClick={() => onHistory(app.id)}
-                                                    title="History"
+                                                    title="Details"
+                                                    aria-label="Details"
                                                     className="h-7 w-7"
                                                 >
-                                                    <History className="h-3.5 w-3.5" />
+                                                    <FileText className="h-3.5 w-3.5" />
                                                 </Button>
                                                 <Button
                                                     variant="ghost"

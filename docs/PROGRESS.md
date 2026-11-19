@@ -20,11 +20,14 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
   older screened postings stay `unassessed` and listed. Rollback = drop `--jev` from the
   worker's flags and restart; the table is additive.
 
-- **Web UX pass — one PR per issue, in order #211 (shell) -> #205 Applications -> #206
-  Settings -> #207 Discovered Jobs -> #208 Sources -> #210 Activity; #209 (MCP reads via
-  `/api/v1`) is research after those land** `[WEB · L]`. Branches `feat/<issue>-*`; each
-  issue body is the agreed spec. #205's Ghosted -> Rejected mapping and 60-day Active
-  window wait on the operator before the data migration.
+- **Web UX pass — one PR per issue: #205 Applications -> #206 Settings -> #207
+  Discovered Jobs -> #208 Sources -> #210 Activity; #209 (MCP reads via `/api/v1`) is
+  research after those land** `[WEB · L]`. Branches `feat/<issue>-*`; each issue body is
+  the agreed spec. #205 ships the proposed Ghosted -> Rejected mapping and 60-day Active
+  window unconfirmed by the operator; its data migration
+  (`apps/web/prisma/migrate-statuses-205.mjs`) has not run on the deployed DB, which
+  holds no pre-#205 status today. #207 also owns the Jobs badge: it counts JEV keep
+  only, so it reads 0 without JEV until #207's "postings for you" predicate replaces it.
 
 These references reserve unfinished work; they do not claim the branches are currently
 executing or establish merge readiness. Inspect actual refs/worktrees and coordinate

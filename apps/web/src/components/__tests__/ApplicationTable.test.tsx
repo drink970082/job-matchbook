@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { ApplicationTable } from '@/components/ApplicationTable'
+import { ApplicationTable, formatAppliedDate } from '@/components/ApplicationTable'
 import userEvent from '@testing-library/user-event'
 
 const mockApps = [
@@ -77,12 +77,36 @@ describe('ApplicationTable', () => {
     expect(onDelete).toHaveBeenCalledWith(1)
   })
 
-  it('calls onHistory with the row id when the History button is clicked', async () => {
+  it('calls onHistory with the row id when the Details button is clicked', async () => {
     const { onHistory } = renderTable()
 
-    const historyButtons = screen.getAllByRole('button', { name: /history/i })
+    const historyButtons = screen.getAllByRole('button', { name: 'Details' })
     await userEvent.click(historyButtons[0])
 
     expect(onHistory).toHaveBeenCalledWith(1)
   })
+
+  it('links the job title to its application URL in a new tab, and only http(s)', () => {
+    renderTable({ data: [
+      { ...mockApps[0], application_url: 'https://jobs.example/1' },
+      { ...mockApps[1], application_url: 'javascript:alert(1)' },
+    ] })
+    expect(screen.getByRole('link', { name: 'SWE' })).toHaveAttribute('href', 'https://jobs.example/1')
+    expect(screen.getByRole('link', { name: 'SWE' })).toHaveAttribute('target', '_blank')
+    expect(screen.queryByRole('link', { name: 'MLE' })).toBeNull()
+  })
+
+  it('clicking a sortable header sorts by it, again flips the direction', async () => {
+    const { onFilterChange } = renderTable()
+    await userEvent.click(screen.getByRole('button', { name: 'Company' }))
+    await waitFor(() => expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'company', dir: 'asc' })))
+    await userEvent.click(screen.getByRole('button', { name: 'Company' }))
+    await waitFor(() => expect(onFilterChange).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'company', dir: 'desc' })))
+  })
+})
+
+test('formatAppliedDate adds the year only outside the current year', () => {
+  const now = new Date('2026-06-01T12:00:00')
+  expect(formatAppliedDate('2026-11-03', now)).toBe('Nov 3')
+  expect(formatAppliedDate('2025-11-03', now)).toBe('Nov 3, 2025')
 })

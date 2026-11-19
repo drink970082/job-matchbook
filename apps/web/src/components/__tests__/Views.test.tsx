@@ -23,7 +23,6 @@ jest.mock('@/lib/category-actions')
 jest.mock('@/lib/activity-actions')
 jest.mock('@/lib/unresolved-actions')
 jest.mock('@/components/SankeyChart', () => ({ SankeyChart: () => <div data-testid="sankey" /> }))
-jest.mock('@/components/StatusFunnel', () => ({ StatusFunnel: () => <div data-testid="funnel" /> }))
 jest.mock('@/components/TimelineHeatmap', () => ({ TimelineHeatmap: () => <div data-testid="heatmap" /> }))
 jest.mock('@/components/CategoryDonut', () => ({ CategoryDonut: () => <div data-testid="donut" /> }))
 
@@ -47,7 +46,7 @@ beforeEach(() => {
 
 const appProps = {
     initialApps: [],
-    initialKpis: { applied: 3, active: 2, assessment: 0, interviewing: 1, rejected: 0, offer: 0 },
+    initialKpis: { total: 3, active: 2, screening: 0, interviewing: 1, rejected: 0, offer: 0 },
     totalApps: 0,
     initialStatusFlow: [],
     initialTimeline: [],
@@ -65,7 +64,7 @@ function deferred<T>() {
 
 test('the Applications view shows the KPI grid and the CSV actions', () => {
     render(<ApplicationsView {...appProps} />)
-    expect(screen.getByText('Applied')).toBeInTheDocument() // KPI tile label
+    expect(screen.getByText('Total')).toBeInTheDocument() // KPI tile label
     expect(screen.getByRole('button', { name: /Export CSV/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Import CSV/i })).toBeInTheDocument()
 })

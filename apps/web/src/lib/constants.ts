@@ -1,19 +1,19 @@
+import legacyStatuses from './legacy-statuses.json'
+
 export const STATUSES = [
   'Applied',
-  'Online Assessment',
-  'Phone Screen',
-  'Interviewing: 1st round',
-  'Interviewing: 2nd round',
-  'Interviewing: 3rd round',
-  'Interviewing: 4th round',
-  'Interviewing: 5th round',
-  'Final Round',
+  'Screening',
+  'Interviewing',
   'Offer',
   'Accepted',
   'Rejected',
   'Withdrew',
-  'Ghosted',
 ] as const
+
+// The 14 statuses before #205, mapped onto the 7 above: an old CSV export re-imports
+// correctly. One JSON file so the one-off data migration (prisma/migrate-statuses-205.mjs)
+// reads the same map.
+export const LEGACY_STATUS_MAP: Record<string, (typeof STATUSES)[number]> = legacyStatuses as any
 
 // Who made a write: the web UI or the MCP server (through /api/v1). Stamped on
 // applications (creation) and status_history (each change); schema default is 'web'.
@@ -29,10 +29,10 @@ export const WORK_AUTHORIZATIONS = ['citizen', 'permanent resident', 'authorized
 // 'Applied' (see analytics-actions.ts). It is deliberately not a real status — nothing is ever
 // stored as 'No Response' — which is why it lives here and not in STATUSES.
 //
-// SankeyChart and StatusFunnel each hold a hand-authored color per member. A color
-// cannot be derived from a name, so those maps stay written out; what this type buys
-// is that they must stay COMPLETE. Both `satisfies Record<ChartStatus, ...>`, so a
-// status added to STATUSES fails the build until it is given a color in both — the
+// SankeyChart holds a hand-authored color per member. A color
+// cannot be derived from a name, so the map stays written out; what this type buys
+// is that it must stay COMPLETE. It `satisfies Record<ChartStatus, ...>`, so a
+// status added to STATUSES fails the build until it is given a color — the
 // alternative being a node that silently renders grey.
 export const CHART_STATUSES = [...STATUSES, 'No Response'] as const
 export type ChartStatus = (typeof CHART_STATUSES)[number]
@@ -84,14 +84,11 @@ export const LOW_CONTEXT_MAX_DESCRIPTION_LENGTH = 200
 /** Map status to a display color class */
 export function getStatusColor(status: string) {
   if (status === 'Applied') return { bg: 'bg-blue-500/15', text: 'text-blue-700', dot: 'bg-blue-500' }
-  if (status === 'Online Assessment') return { bg: 'bg-purple-500/15', text: 'text-purple-700', dot: 'bg-purple-500' }
-  if (status === 'Phone Screen') return { bg: 'bg-violet-500/15', text: 'text-violet-700', dot: 'bg-violet-500' }
-  if (status === 'Final Round') return { bg: 'bg-orange-500/15', text: 'text-orange-700', dot: 'bg-orange-500' }
-  if (status.includes('Interviewing')) return { bg: 'bg-amber-500/15', text: 'text-amber-700', dot: 'bg-amber-500' }
+  if (status === 'Screening') return { bg: 'bg-purple-500/15', text: 'text-purple-700', dot: 'bg-purple-500' }
+  if (status === 'Interviewing') return { bg: 'bg-amber-500/15', text: 'text-amber-700', dot: 'bg-amber-500' }
   if (status === 'Offer') return { bg: 'bg-emerald-500/15', text: 'text-emerald-700', dot: 'bg-emerald-500' }
   if (status === 'Accepted') return { bg: 'bg-emerald-600/15', text: 'text-emerald-800', dot: 'bg-emerald-600' }
   if (status === 'Rejected') return { bg: 'bg-red-500/15', text: 'text-red-700', dot: 'bg-red-500' }
   if (status === 'Withdrew') return { bg: 'bg-slate-500/15', text: 'text-slate-700', dot: 'bg-slate-500' }
-  if (status === 'Ghosted') return { bg: 'bg-zinc-400/15', text: 'text-zinc-600', dot: 'bg-zinc-400' }
   return { bg: 'bg-gray-500/15', text: 'text-gray-700', dot: 'bg-gray-500' }
 }

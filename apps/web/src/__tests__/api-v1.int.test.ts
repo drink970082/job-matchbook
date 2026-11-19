@@ -75,7 +75,7 @@ test('UI-created rows default to actor=web', async () => {
 
 test('status update appends history with actor=mcp', async () => {
     const app = await prisma.applications.create({ data: makeApplication() })
-    const res = await postStatus(req({ status: 'Phone Screen', date: '2026-11-17' }, RW), params(app.id))
+    const res = await postStatus(req({ status: 'Screening', date: '2026-11-17' }, RW), params(app.id))
     expect(res.status).toBe(200)
     const hist = await prisma.status_history.findMany({ where: { application_id: app.id } })
     expect(hist).toHaveLength(1)

@@ -3,35 +3,26 @@
 import { prisma } from '@/lib/db'
 import { CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
+// Active = not Offer/Accepted/Rejected/Withdrew and something happened in the last 60
+// days (latest status-history date, else date_applied): with Ghosted gone (#205), an
+// application that went silent stops counting. Not `last_updated`: that is the write
+// time, so a CSV import or a backdated add would read as recent.
+const ACTIVE_WINDOW_DAYS = 60
+
 export async function getKPIs() {
-    const apps = await prisma.applications.findMany()
-
-    const stats = {
-        applied: 0,
-        active: 0,
-        assessment: 0,
-        interviewing: 0,
-        rejected: 0,
-        offer: 0,
-    }
-
-    stats.applied = apps.length
-
-    let withdrew = 0
-    let ghosted = 0
-
+    const apps = await prisma.applications.findMany({ select: { status: true, date_applied: true,
+        status_history: { select: { timestamp: true }, orderBy: { timestamp: 'desc' }, take: 1 } } })
+    const since = new Date(Date.now() - ACTIVE_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10)
+    const stats = { total: apps.length, active: 0, screening: 0, interviewing: 0, rejected: 0, offer: 0 }
     for (const app of apps) {
-        const status = app.status.toLowerCase()
-        if (status === 'online assessment') stats.assessment += 1
-        else if (status === 'phone screen' || status.includes('interviewing') || status === 'final round') stats.interviewing += 1
-        else if (status === 'rejected') stats.rejected += 1
-        else if (status === 'offer' || status === 'accepted') stats.offer += 1
-        else if (status === 'withdrew') withdrew += 1
-        else if (status === 'ghosted') ghosted += 1
+        if (app.status === 'Screening') stats.screening += 1
+        else if (app.status === 'Interviewing') stats.interviewing += 1
+        else if (app.status === 'Rejected') stats.rejected += 1
+        else if (app.status === 'Offer' || app.status === 'Accepted') stats.offer += 1
+        const terminal = ['Offer', 'Accepted', 'Rejected', 'Withdrew'].includes(app.status)
+        const last = [app.date_applied, app.status_history?.[0]?.timestamp ?? ''].sort().at(-1)!.slice(0, 10)
+        if (!terminal && last >= since) stats.active += 1
     }
-
-    stats.active = apps.length - stats.rejected - stats.offer - withdrew - ghosted
-
     return stats
 }
 

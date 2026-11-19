@@ -4,7 +4,6 @@ import { AddApplicationForm } from './AddApplicationForm'
 import { ApplicationTable } from './ApplicationTable'
 import { TimelineHeatmap } from './TimelineHeatmap'
 import { CategoryDonut } from './CategoryDonut'
-import { StatusFunnel } from './StatusFunnel'
 import { SankeyChart } from './SankeyChart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -92,15 +91,6 @@ export function ApplicationsTab({
                     </CardContent>
                 </Card>
             </div>
-
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Status Funnel</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <StatusFunnel data={statusFlow} />
-                </CardContent>
-            </Card>
 
             <Card>
                 <CardHeader className="pb-3">

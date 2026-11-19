@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 describe('StatusHistoryModal', () => {
     const mockHistory = [
         { id: 11, status: 'Applied', timestamp: '2023-01-01' },
-        { id: 22, status: 'Interviewing: 1st round', timestamp: '2023-01-15' }
+        { id: 22, status: 'Interviewing', timestamp: '2023-01-15' }
     ]
 
     const mockApplication = {
@@ -49,9 +49,9 @@ describe('StatusHistoryModal', () => {
     it('should render history items', () => {
         render(<StatusHistoryModal {...makeProps()} />)
         expect(screen.getAllByText('Applied').length).toBeGreaterThan(0)
-        // 'Interviewing: 1st round' also appears as a <select> option, so use
+        // 'Interviewing' also appears as a <select> option, so use
         // getAllByText (same pattern as 'Applied' above) rather than getByText.
-        expect(screen.getAllByText('Interviewing: 1st round').length).toBeGreaterThan(0)
+        expect(screen.getAllByText('Interviewing').length).toBeGreaterThan(0)
     })
 
     it('should call onClose when close button is clicked', async () => {

@@ -1,7 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/db'
-import { STATUSES } from '@/lib/constants'
+import { LEGACY_STATUS_MAP, STATUSES } from '@/lib/constants'
 import { CATEGORY_FALLBACK } from '@/lib/action-helpers'
 
 const CSV_COLUMNS = [
@@ -175,7 +175,8 @@ export async function importApplicationsCSV(csvText: string) {
                     }
 
                     const rawStatus = get('status') || 'Applied'
-                    const status = statusSet.has(rawStatus) ? rawStatus : 'Applied'
+                    // An export from before #205 carries the old 14 names; map them.
+                    const status = statusSet.has(rawStatus) ? rawStatus : LEGACY_STATUS_MAP[rawStatus] ?? 'Applied'
                     // Category is free-form (the user's own vocabulary) — keep whatever
                     // the CSV supplies, defaulting only when blank.
                     const category = (get('category') || '').trim() || CATEGORY_FALLBACK
