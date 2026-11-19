@@ -6,11 +6,11 @@
 # URL. Most sources take a single token; workday/phenom pack multiple parts, and
 # custom/browser are recipe-driven (see below).
 
-# NOTE: the watchlist now lives in the DB (table `watched_companies`), managed in
-# the web app's Watchlist tab. This `companies:` list is a ONE-TIME SEED: it's
+# NOTE: the watchlist now lives in the DB (table `watched_companies`), shown read-only
+# in the web app's Sources tab. This `companies:` list is a ONE-TIME SEED: it's
 # imported into the DB on the first run when the watchlist is empty (or on demand
 # via `python -m ats_worker.run --import-companies`). After seeding, edits here
-# are ignored — add/remove companies in the web UI instead.
+# are ignored — add/remove companies with the MCP add_source/remove_source tools.
 companies:
   - { source: greenhouse, slug: acme, name: "Acme Inc" }       # job-boards.greenhouse.io/{slug}
   - { source: lever, slug: foobar, name: "Foobar" }            # jobs.lever.co/{slug}

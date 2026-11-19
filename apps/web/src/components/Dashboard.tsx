@@ -415,6 +415,7 @@ export function Dashboard({
                         onClick={() => {
                             setActiveTab(tab)
                             if (tab === 'activity') getRecentActivity().then(setActivity).catch(() => toast.error('Could not load activity'))
+                            if (tab === 'sources') { refreshWatchlist(); refreshUnresolved() }
                         }}
                         className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                             activeTab === tab

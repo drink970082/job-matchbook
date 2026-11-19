@@ -1332,7 +1332,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
   `destructiveHint=false`, except `remove_source` (`destructiveHint=true`), the one
-  removal; it is audited in web and re-addable. `list_sources` (a read tool, always
+  removal; it is audited in web and re-addable through `add_source` (the Activity tab shows the removed row). `list_sources` (a read tool, always
   present) returns every watchlist row with `has_recipe`, `postings_30d` (postings with
   that `source` + `company_slug` created in 30 days) and a global `unresolved_30d`.
   `get_preferences` returns the `candidate_preferences` row (or null); `get_jev_profile`

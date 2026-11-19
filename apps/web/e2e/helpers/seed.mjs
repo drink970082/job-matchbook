@@ -61,7 +61,7 @@ export const POSTINGS = [
     },
 ]
 
-// A couple of recorded unresolved feed listings so the Unresolved tab renders.
+// A couple of recorded unresolved feed listings so the Sources tab's backlog renders.
 export const FEED_UNRESOLVED = [
     {
         feed: 'simplify', url: 'https://careers.bigco.com/job/1?gh_jid=1',

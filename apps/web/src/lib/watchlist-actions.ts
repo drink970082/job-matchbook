@@ -18,7 +18,9 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
 }
 
 // The watchlist with each board's postings fetched in the last 30 days (the MCP
-// list_sources figure: same source + company_slug, by created_at).
+// list_sources figure: same source + company_slug, by created_at). A string compare
+// against toISOString(): it agrees with MCP's ats_instant_cmp because the worker writes
+// created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
 export async function getWatchedCompanies() {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString()
     const [rows, total, counts] = await Promise.all([

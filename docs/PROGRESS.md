@@ -20,7 +20,7 @@ behavior. Completed work belongs in CHANGELOG, not this queue.
 - **MCP source tools — deployed, acceptance open** `[MCP · S]` (#156, epic #152).
   `audit_log` is pushed to production, web and the MCP tunnel run the new code. Open:
   in ChatGPT, "track company X" adds a known-ATS board, the next worker pass fetches
-  it, and a removal shows "via MCP" with Re-add in the Watchlist tab.
+  it, and a removal shows "via MCP" in the Activity tab.
 
 - **JEV keep/skip filter — acceptance: the first pass after the 7-day window deploys
   attempts only postings from the last 7 days (worker `[jev]` tally); then delete this
