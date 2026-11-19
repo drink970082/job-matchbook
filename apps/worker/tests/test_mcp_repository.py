@@ -1064,3 +1064,27 @@ def test_triage_override_wins_survives_reassessment_and_lapses_on_new_content(db
         conn.execute("DELETE FROM job_triage_overrides WHERE job_posting_id=?", (hidden,))
     detail = repo.get_job(hidden)["jev"]
     assert detail["status"] == "keep" and detail["override"] is None
+
+
+def test_override_on_a_legacy_null_revision_survives_an_unchanged_refresh(db_path):
+    from ats_worker import db as worker_db
+    from tests._helpers import LATER, NOW, make_posting
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        worker_db.upsert_postings(conn, [make_posting("legacy")], now=NOW)
+        job = conn.execute("SELECT id FROM job_postings").fetchone()[0]
+        # A pre-revision row: what 4.5k production postings still look like.
+        conn.execute("UPDATE job_postings SET source_content_revision=NULL WHERE id=?", (job,))
+        _insert_jev(conn, job, verdict="skip")
+        _insert_override(conn, job, "keep")  # recorded with the NULL revision
+    repo = ReadOnlyATSRepository(db_path)
+    assert repo.get_job(job)["jev"]["status"] == "keep"
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        # The detail refresh re-observes unchanged content and backfills NULL -> 1.
+        assert worker_db.save_source_observation(
+            conn, job, expected_source="greenhouse", expected_external_id="legacy",
+            observation={"state": "available", "posting": make_posting("legacy")}, now=LATER)
+        assert conn.execute("SELECT source_content_revision FROM job_postings").fetchone()[0] == 1
+    assert repo.get_job(job)["jev"]["override"]["applies"] is True
+    assert repo.get_job(job)["jev"]["status"] == "keep"

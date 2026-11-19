@@ -1256,7 +1256,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   or a policy other than the latest pass recorded) postings are shown.
   `jev.status` is the **effective** status: an operator override
   (`job_triage_overrides`) wins when its recorded `source_content_revision` equals the
-  posting's, so it survives worker passes and JEV re-assessments of the same content and
+  posting's (NULL counts as 1, as the worker's refresh backfills it), so it survives worker passes and JEV re-assessments of the same content and
   lapses when the content changes. Each row carries `jev.status`, `model_status`,
   `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
   null); the keep/skip filter and counts use the effective status. `get_job` adds model, policy hash and attempt

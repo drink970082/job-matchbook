@@ -1640,11 +1640,13 @@ export async function setTriageOverride(jobId: number, decision: string, reason:
     const why = reason?.trim() || null
     if (why && why.length > MAX_OVERRIDE_REASON) return { success: false, error: `reason is over ${MAX_OVERRIDE_REASON} characters` }
     try {
-        const job = await prisma.job_postings.findUnique({
-            where: { id: jobId }, select: { id: true, source_content_revision: true },
-        })
-        if (!job) return { success: false, error: `Job ${jobId} not found` }
+        // The revision is read in the write transaction so a concurrent refresh cannot
+        // leave the override pinned to content it was never set on.
         const data = await prisma.$transaction(async (tx) => {
+            const job = await tx.job_postings.findUnique({
+                where: { id: jobId }, select: { source_content_revision: true },
+            })
+            if (!job) return null
             const before = await tx.job_triage_overrides.findUnique({ where: { job_posting_id: jobId } })
             const fields = {
                 decision, reason: why, actor, source_content_revision: job.source_content_revision,
@@ -1660,6 +1662,7 @@ export async function setTriageOverride(jobId: number, decision: string, reason:
             } })
             return row
         })
+        if (!data) return { success: false, error: `Job ${jobId} not found` }
         return { success: true, data }
     } catch (error: any) {
         return { success: false, error: error.message }

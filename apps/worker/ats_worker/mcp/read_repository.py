@@ -301,7 +301,9 @@ def _jev_model_status_sql() -> str:
 
 
 _OVERRIDE_APPLIES_SQL = ("(o.id IS NOT NULL AND o.decision IN ('keep','skip') "
-                         "AND o.source_content_revision IS p.source_content_revision)")
+                         "AND COALESCE(o.source_content_revision,1)=COALESCE(p.source_content_revision,1))")
+# NULL counts as revision 1: the worker turns a legacy NULL into 1 on the next unchanged
+# fetch (db.upsert_postings), and that must not void an override set before it.
 
 
 def _jev_status_sql() -> str:
