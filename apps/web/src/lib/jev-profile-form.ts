@@ -48,12 +48,13 @@ export function validateJevForm(input: unknown): JevForm {
         const years = Number(e.years ?? 0)
         if (!Number.isFinite(years) || years < 0 || years > 60) throw new Error('years must be a number from 0 to 60')
         return { title: text(e.title ?? '', 'title'), company: text(e.company ?? '', 'company'), years }
-    }).filter((e) => e.title || e.company)
+    }).filter((e) => e.title || e.company || e.years)
     if (!form.target_roles.length) throw new Error('Give at least one target role')
     return form
 }
 
-export const totalYears = (form: JevForm) => form.experience.reduce((n, e) => n + e.years, 0)
+// Rounded to 0.01 so 1.1 + 2.2 renders 3.3, not 3.3000000000000003.
+export const totalYears = (form: JevForm) => Math.round(form.experience.reduce((n, e) => n + e.years, 0) * 100) / 100
 
 export function renderJevProfile(form: JevForm): { profile_text: string; yoe_context: string } {
     const profile_text = JSON.stringify({

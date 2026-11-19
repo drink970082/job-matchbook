@@ -224,6 +224,16 @@ def test_a_discard_always_names_a_country_the_string_actually_mentions():
     # #206: no country is assumed - only listed places count.
     ("New York, NY", ["Canada"], False, "on-site in United States"),
     ("New York, NY", ["remote"], False, "on-site in United States"),
+    # A listed state or city resolves to its country (#206 review): never a false discard.
+    ("San Francisco, CA", ["California"], True, ""),
+    ("Austin, TX", ["Texas"], True, ""),
+    ("Brooklyn, NY", ["New York"], True, ""),
+    ("Boston, MA", ["Boston, MA"], True, ""),
+    ("Seattle, Washington, United States", ["Seattle, WA"], True, ""),
+    ("Bangalore, India", ["California"], False, "on-site in India"),
+    # A region keeps when it contains a listed country.
+    ("Remote - North America", ["Canada", "remote"], True, "remote"),
+    ("Americas", ["Mexico"], True, ""),
     ("Sacramento, CA", ["USA"], True, ""),                 # CA=California, not Canada
     ("", ["remote", "USA"], True, ""),
     (None, ["remote", "USA"], True, ""),

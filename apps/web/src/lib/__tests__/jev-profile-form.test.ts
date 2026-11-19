@@ -30,3 +30,9 @@ test('validation rejects malformed input', () => {
     expect(() => validateJevForm({ ...FORM, experience: [{ title: 'X', years: -1 }] })).toThrow('years must be')
     expect(() => validateJevForm({ ...FORM, open_to: 'x' })).toThrow('open_to must be a list')
 })
+
+test('total years round, and a years-only row is kept', () => {
+    const f = validateJevForm({ ...FORM, experience: [{ title: 'A', years: 1.1 }, { years: 2.2 }] })
+    expect(f.experience).toHaveLength(2)
+    expect(renderJevProfile(f).yoe_context).toContain('Total years of experience: 3.3.')
+})

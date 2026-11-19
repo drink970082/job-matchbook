@@ -92,6 +92,17 @@ _US_INCLUSIVE_REGIONS = frozenset({
     "americas", "amer", "amers", "nam", "namer", "north america",
 })
 
+# The countries each of those regions contains (#206): with no country assumed, a
+# region keeps for a user who listed any member ("Remote - North America" for Canada).
+_NORTH_AMERICA = frozenset({"US", "CA", "MX"})
+_AMERICAS = _NORTH_AMERICA | frozenset({
+    "AR", "BO", "BR", "BZ", "CL", "CO", "CR", "CU", "DO", "EC", "GT", "GY", "HN", "HT",
+    "JM", "NI", "PA", "PE", "PR", "PY", "SR", "SV", "TT", "UY", "VE", "BS", "BB",
+})
+_REGION_MEMBERS = {"north america": _NORTH_AMERICA, "nam": _NORTH_AMERICA,
+                   "namer": _NORTH_AMERICA, "americas": _AMERICAS, "amer": _AMERICAS,
+                   "amers": _AMERICAS}
+
 # US subdivisions (states + territories), built once at import. Used to KEEP a US
 # role whose location string names only a state ("New York, New York", "Austin, TX")
 # and to win the state/country name collision ("Atlanta, Georgia": Georgia is a US
@@ -426,6 +437,25 @@ def _expand_unresolved(classified: list) -> list:
     return out
 
 
+def _allowed_entry_codes(entry) -> set[str]:
+    """The countries an allowed entry names, read the way a posting's location is: a
+    country, a US state or a city ("California", "Boston, MA", "Toronto") resolves to its
+    country. Country-level on purpose (#206): listing a state keeps postings anywhere in
+    that country rather than discarding a mis-parsed one in the state itself."""
+    code = _country_code(str(entry))
+    if code:
+        return {code}
+    classified = [_classify_token(t) for t in _tokenize(entry)]
+    strong = {c for kind, c in classified if kind in ("country", "us_state", "region") and c}
+    if strong:
+        return strong
+    tally: dict[str, int] = {}
+    for t in _tokenize(entry):
+        for c in _weak_readings(t):
+            tally[c] = tally.get(c, 0) + 1
+    return {c for c, n in tally.items() if n == max(tally.values())} if tally else set()
+
+
 def _tokenize(location_str) -> list[str]:
     """Split a board location string on its separators: commas, slashes, semicolons,
     pipes, the word ' or ', and a SPACE-PADDED dash (en/em too). A bare hyphen is NOT a
@@ -479,7 +509,8 @@ def location_verdict(location_str, allowed_locations) -> dict:
 
     allowed_norm = {_norm_loc(a) for a in allowed_locations if str(a).strip()}
     remote_allowed = any(_fold(a) == "remote" for a in allowed_locations)
-    allowed_codes = {c for c in (_country_code(a) for a in allowed_locations) if c}
+    allowed_codes = set().union(*(_allowed_entry_codes(a) for a in allowed_locations
+                                  if str(a).strip() and _fold(a) != "remote"))
     # Only the places the user listed count (#206): no country is assumed, so a user who
     # will work in the US must list it.
     keep_codes = allowed_codes
@@ -495,6 +526,11 @@ def location_verdict(location_str, allowed_locations) -> dict:
     # (B) direct match — geography only; "remote" is handled at (D), never as a place.
     geo_allowed = allowed_norm - {"remote"}
     if geo_allowed & {_norm_loc(t) for t in tokens}:
+        return {"keep": True, "note": "remote" if said_remote else "",
+                "resolved": True, "ask_llm": False, "codes": codes}
+
+    # A region keeps when it contains any listed country.
+    if any(keep_codes & _REGION_MEMBERS.get(_fold(t), frozenset()) for t in tokens):
         return {"keep": True, "note": "remote" if said_remote else "",
                 "resolved": True, "ask_llm": False, "codes": codes}
 

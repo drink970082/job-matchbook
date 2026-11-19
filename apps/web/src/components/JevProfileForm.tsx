@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { type JevForm, parseJevProfile, renderJevProfile, totalYears } from '@/lib/jev-profile-form'
+import { type JevForm, parseJevProfile, renderJevProfile, totalYears, validateJevForm } from '@/lib/jev-profile-form'
 import { X, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -71,12 +71,15 @@ export function JevProfileForm({ stored, reassessOnChange, saving, save }: Props
     }
 
     const saveForm = async () => {
-        if (!form.target_roles.length) return toast.error('Add at least one target role')
-        const next = renderJevProfile(form)
+        // Normalize as the server will (trim, drop blank rows) before comparing, so an
+        // empty added row does not read as a change and prompt for a paid re-assessment.
+        let clean: JevForm
+        try { clean = validateJevForm(form) } catch (e: any) { return toast.error(e.message) }
+        const next = renderJevProfile(clean)
         if (next.profile_text === stored.profile_text && next.yoe_context === stored.yoe_context) {
             return toast.success('JEV profile: nothing changed')
         }
-        if (confirmCost()) await save({ form })
+        if (confirmCost()) await save({ form: clean })
     }
 
     const saveRaw = async () => {

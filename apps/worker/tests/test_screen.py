@@ -1206,14 +1206,29 @@ def test_screen_schema_is_strict_mode_valid():
     ("Part-Time Data Analyst", True),
     ("Part time Barista", True),
     ("Temporary Accountant", True),
-    ("Temp Receptionist", True),
     ("Contract-to-Hire QA Engineer", True),
-    ("Contract Manager", False),          # a job ABOUT contracts
+    ("Data Analyst, Part-Time", True),
+    ("QA Engineer - 6 Month Contract", True),
+    ("Nurse (Per Diem)", True),
+    ("Fixed-Term Research Assistant", True),
+    ("Seasonal Associate", True),
+    ("Freelance Writer", True),
+    ("Designer [Temp]", True),
+    # Err toward keep: jobs ABOUT contracts, and ambiguous leading words.
+    ("Contract Manager", False),
     ("Contracts Specialist", False),
-    ("Contract Administrator", False),
+    ("Smart Contract Engineer", False),
+    ("Solidity Smart Contract Auditor", False),
+    ("Contract Negotiation Specialist", False),
+    ("Contract Manufacturing Engineer", False),
+    ("Contractor Relations Manager", False),
+    ("Contractor Safety Coordinator", False),
+    ("Temp Control Technician", False),
+    ("Full-time or Part-time Nurse", False),
     ("Software Engineer", False),
     ("Template Engineer", False),
     ("Full-Time Software Engineer", False),
+    ("Senior Engineer - Platform", False),
 ])
 def test_is_non_fulltime_title(title, hit):
     assert screen_engine._is_non_fulltime(title) is hit

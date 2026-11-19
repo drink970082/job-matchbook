@@ -99,12 +99,13 @@ describe('SettingsPanel', () => {
         expect(await screen.findByText('Backend')).toBeInTheDocument()
         expect(screen.getByLabelText('Company 1')).toHaveValue('Acme')
         expect(screen.queryByText(/written as free text/)).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: 'Add education' }))   // a blank row is no change
         fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
         expect(confirm).not.toHaveBeenCalled()                 // unchanged form: no cost prompt, no write
         fireEvent.change(screen.getByLabelText('Open to'), { target: { value: 'Data' } })
         fireEvent.click(screen.getByRole('button', { name: 'Add to Open to' }))
         fireEvent.click(screen.getByRole('button', { name: 'Save JEV profile' }))
-        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({ form: { ...form, open_to: ['Data'] } }))
+        await waitFor(() => expect(setJevProfile).toHaveBeenCalledWith({ form: { ...form, open_to: ['Data'] } }))  // blank row dropped
         confirm.mockRestore()
     })
 
