@@ -18,8 +18,8 @@ smell of a change that violates it.
 human, never automated.
 - *Why:* the system's whole stance is "prepare everything, submit nothing" — trust
   survives only while the human stays the actor of record.
-- *In this repo:* no auto-apply (SPEC §4 non-goal); promotion *suggests*, never
-  auto-promotes (§9); "Mark Applied" is a human click.
+- *In this repo:* no auto-apply (SPEC §4 non-goal); a board joins the watchlist only
+  when the operator asks (MCP `add_source`); "Mark Applied" is a human click.
 - *Smell:* a change that removes a confirmation seam "for convenience" — auto-retrying
   an apply, auto-adding a watchlist entry, auto-sending anything beyond the alert.
 
@@ -68,7 +68,7 @@ nothing is silently swallowed.
 - *In this repo:* unresolvable feed listings land in `feed_unresolved` with a
   `reason`; detail-fetch failures are recorded as `detail_fetch_failed`, board-list
   failures as `list_fetch_failed`; a source that resolves ids but keeps none prints
-  a collapse warning; the web app has an Unresolved tab.
+  a collapse warning; the web app's Sources tab lists them.
 - *Smell:* `except: pass`; dropping an item because handling its failure is awkward;
   a failure path with no row, log line, or counter a human will ever see.
 

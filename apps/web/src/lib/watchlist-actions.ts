@@ -5,9 +5,8 @@ import { type Actor, VALID_SOURCES, RECIPE_SOURCES } from '@/lib/constants'
 import { checkedActor } from '@/lib/action-helpers'
 
 // --- Watchlist (DB-backed; the worker fetches these companies in full) ------
-// The watchlist moved out of the worker's config.yaml into the DB so it can be
-// managed here: manual list / add / remove. Promotion suggestions
-// (feed -> watchlist) shipped since, and live in lib/promotion-actions.ts.
+// The watchlist moved out of the worker's config.yaml into the DB. The dashboard shows
+// it read-only (Sources tab); add/remove are the MCP write API's (/api/v1/watchlist).
 
 type WatchedRow = { id: number; source: string; slug: string; name: string; recipe: string | null; created_at: string }
 
@@ -18,21 +17,19 @@ function watchlistAudit(actor: Actor, action: 'add' | 'remove', row: WatchedRow)
     }
 }
 
-// Recent watchlist adds/removes, newest first, with the row as it was then.
-export async function getWatchlistActivity(limit = 20) {
-    const take = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 20
-    const rows = await prisma.audit_log.findMany({
-        where: { entity: 'watched_companies' }, orderBy: { id: 'desc' }, take,
-    })
-    return { data: rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) as WatchedRow })) }
-}
-
+// The watchlist with each board's postings fetched in the last 30 days (the MCP
+// list_sources figure: same source + company_slug, by created_at). A string compare
+// against toISOString(): it agrees with MCP's ats_instant_cmp because the worker writes
+// created_at as canonical UTC `...T..:..:..sssZ`; a hand-made non-UTC value could differ.
 export async function getWatchedCompanies() {
-    const [data, total] = await Promise.all([
+    const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString()
+    const [rows, total, counts] = await Promise.all([
         prisma.watched_companies.findMany({ orderBy: { name: 'asc' } }),
         prisma.watched_companies.count(),
+        prisma.job_postings.groupBy({ by: ['source', 'company_slug'], where: { created_at: { gte: cutoff } }, _count: true }),
     ])
-    return { data, total }
+    const n = new Map(counts.map((c) => [`${c.source}/${c.company_slug}`, c._count]))
+    return { data: rows.map((r) => ({ ...r, postings_30d: n.get(`${r.source}/${r.slug}`) ?? 0 })), total }
 }
 
 export async function addWatchedCompany(input: {

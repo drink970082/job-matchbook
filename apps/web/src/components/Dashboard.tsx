@@ -5,16 +5,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getApplications, addApplication, updateApplicationStatus, deleteApplication, getApplicationHistory, deleteHistoryItem, updateApplicationDetails } from '@/lib/application-actions'
 import { getKPIs, getStatusFlow, getTimelineData, getCategoryData } from '@/lib/analytics-actions'
 import { exportApplicationsCSV, importApplicationsCSV } from '@/lib/csv-actions'
-import { getWatchedCompanies, getWatchlistActivity, addWatchedCompany, removeWatchedCompany } from '@/lib/watchlist-actions'
+import { getWatchedCompanies } from '@/lib/watchlist-actions'
+import { getRecentActivity } from '@/lib/activity-actions'
 import { getJobPostings, getJobStageCounts, markJobApplied } from '@/lib/job-actions'
-import { getPromotionSuggestions, dismissPromotion } from '@/lib/promotion-actions'
 import { getUnresolvedFeeds } from '@/lib/unresolved-actions'
 import { todayISO } from '@/lib/utils'
 import { ApplicationsTab } from './ApplicationsTab'
 import { DiscoveredJobsTab } from './DiscoveredJobsTab'
 import type { JobTableFilters } from './DiscoveredJobsTable'
-import { WatchlistTab } from './WatchlistTab'
-import { UnresolvedTab } from './UnresolvedTab'
+import { SourcesTab } from './SourcesTab'
+import { ActivityTab, type RecentActivity } from './ActivityTab'
 import { JobDetailModal } from './JobDetailModal'
 import { ApplyCategoryDialog } from './ApplyCategoryDialog'
 import { KPIGrid } from './KPIGrid'
@@ -62,13 +62,12 @@ export function Dashboard({
     initialCategoryOptions,
     initialCategoriesConfigured,
 }: DashboardProps) {
-    const [activeTab, setActiveTab] = useState<'applications' | 'discovered' | 'watchlist' | 'unresolved'>('applications')
+    const [activeTab, setActiveTab] = useState<'applications' | 'discovered' | 'sources' | 'activity'>('applications')
 
-    // Watchlist + promotion-suggestion + unresolved-feed state (loaded client-side)
+    // Sources (watchlist + unresolved feeds) and recent activity, loaded client-side.
     const [watchlist, setWatchlist] = useState<any[]>([])
-    const [watchActivity, setWatchActivity] = useState<any[]>([])
-    const [promotions, setPromotions] = useState<any[]>([])
     const [unresolved, setUnresolved] = useState<any[]>([])
+    const [activity, setActivity] = useState<RecentActivity | null>(null)
 
     // Discovered Jobs state
     const [jobPostings, setJobPostings] = useState<any[]>(initialJobPostings)
@@ -312,18 +311,8 @@ export function Dashboard({
     }
 
     const refreshWatchlist = async () => {
-        // Activity is secondary: its failure (e.g. audit_log not pushed yet) must not hide the watchlist.
-        const [{ data }, activity] = await Promise.all([
-            getWatchedCompanies(),
-            getWatchlistActivity().catch(() => ({ data: [] })),
-        ])
+        const { data } = await getWatchedCompanies()
         setWatchlist(data)
-        setWatchActivity(activity.data)
-    }
-
-    const refreshPromotions = async () => {
-        const { data } = await getPromotionSuggestions()
-        setPromotions(data)
     }
 
     const refreshUnresolved = async () => {
@@ -331,10 +320,9 @@ export function Dashboard({
         setUnresolved(data)
     }
 
-    // Load the watchlist, promotion suggestions, and unresolved backlog on mount.
+    // Load the watchlist and unresolved backlog on mount.
     useEffect(() => {
         refreshWatchlist()
-        refreshPromotions()
         refreshUnresolved()
         getJobStageCounts().then(setJobCounts).catch(() => {})
     }, [])
@@ -344,47 +332,6 @@ export function Dashboard({
     useEffect(() => {
         if (!initialCategoriesConfigured) setCategoriesDialogOpen(true)
     }, [initialCategoriesConfigured])
-
-    const handleAddWatched = async (c: { source: string; slug: string; name: string; recipe?: string }) => {
-        const result = await addWatchedCompany(c)
-        if (result.success) {
-            toast.success(`Watching ${c.name}`)
-            refreshWatchlist()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleRemoveWatched = async (id: number) => {
-        const result = await removeWatchedCompany(id)
-        if (result.success) {
-            toast.success('Removed from watchlist')
-            refreshWatchlist()
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    // Approve a suggestion = add it to the watchlist (reuses addWatchedCompany);
-    // it then drops out of suggestions (now watchlisted).
-    const handleApproveSuggestion = async (c: { source: string; slug: string; name: string }) => {
-        const result = await addWatchedCompany(c)
-        if (result.success) {
-            toast.success(`Promoted ${c.name} to the watchlist`)
-            await Promise.all([refreshWatchlist(), refreshPromotions()])
-        } else {
-            toast.error(result.error)
-        }
-    }
-
-    const handleDismissSuggestion = async (source: string, slug: string) => {
-        const result = await dismissPromotion(source, slug)
-        if (result.success) {
-            refreshPromotions()
-        } else {
-            toast.error(result.error)
-        }
-    }
 
     const handleJobFilterChange = useCallback((newFilters: JobTableFilters) => {
         jobViewRef.current = { filters: newFilters, page: 0 }
@@ -456,65 +403,34 @@ export function Dashboard({
 
             {/* Tab toggle */}
             <div className="inline-flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('applications')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        activeTab === 'applications'
-                            ? 'bg-background shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    Applications
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('discovered')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        activeTab === 'discovered'
-                            ? 'bg-background shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    Discovered Jobs
-                    {totalJobs > 0 && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-primary text-primary-foreground">
-                            {totalJobs}
-                        </span>
-                    )}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('watchlist')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        activeTab === 'watchlist'
-                            ? 'bg-background shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    Watchlist
-                    {watchlist.length > 0 && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-primary text-primary-foreground">
-                            {watchlist.length}
-                        </span>
-                    )}
-                    {promotions.length > 0 && (
-                        <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-600 text-white" title={`${promotions.length} promotion suggestion(s)`}>
-                            +{promotions.length}
-                        </span>
-                    )}
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('unresolved')}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        activeTab === 'unresolved'
-                            ? 'bg-background shadow-sm text-foreground'
-                            : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                >
-                    Unresolved
-                </button>
+                {([
+                    ['applications', 'Applications', 0],
+                    ['discovered', 'Discovered Jobs', totalJobs],
+                    ['sources', 'Sources', watchlist.length],
+                    ['activity', 'Activity', 0],
+                ] as const).map(([tab, label, badge]) => (
+                    <button
+                        key={tab}
+                        type="button"
+                        onClick={() => {
+                            setActiveTab(tab)
+                            if (tab === 'activity') getRecentActivity().then(setActivity).catch(() => toast.error('Could not load activity'))
+                            if (tab === 'sources') { refreshWatchlist(); refreshUnresolved() }
+                        }}
+                        className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                            activeTab === tab
+                                ? 'bg-background shadow-sm text-foreground'
+                                : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        {label}
+                        {badge > 0 && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] bg-primary text-primary-foreground">
+                                {badge}
+                            </span>
+                        )}
+                    </button>
+                ))}
             </div>
 
             {activeTab === 'discovered' ? (
@@ -532,18 +448,10 @@ export function Dashboard({
                     onMarkApplied={handleMarkApplied}
                     onViewJD={handleViewJD}
                 />
-            ) : activeTab === 'watchlist' ? (
-                <WatchlistTab
-                    promotions={promotions}
-                    watchlist={watchlist}
-                    activity={watchActivity}
-                    onApprove={handleApproveSuggestion}
-                    onDismiss={handleDismissSuggestion}
-                    onAdd={handleAddWatched}
-                    onRemove={handleRemoveWatched}
-                />
-            ) : activeTab === 'unresolved' ? (
-                <UnresolvedTab data={unresolved} />
+            ) : activeTab === 'sources' ? (
+                <SourcesTab sources={watchlist} unresolved={unresolved} />
+            ) : activeTab === 'activity' ? (
+                <ActivityTab activity={activity} />
             ) : (
                 <ApplicationsTab
                     apps={apps}

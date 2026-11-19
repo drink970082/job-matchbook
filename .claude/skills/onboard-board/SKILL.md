@@ -156,8 +156,8 @@ add a broken row; write the failure report instead (see below).
 
 ## Step 4 — add it (the watchlist is a DB, not a file)
 
-The watchlist lives in the DB table `watched_companies`, which the web **Watchlist tab**
-reads and writes. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
+The watchlist lives in the DB table `watched_companies`, which the web **Sources tab**
+shows (read-only) and the MCP `add_source`/`remove_source` tools write. `config.yaml` `companies:` is ONLY a one-time seed — editing it after the
 first run does nothing and never reaches the UI. So add the board straight to the DB with the
 bundled helper (deduped on `(source, slug)`):
 
@@ -169,8 +169,8 @@ python .claude/skills/onboard-board/scripts/add_watched.py \
 It prints `added` or `already on the watchlist`. Then **tell the user the outcome in one
 line** — added / already there — and, for a `browser` row, that it needs
 `enable_browser_sources: true` + the Playwright extra to actually run. **No success report.**
-The board now shows in the Watchlist tab; the worker fetches it next cycle. (The user can also
-add/remove boards by hand in that same tab — this skill is just the automated path.)
+The board now shows in the Sources tab; the worker fetches it next cycle. (The user can also
+add or remove boards through their AI client's MCP tools — this skill is the repo-side path.)
 
 Optional repo hygiene (only if the user wants a committed regression test): save the trimmed
 response to `apps/worker/tests/fixtures/<slug>.<ext>` and add a `parse_jobs` case mirroring an

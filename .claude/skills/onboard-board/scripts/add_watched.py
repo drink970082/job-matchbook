@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Add ONE board to the live watchlist so it shows up in the web Watchlist tab.
+"""Add ONE board to the live watchlist so it shows up in the web Sources tab.
 
 The watchlist is the DB table `watched_companies` (the shared SQLite the web app and
 worker both use) — NOT config.yaml. config's `companies:` is only a one-time seed;
 editing it after the first run does nothing and never reaches the UI. This inserts
 directly, deduped on (source, slug), reusing the worker's own import path — so the row
-appears in the Watchlist tab immediately and the worker fetches it next cycle.
+appears in the Sources tab immediately and the worker fetches it next cycle.
 
 Usage:
   python add_watched.py --source greenhouse --slug databricks --name "Databricks"
@@ -64,7 +64,7 @@ def main(argv=None):
     now = datetime.now(timezone.utc).isoformat()
     added = db.import_watchlist(conn, [row], now=now)
     if added:
-        print(f"added: {args.source}/{args.slug} ({args.name}) — now in the web Watchlist tab; "
+        print(f"added: {args.source}/{args.slug} ({args.name}) — now in the web Sources tab; "
               f"the worker fetches it next cycle")
     else:
         print(f"already on the watchlist: {args.source}/{args.slug} (no change)")

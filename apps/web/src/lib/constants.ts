@@ -56,9 +56,8 @@ export const DEFAULT_CATEGORIES = [
 
 // Watchlist-capable board sources — must match the worker's config.VALID_SOURCES
 // (the per-board, enumerable subset of fetch.ADAPTERS). Feed-only per-listing
-// sources (oracle, jobvite) are intentionally absent: they can't be watch-listed,
-// and promotion suggestions are restricted to these (see promotion-actions.ts).
-// Used by the Watchlist add-company form.
+// sources (oracle, jobvite) are intentionally absent: they can't be watch-listed.
+// addWatchedCompany (the MCP add_source write API) validates against it.
 export const VALID_SOURCES = [
   'greenhouse',
   'lever',

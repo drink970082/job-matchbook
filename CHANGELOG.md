@@ -9,6 +9,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Removed
 
+- **Promotion suggestions and dashboard watchlist writes (#158)**: `PromotionSuggestions`,
+  `promotion-actions.ts`, the Watchlist add/remove/Re-add controls and
+  `getWatchlistActivity`. Boards are added and removed through MCP.
 - **The fit-scorer Discovered Jobs views (#158)**: Matched / Below bar / Discarded /
   Failed / Low-context buckets, score sort and min-score filter, the cause sub-filter,
   `VerdictShortfall`, the recommended-resume label, the modal's fit assessment, and
@@ -77,6 +80,9 @@ system is described in [`docs/SPEC.md`](./docs/SPEC.md).
 
 ### Added
 
+- **Sources and Activity tabs (#158)**: Sources replaces Watchlist and Unresolved,
+  read-only, with each board's postings in the last 30 days; Activity lists recent
+  applications, status changes and audited changes by actor (web or MCP).
 - **JEV keep/skip on any screen provider** (#178). `--jev-backend extract` (or
   `JEV_BACKEND=extract`) sends the same question packs through the screen backend's
   `extract` seam, one call per pack; the backend joins the policy hash, and
