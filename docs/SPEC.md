@@ -819,7 +819,9 @@ worker modules are pure and dependency-injected; real services are wired only in
   floor is `three_plus` years (the route matching the candidate's degree; ranges use
   the lower bound); everything else, including `unknown`, is `keep`. One latest row per
   posting lives in `job_jev_assessments`; `pipeline_status` and screen state are never
-  touched. A row is re-queued when the policy hash (profile, both packs, the
+  touched. An operator override (`job_triage_overrides`, set through MCP
+  `override_triage`) is read-side only: JEV still assesses the posting and never reads or
+  writes the override. A row is re-queued when the policy hash (profile, both packs, the
   experience context, the resolved model, the rule version) or the posting's source
   revision changes; provider errors retry oldest-first after fresh work. A pass is
   sequential with no in-pass retries, capped by `--jev-limit` (default 300) and
@@ -1252,7 +1254,12 @@ worker modules are pure and dependency-injected; real services are wired only in
   postings whose current JEV verdict is `skip` and reports `jev_filter.hidden_skip_count`
   on the first page; unassessed, failed, non-`new` and stale (source revision changed,
   or a policy other than the latest pass recorded) postings are shown.
-  Each row carries `jev.status`/`reasons`; `get_job` adds model, policy hash and attempt
+  `jev.status` is the **effective** status: an operator override
+  (`job_triage_overrides`) wins when its recorded `source_content_revision` equals the
+  posting's, so it survives worker passes and JEV re-assessments of the same content and
+  lapses when the content changes. Each row carries `jev.status`, `model_status`,
+  `reasons` (the model's) and `override` (`decision, reason, actor, set_at, applies`, or
+  null); the keep/skip filter and counts use the effective status. `get_job` adds model, policy hash and attempt
   times; `get_ats_overview` adds `jev_filter_counts` over `pipeline_status=new`.
   `list_jobs` keeps metadata search as the default and offers opt-in literal `all_text`
   matching over title, company, location and description; `%`, `_` and `!` are escaped,
@@ -1298,7 +1305,7 @@ worker modules are pure and dependency-injected; real services are wired only in
   `mark_job_applied(job_id, category?)`, `update_application_status(application_id,
   status, date?)`, `add_source(source, slug, name)` (known-ATS boards; web's
   slug/source/duplicate checks and messages), `remove_source(source_id)` (returns the
-  removed row), and `update_application_notes(application_id, text)`, which appends
+  removed row), `override_triage(job_id, keep|skip|clear, reason?)`, and `update_application_notes(application_id, text)`, which appends
   after a blank line and never replaces. The append is read-then-`PATCH` of the whole
   field with no version check: a web edit to the same notes in that window is
   overwritten (accepted for a single operator; a web-side append is the fix if it bites). Annotations are `readOnlyHint=false`,
@@ -1387,7 +1394,11 @@ worker modules are pure and dependency-injected; real services are wired only in
   applications/{id}/status` `{status, date?}` (`updateApplicationStatus`), `POST
   jobs/{id}/applied` `{category?}` (`markJobApplied`, scope `bucket=all`), `POST
   watchlist` / `DELETE watchlist/{id}` (`addWatchedCompany` / `removeWatchedCompany`;
-  the delete returns the removed row).
+  the delete returns the removed row), `POST jobs/{id}/triage` `{decision, reason?}` /
+  `DELETE jobs/{id}/triage` (`setTriageOverride` / `clearTriageOverride`: one override
+  per posting, reason at most 500 chars, recorded with the posting's current revision;
+  each set, replace (`update`, payload `{before, after}`) and clear lands in
+  `audit_log`).
   Auth (`lib/api-v1.ts`): `Authorization: Bearer <key>` against `ATS_API_KEY_READ_WRITE`
   (scope `read_write`) or `ATS_API_KEY_READ` (scope `read`); neither set -> `503`
   (disabled, never open), missing/wrong key -> `401`, read key on a write -> `403`, an
@@ -1518,9 +1529,10 @@ worker modules are pure and dependency-injected; real services are wired only in
 
 *Class: **Snapshot** — mirrors `schema.prisma` (the real source of truth); if they disagree, update this spec.*
 
-Ten tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
+Eleven tables, owned solely by `apps/web/prisma/schema.prisma` (`applications`,
 `status_history`, `job_postings`, `watched_companies`, `audit_log`, `feed_unresolved`,
-`promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`). Dates are stored as **ISO-8601 strings** for sortability and
+`promotion_dismissed`, `app_settings`, `job_screenings`, `job_jev_assessments`,
+`job_triage_overrides`). Dates are stored as **ISO-8601 strings** for sortability and
 timezone-independence (`date_applied` as `YYYY-MM-DD`; timestamps as full ISO with
 millisecond precision to match Prisma / the worker's `_now()`).
 
@@ -1609,6 +1621,17 @@ model job_screenings {
   job_posting       job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 
   @@index([state, last_attempted_at])
+}
+
+model job_triage_overrides {     // operator keep/skip over JEV; JEV never writes it
+  id                      Int          @id @default(autoincrement())
+  job_posting_id          Int          @unique
+  decision                String       // keep | skip
+  reason                  String?
+  actor                   String       // web | mcp
+  source_content_revision Int?         // posting revision when set; applies only while equal
+  created_at              String
+  job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 }
 
 // JEV keep/skip filter (worker `run_jev`). One latest assessment per posting; a skip

@@ -1627,6 +1627,65 @@ export async function removeWatchedCompany(id: number, actor: Actor = 'web') {
     }
 }
 
+// --- Triage override (#155): the operator's keep/skip over JEV's verdict --------
+// One row per posting; it applies while the posting's source_content_revision is the
+// one recorded here (the MCP read side decides that). Every set/replace/clear is
+// audited, and a replace or clear keeps the row it overwrote.
+
+const MAX_OVERRIDE_REASON = 500
+
+export async function setTriageOverride(jobId: number, decision: string, reason: string | undefined, actor: Actor = 'web') {
+    checkedActor(actor)
+    if (decision !== 'keep' && decision !== 'skip') return { success: false, error: 'decision must be keep or skip' }
+    const why = reason?.trim() || null
+    if (why && why.length > MAX_OVERRIDE_REASON) return { success: false, error: `reason is over ${MAX_OVERRIDE_REASON} characters` }
+    try {
+        const job = await prisma.job_postings.findUnique({
+            where: { id: jobId }, select: { id: true, source_content_revision: true },
+        })
+        if (!job) return { success: false, error: `Job ${jobId} not found` }
+        const data = await prisma.$transaction(async (tx) => {
+            const before = await tx.job_triage_overrides.findUnique({ where: { job_posting_id: jobId } })
+            const fields = {
+                decision, reason: why, actor, source_content_revision: job.source_content_revision,
+                created_at: new Date().toISOString(),
+            }
+            const row = await tx.job_triage_overrides.upsert({
+                where: { job_posting_id: jobId }, create: { job_posting_id: jobId, ...fields }, update: fields,
+            })
+            await tx.audit_log.create({ data: {
+                at: fields.created_at, actor, action: before ? 'update' : 'add',
+                entity: 'job_triage_overrides', entity_id: jobId,
+                payload: JSON.stringify(before ? { before, after: row } : row),
+            } })
+            return row
+        })
+        return { success: true, data }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
+export async function clearTriageOverride(jobId: number, actor: Actor = 'web') {
+    checkedActor(actor)
+    try {
+        const removed = await prisma.$transaction(async (tx) => {
+            const row = await tx.job_triage_overrides.findUnique({ where: { job_posting_id: jobId } })
+            if (!row) return null
+            await tx.job_triage_overrides.delete({ where: { id: row.id } })
+            await tx.audit_log.create({ data: {
+                at: new Date().toISOString(), actor, action: 'remove',
+                entity: 'job_triage_overrides', entity_id: jobId, payload: JSON.stringify(row),
+            } })
+            return row
+        })
+        if (!removed) return { success: false, error: `Job ${jobId} has no triage override` }
+        return { success: true, data: removed }
+    } catch (error: any) {
+        return { success: false, error: error.message }
+    }
+}
+
 // --- Categories (DB-backed vocabulary the user picks at onboarding) ----------
 // The application-category list lives in one app_settings row (key='categories',
 // value = a JSON string array) so a user can pick their own field's labels instead

@@ -87,6 +87,17 @@ CREATE TABLE "job_jev_assessments" (
     CONSTRAINT "job_jev_assessments_job_posting_id_fkey" FOREIGN KEY ("job_posting_id") REFERENCES "job_postings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE TABLE "job_triage_overrides" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "job_posting_id" INTEGER NOT NULL,
+    "decision" TEXT NOT NULL,
+    "reason" TEXT,
+    "actor" TEXT NOT NULL,
+    "source_content_revision" INTEGER,
+    "created_at" TEXT NOT NULL,
+    CONSTRAINT "job_triage_overrides_job_posting_id_fkey" FOREIGN KEY ("job_posting_id") REFERENCES "job_postings" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 CREATE TABLE "status_history" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "application_id" INTEGER NOT NULL,
@@ -144,6 +155,7 @@ CREATE INDEX "job_postings_pipeline_status_idx" ON "job_postings"("pipeline_stat
 CREATE INDEX "job_postings_source_source_last_check_attempted_at_idx" ON "job_postings"("source", "source_last_check_attempted_at");
 CREATE UNIQUE INDEX "job_screenings_job_posting_id_key" ON "job_screenings"("job_posting_id");
 CREATE UNIQUE INDEX "job_jev_assessments_job_posting_id_key" ON "job_jev_assessments"("job_posting_id");
+CREATE UNIQUE INDEX "job_triage_overrides_job_posting_id_key" ON "job_triage_overrides"("job_posting_id");
 
 CREATE INDEX "job_jev_assessments_state_last_attempted_at_idx" ON "job_jev_assessments"("state", "last_attempted_at");
 

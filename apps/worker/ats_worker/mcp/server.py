@@ -67,7 +67,9 @@ _WRITE_NOTE = (
     "delete applications or history; notes are appended, never replaced. remove_source "
     "is the one removal: it drops a watchlist board, logged in web so it can be "
     "re-added. 'Track company X' -> list_sources to rule out a duplicate, then "
-    "add_source with its known ATS board and slug. Confirm the target "
+    "add_source with its known ATS board and slug. 'Restore that one' (a posting JEV skipped) -> "
+    "get_job to confirm, then override_triage(N, 'keep'); 'clear' returns to the model "
+    "verdict. Confirm the target "
     "application or job id from a read tool before writing. Workflows: 'I applied to job "
     "N' -> get_job(N), then mark_job_applied(N) (it dates the application today; if the "
     "operator applied on another day, use record_application with that date and the job "
@@ -384,6 +386,21 @@ def _add_write_tools(server: MCPServer, repo: ReadOnlyATSRepository, writer: ATS
         it happened (defaults to now). Fails if the application is already in that status."""
         write("POST", f"/api/v1/applications/{application_id}/status", drop_none(status=status, date=date))
         return {"application_id": application_id, "status": status}
+
+    @server.tool(annotations=_WRITE)
+    def override_triage(
+        job_id: Annotated[int, Field(ge=1)],
+        decision: Literal["keep", "skip", "clear"],
+        reason: Annotated[str | None, Field(max_length=500)] = None,
+    ) -> dict[str, Any]:
+        """Override JEV's keep/skip for one posting ("restore that one" -> keep), or clear the
+        override to return to the model verdict. It holds across worker passes and JEV
+        re-assessments while the posting's content is unchanged; list_jobs/get_job show
+        the effective status, model_status and the override. Audited in web."""
+        if decision == "clear":
+            return {"job_id": job_id, "cleared": write("DELETE", f"/api/v1/jobs/{job_id}/triage")}
+        return {"job_id": job_id, "override": write(
+            "POST", f"/api/v1/jobs/{job_id}/triage", drop_none(decision=decision, reason=reason))}
 
     @server.tool(annotations=_WRITE)
     def add_source(

@@ -16,7 +16,7 @@ from mcp import Client  # noqa: E402
 from ats_worker.mcp.read_repository import ReadOnlyATSRepository  # noqa: E402
 from ats_worker.mcp.server import create_server  # noqa: E402
 
-WRITE_TOOLS = {"record_application", "mark_job_applied", "update_application_status",
+WRITE_TOOLS = {"record_application", "mark_job_applied", "update_application_status", "override_triage",
                "update_application_notes"}
 
 
@@ -329,3 +329,25 @@ async def test_read_only_server_lists_sources_but_cannot_change_them(tmp_path):
     async with Client(server, raise_exceptions=True) as client:
         names = {t.name for t in (await client.list_tools()).tools}
     assert "list_sources" in names and not names & {"add_source", "remove_source"}
+
+
+# --- triage override -------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_override_triage_sets_and_clears_through_the_api(tmp_path):
+    writer, session = _client(FakeResponse(200, {"data": {"decision": "keep"}}),
+                              FakeResponse(200, {"data": {"decision": "keep"}}))
+    server = create_server(ReadOnlyATSRepository(bootstrap_db(tmp_path / "m.db")), writer)
+    async with Client(server, raise_exceptions=True) as client:
+        ann = {t.name: t.model_dump(by_alias=True)["annotations"] for t in (await client.list_tools()).tools}
+        assert ann["override_triage"]["destructiveHint"] is False
+        set_ = await client.call_tool("override_triage", {"job_id": 7, "decision": "keep", "reason": "wanted"})
+        assert set_.structured_content == {"job_id": 7, "override": {"decision": "keep"}}
+        cleared = await client.call_tool("override_triage", {"job_id": 7, "decision": "clear"})
+        assert cleared.structured_content == {"job_id": 7, "cleared": {"decision": "keep"}}
+        bad = await client.call_tool("override_triage", {"job_id": 7, "decision": "maybe"})
+        assert bad.is_error is True
+    assert [(c["method"], c["url"].removeprefix("http://web.test"), c["json"]) for c in session.calls] == [
+        ("POST", "/api/v1/jobs/7/triage", {"decision": "keep", "reason": "wanted"}),
+        ("DELETE", "/api/v1/jobs/7/triage", None),
+    ]

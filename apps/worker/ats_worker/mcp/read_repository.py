@@ -289,7 +289,7 @@ def _triage_rule_only_sql(result: str) -> str:
                                THEN json_type(triage_check.value, '$.pass')='false' ELSE 0 END)"""
 
 
-def _jev_status_sql() -> str:
+def _jev_model_status_sql() -> str:
     # Stale = the posting's source changed, or the verdict predates the policy of the
     # latest JEV pass (app_settings, written by the worker); no recorded policy yet
     # means no pass ever ran under a different one.
@@ -300,13 +300,39 @@ def _jev_status_sql() -> str:
             "WHEN j.verdict IN ('keep','skip') THEN j.verdict ELSE 'failed' END")
 
 
+_OVERRIDE_APPLIES_SQL = ("(o.id IS NOT NULL AND o.decision IN ('keep','skip') "
+                         "AND o.source_content_revision IS p.source_content_revision)")
+
+
+def _jev_status_sql() -> str:
+    # The operator's override (job_triage_overrides, #155) wins while it was set on the
+    # posting's current content; otherwise the model status stands.
+    return f"CASE WHEN {_OVERRIDE_APPLIES_SQL} THEN o.decision ELSE {_jev_model_status_sql()} END"
+
+
+_OVERRIDE_COLUMNS = (f"{_jev_model_status_sql()} AS jev_model_status,{_OVERRIDE_APPLIES_SQL} "
+                     "AS override_applies,o.decision AS override_decision,o.reason AS override_reason,"
+                     "o.actor AS override_actor,o.created_at AS override_set_at")
+
+
+def _jev_override(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Pop the override_* columns off a row; None when no override is stored."""
+    fields = {key: row.pop(f"override_{key}") for key in
+              ("decision", "reason", "actor", "set_at", "applies")}
+    if fields["decision"] is None:
+        return None
+    fields["applies"] = bool(fields["applies"])
+    return fields
+
+
 def _jev_hidden_sql() -> str:
     # Only a current skip on a still-`new` posting is hidden: once a posting is scored,
     # applied to or otherwise moves on, JEV never revisits it and must never hide it.
     return f"(p.pipeline_status='new' AND ({_jev_status_sql()})='skip')"
 
 
-_JEV_JOIN = " LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
+_JEV_JOIN = (" LEFT JOIN job_jev_assessments j ON j.job_posting_id=p.id"
+             " LEFT JOIN job_triage_overrides o ON o.job_posting_id=p.id")
 
 
 def _jev_reasons(raw: Any) -> list[str]:
@@ -1281,7 +1307,8 @@ class ReadOnlyATSRepository:
                 "CASE WHEN json_valid(p.score_detail) THEN CASE "
                 "WHEN json_type(p.score_detail,'$.screen')='object' THEN 1 ELSE 0 END "
                 "ELSE 0 END AS legacy_screen_evidence_available,"
-                f"{_jev_status_sql()} AS jev_status,j.reasons_json AS jev_reasons_json "
+                f"{_jev_status_sql()} AS jev_status,j.reasons_json AS jev_reasons_json,"
+                f"{_OVERRIDE_COLUMNS} "
                 "FROM job_postings p LEFT JOIN job_screenings s ON s.job_posting_id=p.id"
                 + _JEV_JOIN + where +
                 " ORDER BY p.id DESC LIMIT ?"
@@ -1317,9 +1344,11 @@ class ReadOnlyATSRepository:
             row.pop("fit_content_revision", None)
             row.pop("score_detail", None)
             status = row.pop("jev_status")
+            model_status = row.pop("jev_model_status")
             reasons = _jev_reasons(row.pop("jev_reasons_json"))
-            row["jev"] = {"status": status,
-                          "reasons": reasons if status in {"keep", "skip"} else []}
+            row["jev"] = {"status": status, "model_status": model_status,
+                          "reasons": reasons if model_status in {"keep", "skip"} else [],
+                          "override": _jev_override(row)}
         page = _page(rows, limit, scope, "id", descending=True, cursor_extra=ceiling)
         page["jev_filter"] = {
             "applied": jev,
@@ -1390,19 +1419,25 @@ class ReadOnlyATSRepository:
             _strip_source_lifecycle_fields(result)
             jev_row = conn.execute(
                 f"SELECT {_jev_status_sql()} AS status,j.reasons_json,j.model,j.policy_sha256,"
-                "j.completed_at,j.last_attempted_at,j.error_category,j.cost_usd "
+                f"j.completed_at,j.last_attempted_at,j.error_category,j.cost_usd,{_OVERRIDE_COLUMNS} "
                 "FROM job_postings p" + _JEV_JOIN + " WHERE p.id=?", (job_id,)).fetchone()
+            jev_row = dict(jev_row)
             status = jev_row["status"]
+            model_status = jev_row.pop("jev_model_status")
             result["jev"] = {
                 "status": status,
-                "reasons": _jev_reasons(jev_row["reasons_json"]) if status in {"keep", "skip"} else [],
+                "model_status": model_status,
+                "override": _jev_override(jev_row),
+                "reasons": _jev_reasons(jev_row["reasons_json"]) if model_status in {"keep", "skip"} else [],
                 "model": jev_row["model"],
                 "policy_sha256": jev_row["policy_sha256"],
                 "completed_at": jev_row["completed_at"],
                 "last_attempted_at": jev_row["last_attempted_at"],
                 "error_category": jev_row["error_category"],
                 "cost_usd": jev_row["cost_usd"],
-                "semantics": "advisory keep/skip filter; never a lifecycle or eligibility change",
+                "semantics": ("advisory keep/skip filter; never a lifecycle or eligibility change. "
+                              "status is effective: an operator override that applies wins over "
+                              "model_status; an override set on older content does not apply."),
             }
             return result
 

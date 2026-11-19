@@ -49,6 +49,7 @@ model job_postings {
   application     applications? @relation(fields: [application_id], references: [id], onDelete: SetNull)
   job_screening   job_screenings?
   jev_assessment  job_jev_assessments?
+  triage_override job_triage_overrides?
   created_at      String
   updated_at      String?
   posted_at       String? // board posting date normalized to YYYY-MM-DD; scrape-date fallback when the board gives none; null only on legacy pre-backfill rows
@@ -113,6 +114,20 @@ model job_jev_assessments {
   job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 
   @@index([state, last_attempted_at])
+}
+
+// The operator's keep/skip over JEV's verdict (#155). Applies only while the posting's
+// source_content_revision equals the one recorded here; JEV never writes this table.
+// Set/clear are audited in audit_log (entity job_triage_overrides).
+model job_triage_overrides {
+  id                      Int          @id @default(autoincrement())
+  job_posting_id          Int          @unique
+  decision                String       // keep | skip
+  reason                  String?
+  actor                   String       // web | mcp
+  source_content_revision Int?         // posting revision when set
+  created_at              String
+  job_posting             job_postings @relation(fields: [job_posting_id], references: [id], onDelete: Cascade)
 }
 
 model status_history {
