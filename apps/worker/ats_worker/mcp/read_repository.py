@@ -1350,9 +1350,9 @@ class ReadOnlyATSRepository:
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
             sql = (
                 "SELECT p.id,p.source,p.external_id,p.company_slug,p.company_name,p.job_title,"
-                "p.location,p.job_url,p.score,p.pipeline_status,p.pipeline_error,p.attempts,"
-                "p.notify_attempts,p.application_id,p.created_at,p.updated_at,p.posted_at,"
-                "p.deprioritized_at,length(p.description) AS description_chars,"
+                "p.location,p.job_url,p.pipeline_status,p.pipeline_error,"
+                "p.application_id,p.created_at,p.updated_at,p.posted_at,"
+                "length(p.description) AS description_chars,"
                 "p.source_state,p.source_last_seen_at,p.source_last_check_attempted_at,"
                 "p.source_last_checked_at,p.source_last_check_outcome,"
                 "p.source_last_check_error_category,p.source_content_revision,"

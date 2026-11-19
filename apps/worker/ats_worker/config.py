@@ -90,10 +90,6 @@ class Candidate:
     # when true, intern/co-op roles are disqualified — the 4B model is unreliable on
     # this, but the title is a clean signal. See screening.engine._is_internship.
     exclude_internships: bool = False
-    # ponytail: retired seniority classifier's input (JEV asks its own YOE question).
-    # Accepted and ignored so an existing config.yaml still loads; delete once no
-    # config carries the key.
-    years_experience: object | None = None
 
     def is_empty(self) -> bool:
         """True when nothing is configured, so screening stays disabled."""
@@ -129,9 +125,6 @@ class Config:
     # this many days. 0 = off. Dateless/unparseable posted_at is always kept.
     max_age_days: int = 0
     candidate: Candidate = field(default_factory=Candidate)
-    # ponytail: the retired fit scorer's vocabulary block. Accepted and ignored so an
-    # existing config.yaml still loads; delete once no config carries the key.
-    fit_profile: object | None = None
     feeds: list[Feed] = field(default_factory=list)
     schedule_hours: int = DEFAULT_SCHEDULE_HOURS
     # Opt-in gate for `browser`-source rows (they drive a headless Chromium via the

@@ -70,8 +70,8 @@ def screen_requires_provider(posting: dict, *, extract, candidate: dict | None) 
 
 def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None,
                    num_ctx: int = 8192) -> dict:
-    """Screen `posting` against the candidate's hard requirements — the CHEAP half of
-    scoring (no résumé, no paid fit call). Combines three signals into one verdict:
+    """Screen `posting` against the candidate's hard requirements — a cheap pass
+    (no résumé, no profile). Combines three signals into one verdict:
 
       1. The LLM extraction call (`extract`) reports structured JOB facts (required
          degree, sponsorship, clearance) for whatever the candidate configured; CODE
@@ -90,7 +90,6 @@ def screen_posting(posting: dict, *, extract=None, candidate: dict | None = None
     `make_ollama_extract` or a callable from `screening.backends`; run.py wires it.
 
     Returns `{"screen": {...}, "disqualified": bool, "disqualification_reason": str}`.
-    Takes no fit-scorer callable — it structurally cannot pay for the fit call.
     """
     # The two CODE-only gates run FIRST, and a disqualification here returns before the
     # model call. They cost 0.26 ms, need no provider, and their verdict already stands
@@ -370,10 +369,8 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
     strongly preferred" both read as a hard PhD bar). Picking the smallest number out of
     a list is arithmetic; asking a 4B for it was the mistake.
 
-    Reads BOTH shapes. The fit scorer's Stage 4 block still emits the old single
-    `required_degree` and is left alone deliberately (see the SCREEN_SCHEMA comment):
-    it runs on a strong model, and editing `score.txt` costs two quota-spending
-    `score_eval` runs.
+    Reads BOTH shapes: the single-value `required_degree` is the older extraction
+    form and still appears in stored evidence.
     """
     if "degree_levels" in entry or "degree_required" in entry:
         if not _flag(entry.get("degree_required")):
@@ -383,7 +380,7 @@ def _check_degree(entry: dict, cand_degree) -> tuple[bool, str]:
         if not ranks:
             return True, ""
         req_rank = min(ranks)
-    else:                        # legacy single-value shape (the fit scorer's fallback)
+    else:                        # legacy single-value shape
         required = entry.get("required_degree")
         if required is None or not str(required).strip():
             return True, ""
@@ -402,7 +399,7 @@ def _degree_extracted(entry: dict) -> bool:
     RECOGNIZED level has to come with it, or there is nothing to compare against.
     `degree_required: false` needs no levels — "no degree required" is a real answer.
 
-    Falls back to the legacy single-value test for the fit scorer's Stage 4 shape.
+    Falls back to the legacy single-value test for the older `required_degree` shape.
     """
     if "degree_levels" in entry or "degree_required" in entry:
         required = entry.get("degree_required")
@@ -507,12 +504,12 @@ def _check_authorization(cand_auth, description: str = "",
     did, and these two did not — measured, not assumed.
 
     Every uncertainty resolves toward KEEP, because a discarded row is reviewed by nobody
-    while a miss costs one paid fit call and reaches the human: a label count that does
+    while a miss reaches the human: a label count that does
     not match the snippet count means the model answered a different question, so the
     check is dropped.
 
     Floor: `NO_SPONSOR_PHRASES` runs only when the model returned NO labels at all —
-    `SCREEN_BACKEND=none`, a provider error, or the fit scorer's Stage 4 shape. Silence
+    `SCREEN_BACKEND=none`, a provider error, or the legacy single-value shape. Silence
     and a miscounted answer are deliberately NOT the same thing: a model that returned
     labels answered the question, and letting a bad *count* fall through to a blunt
     substring scan of the whole description is where BOTH long-standing IMC false

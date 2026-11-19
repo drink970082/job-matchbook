@@ -56,11 +56,11 @@ def filter_postings(postings: list[dict], title_filter: list[str] | None) -> lis
     """Keep postings whose TITLE contains ANY keyword (case-insensitive).
     None/empty keeps everything.
 
-    This is only a cheap coarse pre-filter to avoid scoring obviously-irrelevant
-    roles; the LLM scorer does the real relevance judging. Title-only (not
+    This is only a cheap coarse pre-filter to avoid screening obviously-irrelevant
+    roles; the AI client and JEV do the real relevance judging. Title-only (not
     description) on purpose — matching the description makes common words like
     "engineer" match almost every JD, which filters nothing. Geography is handled
-    semantically by the scorer via candidate.locations, not here.
+    by the screen's location gate via candidate.locations, not here.
     """
     kws = [k.lower() for k in (title_filter or []) if k]
     if not kws:

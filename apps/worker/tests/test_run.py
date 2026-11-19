@@ -1096,20 +1096,6 @@ def test_screen_unlimited_cli_overrides_environment_limit(tmp_path, monkeypatch,
     assert captured["config_options"] == {}
 
 
-def test_retired_fit_flags_are_ignored_not_fatal(tmp_path, monkeypatch, capsys):
-    # An old service file passing `--score-limit 40` must still start the worker.
-    env_file = tmp_path / ".env"
-    env_file.write_text("")
-    captured = {}
-    monkeypatch.setattr(run.config_mod, "load_config", lambda _path: object())
-    monkeypatch.setattr(run, "run_once", lambda _cfg, **kw: captured.update(kw))
-    run.main(["--once", "--score-limit", "40", "--no-notify", "--env", str(env_file),
-              "--db", str(tmp_path / "db.sqlite")])
-    assert captured["fetch_only"] is False
-    out = capsys.readouterr().out
-    assert "--score-limit" in out and "--no-notify" in out
-
-
 # --- candidate preferences (#157): the DB row wins, config.yaml seeds it once -------
 
 _CANDIDATE_YAML = ("companies: []\ncandidate:\n  work_authorization: needs visa sponsorship\n"

@@ -618,13 +618,6 @@ def _run_scheduler(job, schedule_hours: int) -> None:  # pragma: no cover
     scheduler.start()
 
 
-_RETIRED_VALUE_FLAGS = ("--score-limit", "--score-max-id", "--score-backend",
-                        "--codex-score-model", "--anthropic-score-model",
-                        "--claude-code-score-model", "--batch-size", "--score-workers",
-                        "--resume-dir")
-_RETIRED_SWITCHES = ("--score-only", "--no-notify", "--rescreen-discarded")
-
-
 def main(argv=None) -> None:
     # Load .env BEFORE the parser is built: the argparse defaults for --db/--model/
     # --screen-backend/--screen-model read os.environ, so a .env value
@@ -703,21 +696,7 @@ def main(argv=None) -> None:
     parser.add_argument("--screen-workers", type=int,
                         default=int(os.environ.get("SCREEN_WORKERS", "0")),
                         help="concurrent screen calls (0 = 1)")
-    # ponytail: the retired fit scorer's flags, accepted and ignored so a service file
-    # that still passes them keeps starting. Delete once no unit carries them.
-    for flag in _RETIRED_VALUE_FLAGS:
-        parser.add_argument(flag, dest="_retired_" + flag[2:].replace("-", "_"),
-                            help=argparse.SUPPRESS)
-    for flag in _RETIRED_SWITCHES:
-        parser.add_argument(flag, action="store_true",
-                            dest="_retired_" + flag[2:].replace("-", "_"),
-                            help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    retired = [f for f in _RETIRED_VALUE_FLAGS + _RETIRED_SWITCHES
-               if getattr(args, "_retired_" + f[2:].replace("-", "_")) not in (None, False)]
-    if retired:
-        print(f"[run] ignoring retired fit-scorer flag(s): {' '.join(retired)} "
-              "(the fit scorer is removed; a pass is fetch + screen)")
 
     # `--run-now` is the daemon's eager first pass; `--once` runs a pass and exits. Asking
     # for both is asking for two different programs, and the likely intent (just run one

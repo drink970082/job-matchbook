@@ -268,9 +268,9 @@ def existing_external_ids(conn: sqlite3.Connection, source: str, ids) -> set[str
 # --- queries --------------------------------------------------------------
 
 def get_by_status(conn: sqlite3.Connection, status: str):
-    """Rows in `status`, best-scored first."""
+    """Rows in `status`, oldest first."""
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY score DESC, id ASC",
+        "SELECT * FROM job_postings WHERE pipeline_status=? ORDER BY id ASC",
         [status],
     ).fetchall()
 
@@ -283,8 +283,7 @@ def get_screen_candidates(conn: sqlite3.Connection) -> list[dict]:
         "SELECT p.* FROM job_postings p "
         "LEFT JOIN job_screenings s ON s.job_posting_id=p.id "
         "WHERE p.pipeline_status='new' AND s.id IS NULL "
-        "ORDER BY (p.deprioritized_at IS NOT NULL) ASC, "
-        "COALESCE(p.updated_at,'') DESC, p.id DESC"
+        "ORDER BY COALESCE(p.updated_at,'') DESC, p.id DESC"
     ).fetchall()
     errors = conn.execute(
         "SELECT p.* FROM job_postings p "
@@ -447,17 +446,18 @@ def save_jev(conn: sqlite3.Connection, posting_id: int, *, state: str, verdict: 
 
 
 def get_recheck_candidates(conn: sqlite3.Connection, sources, limit: int):
-    """Live postings (scored|notified) from per-listing sources, least-recently
-    touched first — the expiry re-check queue (pipeline.run_expire). Every check
-    rewrites updated_at, so the queue rotates itself; no extra column needed."""
+    """Live postings (new|scored|notified) from per-listing sources, least-recently
+    checked first — the expiry re-check queue (pipeline.run_expire). A live check
+    stamps source_last_check_attempted_at (`touch`), so the queue rotates itself
+    without touching updated_at, which orders the screen and JEV queues."""
     sources = list(sources)
     if not sources or limit <= 0:
         return []
     placeholders = ",".join("?" for _ in sources)
     return conn.execute(
-        "SELECT * FROM job_postings WHERE pipeline_status IN ('scored','notified') "
+        "SELECT * FROM job_postings WHERE pipeline_status IN ('new','scored','notified') "
         f"AND source IN ({placeholders}) "
-        "ORDER BY COALESCE(updated_at,'') ASC, id ASC LIMIT ?",
+        "ORDER BY COALESCE(source_last_check_attempted_at,updated_at,'') ASC, id ASC LIMIT ?",
         [*sources, limit],
     ).fetchall()
 
@@ -625,7 +625,8 @@ def save_source_observation(conn: sqlite3.Connection, posting_id: int, *,
 # dict keys, so gate them against this allowlist: a stray/untrusted key must
 # never reach the SQL string (defense-in-depth; today all callers pass constants).
 _UPDATABLE_COLUMNS = frozenset({
-    "score", "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+    "score_detail", "pipeline_status", "pipeline_error", "updated_at",
+    "source_last_check_attempted_at",
 })
 
 
@@ -646,8 +647,9 @@ def mark_expired(conn, posting_id: int, *, now: str) -> None:
 
 
 def touch(conn, posting_id: int, *, now: str) -> None:
-    """Bump updated_at only — re-checked and still live, so rotate it to the back
-    of get_recheck_candidates' queue."""
-    _update(conn, posting_id, {"updated_at": now})
+    """Re-checked and still live: stamp the check attempt so the row rotates to the
+    back of get_recheck_candidates' queue. updated_at is left alone — bumping it
+    would move a `new` row to the front of the screen/JEV queues."""
+    _update(conn, posting_id, {"source_last_check_attempted_at": now})
 
 

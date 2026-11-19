@@ -319,6 +319,19 @@ def test_run_expire_touches_live_rows_to_rotate_the_queue(db_path):
     assert checked == ["a", "b"]         # 'a' rotated to the back
 
 
+def test_run_expire_live_check_leaves_updated_at_alone(db_path):
+    # updated_at orders the screen and JEV queues newest-first; a liveness check on a
+    # `new` row must not move it to the front of them.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("old", source=DETAIL_SRC)], now=NOW)
+    before = conn.execute("SELECT updated_at FROM job_postings").fetchone()[0]
+    pipeline.run_expire(conn, now=LATER,
+                        detail_fetch_fn=lambda *a: _posting("old", source=DETAIL_SRC))
+    row = conn.execute("SELECT updated_at, source_last_check_attempted_at "
+                       "FROM job_postings").fetchone()
+    assert tuple(row) == (before, LATER)
+
+
 def test_run_expire_zero_budget_checks_nothing(db_path):
     conn = db.connect(db_path)
     _seed_live(conn, ["x"])
@@ -327,10 +340,23 @@ def test_run_expire_zero_budget_checks_nothing(db_path):
         detail_fetch_fn=lambda *a: (_ for _ in ()).throw(AssertionError("no fetch"))) == 0
 
 
+def test_run_expire_rechecks_new_rows(db_path):
+    # Nothing writes scored/notified any more, so `new` is the live inventory; a
+    # new posting from a detail source must be checked for closure too.
+    conn = db.connect(db_path)
+    db.upsert_postings(conn, [_posting("fresh", source=DETAIL_SRC)], now=NOW)
+
+    def fetch_one(source, slug, ext, name):
+        raise _HTTPError(404)
+
+    assert pipeline.run_expire(conn, now=LATER, detail_fetch_fn=fetch_one) == 1
+    assert _statuses(conn)["fresh"] == "expired"
+
+
 def test_run_expire_ignores_board_sources_and_dead_statuses(db_path):
-    # Only live (scored|notified) rows from per-LISTING sources are re-checked:
-    # a board source has no per-job endpoint, and 'new'/'discarded' rows aren't
-    # in the operator's queue.
+    # Only live (new|scored|notified) rows from per-LISTING sources are re-checked:
+    # a board source has no per-job endpoint, and 'discarded' rows aren't in the
+    # operator's queue.
     conn = db.connect(db_path)
     _seed_live(conn, ["board"], source="greenhouse")
     _seed_live(conn, ["dropped"], status="discarded")
