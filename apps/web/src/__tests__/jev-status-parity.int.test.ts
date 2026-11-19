@@ -105,7 +105,7 @@ test('postings for you: hard-requirement passes without JEV, JEV keep with it', 
     expect(await getJobsMode()).toBe('screen')
     expect(await forYou()).toEqual(['old-passed', 'passed'])
     expect(await getNewJobsCount()).toBe(1)
-    expect((await getJobPostings({ postedWithin: 7 })).data.map((j: any) => j.external_id)).toEqual(['passed'])
+    expect((await getJobPostings({ postedSince: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) })).data.map((j: any) => j.external_id)).toEqual(['passed'])
 
     await prisma.jev_profile.create({ data: { id: 1, profile_text: '{}', c_pack: '{}', yoe_pack: '{}', yoe_context: '',
         actor: 'config', updated_at: 'x' } })

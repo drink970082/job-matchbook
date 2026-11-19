@@ -61,14 +61,27 @@ const WITHIN: { value: string; label: string }[] = [
     { value: '7', label: 'Past 7 days' }, { value: '30', label: 'Past 30 days' },
 ]
 
+// Calendar days from a YYYY-MM-DD date to the viewer's local today (null if unparseable).
+function daysAgo(date: string | null | undefined, now: number): number | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date ?? '')
+    if (!m) return null
+    const today = new Date(now)
+    return Math.round((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+        - Date.UTC(+m[1], +m[2] - 1, +m[3])) / 86_400_000)
+}
+
 // "3d ago" from a YYYY-MM-DD posted date, counted in the viewer's calendar days.
 export function postedAgo(posted: string | null | undefined, now = Date.now()): string {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(posted ?? '')
-    if (!m) return ''
-    const today = new Date(now)
-    const days = Math.round((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
-        - Date.UTC(+m[1], +m[2] - 1, +m[3])) / 86_400_000)
-    return days <= 0 ? 'today' : `${days}d ago`
+    const days = daysAgo(posted, now)
+    return days == null ? '' : days <= 0 ? 'today' : `${days}d ago`
+}
+
+// The viewer's local date N days ago: the same days postedAgo counts, so the filter
+// and the row age agree.
+export function localDateDaysAgo(n: number, now = Date.now()): string {
+    const d = new Date(now)
+    d.setDate(d.getDate() - n)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // Discovered Jobs as a job board (#207): title, company, location, posted age, actions.
@@ -77,7 +90,8 @@ export function DiscoveredJobsTable({
     onPageChange, onFilterChange, onMarkApplied, onViewJD, onNotInterested,
 }: DiscoveredJobsTableProps) {
     const updateFilters = (patch: Partial<JobTableFilters>) => onFilterChange({ ...filters, ...patch })
-    const filtered = Boolean(filters.search || filters.postedWithin)
+    const filtered = Boolean(filters.search || filters.postedSince)
+    const within = filters.postedSince ? String(daysAgo(filters.postedSince, Date.now())) : ''
 
     return (
         <div className="space-y-4">
@@ -91,8 +105,8 @@ export function DiscoveredJobsTable({
                         onChange={(e) => updateFilters({ searchScope: e.target.checked ? 'all_text' : 'metadata' })} />
                     Search in JD
                 </label>
-                <select aria-label="Posted within" value={String(filters.postedWithin ?? '')}
-                    onChange={(e) => updateFilters({ postedWithin: e.target.value ? Number(e.target.value) as 1 | 7 | 30 : undefined })}
+                <select aria-label="Posted within" value={within}
+                    onChange={(e) => updateFilters({ postedSince: e.target.value ? localDateDaysAgo(Number(e.target.value)) : undefined })}
                     className="h-9 rounded-md border bg-transparent px-3 text-sm">
                     {WITHIN.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
                 </select>

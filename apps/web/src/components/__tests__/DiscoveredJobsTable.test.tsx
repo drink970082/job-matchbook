@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { useState } from 'react'
-import { DiscoveredJobsTable, postedAgo, type JobTableFilters } from '@/components/DiscoveredJobsTable'
+import { DiscoveredJobsTable, localDateDaysAgo, postedAgo, type JobTableFilters } from '@/components/DiscoveredJobsTable'
 
 const mockJobs: any[] = [
   {
@@ -33,10 +33,14 @@ function renderTable(overrides: Partial<React.ComponentProps<typeof DiscoveredJo
   return props
 }
 
-test('postedAgo renders a relative age', () => {
-  const now = new Date(2026, 5, 4, 23, 30).getTime()   // local late evening is still today
+// Local calendar days (a runtime TZ change is not honored under jest, so the clock is
+// built in local time; the late-evening hour is where UTC days would disagree west of UTC).
+test('postedAgo renders a relative age in local days, matching the filter cutoff', () => {
+  const now = new Date(2026, 5, 4, 23, 30).getTime()
   expect(postedAgo('2026-06-01', now)).toBe('3d ago')
   expect(postedAgo('2026-06-04', now)).toBe('today')
+  expect(localDateDaysAgo(1, now)).toBe('2026-06-03')
+  expect(postedAgo(localDateDaysAgo(7, now), now)).toBe('7d ago')
   expect(postedAgo(null, now)).toBe('')
 })
 
@@ -69,7 +73,8 @@ test('filters: search, Search in JD, posted within', () => {
   fireEvent.click(screen.getByLabelText('Search in JD'))
   expect(props.onFilterChange).toHaveBeenLastCalledWith({ ...BASE, search: 'acme', searchScope: 'all_text' })
   fireEvent.change(screen.getByLabelText('Posted within'), { target: { value: '7' } })
-  expect(props.onFilterChange).toHaveBeenLastCalledWith({ search: 'acme', searchScope: 'all_text', postedWithin: 7 })
+  expect(props.onFilterChange).toHaveBeenLastCalledWith({ search: 'acme', searchScope: 'all_text', postedSince: localDateDaysAgo(7) })
+  expect(screen.getByLabelText('Posted within')).toHaveValue('7')
 })
 
 test('empty states distinguish filtered from no postings', () => {

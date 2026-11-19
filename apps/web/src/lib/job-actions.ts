@@ -19,14 +19,13 @@ export type JobSearchScope = 'metadata' | 'all_text'
 // 'for_you' (the default) is the Discovered Jobs view (#207); the funnel stages stay for
 // the parity tests and the MCP routes' `{stage: 'all'}` scope.
 export type JobView = JobStageFilter | 'for_you'
-const POSTED_WITHIN_DAYS = [1, 7, 30] as const
 
 export interface JobPostingsFilter {
     stage?: JobView
     search?: string
     searchScope?: JobSearchScope
     screenOutcome?: ScreenOutcome
-    postedWithin?: (typeof POSTED_WITHIN_DAYS)[number]
+    postedSince?: string // YYYY-MM-DD, the viewer's local cutoff date (inclusive)
     page?: number
     size?: number
     sort?: JobSort
@@ -36,7 +35,7 @@ export type JobViewScope = Omit<JobPostingsFilter, 'page' | 'size'>
 
 const JOB_SORTS: readonly JobSort[] = ['posted']
 const JOB_SEARCH_SCOPES: readonly JobSearchScope[] = ['metadata', 'all_text']
-const JOB_FILTER_KEYS = new Set(['stage', 'search', 'searchScope', 'screenOutcome', 'postedWithin', 'page', 'size', 'sort'])
+const JOB_FILTER_KEYS = new Set(['stage', 'search', 'searchScope', 'screenOutcome', 'postedSince', 'page', 'size', 'sort'])
 const MAX_JOB_SEARCH_CHARS = 200
 
 function validateJobPostingsFilter(filter: unknown, allowPaging = true): asserts filter is JobPostingsFilter {
@@ -54,8 +53,8 @@ function validateJobPostingsFilter(filter: unknown, allowPaging = true): asserts
         && !(JOB_STAGES as readonly unknown[]).includes(value.stage)) {
         throw new Error('Unsupported job stage')
     }
-    if (value.postedWithin !== undefined && !(POSTED_WITHIN_DAYS as readonly unknown[]).includes(value.postedWithin)) {
-        throw new Error('postedWithin must be 1, 7 or 30')
+    if (value.postedSince !== undefined && (typeof value.postedSince !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.postedSince))) {
+        throw new Error('postedSince must be a YYYY-MM-DD date')
     }
     if (value.sort !== undefined && (typeof value.sort !== 'string' || !JOB_SORTS.includes(value.sort as JobSort))) {
         throw new Error('Unsupported job sort')
@@ -307,10 +306,7 @@ function jobsWhereSql(filter: JobPostingsFilter): Prisma.Sql {
     const clauses: Prisma.Sql[] = [Prisma.sql`p.pipeline_status <> 'removed'`]
     if (stage === 'for_you') clauses.push(Prisma.raw(FOR_YOU_SQL))
     else if (stage !== 'all') clauses.push(Prisma.sql`(${Prisma.raw(STAGE_SQL)}) = ${stage}`)
-    if (filter.postedWithin) {
-        const since = new Date(Date.now() - filter.postedWithin * 86_400_000).toISOString().slice(0, 10)
-        clauses.push(Prisma.sql`p.posted_at >= ${since}`)
-    }
+    if (filter.postedSince) clauses.push(Prisma.sql`p.posted_at >= ${filter.postedSince}`)
     if (search) {
         const pattern = escapeLikeLiteral(search)
         const bodyClause = searchScope === 'all_text'

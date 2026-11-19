@@ -1881,7 +1881,7 @@ to other adapters.
   JEV is configured (a `jev_profile` row and at least one assessment), else triage
   `candidate` (passed the hard requirements), so an install without JEV does not see an
   empty list. `getJobsMode` reports which; the Jobs nav badge counts this view's rows
-  first fetched in the last 24h. `postedWithin` (1 / 7 / 30) bounds `posted_at` in whole UTC days (1 = posted today or yesterday); the only
+  first fetched in the last 24h. `postedSince` (a `YYYY-MM-DD` cutoff the UI computes in the viewer's local days for 1 / 7 / 30, matching the row's "3d ago") bounds `posted_at`; the only
   sort is newest posted. The web never lists filtered-out postings; MCP keeps the full
   picture.
 
